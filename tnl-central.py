@@ -41,6 +41,7 @@ WEB_CONF = os.path.join(CENTRAL_DIR, "web.conf")
 NODES_FILE = os.path.join(CENTRAL_DIR, "nodes.json")
 LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
 TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
+SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable panel settings (reconcile mode, intervals, …)
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")          # the node-agent source the operator uploaded, pushed to nodes
 AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")   # {version, sha256, size, uploaded_ts}
 SERVICE_FILE = "/etc/systemd/system/tnl-central.service"
@@ -54,6 +55,11 @@ _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
 _node_locks_guard = threading.Lock()   # ops on disjoint nodes run concurrently — one hung node can't stall the fleet
+_settings = {}                   # in-memory copy of settings.json (read hot-path by the loops); seeded in serve()
+_settings_lock = threading.Lock()
+_drift = {}                      # link_id -> True when a node IP has drifted and a rebuild is pending/needed
+_drift_lock = threading.Lock()
+_CENTRAL_PORT = 0                # panel port, advertised to nodes (X-Central-Port) so they can call back /api/checkin
 
 
 class _PairLock:
@@ -110,6 +116,69 @@ def save_text(path, txt):
     os.chmod(tmp, 0o644)
     os.replace(tmp, path)
 
+# ----------------------------------------------------------------------------- settings
+# Operator-tunable knobs, persisted to settings.json and cached in memory. Kept deliberately open so
+# new keys can be added later: unknown stored keys are preserved and unset keys fall back to defaults.
+
+def settings_defaults():
+    return {
+        "reconcile_mode": "auto",   # "auto" = panel rebuilds a drifted tunnel itself; "alert" = only flag it,
+                                    #          the operator clicks بازسازی on the affected tunnel
+        "reconcile_interval": 15,   # seconds between reconcile sweeps (5–3600)
+        "poll_interval": 2,         # seconds the fleet poller rests between sweeps (1–60)
+    }
+
+
+def load_settings():
+    d = settings_defaults()
+    try:
+        with open(SETTINGS_FILE) as f:
+            stored = json.load(f)
+        if isinstance(stored, dict):
+            d.update(stored)  # merge over defaults so a missing key falls back and extra keys survive
+    except Exception:
+        pass
+    return d
+
+
+def get_settings():
+    with _settings_lock:
+        return dict(_settings) if _settings else load_settings()
+
+
+def _seed_settings():
+    with _settings_lock:
+        _settings.clear()
+        _settings.update(load_settings())
+
+
+def validate_settings(d):
+    """Merge a partial update onto the current settings, coercing/clamping the known knobs."""
+    out = get_settings()
+    if "reconcile_mode" in d:
+        m = str(d["reconcile_mode"]).strip().lower()
+        if m not in ("auto", "alert"):
+            raise ValueError("حالت باید auto یا alert باشد")
+        out["reconcile_mode"] = m
+    if "reconcile_interval" in d and d["reconcile_interval"] not in (None, ""):
+        out["reconcile_interval"] = max(5, min(3600, int(d["reconcile_interval"])))
+    if "poll_interval" in d and d["poll_interval"] not in (None, ""):
+        out["poll_interval"] = max(1, min(60, int(d["poll_interval"])))
+    return out
+
+
+def _set_drift(lid, val):
+    with _drift_lock:
+        if val:
+            _drift[lid] = True
+        else:
+            _drift.pop(lid, None)
+
+
+def link_drift(lid):
+    with _drift_lock:
+        return lid in _drift
+
 
 def hash_password(password, salt=None):
     salt = salt or secrets.token_hex(16)
@@ -160,9 +229,12 @@ def rate_limited(ip):
 
 def note_fail(ip):
     with _fails_lock:
+        now = time.time()
+        for k in [k for k, v in _fails.items() if now - v[1] > 300]:  # drop stale IPs so the map can't grow unbounded
+            _fails.pop(k, None)
         rec = _fails.get(ip)
-        if not rec or time.time() - rec[1] > 300:
-            _fails[ip] = [1, time.time()]
+        if not rec or now - rec[1] > 300:
+            _fails[ip] = [1, now]
         else:
             rec[0] += 1
 
@@ -274,6 +346,8 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
         conn.sock = sock  # reuse the proxy-tunneled socket (skips conn.connect())
         data = json.dumps(body or {}).encode() if method == "POST" else None
         headers = {"X-Node-Token": node.get("token", "")}
+        if _CENTRAL_PORT:
+            headers["X-Central-Port"] = str(_CENTRAL_PORT)  # teach the node our callback port for /api/checkin
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, f"/api/{endpoint}", body=data, headers=headers)
@@ -296,6 +370,8 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
     data = json.dumps(body or {}).encode() if method == "POST" else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("X-Node-Token", node.get("token", ""))
+    if _CENTRAL_PORT:
+        req.add_header("X-Central-Port", str(_CENTRAL_PORT))  # teach the node our callback port for /api/checkin
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
@@ -386,12 +462,17 @@ def poller_loop():
             with _uh_lock:
                 for nid in [k for k in _uh if k not in valid]:
                     _uh.pop(nid, None)
+            with _node_locks_guard:  # drop per-node build locks for removed nodes (skip any currently held)
+                for nid in [k for k in _node_locks if k not in valid]:
+                    lk = _node_locks.get(nid)
+                    if lk is not None and not lk.locked():
+                        _node_locks.pop(nid, None)
             if nodes:
                 # submit all, then move on after the deadline — one trickling node can't freeze the fleet
                 futures_wait([ex.submit(_poll_node, n) for n in nodes], timeout=SWEEP_DEADLINE)
         except Exception:
             pass
-        time.sleep(POLL_GAP)
+        time.sleep(max(1, int(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP)))
 
 
 def _cached_ping(nid):
@@ -904,7 +985,7 @@ def api_fleet(d):
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
         out.append({**L, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                     "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
-                    "a_health": ah, "b_health": bh, **tfl.get(L["id"], {})})
+                    "a_health": ah, "b_health": bh, "drift": link_drift(L["id"]), **tfl.get(L["id"], {})})
     return {"links": out, "total": total, "offset": off, "limit": lim}
 
 
@@ -955,6 +1036,8 @@ def _create_tunnel_impl(d):
             except Exception:
                 pass
     explicit = int(d.get("id") or 0)
+    if explicit and not 1 <= explicit <= 254:
+        raise ValueError("شناسهٔ تونل خارج از محدوده است (۱ تا ۲۵۴)")
     if explicit and explicit in used:
         raise ValueError(f"tunnel id {explicit} is already in use on one of the nodes")
     tid = explicit or next((i for i in range(42, 255) if i not in used), 0)
@@ -1130,8 +1213,11 @@ def _rebuild_link_impl(d):
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
-    a_ip = L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)
-    b_ip = L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    a_ip = (want_a if want_a in a_ips else
+            (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
+    b_ip = (want_b if want_b in b_ips else
+            (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
@@ -1154,8 +1240,71 @@ def _rebuild_link_impl(d):
                     x.update({"a_ip": a_ip, "b_ip": b_ip})
                     break
             save_json(LINKS_FILE, links)
+    _set_drift(L["id"], False)  # rebuilt with live IPs -> any pending drift warning is resolved
     _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True, "name": name}
+
+
+# --------------------------------------------------------------------------- link reconciler
+# When a node's public IP changes, apply_all() on THAT node self-heals its own local_ip — but the
+# PEER still points remote_ip at the old address, so the tunnel stays down until an operator rebuilds
+# it. This loop closes the gap: it watches every link for a stored endpoint IP that has drifted off
+# the node's live IP set, and rebuilds the link — which rewrites remote_ip on the peer AND the record.
+
+RECONCILE_GAP = 15       # default seconds between reconcile sweeps (overridable via settings)
+RECONCILE_RETRY = 60     # per-link cool-down so a failing rebuild can't hammer the pair
+_reconcile_last = {}     # link_id -> last rebuild-attempt ts (touched only by the single reconcile thread)
+
+
+def _reconcile_once():
+    mode = get_settings().get("reconcile_mode", "auto")
+    now = time.time()
+    links = load_links()
+    valid_ids = {L["id"] for L in links}
+    for k in [k for k in _reconcile_last if k not in valid_ids]:  # prune records for deleted links
+        _reconcile_last.pop(k, None)
+    with _drift_lock:
+        for k in [k for k in _drift if k not in valid_ids]:
+            _drift.pop(k, None)
+    for L in links:
+        pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
+        if not pa.get("ok") or not pb.get("ok"):
+            continue  # only reconcile when BOTH ends are up — a rebuild needs both reachable
+        a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
+        b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
+        if not a_ips or not b_ips:
+            continue
+        a_ok, b_ok = L.get("a_ip") in a_ips, L.get("b_ip") in b_ips
+        if a_ok and b_ok:
+            _set_drift(L["id"], False)  # both endpoints valid (healed / IP came back) -> clear the flag
+            continue
+        _set_drift(L["id"], True)       # a node IP has drifted off the link
+        if mode != "auto":
+            continue                    # global "alert" mode: only flag it; the operator rebuilds from the UI
+        # auto mode heals ONLY when every drifted side is unambiguous — the node has exactly one live IP,
+        # so there is no doubt which IP replaced the old one. A multi-IP node is left flagged for the
+        # operator to pick the right IP in the UI (guessing among several IPs isn't safe).
+        ambiguous = (not a_ok and len(a_ips) != 1) or (not b_ok and len(b_ips) != 1)
+        if ambiguous:
+            continue
+        if now - _reconcile_last.get(L["id"], 0) < RECONCILE_RETRY:
+            continue
+        _reconcile_last[L["id"]] = now
+        try:
+            r = api_rebuild_link({"id": L["id"]})  # single-IP side(s): rebuild binds to the only live IP
+            if r.get("ok"):
+                _set_drift(L["id"], False)
+        except Exception:
+            pass
+
+
+def reconcile_loop():
+    while True:
+        time.sleep(max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP)))
+        try:
+            _reconcile_once()
+        except Exception:
+            pass
 
 
 def api_portfw(d):
@@ -1234,10 +1383,107 @@ def api_portfw_del(d):
     return {"ok": bool(r.get("ok")), "msg": r.get("error", "")}
 
 
+def _flat_ips(ping):
+    return [ip for ips in (ping.get("ips") or {}).values() for ip in ips]
+
+
+def _node_ip_tags(nid):
+    """Each current live IP of a node, tagged with who it's tunneled to + whether it's the management
+    host or free — so the operator can tell which IP is safe to pick when re-pointing a drifted tunnel."""
+    n = get_node(nid)
+    if not n:
+        return []
+    live = []
+    for ip in _flat_ips(_cached_ping(nid)):
+        if ip not in live:
+            live.append(ip)
+    peers = {}
+    for L in load_links():
+        if L.get("a_node") == nid and L.get("a_ip"):
+            peers.setdefault(L["a_ip"], []).append(L.get("b_name") or "")
+        if L.get("b_node") == nid and L.get("b_ip"):
+            peers.setdefault(L["b_ip"], []).append(L.get("a_name") or "")
+    host = n.get("host")
+    out = []
+    for ip in live:
+        pl = [x for x in peers.get(ip, []) if x]
+        out.append({"ip": ip, "host": ip == host, "peers": pl, "free": (not pl and ip != host)})
+    return out
+
+
+def api_node_ips(d):
+    _require(d, ["id"])
+    n = get_node(d["id"])
+    if not n:
+        raise ValueError("not found")
+    return {"online": bool(_cached_ping(n["id"]).get("ok")), "ips": _node_ip_tags(n["id"])}
+
+
+def api_link_rebuild_info(d):
+    """For the manual-rebuild picker: each side's current IPs (tagged) + which side has drifted."""
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    if not L:
+        raise ValueError("link not found")
+
+    def side(node_key, ip_key, name_key):
+        nid = L.get(node_key)
+        p = _cached_ping(nid)
+        live = _flat_ips(p)
+        return {"node_id": nid, "node": L.get(name_key) or (get_node(nid) or {}).get("name", ""),
+                "cur_ip": L.get(ip_key), "online": bool(p.get("ok")),
+                "drifted": bool(p.get("ok")) and L.get(ip_key) not in live,
+                "multi": len(live) > 1, "ips": _node_ip_tags(nid)}
+
+    return {"id": L["id"], "name": L.get("name"),
+            "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
+
+
+def api_settings(d):
+    return get_settings()
+
+
+def api_settings_set(d):
+    obj = validate_settings(d or {})
+    with _settings_lock:
+        _settings.clear()
+        _settings.update(obj)
+    save_json(SETTINGS_FILE, obj)
+    return {"ok": True, "settings": obj}
+
+
+def api_checkin_impl(source_ip, d):
+    """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
+    whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
+    reconciler then heals the tunnels. We only adopt the new address when the panel currently CAN'T reach
+    the node at its stored host, so a working DNS name / static host is never clobbered."""
+    tok = str((d or {}).get("token") or "")
+    if not tok:
+        return {"ok": False, "error": "token required"}
+    changed = False
+    host = None
+    with _reg_lock:
+        nodes = load_nodes()
+        n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
+        if not n:
+            return {"ok": False, "error": "unknown node"}
+        host = n.get("host")
+        if (source_ip and is_ipv4(source_ip) and n.get("host") != source_ip
+                and not _cached_ping(n["id"]).get("ok")):
+            n["host"], host, changed = source_ip, source_ip, True
+            save_json(NODES_FILE, nodes)
+        nid = n["id"]
+    if changed:
+        _refresh_cache([nid])  # re-probe at the new address at once so the fleet view + reconciler catch up
+    return {"ok": True, "updated": changed, "host": host}
+
+
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
+    "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
     "node-test": api_node_test, "node-meta": api_node_meta, "node-stats": api_node_stats,
+    "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link,
@@ -1247,7 +1493,7 @@ API = {
 }
 MUTATIONS = {"node-add", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push"}
+             "agent-upload", "agent-push", "settings-set"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -1305,6 +1551,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/login":
             self._login()
+        elif path == "/api/checkin":
+            self._checkin()  # node -> central; token-authenticated inside, no panel session required
         elif path == "/api/logout":
             secure = "; Secure" if self._conf().get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
@@ -1328,6 +1576,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             note_fail(ip)
             self._send(401, {"error": "wrong username or password"})
+
+    def _checkin(self):
+        res = api_checkin_impl(self.client_address[0], self._body())
+        self._send(200 if res.get("ok") else 401, res)
 
     def _api(self, cmd, method):
         if not self._user():
@@ -1688,6 +1940,17 @@ button.act.info{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 38%,t
 button.act.warn{color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)}
 button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}
 @media(prefers-reduced-motion:reduce){.modal.wide{animation:none}.gfill{transition:none}.lpill .pd{animation:none}}
+/* IP tag rows (node details) + rebuild IP picker — additive, new classes only */
+.ndips{margin-top:2px}
+.iptag{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--bord)}
+.iptag .tgs{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.rbrow{display:flex;align-items:center;gap:9px;padding:10px 11px;border:1.5px solid var(--bord);border-radius:11px;background:var(--field);margin-bottom:7px;cursor:pointer;transition:.15s}
+.rbrow:hover{border-color:color-mix(in srgb,var(--acc) 50%,var(--bord))}
+.rbrow.sel{border-color:var(--acc);background:var(--accw)}
+.rbrow .rbdot{width:15px;height:15px;border-radius:50%;border:2px solid var(--sub);flex:0 0 auto;position:relative}
+.rbrow.sel .rbdot{border-color:var(--acc)}
+.rbrow.sel .rbdot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
+.rbrow .rbtags{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 </style></head><body>
 <div class="backdrop" onclick="drawer(false)"></div>
 <div class="shell">
@@ -1699,6 +1962,7 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> تونل‌ها<span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> پورت‌فوروارد<span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="agent"><span class="ic" data-ic="redo"></span> بروزرسانیِ ایجنت</a>
+   <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> تنظیمات</a>
   </nav>
   <div class="sfoot"><button id="thbtn" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span> تم</button><button onclick="logout()"><span class="ic" data-ic="logout"></span> خروج</button></div>
  </aside>
@@ -1757,6 +2021,8 @@ var IC={
  pin:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
  os:'<svg viewBox="0 0 24 24" '+_S+'><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
  traf:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20V8M10 20V4M16 20v-7M22 20H2"/></svg>',
+ cog:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>',
+ warn:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
  grid:'<svg viewBox="0 0 24 24" '+_S+'><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>',
  search:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>'
 };
@@ -1961,12 +2227,13 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
  if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk','دیسک')+'</div>';
   var traf='<div class="nd-sec">'+ic('traf')+' ترافیک<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>زنده</span></div><div class="tf-chart"><div class="tf-top"><span class="din">↓ <b id="tf_rin">—</b></span><span class="dout">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
   var tiles='<div class="nd-grid">'+ndTile('os','سیستم‌عامل',esc(s.os||'?'),false,true)+ndTile('clock','آپ‌تایم',s.uptime?fmtup(s.uptime):'?')+ndTile('cores','تعداد هسته',num(s.cpus)||'?')+ndTile('link','تونل',num(i.tunnels))+ndTile('globe','پورت‌فوروارد',num(i.portfw))+ndTile('shield','پروکسیِ کنترل',n.proxy?esc(proxyScheme(n.proxy)):'—')+ndTile('server','میزبان',esc(i.hostname||'?'),true,true)+ndTile('pin','آی‌پی',esc(n.host),true,true)+'</div>';
-  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles}
+  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' آی‌پی‌ها<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">تونل‌شده / آزاد</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
  else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
  var sub=n.online?'<span class="lpill"><span class="pd"></span>زنده</span> به‌روزرسانی هر ۲ ثانیه':'وضعیت نود';
  var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>مشخصات نود</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" onclick="ndRetest(\\''+id+'\\')">تستِ اتصال</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">بستن</button></div>';
  var ov=openModal(html,{cls:'ndsheet',onclose:function(){if(ov._iv){clearInterval(ov._iv);ov._iv=0}}});
  if(n.online){ndApplyStats(s);var tfin=[],tfout=[];
+  j('node-ips?id='+id).then(function(r){if(ov._closed)return;var ib=el('nd_ips');if(ib)ib.innerHTML=ipTagsHTML(r&&r.ips)}).catch(function(){});
   var poll=function(){
    j('node-stats?id='+id).then(function(r){if(ov._closed)return;if(r&&r.online&&r.stats){ndApplyStats(r.stats);ndSetHead(ov,true)}else{ndSetHead(ov,false)}}).catch(function(){});
    j('traffic?id='+id).then(function(r){if(ov._closed||!r||!r.node)return;var nd=r.node;
@@ -2050,7 +2317,8 @@ function linkCard(l){
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var traf=(l.rx_total!=null||l.rx_bps!=null)?'<div class="ltraf"><span class="din">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout">↑ '+fmtRate(l.tx_bps)+'</span><span class="tot">مجموع ↓'+fmtBytes(l.rx_total)+' ↑'+fmtBytes(l.tx_total)+'</span></div>':'';
  var acts='<div class="nact iconly"><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
- return '<div class="card">'+body+traf+acts+msg+'</div>'}
+ var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.</span></div>':'';
+ return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?'موردی یافت نشد.':'هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.')+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
@@ -2079,13 +2347,48 @@ async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast('تون�
  try{await Promise.all(FLEET.map(function(l){return checkLink(l.id)}))}
  finally{CHECKING--;if(b){b.disabled=false;b.style.opacity=''}}
  toast('بررسیِ همهٔ تونل‌ها تمام شد ✓','ok')}
-async function rebuildLink(id){if(!await confirmBox('این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)'))return;
+async function rebuildLink(id){
+ var _L=FLEET.filter(function(x){return x.id==id})[0];
+ if(_L&&_L.drift){openRebuildPicker(id);return}   // IP drifted -> let the operator pick the new IP
+ if(!await confirmBox('این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)'))return;
  CHECKING++;
  try{setChk(id,'',esc('در حال بازسازیِ تونل روی دو نود…'));
   var r=await post('rebuild-link',{id:id});
   if(r.ok&&r.d.ok){setChk(id,'ok',esc('✓ تونل از نو ساخته شد — با «بررسی اتصال» تستش کن'));toast('بازسازی شد ✓','ok')}
   else setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق'));
  }finally{CHECKING--}}
+// ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
+var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
+function ipChips(x){var t=[];if(x.host)t.push('<span class="badge warn">مدیریتی</span>');
+ (x.peers||[]).forEach(function(nm){t.push('<span class="tag">'+LINKI+' '+esc(nm)+'</span>')});
+ if(x.free)t.push('<span class="badge na">آزاد</span>');return t.join('')}
+function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" style="font-size:11.5px;padding:6px 2px">آی‌پی‌ای گزارش نشد</div>';
+ return ips.map(function(x){return '<div class="iptag"><span class="mono" style="direction:ltr;font-size:12.5px">'+esc(x.ip)+'</span><span class="tgs">'+ipChips(x)+'</span></div>'}).join('')}
+var _rbSel={},_rbOv=null;
+function openRebuildPicker(id){
+ j('link-rebuild-info?id='+id).then(function(r){
+  if(!r||!r.id){toast('اطلاعاتِ لینک در دسترس نیست','err');return}
+  _rbSel={};var secs='';
+  [['a','a_ip'],['b','b_ip']].forEach(function(pp){var side=r[pp[0]],key=pp[1];
+   if(!side||!side.drifted)return;
+   var free=(side.ips||[]).filter(function(x){return x.free})[0];
+   _rbSel[key]=free?free.ip:(((side.ips||[])[0]||{}).ip||'');
+   secs+='<div class="nd-sec">'+esc(side.node)+' — آی‌پیِ جدید</div><div class="rbsec">'+
+     (side.ips&&side.ips.length?side.ips.map(function(x){return rbRow(key,x)}).join(''):'<div class="muted" style="font-size:12px;padding:4px 2px">آی‌پیِ قابلِ انتخابی نیست</div>')+'</div>'});
+  if(!secs){toast('این تونل driftی ندارد','ok');refreshTunnels();return}
+  var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.</div>'+secs;
+  _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>بازسازیِ تونل</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="doRebuildPick(\\''+id+'\\')">'+ic('redo')+'بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>');
+ }).catch(function(){toast('خطا در دریافتِ اطلاعات','err')})}
+function rbRow(key,x){var sel=_rbSel[key]==x.ip;
+ return '<div class="rbrow'+(sel?' sel':'')+'" data-ip="'+esc(x.ip)+'" onclick="rbPick(\\''+key+'\\',this)"><span class="rbdot"></span><span class="mono" style="direction:ltr;font-size:13px">'+esc(x.ip)+'</span><span class="rbtags">'+ipChips(x)+'</span></div>'}
+function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
+ var sec=row.closest('.rbsec')||row.parentNode;sec.querySelectorAll('.rbrow').forEach(function(r){r.classList.remove('sel')});
+ row.classList.add('sel')}
+async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
+ toast('در حال بازسازی…');
+ var r=await post('rebuild-link',body);
+ if(r.ok&&r.d.ok){toast('بازسازی شد ✓','ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshTunnels()}
+ else toast((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق','err')}
 async function delLink(id){if(!await confirmBox('این تونل روی هر دو نود حذف شود؟'))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast('حذف ناقص: '+r.d.msg,'err');delete CHK[id];editingId=null;refreshTunnels()}
 
 // ===== Create
@@ -2219,8 +2522,23 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast('اول یک ایج
  setTimeout(function(){if(cur=='agent')refreshAgent()},4500)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();return Promise.resolve(p)}
 function render(){setnav();editingId=null;
- if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}
+ if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
+// ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
+function settingsSkel(){el('view').innerHTML='<h1>'+ic('cog','var(--acc)')+' تنظیمات</h1><p class="sub">رفتار خودکارِ پنل و بازه‌های بررسی</p><div id="setBox"><div class="card muted">در حال بارگذاری…</div></div>'}
+async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
+ var modeItems=[{v:'auto',label:'خودکار — پنل خودش تونل را بازسازی می‌کند'},{v:'alert',label:'هشدار — فقط علامت می‌زند، خودت «بازسازی» را می‌زنی'}];
+ var row=function(t,d,ctl){return '<div style="display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--bord)"><div style="min-width:210px"><b>'+t+'</b><div class="muted" style="font-size:12px;margin-top:3px">'+d+'</div></div><div style="min-width:230px;flex:0 0 auto;position:relative">'+ctl+'</div></div>'};
+ box.innerHTML='<div class="card">'+
+  row('وقتی آی‌پیِ نود عوض شد','تونلِ خراب‌شده چطور ترمیم شود',ssHTML('set_mode',modeItems,s.reconcile_mode||'auto','',''))+
+  row('بازهٔ بررسیِ ترمیم (ثانیه)','هر چند ثانیه لینک‌ها برای تغییرِ آی‌پی چک شوند · ۵ تا ۳۶۰۰','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
+  row('بازهٔ پایشِ فلیت (ثانیه)','فاصلهٔ هر دورِ پینگِ نودها · ۱ تا ۶۰','<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
+  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+'ذخیره</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
+  '</div><div class="card muted" style="font-size:12.5px">موارد بیشتری بعداً به تنظیمات اضافه می‌شود.</div>'}
+async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent='در حال ذخیره…'}
+ var r=await post('settings-set',{reconcile_mode:ssVal('set_mode'),reconcile_interval:v('set_rec'),poll_interval:v('set_poll')});
+ if(r.ok&&r.d.ok){if(m){m.className='msg ok';m.textContent='ذخیره شد ✓'}toast('تنظیمات ذخیره شد ✓','ok')}
+ else{if(m){m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,6000);return}  // don't burn cycles (or queue work) while the tab is hidden
  updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,6000)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
@@ -2443,9 +2761,13 @@ def serve():
         print("Not configured. Run the setup menu:  sudo python3 tnl-central.py")
         sys.exit(1)
     conf = load_conf()
+    global _CENTRAL_PORT
+    _CENTRAL_PORT = int(conf.get("port", 8080))  # advertised to nodes so they can call back /api/checkin
+    _seed_settings()  # load settings.json into memory (defaults if absent) for the loops
     _tf_load()  # restore lifetime traffic totals from disk so they survive a central restart
     threading.Thread(target=poller_loop, daemon=True).start()  # warm the fleet cache in the background
     threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
+    threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
     httpd = ThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
