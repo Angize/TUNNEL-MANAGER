@@ -961,7 +961,7 @@ def _create_tunnel_impl(d):
     if not tid:
         raise ValueError("no free tunnel id on the pair")
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
-    name = f"{ttype}{tid}_0"
+    name = f"{ttype}{tid}"
     ra = node_call(A, "tunnel", "POST", {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip,
                                          "subnet": subnet, "id": tid, "name": name}, timeout=200)
     if not ra.get("ok"):
@@ -1055,7 +1055,7 @@ def _edit_link_impl(d):
     subnet = norm_subnet(ttype, tid, d.get("subnet"))
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
-    new_name = f"{ttype}{tid}_0" if name_changed else old_name
+    new_name = f"{ttype}{tid}" if name_changed else old_name
     if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"]:
         return {"ok": True, "unchanged": True, "name": old_name}
     if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
