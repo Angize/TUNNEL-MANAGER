@@ -1677,8 +1677,8 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .sfoot button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12px;padding:9px 0;border-radius:11px;border:1px solid var(--bord);background:transparent;color:var(--sub);cursor:pointer;font-family:inherit}
 .sfoot button:hover{background:var(--glass)}.sfoot .ic{width:15px;height:15px}
 .main{flex:1;min-width:0;max-width:1120px;padding:22px 26px 64px}
-.mtop{display:none;align-items:center;gap:11px;padding:11px 16px;position:sticky;top:0;z-index:30;background:var(--side);border-bottom:1px solid var(--bord)}
-.mtop .sbrand{font-size:16px;padding:0}
+.mtop{display:none;align-items:center;justify-content:space-between;gap:11px;padding:10px 14px;position:sticky;top:0;z-index:30;background:var(--side);border:1px solid var(--bord);border-radius:14px;box-shadow:var(--dsh)}
+.mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px}
 .hb{width:38px;height:38px;border-radius:11px;border:1px solid var(--bord);background:transparent;color:var(--tx);display:grid;place-items:center;cursor:pointer;flex:0 0 auto}.hb .ic{width:20px;height:20px}
 .backdrop{display:none;position:fixed;inset:0;background:rgba(15,22,35,.42);z-index:35}
 .chip{width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:var(--hue,var(--acc));background:color-mix(in srgb,var(--hue,var(--acc)) 13%,transparent);border:1px solid color-mix(in srgb,var(--hue,var(--acc)) 26%,transparent)}
@@ -1995,7 +1995,7 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
   <div class="sfoot"><button id="thbtn" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span> تم</button><button onclick="logout()"><span class="ic" data-ic="logout"></span> خروج</button></div>
  </aside>
  <main class="main">
-  <div class="mtop"><button class="hb" onclick="drawer(true)"><span class="ic" data-ic="menu"></span></button><div class="sbrand"><span class="logo" style="width:28px;height:28px;font-size:14px"><span class="ic" data-ic="shield"></span></span><span>tnl</span></div></div>
+  <div class="mtop"><button class="hb" onclick="drawer(true)"><span class="ic" data-ic="menu"></span></button><div class="sbrand"><span class="logo" style="width:28px;height:28px;font-size:14px"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER</span></div></div>
   <div id="view"></div>
  </main>
 </div>
