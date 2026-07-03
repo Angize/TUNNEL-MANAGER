@@ -1974,6 +1974,12 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .mopt.on .mrad::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
 .mopt .mt{font-weight:800;font-size:15.5px}
 .mopt .mdf{margin-inline-start:auto;font-size:10px;font-weight:800;color:var(--gold);background:var(--goldw,color-mix(in srgb,var(--gold) 16%,transparent));padding:3px 9px;border-radius:20px}
+/* dropdown-as-popup list (scrollable + search) */
+.modal.sssheet{max-width:360px;padding:8px}
+.sspop{display:flex;flex-direction:column;min-height:0}
+.sspop .sspopq{margin-bottom:8px;flex:0 0 auto}
+.sspoplist{overflow:auto;max-height:min(58vh,420px);min-height:0}
+.toast .ic{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-inline-end:4px}
 </style></head><body>
 <div class="backdrop" onclick="drawer(false)"></div>
 <div class="shell">
@@ -2045,6 +2051,8 @@ var IC={
  traf:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20V8M10 20V4M16 20v-7M22 20H2"/></svg>',
  cog:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
  warn:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
+ okc:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M8.4 12.4l2.4 2.4 4.7-5.4"/></svg>',
+ xc:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
  grid:'<svg viewBox="0 0 24 24" '+_S+'><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>',
  search:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>'
 };
@@ -2097,15 +2105,17 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
- return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(ph||'انتخاب کنید'))+'</span><span class="cv">⌄</span></button>'+
-  '<div class="mslist" id="ssl_'+key+'" style="display:none">'+(items.length>10?'<input class="mssearch" placeholder="جستجو…" oninput="msFilter(this)">':'')+items.map(function(it){return ssRow(key,it)}).join('')+'</div>'}
+ return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(ph||'انتخاب کنید'))+'</span><span class="cv">⌄</span></button>'}
 function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(it.sub)+'</span>':'')+'</div>'}
-function ssToggle(key){var l=el('ssl_'+key);if(!l)return;var open=l.style.display=='none';l.style.display=open?'block':'none';var b=el('ssb_'+key);if(b)b.classList.toggle('open',open)}
+var SS_OV={};
+function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  // open the list as a centered popup (scrolls; search for long lists)
+ var search=items.length>10?'<input class="search sspopq" placeholder="جستجو…" oninput="msFilter(this)" autocomplete="off">':'';
+ SS_OV[key]=openModal('<div class="sspop">'+search+'<div class="sspoplist">'+items.map(function(it){return ssRow(key,it)}).join('')+'</div></div>',{cls:'sssheet'})}
 function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
  var items=SSI[key]||[],cur=items.filter(function(x){return String(x.v)==String(val)})[0];
  setT('sst_'+key,cur?cur.label:val);var b=el('ssb_'+key);if(b)b.classList.remove('ph');
- var l=el('ssl_'+key);if(l)l.querySelectorAll('.msrow').forEach(function(r){r.classList.toggle('sel',r.getAttribute('data-v')==String(val))});
- ssToggle(key);if(SSCB[key]&&window[SSCB[key]])window[SSCB[key]]()}
+ if(SS_OV[key]){closeModal(SS_OV[key]);SS_OV[key]=null}
+ if(SSCB[key]&&window[SSCB[key]])window[SSCB[key]]()}
 function ssVal(key){return SEL[key]||''}
 // click-away: close any open styled list when clicking outside it
 document.addEventListener('click',function(e){document.querySelectorAll('.mslist').forEach(function(l){
@@ -2126,7 +2136,8 @@ function confirmBox(msg,yes){return new Promise(function(resolve){
  ov.querySelector('.mno').onclick=function(){done(false)};
  ov.onclick=function(e){if(e.target==ov)done(false)};
  ov.querySelector('.myes').focus()})}
-function toast(msg,kind){var t=document.createElement('div');t.className='toast '+(kind||'');t.textContent=msg;
+function toast(msg,kind){var t=document.createElement('div');t.className='toast '+(kind||'');
+ t.innerHTML=(kind=='ok'?ic('okc'):kind=='err'?ic('xc'):'')+'<span>'+esc(msg)+'</span>';
  document.body.appendChild(t);setTimeout(function(){t.classList.add('show')},10);
  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove()},320)},3400)}
 
@@ -2166,16 +2177,16 @@ function renderSelbar(){var bar=el('selbar');var kind=cur=='nodes'?'nodes':cur==
  bar.innerHTML='<span>'+n+' '+(kind=='nodes'?'نود':'تونل')+' انتخاب شده</span>'+acts+'<button onclick="clearSel()">لغو</button>'}
 async function bulkNodes(action){var ids=Object.keys(SELN);if(!ids.length)return;
  if(action=='del'){if(!await confirmBox(ids.length+' نود از رجیستری حذف شود؟ (تونل‌هایشان دست‌نخورده می‌ماند)'))return;
-  for(var i=0;i<ids.length;i++)await post('node-del',{id:ids[i]});toast(ids.length+' نود حذف شد ✓','ok');SELN={};selN=false}
+  for(var i=0;i<ids.length;i++)await post('node-del',{id:ids[i]});toast(ids.length+' نود حذف شد','ok');SELN={};selN=false}
  else if(action=='test'){toast('در حال تستِ '+ids.length+' نود…');var okc=0;
   for(var i=0;i<ids.length;i++){var r=await post('node-test',{id:ids[i]});if(r.d&&r.d.ok)okc++}toast(okc+'/'+ids.length+' نود آنلاین','ok')}
  var w=el('selw_nodes');if(w)w.innerHTML=selModeBtn('nodes');var b=el('nodeList');if(b)b.classList.toggle('selmode',selN);refreshNodes();renderSelbar()}
 async function bulkTun(action){var ids=Object.keys(SELT);if(!ids.length)return;
- if(action=='check'){CHECKING++;try{for(var i=0;i<ids.length;i++)await checkLink(ids[i])}finally{CHECKING--}toast('بررسیِ '+ids.length+' تونل تمام شد ✓','ok');renderSelbar();return}
+ if(action=='check'){CHECKING++;try{for(var i=0;i<ids.length;i++)await checkLink(ids[i])}finally{CHECKING--}toast('بررسیِ '+ids.length+' تونل تمام شد','ok');renderSelbar();return}
  if(action=='del'){if(!await confirmBox(ids.length+' تونل روی هر دو نود حذف شود؟'))return;
-  for(var i=0;i<ids.length;i++)await post('delete-link',{id:ids[i]});toast(ids.length+' تونل حذف شد ✓','ok');SELT={};selT=false}
+  for(var i=0;i<ids.length;i++)await post('delete-link',{id:ids[i]});toast(ids.length+' تونل حذف شد','ok');SELT={};selT=false}
  else if(action=='rebuild'){if(!await confirmBox(ids.length+' تونل از نو ساخته شود؟'))return;toast('در حال بازسازی…');var okc=0;
-  for(var i=0;i<ids.length;i++){var r=await post('rebuild-link',{id:ids[i]});if(r.ok&&r.d.ok)okc++}toast(okc+'/'+ids.length+' تونل بازسازی شد ✓','ok');SELT={};selT=false}
+  for(var i=0;i<ids.length;i++){var r=await post('rebuild-link',{id:ids[i]});if(r.ok&&r.d.ok)okc++}toast(okc+'/'+ids.length+' تونل بازسازی شد','ok');SELT={};selT=false}
  var w=el('selw_tunnels');if(w)w.innerHTML=selModeBtn('tunnels');var b=el('linkList');if(b)b.classList.toggle('selmode',selT);refreshTunnels();renderSelbar()}
 
 // ===== Overview
@@ -2263,7 +2274,7 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
     tfin.push(num(nd.rx_bps));tfout.push(num(nd.tx_bps));if(tfin.length>30){tfin.shift();tfout.shift()}dualSpark('tf_spark',tfin,tfout);
     var tb=el('tf_tuns');if(tb)tb.innerHTML=(r.tunnels&&r.tunnels.length)?r.tunnels.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">تونلی روی این نود نیست</div>'}).catch(function(){})};
   poll();ov._iv=setInterval(poll,2500)}}
-function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast('آنلاین ✓','ok')}else{toast('آفلاین: '+((r&&r.error)||'در دسترس نیست'),'err')}}).catch(function(){toast('خطا در بررسی','err')})}
+function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast('آنلاین','ok')}else{toast('آفلاین: '+((r&&r.error)||'در دسترس نیست'),'err')}}).catch(function(){toast('خطا در بررسی','err')})}
 function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
  var b='<div class="grid2"><div><label class="first">نام</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">هاست / آی‌پی</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>پورت</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>توکن</label><input id="e_tok_'+id+'" placeholder="خالی = توکن فعلی بماند"></div></div><label>پروکسیِ کنترل (خالی = بدون پروکسی)</label><input id="e_proxy_'+id+'" value="'+esc(n.proxy||'')+'" placeholder="socks5://host:1080 یا http://user:pass@host:8080"><div class="msg" id="em_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ نود</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">ذخیره</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
@@ -2291,12 +2302,12 @@ async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host')
  if(!name||!host||!port||!tok){m.className='msg err';m.textContent='لطفاً نام، هاست، پورت و توکن را پر کن';return}
  m.className='msg';m.textContent='در حال اتصال…';
  var r=await post('node-add',{name:name,host:host,port:port,token:tok,proxy:v('n_proxy')});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('نود اضافه شد'+(r.d.online?' · آنلاین ✓':' · آفلاین: '+(r.d.error||'')),r.d.online?'ok':'err')}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('نود اضافه شد'+(r.d.online?' · آنلاین':' · آفلاین: '+(r.d.error||'')),r.d.online?'ok':'err')}
  else{m.className='msg err';m.textContent=r.d.error||'ناموفق'}}
 async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent='در حال تست…'}
  var t0=performance.now();var r=await post('node-test',{id:id});var ms=Math.round(performance.now()-t0);
  var info=(r.d&&r.d.info)||{};if(!m)return;
- if(r.d&&r.d.ok){m.className='msg ok';m.textContent='آنلاین ✓ — '+(info.hostname||'')+' · '+ms+'ms'}
+ if(r.d&&r.d.ok){m.className='msg ok';m.innerHTML=CK+esc(' آنلاین — '+(info.hostname||'')+' · '+ms+'ms')}
  else{m.className='msg err';m.textContent='آفلاین: '+(info.error||'در دسترس نیست')+' · '+ms+'ms'}}
 async function delNode(id,nm){if(!await confirmBox('نود «'+nm+'» حذف شود؟ تونل‌هایش دست‌نخورده می‌مانند؛ فقط از رجیستری حذف می‌شود.'))return;await post('node-del',{id:id});editingId=null;refreshNodes()}
 
@@ -2309,7 +2320,7 @@ function sideB(online,h){
  if(!h)return '<span class="badge bad">قطع</span>';                      // تونل روی نود نیست
  if(h.up==null)return '<span class="badge na">در حال بررسی…</span>';     // هنوز پروب نشده
  if(!h.up)return '<span class="badge bad">قطع</span>';                    // اینترفیس پایین
- if(h.peer_ping===true)return '<span class="badge ok">متصل ✓</span>';     // پینگِ پیر برقرار = ترافیک رد می‌شود
+ if(h.peer_ping===true)return '<span class="badge ok">متصل'+CK+'</span>';     // پینگِ پیر برقرار = ترافیک رد می‌شود
  if(h.peer_ping===false)return '<span class="badge warn">بدون پینگ</span>'; // بالا ولی پیر جواب نمی‌دهد
  return '<span class="badge na">بالا</span>'}                             // بالا، پینگ نامشخص
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
@@ -2349,7 +2360,7 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  var r=await post('edit-link',{id:id,type:type,subnet:subnet});
  if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
-function chkLines(hdr,a,b){return '<div class="chh">'+esc(hdr)+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
+function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
 async function checkLink(id){CHECKING++;
  try{
   setChk(id,'',esc('در حال بررسی اتصال (پینگِ زنده روی دو سر)…'));
@@ -2361,14 +2372,14 @@ async function checkLink(id){CHECKING++;
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.peer_ping===true)||(d.b_health&&d.b_health.peer_ping===true);
   var okAll=aup&&bup&&pinged;
-  setChk(id,okAll?'ok':'err',chkLines(okAll?'✓ اتصال برقرار':'✗ مشکل در اتصال',
+  setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' اتصال برقرار':XK+' مشکل در اتصال',
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health)));
  }finally{CHECKING--}}
 async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast('تونلی برای بررسی نیست','err');return}
  if(b){b.disabled=true;b.style.opacity='.6'}CHECKING++;  // hold guard across the whole batch
  try{await Promise.all(FLEET.map(function(l){return checkLink(l.id)}))}
  finally{CHECKING--;if(b){b.disabled=false;b.style.opacity=''}}
- toast('بررسیِ همهٔ تونل‌ها تمام شد ✓','ok')}
+ toast('بررسیِ همهٔ تونل‌ها تمام شد','ok')}
 async function rebuildLink(id){
  var _L=FLEET.filter(function(x){return x.id==id})[0];
  if(_L&&_L.drift){openRebuildPicker(id);return}   // IP drifted -> let the operator pick the new IP
@@ -2376,11 +2387,13 @@ async function rebuildLink(id){
  CHECKING++;
  try{setChk(id,'',esc('در حال بازسازیِ تونل روی دو نود…'));
   var r=await post('rebuild-link',{id:id});
-  if(r.ok&&r.d.ok){setChk(id,'ok',esc('✓ تونل از نو ساخته شد — با «بررسی اتصال» تستش کن'));toast('بازسازی شد ✓','ok')}
+  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc('تونل از نو ساخته شد — با «بررسی اتصال» تستش کن'));toast('بازسازی شد','ok')}
   else setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق'));
  }finally{CHECKING--}}
 // ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
 var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
+var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
+var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 function ipChips(x){var t=(x.peers||[]).map(function(p){
   return '<span class="ippeer" onclick="ipTog(event,this)"><span class="ipchip">'+LINKI+' '+esc(p.node)+'</span><span class="iptyp '+esc(p.type)+'">'+esc(p.type)+'</span></span>'});
  if(x.free)t.push('<span class="ipfree">آزاد</span>');return t.join('')}
@@ -2410,7 +2423,7 @@ function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
 async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
  toast('در حال بازسازی…');
  var r=await post('rebuild-link',body);
- if(r.ok&&r.d.ok){toast('بازسازی شد ✓','ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshTunnels()}
+ if(r.ok&&r.d.ok){toast('بازسازی شد','ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshTunnels()}
  else toast((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق','err')}
 async function delLink(id){if(!await confirmBox('این تونل روی هر دو نود حذف شود؟'))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast('حذف ناقص: '+r.d.msg,'err');delete CHK[id];editingId=null;refreshTunnels()}
 
@@ -2447,7 +2460,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
   if(range=='custom')body.subnet=custom;else body.subnet_base=range;
   var r=await post('create-tunnel',body);
   if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
- if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد ✓','ok')}else{m.className='msg err';m.textContent=okc+'/'+tgts.length+' — '+errs.join(' | ')}}
+ if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}else{m.className='msg err';m.textContent=okc+'/'+tgts.length+' — '+errs.join(' | ')}}
 
 // ===== Port-forward
 function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' پورت‌فوروارد</h1><p class="sub">فوروارد پورت روی یک نود (با چرخشِ چند مقصد)</p>'+
@@ -2462,7 +2475,7 @@ async function openPfAddModal(){var r=await j('node-names');var on=(r.nodes||[])
 async function refreshPortfw(){if(editingId)return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
  setHTML(box,PF.length?PF.map(pfCard).join(''):'<div class="card muted">'+(QRY.portfw?'موردی یافت نشد.':'پورت‌فورواردی نیست.')+'</div>');renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
- var st=h.rule?(h.reachable?'<span class="badge ok">فعال · مقصد ✓</span>':'<span class="badge bad">قانون ✓ · مقصد ✗</span>'):'<span class="badge bad">غیرفعال</span>';
+ var st=h.rule?(h.reachable?'<span class="badge ok">فعال · مقصد'+CK+'</span>':'<span class="badge bad">قانون'+CK+' · مقصد'+XK+'</span>'):'<span class="badge bad">غیرفعال</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
  var head='<div class="link"><span class="name">'+esc(p.node)+'</span><span class="grow"></span><span class="tag" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)">portfw</span>'+st+'</div>';
  var live=(multi&&h.active)?'<div class="pfrow">هم‌اکنون روی: <b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
@@ -2538,8 +2551,8 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast('اول یک ایج
  else{ids=[target];var mm=el('agres_'+target);if(mm){mm.className='msg agres';mm.textContent='در حال ارسال…'}}
  var res=await post('agent-push',{ids:ids});var rs=(res.d&&res.d.results)||[];var ok=0;
  rs.forEach(function(x){var m=el('agres_'+x.id);
-  if(x.ok&&x.already){ok++;if(m){m.className='msg agres ok';m.textContent='از قبل به‌روز ✓'}}
-  else if(x.ok){ok++;if(m){m.className='msg agres ok';m.textContent='به‌روز شد ✓ · در حال ری‌استارت…'}}
+  if(x.ok&&x.already){ok++;if(m){m.className='msg agres ok';m.innerHTML='از قبل به‌روز'+CK}}
+  else if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML='به‌روز شد'+CK+' · در حال ری‌استارت…'}}
   else if(x.offline){if(m){m.className='msg agres';m.textContent='آفلاین — رد شد'}}
   else{if(m){m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}});
  if(target=='all')toast(ok+'/'+rs.length+' نود بروزرسانی شد',ok?'ok':'err');
@@ -2568,7 +2581,7 @@ function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setM
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent='در حال ذخیره…'}
  var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll')});
- if(r.ok&&r.d.ok){if(m){m.className='msg ok';m.textContent='ذخیره شد ✓'}toast('تنظیمات ذخیره شد ✓','ok')}
+ if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast('تنظیمات ذخیره شد','ok')}
  else{if(m){m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,6000);return}  // don't burn cycles (or queue work) while the tab is hidden
  updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,6000)})}
