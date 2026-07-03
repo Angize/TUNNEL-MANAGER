@@ -13,15 +13,21 @@
 
 ---
 
-## ⚡ نصبِ آسان
+## ⚡ نصب
 
-روی سرورِ **مرکزی** بزن:
+روی سرورِ **مرکزی**:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Angize/TUNNEL-MANAGER/main/tnl-central.py -o tnl-central.py && sudo python3 tnl-central.py --install
+git clone https://github.com/Angize/TUNNEL-MANAGER.git
+cd TUNNEL-MANAGER && sudo python3 tnl-central.py --install
 ```
 
-یوزر/پسورد/پورت را می‌پرسد و پنل را راه می‌اندازد؛ بعد آدرسِ پنل چاپ می‌شود — واردش شو.
+یوزر/پسورد/پورت را می‌پرسد و پنل را راه می‌اندازد؛ بعد آدرسِ پنل چاپ می‌شود.
+
+**بروزرسانیِ نصبِ موجود:**
+```bash
+sudo cp tnl-central.py /opt/tnl-central/tnl-central.py && sudo systemctl restart tnl-central
+```
 
 ---
 
