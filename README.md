@@ -15,14 +15,14 @@
 
 ## ⚡ نصب
 
-روی سرورِ **مرکزی**:
+روی سرورِ **مرکزی** — تک‌خطی (با توکنِ دسترسی، چون ریپو private است):
 
 ```bash
-git clone https://github.com/Angize/TUNNEL-MANAGER.git
-cd TUNNEL-MANAGER && sudo python3 tnl-central.py --install
+curl -fsSL -H "Authorization: token <TOKEN>" https://raw.githubusercontent.com/Angize/TUNNEL-MANAGER/main/tnl-central.py -o tnl-central.py && sudo python3 tnl-central.py --install
 ```
 
-یوزر/پسورد/پورت را می‌پرسد و پنل را راه می‌اندازد؛ بعد آدرسِ پنل چاپ می‌شود.
+> `<TOKEN>` = یک GitHub PAT با دسترسیِ **Contents: Read**.
+> جایگزینِ git: `git clone https://github.com/Angize/TUNNEL-MANAGER.git && cd TUNNEL-MANAGER && sudo python3 tnl-central.py --install`
 
 **بروزرسانیِ نصبِ موجود:**
 ```bash
