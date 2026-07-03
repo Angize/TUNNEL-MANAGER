@@ -1213,8 +1213,11 @@ def _rebuild_link_impl(d):
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
-    a_ip = L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)
-    b_ip = L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    a_ip = (want_a if want_a in a_ips else
+            (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
+    b_ip = (want_b if want_b in b_ips else
+            (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
@@ -1271,17 +1274,24 @@ def _reconcile_once():
         b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
         if not a_ips or not b_ips:
             continue
-        if L.get("a_ip") in a_ips and L.get("b_ip") in b_ips:
+        a_ok, b_ok = L.get("a_ip") in a_ips, L.get("b_ip") in b_ips
+        if a_ok and b_ok:
             _set_drift(L["id"], False)  # both endpoints valid (healed / IP came back) -> clear the flag
             continue
         _set_drift(L["id"], True)       # a node IP has drifted off the link
         if mode != "auto":
-            continue                    # "alert" mode: only flag it; the operator rebuilds from the UI
+            continue                    # global "alert" mode: only flag it; the operator rebuilds from the UI
+        # auto mode heals ONLY when every drifted side is unambiguous — the node has exactly one live IP,
+        # so there is no doubt which IP replaced the old one. A multi-IP node is left flagged for the
+        # operator to pick the right IP in the UI (guessing among several IPs isn't safe).
+        ambiguous = (not a_ok and len(a_ips) != 1) or (not b_ok and len(b_ips) != 1)
+        if ambiguous:
+            continue
         if now - _reconcile_last.get(L["id"], 0) < RECONCILE_RETRY:
             continue
         _reconcile_last[L["id"]] = now
         try:
-            r = api_rebuild_link({"id": L["id"]})  # re-derives live IPs, rebuilds both ends, rewrites the record
+            r = api_rebuild_link({"id": L["id"]})  # single-IP side(s): rebuild binds to the only live IP
             if r.get("ok"):
                 _set_drift(L["id"], False)
         except Exception:
@@ -1373,6 +1383,62 @@ def api_portfw_del(d):
     return {"ok": bool(r.get("ok")), "msg": r.get("error", "")}
 
 
+def _flat_ips(ping):
+    return [ip for ips in (ping.get("ips") or {}).values() for ip in ips]
+
+
+def _node_ip_tags(nid):
+    """Each current live IP of a node, tagged with who it's tunneled to + whether it's the management
+    host or free — so the operator can tell which IP is safe to pick when re-pointing a drifted tunnel."""
+    n = get_node(nid)
+    if not n:
+        return []
+    live = []
+    for ip in _flat_ips(_cached_ping(nid)):
+        if ip not in live:
+            live.append(ip)
+    peers = {}
+    for L in load_links():
+        if L.get("a_node") == nid and L.get("a_ip"):
+            peers.setdefault(L["a_ip"], []).append(L.get("b_name") or "")
+        if L.get("b_node") == nid and L.get("b_ip"):
+            peers.setdefault(L["b_ip"], []).append(L.get("a_name") or "")
+    host = n.get("host")
+    out = []
+    for ip in live:
+        pl = [x for x in peers.get(ip, []) if x]
+        out.append({"ip": ip, "host": ip == host, "peers": pl, "free": (not pl and ip != host)})
+    return out
+
+
+def api_node_ips(d):
+    _require(d, ["id"])
+    n = get_node(d["id"])
+    if not n:
+        raise ValueError("not found")
+    return {"online": bool(_cached_ping(n["id"]).get("ok")), "ips": _node_ip_tags(n["id"])}
+
+
+def api_link_rebuild_info(d):
+    """For the manual-rebuild picker: each side's current IPs (tagged) + which side has drifted."""
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    if not L:
+        raise ValueError("link not found")
+
+    def side(node_key, ip_key, name_key):
+        nid = L.get(node_key)
+        p = _cached_ping(nid)
+        live = _flat_ips(p)
+        return {"node_id": nid, "node": L.get(name_key) or (get_node(nid) or {}).get("name", ""),
+                "cur_ip": L.get(ip_key), "online": bool(p.get("ok")),
+                "drifted": bool(p.get("ok")) and L.get(ip_key) not in live,
+                "multi": len(live) > 1, "ips": _node_ip_tags(nid)}
+
+    return {"id": L["id"], "name": L.get("name"),
+            "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
+
+
 def api_settings(d):
     return get_settings()
 
@@ -1417,6 +1483,7 @@ API = {
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
     "node-test": api_node_test, "node-meta": api_node_meta, "node-stats": api_node_stats,
+    "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link,
@@ -1873,6 +1940,17 @@ button.act.info{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 38%,t
 button.act.warn{color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)}
 button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}
 @media(prefers-reduced-motion:reduce){.modal.wide{animation:none}.gfill{transition:none}.lpill .pd{animation:none}}
+/* IP tag rows (node details) + rebuild IP picker — additive, new classes only */
+.ndips{margin-top:2px}
+.iptag{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--bord)}
+.iptag .tgs{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.rbrow{display:flex;align-items:center;gap:9px;padding:10px 11px;border:1.5px solid var(--bord);border-radius:11px;background:var(--field);margin-bottom:7px;cursor:pointer;transition:.15s}
+.rbrow:hover{border-color:color-mix(in srgb,var(--acc) 50%,var(--bord))}
+.rbrow.sel{border-color:var(--acc);background:var(--accw)}
+.rbrow .rbdot{width:15px;height:15px;border-radius:50%;border:2px solid var(--sub);flex:0 0 auto;position:relative}
+.rbrow.sel .rbdot{border-color:var(--acc)}
+.rbrow.sel .rbdot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
+.rbrow .rbtags{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 </style></head><body>
 <div class="backdrop" onclick="drawer(false)"></div>
 <div class="shell">
@@ -2149,12 +2227,13 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
  if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk','دیسک')+'</div>';
   var traf='<div class="nd-sec">'+ic('traf')+' ترافیک<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>زنده</span></div><div class="tf-chart"><div class="tf-top"><span class="din">↓ <b id="tf_rin">—</b></span><span class="dout">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
   var tiles='<div class="nd-grid">'+ndTile('os','سیستم‌عامل',esc(s.os||'?'),false,true)+ndTile('clock','آپ‌تایم',s.uptime?fmtup(s.uptime):'?')+ndTile('cores','تعداد هسته',num(s.cpus)||'?')+ndTile('link','تونل',num(i.tunnels))+ndTile('globe','پورت‌فوروارد',num(i.portfw))+ndTile('shield','پروکسیِ کنترل',n.proxy?esc(proxyScheme(n.proxy)):'—')+ndTile('server','میزبان',esc(i.hostname||'?'),true,true)+ndTile('pin','آی‌پی',esc(n.host),true,true)+'</div>';
-  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles}
+  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' آی‌پی‌ها<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">تونل‌شده / آزاد</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
  else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
  var sub=n.online?'<span class="lpill"><span class="pd"></span>زنده</span> به‌روزرسانی هر ۲ ثانیه':'وضعیت نود';
  var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>مشخصات نود</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" onclick="ndRetest(\\''+id+'\\')">تستِ اتصال</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">بستن</button></div>';
  var ov=openModal(html,{cls:'ndsheet',onclose:function(){if(ov._iv){clearInterval(ov._iv);ov._iv=0}}});
  if(n.online){ndApplyStats(s);var tfin=[],tfout=[];
+  j('node-ips?id='+id).then(function(r){if(ov._closed)return;var ib=el('nd_ips');if(ib)ib.innerHTML=ipTagsHTML(r&&r.ips)}).catch(function(){});
   var poll=function(){
    j('node-stats?id='+id).then(function(r){if(ov._closed)return;if(r&&r.online&&r.stats){ndApplyStats(r.stats);ndSetHead(ov,true)}else{ndSetHead(ov,false)}}).catch(function(){});
    j('traffic?id='+id).then(function(r){if(ov._closed||!r||!r.node)return;var nd=r.node;
@@ -2268,13 +2347,48 @@ async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast('تون�
  try{await Promise.all(FLEET.map(function(l){return checkLink(l.id)}))}
  finally{CHECKING--;if(b){b.disabled=false;b.style.opacity=''}}
  toast('بررسیِ همهٔ تونل‌ها تمام شد ✓','ok')}
-async function rebuildLink(id){if(!await confirmBox('این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)'))return;
+async function rebuildLink(id){
+ var _L=FLEET.filter(function(x){return x.id==id})[0];
+ if(_L&&_L.drift){openRebuildPicker(id);return}   // IP drifted -> let the operator pick the new IP
+ if(!await confirmBox('این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)'))return;
  CHECKING++;
  try{setChk(id,'',esc('در حال بازسازیِ تونل روی دو نود…'));
   var r=await post('rebuild-link',{id:id});
   if(r.ok&&r.d.ok){setChk(id,'ok',esc('✓ تونل از نو ساخته شد — با «بررسی اتصال» تستش کن'));toast('بازسازی شد ✓','ok')}
   else setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق'));
  }finally{CHECKING--}}
+// ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
+var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
+function ipChips(x){var t=[];if(x.host)t.push('<span class="badge warn">مدیریتی</span>');
+ (x.peers||[]).forEach(function(nm){t.push('<span class="tag">'+LINKI+' '+esc(nm)+'</span>')});
+ if(x.free)t.push('<span class="badge na">آزاد</span>');return t.join('')}
+function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" style="font-size:11.5px;padding:6px 2px">آی‌پی‌ای گزارش نشد</div>';
+ return ips.map(function(x){return '<div class="iptag"><span class="mono" style="direction:ltr;font-size:12.5px">'+esc(x.ip)+'</span><span class="tgs">'+ipChips(x)+'</span></div>'}).join('')}
+var _rbSel={},_rbOv=null;
+function openRebuildPicker(id){
+ j('link-rebuild-info?id='+id).then(function(r){
+  if(!r||!r.id){toast('اطلاعاتِ لینک در دسترس نیست','err');return}
+  _rbSel={};var secs='';
+  [['a','a_ip'],['b','b_ip']].forEach(function(pp){var side=r[pp[0]],key=pp[1];
+   if(!side||!side.drifted)return;
+   var free=(side.ips||[]).filter(function(x){return x.free})[0];
+   _rbSel[key]=free?free.ip:(((side.ips||[])[0]||{}).ip||'');
+   secs+='<div class="nd-sec">'+esc(side.node)+' — آی‌پیِ جدید</div><div class="rbsec">'+
+     (side.ips&&side.ips.length?side.ips.map(function(x){return rbRow(key,x)}).join(''):'<div class="muted" style="font-size:12px;padding:4px 2px">آی‌پیِ قابلِ انتخابی نیست</div>')+'</div>'});
+  if(!secs){toast('این تونل driftی ندارد','ok');refreshTunnels();return}
+  var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.</div>'+secs;
+  _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>بازسازیِ تونل</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="doRebuildPick(\\''+id+'\\')">'+ic('redo')+'بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>');
+ }).catch(function(){toast('خطا در دریافتِ اطلاعات','err')})}
+function rbRow(key,x){var sel=_rbSel[key]==x.ip;
+ return '<div class="rbrow'+(sel?' sel':'')+'" data-ip="'+esc(x.ip)+'" onclick="rbPick(\\''+key+'\\',this)"><span class="rbdot"></span><span class="mono" style="direction:ltr;font-size:13px">'+esc(x.ip)+'</span><span class="rbtags">'+ipChips(x)+'</span></div>'}
+function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
+ var sec=row.closest('.rbsec')||row.parentNode;sec.querySelectorAll('.rbrow').forEach(function(r){r.classList.remove('sel')});
+ row.classList.add('sel')}
+async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
+ toast('در حال بازسازی…');
+ var r=await post('rebuild-link',body);
+ if(r.ok&&r.d.ok){toast('بازسازی شد ✓','ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshTunnels()}
+ else toast((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق','err')}
 async function delLink(id){if(!await confirmBox('این تونل روی هر دو نود حذف شود؟'))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast('حذف ناقص: '+r.d.msg,'err');delete CHK[id];editingId=null;refreshTunnels()}
 
 // ===== Create
