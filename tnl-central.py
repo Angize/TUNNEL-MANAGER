@@ -160,9 +160,12 @@ def rate_limited(ip):
 
 def note_fail(ip):
     with _fails_lock:
+        now = time.time()
+        for k in [k for k, v in _fails.items() if now - v[1] > 300]:  # drop stale IPs so the map can't grow unbounded
+            _fails.pop(k, None)
         rec = _fails.get(ip)
-        if not rec or time.time() - rec[1] > 300:
-            _fails[ip] = [1, time.time()]
+        if not rec or now - rec[1] > 300:
+            _fails[ip] = [1, now]
         else:
             rec[0] += 1
 
@@ -386,6 +389,11 @@ def poller_loop():
             with _uh_lock:
                 for nid in [k for k in _uh if k not in valid]:
                     _uh.pop(nid, None)
+            with _node_locks_guard:  # drop per-node build locks for removed nodes (skip any currently held)
+                for nid in [k for k in _node_locks if k not in valid]:
+                    lk = _node_locks.get(nid)
+                    if lk is not None and not lk.locked():
+                        _node_locks.pop(nid, None)
             if nodes:
                 # submit all, then move on after the deadline — one trickling node can't freeze the fleet
                 futures_wait([ex.submit(_poll_node, n) for n in nodes], timeout=SWEEP_DEADLINE)
@@ -955,6 +963,8 @@ def _create_tunnel_impl(d):
             except Exception:
                 pass
     explicit = int(d.get("id") or 0)
+    if explicit and not 1 <= explicit <= 254:
+        raise ValueError("شناسهٔ تونل خارج از محدوده است (۱ تا ۲۵۴)")
     if explicit and explicit in used:
         raise ValueError(f"tunnel id {explicit} is already in use on one of the nodes")
     tid = explicit or next((i for i in range(42, 255) if i not in used), 0)
@@ -1156,6 +1166,51 @@ def _rebuild_link_impl(d):
             save_json(LINKS_FILE, links)
     _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True, "name": name}
+
+
+# --------------------------------------------------------------------------- link reconciler
+# When a node's public IP changes, apply_all() on THAT node self-heals its own local_ip — but the
+# PEER still points remote_ip at the old address, so the tunnel stays down until an operator rebuilds
+# it. This loop closes the gap: it watches every link for a stored endpoint IP that has drifted off
+# the node's live IP set, and rebuilds the link — which rewrites remote_ip on the peer AND the record.
+
+RECONCILE_GAP = 15       # seconds between reconcile sweeps
+RECONCILE_RETRY = 60     # per-link cool-down so a failing rebuild can't hammer the pair
+_reconcile_last = {}     # link_id -> last rebuild-attempt ts (touched only by the single reconcile thread)
+
+
+def _reconcile_once():
+    now = time.time()
+    links = load_links()
+    valid_ids = {L["id"] for L in links}
+    for k in [k for k in _reconcile_last if k not in valid_ids]:  # prune records for deleted links
+        _reconcile_last.pop(k, None)
+    for L in links:
+        pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
+        if not pa.get("ok") or not pb.get("ok"):
+            continue  # only reconcile when BOTH ends are up — a rebuild needs both reachable
+        a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
+        b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
+        if not a_ips or not b_ips:
+            continue
+        if L.get("a_ip") in a_ips and L.get("b_ip") in b_ips:
+            continue  # both endpoints still valid -> nothing to heal
+        if now - _reconcile_last.get(L["id"], 0) < RECONCILE_RETRY:
+            continue
+        _reconcile_last[L["id"]] = now
+        try:
+            api_rebuild_link({"id": L["id"]})  # re-derives live IPs, rebuilds both ends, rewrites the record
+        except Exception:
+            pass
+
+
+def reconcile_loop():
+    while True:
+        time.sleep(RECONCILE_GAP)
+        try:
+            _reconcile_once()
+        except Exception:
+            pass
 
 
 def api_portfw(d):
@@ -2446,6 +2501,7 @@ def serve():
     _tf_load()  # restore lifetime traffic totals from disk so they survive a central restart
     threading.Thread(target=poller_loop, daemon=True).start()  # warm the fleet cache in the background
     threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
+    threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
     httpd = ThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
