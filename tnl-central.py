@@ -2544,8 +2544,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ltraf{margin-top:10px;padding-top:9px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:13px;font-size:12px;font-variant-numeric:tabular-nums}.ltraf .tot{color:var(--sub);margin-inline-start:auto;display:flex;align-items:center;gap:6px}
 .iso{direction:ltr;unicode-bidi:isolate}   /* keep a value+unit (and its ↓/↑) LTR so it never jumbles inside the RTL layout */
 .tot .iso{display:inline-flex;gap:8px}
-.flip{border:1px solid var(--bord);background:var(--field);color:var(--acc);border-radius:8px;padding:2px 7px;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;cursor:pointer;font-family:inherit}
-.flip:active{transform:scale(.96)}.flip svg{width:13px;height:13px}
+.flippill{height:34px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);background:var(--field);color:var(--acc);border-radius:10px;padding:0 10px;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;margin-inline-end:auto;white-space:nowrap}
+.flippill:active{transform:scale(.97)}.flippill .ic{width:14px;height:14px}
 .act.reset{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .bigrow{display:flex;gap:18px;align-items:baseline;margin-bottom:4px}.bigrow .b{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .subline{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
@@ -3238,11 +3238,11 @@ function linkCard(l){
   '<span>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></span></div>';
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
- var flip='<button class="flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف (کدام نود)">'+ic('swap')+'دید: '+esc(l.view_name||'—')+'</button>';
+ var flip='<button class="flippill" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف (کدام نود)">'+ic('swap')+'دید: '+esc(l.view_name||'—')+'</button>';
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
- var traf='<div class="ltraf">'+rates+flip+'<span class="tot">مجموع '+tot+'</span></div>';
- var acts='<div class="nact iconly"><button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var traf='<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>';
+ var acts='<div class="nact iconly">'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
