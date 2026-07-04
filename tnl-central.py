@@ -2450,6 +2450,7 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 @keyframes isp{to{transform:rotate(360deg)}}
 .ilog{margin:8px 0 2px;background:#0c1220;border:1px solid var(--bord);border-radius:10px;padding:9px 11px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;font-size:10.5px;line-height:1.6;color:#d3ddea;white-space:pre-wrap;max-height:170px;overflow:auto}
 .primary.done{background:var(--ok);box-shadow:none}
+.bspin{width:19px;height:19px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:isp .9s linear infinite}
 button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transform:none}
 /* ===== delete-node: two-mode chooser ===== */
 .medi.medi-bad{background:var(--badw);color:var(--bad)}
@@ -2788,8 +2789,10 @@ var _installDone=null;  // null = idle/retry, 'ok' = finished successfully (butt
 function naddSubmit(){if(_naddMode=='auto'){if(_installDone=='ok'){var ov=el('nadd_go').closest('.modalov');if(ov)closeModal(ov);return}return doAutoInstall()}return addNode()}
 function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':st=='err'?'<span class="istep-i err">'+XK+'</span>':st=='warn'?'<span class="istep-i warn">'+ic('warn')+'</span>':st=='run'?'<span class="istep-i run"><span class="ispin"></span></span>':'<span class="istep-i wait"></span>'}
 function renderInstallSteps(j){var box=el('nadd_prog');if(!box)return;
- var ban=j.banner?('<div class="ibanner '+(j.done?(j.ok?'ok':'err'):'run')+'">'+(j.done?(j.ok?CK:XK):'')+'<span>'+esc(j.banner)+'</span></div>'):'';
- var steps=(j.steps||[]).map(function(s){
+ var bicon=j.done?(j.ok?CK:XK):'<span class="ispin"></span>';
+ var ban=j.banner?('<div class="ibanner '+(j.done?(j.ok?'ok':'err'):'run')+'">'+bicon+'<span>'+esc(j.banner)+'</span></div>'):'';
+ // one-by-one: only render steps that have actually started (skip the not-yet-reached ones)
+ var steps=(j.steps||[]).filter(function(s){return s.state&&s.state!='wait'}).map(function(s){
    var lg=s.log?'<div class="ilog">'+esc(s.log)+'</div>':'';
    return '<div class="istep '+s.state+'">'+instIcon(s.state)+'<div class="istep-b"><div class="istep-t">'+esc(s.label)+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}).join('');
  box.innerHTML='<div class="iwrap">'+ban+steps+'</div>'}
@@ -2801,14 +2804,14 @@ function authMode(m){_authMode=m;
  if(h)h.textContent=(m=='key')?'کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.':'رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.';
  var f=(m=='pass')?pf:kf;if(f){try{f.focus()}catch(e){}}}
 function agBtnBusy(btn,on,label){if(!btn)return;btn.disabled=on;
- btn.innerHTML=on?('<span class="ispin" style="border-color:rgba(255,255,255,.45);border-top-color:#fff"></span> در حال نصب…'):label}
+ btn.innerHTML=on?'<span class="bspin"></span>':label}
 async function doAutoInstall(){var m=el('n_msg'),btn=el('nadd_go');
  var name=v('a_name'),host=v('a_host');
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){m.className='msg err';m.textContent='نام و آی‌پیِ سرور لازم است';return}
  if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?'کلیدِ خصوصی':'رمزِ SSH')+' لازم است';return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
- var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">در حالِ شروعِ نصب…</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
+ var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>در حالِ نصب…</span></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
  var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')});
  if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
  pollInstall(r.d.job,300)}
