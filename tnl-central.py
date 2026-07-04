@@ -1176,9 +1176,6 @@ def _create_tunnel_impl(d):
     ttype = d["type"]
     if ttype not in TYPES:
         raise ValueError("bad type")
-    for L in load_links():  # one tunnel of each type per node-pair (any direction)
-        if L.get("type") == ttype and {L.get("a_node"), L.get("b_node")} == {A["id"], B["id"]}:
-            raise ValueError(f"یک تونلِ {ttype} بینِ این دو نود از قبل ساخته شده")
     pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
     if not pa.get("ok"):
         raise ValueError(f"node '{A['name']}' offline")
@@ -1186,10 +1183,21 @@ def _create_tunnel_impl(d):
         raise ValueError(f"node '{B['name']}' offline")
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
-    a_ip = d.get("a_ip") or (a_ips[0] if a_ips else None)
-    b_ip = d.get("b_ip") or (b_ips[0] if b_ips else None)
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    if want_a and want_a not in a_ips:
+        raise ValueError(f"آی‌پیِ «{want_a}» روی نودِ «{A['name']}» نیست")
+    if want_b and want_b not in b_ips:
+        raise ValueError(f"آی‌پیِ «{want_b}» روی نودِ «{B['name']}» نیست")
+    a_ip = want_a or (a_ips[0] if a_ips else None)
+    b_ip = want_b or (b_ips[0] if b_ips else None)
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
+    if a_ip == b_ip:
+        raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
+    new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
+    for L in load_links():  # (a multi-ip pair may legitimately have several tunnels on different ips)
+        if L.get("type") == ttype and frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair:
+            raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
@@ -1282,10 +1290,6 @@ def _edit_link_impl(d):
     ttype = d["type"]
     if ttype not in TYPES:
         raise ValueError("bad type")
-    for x in load_links():  # keep one-of-each-type-per-pair when changing type
-        if (x.get("id") != L["id"] and x.get("type") == ttype
-                and {x.get("a_node"), x.get("b_node")} == {L["a_node"], L["b_node"]}):
-            raise ValueError(f"یک تونلِ {ttype} بینِ این دو نود از قبل هست")
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
         raise ValueError("a node of this link is no longer registered")
@@ -1308,6 +1312,13 @@ def _edit_link_impl(d):
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
+    if a_ip == b_ip:
+        raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
+    new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
+    for x in load_links():
+        if (x.get("id") != L["id"] and x.get("type") == ttype
+                and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
+            raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
     subnet = norm_subnet(ttype, tid, d.get("subnet"))
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
