@@ -1171,14 +1171,16 @@ def api_node_del(d):
     _require(d, ["id"])
     nid = d["id"]
     wipe = bool(d.get("wipe"))
-    out = {"ok": True}
-    if wipe:
+    out = {"ok": True, "wiped": wipe}
+    if wipe:  # full wipe is ALL-OR-NOTHING: if the node side fails, touch nothing so nothing is half-removed
         n = get_node(nid)
-        if n:  # tell the node to self-destruct (tunnels + agent + service + configs + token)
-            r = node_call(n, "wipe", "POST", {}, timeout=60)
-            out["node_wiped"] = bool(r.get("ok"))
-            out["node_error"] = "" if r.get("ok") else (r.get("error") or r.get("msg") or "unreachable")
-        with _reg_lock:  # drop this node's links from the registry
+        if not n:
+            raise ValueError("نود پیدا نشد")
+        r = node_call(n, "wipe", "POST", {}, timeout=60)
+        if not r.get("ok"):
+            raise ValueError("پاک‌سازیِ سمتِ نود ناموفق: " + (r.get("error") or r.get("msg") or "در دسترس نیست")
+                             + " — چیزی از پنل حذف نشد. اگر سرور از دسترس خارج است یا ایجنتش قدیمی است، «فقط از پنل جدا کن» را بزن.")
+        with _reg_lock:  # wipe succeeded -> drop this node's links from the registry
             links = load_links()
             mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
             mine_ids = {L["id"] for L in mine}
@@ -2447,6 +2449,8 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .ispin{width:13px;height:13px;border:2.5px solid var(--accw);border-top-color:var(--acc);border-radius:50%;animation:isp 1s linear infinite}
 @keyframes isp{to{transform:rotate(360deg)}}
 .ilog{margin:8px 0 2px;background:#0c1220;border:1px solid var(--bord);border-radius:10px;padding:9px 11px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;font-size:10.5px;line-height:1.6;color:#d3ddea;white-space:pre-wrap;max-height:170px;overflow:auto}
+.primary.done{background:var(--ok);box-shadow:none}
+button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transform:none}
 /* ===== delete-node: two-mode chooser ===== */
 .medi.medi-bad{background:var(--badw);color:var(--bad)}
 .delopt{display:block;width:100%;text-align:start;border:1px solid var(--bord);background:var(--field);border-radius:13px;padding:13px 14px;margin-bottom:11px;cursor:pointer;font-family:inherit;color:var(--tx);transition:border-color .14s,background .14s}
@@ -2774,12 +2778,14 @@ function openNodeAddModal(){_naddMode='auto';_authMode='pass';
    '<div id="nadd_prog"></div></div>';
  var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">نام</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">هاست / آی‌پی</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>پورت agent</label><input id="n_port" placeholder="8099"></div><div><label>توکن نود</label><input id="n_tok" placeholder="توکن نود"></div></div><label>پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود</label><input id="n_proxy" placeholder="socks5://host:1080  یا  http://user:pass@host:8080"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ نود</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+'نصب و اتصالِ خودکار</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
-function naddSwitch(m){_naddMode=m;
+function naddSwitch(m){_naddMode=m;_installDone=null;
  var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
  document.querySelectorAll('#nadd_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.m==m)});
- var btn=el('nadd_go');if(btn){btn.disabled=false;btn.innerHTML=(m=='auto'?ic('bolt')+'نصب و اتصالِ خودکار':ic('plus')+'افزودن و اتصال')}
+ var btn=el('nadd_go');if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=(m=='auto'?ic('bolt')+'نصب و اتصالِ خودکار':ic('plus')+'افزودن و اتصال')}
+ var pr=el('nadd_prog');if(pr&&m=='manual')pr.innerHTML='';
  var msg=el('n_msg');if(msg){msg.className='msg';msg.textContent=''}}
-function naddSubmit(){return _naddMode=='auto'?doAutoInstall():addNode()}
+var _installDone=null;  // null = idle/retry, 'ok' = finished successfully (button just closes)
+function naddSubmit(){if(_naddMode=='auto'){if(_installDone=='ok'){var ov=el('nadd_go').closest('.modalov');if(ov)closeModal(ov);return}return doAutoInstall()}return addNode()}
 function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':st=='err'?'<span class="istep-i err">'+XK+'</span>':st=='warn'?'<span class="istep-i warn">'+ic('warn')+'</span>':st=='run'?'<span class="istep-i run"><span class="ispin"></span></span>':'<span class="istep-i wait"></span>'}
 function renderInstallSteps(j){var box=el('nadd_prog');if(!box)return;
  var ban=j.banner?('<div class="ibanner '+(j.done?(j.ok?'ok':'err'):'run')+'">'+(j.done?(j.ok?CK:XK):'')+'<span>'+esc(j.banner)+'</span></div>'):'';
@@ -2801,18 +2807,20 @@ async function doAutoInstall(){var m=el('n_msg'),btn=el('nadd_go');
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){m.className='msg err';m.textContent='نام و آی‌پیِ سرور لازم است';return}
  if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?'کلیدِ خصوصی':'رمزِ SSH')+' لازم است';return}
- m.className='msg';m.textContent='';agBtnBusy(btn,true);
+ _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
+ var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">در حالِ شروعِ نصب…</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
  var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')});
- if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
- var pr=el('nadd_prog');if(pr)pr.scrollIntoView({behavior:'smooth',block:'center'});
- pollInstall(r.d.job)}
-function pollInstall(jid){var poll=async function(){
+ if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
+ pollInstall(r.d.job,300)}
+function pollInstall(jid,delay){var poll=async function(){
   var r=await j('install-status?job='+encodeURIComponent(jid)).then(function(d){return{ok:true,d:d}}).catch(function(){return{ok:false,d:{}}});
-  if(!(r.ok&&r.d.ok)){setTimeout(poll,1500);return}
+  if(!(r.ok&&r.d.ok)){setTimeout(poll,1200);return}
   renderInstallSteps(r.d);
-  if(r.d.done){var btn=el('nadd_go');if(btn){btn.disabled=false;btn.innerHTML=r.d.ok?CK+' انجام شد':ic('bolt')+' تلاشِ مجدد'}
-   if(r.d.ok){toast(r.d.banner||'نود نصب شد','ok');refreshNodes()}return}
-  setTimeout(poll,1300)};poll()}
+  if(r.d.done){var btn=el('nadd_go');
+   if(r.d.ok){_installDone='ok';if(btn){btn.disabled=false;btn.className='primary done';btn.innerHTML=CK+' انجام شد — بستن'}toast(r.d.banner||'نود نصب شد','ok');refreshNodes()}
+   else{_installDone=null;if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=ic('bolt')+' تلاشِ مجدد'}}
+   return}
+  setTimeout(poll,800)};setTimeout(poll,delay||300)}
 async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
@@ -2925,8 +2933,7 @@ async function doDelNode(id,wipe){var m=el('del_msg');
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=true});
  var r=await post('node-del',{id:id,wipe:wipe});
  if(r.ok&&r.d.ok){editingId=null;var ov=m?m.closest('.modalov'):null;
-  if(wipe&&r.d.node_wiped===false)toast('از پنل حذف شد ولی سمتِ نود ناموفق: '+(r.d.node_error||''),'err');
-  else toast(wipe?'نود کاملاً پاک‌سازی شد':'نود از پنل جدا شد','ok');
+  toast(wipe?'نود کاملاً پاک‌سازی شد':'نود از پنل جدا شد','ok');
   if(ov)closeModal(ov);else refreshNodes()}
  else{if(m){m.className='msg err';m.textContent=(r.d&&r.d.error)||'ناموفق'}document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false})}}
 
