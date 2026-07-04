@@ -765,50 +765,151 @@ def _link_side_health(L, node_key):
     return (lst.get("health") or {}).get(L["name"]), True
 
 
+def _cpu_snap():
+    with open("/proc/stat") as f:
+        v = [int(x) for x in f.readline().split()[1:]]
+    idle = v[3] + (v[4] if len(v) > 4 else 0)
+    return sum(v), idle
+
+
+def central_stats():
+    """CPU/RAM/disk/load of the CENTRAL host itself (this panel's server), read live from /proc."""
+    st = {"cpus": os.cpu_count()}
+    try:
+        t1, i1 = _cpu_snap(); time.sleep(0.1); t2, i2 = _cpu_snap(); dt = t2 - t1
+        st["cpu_pct"] = round((1 - (i2 - i1) / dt) * 100) if dt > 0 else 0
+    except Exception:
+        pass
+    try:
+        mt = ma = 0
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    mt = int(line.split()[1])
+                elif line.startswith("MemAvailable:"):
+                    ma = int(line.split()[1])
+        st["mem_total_mb"], st["mem_used_mb"] = mt // 1024, (mt - ma) // 1024
+        st["ram_pct"] = round((mt - ma) / mt * 100) if mt else 0
+    except Exception:
+        pass
+    try:
+        s = os.statvfs("/")
+        avail = s.f_bavail * s.f_frsize
+        used = (s.f_blocks - s.f_bfree) * s.f_frsize
+        st["disk_total_mb"] = (s.f_blocks * s.f_frsize) // (1024 * 1024)
+        st["disk_used_mb"] = used // (1024 * 1024)
+        st["disk_pct"] = round(used / (used + avail) * 100) if (used + avail) else 0
+    except Exception:
+        pass
+    try:
+        with open("/proc/loadavg") as f:
+            st["load"] = f.read().split()[:3]
+    except Exception:
+        pass
+    return st
+
+
+UP_CRIT = 85   # a node metric at/above this is "critical" (red)
+UP_WARN = 60   # at/above this is "warning" (amber)
+
+
 def api_summary(d):
     nodes = load_nodes()
     links = load_links()
+    try:
+        with open(AGENT_META) as f:
+            stored_ver = json.load(f).get("version")
+    except Exception:
+        stored_ver = None
+
     on = tun = pf = mu = mt = du = dt = 0
-    cpu_sum = load_sum = 0.0
+    heat, crit, alerts, outdated = [], [], [], 0
+    worst = {"disk": None, "ram": None, "cpu": None}
     for n in nodes:
-        p = _cached_ping(n["id"])
-        if p.get("ok"):
-            on += 1
-            tun += _sint(p.get("tunnels"))
-            pf += _sint(p.get("portfw"))
-            s = p.get("stats")
-            if not isinstance(s, dict):
-                s = {}
-            mu += _sint(s.get("mem_used_mb"))
-            mt += _sint(s.get("mem_total_mb"))
-            du += _sint(s.get("disk_used_mb"))
-            dt += _sint(s.get("disk_total_mb"))
-            cpu_sum += _sflt(s.get("cpu_pct"))
-            _load = s.get("load")
-            load_sum += _sflt(_load[0]) if isinstance(_load, list) and _load else 0.0
-    healthy = 0
+        nid, nm = n["id"], n.get("name", "")
+        p = _cached_ping(nid)
+        if not p.get("ok"):
+            heat.append({"id": nid, "name": nm, "pct": None, "online": False})
+            if p.get("ping") is not None or _cache_get(nid):  # cached & known-offline (not just un-probed)
+                alerts.append({"level": "bad", "kind": "node", "id": nid, "msg": f"نودِ «{nm}» آفلاین است"})
+            continue
+        on += 1
+        tun += _sint(p.get("tunnels")); pf += _sint(p.get("portfw"))
+        if stored_ver and p.get("version") and _sint(p.get("version")) < _sint(stored_ver):
+            outdated += 1
+        s = p.get("stats") if isinstance(p.get("stats"), dict) else {}
+        mu += _sint(s.get("mem_used_mb")); mt += _sint(s.get("mem_total_mb"))
+        du += _sint(s.get("disk_used_mb")); dt += _sint(s.get("disk_total_mb"))
+        cpu = round(_sflt(s.get("cpu_pct")))
+        disk = round(_sflt(s.get("disk_pct")))
+        ram = round(_sint(s.get("mem_used_mb")) / _sint(s.get("mem_total_mb")) * 100) if _sint(s.get("mem_total_mb")) else 0
+        for key, val, lab in (("disk", disk, "دیسک"), ("ram", ram, "رم"), ("cpu", cpu, "CPU")):
+            if worst[key] is None or val > worst[key]["pct"]:
+                worst[key] = {"name": nm, "id": nid, "pct": val}
+            if val >= UP_CRIT:
+                alerts.append({"level": "bad", "kind": key, "id": nid, "msg": f"{lab}ِ «{nm}» به {val}٪ رسیده"})
+        w = max(cpu, ram, disk)
+        heat.append({"id": nid, "name": nm, "pct": w, "online": True})
+        if w >= UP_CRIT:
+            crit.append(nid)
+
+    up = noping = down = drift_n = 0
+    types = {"vxlan": 0, "gre": 0, "sit": 0}
+    worst_tun = None
     for L in links:
-        ah, aok = _link_side_health(L, "a_node")
-        bh, bok = _link_side_health(L, "b_node")
-        if isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up"):
-            healthy += 1
+        types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
+        ah, _a = _link_side_health(L, "a_node")
+        bh, _b = _link_side_health(L, "b_node")
+        both_up = isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
+        if both_up:
+            pinged = (ah.get("peer_ping") is True) or (bh.get("peer_ping") is True)
+            if pinged:
+                up += 1
+            else:
+                noping += 1
+            for h in (ah, bh):  # track the worst-quality tunnel by rtt / loss
+                if isinstance(h, dict) and (h.get("rtt_ms") is not None or _sflt(h.get("loss_pct")) > 0):
+                    cand = {"name": L.get("name"), "rtt": h.get("rtt_ms"), "loss": h.get("loss_pct")}
+                    if worst_tun is None or _sflt(cand["rtt"]) > _sflt(worst_tun["rtt"]) or _sflt(cand["loss"]) > _sflt(worst_tun["loss"]):
+                        worst_tun = cand
+        else:
+            down += 1
+            alerts.append({"level": "bad", "kind": "link", "id": L["id"], "msg": f"تونلِ «{L.get('name')}» قطع است"})
+        if link_drift(L["id"]):
+            drift_n += 1
+            alerts.append({"level": "warn", "kind": "drift", "id": L["id"], "msg": f"تونلِ «{L.get('name')}» نیازمندِ بازسازی است"})
+    if outdated:
+        alerts.append({"level": "warn", "kind": "agent", "msg": f"{outdated} نود ایجنتِ قدیمی دارد"})
+
+    win = get_settings().get("uptime_window", 1)
+    ups, downcnt = [], 0
+    for n in nodes:
+        vals = [c for c in _uh_cells(n["id"], win) if c is not None]
+        if vals:
+            ups.append(sum(vals) / len(vals) * 100)
+            if 0 in vals:
+                downcnt += 1
+
     frx_bps = ftx_bps = frx = ftx = 0
     with _tf_lock:
         for e in _tf.values():
             nd = e.get("if", {}).get("_node")
             if nd:
-                frx_bps += nd["rx_bps"]
-                ftx_bps += nd["tx_bps"]
-                frx += nd["crx"]
-                ftx += nd["ctx"]
+                frx_bps += nd["rx_bps"]; ftx_bps += nd["tx_bps"]; frx += nd["crx"]; ftx += nd["ctx"]
+
+    offline = len(nodes) - on
+    score = max(0, min(100, 100 - offline * 8 - len(crit) * 6 - down * 10 - drift_n * 4 - noping * 3))
     return {"nodes_online": on, "nodes_total": len(nodes), "links": len(links),
-            "links_healthy": healthy, "tunnels": tun, "portfw": pf,
-            "ram_pct": round(mu / mt * 100) if mt else 0,
-            "cpu_pct": round(cpu_sum / on) if on else 0,
-            "disk_pct": round(du / dt * 100) if dt else 0,
-            "mem_used_mb": mu, "mem_total_mb": mt,
-            "disk_used_mb": du, "disk_total_mb": dt,
-            "load_avg": round(load_sum / on, 2) if on else 0,
+            "links_healthy": up, "tunnels": tun, "portfw": pf,
+            "health_score": score,
+            "central": central_stats(),
+            "heat": heat, "worst": worst,
+            "crit": len(crit), "outdated": outdated,
+            "alerts": alerts[:10],
+            "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
+            "link_types": types, "worst_tunnel": worst_tun,
+            "uptime_avg": round(sum(ups) / len(ups), 1) if ups else 100, "uptime_down_nodes": downcnt, "uptime_window": win,
+            "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx}
 
@@ -1914,6 +2015,43 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ttile{background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:9px 11px}
 .ttile>span{font-size:11px}.ttile b{display:block;font-size:14px;margin-top:2px;font-variant-numeric:tabular-nums;direction:ltr;text-align:right}
 #view .gauges{margin-bottom:0}#view .ttiles{margin-bottom:0}   /* overview reuses node-detail gauges/tiles in a standalone card — drop the modal's trailing gap */
+/* ===== overview: accurate fleet stats ===== */
+.ohero{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.oscore{font-size:44px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.oscore-l{font-size:11.5px;color:var(--sub);margin-top:3px}
+.ochips{display:flex;gap:7px;flex-wrap:wrap;margin-inline-start:auto;justify-content:flex-end}
+.ochip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--field);border:1px solid var(--bord);white-space:nowrap}
+.ochip b{font-weight:800;font-variant-numeric:tabular-nums}
+.ochip.a{background:var(--accw);color:var(--acc);border-color:transparent}
+.ochip.o{background:var(--okw);color:var(--ok);border-color:transparent}
+.ochip.w{background:var(--warnw);color:var(--gold);border-color:transparent}
+.ochip.b{background:var(--badw);color:var(--bad);border-color:transparent}
+.oalert{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--bord)}
+.oalert:last-child{border-bottom:0}
+.oalert .msg{font-size:12.5px;font-weight:600;min-width:0}.oalert .msg b{font-weight:800}
+.oalert .go{margin-inline-start:auto;font-size:11px;color:var(--acc);font-weight:700;white-space:nowrap;cursor:pointer}
+.oheat{display:flex;gap:4px;align-items:flex-end;height:66px;direction:ltr}
+.hbar{flex:1;border-radius:5px 5px 3px 3px;min-height:8px}
+.heat-lg{display:flex;gap:14px;margin-top:10px;font-size:11px;color:var(--sub);flex-wrap:wrap;justify-content:center}
+.heat-lg span{display:inline-flex;align-items:center;gap:5px}.heat-lg i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.otrack{width:9px;height:9px;border-radius:3px;display:inline-block}
+.wrow{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--bord)}
+.wrow:last-child{border-bottom:0}
+.wrow .wk{font-size:12px;color:var(--sub);min-width:40px}.wrow .wnm{font-weight:800;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.wrow .wbar{flex:1;height:7px;border-radius:20px;background:color-mix(in srgb,var(--sub) 20%,transparent);overflow:hidden;margin:0 4px}
+.wrow .wbar i{display:block;height:100%;border-radius:20px}
+.wrow .wpc{font-weight:800;font-size:12.5px;min-width:36px;text-align:left;font-variant-numeric:tabular-nums;direction:ltr}
+.tst{display:flex;gap:9px}
+.tst .tb{flex:1;text-align:center;background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:11px 4px}
+.tst .tb .n{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}.tst .tb .l{font-size:11px;color:var(--sub)}
+.typebar{display:flex;height:12px;border-radius:20px;overflow:hidden;margin-top:11px;background:color-mix(in srgb,var(--sub) 16%,transparent)}
+.typebar i{height:100%}
+.typleg{display:flex;gap:12px;margin-top:8px;font-size:11px;color:var(--sub);justify-content:center;flex-wrap:wrap}
+.typleg span{display:inline-flex;align-items:center;gap:5px}.typleg b{color:var(--tx)}
+.onote{font-size:11.5px;color:var(--sub);background:var(--field);border:1px dashed var(--bord);border-radius:11px;padding:9px 11px;margin-top:11px}.onote b{color:var(--tx)}
+.ostat2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:11px}
+.ostat2 .card{margin:0;text-align:center;padding:14px 10px}
+.ostat2 .big{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
 .tf-tuns .tf-row{display:flex;align-items:center;gap:8px;padding:8px 2px;border-top:1px solid var(--bord);font-size:12px}
 .tf-tuns .tf-row:first-child{border-top:0}
 .tf-nm{display:flex;align-items:center;gap:6px;min-width:0;font-weight:700}.tf-nm .mono{font-size:11.5px}
@@ -2239,27 +2377,63 @@ async function bulkTun(action){var ids=Object.keys(SELT);if(!ids.length)return;
 
 // ===== Overview
 function statc(id,label,hue,icon){return '<div class="card stat"><div class="k"><span class="chip" style="--hue:'+hue+'">'+ic(icon,hue)+'</span> '+label+'</div><div class="v" id="'+id+'">—</div></div>'}
-function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' نمای کلی</h1><p class="sub">وضعیت لحظه‌ای فلیت</p>'+
- '<div class="hero"><div class="k">'+ic('shield','#34d399')+' سلامت لینک‌ها</div><div class="v" id="o_health">—</div><div class="hsub" id="o_hsub">در حال دریافت…</div></div>'+
- '<div class="grid">'+statc('o_nodes','نود آنلاین','#60a5fa','server')+statc('o_links','لینک تونل','#a78bfa','link')+statc('o_tun','تونل نودها','#2dd4bf','bolt')+statc('o_pf','پورت‌فوروارد','#fb923c','globe')+'</div>'+
- '<div class="sec">'+ic('activity','var(--acc)')+' مصرفِ زندهٔ منابع فلیت</div><div class="card"><div class="gauges">'+gaugeHTML('ocpu','CPU')+gaugeHTML('oram','RAM')+gaugeHTML('odisk','دیسک')+'</div></div>'+
- '<div class="sec">'+ic('traf','var(--acc)')+' ترافیک فلیت<span class="lpill"><span class="pd"></span>زنده</span></div><div class="card"><div class="tf-chart"><div class="tf-top"><span class="din">↓ <b id="o_frx">—</b></span><span class="dout">↑ <b id="o_ftx">—</b></span></div><svg id="o_traf" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="o_ftin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="o_ftout">—</b></div></div></div>'+
- '<div class="sec">'+ic('server','var(--acc)')+' وضعیت نودها</div><div class="card"><div class="seg"><svg id="o_donut" class="donut" viewBox="0 0 120 120"></svg><div class="segs" id="o_seg"></div></div></div>'}
-async function refreshOverview(){var s=await j('summary');if(!el('o_health'))return;
- var on=num(s.nodes_online),tot=num(s.nodes_total),off=tot-on,links=num(s.links);
- var hp=links?Math.round(num(s.links_healthy)/links*100):100;
- setT('o_health',hp+'٪');setT('o_hsub',num(s.links_healthy)+' از '+links+' لینک سالم');
- el('o_nodes').innerHTML='<span dir="ltr">'+on+' / '+tot+'</span>';setT('o_links',links);setT('o_tun',num(s.tunnels));setT('o_pf',num(s.portfw));
- var ram=num(s.ram_pct);
- setGauge('ocpu',s.cpu_pct,'لود '+(s.load_avg!=null?s.load_avg:'—'));
- setGauge('oram',ram,num(s.mem_used_mb)+' / '+num(s.mem_total_mb)+' م‌ب');
- setGauge('odisk',s.disk_pct,s.disk_used_mb!=null?(Math.round(num(s.disk_used_mb)/1024)+' / '+Math.round(num(s.disk_total_mb)/1024)+' گیگ'):'—');
+function go(t){cur=t;drawer(false);render()}
+function ocol(p){return p>85?cssv('--bad'):p>60?cssv('--gold'):cssv('--ok')}
+function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' نمای کلی</h1><p class="sub">آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده</p>'+
+ '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">سلامتِ فلیت</div></div><div class="ochips" id="o_chips"></div></div>'+
+ '<div class="sec">'+ic('warn','var(--acc)')+' نیازمندِ توجه</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
+ '<div class="sec">'+ic('grid','var(--acc)')+' همهٔ نودها یک‌نگاه</div><div class="card"><div class="oheat" id="o_heat"></div><div class="heat-lg"><span><i style="background:var(--ok)"></i>سالم</span><span><i style="background:var(--gold)"></i>هشدار (>۶۰٪)</span><span><i style="background:var(--bad)"></i>بحرانی (>۸۵٪)</span></div><div class="muted" style="text-align:center;margin-top:6px;font-size:11px" id="o_heat_c"></div></div>'+
+ '<div class="sec">'+ic('server','var(--acc)')+' سرورِ مرکزی (این پنل)</div><div class="card"><div class="gauges">'+gaugeHTML('scpu','CPU')+gaugeHTML('sram','RAM')+gaugeHTML('sdisk','دیسک')+'</div></div>'+
+ '<div class="sec">'+ic('activity','var(--acc)')+' پرمصرف‌ترین نودها</div><div class="card" id="o_worst"><div class="muted" style="padding:8px 0">…</div></div>'+
+ '<div class="sec">'+ic('link','var(--acc)')+' وضعیتِ تفکیکیِ تونل‌ها</div><div class="card"><div class="tst" id="o_tst"></div><div class="typebar" id="o_typebar"></div><div class="typleg" id="o_typleg"></div><div id="o_wtun"></div></div>'+
+ '<div class="sec">'+ic('traf','var(--acc)')+' ترافیکِ فلیت<span class="lpill"><span class="pd"></span>زنده</span></div><div class="card"><div class="tf-chart"><div class="tf-top"><span class="din">↓ <b id="o_frx">—</b></span><span class="dout">↑ <b id="o_ftx">—</b></span></div><svg id="o_traf" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="o_ftin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="o_ftout">—</b></div></div></div>'+
+ '<div class="sec">'+ic('clock','var(--acc)')+' آپ‌تایم</div><div class="ostat2"><div class="card"><div class="big" id="o_uptime" style="color:var(--ok)">—</div><div class="muted" style="font-size:11.5px" id="o_uptime_l">میانگینِ آپ‌تایم</div></div><div class="card"><div class="big" id="o_updown">—</div><div class="muted" style="font-size:11.5px">نود قطعی داشته</div></div></div>'}
+async function refreshOverview(){var s=await j('summary');if(!el('o_score'))return;
+ var on=num(s.nodes_online),tot=num(s.nodes_total),links=num(s.links),alerts=s.alerts||[];
+ // ---- health score + chips
+ var sc=num(s.health_score),scol=sc>=85?cssv('--ok'):sc>=60?cssv('--gold'):cssv('--bad');
+ var se=el('o_score');se.textContent=sc;se.style.color=scol;
+ el('o_chips').innerHTML='<span class="ochip a">نود <b dir="ltr">'+on+'/'+tot+'</b></span>'+
+  '<span class="ochip o">لینکِ سالم <b dir="ltr">'+num(s.link_up)+'/'+links+'</b></span>'+
+  '<span class="ochip a">تونل <b>'+num(s.tunnels)+'</b></span>'+
+  (alerts.length?'<span class="ochip b">هشدار <b>'+alerts.length+'</b></span>':'<span class="ochip o">بدونِ هشدار</span>');
+ // ---- alerts feed
+ var goMap={node:'nodes',link:'tunnels',drift:'tunnels',disk:'nodes',ram:'nodes',cpu:'nodes',agent:'settings'};
+ var goLbl={nodes:'نودها',tunnels:'تونل‌ها',settings:'تنظیمات'};
+ el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" onclick="go(\\''+g+'\\')">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' همه‌چیز مرتب است — هشداری نیست</div>';
+ // ---- heat row (every node at a glance; height = worst metric)
+ var heat=s.heat||[];
+ el('o_heat').innerHTML=heat.length?heat.map(function(h){if(!h.online)return '<div class="hbar" title="'+esc(h.name)+' — آفلاین" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" title="'+esc(h.name)+' — '+p+'٪" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">نودی نیست</div>';
+ setT('o_heat_c',(heat.length||0)+' نود · هر میله = بدترین متریکِ آن نود (دیسک/رم/CPU) · خاکستری = آفلاین');
+ // ---- central server gauges
+ var c=s.central||{},cl=(c.load||[])[0];
+ setGauge('scpu',c.cpu_pct,'لود '+(cl!=null?cl:'—')+' · '+(num(c.cpus)||'?')+' هسته');
+ setGauge('sram',c.ram_pct,c.mem_used_mb!=null?(num(c.mem_used_mb)+' / '+num(c.mem_total_mb)+' م‌ب'):'—');
+ setGauge('sdisk',c.disk_pct,c.disk_used_mb!=null?(Math.round(num(c.disk_used_mb)/1024)+' / '+Math.round(num(c.disk_total_mb)/1024)+' گیگ'):'—');
+ // ---- worst nodes per metric
+ var w=s.worst||{},wr=function(k,o){if(!o)return '';var p=num(o.pct),cc=ocol(p);return '<div class="wrow"><span class="wk">'+k+'</span><span class="wnm">'+esc(o.name)+'</span><span class="wbar"><i style="width:'+p+'%;background:'+cc+'"></i></span><span class="wpc" style="color:'+cc+'">'+p+'٪</span></div>'};
+ var wh=wr('دیسک',w.disk)+wr('رم',w.ram)+wr('CPU',w.cpu);
+ el('o_worst').innerHTML=wh||'<div class="muted" style="text-align:center;padding:8px 0;font-size:12.5px">نودِ آنلاینی نیست</div>';
+ // ---- tunnel status breakdown
+ var lu=num(s.link_up),ln=num(s.link_noping),ld=num(s.link_down),ldr=num(s.link_drift);
+ el('o_tst').innerHTML='<div class="tb"><div class="n" style="color:var(--ok)">'+lu+'</div><div class="l">متصل</div></div>'+
+  '<div class="tb"><div class="n" style="color:var(--gold)">'+ln+'</div><div class="l">بدونِ پینگ</div></div>'+
+  '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">قطع</div></div>'+
+  '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">نیازمندِ بازسازی</div></div>';
+ var ty=s.link_types||{},tv=num(ty.vxlan),tg=num(ty.gre),ts=num(ty.sit),tt=tv+tg+ts||1;
+ el('o_typebar').innerHTML='<i style="width:'+(tv/tt*100)+'%;background:var(--acc)"></i><i style="width:'+(tg/tt*100)+'%;background:var(--ok)"></i><i style="width:'+(ts/tt*100)+'%;background:#a855f7"></i>';
+ el('o_typleg').innerHTML='<span><i class="otrack" style="background:var(--acc)"></i>vxlan <b>'+tv+'</b></span><span><i class="otrack" style="background:var(--ok)"></i>gre <b>'+tg+'</b></span><span><i class="otrack" style="background:#a855f7"></i>sit <b>'+ts+'</b></span>';
+ var wt=s.worst_tunnel;
+ el('o_wtun').innerHTML=wt?'<div class="onote">📡 بدترین کیفیت: تونلِ <b>'+esc(wt.name)+'</b>'+(wt.rtt!=null?' — پینگ <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+(num(wt.loss)>0?' · اتلاف <b style="color:var(--gold)">'+Math.round(num(wt.loss))+'٪</b>':'')+'</div>':'';
+ // ---- fleet traffic
  var frx=num(s.fleet_rx_bps),ftx=num(s.fleet_tx_bps);
  setT('o_frx',fmtRate(frx));setT('o_ftx',fmtRate(ftx));
  setT('o_ftin',fmtBytes(s.fleet_rx_total));setT('o_ftout',fmtBytes(s.fleet_tx_total));
  FRXHIST.push(frx);FTXHIST.push(ftx);if(FRXHIST.length>26){FRXHIST.shift();FTXHIST.shift()}dualSpark('o_traf',FRXHIST,FTXHIST);
- donut('o_donut',[['آنلاین',on,cssv('--ok')],['آفلاین',off,cssv('--bad')]]);
- el('o_seg').innerHTML='<div><span>'+dotc(cssv('--ok'))+' آنلاین</span><b>'+on+'</b></div><div><span>'+dotc(cssv('--bad'))+' آفلاین</span><b>'+off+'</b></div><div><span>'+dotc(cssv('--chart1'))+' مصرف رم</span><b>'+ram+'٪</b></div>'}
+ // ---- uptime
+ var uw=num(s.uptime_window)||1;
+ setT('o_uptime',num(s.uptime_avg)+'٪');setT('o_uptime_l','میانگینِ آپ‌تایمِ '+uw+' ساعتِ اخیر');
+ setT('o_updown',num(s.uptime_down_nodes))}
 
 // ===== Nodes
 function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' نودها</h1><p class="sub">افزودن و وضعیت زنده‌ی نودها</p>'+
