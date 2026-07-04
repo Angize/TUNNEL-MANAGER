@@ -52,7 +52,7 @@ INSTALLED = os.path.join(CENTRAL_DIR, "tnl-central.py")  # stable path the syste
 
 SESSION_TTL = 8 * 3600
 PBKDF2_ITERS = 150_000
-TYPES = ("vxlan", "gre", "sit")
+TYPES = ("vxlan", "gre", "sit", "ipip", "l2tpv3", "fou", "ipsec")
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
@@ -703,6 +703,17 @@ def norm_subnet(ttype, tid, provided, base=None):
     except Exception:
         ok = False
     return sub if ok else subnet_default(ttype, tid, base)
+
+
+def _tunnel_extra(src):
+    """Type-specific fields that must reach BOTH tunnel ends identically: the UDP port (l2tpv3/fou) and
+    the shared IPsec pre-shared key. Read from a stored link record (edit/rebuild) or a create request."""
+    e = {}
+    if src.get("port"):
+        e["port"] = src["port"]
+    if src.get("psk"):
+        e["psk"] = src["psk"]
+    return e
 
 # ----------------------------------------------------------------------------- central API
 
@@ -1419,7 +1430,8 @@ def api_fleet(d):
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
         a_ips = [ip for ips in (_cached_ping(L["a_node"]).get("ips") or {}).values() for ip in ips]
         b_ips = [ip for ips in (_cached_ping(L["b_node"]).get("ips") or {}).values() for ip in ips]
-        out.append({**L, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
+        pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the IPsec key to the browser
+        out.append({**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                     "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                     "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                     "drift": link_drift(L["id"]), **tfl.get(L["id"], {})})
@@ -1490,12 +1502,20 @@ def _create_tunnel_impl(d):
         raise ValueError("no free tunnel id on the pair")
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
     name = f"{ttype}{tid}"
+    extra = {}   # values generated ONCE here so both ends match and edit/rebuild can replay them
+    if ttype in ("l2tpv3", "fou"):
+        port = int(d.get("port") or 0) or (20000 + tid)
+        if not 1 <= port <= 65535:
+            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+        extra["port"] = port
+    if ttype == "ipsec":
+        extra["psk"] = secrets.token_hex(32)   # shared ESP key material for both sides
     ra = node_call(A, "tunnel", "POST", {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip,
-                                         "subnet": subnet, "id": tid, "name": name}, timeout=200)
+                                         "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not ra.get("ok"):
         raise ValueError(f"node '{A['name']}': {ra.get('error') or ra.get('msg')}")
     rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
-                                         "subnet": subnet, "id": tid, "name": name}, timeout=200)
+                                         "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not rb.get("ok"):
         rr = node_call(A, "delete", "POST", {"name": name})  # roll back A side
         warn = "" if rr.get("ok") else f" — هشدار: '{name}' روی {A['name']} پاک نشد، دستی تمیزش کن"
@@ -1505,7 +1525,8 @@ def _create_tunnel_impl(d):
             links = load_links()
             links.append({"id": secrets.token_hex(6), "name": name, "type": ttype, "subnet": subnet,
                           "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
-                          "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, "created": int(time.time())})
+                          "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, "created": int(time.time()),
+                          **extra})
             save_json(LINKS_FILE, links)
     except Exception as e:  # tunnels are live on BOTH nodes but the record failed to persist — tear them back down
         da = node_call(A, "delete", "POST", {"name": name})
@@ -1544,7 +1565,8 @@ def _restore_link(A, B, L):
     for N, self_ip, peer_ip in ((A, L["a_ip"], L["b_ip"]), (B, L["b_ip"], L["a_ip"])):
         if N:
             node_call(N, "tunnel", "POST", {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
-                                            "subnet": L["subnet"], "id": tid, "name": L["name"]}, timeout=200)
+                                            "subnet": L["subnet"], "id": tid, "name": L["name"],
+                                            **_tunnel_extra(L)}, timeout=200)
 
 
 def api_edit_link(d):
@@ -1596,16 +1618,24 @@ def _edit_link_impl(d):
     new_name = f"{ttype}{tid}" if name_changed else old_name
     if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"]:
         return {"ok": True, "unchanged": True, "name": old_name}
+    extra = {}   # carry over port/psk when the type is unchanged; regenerate when it changes into a type that needs them
+    if ttype in ("l2tpv3", "fou"):
+        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou") else 0) or (20000 + tid)
+        if not 1 <= port <= 65535:
+            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+        extra["port"] = port
+    if ttype == "ipsec":
+        extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
     if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
     ra = node_call(A, "tunnel", "POST", {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip,
-                                         "subnet": subnet, "id": tid, "name": new_name}, timeout=200)
+                                         "subnet": subnet, "id": tid, "name": new_name, **extra}, timeout=200)
     if not ra.get("ok"):
         _restore_link(A, B, L)
         raise ValueError(f"node '{A['name']}': {ra.get('error') or ra.get('msg')} (restored old tunnel)")
     rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
-                                         "subnet": subnet, "id": tid, "name": new_name}, timeout=200)
+                                         "subnet": subnet, "id": tid, "name": new_name, **extra}, timeout=200)
     if not rb.get("ok"):
         if name_changed:
             node_call(A, "delete", "POST", {"name": new_name})
@@ -1617,6 +1647,11 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
+                for k in ("port", "psk"):   # keep only the extras this type uses; drop the rest
+                    if k in extra:
+                        x[k] = extra[k]
+                    else:
+                        x.pop(k, None)
                 break
         save_json(LINKS_FILE, links)
     _refresh_cache([L["a_node"], L["b_node"]])
@@ -1677,13 +1712,14 @@ def _rebuild_link_impl(d):
         raise ValueError("could not determine node IPs")
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
+    extra = _tunnel_extra(L)   # same UDP port / IPsec psk as before
     ra = node_call(A, "tunnel", "POST", {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip,
-                                         "subnet": subnet, "id": tid, "name": name}, timeout=200)
+                                         "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not ra.get("ok"):
         _restore_link(A, B, L)   # both ends were pre-deleted; best-effort rebuild to the prior state
         raise ValueError(f"node '{A['name']}': {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
     rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
-                                         "subnet": subnet, "id": tid, "name": name}, timeout=200)
+                                         "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not rb.get("ok"):
         _restore_link(A, B, L)
         raise ValueError(f"node '{B['name']}': {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
@@ -2205,6 +2241,10 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .tag.sit{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .tag.gre{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
 .tag.portfw{color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)}
+.tag.ipip{color:#14b8a6;border-color:color-mix(in srgb,#14b8a6 45%,transparent)}
+.tag.l2tpv3{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 45%,transparent)}
+.tag.fou{color:#ec4899;border-color:color-mix(in srgb,#ec4899 45%,transparent)}
+.tag.ipsec{color:#f43f5e;border-color:color-mix(in srgb,#f43f5e 45%,transparent)}
 .nact{display:flex;gap:8px;margin-top:13px;flex-wrap:wrap}
 button.act{display:inline-flex;align-items:center;gap:5px;background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 12px;cursor:pointer;font-size:12.5px;font-family:inherit}
 button.act:active{transform:scale(.97)}button.act .ic{width:14px;height:14px}
@@ -2483,6 +2523,10 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .iptyp.vxlan{color:#fff;background:var(--acc)}.iptyp.vxlan::after{border-top-color:var(--acc)}
 .iptyp.gre{color:#fff;background:var(--ok)}.iptyp.gre::after{border-top-color:var(--ok)}
 .iptyp.sit{color:#fff;background:#a855f7}.iptyp.sit::after{border-top-color:#a855f7}
+.iptyp.ipip{color:#fff;background:#14b8a6}.iptyp.ipip::after{border-top-color:#14b8a6}
+.iptyp.l2tpv3{color:#fff;background:#8b5cf6}.iptyp.l2tpv3::after{border-top-color:#8b5cf6}
+.iptyp.fou{color:#fff;background:#ec4899}.iptyp.fou::after{border-top-color:#ec4899}
+.iptyp.ipsec{color:#fff;background:#f43f5e}.iptyp.ipsec::after{border-top-color:#f43f5e}
 /* ===== add-node: mode switch + SSH auto-install progress ===== */
 .seg{display:flex;background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:4px;gap:4px;margin-bottom:14px}
 .seg button{flex:1;border:0;background:transparent;color:var(--sub);font-family:inherit;font-weight:800;font-size:13px;padding:9px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
@@ -2659,7 +2703,7 @@ function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1;
 var SELN={},SELT={},selN=false,selT=false;  // bulk-select state (nodes / tunnels)
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0},QRY={nodes:'',tunnels:'',portfw:'',agent:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
-var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'}];
+var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 var SUBNETRANGES=[{v:'192.168',label:'خودکار · 192.168.x (پیشنهادی)'},{v:'10',label:'خودکار · 10.x'},{v:'172.16',label:'خودکار · 172.16.x'},{v:'custom',label:'دلخواه (دستی وارد کن)'}];
 var SUBNETRANGES2=[{v:'192.168',label:'192.168.x'},{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'}];
 document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){cur=p.dataset.t;drawer(false);render()}});
@@ -2808,9 +2852,11 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
   '<div class="tb"><div class="n" style="color:var(--gold)">'+ln+'</div><div class="l">بدونِ پینگ</div></div>'+
   '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">قطع</div></div>'+
   '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">نیازمندِ بازسازی</div></div>';
- var ty=s.link_types||{},tv=num(ty.vxlan),tg=num(ty.gre),ts=num(ty.sit),tt=tv+tg+ts||1;
- el('o_typebar').innerHTML='<i style="width:'+(tv/tt*100)+'%;background:var(--acc)"></i><i style="width:'+(tg/tt*100)+'%;background:var(--ok)"></i><i style="width:'+(ts/tt*100)+'%;background:#a855f7"></i>';
- el('o_typleg').innerHTML='<span><i class="otrack" style="background:var(--acc)"></i>vxlan <b>'+tv+'</b></span><span><i class="otrack" style="background:var(--ok)"></i>gre <b>'+tg+'</b></span><span><i class="otrack" style="background:#a855f7"></i>sit <b>'+ts+'</b></span>';
+ var ty=s.link_types||{};
+ var TYD=[['vxlan','var(--acc)'],['gre','var(--ok)'],['sit','#a855f7'],['ipip','#14b8a6'],['l2tpv3','#8b5cf6'],['fou','#ec4899'],['ipsec','#f43f5e']];
+ var tt=0;TYD.forEach(function(x){tt+=num(ty[x[0]])});tt=tt||1;
+ el('o_typebar').innerHTML=TYD.map(function(x){return '<i style="width:'+(num(ty[x[0]])/tt*100)+'%;background:'+x[1]+'"></i>'}).join('');
+ el('o_typleg').innerHTML=TYD.filter(function(x){return num(ty[x[0]])>0}).map(function(x){return '<span><i class="otrack" style="background:'+x[1]+'"></i>'+x[0]+' <b>'+num(ty[x[0]])+'</b></span>'}).join('')||'<span class="muted">تونلی نیست</span>';
  var wt=s.worst_tunnel;
  if(wt){var pr=(wt.a&&wt.b)?' <span dir="ltr" style="color:var(--tx);font-weight:800">'+esc(wt.a)+' ↔ '+esc(wt.b)+'</span>':'';
   setHTML(el('o_wtun'),'<div class="onote">📡 بدترین کیفیت: تونلِ <b>'+esc(wt.name)+'</b>'+pr+(num(wt.loss)>0?' · اتلاف <b style="color:var(--bad)">'+Math.round(num(wt.loss))+'٪</b>':'')+(wt.rtt!=null?' · پینگ <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+'</div>');}
@@ -3069,7 +3115,10 @@ function linkCard(l){
   '<span class="tnarrow">↔</span>'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="tnst" id="lbb_'+l.id+'" style="color:'+sb.c+'">'+esc(sb.t)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
-  '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span><span>شناسه: <b>'+esc(l.tunnel_id)+'</b></span><span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span><span>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></span></div>';
+  '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span><span>شناسه: <b>'+esc(l.tunnel_id)+'</b></span><span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span>'+
+  (((l.type=='l2tpv3'||l.type=='fou')&&l.port)?'<span>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></span>':'')+
+  (l.type=='ipsec'?'<span style="color:#f43f5e;font-weight:700">🔒 رمزنگاری‌شده</span>':'')+
+  '<span>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></span></div>';
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var traf=(l.rx_total!=null||l.rx_bps!=null)?'<div class="ltraf"><span class="din">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout">↑ '+fmtRate(l.tx_bps)+'</span><span class="tot">مجموع ↓'+fmtBytes(l.rx_total)+' ↑'+fmtBytes(l.tx_total)+'</span></div>':'';
  var acts='<div class="nact iconly"><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
@@ -3157,9 +3206,9 @@ async function delLink(id){if(!await confirmBox('این تونل روی هر د�
 async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});selTargets={};
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','fillTargets')+'<div id="c_srcip"></div><label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<label>نودِ مقصد (یک یا چند)</label><button type="button" class="msbtn ph" id="c_tgt_btn" onclick="toggleTgtList()"><span id="c_tgt_lbl">انتخابِ نودهای مقصد</span><span class="cv">'+ic('chev')+'</span></button><div id="c_tgtips"></div><label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه (فقط برای یک مقصد)</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
+ var b='<label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','fillTargets')+'<div id="c_srcip"></div><label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<div id="c_typex"></div><label>نودِ مقصد (یک یا چند)</label><button type="button" class="msbtn ph" id="c_tgt_btn" onclick="toggleTgtList()"><span id="c_tgt_lbl">انتخابِ نودهای مقصد</span><span class="cv">'+ic('chev')+'</span></button><div id="c_tgtips"></div><label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه (فقط برای یک مقصد)</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ تونل</h3><div class="sb">یک مبدأ + یک یا چند مقصد</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">ساخت تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- fillTargets()}
+ fillTargets();renderTypeExtra()}
 function onSubnetRange(){var w=el('c_snc_wrap');if(w)w.style.display=(ssVal('c_snr')=='custom')?'block':'none'}
 function fillTargets(){selTargets={};updateTgt();renderSrcIp();renderTgtIps()}  // reset on source change; list builds on open
 var _tgtOv=null;
@@ -3177,8 +3226,13 @@ function renderSrcIp(){var w=el('c_srcip');if(!w)return;var ips=nodeIps(ssVal('c
 function renderTgtIps(){var w=el('c_tgtips');if(!w)return;var html='';Object.keys(selTargets).forEach(function(id){var ips=nodeIps(id);
  if(ips.length>1){var k='c_bip_'+id;html+='<label>آی‌پیِ مقصد «'+esc(nodeName(id))+'» (چند آی‌پی دارد)</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}});
  w.innerHTML=html}
-function onCreateType(){var f=el('c_subnet');if(!f||!f.value.trim())return;var wantV6=(ssVal('c_type')=='sit');
- if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
+function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(ssVal('c_type')=='sit');
+  if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
+ renderTypeExtra()}
+function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type');
+ if(t=='l2tpv3'||t=='fou'){w.innerHTML='<label>پورتِ UDP (اختیاری — خالی = خودکار از شناسه)</label><input id="c_port" inputmode="numeric" placeholder="مثلا 51820"><div class="muted" style="font-size:11px;margin:-4px 2px 11px">روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.</div>'}
+ else if(t=='ipsec'){w.innerHTML='<div class="autonote" style="margin-bottom:11px">'+ic('shield')+'<span>رمزنگاری‌شده (ESP). کلید خودکار ساخته و امن به هر دو سر داده می‌شود — بدونِ دیمنِ خارجی.</span></div>'}
+ else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a');var tgts=Object.keys(selTargets);
  if(!tgts.length){m.className='msg err';m.textContent='حداقل یک نودِ مقصد انتخاب کن';return}
@@ -3188,6 +3242,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
   var bip=el('ssb_c_bip_'+tgts[i])?ssVal('c_bip_'+tgts[i]):'';   // only send an IP when its picker exists (multi-IP node); never a stale value
   var body={a_node:a,b_node:tgts[i],type:type,a_ip:aip,b_ip:bip};
   if(range=='custom')body.subnet=custom;else body.subnet_base=range;
+  if((type=='l2tpv3'||type=='fou')&&el('c_port')&&v('c_port'))body.port=v('c_port');
   var r=await post('create-tunnel',body);
   if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
  if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}
