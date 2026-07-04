@@ -1745,26 +1745,39 @@ def _edit_link_impl(d):
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
     new_name = f"{ttype}{tid}" if name_changed else old_name
     extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
-    if ttype in ("l2tpv3", "fou"):
-        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou") else 0) or (20000 + tid)
+    if ttype in ("l2tpv3", "fou", "engine"):
+        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "engine") else 0) or (20000 + tid)
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
+    server_side = None
+    if ttype == "engine":
+        cipher = str(d.get("cipher") or L.get("cipher") or "auto").strip().lower()
+        if cipher not in ENGINE_CIPHERS:
+            raise ValueError("روشِ رمزنگاری نامعتبر است")
+        extra["cipher"] = cipher
+        if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
+            extra["psk"] = L.get("psk") or secrets.token_hex(32)
+        server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
-    if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
+    engine_same = ttype != "engine" or (extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a"))
+    if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and engine_same:
         return {"ok": True, "unchanged": True, "name": old_name}
     if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
-    ra = node_call(A, "tunnel", "POST", {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip,
-                                         "subnet": subnet, "id": tid, "name": new_name, **extra}, timeout=200)
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, **extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name, **extra}
+    if ttype == "engine":
+        a_body["role"] = "server" if server_side == "a" else "client"
+        b_body["role"] = "server" if server_side == "b" else "client"
+    ra = node_call(A, "tunnel", "POST", a_body, timeout=200)
     if not ra.get("ok"):
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
-    rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
-                                         "subnet": subnet, "id": tid, "name": new_name, **extra}, timeout=200)
+    rb = node_call(B, "tunnel", "POST", b_body, timeout=200)
     if not rb.get("ok"):
         if name_changed:
             node_call(A, "delete", "POST", {"name": new_name})
@@ -1776,11 +1789,15 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
                         x.pop(k, None)
+                if ttype == "engine":
+                    x["server_side"] = server_side
+                else:
+                    x.pop("server_side", None)
                 break
         save_json(LINKS_FILE, links)
     _refresh_cache([L["a_node"], L["b_node"]])
@@ -2747,10 +2764,19 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .toast .ic{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-inline-end:4px}
 .tag.engine{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 40%,transparent);background:color-mix(in srgb,#8b5cf6 12%,transparent)}
 body.dark .tag.engine{color:#a78bfa}
-.rl{font-size:10px;font-weight:800;border-radius:20px;padding:1px 8px;border:1px solid;margin-inline-start:6px;vertical-align:1px}
-.rl.srv{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 38%,transparent);background:var(--accw)}
-.rl.cli{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 38%,transparent);background:var(--goldw)}
-.enclock{color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:4px;direction:ltr}
+.rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
+.rl.srv{color:var(--acc);background:var(--accw)}
+.rl.cli{color:var(--gold);background:var(--goldw)}
+.enclock{color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:3px;direction:ltr}
+.enclock .ic{width:12px;height:12px}
+.stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
+.sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
+.sdot.warn{background:var(--gold);box-shadow:0 0 0 3px var(--goldw)}
+.sdot.bad{background:var(--bad);box-shadow:0 0 0 3px var(--badw)}
+.sdot.na{background:var(--sub)}
+.stw{font-size:10px;font-weight:800}
+.stw.warn{color:var(--gold)}.stw.bad{color:var(--bad)}.stw.na{color:var(--sub)}
 .seg2{display:flex;gap:8px;margin:2px 0 11px}
 .seg2 .segopt{flex:1;border:1.5px solid var(--bord);background:var(--field);border-radius:11px;padding:9px 8px;text-align:center;cursor:pointer;font-family:inherit;color:var(--tx);display:flex;flex-direction:column;gap:1px}
 .seg2 .segopt b{font-size:12.5px;font-weight:800}
@@ -3279,12 +3305,19 @@ function sideMini(online,h){
  if(!h.up)return {t:'قطع',c:'var(--bad)'};
  if(h.peer_ping===false)return {t:'نیم‌بند',c:'var(--gold)'};
  return {t:'متصل',c:'var(--ok)'}}
+function sideState(online,h){  // k: dot color class, w: the word to show ONLY when there's a problem
+ if(!online||!h)return {k:'bad',w:'قطع'};
+ if(h.up==null)return {k:'na',w:'…'};
+ if(!h.up)return {k:'bad',w:'قطع'};
+ if(h.peer_ping===false)return {k:'warn',w:'نیم‌بند'};
+ return {k:'ok',w:''}}   // connected -> clean, just the green dot
+function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + engine cards
+ return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="متصل"')+'></span>'}
 function linkCard(l){
- var sa=sideMini(l.a_online,l.a_health),sb=sideMini(l.b_online,l.b_health);
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="tnst" id="lba_'+l.id+'" style="color:'+sa.c+'">'+esc(sa.t)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+sideDot(l.a_online,l.a_health)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="tnst" id="lbb_'+l.id+'" style="color:'+sb.c+'">'+esc(sb.t)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+sideDot(l.b_online,l.b_health)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span><span>شناسه: <b>'+esc(l.tunnel_id)+'</b></span><span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span>'+
   (((l.type=='l2tpv3'||l.type=='fou')&&l.port)?'<span>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></span>':'')+
@@ -3316,8 +3349,8 @@ async function checkLink(id){CHECKING++;
   var r=await post('check-link',{id:id});
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
   if(!(r.ok&&r.d.ok)){setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'ناموفق'));return}
-  var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id),sa=sideMini(d.a_online,d.a_health),sb=sideMini(d.b_online,d.b_health);
-  if(ab){ab.style.color=sa.c;ab.textContent=sa.t}if(bb){bb.style.color=sb.c;bb.textContent=sb.t}
+  var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
+  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.peer_ping===true)||(d.b_health&&d.b_health.peer_ping===true);
   var okAll=aup&&bup&&pinged;
@@ -3438,17 +3471,16 @@ function engineSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+
 async function refreshEngine(){if(editingId||CHECKING)return;var f=await j('fleet?kind=engine&offset='+(PG.engine*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.engine));FLEET=f.links||[];TOT.engine=num(f.total);var box=el('engList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(engineCard).join(''):'<div class="card muted">'+(QRY.engine?'موردی یافت نشد.':'هنوز تونلِ موتوری نیست — دکمهٔ «تونلِ موتور» بالا را بزن.')+'</div>');renderPager('engine')}
 function engineCard(l){
- var sa=sideMini(l.a_online,l.a_health),sb=sideMini(l.b_online,l.b_health);
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?'سرور':'کلاینت')+'</span><span class="tnst" id="lba_'+l.id+'" style="color:'+sa.c+'">'+esc(sa.t)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?'سرور':'کلاینت')+'</span><span class="stat" id="lba_'+l.id+'">'+sideDot(l.a_online,l.a_health)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?'کلاینت':'سرور')+'</span><span class="tnst" id="lbb_'+l.id+'" style="color:'+sb.c+'">'+esc(sb.t)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?'کلاینت':'سرور')+'</span><span class="stat" id="lbb_'+l.id+'">'+sideDot(l.b_online,l.b_health)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span>'+
    (l.port?'<span>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></span>':'')+
    '<span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span>'+
-   (l.cipher&&l.cipher!='none'?'<span class="enclock">'+ic('lock','var(--ok)')+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>':'<span class="muted">بدونِ رمز</span>')+
+   (l.cipher&&l.cipher!='none'?'<span>رمزنگاری: <span class="enclock">'+ic('lock','var(--ok)')+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span>':'<span>رمزنگاری: <b>بدونِ رمز</b></span>')+
    '<span>نوع: <span class="tag engine">bip</span></span></div>';
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
@@ -3456,22 +3488,28 @@ function engineCard(l){
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
  var traf='<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>';
- var acts='<div class="nact iconly">'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly">'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openEngineEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 var _engSrv='a';
 async function openEngineModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_engSrv='a';
- var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','engRoleLbls')+
-  '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','engRoleLbls')+
+ var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onEngNode')+'<div id="e_aip"></div>'+
+  '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onEngNode')+'<div id="e_bip"></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="engSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="engSetSrv(\\'b\\')"></button></div>'+
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ UDP را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
   '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',ENGINE_CIPHERS,'auto','رمز','')+
-  '<div class="grid2"><div><label>پورتِ UDP (خالی=خودکار)</label><input id="e_port" inputmode="numeric" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="e_subnet" placeholder="10.200.0.0/24"></div></div>'+
+  '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onEngSubRange')+'<div id="e_snc"></div>'+
+  '<label>پورتِ UDP (خالی=خودکار)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ موتور</h3><div class="sb">موتورِ اختصاصی · packet/bip</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateEngine()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- engRoleLbls()}
+ engRoleLbls();renderEngIps()}
+function onEngNode(){renderEngIps();engRoleLbls()}
+function renderEngIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;var nid=ssVal('e_'+side),ips=nodeIps(nid),k='e_'+side+'ip_sel';
+ if(ips.length>1){w.innerHTML='<label>آی‌پیِ «'+esc(nodeName(nid))+'» <small>— چند آی‌پی دارد</small></label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}
+ else{w.innerHTML='';delete SEL[k]}})}
+function onEngSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>سابنتِ دلخواه</label><input id="e_subnet" placeholder="مثلا 192.168.99.0/24">':''}
 function engRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' سرور</b><span>'+esc(bn)+' کلاینت</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' سرور</b><span>'+esc(an)+' کلاینت</span>'}
@@ -3479,11 +3517,42 @@ function engSetSrv(s){_engSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.class
 async function doCreateEngine(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
  var body={a_node:a,b_node:bb,type:'engine',server_side:_engSrv,cipher:ssVal('e_cipher')};
- var port=v('e_port');if(port)body.port=port;var sub=v('e_subnet');if(sub)body.subnet=sub;
+ var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
+ var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
+ var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
+ var port=v('e_port');if(port)body.port=port;
  m.textContent='در حال ساختِ تونلِ موتور روی دو نود…';
  var r=await post('create-tunnel',body);
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونلِ موتور ساخته شد','ok');refreshEngine()}
  else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
+// ===== engine edit (cipher / role / port / subnet / ips -> rebuild both ends)
+var _eeSrv='a';
+function openEngineEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';
+ var aips=l.a_ips||[],bips=l.b_ips||[];
+ function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){return '<label>آی‌پیِ «'+esc(nm)+'»</label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
+ var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
+  ipsel('a',l.a_ip,aips,l.a_name)+ipsel('b',l.b_ip,bips,l.b_name)+
+  '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="eeSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="eeSetSrv(\\'b\\')"></button></div>'+
+  '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',ENGINE_CIPHERS,(l.cipher||'auto'),'رمز','')+
+  '<div class="grid2"><div><label>پورتِ UDP</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
+  '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
+  '<div class="msg" id="ee_msg"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ تونلِ موتور</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doEngineEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
+ eeRoleLbls(l)}
+function eeRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
+ if(a)a.innerHTML='<b>'+esc(l.a_name)+' سرور</b><span>'+esc(l.b_name)+' کلاینت</span>';
+ if(b)b.innerHTML='<b>'+esc(l.b_name)+' سرور</b><span>'+esc(l.a_name)+' کلاینت</span>'}
+function eeSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
+async function doEngineEdit(id){var m=el('ee_msg');m.className='msg';m.textContent='در حال ذخیره و بازسازیِ دو سر…';
+ var l=FLEET.filter(function(x){return x.id==id})[0]||{};
+ var body={id:id,type:'engine',server_side:_eeSrv,cipher:ssVal('ee_cipher')};
+ var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
+ var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
+ var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
+ var r=await post('edit-link',body);
+ if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?'تغییری نبود':'ذخیره و بازسازی شد','ok');refreshEngine()}
+ else{m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}
 
 // ===== Port-forward
 function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' پورت‌فوروارد</h1><p class="sub">فوروارد پورت روی یک نود (با چرخشِ چند مقصد)</p>'+
