@@ -935,6 +935,12 @@ def _name_taken(nodes, name, exclude_id=None):
     return any(n.get("id") != exclude_id and str(n.get("name", "")).strip().lower() == key for n in nodes)
 
 
+def _host_taken(nodes, host, exclude_id=None):
+    """One node per host/IP — a second node on the same address is never needed."""
+    key = str(host).strip().lower()
+    return any(n.get("id") != exclude_id and str(n.get("host", "")).strip().lower() == key for n in nodes)
+
+
 def api_node_add(d):
     _require(d, ["name", "host", "port", "token"])
     name = str(d["name"]).strip()
@@ -955,6 +961,8 @@ def api_node_add(d):
         nodes = load_nodes()
         if _name_taken(nodes, name):
             raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
+        if _host_taken(nodes, host):
+            raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
         nodes.append(node)
         save_json(NODES_FILE, nodes)
     p = node_call(node, "ping", "GET")
@@ -1067,6 +1075,8 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
             nodes = load_nodes()
             if _name_taken(nodes, name):  # a same-name node was added during the (minutes-long) install
                 return fail("register", f"نودی با نامِ «{name}» در این فاصله اضافه شد — نام باید یکتا باشد")
+            if _host_taken(nodes, cfg["host"]):
+                return fail("register", f"نودی با آی‌پیِ «{cfg['host']}» در این فاصله اضافه شد")
             nodes.append(node)
             save_json(NODES_FILE, nodes)
         _refresh_cache([node["id"]])
@@ -1097,11 +1107,14 @@ def api_node_install(d):
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
         raise ValueError("bad node name")
-    if _name_taken(load_nodes(), name):
-        raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
     host = str(d["ssh_host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
         raise ValueError("bad host")
+    _exist = load_nodes()
+    if _name_taken(_exist, name):
+        raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
+    if _host_taken(_exist, host):
+        raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
     ssh_port = int(d.get("ssh_port") or 22)
     if not 1 <= ssh_port <= 65535:
         raise ValueError("bad ssh port")
@@ -1163,6 +1176,8 @@ def api_node_edit(d):
             raise ValueError("node not found")
         if _name_taken(nodes, name, exclude_id=d["id"]):  # can't rename onto another node's name
             raise ValueError(f"نودِ دیگری با نامِ «{name}» وجود دارد — نام باید یکتا باشد")
+        if _host_taken(nodes, host, exclude_id=d["id"]):  # can't move onto another node's IP
+            raise ValueError(f"نودِ دیگری با آی‌پیِ «{host}» وجود دارد")
         n["name"], n["host"], n["port"], n["proxy"] = name, host, port, proxy
         if token:
             n["token"] = token  # blank = keep the existing token
@@ -2828,7 +2843,7 @@ function _instRender(c){var box=el('nadd_prog');if(!box)return;var anim=!c.finis
    html+='<div class="istep '+disp+'">'+instIcon(disp)+'<div class="istep-b"><div class="istep-t">'+esc(s.label||'')+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}
  setHTML(box,'<div class="iwrap">'+html+'</div>')}
 function _instFinish(c){c.finished=true;_instRender(c);var btn=el('nadd_go');
- if(c.bOk){_installDone='ok';if(btn){btn.disabled=false;btn.className='primary done';btn.innerHTML=CK+' انجام شد — بستن'}toast(c.banner||'نود نصب شد','ok');refreshNodes().catch(function(){})}
+ if(c.bOk){_installDone='ok';if(btn){btn.disabled=false;btn.className='primary done';btn.innerHTML=CK+' انجام شد'}toast(c.banner||'نود نصب شد','ok');refreshNodes().catch(function(){})}
  else{_installDone=null;if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=ic('bolt')+' تلاشِ مجدد'}}
  if(c.timer)clearTimeout(c.timer);_inst=null}
 function _instNow(){return (window.performance&&performance.now)?performance.now():Date.now()}
