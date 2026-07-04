@@ -1025,6 +1025,7 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
 
     try:
         _install_step(jid, "ssh", "run")
+        time.sleep(0.4)  # let the "running" spinner be seen by a poll before the (possibly fast) step finishes
         rc, out, err = _ssh_run(cfg, "echo TNL_SSH_OK", 30)
         if rc == 127:
             return fail("ssh", "ابزارِ SSH روی سرورِ مرکزی نیست",
@@ -1034,6 +1035,7 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
         _install_step(jid, "ssh", "ok", f"{cfg['user']}@{cfg['host']}:{cfg['port']} — وصل شد")
 
         _install_step(jid, "download", "run")
+        time.sleep(0.4)
         dl = f"(curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py || wget -qO /tmp/tnl-node.py {NODE_RAW_URL}) && echo TNL_DL_OK"
         rc, out, err = _ssh_run(cfg, dl, 90)
         if rc != 0 or "TNL_DL_OK" not in out:
@@ -1053,6 +1055,7 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
         _install_step(jid, "install", "ok", "ایجنت نصب و اجرا شد")
 
         _install_step(jid, "register", "run")
+        time.sleep(0.4)
         node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"],
                 "port": agent_port, "token": token, "proxy": proxy}
         with _reg_lock:
@@ -2450,7 +2453,7 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 @keyframes isp{to{transform:rotate(360deg)}}
 .ilog{margin:8px 0 2px;background:#0c1220;border:1px solid var(--bord);border-radius:10px;padding:9px 11px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;font-size:10.5px;line-height:1.6;color:#d3ddea;white-space:pre-wrap;max-height:170px;overflow:auto}
 .primary.done{background:var(--ok);box-shadow:none}
-.bspin{width:19px;height:19px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:isp .9s linear infinite}
+.bspin{display:block;margin:1px auto;width:19px;height:19px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:isp .9s linear infinite}
 button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transform:none}
 /* ===== delete-node: two-mode chooser ===== */
 .medi.medi-bad{background:var(--badw);color:var(--bad)}
@@ -2823,7 +2826,7 @@ function pollInstall(jid,delay){var poll=async function(){
    if(r.d.ok){_installDone='ok';if(btn){btn.disabled=false;btn.className='primary done';btn.innerHTML=CK+' انجام شد — بستن'}toast(r.d.banner||'نود نصب شد','ok');refreshNodes()}
    else{_installDone=null;if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=ic('bolt')+' تلاشِ مجدد'}}
    return}
-  setTimeout(poll,800)};setTimeout(poll,delay||300)}
+  setTimeout(poll,400)};setTimeout(poll,delay||250)}
 async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
