@@ -53,6 +53,7 @@ INSTALLED = os.path.join(CENTRAL_DIR, "tnl-central.py")  # stable path the syste
 SESSION_TTL = 8 * 3600
 PBKDF2_ITERS = 150_000
 TYPES = ("vxlan", "gre", "sit", "ipip", "l2tpv3", "fou", "ipsec")
+IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (local,remote) — one per ip-pair
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
@@ -1479,8 +1480,11 @@ def _create_tunnel_impl(d):
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
     new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
     for L in load_links():  # (a multi-ip pair may legitimately have several tunnels on different ips)
-        if L.get("type") == ttype and frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair:
+        same_pair = frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair
+        if L.get("type") == ttype and same_pair:
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
+        if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
+            raise ValueError(f"روی این جفتِ آی‌پی از قبل تونلِ {L.get('type')} هست؛ ipip و fou با هم روی یک جفت آی‌پی نمی‌شوند — نوعِ دیگری بزن یا آی‌پیِ لوکالِ متفاوت انتخاب کن")
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
@@ -1609,9 +1613,13 @@ def _edit_link_impl(d):
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
     new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
     for x in load_links():
-        if (x.get("id") != L["id"] and x.get("type") == ttype
-                and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
+        if x.get("id") == L["id"]:
+            continue
+        same_pair = frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair
+        if x.get("type") == ttype and same_pair:
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
+        if ttype in IPIP_FAMILY and x.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
+            raise ValueError(f"روی این جفتِ آی‌پی از قبل تونلِ {x.get('type')} هست؛ ipip و fou با هم روی یک جفت آی‌پی نمی‌شوند — نوعِ دیگری بزن یا آی‌پیِ لوکالِ متفاوت انتخاب کن")
     subnet = norm_subnet(ttype, tid, d.get("subnet"))
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
