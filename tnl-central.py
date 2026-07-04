@@ -1025,7 +1025,6 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
 
     try:
         _install_step(jid, "ssh", "run")
-        time.sleep(0.4)  # let the "running" spinner be seen by a poll before the (possibly fast) step finishes
         rc, out, err = _ssh_run(cfg, "echo TNL_SSH_OK", 30)
         if rc == 127:
             return fail("ssh", "ابزارِ SSH روی سرورِ مرکزی نیست",
@@ -1035,7 +1034,6 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
         _install_step(jid, "ssh", "ok", f"{cfg['user']}@{cfg['host']}:{cfg['port']} — وصل شد")
 
         _install_step(jid, "download", "run")
-        time.sleep(0.4)
         dl = f"(curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py || wget -qO /tmp/tnl-node.py {NODE_RAW_URL}) && echo TNL_DL_OK"
         rc, out, err = _ssh_run(cfg, dl, 90)
         if rc != 0 or "TNL_DL_OK" not in out:
@@ -1055,7 +1053,6 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
         _install_step(jid, "install", "ok", "ایجنت نصب و اجرا شد")
 
         _install_step(jid, "register", "run")
-        time.sleep(0.4)
         node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"],
                 "port": agent_port, "token": token, "proxy": proxy}
         with _reg_lock:
@@ -2771,7 +2768,7 @@ function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' ن�
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن نود</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+toolbar('nodes','جستجوی نام یا آی‌پی…')+'<div id="nodeList"></div>'+pagerBottom('nodes')}
 var _naddMode='auto';
-function openNodeAddModal(){_naddMode='auto';_authMode='pass';
+function openNodeAddModal(){_naddMode='auto';_authMode='pass';_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+'خودکار</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+'دستی</button></div>';
  var auto='<div id="nadd_auto">'+
    '<div class="autonote">'+ic('bolt')+'<span>مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.</span></div>'+
@@ -2785,7 +2782,7 @@ function openNodeAddModal(){_naddMode='auto';_authMode='pass';
    '<div id="nadd_prog"></div></div>';
  var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">نام</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">هاست / آی‌پی</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>پورت agent</label><input id="n_port" placeholder="8099"></div><div><label>توکن نود</label><input id="n_tok" placeholder="توکن نود"></div></div><label>پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود</label><input id="n_proxy" placeholder="socks5://host:1080  یا  http://user:pass@host:8080"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ نود</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+'نصب و اتصالِ خودکار</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
-function naddSwitch(m){_naddMode=m;_installDone=null;
+function naddSwitch(m){_naddMode=m;_installDone=null;_instStop();
  var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
  document.querySelectorAll('#nadd_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.m==m)});
  var btn=el('nadd_go');if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=(m=='auto'?ic('bolt')+'نصب و اتصالِ خودکار':ic('plus')+'افزودن و اتصال')}
@@ -2794,14 +2791,42 @@ function naddSwitch(m){_naddMode=m;_installDone=null;
 var _installDone=null;  // null = idle/retry, 'ok' = finished successfully (button just closes)
 function naddSubmit(){if(_naddMode=='auto'){if(_installDone=='ok'){var ov=el('nadd_go').closest('.modalov');if(ov)closeModal(ov);return}return doAutoInstall()}return addNode()}
 function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':st=='err'?'<span class="istep-i err">'+XK+'</span>':st=='warn'?'<span class="istep-i warn">'+ic('warn')+'</span>':st=='run'?'<span class="istep-i run"><span class="ispin"></span></span>':'<span class="istep-i wait"></span>'}
-function renderInstallSteps(j){var box=el('nadd_prog');if(!box)return;
- var bicon=j.done?(j.ok?CK:XK):'<span class="ispin"></span>';
- var ban=j.banner?('<div class="ibanner '+(j.done?(j.ok?'ok':'err'):'run')+'">'+bicon+'<span>'+esc(j.banner)+'</span></div>'):'';
- // one-by-one: only render steps that have actually started (skip the not-yet-reached ones)
- var steps=(j.steps||[]).filter(function(s){return s.state&&s.state!='wait'}).map(function(s){
-   var lg=s.log?'<div class="ilog">'+esc(s.log)+'</div>':'';
-   return '<div class="istep '+s.state+'">'+instIcon(s.state)+'<div class="istep-b"><div class="istep-t">'+esc(s.label)+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}).join('');
- box.innerHTML='<div class="iwrap">'+ban+steps+'</div>'}
+// live install: reveal steps one-by-one on a CLIENT clock (elapsed-time based, so Android timer-
+// throttling can't collapse them), clamped to the backend's real progress. ONE self-terminating loop
+// that stops the instant the modal closes — no leaked/duplicate pollers, no infinite retry.
+var _inst=null,_MINSPIN=600;
+function _instStop(){if(_inst){_inst.cancelled=true;if(_inst.timer)clearTimeout(_inst.timer);_inst=null}}
+function _instPoll(c){j('install-status?job='+encodeURIComponent(c.job)+'&_='+Date.now())
+ .then(function(d){c.polling=false;
+   if(d&&d.ok){c.failN=0;c.steps=d.steps||[];c.confirmed=c.steps.map(function(s){return s.state});if(d.banner)c.banner=d.banner;c.bDone=!!d.done;c.bOk=!!d.ok}
+   else if(d&&/not found/.test(d.error||'')){c.err='وضعیتِ نصب یافت نشد';c.bDone=true;c.bOk=false}
+   else{c.failN++;if(c.failN>=30){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}}})
+ .catch(function(){c.polling=false;c.failN++;if(c.failN>=30){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}})}
+function _instRender(c){var box=el('nadd_prog');if(!box)return;var anim=!c.finished;
+ var bicon=anim?'<span class="ispin"></span>':(c.bOk?CK:XK);
+ var btext=anim?'در حالِ نصب…':(c.err||c.banner||'انجام شد');   // don't flash the backend's "done" banner while steps are still revealing
+ var html='<div class="ibanner '+(anim?'run':(c.bOk?'ok':'err'))+'">'+bicon+'<span>'+esc(btext)+'</span></div>';
+ var steps=c.steps||[],conf=c.confirmed||[];
+ for(var i=0;i<c.revealIdx;i++){var s=steps[i]||{},cst=conf[i]||'run',newest=(i==c.revealIdx-1),disp;
+   if(cst=='err')disp='err';else if(newest&&anim)disp='run';else disp=(cst=='warn')?'warn':'ok';
+   var lg=(disp=='err'&&s.log)?'<div class="ilog">'+esc(s.log)+'</div>':'';
+   html+='<div class="istep '+disp+'">'+instIcon(disp)+'<div class="istep-b"><div class="istep-t">'+esc(s.label||'')+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}
+ setHTML(box,'<div class="iwrap">'+html+'</div>')}
+function _instFinish(c){c.finished=true;_instRender(c);var btn=el('nadd_go');
+ if(c.bOk){_installDone='ok';if(btn){btn.disabled=false;btn.className='primary done';btn.innerHTML=CK+' انجام شد — بستن'}toast(c.banner||'نود نصب شد','ok');refreshNodes().catch(function(){})}
+ else{_installDone=null;if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=ic('bolt')+' تلاشِ مجدد'}}
+ if(c.timer)clearTimeout(c.timer);_inst=null}
+function _instNow(){return (window.performance&&performance.now)?performance.now():Date.now()}
+function _instTick(){var c=_inst;if(!c)return;
+ if(c.cancelled||!el('nadd_prog')){_instStop();return}   // modal closed -> loop dies (no leak)
+ var now=_instNow();
+ if(!c.polling&&now-c.lastPoll>=380){c.polling=true;c.lastPoll=now;_instPoll(c)}
+ var conf=c.confirmed||[],started=0;
+ for(var i=0;i<conf.length;i++){if(conf[i]&&conf[i]!='wait')started=i+1}
+ var cur=c.revealIdx-1,curTerm=cur<0||(conf[cur]&&conf[cur]!='wait'&&conf[cur]!='run');
+ if(c.revealIdx<started&&now-c.lastReveal>=_MINSPIN&&curTerm){c.revealIdx++;c.lastReveal=now}  // advance one step per beat, never past the backend
+ if(!c.finished&&c.bDone&&c.revealIdx>=started&&now-c.lastReveal>=_MINSPIN&&(started>0||c.err)){_instFinish(c);return}
+ _instRender(c);c.timer=setTimeout(_instTick,150)}
 var _authMode='pass';
 function authMode(m){_authMode=m;
  var pf=el('a_pass'),kf=el('a_key'),h=el('a_authhint');
@@ -2811,25 +2836,17 @@ function authMode(m){_authMode=m;
  var f=(m=='pass')?pf:kf;if(f){try{f.focus()}catch(e){}}}
 function agBtnBusy(btn,on,label){if(!btn)return;btn.disabled=on;
  btn.innerHTML=on?'<span class="bspin"></span>':label}
-async function doAutoInstall(){var m=el('n_msg'),btn=el('nadd_go');
+async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go');   // never start a second install while one is live
  var name=v('a_name'),host=v('a_host');
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){m.className='msg err';m.textContent='نام و آی‌پیِ سرور لازم است';return}
  if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?'کلیدِ خصوصی':'رمزِ SSH')+' لازم است';return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
  var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>در حالِ نصب…</span></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
- var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')});
- if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
- pollInstall(r.d.job,300)}
-function pollInstall(jid,delay){var poll=async function(){
-  var r=await j('install-status?job='+encodeURIComponent(jid)+'&_='+Date.now()).then(function(d){return{ok:true,d:d}}).catch(function(){return{ok:false,d:{}}});
-  if(!(r.ok&&r.d.ok)){setTimeout(poll,1200);return}
-  renderInstallSteps(r.d);
-  if(r.d.done){var btn=el('nadd_go');
-   if(r.d.ok){_installDone='ok';if(btn){btn.disabled=false;btn.className='primary done';btn.innerHTML=CK+' انجام شد — بستن'}toast(r.d.banner||'نود نصب شد','ok');refreshNodes()}
-   else{_installDone=null;if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=ic('bolt')+' تلاشِ مجدد'}}
-   return}
-  setTimeout(poll,400)};setTimeout(poll,delay||250)}
+ var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')}).catch(function(){return{ok:false,d:{}}});
+ if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=(r.d&&r.d.error)||'ناموفق';if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
+ _inst={job:r.d.job,steps:[],confirmed:[],banner:'در حالِ نصب…',bDone:false,bOk:false,err:'',revealIdx:0,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
+ _instTick()}
 async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
