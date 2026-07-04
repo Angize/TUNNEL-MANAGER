@@ -1703,7 +1703,7 @@ html{height:100%;background:var(--page)}
 body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--page);min-height:100vh}
 .shell{display:flex;min-height:100vh}
 .side{width:236px;flex:0 0 236px;background:var(--side);border-inline-start:1px solid var(--bord);padding:18px 13px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;z-index:40}
-.sbrand{display:flex;align-items:center;gap:9px;padding:2px 6px 6px;font-size:17px;font-weight:800}
+.sbrand{display:flex;align-items:center;gap:9px;padding:2px 6px 6px;font-size:17px;font-weight:800;direction:ltr}
 .sbrand small{display:block;font-size:11px;color:var(--sub);font-weight:600}
 .logo{width:34px;height:34px;border-radius:11px;background:var(--acc);color:#fff;display:grid;place-items:center;font-size:16px;flex:0 0 auto;box-shadow:0 6px 14px -6px var(--acc)}
 .nav{display:flex;flex-direction:column;gap:2px;margin-top:14px}
@@ -2032,7 +2032,7 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 <div class="backdrop" onclick="drawer(false)"></div>
 <div class="shell">
  <aside class="side" id="side">
-  <div class="sbrand"><span class="logo"><span class="ic" data-ic="shield"></span></span><span>tnl<small>کنترل فلیت</small></span></div>
+  <div class="sbrand"><span class="logo"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER<small>کنترل فلیت</small></span></div>
   <nav class="nav" id="nav">
    <a class="navi" data-t="overview"><span class="ic" data-ic="dash"></span> نمای کلی</a>
    <a class="navi" data-t="nodes"><span class="ic" data-ic="server"></span> نودها<span class="ct" id="ct_nodes"></span></a>
