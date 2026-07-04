@@ -503,6 +503,8 @@ def _tf_ingest(nid, net, up, now):
         e = _tf.get(nid)
         if e is None:
             e = _tf[nid] = {"prev_ts": 0.0, "prev_up": None, "if": {}, "seed": {}}
+        if e["prev_ts"] and now < e["prev_ts"]:   # overlapping polls: an out-of-order stale sample would
+            return                                # roll the baseline/clock backwards and re-count -> drop it
         dt = (now - e["prev_ts"]) if e["prev_ts"] else 0
         reboot = e["prev_up"] is not None and up is not None and up < e["prev_up"]
         emit = (0 < dt <= TF_MAX_GAP) and not reboot   # normal sample: emit rate + accumulate bytes
@@ -537,8 +539,26 @@ def _tf_ingest(nid, net, up, now):
                     if draw <= TF_BPS_CEIL / 8.0 * dt:   # bound the gap credit too: ignore an implausibly large delta
                         s[ck] += draw
                 s[pk] = raw
+        for key in e["if"]:               # an iface that dropped out of the report (deleted / mid-rebuild /
+            if key not in net:            # no default route) must decay its rate, else it shows phantom throughput
+                e["if"][key]["rx_bps"] = 0.0
+                e["if"][key]["tx_bps"] = 0.0
         e["prev_ts"] = now
         e["prev_up"] = up
+
+
+def _tf_forget(nid, keys):
+    """Drop per-iface accounting state (rates + lifetime cum + seed) for deleted tunnels/port-forwards,
+    so a later tunnel that reuses the same name doesn't inherit the removed one's lifetime totals."""
+    if not keys:
+        return
+    with _tf_lock:
+        e = _tf.get(nid)
+        if not e:
+            return
+        for k in keys:
+            e["if"].pop(k, None)
+            e["seed"].pop(k, None)
 
 
 def _tf_read(nid):
@@ -1559,6 +1579,8 @@ def api_delete_link(d):
         return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن"}
     with _reg_lock:  # atomic RMW; re-read so a concurrent create isn't clobbered
         save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
+    _tf_forget(L["a_node"], [L["name"]])   # drop stale traffic totals so a reused tunnel name starts fresh
+    _tf_forget(L["b_node"], [L["name"]])
     _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True}
 
@@ -1888,6 +1910,8 @@ def api_portfw_del(d):
     if not n:
         raise ValueError("node not found")
     r = node_call(n, "delete", "POST", {"name": d["name"]})
+    if r.get("ok"):
+        _tf_forget(n["id"], ["pf:" + str(d["name"])])   # drop stale totals so a reused portfw id starts fresh
     _refresh_cache([n["id"]])
     return {"ok": bool(r.get("ok")), "msg": r.get("error", "")}
 
