@@ -27,6 +27,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -954,6 +955,182 @@ def api_node_add(d):
             "error": "" if p.get("ok") else p.get("error", "unreachable")}
 
 
+# ----------------------------------------------------------------------------- SSH auto-provision
+# The panel can SSH into a fresh server, install the (public) node agent non-interactively, read the
+# generated token back and register the node — all steps streamed to the operator via a polling job.
+NODE_RAW_URL = "https://raw.githubusercontent.com/Angize/TUNNEL-MANAGER-NODE/main/tnl-node.py"
+_INSTALL_STEPS = [("ssh", "اتصالِ SSH"), ("download", "دانلودِ ایجنت"),
+                  ("install", "نصب و راه‌اندازیِ سرویس"), ("register", "ثبت و اتصال در پنل")]
+_INSTALL_LABELS = dict(_INSTALL_STEPS)
+_install_jobs = {}
+_install_lock = threading.Lock()
+
+
+def _scrub(s):
+    return re.sub(r"TNL_NODE_TOKEN=\S+", "TNL_NODE_TOKEN=***", s or "")[-1400:]
+
+
+def _install_get(jid):
+    with _install_lock:
+        j = _install_jobs.get(jid)
+        return json.loads(json.dumps(j)) if j else None  # deep copy for a race-free read
+
+
+def _install_step(jid, key, state, detail=None, log=None):
+    with _install_lock:
+        j = _install_jobs.get(jid)
+        if not j:
+            return
+        for s in j["steps"]:
+            if s["key"] == key:
+                s["state"] = state
+                if detail is not None:
+                    s["detail"] = detail
+                if log is not None:
+                    s["log"] = _scrub(log)
+                break
+
+
+def _install_finish(jid, ok, banner):
+    with _install_lock:
+        j = _install_jobs.get(jid)
+        if j:
+            j["done"], j["ok"], j["banner"] = True, ok, banner
+
+
+def _ssh_argv(cfg, remote_cmd):
+    opts = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=15", "-p", str(cfg["port"])]
+    target = f"{cfg['user']}@{cfg['host']}"
+    if cfg.get("keyfile"):
+        return ["ssh", "-i", cfg["keyfile"], "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"] + opts + [target, remote_cmd], None
+    return ["sshpass", "-e", "ssh"] + opts + [target, remote_cmd], dict(os.environ, SSHPASS=cfg.get("password", ""))
+
+
+def _ssh_run(cfg, remote_cmd, timeout):
+    argv, env = _ssh_argv(cfg, remote_cmd)
+    try:
+        p = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except FileNotFoundError as e:
+        return 127, "", str(e)
+    except subprocess.TimeoutExpired:
+        return 124, "", "SSH timeout"
+
+
+def _install_worker(jid, cfg, name, agent_port, proxy):
+    def fail(key, msg, log=""):
+        _install_step(jid, key, "err", msg, log)
+        _install_finish(jid, False, f"نصب در مرحلهٔ «{_INSTALL_LABELS[key]}» متوقف شد")
+
+    try:
+        _install_step(jid, "ssh", "run")
+        rc, out, err = _ssh_run(cfg, "echo TNL_SSH_OK", 30)
+        if rc == 127:
+            return fail("ssh", "ابزارِ SSH روی سرورِ مرکزی نیست",
+                        "برای احرازِ رمز، sshpass لازم است:  sudo apt install -y sshpass\n(یا از کلیدِ خصوصی استفاده کن)")
+        if rc != 0 or "TNL_SSH_OK" not in out:
+            return fail("ssh", "اتصالِ SSH ناموفق", (err or out).strip())
+        _install_step(jid, "ssh", "ok", f"{cfg['user']}@{cfg['host']}:{cfg['port']} — وصل شد")
+
+        _install_step(jid, "download", "run")
+        dl = f"(curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py || wget -qO /tmp/tnl-node.py {NODE_RAW_URL}) && echo TNL_DL_OK"
+        rc, out, err = _ssh_run(cfg, dl, 90)
+        if rc != 0 or "TNL_DL_OK" not in out:
+            return fail("download", "دانلودِ ایجنت ناموفق (curl/wget؟ دسترسیِ اینترنت؟)", (err or out).strip())
+        _install_step(jid, "download", "ok", "tnl-node.py دریافت شد")
+
+        _install_step(jid, "install", "run", "نصبِ وابستگی‌ها ممکن است چند دقیقه طول بکشد…")
+        sudo = "" if cfg["user"] == "root" else "sudo -n "
+        rc, out, err = _ssh_run(cfg, f"{sudo}python3 /tmp/tnl-node.py --auto-install {agent_port}", 900)
+        combined = ((out or "") + "\n" + (err or "")).strip()
+        if rc != 0 or "TNL_INSTALL_OK" not in out:
+            return fail("install", "نصب/راه‌اندازیِ سرویس ناموفق", combined)
+        m = re.search(r"TNL_NODE_TOKEN=(\S+)", out)
+        if not m:
+            return fail("install", "توکن از خروجیِ نصب خوانده نشد", combined)
+        token = m.group(1)
+        _install_step(jid, "install", "ok", "ایجنت نصب و اجرا شد")
+
+        _install_step(jid, "register", "run")
+        node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"],
+                "port": agent_port, "token": token, "proxy": proxy}
+        with _reg_lock:
+            nodes = load_nodes()
+            nodes.append(node)
+            save_json(NODES_FILE, nodes)
+        _refresh_cache([node["id"]])
+        online = False
+        for _ in range(6):  # the service just started; give it a few seconds to answer
+            if node_call(node, "ping", "GET").get("ok"):
+                online = True
+                break
+            time.sleep(2)
+        with _install_lock:
+            _install_jobs[jid]["node_id"] = node["id"]
+        _install_step(jid, "register", "ok" if online else "warn",
+                      "نود وصل شد و آنلاین است" if online else "ثبت شد ولی هنوز پاسخ نمی‌دهد (پورتِ ایجنت را به سرورِ مرکزی باز کن)")
+        _install_finish(jid, True, f"«{name}» نصب و وصل شد" if online else f"«{name}» ثبت شد؛ در انتظارِ آنلاین‌شدن")
+    except Exception as e:
+        fail("install", "خطای غیرمنتظره", str(e))
+    finally:
+        kf = cfg.get("keyfile")
+        if kf:
+            try:
+                os.remove(kf)
+            except Exception:
+                pass
+
+
+def api_node_install(d):
+    _require(d, ["name", "ssh_host"])
+    name = str(d["name"]).strip()
+    if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
+        raise ValueError("bad node name")
+    host = str(d["ssh_host"]).strip()
+    if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
+        raise ValueError("bad host")
+    ssh_port = int(d.get("ssh_port") or 22)
+    if not 1 <= ssh_port <= 65535:
+        raise ValueError("bad ssh port")
+    user = str(d.get("ssh_user") or "root").strip()
+    if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", user):
+        raise ValueError("bad ssh user")
+    agent_port = int(d.get("agent_port") or 8099)
+    if not 1 <= agent_port <= 65535:
+        raise ValueError("bad agent port")
+    proxy = valid_proxy(d.get("proxy"))
+    password = str(d.get("ssh_pass") or "")
+    key = str(d.get("ssh_key") or "").strip()
+    if not password and not key:
+        raise ValueError("رمزِ SSH یا کلیدِ خصوصی لازم است")
+    cfg = {"host": host, "port": ssh_port, "user": user, "password": password}
+    if key:
+        fd, kp = tempfile.mkstemp(prefix="tnlkey_")
+        with os.fdopen(fd, "w") as f:
+            f.write(key if key.endswith("\n") else key + "\n")
+        os.chmod(kp, 0o600)
+        cfg["keyfile"], cfg["password"] = kp, ""
+    now = int(time.time())
+    jid = secrets.token_hex(6)
+    with _install_lock:
+        for k in [k for k, v in _install_jobs.items() if now - v.get("ts", now) > 3600]:  # prune stale
+            _install_jobs.pop(k, None)
+        _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
+                                        for k, l in _INSTALL_STEPS],
+                              "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
+    threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, proxy), daemon=True).start()
+    return {"ok": True, "job": jid}
+
+
+def api_node_install_status(d):
+    _require(d, ["job"])
+    j = _install_get(d["job"])
+    if not j:
+        raise ValueError("job not found")
+    return {"ok": True, **j}
+
+
 def api_node_edit(d):
     _require(d, ["id", "name", "host", "port"])
     name = str(d["name"]).strip()
@@ -1585,9 +1762,9 @@ def _node_ip_tags(nid):
     peers = {}
     for L in load_links():
         if L.get("a_node") == nid and L.get("a_ip"):
-            peers.setdefault(L["a_ip"], []).append({"node": L.get("b_name") or "", "type": L.get("type") or ""})
+            peers.setdefault(L["a_ip"], []).append({"node": L.get("b_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
         if L.get("b_node") == nid and L.get("b_ip"):
-            peers.setdefault(L["b_ip"], []).append({"node": L.get("a_name") or "", "type": L.get("type") or ""})
+            peers.setdefault(L["b_ip"], []).append({"node": L.get("a_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
     host = n.get("host")
     out = []
     for ip in live:
@@ -1667,6 +1844,7 @@ API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
+    "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-meta": api_node_meta, "node-stats": api_node_stats,
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
@@ -1676,7 +1854,7 @@ API = {
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
 }
-MUTATIONS = {"node-add", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
+MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "settings-set"}
 
@@ -2188,6 +2366,28 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .iptyp.vxlan{color:#fff;background:var(--acc)}.iptyp.vxlan::after{border-top-color:var(--acc)}
 .iptyp.gre{color:#fff;background:var(--ok)}.iptyp.gre::after{border-top-color:var(--ok)}
 .iptyp.sit{color:#fff;background:#a855f7}.iptyp.sit::after{border-top-color:#a855f7}
+/* ===== add-node: mode switch + SSH auto-install progress ===== */
+.seg{display:flex;background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:4px;gap:4px;margin-bottom:14px}
+.seg button{flex:1;border:0;background:transparent;color:var(--sub);font-family:inherit;font-weight:800;font-size:13px;padding:9px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.seg button.on{background:var(--card);color:var(--acc);box-shadow:0 1px 3px rgba(20,30,50,.12)}
+.seg button .ic{width:15px;height:15px}
+.autonote{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;color:var(--sub);background:var(--warnw);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:11px;padding:10px 12px;margin-bottom:13px}
+.autonote .ic{color:var(--gold);flex:0 0 auto;margin-top:1px}
+.iwrap{margin-top:14px;border-top:1px solid var(--bord);padding-top:6px}
+.ibanner{display:flex;align-items:center;gap:8px;border-radius:11px;padding:10px 12px;font-size:12.5px;font-weight:800;margin:8px 0 6px}
+.ibanner.run{background:var(--accw);color:var(--acc)}
+.ibanner.ok{background:var(--okw);color:var(--ok)}
+.ibanner.err{background:var(--badw);color:var(--bad)}
+.istep{display:flex;align-items:flex-start;gap:11px;padding:9px 0}
+.istep-i{flex:0 0 auto;width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+.istep-i.ok{background:var(--okw);color:var(--ok)}.istep-i.err{background:var(--badw);color:var(--bad)}
+.istep-i.warn{background:var(--warnw);color:var(--gold)}.istep-i.warn .ic{width:14px;height:14px}
+.istep-i.run{background:var(--accw)}.istep-i.wait{background:var(--field);border:1px solid var(--bord)}
+.istep-b{min-width:0;flex:1}.istep-t{font-weight:700;font-size:13.5px}.istep.err .istep-t{color:var(--bad)}
+.istep-s{color:var(--sub);font-size:11.5px}
+.ispin{width:13px;height:13px;border:2.5px solid var(--accw);border-top-color:var(--acc);border-radius:50%;animation:isp 1s linear infinite}
+@keyframes isp{to{transform:rotate(360deg)}}
+.ilog{margin:8px 0 2px;background:#0c1220;border:1px solid var(--bord);border-radius:10px;padding:9px 11px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;font-size:10.5px;line-height:1.6;color:#d3ddea;white-space:pre-wrap;max-height:170px;overflow:auto}
 .ipfree{font-size:10.5px;font-weight:700;color:var(--sub);border:1px dashed var(--bord);padding:2px 8px;border-radius:8px}
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
@@ -2489,8 +2689,47 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
 function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' نودها</h1><p class="sub">افزودن و وضعیت زنده‌ی نودها</p>'+
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن نود</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+toolbar('nodes','جستجوی نام یا آی‌پی…')+'<div id="nodeList"></div>'+pagerBottom('nodes')}
-function openNodeAddModal(){var b='<div class="grid2"><div><label class="first">نام</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">هاست / آی‌پی</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>پورت agent</label><input id="n_port" placeholder="8099"></div><div><label>توکن نود</label><input id="n_tok" placeholder="توکن نود"></div></div><label>پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود</label><input id="n_proxy" placeholder="socks5://host:1080  یا  http://user:pass@host:8080"><div class="msg" id="n_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ نود</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="addNode()">افزودن و اتصال</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+var _naddMode='auto';
+function openNodeAddModal(){_naddMode='auto';
+ var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+'خودکار</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+'دستی</button></div>';
+ var auto='<div id="nadd_auto">'+
+   '<div class="autonote">'+ic('bolt')+'<span>مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.</span></div>'+
+   '<div class="grid2"><div><label class="first">نامِ نود</label><input id="a_name" placeholder="DE02"></div><div><label class="first">آی‌پیِ سرور</label><input id="a_host" placeholder="5.75.197.55"></div></div>'+
+   '<div class="grid2"><div><label>پورتِ SSH</label><input id="a_sshport" placeholder="22"></div><div><label>کاربرِ SSH</label><input id="a_user" placeholder="root"></div></div>'+
+   '<div class="grid2"><div><label>پورتِ ایجنت</label><input id="a_aport" placeholder="8099"></div><div><label>پروکسیِ کنترل (اختیاری)</label><input id="a_proxy" placeholder="socks5://host:1080"></div></div>'+
+   '<label>رمزِ SSH <span class="muted" style="font-weight:500">(یا کلیدِ خصوصیِ پایین)</span></label><input id="a_pass" type="password" placeholder="••••••••" autocomplete="new-password">'+
+   '<label>کلیدِ خصوصیِ SSH — اختیاری، جای رمز</label><textarea id="a_key" rows="2" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:11px;direction:ltr;resize:vertical"></textarea>'+
+   '<div id="nadd_prog"></div></div>';
+ var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">نام</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">هاست / آی‌پی</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>پورت agent</label><input id="n_port" placeholder="8099"></div><div><label>توکن نود</label><input id="n_tok" placeholder="توکن نود"></div></div><label>پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود</label><input id="n_proxy" placeholder="socks5://host:1080  یا  http://user:pass@host:8080"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ نود</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+'نصب و اتصالِ خودکار</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+function naddSwitch(m){_naddMode=m;
+ var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
+ document.querySelectorAll('#nadd_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.m==m)});
+ var btn=el('nadd_go');if(btn){btn.disabled=false;btn.innerHTML=(m=='auto'?ic('bolt')+'نصب و اتصالِ خودکار':ic('plus')+'افزودن و اتصال')}
+ var msg=el('n_msg');if(msg){msg.className='msg';msg.textContent=''}}
+function naddSubmit(){return _naddMode=='auto'?doAutoInstall():addNode()}
+function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':st=='err'?'<span class="istep-i err">'+XK+'</span>':st=='warn'?'<span class="istep-i warn">'+ic('warn')+'</span>':st=='run'?'<span class="istep-i run"><span class="ispin"></span></span>':'<span class="istep-i wait"></span>'}
+function renderInstallSteps(j){var box=el('nadd_prog');if(!box)return;
+ var ban=j.banner?('<div class="ibanner '+(j.done?(j.ok?'ok':'err'):'run')+'">'+(j.done?(j.ok?CK:XK):'')+'<span>'+esc(j.banner)+'</span></div>'):'';
+ var steps=(j.steps||[]).map(function(s){
+   var lg=s.log?'<div class="ilog">'+esc(s.log)+'</div>':'';
+   return '<div class="istep '+s.state+'">'+instIcon(s.state)+'<div class="istep-b"><div class="istep-t">'+esc(s.label)+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}).join('');
+ box.innerHTML='<div class="iwrap">'+ban+steps+'</div>'}
+async function doAutoInstall(){var m=el('n_msg');
+ var name=v('a_name'),host=v('a_host'),pass=v('a_pass'),key=(el('a_key')?el('a_key').value:'').trim();
+ if(!name||!host){m.className='msg err';m.textContent='نام و آی‌پیِ سرور لازم است';return}
+ if(!pass&&!key){m.className='msg err';m.textContent='رمزِ SSH یا کلیدِ خصوصی لازم است';return}
+ m.className='msg';m.textContent='';var btn=el('nadd_go');if(btn)btn.disabled=true;
+ var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')});
+ if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(btn)btn.disabled=false;return}
+ pollInstall(r.d.job)}
+function pollInstall(jid){var poll=async function(){
+  var r=await j('install-status?job='+encodeURIComponent(jid)).then(function(d){return{ok:true,d:d}}).catch(function(){return{ok:false,d:{}}});
+  if(!(r.ok&&r.d.ok)){setTimeout(poll,1500);return}
+  renderInstallSteps(r.d);
+  if(r.d.done){var btn=el('nadd_go');if(btn){btn.disabled=false;btn.innerHTML=r.d.ok?CK+' انجام شد':ic('bolt')+' تلاشِ مجدد'}
+   if(r.d.ok){toast(r.d.banner||'نود نصب شد','ok');refreshNodes()}return}
+  setTimeout(poll,1300)};poll()}
 async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
@@ -2679,7 +2918,7 @@ var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="c
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
 var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 function ipChips(x){var t=(x.peers||[]).map(function(p){
-  return '<span class="ippeer" onclick="ipTog(event,this)"><span class="ipchip">'+LINKI+' '+esc(p.node)+'</span><span class="iptyp '+esc(p.type)+'">'+esc(p.type)+'</span></span>'});
+  return '<span class="ippeer" onclick="ipTog(event,this)"><span class="ipchip">'+LINKI+' '+esc(p.node)+'</span><span class="iptyp '+esc(p.type)+'">'+esc(p.name||p.type)+'</span></span>'});
  if(x.free)t.push('<span class="ipfree">آزاد</span>');return t.join('')}
 function ipTog(ev,el){if(ev)ev.stopPropagation();el.classList.toggle('show')}
 function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" style="font-size:11.5px;padding:6px 2px">آی‌پی‌ای گزارش نشد</div>';
