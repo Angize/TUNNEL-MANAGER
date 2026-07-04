@@ -1612,6 +1612,11 @@ def _create_tunnel_impl(d):
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
         extra["port"] = port
+    if ttype == "vxlan":   # VXLAN UDP port is settable (default 4789) — stored so edit/rebuild replay it
+        port = int(d.get("port") or 4789)
+        if not 1 <= port <= 65535:
+            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+        extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = secrets.token_hex(32)   # shared ESP key material for both sides
     server_side = None
@@ -1747,6 +1752,11 @@ def _edit_link_impl(d):
     extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
     if ttype in ("l2tpv3", "fou", "engine"):
         port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "engine") else 0) or (20000 + tid)
+        if not 1 <= port <= 65535:
+            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+        extra["port"] = port
+    if ttype == "vxlan":
+        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") == "vxlan" else 0) or 4789
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
         extra["port"] = port
@@ -2970,7 +2980,13 @@ function msFilter(inp){var q=inp.value.trim().toLowerCase(),list=inp.parentNode;
  list.querySelectorAll('.msrow').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().indexOf(q)>=0)?'':'none'})}
 function subnetForBase(type,tid,base){if(type=='sit')return 'fd00:'+tid+'::/64';if(base=='10')return '10.'+tid+'.0.0/24';if(base=='172.16')return '172.16.'+tid+'.0/24';return '192.168.'+tid+'.0/24'}
 function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){return x.id==EDID})[0];if(!L)return;
- var f=el('e_sub_'+EDID);if(f)f.value=subnetForBase(ssVal('lt_'+EDID),L.tunnel_id,ssVal('lsr_'+EDID))}
+ var f=el('e_sub_'+EDID);if(f)f.value=subnetForBase(ssVal('lt_'+EDID),L.tunnel_id,ssVal('lsr_'+EDID));renderEditPort(EDID)}
+var LEDTYPE='',LEDPORT='';
+function renderEditPort(id){var w=el('lpx_'+id);if(!w)return;var t=ssVal('lt_'+id);
+ var pre=(t==LEDTYPE&&LEDPORT!=null)?String(LEDPORT):'';
+ if(t=='vxlan')w.innerHTML='<label>پورتِ UDP (خالی = 4789)</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="4789" value="'+esc(pre)+'">';
+ else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>پورتِ UDP (خالی = خودکار از شناسه)</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="مثلا 51820" value="'+esc(pre)+'">';
+ else w.innerHTML=''}
 
 // ===== bulk select (nodes / tunnels) =====
 function ckN(id){return '<span class="cardck'+(SELN[id]?' on':'')+'" onclick="event.stopPropagation();toggleSelN(\\''+id+'\\')">'+(SELN[id]?'✓':'')+'</span>'}
@@ -3229,13 +3245,14 @@ function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">آی‌پ�
  ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
  if(ips.length>1)return '<div>'+lab+ssHTML('lip'+side+'_'+id,ips.map(function(x){return{v:x,label:x}}),(cur&&ips.indexOf(cur)>=0)?cur:ips[0],'آی‌پی','')+'</div>';
  return '<div>'+lab+'<input class="mono" value="'+esc(cur||ips[0]||'—')+'" disabled style="opacity:.6"></div>'}
-function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)return;EDID=id;
+function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)return;EDID=id;LEDTYPE=l.type;LEDPORT=(l.port==null?'':l.port);
  var multi=((l.a_ips||[]).length>1)||((l.b_ips||[]).length>1);
- var b='<div class="grid2"><div><label class="first">نوع تونل</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,'نوع','recalcEditSubnet')+'</div><div><label class="first">رنجِ لوکال</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168','رنج','recalcEditSubnet')+'</div></div><label>سابنت</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'">'+
+ var b='<div class="grid2"><div><label class="first">نوع تونل</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,'نوع','recalcEditSubnet')+'</div><div><label class="first">رنجِ لوکال</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168','رنج','recalcEditSubnet')+'</div></div><label>سابنت</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div id="lpx_'+id+'"></div>'+
   '<div class="muted" style="font-weight:700;color:var(--tx);margin:16px 2px 9px;display:flex;align-items:center;gap:6px">'+ic('pin','var(--acc)')+'آی‌پیِ هر سرِ تونل'+(multi?' <span class="tag" style="font-size:9.5px;padding:1px 7px">مولتی‌آی‌پی</span>':'')+'</div>'+
   '<div class="grid2">'+ipEndField('a',id,l.a_name,l.a_ips,l.a_ip)+ipEndField('b',id,l.b_name,l.b_ips,l.b_ip)+'</div>'+
   '<div class="muted" style="font-size:11.5px;margin-top:9px">اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه '+esc(l.tunnel_id)+' حفظ می‌شود).</div><div class="msg" id="lem_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>ویرایشِ تونل</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{onclose:function(){EDID=null}})}
+ openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>ویرایشِ تونل</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{onclose:function(){EDID=null}});
+ renderEditPort(id)}
 async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
  var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);   // load node IPs for the listen-IP picker
  var lipsec=(ips.length>1)?'<label class="first">آی‌پیِ ورودی (شنود)</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),'آی‌پی','')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">پورت فقط روی این آی‌پی فوروارد می‌شود</div>':'';
@@ -3328,8 +3345,8 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  var typ='<div>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
  var right,left;
  if(l.type=='ipsec'){right=sub+idr+ifc;left=typ+'<div class="wrap">رمزنگاری: <span class="enc">'+ic('lock','var(--bad)')+'رمزنگاری‌شده</span></div>'}
- else if((l.type=='l2tpv3'||l.type=='fou')&&l.port){right=sub+idr+ifc;left=typ+'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>'}
- else{right=sub+ifc;left=idr+typ}   // plain (vxlan/gre/ipip/sit): balanced 2+2
+ else if((l.type=='l2tpv3'||l.type=='fou'||l.type=='vxlan')&&l.port){right=sub+idr+ifc;left=typ+'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>'}
+ else{right=sub+ifc;left=idr+typ}   // plain (gre/ipip/sit, or vxlan without a custom port): balanced 2+2
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
 function linkCard(l){
  var body='<div class="tninfo">'+
@@ -3354,7 +3371,8 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  var L=FLEET.find(function(x){return x.id==id})||{};
  var a_ip=ssVal('lipa_'+id)||L.a_ip||'',b_ip=ssVal('lipb_'+id)||L.b_ip||'';
  m.className='msg';m.textContent='در حال بازسازی تونل روی دو نود…';
- var r=await post('edit-link',{id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip});
+ var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
+ var r=await post('edit-link',body);
  if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
@@ -3462,6 +3480,7 @@ function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(s
  renderTypeExtra()}
 function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type');
  if(t=='l2tpv3'||t=='fou'){w.innerHTML='<label>پورتِ UDP (اختیاری — خالی = خودکار از شناسه)</label><input id="c_port" inputmode="numeric" placeholder="مثلا 51820"><div class="muted" style="font-size:11px;margin:-4px 2px 11px">روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.</div>'}
+ else if(t=='vxlan'){w.innerHTML='<label>پورتِ UDP (خالی = 4789)</label><input id="c_port" inputmode="numeric" placeholder="4789"><div class="muted" style="font-size:11px;margin:-4px 2px 11px">پورتِ استانداردِ VXLAN؛ برای دورزدنِ فیلتر می‌توانی عوضش کنی (مثلاً 443).</div>'}
  else if(t=='ipsec'){w.innerHTML='<div class="autonote" style="margin-bottom:11px">'+ic('shield')+'<span>رمزنگاری‌شده (ESP). کلید خودکار ساخته و امن به هر دو سر داده می‌شود — بدونِ دیمنِ خارجی.</span></div>'}
  else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
@@ -3473,7 +3492,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
   var bip=el('ssb_c_bip_'+tgts[i])?ssVal('c_bip_'+tgts[i]):'';   // only send an IP when its picker exists (multi-IP node); never a stale value
   var body={a_node:a,b_node:tgts[i],type:type,a_ip:aip,b_ip:bip};
   if(range=='custom')body.subnet=custom;else body.subnet_base=range;
-  if((type=='l2tpv3'||type=='fou')&&el('c_port')&&v('c_port'))body.port=v('c_port');
+  if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
   var r=await post('create-tunnel',body);
   if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(a)+' ↔ '+nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
  if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}
