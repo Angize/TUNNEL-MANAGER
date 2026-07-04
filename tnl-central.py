@@ -1646,9 +1646,7 @@ def _edit_link_impl(d):
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
     new_name = f"{ttype}{tid}" if name_changed else old_name
-    if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"]:
-        return {"ok": True, "unchanged": True, "name": old_name}
-    extra = {}   # carry over port/psk when the type is unchanged; regenerate when it changes into a type that needs them
+    extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
     if ttype in ("l2tpv3", "fou"):
         port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou") else 0) or (20000 + tid)
         if not 1 <= port <= 65535:
@@ -1656,6 +1654,9 @@ def _edit_link_impl(d):
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
+    port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
+    if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
+        return {"ok": True, "unchanged": True, "name": old_name}
     if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
@@ -3010,7 +3011,8 @@ function openModal(html,opts){opts=opts||{};
 function closeModal(ov){if(!ov||ov._closed)return;ov._closed=true;
  document.removeEventListener('keydown',ov._esc);
  if(ov._onclose){try{ov._onclose()}catch(e){}}
- ov.remove();editingId=null;EDID=null;
+ ov.remove();
+ if(!document.querySelector('.modalov')){editingId=null;EDID=null}  // only clear edit state when the LAST modal closes — a nested dropdown popup must not wipe the parent edit modal's EDID
  try{if(!document.querySelector('.modalov'))document.body.style.overflow=''}catch(e){}
  refresh().catch(function(){})}
 function glvl(p){return p>=88?'crit':p>=70?'warn':'ok'}
