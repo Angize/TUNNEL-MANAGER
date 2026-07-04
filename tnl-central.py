@@ -561,6 +561,22 @@ def _tf_forget(nid, keys):
             e["seed"].pop(k, None)
 
 
+def _tf_reset(nid, keys):
+    """Zero the lifetime totals (crx/ctx) and drop the seed for the given iface keys, but keep the live
+    baseline (prx/ptx) so running counters don't re-count — the 'total' figure just restarts from zero."""
+    if not keys:
+        return
+    with _tf_lock:
+        e = _tf.get(nid)
+        for k in keys:
+            if e:
+                s = e["if"].get(k)
+                if s:
+                    s["crx"] = 0
+                    s["ctx"] = 0
+                e["seed"].pop(k, None)
+
+
 def _tf_read(nid):
     """A copied-out snapshot of one node's per-iface rates + totals."""
     with _tf_lock:
@@ -1438,12 +1454,12 @@ def api_fleet(d):
     with _tf_lock:  # snapshot per-link traffic once under the lock (either side carries the same iface name)
         tfl = {}
         for L in page:
-            for nid in (L["a_node"], L["b_node"]):
-                s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])
-                if s:
-                    tfl[L["id"]] = {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"],
-                                    "rx_total": s["crx"], "tx_total": s["ctx"]}
-                    break
+            side = "b" if L.get("view_side") == "b" else "a"   # figures are shown from ONE chosen node's iface
+            nid = L["b_node"] if side == "b" else L["a_node"]  # (rx/tx are that node's; the peer sees the mirror)
+            s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])   # no silent fallback to the other side
+            if s:
+                tfl[L["id"]] = {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"],
+                                "rx_total": s["crx"], "tx_total": s["ctx"]}
     out = []
     for L in page:
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
@@ -1451,12 +1467,50 @@ def api_fleet(d):
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
         a_ips = [ip for ips in (_cached_ping(L["a_node"]).get("ips") or {}).values() for ip in ips]
         b_ips = [ip for ips in (_cached_ping(L["b_node"]).get("ips") or {}).values() for ip in ips]
+        side = "b" if L.get("view_side") == "b" else "a"
         pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the IPsec key to the browser
         out.append({**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                     "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                     "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
+                    "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                     "drift": link_drift(L["id"]), **tfl.get(L["id"], {})})
     return {"links": out, "total": total, "offset": off, "limit": lim}
+
+
+def api_link_view(d):
+    """Toggle which node's iface the tunnel's traffic figures are read from (a<->b)."""
+    _require(d, ["id"])
+    with _reg_lock:
+        links = load_links()
+        side = None
+        for x in links:
+            if x["id"] == d["id"]:
+                side = "a" if x.get("view_side") == "b" else "b"   # flip
+                x["view_side"] = side
+                break
+        if side is None:
+            raise ValueError("link not found")
+        save_json(LINKS_FILE, links)
+    return {"ok": True, "view_side": side}
+
+
+def api_traffic_reset(d):
+    """Zero the cumulative traffic total for a tunnel (both ends) or a port-forward; live rates untouched."""
+    d = d or {}
+    if d.get("id"):
+        L = next((x for x in load_links() if x["id"] == d["id"]), None)
+        if not L:
+            raise ValueError("link not found")
+        _tf_reset(L["a_node"], [L["name"]])
+        _tf_reset(L["b_node"], [L["name"]])
+        return {"ok": True}
+    if d.get("node") and d.get("name"):
+        n = get_node(d["node"])
+        if not n:
+            raise ValueError("node not found")
+        _tf_reset(n["id"], ["pf:" + str(d["name"])])
+        return {"ok": True}
+    raise ValueError("missing id or node/name")
 
 
 def _link_nodes(d):
@@ -2043,13 +2097,14 @@ API = {
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link,
+    "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set"}
 
 # ----------------------------------------------------------------------------- HTTP
@@ -2489,6 +2544,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ltraf{margin-top:10px;padding-top:9px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:13px;font-size:12px;font-variant-numeric:tabular-nums}.ltraf .tot{color:var(--sub);margin-inline-start:auto;display:flex;align-items:center;gap:6px}
 .iso{direction:ltr;unicode-bidi:isolate}   /* keep a value+unit (and its ↓/↑) LTR so it never jumbles inside the RTL layout */
 .tot .iso{display:inline-flex;gap:8px}
+.flip{border:1px solid var(--bord);background:var(--field);color:var(--acc);border-radius:8px;padding:2px 7px;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.flip:active{transform:scale(.96)}.flip svg{width:13px;height:13px}
+.act.reset{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .bigrow{display:flex;gap:18px;align-items:baseline;margin-bottom:4px}.bigrow .b{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .subline{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
 /* slimmed node card: plain meta labels (NOT boxed — distinct from the .chip icon badge) */
@@ -2704,6 +2762,8 @@ var IC={
  pen:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
  trash:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
  redo:'<svg viewBox="0 0 24 24" '+_S+'><path d="M21 12a9 9 0 11-2.64-6.36M21 4v4h-4"/></svg>',
+ swap:'<svg viewBox="0 0 24 24" '+_S+'><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg>',
+ reset:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 8v4l3 2"/></svg>',
  moon:'<svg viewBox="0 0 24 24" '+_S+'><path d="M20 14a8 8 0 01-10-10 8 8 0 1010 10z"/></svg>',
  sun:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>',
  logout:'<svg viewBox="0 0 24 24" '+_S+'><path d="M15 12H4M9 7l-5 5 5 5M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4"/></svg>',
@@ -3177,8 +3237,12 @@ function linkCard(l){
   (l.type=='ipsec'?'<span style="color:#f43f5e;font-weight:700">🔒 رمزنگاری‌شده</span>':'')+
   '<span>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></span></div>';
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var traf=(l.rx_total!=null||l.rx_bps!=null)?'<div class="ltraf"><span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span><span class="tot">مجموع <span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span></span></div>':'';
- var acts='<div class="nact iconly"><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var hasT=(l.rx_total!=null||l.rx_bps!=null);
+ var flip='<button class="flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف (کدام نود)">'+ic('swap')+'دید: '+esc(l.view_name||'—')+'</button>';
+ var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
+ var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
+ var traf='<div class="ltraf">'+rates+flip+'<span class="tot">مجموع '+tot+'</span></div>';
+ var acts='<div class="nact iconly"><button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
@@ -3221,6 +3285,9 @@ async function rebuildLink(id){
   if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc('تونل از نو ساخته شد — با «بررسی اتصال» تستش کن'));toast('بازسازی شد','ok')}
   else setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق'));
  }finally{CHECKING--}}
+async function flipView(id){var r=await post('link-view',{id:id});if(r.ok&&r.d.ok){refreshTunnels()}else{toast('ناموفق','err')}}
+async function resetTraffic(id){if(!await confirmBox('حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)'))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast('حجمِ کل صفر شد','ok');refreshTunnels()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox('حجمِ کلِ این پورت‌فوروارد صفر شود؟'))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast('حجمِ کل صفر شد','ok');refreshPortfw()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
 // ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
 var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
@@ -3338,7 +3405,7 @@ function pfCard(p,i){var h=p.health||{};
    live+
   '</div></div>';
  var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">مجموع <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
- var acts='<div class="nact iconly">'+((multi&&h.active)?'<button class="act" title="چرخش الان" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="ویرایش" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act reset" title="ریستِ حجمِ کل" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="چرخش الان" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="ویرایش" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
  return '<div class="card">'+head+body+traf+acts+'</div>'}
 function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
  setT('pe_tgllbl_'+i,on?'روشن':'خاموش');var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
