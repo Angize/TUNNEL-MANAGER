@@ -1462,9 +1462,9 @@ def _create_tunnel_impl(d):
         raise ValueError("bad type")
     pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
     if not pa.get("ok"):
-        raise ValueError(f"node '{A['name']}' offline")
+        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
     if not pb.get("ok"):
-        raise ValueError(f"node '{B['name']}' offline")
+        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
     want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
@@ -1517,13 +1517,13 @@ def _create_tunnel_impl(d):
     ra = node_call(A, "tunnel", "POST", {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip,
                                          "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not ra.get("ok"):
-        raise ValueError(f"node '{A['name']}': {ra.get('error') or ra.get('msg')}")
+        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
     rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
                                          "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not rb.get("ok"):
         rr = node_call(A, "delete", "POST", {"name": name})  # roll back A side
         warn = "" if rr.get("ok") else f" — هشدار: '{name}' روی {A['name']} پاک نشد، دستی تمیزش کن"
-        raise ValueError(f"node '{B['name']}': {rb.get('error') or rb.get('msg')} (rolled back {A['name']}){warn}")
+        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تغییرات روی {A['name']} برگردانده شد){warn}")
     try:
         with _reg_lock:  # atomic append so a concurrent delete-link can't lose/resurrect a record
             links = load_links()
@@ -1592,9 +1592,9 @@ def _edit_link_impl(d):
         raise ValueError("a node of this link is no longer registered")
     pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
     if not pa.get("ok"):
-        raise ValueError(f"node '{A['name']}' offline")
+        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
     if not pb.get("ok"):
-        raise ValueError(f"node '{B['name']}' offline")
+        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     tid = int(L["tunnel_id"])
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
@@ -1641,7 +1641,7 @@ def _edit_link_impl(d):
                                          "subnet": subnet, "id": tid, "name": new_name, **extra}, timeout=200)
     if not ra.get("ok"):
         _restore_link(A, B, L)
-        raise ValueError(f"node '{A['name']}': {ra.get('error') or ra.get('msg')} (restored old tunnel)")
+        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
     rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
                                          "subnet": subnet, "id": tid, "name": new_name, **extra}, timeout=200)
     if not rb.get("ok"):
@@ -1649,7 +1649,7 @@ def _edit_link_impl(d):
             node_call(A, "delete", "POST", {"name": new_name})
             node_call(B, "delete", "POST", {"name": new_name})
         _restore_link(A, B, L)
-        raise ValueError(f"node '{B['name']}': {rb.get('error') or rb.get('msg')} (restored old tunnel)")
+        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
     with _reg_lock:
         links = load_links()
         for x in links:
@@ -1705,9 +1705,9 @@ def _rebuild_link_impl(d):
         raise ValueError("a node of this link is no longer registered")
     pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
     if not pa.get("ok"):
-        raise ValueError(f"node '{A['name']}' offline")
+        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
     if not pb.get("ok"):
-        raise ValueError(f"node '{B['name']}' offline")
+        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
@@ -1725,12 +1725,12 @@ def _rebuild_link_impl(d):
                                          "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not ra.get("ok"):
         _restore_link(A, B, L)   # both ends were pre-deleted; best-effort rebuild to the prior state
-        raise ValueError(f"node '{A['name']}': {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
+        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
     rb = node_call(B, "tunnel", "POST", {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip,
                                          "subnet": subnet, "id": tid, "name": name, **extra}, timeout=200)
     if not rb.get("ok"):
         _restore_link(A, B, L)
-        raise ValueError(f"node '{B['name']}': {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
+        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
     if a_ip != L["a_ip"] or b_ip != L["b_ip"]:
         with _reg_lock:
             links = load_links()
@@ -3252,7 +3252,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
   if(range=='custom')body.subnet=custom;else body.subnet_base=range;
   if((type=='l2tpv3'||type=='fou')&&el('c_port')&&v('c_port'))body.port=v('c_port');
   var r=await post('create-tunnel',body);
-  if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
+  if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(a)+' ↔ '+nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
  if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}
  else{if(okc>0)toast(okc+' تونل ساخته شد','ok');m.className='msg err';m.textContent=okc+'/'+tgts.length+' — '+errs.join(' | ')}}
 
