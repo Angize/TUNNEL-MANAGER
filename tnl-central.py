@@ -42,6 +42,7 @@ NODES_FILE = os.path.join(CENTRAL_DIR, "nodes.json")
 LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
 TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
 SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable panel settings (reconcile mode, intervals, …)
+UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")     # persisted per-minute up/down history so the bar survives restarts
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")          # the node-agent source the operator uploaded, pushed to nodes
 AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")   # {version, sha256, size, uploaded_ts}
 SERVICE_FILE = "/etc/systemd/system/tnl-central.service"
@@ -126,6 +127,7 @@ def settings_defaults():
                                     # بازسازی on the affected one. "auto" = panel rebuilds it itself (single-IP).
         "reconcile_interval": 15,   # seconds between reconcile sweeps (5–3600)
         "poll_interval": 2,         # seconds the fleet poller rests between sweeps (1–60)
+        "uptime_window": 1,         # uptime-bar span in hours (1/3/6/8/12/24); always 60 cells, each = window/60
     }
 
 
@@ -164,6 +166,9 @@ def validate_settings(d):
         out["reconcile_interval"] = max(5, min(3600, int(d["reconcile_interval"])))
     if "poll_interval" in d and d["poll_interval"] not in (None, ""):
         out["poll_interval"] = max(1, min(60, int(d["poll_interval"])))
+    if "uptime_window" in d and d["uptime_window"] not in (None, ""):
+        w = int(d["uptime_window"])
+        out["uptime_window"] = w if w in (1, 3, 6, 8, 12, 24) else 1
     return out
 
 
@@ -408,10 +413,10 @@ _tf = {}                   # node_id -> {prev_ts, prev_up, if:{key:{prx,ptx,rx_b
 _tf_lock = threading.Lock()
 TF_MAX_GAP = 120.0         # a poll gap bigger than this: keep the byte delta but suppress the smeared rate
 TF_BPS_CEIL = 100e9        # 100 Gbit/s sanity ceiling — a larger computed rate is a garbage read -> treat as reset
-_uh = {}                   # node_id -> {"ring":[1/0,...], "bts":ts, "dn":bool} — rolling up/down history (RAM only)
+_uh = {}                   # node_id -> {"ring":[1/0,...], "bts":ts, "dn":bool} — rolling per-minute up/down history
 _uh_lock = threading.Lock()
-UPTIME_BUCKET = 120        # seconds per uptime sample (a bucket is DOWN if the node was unreachable any time in it)
-UPTIME_KEEP = 90           # ring length -> ~3h of history for the uptime bar
+UPTIME_BUCKET = 60         # seconds per uptime sample (one minute; a bucket is DOWN if unreachable any time in it)
+UPTIME_KEEP = 1440         # ring length -> 24h of per-minute history (aggregated to 60 cells for display)
 
 
 def _cache_get(nid):
@@ -578,6 +583,48 @@ def _uh_ring(nid):
         return list(e["ring"]) if e else []
 
 
+def _uh_cells(nid, window_hours, cells=60):
+    """Aggregate the per-minute ring into exactly `cells` bars for the given window (hours). Each bar
+    spans window/cells minutes -> down(0) if any minute in it was down, up(1) if all up, None if no data
+    yet (rendered gray). Uptime-kuma style: fixed bar count, coarser bars for a longer window."""
+    try:
+        wh = int(window_hours)
+    except Exception:
+        wh = 1
+    if wh not in (1, 3, 6, 8, 12, 24):
+        wh = 1
+    per = wh  # minutes per cell (cells*per = wh*60 minutes covered)
+    total = cells * per
+    with _uh_lock:
+        e = _uh.get(nid)
+        ring = list(e["ring"]) if e else []
+    ring = ring[-total:]
+    slots = [None] * (total - len(ring)) + ring  # front-pad missing history with no-data
+    out = []
+    for i in range(cells):
+        chunk = [x for x in slots[i * per:(i + 1) * per] if x is not None]
+        out.append(None if not chunk else (0 if 0 in chunk else 1))
+    return out
+
+
+def _uh_snapshot():
+    with _uh_lock:
+        return {nid: list(e["ring"]) for nid, e in _uh.items() if e.get("ring")}
+
+
+def _uh_load():
+    try:
+        with open(UPTIME_FILE) as f:
+            data = json.load(f)
+    except Exception:
+        return
+    now = time.time()
+    with _uh_lock:
+        for nid, ring in (data or {}).items():
+            if isinstance(ring, list):  # bts=now so the offline gap isn't backfilled as up/down
+                _uh[nid] = {"ring": [1 if x else 0 for x in ring][-UPTIME_KEEP:], "bts": now, "dn": False}
+
+
 def _tf_snapshot():
     """{nid: {ifkey: [cum_rx, cum_tx]}} for persistence (seed values survive for un-polled nodes)."""
     out = {}
@@ -609,9 +656,9 @@ def traffic_persist_loop():
     while True:
         time.sleep(60)
         try:
-            snap = _tf_snapshot()
             valid = {n["id"] for n in load_nodes()}
-            save_json(TRAFFIC_FILE, {k: v for k, v in snap.items() if k in valid})
+            save_json(TRAFFIC_FILE, {k: v for k, v in _tf_snapshot().items() if k in valid})
+            save_json(UPTIME_FILE, {k: v for k, v in _uh_snapshot().items() if k in valid})  # persist uptime history
         except Exception:
             pass
 
@@ -677,7 +724,7 @@ def valid_proxy(p):
 
 def _node_view(n):
     base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": n.get("proxy", ""),
-            "uptime": _uh_ring(n["id"])}
+            "uptime": _uh_cells(n["id"], get_settings().get("uptime_window", 1))}
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
         return {**base, "online": False, "pending": True, "info": {"error": "در حال بررسی…"}}
@@ -694,7 +741,8 @@ def api_nodes(d):
     total = len(nodes)
     page = nodes[off:off + lim]
     _ensure_cached(page)  # bounded to one page — warms cold-start without touching the whole fleet
-    return {"nodes": [_node_view(n) for n in page], "total": total, "offset": off, "limit": lim}
+    return {"nodes": [_node_view(n) for n in page], "total": total, "offset": off, "limit": lim,
+            "uptime_window": get_settings().get("uptime_window", 1)}
 
 
 def api_node_names(d):
@@ -1678,7 +1726,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .sfoot button:hover{background:var(--glass)}.sfoot .ic{width:15px;height:15px}
 .main{flex:1;min-width:0;max-width:1120px;padding:22px 26px 64px}
 .mtop{display:none;align-items:center;justify-content:space-between;gap:11px;padding:10px 14px;position:sticky;top:0;z-index:30;background:var(--side);border:1px solid var(--bord);border-radius:14px;box-shadow:var(--dsh)}
-.mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px}
+.mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px;direction:ltr}
 .hb{width:38px;height:38px;border-radius:11px;border:1px solid var(--bord);background:transparent;color:var(--tx);display:grid;place-items:center;cursor:pointer;flex:0 0 auto}.hb .ic{width:20px;height:20px}
 .backdrop{display:none;position:fixed;inset:0;background:rgba(15,22,35,.42);z-index:35}
 .chip{width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:var(--hue,var(--acc));background:color-mix(in srgb,var(--hue,var(--acc)) 13%,transparent);border:1px solid color-mix(in srgb,var(--hue,var(--acc)) 26%,transparent)}
@@ -1881,8 +1929,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 /* uptime bar on the node card */
 .upwrap{margin-top:11px}
 .uptop{display:flex;align-items:center;font-size:11.5px;color:var(--sub);margin-bottom:6px}.uptop b{color:var(--tx)}.uptop .r{margin-inline-start:auto}
-.upbar{display:flex;gap:2px;height:22px}
-.upbar i{flex:1;border-radius:2px;background:var(--ok);min-width:1px}.upbar i.d{background:var(--bad)}
+.upbar{display:flex;gap:2px;height:22px;direction:ltr}
+.upbar i{flex:1;border-radius:2px;background:var(--ok);min-width:1px}.upbar i.d{background:var(--bad)}.upbar i.g{background:color-mix(in srgb,var(--sub) 28%,transparent)}
 /* agent update page */
 .agrow{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--card);margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
 .agrow .name{font-weight:700;font-size:14px}.agrow .ver{font-size:11.5px;color:var(--sub)}
@@ -2087,7 +2135,7 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
 function subnetDefaultJS(type,tid){return type=='sit'?('fd00:'+tid+'::/64'):('192.168.'+tid+'.0/24')}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0;
+var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1;
 var SELN={},SELT={},selN=false,selT=false;  // bulk-select state (nodes / tunnels)
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0},QRY={nodes:'',tunnels:'',portfw:'',agent:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'}];
@@ -2219,7 +2267,7 @@ function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' ن�
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+toolbar('nodes','جستجوی نام یا آی‌پی…')+'<div id="nodeList"></div>'+pagerBottom('nodes')}
 function openNodeAddModal(){var b='<div class="grid2"><div><label class="first">نام</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">هاست / آی‌پی</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>پورت agent</label><input id="n_port" placeholder="8099"></div><div><label>توکن نود</label><input id="n_tok" placeholder="توکن نود"></div></div><label>پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود</label><input id="n_proxy" placeholder="socks5://host:1080  یا  http://user:pass@host:8080"><div class="msg" id="n_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ نود</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="addNode()">افزودن و اتصال</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
-async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);var box=el('nodeList');if(!box)return;
+async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
 function proxyScheme(p){if(!p)return '';var i=p.indexOf('://');return (i>0?p.slice(0,i):'socks5').toLowerCase()}
@@ -2290,9 +2338,11 @@ function nodeCard(n){var i=n.info||{};
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="تست" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="مشخصات" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="ویرایش" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delNode(\\''+n.id+'\\',\\''+esc(n.name)+'\\')">'+ic('trash')+'</button></div>';
  return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
-function upBar(n){var r=n.uptime||[];if(!r.length)return '';
- var up=r.reduce(function(a,b){return a+b},0),pct=Math.round(up/r.length*100);
- return '<div class="upwrap"><div class="uptop">آپتایم<b style="margin-inline-start:6px">'+pct+'٪</b><span class="r">'+(r.length*2)+' دقیقهٔ اخیر</span></div><div class="upbar">'+r.map(function(v){return '<i'+(v?'':' class="d"')+'></i>'}).join('')+'</div></div>'}
+function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
+ var up=0,tot=0;for(var i=0;i<r.length;i++){if(r[i]!=null){tot++;if(r[i])up++}}
+ var pct=tot?Math.round(up/tot*100):0;
+ var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
+ return '<div class="upwrap"><div class="uptop">آپتایم<b style="margin-inline-start:6px">'+pct+'٪</b><span class="r">'+UPWIN+' ساعتِ اخیر</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
  if(!name||!host||!port){m.className='msg err';m.textContent='نام، هاست و پورت لازم است';return}
  m.className='msg';m.textContent='در حال ذخیره…';
@@ -2574,6 +2624,7 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
   row('وقتی آی‌پیِ نود عوض شد','روی این بزن تا انتخاب کنی','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">▾</span></button>')+
   row('بازهٔ بررسیِ ترمیم (ثانیه)','۵ تا ۳۶۰۰','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
   row('بازهٔ پایشِ فلیت (ثانیه)','۱ تا ۶۰','<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
+  row('پنجرهٔ نوارِ آپ‌تایم','۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰',ssHTML('set_upwin',[{v:'1',label:'۱ ساعت'},{v:'3',label:'۳ ساعت'},{v:'6',label:'۶ ساعت'},{v:'8',label:'۸ ساعت'},{v:'12',label:'۱۲ ساعت'},{v:'24',label:'۲۴ ساعت'}],String(num(s.uptime_window)||1),'',''))+
   '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+'ذخیره</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
   '</div>'+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' بروزرسانیِ ایجنت</div>'+agentBody();
@@ -2582,7 +2633,7 @@ function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setM
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent='در حال ذخیره…'}
- var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll')});
+ var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),uptime_window:ssVal('set_upwin')});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast('تنظیمات ذخیره شد','ok')}
  else{if(m){m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,6000);return}  // don't burn cycles (or queue work) while the tab is hidden
@@ -2811,6 +2862,7 @@ def serve():
     _CENTRAL_PORT = int(conf.get("port", 8080))  # advertised to nodes so they can call back /api/checkin
     _seed_settings()  # load settings.json into memory (defaults if absent) for the loops
     _tf_load()  # restore lifetime traffic totals from disk so they survive a central restart
+    _uh_load()  # restore per-minute uptime history so the uptime bar survives a restart
     threading.Thread(target=poller_loop, daemon=True).start()  # warm the fleet cache in the background
     threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
     threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
