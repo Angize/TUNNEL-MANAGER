@@ -1939,6 +1939,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        if ctype == "application/json":  # never let a browser cache a live poll (install-status, nodes, …)
+            self.send_header("Cache-Control", "no-store")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -2429,7 +2431,7 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .seg button .ic{width:15px;height:15px}
 .autonote{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;color:var(--sub);background:var(--warnw);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:11px;padding:10px 12px;margin-bottom:13px}
 .autonote .ic{color:var(--gold);flex:0 0 auto;margin-top:1px}
-.authbox{border:1px solid var(--bord);border-radius:13px;background:var(--field);padding:11px;margin-bottom:12px}
+.authbox{border:1px solid var(--bord);border-radius:13px;background:var(--field);padding:11px;margin-top:16px;margin-bottom:12px}
 .authhd{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .authhd .t{font-size:12.5px;font-weight:800}
 .authseg{margin-inline-start:auto;display:flex;background:var(--card);border:1px solid var(--bord);border-radius:9px;padding:3px;gap:3px}
@@ -2819,7 +2821,7 @@ async function doAutoInstall(){var m=el('n_msg'),btn=el('nadd_go');
  if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
  pollInstall(r.d.job,300)}
 function pollInstall(jid,delay){var poll=async function(){
-  var r=await j('install-status?job='+encodeURIComponent(jid)).then(function(d){return{ok:true,d:d}}).catch(function(){return{ok:false,d:{}}});
+  var r=await j('install-status?job='+encodeURIComponent(jid)+'&_='+Date.now()).then(function(d){return{ok:true,d:d}}).catch(function(){return{ok:false,d:{}}});
   if(!(r.ok&&r.d.ok)){setTimeout(poll,1200);return}
   renderInstallSteps(r.d);
   if(r.d.done){var btn=el('nadd_go');
