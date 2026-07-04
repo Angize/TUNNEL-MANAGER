@@ -929,6 +929,12 @@ def api_summary(d):
             "fleet_rx_total": frx, "fleet_tx_total": ftx}
 
 
+def _name_taken(nodes, name, exclude_id=None):
+    """A node name must be unique across the fleet (case-insensitive), so it always identifies one node."""
+    key = str(name).strip().lower()
+    return any(n.get("id") != exclude_id and str(n.get("name", "")).strip().lower() == key for n in nodes)
+
+
 def api_node_add(d):
     _require(d, ["name", "host", "port", "token"])
     name = str(d["name"]).strip()
@@ -947,6 +953,8 @@ def api_node_add(d):
     node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token, "proxy": proxy}
     with _reg_lock:
         nodes = load_nodes()
+        if _name_taken(nodes, name):
+            raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
         nodes.append(node)
         save_json(NODES_FILE, nodes)
     p = node_call(node, "ping", "GET")
@@ -1057,6 +1065,8 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
                 "port": agent_port, "token": token, "proxy": proxy}
         with _reg_lock:
             nodes = load_nodes()
+            if _name_taken(nodes, name):  # a same-name node was added during the (minutes-long) install
+                return fail("register", f"نودی با نامِ «{name}» در این فاصله اضافه شد — نام باید یکتا باشد")
             nodes.append(node)
             save_json(NODES_FILE, nodes)
         _refresh_cache([node["id"]])
@@ -1087,6 +1097,8 @@ def api_node_install(d):
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
         raise ValueError("bad node name")
+    if _name_taken(load_nodes(), name):
+        raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
     host = str(d["ssh_host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
         raise ValueError("bad host")
@@ -1149,6 +1161,8 @@ def api_node_edit(d):
         n = next((x for x in nodes if x["id"] == d["id"]), None)
         if not n:
             raise ValueError("node not found")
+        if _name_taken(nodes, name, exclude_id=d["id"]):  # can't rename onto another node's name
+            raise ValueError(f"نودِ دیگری با نامِ «{name}» وجود دارد — نام باید یکتا باشد")
         n["name"], n["host"], n["port"], n["proxy"] = name, host, port, proxy
         if token:
             n["token"] = token  # blank = keep the existing token
@@ -2768,7 +2782,7 @@ function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' ن�
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن نود</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+toolbar('nodes','جستجوی نام یا آی‌پی…')+'<div id="nodeList"></div>'+pagerBottom('nodes')}
 var _naddMode='auto';
-function openNodeAddModal(){_naddMode='auto';_authMode='pass';_instStop();
+function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+'خودکار</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+'دستی</button></div>';
  var auto='<div id="nadd_auto">'+
    '<div class="autonote">'+ic('bolt')+'<span>مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.</span></div>'+
