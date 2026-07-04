@@ -2769,6 +2769,14 @@ body.dark .tag.engine{color:#a78bfa}
 .rl.cli{color:var(--gold);background:var(--goldw)}
 .enclock{color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:3px;direction:ltr}
 .enclock .ic{width:12px;height:12px}
+.enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
+/* two meta columns aligned EXACTLY under the two node boxes (same grid + hidden arrow as .tninfo) */
+.enmeta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:start;margin-top:11px;font-size:11.5px;color:var(--sub)}
+.enmeta .emcol{min-width:0;display:flex;flex-direction:column;gap:4px}
+.enmeta .emcol>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.enmeta .emcol>div.wrap{white-space:normal;overflow:visible}
+.enmeta .emcol b{color:var(--tx);font-weight:700}
+.enmeta .earrow{visibility:hidden}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
 .sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
@@ -3313,23 +3321,30 @@ function sideState(online,h){  // k: dot color class, w: the word to show ONLY w
  return {k:'ok',w:''}}   // connected -> clean, just the green dot
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + engine cards
  return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="متصل"')+'></span>'}
+function metaCols(l){   // two meta columns placed exactly under the two node boxes
+ var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
+ var idr='<div>شناسه: <b>'+esc(l.tunnel_id)+'</b></div>';
+ var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
+ var typ='<div>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
+ var right,left;
+ if(l.type=='ipsec'){right=sub+idr+ifc;left=typ+'<div class="wrap">رمزنگاری: <span class="enc">'+ic('lock','var(--bad)')+'رمزنگاری‌شده</span></div>'}
+ else if((l.type=='l2tpv3'||l.type=='fou')&&l.port){right=sub+idr+ifc;left=typ+'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>'}
+ else{right=sub+ifc;left=idr+typ}   // plain (vxlan/gre/ipip/sit): balanced 2+2
+ return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
 function linkCard(l){
  var body='<div class="tninfo">'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+sideDot(l.a_online,l.a_health)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+sideDot(l.b_online,l.b_health)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
-  '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span><span>شناسه: <b>'+esc(l.tunnel_id)+'</b></span><span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span>'+
-  (((l.type=='l2tpv3'||l.type=='fou')&&l.port)?'<span>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></span>':'')+
-  (l.type=='ipsec'?'<span style="color:#f43f5e;font-weight:700;display:inline-flex;align-items:center;gap:4px">'+ic('lock','#f43f5e')+'رمزنگاری‌شده</span>':'')+
-  '<span>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></span></div>';
+  metaCols(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف — فعلاً: '+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
  var traf='<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>';
- var acts='<div class="nact iconly">'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
@@ -3470,6 +3485,15 @@ function engineSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+
  toolbar('engine','جستجوی نام نود / شناسه…')+'<div id="engList"></div>'+pagerBottom('engine')}
 async function refreshEngine(){if(editingId||CHECKING)return;var f=await j('fleet?kind=engine&offset='+(PG.engine*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.engine));FLEET=f.links||[];TOT.engine=num(f.total);var box=el('engList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(engineCard).join(''):'<div class="card muted">'+(QRY.engine?'موردی یافت نشد.':'هنوز تونلِ موتوری نیست — دکمهٔ «تونلِ موتور» بالا را بزن.')+'</div>');renderPager('engine')}
+function engineMeta(l){   // right col under box A, left col under box B (lock at the START, green)
+ var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
+ var prt=l.port?'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>':'';
+ var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
+ var typ='<div>نوع: <span class="tag engine">bip</span></div>';
+ var enc=(l.cipher&&l.cipher!='none')
+   ?'<div class="wrap">رمزنگاری: <span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span></div>'
+   :'<div>رمزنگاری: <b>بدونِ رمز</b></div>';
+ return '<div class="enmeta"><div class="emcol">'+sub+prt+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+enc+'</div></div>'}
 function engineCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
@@ -3477,18 +3501,14 @@ function engineCard(l){
   '<span class="tnarrow">↔</span>'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?'کلاینت':'سرور')+'</span><span class="stat" id="lbb_'+l.id+'">'+sideDot(l.b_online,l.b_health)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
-  '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span>'+
-   (l.port?'<span>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></span>':'')+
-   '<span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span>'+
-   (l.cipher&&l.cipher!='none'?'<span>رمزنگاری: <span class="enclock">'+ic('lock','var(--ok)')+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span>':'<span>رمزنگاری: <b>بدونِ رمز</b></span>')+
-   '<span>نوع: <span class="tag engine">bip</span></span></div>';
+  engineMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف — فعلاً: '+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
  var traf='<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>';
- var acts='<div class="nact iconly">'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act ok" title="بررسی اتصال" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act warn" title="ویرایش" onclick="openEngineEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openEngineEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 var _engSrv='a';
@@ -3576,14 +3596,14 @@ function pfCard(p,i){var h=p.health||{};
  var lip=p.listen_ip||p.node_ip||'';   // effective listen IP: the pin (multi-IP) or the node's sole IP (single-IP)
  var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
  var head='<div class="link"><span class="name">'+esc(p.node)+'</span><span class="grow"></span>'+rotchip+'<span class="tag" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)">portfw</span>'+st+'</div>';
- var live=(multi&&h.active)?'<div class="pfrow">هم‌اکنون روی: <b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
- var body='<div class="pfcols"><div class="pfcol">'+
-   '<div class="pfrow">اینترفیس: <b class="mono">'+esc(p.iface)+'</b></div>'+
-   (lip?'<div class="pfrow">آی‌پیِ ورودی: <b class="mono" style="color:var(--acc)">'+esc(lip)+'</b></div>':'')+
-   '<div class="pfrow">پورتِ ورودی: <b class="mono" style="direction:ltr">'+esc(p.listen_port)+'</b></div>'+
-  '</div><div class="pfcol">'+
-   '<div class="pfrow">پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
-   '<div class="pfrow">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
+ var live=(multi&&h.active)?'<div class="wrap">هم‌اکنون روی: <b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
+ var body='<div class="enmeta"><div class="emcol">'+
+   '<div>اینترفیس: <b class="mono">'+esc(p.iface)+'</b></div>'+
+   (lip?'<div>آی‌پیِ ورودی: <b class="mono" style="color:var(--acc)">'+esc(lip)+'</b></div>':'')+
+   '<div>پورتِ ورودی: <b class="mono">'+esc(p.listen_port)+'</b></div>'+
+  '</div><span class="tnarrow earrow">↔</span><div class="emcol">'+
+   '<div>پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
+   '<div class="wrap">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
    live+
   '</div></div>';
  var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">مجموع <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
