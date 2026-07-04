@@ -3137,7 +3137,8 @@ function tgtToggle(id){if(selTargets[id])delete selTargets[id];else selTargets[i
 function updateTgt(){var b=el('c_tgt_btn'),l=el('c_tgt_lbl');if(!l)return;var n=Object.keys(selTargets).length;
  l.textContent=n?(n+' نود انتخاب شده'):'انتخابِ نودهای مقصد';b.classList.toggle('ph',!n)}
 function renderSrcIp(){var w=el('c_srcip');if(!w)return;var ips=nodeIps(ssVal('c_a'));
- w.innerHTML=ips.length>1?('<label>آی‌پیِ نودِ مبدأ (چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</label>'+ssHTML('c_aip',ipItems(ips),(SEL['c_aip']&&ips.indexOf(SEL['c_aip'])>=0?SEL['c_aip']:ips[0]),'آی‌پی','')):''}
+ if(ips.length>1){w.innerHTML='<label>آی‌پیِ نودِ مبدأ (چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</label>'+ssHTML('c_aip',ipItems(ips),(SEL['c_aip']&&ips.indexOf(SEL['c_aip'])>=0?SEL['c_aip']:ips[0]),'آی‌پی','')}
+ else{w.innerHTML='';delete SEL['c_aip']}}   // single-IP source: clear any stale pick from a previous multi-IP source
 function renderTgtIps(){var w=el('c_tgtips');if(!w)return;var html='';Object.keys(selTargets).forEach(function(id){var ips=nodeIps(id);
  if(ips.length>1){var k='c_bip_'+id;html+='<label>آی‌پیِ مقصد «'+esc(nodeName(id))+'» (چند آی‌پی دارد)</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}});
  w.innerHTML=html}
@@ -3146,10 +3147,11 @@ function onCreateType(){var f=el('c_subnet');if(!f||!f.value.trim())return;var w
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a');var tgts=Object.keys(selTargets);
  if(!tgts.length){m.className='msg err';m.textContent='حداقل یک نودِ مقصد انتخاب کن';return}
- var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet'),aip=ssVal('c_aip'),okc=0,errs=[];
+ var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet'),aip=el('ssb_c_aip')?ssVal('c_aip'):'',okc=0,errs=[];
  if(range=='custom'&&tgts.length>1){m.className='msg err';m.textContent='سابنتِ دلخواه فقط برای یک مقصد است؛ برای چند مقصد یک رنجِ خودکار انتخاب کن';return}
  for(var i=0;i<tgts.length;i++){m.className='msg';m.textContent='در حال ساخت '+(i+1)+'/'+tgts.length+'…';
-  var body={a_node:a,b_node:tgts[i],type:type,a_ip:aip,b_ip:ssVal('c_bip_'+tgts[i])};
+  var bip=el('ssb_c_bip_'+tgts[i])?ssVal('c_bip_'+tgts[i]):'';   // only send an IP when its picker exists (multi-IP node); never a stale value
+  var body={a_node:a,b_node:tgts[i],type:type,a_ip:aip,b_ip:bip};
   if(range=='custom')body.subnet=custom;else body.subnet_base=range;
   var r=await post('create-tunnel',body);
   if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
