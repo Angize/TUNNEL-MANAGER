@@ -2809,6 +2809,7 @@ function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':s
 // throttling can't collapse them), clamped to the backend's real progress. ONE self-terminating loop
 // that stops the instant the modal closes — no leaked/duplicate pollers, no infinite retry.
 var _inst=null,_MINSPIN=600;
+var _INSTEPS=[{label:'اتصالِ SSH',detail:'در حالِ اتصال…'},{label:'دانلودِ ایجنت',detail:'در انتظار…'},{label:'نصب و راه‌اندازیِ سرویس',detail:'در انتظار…'},{label:'ثبت و اتصال در پنل',detail:'در انتظار…'}];
 function _instStop(){if(_inst){_inst.cancelled=true;if(_inst.timer)clearTimeout(_inst.timer);_inst=null}}
 function _instPoll(c){j('install-status?job='+encodeURIComponent(c.job)+'&_='+Date.now())
  .then(function(d){c.polling=false;
@@ -2856,10 +2857,12 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  if(!name||!host){m.className='msg err';m.textContent='نام و آی‌پیِ سرور لازم است';return}
  if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?'کلیدِ خصوصی':'رمزِ SSH')+' لازم است';return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
- var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>در حالِ نصب…</span></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
+ // show the FIRST step (SSH), spinning, the instant install is clicked — no "در حالِ نصب…" placeholder gap
+ var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>در حالِ نصب…</span></div><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">'+esc(_INSTEPS[0].label)+'</div><div class="istep-s">'+esc(_INSTEPS[0].detail)+'</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
  var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')}).catch(function(){return{ok:false,d:{}}});
  if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=(r.d&&r.d.error)||'ناموفق';if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
- _inst={job:r.d.job,steps:[],confirmed:[],banner:'در حالِ نصب…',bDone:false,bOk:false,err:'',revealIdx:0,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
+ // seed step 0 as revealed+running so the reveal continues seamlessly from the skeleton (no flicker back to the banner)
+ _inst={job:r.d.job,steps:_INSTEPS.map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:'در حالِ نصب…',bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
 async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
