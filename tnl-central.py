@@ -1285,10 +1285,20 @@ def api_node_traffic(d):
                 tunnels.append({"name": L.get("name"), "type": L.get("type"),
                                 "rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"],
                                 "rx_total": t["crx"], "tx_total": t["ctx"]})
+    portfw = []
+    lst = _cached_list(n["id"])
+    for c in (lst.get("configs") or []):
+        if c.get("type") != "portfw":
+            continue
+        t = ifs.get("pf:" + str(c.get("name") or ""))
+        if t:
+            portfw.append({"name": c.get("name"), "type": "portfw",
+                           "rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"],
+                           "rx_total": t["crx"], "tx_total": t["ctx"]})
     return {"online": online,
             "node": {"rx_bps": node.get("rx_bps", 0.0), "tx_bps": node.get("tx_bps", 0.0),
                      "rx_total": node.get("crx", 0), "tx_total": node.get("ctx", 0)},
-            "tunnels": tunnels}
+            "tunnels": tunnels, "portfw": portfw}
 
 
 def api_agent_upload(d):
@@ -1780,16 +1790,21 @@ def api_portfw_list(d):
         h = r.get("health") or {}
         node_ips = _flat_ips(_cached_ping(n["id"]))
         node_ip = node_ips[0] if len(node_ips) == 1 else ""  # single-IP node: its sole IP is the effective listen IP
+        tf = _tf_read(n["id"])
         for c in r["configs"]:
             if c.get("type") != "portfw":
                 continue
             if q and q not in n["name"].lower() and q not in str(c.get("name", "")).lower():
                 continue
+            t = tf.get("pf:" + str(c.get("name") or ""))  # live rx/tx rates + lifetime totals (may be absent)
+            bw = ({"rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"], "rx_total": t["crx"], "tx_total": t["ctx"]}
+                  if t else {"rx_bps": 0.0, "tx_bps": 0.0, "rx_total": 0, "tx_total": 0})
             all_pf.append({"node": n["name"], "node_id": n["id"], "name": c.get("name"),
                            "iface": c.get("iface"), "listen_port": c.get("listen_port"),
                            "listen_ip": c.get("listen_ip") or "", "node_ip": node_ip,
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
-                           "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name"))})
+                           "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name")),
+                           **bw})
     return {"portfw": all_pf[off:off + lim], "total": len(all_pf), "offset": off, "limit": lim}
 
 
@@ -1854,11 +1869,16 @@ def _node_ip_tags(nid):
             peers.setdefault(L["a_ip"], []).append({"node": L.get("b_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
         if L.get("b_node") == nid and L.get("b_ip"):
             peers.setdefault(L["b_ip"], []).append({"node": L.get("a_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
+    pf = {}  # ip -> [portfw names] pinned to it (an IP carrying a forward is in use, not free)
+    for c in (_cached_list(nid).get("configs") or []):
+        if c.get("type") == "portfw" and c.get("listen_ip"):
+            pf.setdefault(c["listen_ip"], []).append(c.get("name") or "")
     host = n.get("host")
     out = []
     for ip in live:
         pl = [p for p in peers.get(ip, []) if p["node"]]
-        out.append({"ip": ip, "host": ip == host, "peers": pl, "free": (not pl)})
+        pfl = [x for x in pf.get(ip, []) if x]
+        out.append({"ip": ip, "host": ip == host, "peers": pl, "pf": pfl, "free": (not pl and not pfl)})
     return out
 
 
@@ -2181,6 +2201,7 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);color:var(--acc);border-radius:8px;padding:2px 8px;font-weight:700}
 .tag.sit{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .tag.gre{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.tag.portfw{color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)}
 .nact{display:flex;gap:8px;margin-top:13px;flex-wrap:wrap}
 button.act{display:inline-flex;align-items:center;gap:5px;background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 12px;cursor:pointer;font-size:12.5px;font-family:inherit}
 button.act:active{transform:scale(.97)}button.act .ic{width:14px;height:14px}
@@ -2504,6 +2525,7 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .delopt.danger .do-t,.delopt.danger .do-t .ic{color:var(--bad)}
 .delopt.danger .do-s{color:color-mix(in srgb,var(--bad) 72%,var(--sub))}
 .ipfree{font-size:10.5px;font-weight:700;color:var(--sub);border:1px dashed var(--bord);padding:2px 8px;border-radius:8px}
+.ippf{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,#fb923c 15%,transparent);color:#fb923c}.ippf .ic{width:12px;height:12px}
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
 .setfield .val{color:var(--gold)}
@@ -2930,7 +2952,7 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
  if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk','دیسک')+'</div>';
   var traf='<div class="nd-sec">'+ic('traf')+' ترافیک<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>زنده</span></div><div class="tf-chart"><div class="tf-top"><span class="din">↓ <b id="tf_rin">—</b></span><span class="dout">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
   var tiles='<div class="nd-grid">'+ndTile('os','سیستم‌عامل',esc(s.os||'?'),false,true)+ndTile('clock','آپ‌تایم',s.uptime?fmtup(s.uptime):'?')+ndTile('cores','تعداد هسته',num(s.cpus)||'?')+ndTile('link','تونل',num(i.tunnels))+ndTile('globe','پورت‌فوروارد',num(i.portfw))+ndTile('shield','پروکسیِ کنترل',n.proxy?esc(proxyScheme(n.proxy)):'—')+ndTile('server','میزبان',esc(i.hostname||'?'),true,true)+ndTile('pin','آی‌پی',esc(n.host),true,true)+'</div>';
-  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' آی‌پی‌ها<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">تونل‌شده / آزاد</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
+  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' آی‌پی‌ها<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">تونل‌شده / پورت‌فوروارد / آزاد</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
  else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
  var sub=n.online?'<span class="lpill"><span class="pd"></span>زنده</span> به‌روزرسانی هر ۲ ثانیه':'وضعیت نود';
  var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>مشخصات نود</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" onclick="ndRetest(\\''+id+'\\')">تستِ اتصال</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">بستن</button></div>';
@@ -2942,7 +2964,8 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
    j('traffic?id='+id).then(function(r){if(ov._closed||!r||!r.node)return;var nd=r.node;
     setT('tf_rin',fmtRate(nd.rx_bps));setT('tf_rout',fmtRate(nd.tx_bps));setT('tf_tin',fmtBytes(nd.rx_total));setT('tf_tout',fmtBytes(nd.tx_total));
     tfin.push(num(nd.rx_bps));tfout.push(num(nd.tx_bps));if(tfin.length>30){tfin.shift();tfout.shift()}dualSpark('tf_spark',tfin,tfout);
-    var tb=el('tf_tuns');if(tb)tb.innerHTML=(r.tunnels&&r.tunnels.length)?r.tunnels.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">تونلی روی این نود نیست</div>'}).catch(function(){})};
+    var rows=(r.tunnels||[]).concat(r.portfw||[]);
+    var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">تونل یا پورت‌فورواردی روی این نود نیست</div>'}).catch(function(){})};
   poll();ov._iv=setInterval(poll,2500)}}
 function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast('آنلاین','ok')}else{toast('آفلاین: '+((r&&r.error)||'در دسترس نیست'),'err')}}).catch(function(){toast('خطا در بررسی','err')})}
 function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
@@ -3095,6 +3118,7 @@ var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="curr
 var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 function ipChips(x){var t=(x.peers||[]).map(function(p){
   return '<span class="ippeer" onclick="ipTog(event,this)"><span class="ipchip">'+LINKI+' '+esc(p.node)+'</span><span class="iptyp '+esc(p.type)+'">'+esc(p.name||p.type)+'</span></span>'});
+ (x.pf||[]).forEach(function(nm){t.push('<span class="ippf">'+ic('globe')+' پورت‌فوروارد · '+esc(nm)+'</span>')});
  if(x.free)t.push('<span class="ipfree">آزاد</span>');return t.join('')}
 function ipTog(ev,el){if(ev)ev.stopPropagation();el.classList.toggle('show')}
 function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" style="font-size:11.5px;padding:6px 2px">آی‌پی‌ای گزارش نشد</div>';
@@ -3198,8 +3222,9 @@ function pfCard(p,i){var h=p.health||{};
    '<div class="pfrow">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
    live+
   '</div></div>';
+ var traf='<div class="ltraf"><span class="din">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">مجموع ↓'+fmtBytes(p.rx_total)+' ↑'+fmtBytes(p.tx_total)+'</span></div>';
  var acts='<div class="nact iconly">'+((multi&&h.active)?'<button class="act" title="چرخش الان" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="ویرایش" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
- return '<div class="card">'+head+body+acts+'</div>'}
+ return '<div class="card">'+head+body+traf+acts+'</div>'}
 function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
  setT('pe_tgllbl_'+i,on?'روشن':'خاموش');var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
 async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=v('pe_lp_'+i),dp=v('pe_dp_'+i),ips=v('pe_ips_'+i);
