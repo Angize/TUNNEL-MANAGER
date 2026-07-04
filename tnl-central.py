@@ -1869,10 +1869,13 @@ def _node_ip_tags(nid):
             peers.setdefault(L["a_ip"], []).append({"node": L.get("b_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
         if L.get("b_node") == nid and L.get("b_ip"):
             peers.setdefault(L["b_ip"], []).append({"node": L.get("a_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
-    pf = {}  # ip -> [portfw names] pinned to it (an IP carrying a forward is in use, not free)
+    pf = {}  # ip -> [portfw names] using it (an IP carrying a forward is in use, not free)
+    only_ip = live[0] if len(live) == 1 else ""   # single-IP node: a forward with no pin still uses that lone IP
     for c in (_cached_list(nid).get("configs") or []):
-        if c.get("type") == "portfw" and c.get("listen_ip"):
-            pf.setdefault(c["listen_ip"], []).append(c.get("name") or "")
+        if c.get("type") == "portfw":
+            ip = c.get("listen_ip") or only_ip
+            if ip:
+                pf.setdefault(ip, []).append(c.get("name") or "")
     host = n.get("host")
     out = []
     for ip in live:
@@ -3217,8 +3220,8 @@ function pfCard(p,i){var h=p.health||{};
    '<div class="pfrow">اینترفیس: <b class="mono">'+esc(p.iface)+'</b></div>'+
    (lip?'<div class="pfrow">آی‌پیِ ورودی: <b class="mono" style="color:var(--acc)">'+esc(lip)+'</b></div>':'')+
    '<div class="pfrow">پورتِ ورودی: <b class="mono" style="direction:ltr">'+esc(p.listen_port)+'</b></div>'+
-   '<div class="pfrow">پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
   '</div><div class="pfcol">'+
+   '<div class="pfrow">پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
    '<div class="pfrow">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
    live+
   '</div></div>';
