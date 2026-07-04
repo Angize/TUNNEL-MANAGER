@@ -809,8 +809,9 @@ def central_stats():
     return st
 
 
-UP_CRIT = 85   # a node metric at/above this is "critical" (red)
-UP_WARN = 60   # at/above this is "warning" (amber)
+UP_CRIT = 85    # a node metric at/above this is "critical" (red)
+UP_WARN = 60    # at/above this is "warning" (amber)
+PING_BAD = 150  # tunnel rtt (ms) above this counts as a real quality problem
 
 
 def api_summary(d):
@@ -853,9 +854,11 @@ def api_summary(d):
         if w >= UP_CRIT:
             crit.append(nid)
 
+    nmap = {n["id"]: n.get("name", "") for n in nodes}
     up = noping = down = drift_n = 0
     types = {"vxlan": 0, "gre": 0, "sit": 0}
     worst_tun = None
+    rtts = []
     for L in links:
         types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
         ah, _a = _link_side_health(L, "a_node")
@@ -867,11 +870,21 @@ def api_summary(d):
                 up += 1
             else:
                 noping += 1
-            for h in (ah, bh):  # track the worst-quality tunnel by rtt / loss
-                if isinstance(h, dict) and (h.get("rtt_ms") is not None or _sflt(h.get("loss_pct")) > 0):
-                    cand = {"name": L.get("name"), "rtt": h.get("rtt_ms"), "loss": h.get("loss_pct")}
-                    if worst_tun is None or _sflt(cand["rtt"]) > _sflt(worst_tun["rtt"]) or _sflt(cand["loss"]) > _sflt(worst_tun["loss"]):
-                        worst_tun = cand
+            # worst view of the tunnel = the higher loss / rtt reported by either end
+            sides = [h for h in (ah, bh) if isinstance(h, dict)]
+            lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
+            lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
+            if lrtt > 0:
+                rtts.append(lrtt)
+            # only a *real* quality problem qualifies: packet loss, or genuinely high ping
+            if lloss > 0 or lrtt > PING_BAD:
+                cand = {"name": L.get("name"),
+                        "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
+                        "b": nmap.get(L.get("b_node"), L.get("b_name", "")),
+                        "rtt": lrtt if lrtt > 0 else None, "loss": lloss}
+                # rank by loss first (most important), then by rtt
+                if worst_tun is None or (cand["loss"], _sflt(cand["rtt"])) > (worst_tun["loss"], _sflt(worst_tun["rtt"])):
+                    worst_tun = cand
         else:
             down += 1
             alerts.append({"level": "bad", "kind": "link", "id": L["id"], "msg": f"تونلِ «{L.get('name')}» قطع است"})
@@ -908,6 +921,7 @@ def api_summary(d):
             "alerts": alerts[:10],
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
             "link_types": types, "worst_tunnel": worst_tun,
+            "fleet_avg_ping": round(sum(rtts) / len(rtts)) if rtts else None,
             "uptime_avg": round(sum(ups) / len(ups), 1) if ups else 100, "uptime_down_nodes": downcnt, "uptime_window": win,
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
@@ -2030,8 +2044,12 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .oalert:last-child{border-bottom:0}
 .oalert .msg{font-size:12.5px;font-weight:600;min-width:0}.oalert .msg b{font-weight:800}
 .oalert .go{margin-inline-start:auto;font-size:11px;color:var(--acc);font-weight:700;white-space:nowrap;cursor:pointer}
-.oheat{display:flex;gap:4px;align-items:flex-end;height:66px;direction:ltr}
-.hbar{flex:1;border-radius:5px 5px 3px 3px;min-height:8px}
+.oheat{display:flex;gap:4px;align-items:flex-end;height:66px;direction:ltr;position:relative}
+.hbar{flex:1;border-radius:5px 5px 3px 3px;min-height:8px;cursor:pointer;transition:filter .12s}
+.hbar:active{filter:brightness(1.12)}
+.htip{position:absolute;bottom:calc(100% + 7px);transform:translateX(-50%);direction:rtl;background:var(--tx);color:var(--card);font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;white-space:nowrap;pointer-events:none;z-index:6;box-shadow:0 5px 16px rgba(0,0,0,.28)}
+.htip span{opacity:.65;font-weight:600}
+.htip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--tx)}
 .heat-lg{display:flex;gap:14px;margin-top:10px;font-size:11px;color:var(--sub);flex-wrap:wrap;justify-content:center}
 .heat-lg span{display:inline-flex;align-items:center;gap:5px}.heat-lg i{width:9px;height:9px;border-radius:3px;display:inline-block}
 .otrack{width:9px;height:9px;border-radius:3px;display:inline-block}
@@ -2379,6 +2397,11 @@ async function bulkTun(action){var ids=Object.keys(SELT);if(!ids.length)return;
 function statc(id,label,hue,icon){return '<div class="card stat"><div class="k"><span class="chip" style="--hue:'+hue+'">'+ic(icon,hue)+'</span> '+label+'</div><div class="v" id="'+id+'">—</div></div>'}
 function go(t){cur=t;drawer(false);render()}
 function ocol(p){return p>85?cssv('--bad'):p>60?cssv('--gold'):cssv('--ok')}
+function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box.querySelector('.htip');
+ if(!tip){tip=document.createElement('div');tip.className='htip';box.appendChild(tip)}
+ tip.innerHTML='<span>'+esc(bar.dataset.nm)+'</span> '+bar.dataset.info;
+ tip.style.left=(bar.offsetLeft+bar.offsetWidth/2)+'px';tip.style.display='block';
+ clearTimeout(box._tt);box._tt=setTimeout(function(){if(tip)tip.style.display='none'},2400)}
 function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' نمای کلی</h1><p class="sub">آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده</p>'+
  '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">سلامتِ فلیت</div></div><div class="ochips" id="o_chips"></div></div>'+
  '<div class="sec">'+ic('warn','var(--acc)')+' نیازمندِ توجه</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
@@ -2403,7 +2426,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" onclick="go(\\''+g+'\\')">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' همه‌چیز مرتب است — هشداری نیست</div>';
  // ---- heat row (every node at a glance; height = worst metric)
  var heat=s.heat||[];
- el('o_heat').innerHTML=heat.length?heat.map(function(h){if(!h.online)return '<div class="hbar" title="'+esc(h.name)+' — آفلاین" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" title="'+esc(h.name)+' — '+p+'٪" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">نودی نیست</div>';
+ setHTML(el('o_heat'),heat.length?heat.map(function(h){var nm=esc(h.name);if(!h.online)return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="آفلاین" title="'+nm+' — آفلاین" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+p+'٪" title="'+nm+' — '+p+'٪" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">نودی نیست</div>');
  setT('o_heat_c',(heat.length||0)+' نود · هر میله = بدترین متریکِ آن نود (دیسک/رم/CPU) · خاکستری = آفلاین');
  // ---- central server gauges
  var c=s.central||{},cl=(c.load||[])[0];
@@ -2424,7 +2447,9 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  el('o_typebar').innerHTML='<i style="width:'+(tv/tt*100)+'%;background:var(--acc)"></i><i style="width:'+(tg/tt*100)+'%;background:var(--ok)"></i><i style="width:'+(ts/tt*100)+'%;background:#a855f7"></i>';
  el('o_typleg').innerHTML='<span><i class="otrack" style="background:var(--acc)"></i>vxlan <b>'+tv+'</b></span><span><i class="otrack" style="background:var(--ok)"></i>gre <b>'+tg+'</b></span><span><i class="otrack" style="background:#a855f7"></i>sit <b>'+ts+'</b></span>';
  var wt=s.worst_tunnel;
- el('o_wtun').innerHTML=wt?'<div class="onote">📡 بدترین کیفیت: تونلِ <b>'+esc(wt.name)+'</b>'+(wt.rtt!=null?' — پینگ <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+(num(wt.loss)>0?' · اتلاف <b style="color:var(--gold)">'+Math.round(num(wt.loss))+'٪</b>':'')+'</div>':'';
+ if(wt){var pr=(wt.a&&wt.b)?' <span dir="ltr" style="color:var(--tx);font-weight:800">'+esc(wt.a)+' ↔ '+esc(wt.b)+'</span>':'';
+  setHTML(el('o_wtun'),'<div class="onote">📡 بدترین کیفیت: تونلِ <b>'+esc(wt.name)+'</b>'+pr+(num(wt.loss)>0?' · اتلاف <b style="color:var(--bad)">'+Math.round(num(wt.loss))+'٪</b>':'')+(wt.rtt!=null?' · پینگ <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+'</div>');}
+ else{setHTML(el('o_wtun'),'<div class="onote">✅ کیفیتِ همهٔ تونل‌ها خوب است'+(s.fleet_avg_ping!=null?' · میانگینِ پینگِ فلیت <b style="color:var(--tx)">'+num(s.fleet_avg_ping)+'ms</b>':'')+'</div>');}
  // ---- fleet traffic
  var frx=num(s.fleet_rx_bps),ftx=num(s.fleet_tx_bps);
  setT('o_frx',fmtRate(frx));setT('o_ftx',fmtRate(ftx));
