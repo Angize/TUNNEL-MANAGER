@@ -1484,7 +1484,7 @@ def _create_tunnel_impl(d):
         if L.get("type") == ttype and same_pair:
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
         if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
-            raise ValueError(f"روی این جفت آی‌پیِ عمومیِ نود از قبل تونلِ {L.get('type')} هست. ipip و fou در سطحِ کرنل با همین جفت آی‌پیِ نود شناخته می‌شوند (سابنتِ لوکال فرقی نمی‌کند)، پس با هم روی یک جفت نمی‌شوند — نوعِ دیگری بزن (gre/vxlan/ipsec/l2tpv3) یا اگر نود چند آی‌پیِ عمومی دارد این تونل را روی آی‌پیِ نودِ دیگری ببند")
+            raise ValueError(f"تونلِ «{L.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
@@ -1619,7 +1619,7 @@ def _edit_link_impl(d):
         if x.get("type") == ttype and same_pair:
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
         if ttype in IPIP_FAMILY and x.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
-            raise ValueError(f"روی این جفت آی‌پیِ عمومیِ نود از قبل تونلِ {x.get('type')} هست. ipip و fou در سطحِ کرنل با همین جفت آی‌پیِ نود شناخته می‌شوند (سابنتِ لوکال فرقی نمی‌کند)، پس با هم روی یک جفت نمی‌شوند — نوعِ دیگری بزن (gre/vxlan/ipsec/l2tpv3) یا اگر نود چند آی‌پیِ عمومی دارد این تونل را روی آی‌پیِ نودِ دیگری ببند")
+            raise ValueError(f"تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
     subnet = norm_subnet(ttype, tid, d.get("subnet"))
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
