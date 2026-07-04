@@ -2179,13 +2179,15 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .rbrow.sel .rbdot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
 .rbrow .rbtags{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 /* IP peer chips (node details + picker): tap a node chip to reveal the tunnel type */
-.ippeer{display:inline-flex;align-items:center;gap:5px}
-.ipchip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:8px;background:var(--accw);color:var(--acc);cursor:pointer;user-select:none}
-.ippeer .iptyp{display:none;font-size:10px;font-weight:800;padding:3px 7px;border-radius:6px}
+.ippeer{position:relative;display:inline-flex}
+.ipchip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:var(--accw);color:var(--acc);cursor:pointer;user-select:none;transition:transform .12s}
+.ipchip:active{transform:scale(.95)}
+.ippeer .iptyp{position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);display:none;font-size:10px;font-weight:800;padding:3px 8px;border-radius:7px;white-space:nowrap;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 .ippeer.show .iptyp{display:inline-flex}
-.iptyp.vxlan{color:var(--acc);background:var(--accw)}
-.iptyp.gre{color:var(--ok);background:color-mix(in srgb,var(--ok) 15%,transparent)}
-.iptyp.sit{color:#a855f7;background:rgba(168,85,247,.15)}
+.ippeer .iptyp::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent}
+.iptyp.vxlan{color:#fff;background:var(--acc)}.iptyp.vxlan::after{border-top-color:var(--acc)}
+.iptyp.gre{color:#fff;background:var(--ok)}.iptyp.gre::after{border-top-color:var(--ok)}
+.iptyp.sit{color:#fff;background:#a855f7}.iptyp.sit::after{border-top-color:#a855f7}
 .ipfree{font-size:10.5px;font-weight:700;color:var(--sub);border:1px dashed var(--bord);padding:2px 8px;border-radius:8px}
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
