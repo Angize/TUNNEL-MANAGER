@@ -1169,15 +1169,35 @@ def api_node_edit(d):
 
 def api_node_del(d):
     _require(d, ["id"])
+    nid = d["id"]
+    wipe = bool(d.get("wipe"))
+    out = {"ok": True}
+    if wipe:
+        n = get_node(nid)
+        if n:  # tell the node to self-destruct (tunnels + agent + service + configs + token)
+            r = node_call(n, "wipe", "POST", {}, timeout=60)
+            out["node_wiped"] = bool(r.get("ok"))
+            out["node_error"] = "" if r.get("ok") else (r.get("error") or r.get("msg") or "unreachable")
+        with _reg_lock:  # drop this node's links from the registry
+            links = load_links()
+            mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
+            mine_ids = {L["id"] for L in mine}
+            save_json(LINKS_FILE, [L for L in links if L["id"] not in mine_ids])
+        for L in mine:  # tear the peer's half of each tunnel down too, so no orphan is left behind
+            peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
+            pn = get_node(peer_id)
+            if pn:
+                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=30)  # best-effort
+        out["links_removed"] = len(mine)
     with _reg_lock:
-        save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != d["id"]])
+        save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
     with _pc_lock:
-        _pc.pop(d["id"], None)
+        _pc.pop(nid, None)
     with _tf_lock:
-        _tf.pop(d["id"], None)
+        _tf.pop(nid, None)
     with _uh_lock:
-        _uh.pop(d["id"], None)
-    return {"ok": True}
+        _uh.pop(nid, None)
+    return out
 
 
 def api_node_test(d):
@@ -1258,6 +1278,36 @@ def api_agent_upload(d):
     with _agent_lock:
         save_text(AGENT_FILE, src)
         save_json(AGENT_META, {"version": ver, "sha256": sha, "size": len(src.encode()), "uploaded_ts": int(time.time())})
+    return {"ok": True, "version": ver, "sha256": sha[:12]}
+
+
+def api_agent_fetch_git(d):
+    """Download the latest node agent from its public GitHub repo, validate it (same gates as an
+    upload) and store it as the current agent so it can be pushed to the fleet."""
+    try:
+        req = urllib.request.Request(NODE_RAW_URL, headers={"User-Agent": "tnl-central"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            src = r.read(300000).decode("utf-8", "replace")
+    except Exception as e:
+        raise ValueError(f"دریافت از گیت‌هاب ناموفق: {str(e)[:120]}")
+    if not src.strip():
+        raise ValueError("فایلِ دریافتی خالی است")
+    if len(src.encode()) > 262144:
+        raise ValueError("فایلِ دریافتی بیش از حد بزرگ است")
+    try:
+        compile(src, "tnl-node.py", "exec")
+    except SyntaxError as e:
+        raise ValueError("کدِ دریافتی نامعتبر: " + str(e))
+    if '"agent": "tnl-node"' not in src:
+        raise ValueError("فایلِ دریافتی ایجنتِ نود نیست")
+    m = re.search(r'"version":\s*(\d+)', src)
+    if not m:
+        raise ValueError("نسخهٔ ایجنت در کدِ دریافتی پیدا نشد")
+    ver, sha = int(m.group(1)), hashlib.sha256(src.encode()).hexdigest()
+    with _agent_lock:
+        save_text(AGENT_FILE, src)
+        save_json(AGENT_META, {"version": ver, "sha256": sha, "size": len(src.encode()),
+                               "uploaded_ts": int(time.time()), "source": "git"})
     return {"ok": True, "version": ver, "sha256": sha[:12]}
 
 
@@ -1853,10 +1903,11 @@ API = {
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
+    "agent-fetch-git": api_agent_fetch_git,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "settings-set"}
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -2373,6 +2424,14 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .seg button .ic{width:15px;height:15px}
 .autonote{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;color:var(--sub);background:var(--warnw);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:11px;padding:10px 12px;margin-bottom:13px}
 .autonote .ic{color:var(--gold);flex:0 0 auto;margin-top:1px}
+.authbox{border:1px solid var(--bord);border-radius:13px;background:var(--field);padding:11px;margin-bottom:12px}
+.authhd{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.authhd .t{font-size:12.5px;font-weight:800}
+.authseg{margin-inline-start:auto;display:flex;background:var(--card);border:1px solid var(--bord);border-radius:9px;padding:3px;gap:3px}
+.authseg button{border:0;background:transparent;color:var(--sub);font-family:inherit;font-weight:800;font-size:11.5px;padding:5px 12px;border-radius:7px;cursor:pointer}
+.authseg button.on{background:var(--acc);color:#fff}
+.authbox .fld2{width:100%;padding:11px 12px;border:1px solid var(--bord);border-radius:11px;background:var(--card);color:var(--tx);font-size:13px;font-family:inherit}
+.authbox textarea.fld2{font-family:ui-monospace,Consolas,monospace;font-size:11px;direction:ltr;resize:vertical;min-height:74px}
 .iwrap{margin-top:14px;border-top:1px solid var(--bord);padding-top:6px}
 .ibanner{display:flex;align-items:center;gap:8px;border-radius:11px;padding:10px 12px;font-size:12.5px;font-weight:800;margin:8px 0 6px}
 .ibanner.run{background:var(--accw);color:var(--acc)}
@@ -2388,6 +2447,17 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .ispin{width:13px;height:13px;border:2.5px solid var(--accw);border-top-color:var(--acc);border-radius:50%;animation:isp 1s linear infinite}
 @keyframes isp{to{transform:rotate(360deg)}}
 .ilog{margin:8px 0 2px;background:#0c1220;border:1px solid var(--bord);border-radius:10px;padding:9px 11px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;font-size:10.5px;line-height:1.6;color:#d3ddea;white-space:pre-wrap;max-height:170px;overflow:auto}
+/* ===== delete-node: two-mode chooser ===== */
+.medi.medi-bad{background:var(--badw);color:var(--bad)}
+.delopt{display:block;width:100%;text-align:start;border:1px solid var(--bord);background:var(--field);border-radius:13px;padding:13px 14px;margin-bottom:11px;cursor:pointer;font-family:inherit;color:var(--tx);transition:border-color .14s,background .14s}
+.delopt:hover{border-color:var(--acc)}.delopt:disabled{opacity:.5;pointer-events:none}
+.delopt .do-t{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px}
+.delopt .do-t .ic{width:17px;height:17px;color:var(--acc)}
+.delopt .do-s{color:var(--sub);font-size:11.5px;margin-top:5px;padding-inline-start:25px}
+.delopt.danger{border-color:color-mix(in srgb,var(--bad) 35%,transparent);background:var(--badw)}
+.delopt.danger:hover{border-color:var(--bad)}
+.delopt.danger .do-t,.delopt.danger .do-t .ic{color:var(--bad)}
+.delopt.danger .do-s{color:color-mix(in srgb,var(--bad) 72%,var(--sub))}
 .ipfree{font-size:10.5px;font-weight:700;color:var(--sub);border:1px dashed var(--bord);padding:2px 8px;border-radius:8px}
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
@@ -2690,15 +2760,17 @@ function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' ن�
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن نود</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+toolbar('nodes','جستجوی نام یا آی‌پی…')+'<div id="nodeList"></div>'+pagerBottom('nodes')}
 var _naddMode='auto';
-function openNodeAddModal(){_naddMode='auto';
+function openNodeAddModal(){_naddMode='auto';_authMode='pass';
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+'خودکار</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+'دستی</button></div>';
  var auto='<div id="nadd_auto">'+
    '<div class="autonote">'+ic('bolt')+'<span>مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.</span></div>'+
    '<div class="grid2"><div><label class="first">نامِ نود</label><input id="a_name" placeholder="DE02"></div><div><label class="first">آی‌پیِ سرور</label><input id="a_host" placeholder="5.75.197.55"></div></div>'+
    '<div class="grid2"><div><label>پورتِ SSH</label><input id="a_sshport" placeholder="22"></div><div><label>کاربرِ SSH</label><input id="a_user" placeholder="root"></div></div>'+
    '<div class="grid2"><div><label>پورتِ ایجنت</label><input id="a_aport" placeholder="8099"></div><div><label>پروکسیِ کنترل (اختیاری)</label><input id="a_proxy" placeholder="socks5://host:1080"></div></div>'+
-   '<label>رمزِ SSH <span class="muted" style="font-weight:500">(یا کلیدِ خصوصیِ پایین)</span></label><input id="a_pass" type="password" placeholder="••••••••" autocomplete="new-password">'+
-   '<label>کلیدِ خصوصیِ SSH — اختیاری، جای رمز</label><textarea id="a_key" rows="2" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:11px;direction:ltr;resize:vertical"></textarea>'+
+   '<div class="authbox"><div class="authhd"><span class="t">احرازِ هویتِ SSH</span><span class="authseg" id="a_authseg"><button type="button" data-am="pass" class="on" onclick="authMode(\\'pass\\')">رمز</button><button type="button" data-am="key" onclick="authMode(\\'key\\')">کلیدِ خصوصی</button></span></div>'+
+    '<input id="a_pass" class="fld2" type="password" placeholder="رمزِ SSH سرور" autocomplete="new-password">'+
+    '<textarea id="a_key" class="fld2" rows="3" style="display:none" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>'+
+    '<div class="muted" id="a_authhint" style="font-size:11px;margin-top:7px">رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.</div></div>'+
    '<div id="nadd_prog"></div></div>';
  var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">نام</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">هاست / آی‌پی</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>پورت agent</label><input id="n_port" placeholder="8099"></div><div><label>توکن نود</label><input id="n_tok" placeholder="توکن نود"></div></div><label>پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود</label><input id="n_proxy" placeholder="socks5://host:1080  یا  http://user:pass@host:8080"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ نود</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+'نصب و اتصالِ خودکار</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
@@ -2715,13 +2787,24 @@ function renderInstallSteps(j){var box=el('nadd_prog');if(!box)return;
    var lg=s.log?'<div class="ilog">'+esc(s.log)+'</div>':'';
    return '<div class="istep '+s.state+'">'+instIcon(s.state)+'<div class="istep-b"><div class="istep-t">'+esc(s.label)+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}).join('');
  box.innerHTML='<div class="iwrap">'+ban+steps+'</div>'}
-async function doAutoInstall(){var m=el('n_msg');
- var name=v('a_name'),host=v('a_host'),pass=v('a_pass'),key=(el('a_key')?el('a_key').value:'').trim();
+var _authMode='pass';
+function authMode(m){_authMode=m;
+ var pf=el('a_pass'),kf=el('a_key'),h=el('a_authhint');
+ if(pf)pf.style.display=(m=='pass')?'':'none';if(kf)kf.style.display=(m=='key')?'':'none';
+ document.querySelectorAll('#a_authseg button').forEach(function(b){b.classList.toggle('on',b.dataset.am==m)});
+ if(h)h.textContent=(m=='key')?'کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.':'رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.';
+ var f=(m=='pass')?pf:kf;if(f){try{f.focus()}catch(e){}}}
+function agBtnBusy(btn,on,label){if(!btn)return;btn.disabled=on;
+ btn.innerHTML=on?('<span class="ispin" style="border-color:rgba(255,255,255,.45);border-top-color:#fff"></span> در حال نصب…'):label}
+async function doAutoInstall(){var m=el('n_msg'),btn=el('nadd_go');
+ var name=v('a_name'),host=v('a_host');
+ var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){m.className='msg err';m.textContent='نام و آی‌پیِ سرور لازم است';return}
- if(!pass&&!key){m.className='msg err';m.textContent='رمزِ SSH یا کلیدِ خصوصی لازم است';return}
- m.className='msg';m.textContent='';var btn=el('nadd_go');if(btn)btn.disabled=true;
+ if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?'کلیدِ خصوصی':'رمزِ SSH')+' لازم است';return}
+ m.className='msg';m.textContent='';agBtnBusy(btn,true);
  var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')});
- if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(btn)btn.disabled=false;return}
+ if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';agBtnBusy(btn,false,ic('bolt')+'نصب و اتصالِ خودکار');return}
+ var pr=el('nadd_prog');if(pr)pr.scrollIntoView({behavior:'smooth',block:'center'});
  pollInstall(r.d.job)}
 function pollInstall(jid){var poll=async function(){
   var r=await j('install-status?job='+encodeURIComponent(jid)).then(function(d){return{ok:true,d:d}}).catch(function(){return{ok:false,d:{}}});
@@ -2830,7 +2913,22 @@ async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textCo
  var info=(r.d&&r.d.info)||{};if(!m)return;
  if(r.d&&r.d.ok){m.className='msg ok';m.innerHTML=CK+esc(' آنلاین — '+(info.hostname||'')+' · '+ms+'ms')}
  else{m.className='msg err';m.textContent='آفلاین: '+(info.error||'در دسترس نیست')+' · '+ms+'ms'}}
-async function delNode(id,nm){if(!await confirmBox('نود «'+nm+'» حذف شود؟ تونل‌هایش دست‌نخورده می‌مانند؛ فقط از رجیستری حذف می‌شود.'))return;await post('node-del',{id:id});editingId=null;refreshNodes()}
+function delNode(id,nm){
+ var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:</div>'+
+  '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+'فقط از پنل جدا کن</div><div class="do-s">نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.</div></button>'+
+  '<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+'پاک‌سازیِ کاملِ نود</div><div class="do-s">روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!</div></button>'+
+  '<div class="msg" id="del_msg"></div>';
+ openModal('<div class="msticky"><span class="medi medi-bad">'+ic('trash')+'</span><div class="ttl"><h3>حذفِ نود</h3><div class="sb">'+esc(nm)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+async function doDelNode(id,wipe){var m=el('del_msg');
+ if(wipe&&!await confirmBox('مطمئنی؟ کلِ نود روی سرور — تونل‌ها، ایجنت و توکن — پاک می‌شود و برگشت ندارد.','بله، پاک کن'))return;
+ if(m){m.className='msg';m.textContent=wipe?'در حال پاک‌سازیِ نود…':'در حال جدا کردن…'}
+ document.querySelectorAll('.delopt').forEach(function(b){b.disabled=true});
+ var r=await post('node-del',{id:id,wipe:wipe});
+ if(r.ok&&r.d.ok){editingId=null;var ov=m?m.closest('.modalov'):null;
+  if(wipe&&r.d.node_wiped===false)toast('از پنل حذف شد ولی سمتِ نود ناموفق: '+(r.d.node_error||''),'err');
+  else toast(wipe?'نود کاملاً پاک‌سازی شد':'نود از پنل جدا شد','ok');
+  if(ov)closeModal(ov);else refreshNodes()}
+ else{if(m){m.className='msg err';m.textContent=(r.d&&r.d.error)||'ناموفق'}document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false})}}
 
 // ===== Tunnels
 function tunnelsSkel(){CHK={};el('view').innerHTML='<h1>'+ic('link','var(--acc)')+' تونل‌ها</h1><p class="sub">هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد</p>'+
@@ -3038,7 +3136,10 @@ async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox('این پ
 // ===== agent push-update page =====
 function agentBody(){return ''+
  '<div class="card" id="ag_stored" style="margin-bottom:12px"></div>'+
- '<div class="card" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:#34d399">'+ic('plus','#34d399')+'</span> بارگذاریِ ایجنتِ جدید</div>'+
+ '<div class="card gitcard" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('redo','var(--acc)')+'</span> بروزرسانی از گیت‌هاب</div>'+
+  '<div class="muted" style="font-size:12px;margin:3px 0 12px">آخرین نسخهٔ <b>tnl-node.py</b> از ریپوی عمومی دریافت، بررسی و روی همهٔ نودهای آنلاین اعمال می‌شود.</div>'+
+  '<button class="primary" onclick="agFetchGit()" id="ag_git_btn" style="display:inline-flex;align-items:center;gap:7px">'+ic('redo')+'دریافت از گیت و بروزرسانیِ همه</button><div class="msg" id="ag_git_msg"></div></div>'+
+ '<div class="card" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:#34d399">'+ic('plus','#34d399')+'</span> بارگذاریِ دستیِ ایجنت</div>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="drop" id="ag_drop" onclick="el(\\'ag_file\\').click()">فایلِ <b>tnl-node.py</b> را انتخاب کن — قبل از ذخیره صحتِ کد بررسی می‌شود</div>'+
   '<textarea id="ag_paste" placeholder="یا کدِ ایجنت را اینجا پیست کن…" style="display:none;width:100%;height:120px;margin-top:10px;padding:11px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:ui-monospace,monospace;font-size:12px;direction:ltr"></textarea>'+
@@ -3068,6 +3169,14 @@ async function agUpload(){var m=el('ag_msg');var code=window._agCode||v('ag_past
  var r=await post('agent-upload',{code:code});
  if(r.ok&&r.d.ok){m.className='msg ok';m.textContent='ذخیره شد: v'+r.d.version+' · '+r.d.sha256;window._agCode=null;refreshAgent()}
  else{m.className='msg err';m.textContent=r.d.error||'ناموفق'}}
+async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
+ m.className='msg';m.textContent='در حال دریافت از گیت‌هاب…';if(btn)btn.disabled=true;
+ var r=await post('agent-fetch-git',{});
+ if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(btn)btn.disabled=false;return}
+ m.className='msg ok';m.innerHTML='نسخهٔ v'+r.d.version+' از گیت دریافت شد · <span class="mono">'+esc(r.d.sha256)+'</span>'+CK;
+ if(btn)btn.disabled=false;
+ await refreshAgent();
+ agPush('all')}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast('اول یک ایجنت بارگذاری کن','err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
