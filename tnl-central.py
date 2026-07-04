@@ -1778,6 +1778,8 @@ def api_portfw_list(d):
         if r.get("configs") is None:
             continue
         h = r.get("health") or {}
+        node_ips = _flat_ips(_cached_ping(n["id"]))
+        node_ip = node_ips[0] if len(node_ips) == 1 else ""  # single-IP node: its sole IP is the effective listen IP
         for c in r["configs"]:
             if c.get("type") != "portfw":
                 continue
@@ -1785,7 +1787,7 @@ def api_portfw_list(d):
                 continue
             all_pf.append({"node": n["name"], "node_id": n["id"], "name": c.get("name"),
                            "iface": c.get("iface"), "listen_port": c.get("listen_port"),
-                           "listen_ip": c.get("listen_ip") or "",
+                           "listen_ip": c.get("listen_ip") or "", "node_ip": node_ip,
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
                            "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name"))})
     return {"portfw": all_pf[off:off + lim], "total": len(all_pf), "offset": off, "limit": lim}
@@ -1797,7 +1799,7 @@ def api_portfw_edit(d):
     if not n:
         raise ValueError("node not found")
     body = {"name": d["name"]}
-    for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface"):
+    for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
             body[k] = d[k]
     if "rotate" in d:
@@ -2957,8 +2959,11 @@ function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)r
   '<div class="grid2">'+ipEndField('a',id,l.a_name,l.a_ips,l.a_ip)+ipEndField('b',id,l.b_name,l.b_ips,l.b_ip)+'</div>'+
   '<div class="muted" style="font-size:11.5px;margin-top:9px">اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه '+esc(l.tunnel_id)+' حفظ می‌شود).</div><div class="msg" id="lem_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>ویرایشِ تونل</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{onclose:function(){EDID=null}})}
-function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
- var b='<div class="grid2"><div><label class="first">پورتِ ورودی</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label class="first">پورتِ مقصد</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>چرخش بینِ مقصدها</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?'روشن':'خاموش')+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>بازهٔ چرخش (دقیقه)</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">چرخش فقط با ۲ آی‌پیِ مقصد یا بیشتر فعال می‌شود.</div><div class="msg" id="pem_'+i+'"></div>';
+async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
+ var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);   // load node IPs for the listen-IP picker
+ var lipsec=(ips.length>1)?'<label class="first">آی‌پیِ ورودی (شنود)</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),'آی‌پی','')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">پورت فقط روی این آی‌پی فوروارد می‌شود</div>':'';
+ var fc=lipsec?'':' class="first"';
+ var b=lipsec+'<div class="grid2"><div><label'+fc+'>پورتِ ورودی</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>پورتِ مقصد</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>چرخش بینِ مقصدها</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?'روشن':'خاموش')+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>بازهٔ چرخش (دقیقه)</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">چرخش فقط با ۲ آی‌پیِ مقصد یا بیشتر فعال می‌شود.</div><div class="msg" id="pem_'+i+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ پورت‌فوروارد</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">ذخیره</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
 function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">آنلاین</span>':(n.pending?'<span class="badge na">در حال بررسی…</span>':'<span class="badge bad">آفلاین</span>');
@@ -3180,16 +3185,18 @@ async function refreshPortfw(){if(editingId)return;var box=el('pfList');if(!box)
 function pfCard(p,i){var h=p.health||{};
  var st=h.rule?(h.reachable?'<span class="badge ok">فعال · مقصد'+CK+'</span>':'<span class="badge bad">قانون'+CK+' · مقصد'+XK+'</span>'):'<span class="badge bad">غیرفعال</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
- var head='<div class="link"><span class="name">'+esc(p.node)+'</span><span class="grow"></span><span class="tag" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)">portfw</span>'+st+'</div>';
+ var lip=p.listen_ip||p.node_ip||'';   // effective listen IP: the pin (multi-IP) or the node's sole IP (single-IP)
+ var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
+ var head='<div class="link"><span class="name">'+esc(p.node)+'</span><span class="grow"></span>'+rotchip+'<span class="tag" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)">portfw</span>'+st+'</div>';
  var live=(multi&&h.active)?'<div class="pfrow">هم‌اکنون روی: <b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="pfcols"><div class="pfcol">'+
    '<div class="pfrow">اینترفیس: <b class="mono">'+esc(p.iface)+'</b></div>'+
-   '<div class="pfrow">پورتِ ورودی: <b class="mono" style="direction:ltr">'+(p.listen_ip?esc(p.listen_ip)+':':'')+esc(p.listen_port)+'</b></div>'+
+   (lip?'<div class="pfrow">آی‌پیِ ورودی: <b class="mono" style="color:var(--acc)">'+esc(lip)+'</b></div>':'')+
+   '<div class="pfrow">پورتِ ورودی: <b class="mono" style="direction:ltr">'+esc(p.listen_port)+'</b></div>'+
    '<div class="pfrow">پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
   '</div><div class="pfcol">'+
    '<div class="pfrow">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
    live+
-   '<div class="pfrow">چرخش: <b>'+(rotOn?((p.switch_interval/60)+' دقیقه'):'خاموش')+'</b></div>'+
   '</div></div>';
  var acts='<div class="nact iconly">'+((multi&&h.active)?'<button class="act" title="چرخش الان" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="ویرایش" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
  return '<div class="card">'+head+body+acts+'</div>'}
@@ -3199,7 +3206,8 @@ async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=
  if(!lp||!dp||!ips){m.className='msg err';m.textContent='پورت‌ها و آی‌پیِ مقصد لازم است';return}
  var rot=el('pe_tgl_'+i).classList.contains('on'),intv=v('pe_int_'+i);
  m.className='msg';m.textContent='در حال ذخیره…';
- var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5});
+ var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   // only multi-IP nodes expose the picker; empty ⇒ node keeps old pin
+ var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5,listen_ip:lip});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
  if(!node||!lp||!dp||!ips){m.className='msg err';m.textContent='نود، پورتِ ورودی/مقصد و آی‌پی لازم است';return}
