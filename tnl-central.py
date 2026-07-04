@@ -1747,6 +1747,12 @@ def _rebuild_link_impl(d):
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
+    if ttype in IPIP_FAMILY:  # rebuild may re-bind to a different live IP — don't land an ipip/fou onto a pair another owns
+        new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
+        for x in load_links():
+            if (x.get("id") != L["id"] and x.get("type") in IPIP_FAMILY
+                    and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
+                raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
     extra = _tunnel_extra(L)   # same UDP port / IPsec psk as before
