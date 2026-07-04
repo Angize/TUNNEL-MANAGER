@@ -2830,15 +2830,17 @@ function _instPoll(c){j('install-status?job='+encodeURIComponent(c.job)+'&_='+Da
  .then(function(d){c.polling=false;
    if(d&&d.ok){c.failN=0;c.steps=d.steps||[];c.confirmed=c.steps.map(function(s){return s.state});if(d.banner)c.banner=d.banner;c.bDone=!!d.done;c.bOk=!!d.ok}
    else if(d&&/not found/.test(d.error||'')){c.err='وضعیتِ نصب یافت نشد';c.bDone=true;c.bOk=false}
-   else{c.failN++;if(c.failN>=30){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}}})
- .catch(function(){c.polling=false;c.failN++;if(c.failN>=30){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}})}
+   else{c.failN++;if(c.failN>=45){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}}})
+ .catch(function(){c.polling=false;c.failN++;if(c.failN>=45){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}})}
 function _instRender(c){var box=el('nadd_prog');if(!box)return;var anim=!c.finished;
  var bicon=anim?'<span class="ispin"></span>':(c.bOk?CK:XK);
  var btext=anim?'در حالِ نصب…':(c.err||c.banner||'انجام شد');   // don't flash the backend's "done" banner while steps are still revealing
  var html='<div class="ibanner '+(anim?'run':(c.bOk?'ok':'err'))+'">'+bicon+'<span>'+esc(btext)+'</span></div>';
  var steps=c.steps||[],conf=c.confirmed||[];
- for(var i=0;i<c.revealIdx;i++){var s=steps[i]||{},cst=conf[i]||'run',newest=(i==c.revealIdx-1),disp;
-   if(cst=='err')disp='err';else if(newest&&anim)disp='run';else disp=(cst=='warn')?'warn':'ok';
+ for(var i=0;i<c.revealIdx;i++){var s=steps[i]||{},cst=conf[i]||'',disp;
+   // a step ONLY ticks when the backend actually confirmed it 'ok'; still-running shows a spinner while
+   // animating, and an unconfirmed step at a failed/aborted finish shows an error — never a false tick.
+   if(cst=='ok')disp='ok';else if(cst=='warn')disp='warn';else if(cst=='err')disp='err';else if(anim)disp='run';else disp='err';
    var lg=(disp=='err'&&s.log)?'<div class="ilog">'+esc(s.log)+'</div>':'';
    html+='<div class="istep '+disp+'">'+instIcon(disp)+'<div class="istep-b"><div class="istep-t">'+esc(s.label||'')+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}
  setHTML(box,'<div class="iwrap">'+html+'</div>')}
