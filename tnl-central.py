@@ -1153,7 +1153,10 @@ def api_node_install_status(d):
     j = _install_get(d["job"])
     if not j:
         raise ValueError("job not found")
-    return {"ok": True, **j}
+    # "ok" = this poll is valid (ALWAYS true for a live job); the install's own success is "success".
+    # (j carries its own "ok" = install result; exposing it as the response "ok" made every running poll
+    #  look like a failed request to the browser, which then gave up with "ارتباط با پنل قطع شد".)
+    return {**j, "ok": True, "success": bool(j.get("ok"))}
 
 
 def api_node_edit(d):
@@ -2828,7 +2831,7 @@ var _INSTEPS=[{label:'اتصالِ SSH',detail:'در حالِ اتصال…'},{l
 function _instStop(){if(_inst){_inst.cancelled=true;if(_inst.timer)clearTimeout(_inst.timer);_inst=null}}
 function _instPoll(c){j('install-status?job='+encodeURIComponent(c.job)+'&_='+Date.now())
  .then(function(d){c.polling=false;
-   if(d&&d.ok){c.failN=0;c.steps=d.steps||[];c.confirmed=c.steps.map(function(s){return s.state});if(d.banner)c.banner=d.banner;c.bDone=!!d.done;c.bOk=!!d.ok}
+   if(d&&d.ok){c.failN=0;c.steps=d.steps||[];c.confirmed=c.steps.map(function(s){return s.state});if(d.banner)c.banner=d.banner;c.bDone=!!d.done;c.bOk=!!d.success}
    else if(d&&/not found/.test(d.error||'')){c.err='وضعیتِ نصب یافت نشد';c.bDone=true;c.bOk=false}
    else{c.failN++;if(c.failN>=45){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}}})
  .catch(function(){c.polling=false;c.failN++;if(c.failN>=45){c.err='ارتباط با پنل قطع شد';c.bDone=true;c.bOk=false}})}
