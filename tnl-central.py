@@ -1146,9 +1146,12 @@ def api_fleet(d):
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
         ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
+        a_ips = [ip for ips in (_cached_ping(L["a_node"]).get("ips") or {}).values() for ip in ips]
+        b_ips = [ip for ips in (_cached_ping(L["b_node"]).get("ips") or {}).values() for ip in ips]
         out.append({**L, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                     "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
-                    "a_health": ah, "b_health": bh, "drift": link_drift(L["id"]), **tfl.get(L["id"], {})})
+                    "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
+                    "drift": link_drift(L["id"]), **tfl.get(L["id"], {})})
     return {"links": out, "total": total, "offset": off, "limit": lim}
 
 
@@ -1294,8 +1297,15 @@ def _edit_link_impl(d):
     tid = int(L["tunnel_id"])
     a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
     b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
-    a_ip = L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)
-    b_ip = L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    if want_a and want_a not in a_ips:
+        raise ValueError(f"آی‌پیِ «{want_a}» روی نودِ «{A['name']}» نیست")
+    if want_b and want_b not in b_ips:
+        raise ValueError(f"آی‌پیِ «{want_b}» روی نودِ «{B['name']}» نیست")
+    a_ip = (want_a if want_a in a_ips else
+            (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
+    b_ip = (want_b if want_b in b_ips else
+            (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
     subnet = norm_subnet(ttype, tid, d.get("subnet"))
@@ -2525,8 +2535,16 @@ function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){to
 function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
  var b='<div class="grid2"><div><label class="first">نام</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">هاست / آی‌پی</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>پورت</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>توکن</label><input id="e_tok_'+id+'" placeholder="خالی = توکن فعلی بماند"></div></div><label>پروکسیِ کنترل (خالی = بدون پروکسی)</label><input id="e_proxy_'+id+'" value="'+esc(n.proxy||'')+'" placeholder="socks5://host:1080 یا http://user:pass@host:8080"><div class="msg" id="em_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ نود</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">ذخیره</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">آی‌پیِ '+esc(nm)+'</label>';
+ ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
+ if(ips.length>1)return '<div>'+lab+ssHTML('lip'+side+'_'+id,ips.map(function(x){return{v:x,label:x}}),(cur&&ips.indexOf(cur)>=0)?cur:ips[0],'آی‌پی','')+'</div>';
+ return '<div>'+lab+'<input class="mono" value="'+esc(cur||ips[0]||'—')+'" disabled style="opacity:.6"></div>'}
 function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)return;EDID=id;
- var b='<div class="grid2"><div><label class="first">نوع تونل</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,'نوع','recalcEditSubnet')+'</div><div><label class="first">رنجِ لوکال</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168','رنج','recalcEditSubnet')+'</div></div><label>سابنت</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div class="muted" style="font-size:11.5px;margin-top:9px">تغییر نوع یا سابنت، تونل را روی هر دو نود بازسازی می‌کند (شناسه '+esc(l.tunnel_id)+' حفظ می‌شود).</div><div class="msg" id="lem_'+id+'"></div>';
+ var multi=((l.a_ips||[]).length>1)||((l.b_ips||[]).length>1);
+ var b='<div class="grid2"><div><label class="first">نوع تونل</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,'نوع','recalcEditSubnet')+'</div><div><label class="first">رنجِ لوکال</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168','رنج','recalcEditSubnet')+'</div></div><label>سابنت</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'">'+
+  '<div class="muted" style="font-weight:700;color:var(--tx);margin:16px 2px 9px;display:flex;align-items:center;gap:6px">'+ic('pin','var(--acc)')+'آی‌پیِ هر سرِ تونل'+(multi?' <span class="tag" style="font-size:9.5px;padding:1px 7px">مولتی‌آی‌پی</span>':'')+'</div>'+
+  '<div class="grid2">'+ipEndField('a',id,l.a_name,l.a_ips,l.a_ip)+ipEndField('b',id,l.b_name,l.b_ips,l.b_ip)+'</div>'+
+  '<div class="muted" style="font-size:11.5px;margin-top:9px">اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه '+esc(l.tunnel_id)+' حفظ می‌شود).</div><div class="msg" id="lem_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>ویرایشِ تونل</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{onclose:function(){EDID=null}})}
 function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
  var b='<div class="grid2"><div><label class="first">پورتِ ورودی</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label class="first">پورتِ مقصد</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>چرخش بینِ مقصدها</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?'روشن':'خاموش')+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>بازهٔ چرخش (دقیقه)</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">چرخش فقط با ۲ آی‌پیِ مقصد یا بیشتر فعال می‌شود.</div><div class="msg" id="pem_'+i+'"></div>';
@@ -2605,8 +2623,10 @@ async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fle
  setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?'موردی یافت نشد.':'هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.')+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
  if(!type){m.className='msg err';m.textContent='نوع تونل لازم است';return}
+ var L=FLEET.find(function(x){return x.id==id})||{};
+ var a_ip=ssVal('lipa_'+id)||L.a_ip||'',b_ip=ssVal('lipb_'+id)||L.b_ip||'';
  m.className='msg';m.textContent='در حال بازسازی تونل روی دو نود…';
- var r=await post('edit-link',{id:id,type:type,subnet:subnet});
+ var r=await post('edit-link',{id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip});
  if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
