@@ -3155,7 +3155,8 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
   if(range=='custom')body.subnet=custom;else body.subnet_base=range;
   var r=await post('create-tunnel',body);
   if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
- if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}else{m.className='msg err';m.textContent=okc+'/'+tgts.length+' — '+errs.join(' | ')}}
+ if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}
+ else{if(okc>0)toast(okc+' تونل ساخته شد','ok');m.className='msg err';m.textContent=okc+'/'+tgts.length+' — '+errs.join(' | ')}}
 
 // ===== Port-forward
 function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' پورت‌فوروارد</h1><p class="sub">فوروارد پورت روی یک نود (با چرخشِ چند مقصد)</p>'+
