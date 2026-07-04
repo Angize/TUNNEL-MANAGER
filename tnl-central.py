@@ -2054,6 +2054,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .oalert:last-child{border-bottom:0}
 .oalert .msg{font-size:12.5px;font-weight:600;min-width:0}.oalert .msg b{font-weight:800}
 .oalert .go{margin-inline-start:auto;font-size:11px;color:var(--acc);font-weight:700;white-space:nowrap;cursor:pointer}
+.ohcard{overflow:visible}
 .oheat{display:flex;gap:4px;align-items:flex-end;height:66px;direction:ltr;position:relative}
 .hbar{flex:1;border-radius:5px 5px 3px 3px;min-height:8px;cursor:pointer;transition:filter .12s}
 .hbar:active{filter:brightness(1.12)}
@@ -2268,7 +2269,8 @@ var IC={
  okc:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M8.4 12.4l2.4 2.4 4.7-5.4"/></svg>',
  xc:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
  grid:'<svg viewBox="0 0 24 24" '+_S+'><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>',
- search:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>'
+ search:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>',
+ chev:'<svg viewBox="0 0 24 24" '+_S+'><path d="M6 9l6 6 6-6"/></svg>'
 };
 function ic(n,c){return '<span class="ic"'+(c?' style="color:'+c+'"':'')+'>'+(IC[n]||'')+'</span>'}
 function paintIcons(root){(root||document).querySelectorAll('[data-ic]').forEach(function(e){e.innerHTML=IC[e.dataset.ic]||''})}
@@ -2319,7 +2321,7 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
- return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(ph||'انتخاب کنید'))+'</span><span class="cv">⌄</span></button>'}
+ return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(ph||'انتخاب کنید'))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
 function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(it.sub)+'</span>':'')+'</div>'}
 var SS_OV={};
 function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  // open the list as a centered popup (scrolls; search for long lists)
@@ -2415,7 +2417,7 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
 function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' نمای کلی</h1><p class="sub">آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده</p>'+
  '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">سلامتِ فلیت</div></div><div class="ochips" id="o_chips"></div></div>'+
  '<div class="sec">'+ic('warn','var(--acc)')+' نیازمندِ توجه</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
- '<div class="sec">'+ic('grid','var(--acc)')+' همهٔ نودها یک‌نگاه</div><div class="card"><div class="oheat" id="o_heat"></div><div class="heat-lg"><span><i style="background:var(--ok)"></i>سالم</span><span><i style="background:var(--gold)"></i>هشدار (>۶۰٪)</span><span><i style="background:var(--bad)"></i>بحرانی (>۸۵٪)</span></div><div class="muted" style="text-align:center;margin-top:6px;font-size:11px" id="o_heat_c"></div></div>'+
+ '<div class="sec">'+ic('grid','var(--acc)')+' همهٔ نودها یک‌نگاه</div><div class="card ohcard"><div class="oheat" id="o_heat"></div><div class="heat-lg"><span><i style="background:var(--ok)"></i>سالم</span><span><i style="background:var(--gold)"></i>هشدار (>۶۰٪)</span><span><i style="background:var(--bad)"></i>بحرانی (>۸۵٪)</span></div><div class="muted" style="text-align:center;margin-top:6px;font-size:11px" id="o_heat_c"></div></div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' سرورِ مرکزی (این پنل)</div><div class="card"><div class="gauges">'+gaugeHTML('scpu','CPU')+gaugeHTML('sram','RAM')+gaugeHTML('sdisk','دیسک')+'</div></div>'+
  '<div class="sec">'+ic('activity','var(--acc)')+' پرمصرف‌ترین نودها</div><div class="card" id="o_worst"><div class="muted" style="padding:8px 0">…</div></div>'+
  '<div class="sec">'+ic('link','var(--acc)')+' وضعیتِ تفکیکیِ تونل‌ها</div><div class="card"><div class="tst" id="o_tst"></div><div class="typebar" id="o_typebar"></div><div class="typleg" id="o_typleg"></div><div id="o_wtun"></div></div>'+
@@ -2700,7 +2702,7 @@ async function delLink(id){if(!await confirmBox('این تونل روی هر د�
 async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});selTargets={};
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','fillTargets')+'<div id="c_srcip"></div><label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<label>نودِ مقصد (یک یا چند)</label><button type="button" class="msbtn ph" id="c_tgt_btn" onclick="toggleTgtList()"><span id="c_tgt_lbl">انتخابِ نودهای مقصد</span><span class="cv">⌄</span></button><div id="c_tgtips"></div><label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه (فقط برای یک مقصد)</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
+ var b='<label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','fillTargets')+'<div id="c_srcip"></div><label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<label>نودِ مقصد (یک یا چند)</label><button type="button" class="msbtn ph" id="c_tgt_btn" onclick="toggleTgtList()"><span id="c_tgt_lbl">انتخابِ نودهای مقصد</span><span class="cv">'+ic('chev')+'</span></button><div id="c_tgtips"></div><label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه (فقط برای یک مقصد)</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ تونل</h3><div class="sb">یک مبدأ + یک یا چند مقصد</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">ساخت تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
  fillTargets()}
 function onSubnetRange(){var w=el('c_snc_wrap');if(w)w.style.display=(ssVal('c_snr')=='custom')?'block':'none'}
@@ -2840,7 +2842,7 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
  var row=function(t,d,ctl){return '<div style="display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--bord)"><div style="min-width:190px"><b>'+t+'</b><div class="muted" style="font-size:12px;margin-top:3px">'+d+'</div></div><div style="min-width:200px;flex:0 0 auto">'+ctl+'</div></div>'};
  box.innerHTML='<div class="card">'+
-  row('وقتی آی‌پیِ نود عوض شد','روی این بزن تا انتخاب کنی','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">▾</span></button>')+
+  row('وقتی آی‌پیِ نود عوض شد','روی این بزن تا انتخاب کنی','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
   row('بازهٔ بررسیِ ترمیم (ثانیه)','۵ تا ۳۶۰۰','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
   row('بازهٔ پایشِ فلیت (ثانیه)','۱ تا ۶۰','<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
   row('پنجرهٔ نوارِ آپ‌تایم','۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰',ssHTML('set_upwin',[{v:'1',label:'۱ ساعت'},{v:'3',label:'۳ ساعت'},{v:'6',label:'۶ ساعت'},{v:'8',label:'۸ ساعت'},{v:'12',label:'۱۲ ساعت'},{v:'24',label:'۲۴ ساعت'}],String(num(s.uptime_window)||1),'',''))+
