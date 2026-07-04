@@ -1761,6 +1761,8 @@ def api_portfw(d):
             "dst_ips": d["dst_ips"], "interval_min": d.get("interval_min", 5)}
     if d.get("iface"):
         body["iface"] = d["iface"]
+    if d.get("listen_ip"):
+        body["listen_ip"] = str(d["listen_ip"]).strip()
     r = node_call(n, "portfw", "POST", body, timeout=120)
     if not r.get("ok"):
         raise ValueError(r.get("error") or r.get("msg") or "failed")
@@ -1783,6 +1785,7 @@ def api_portfw_list(d):
                 continue
             all_pf.append({"node": n["name"], "node_id": n["id"], "name": c.get("name"),
                            "iface": c.get("iface"), "listen_port": c.get("listen_port"),
+                           "listen_ip": c.get("listen_ip") or "",
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
                            "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name"))})
     return {"portfw": all_pf[off:off + lim], "total": len(all_pf), "offset": off, "limit": lim}
@@ -3163,11 +3166,15 @@ function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' پ�
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن پورت‌فوروارد</button>'+
  '<div class="sec">'+ic('activity','var(--acc)')+' پورت‌فورواردهای فعال</div>'+toolbar('portfw','جستجوی نود / نام…')+'<div id="pfList"></div>'+pagerBottom('portfw');
  refreshPortfw()}
-async function openPfAddModal(){var r=await j('node-names');var on=(r.nodes||[]).filter(function(n){return n.online});
+async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(!on.length){toast('هیچ نودِ آنلاینی نیست','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<label class="first">نود</label>'+ssHTML('pf_node',items,items[0].v,'نود','')+'<div class="grid2"><div><label>پورتِ ورودی</label><input id="pf_lp" placeholder="8080"></div><div><label>پورتِ مقصد</label><input id="pf_dp" placeholder="443"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pf_ips" placeholder="10.0.0.1, 10.0.0.2"><label>چرخش هر (دقیقه) — اگر چند آی‌پی دادی</label><input id="pf_int" placeholder="5"><div class="msg" id="pf_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ پورت‌فوروارد</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doPortfw()">افزودن</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+ var b='<label class="first">نود</label>'+ssHTML('pf_node',items,items[0].v,'نود','renderPfLip')+'<div id="pf_lipwrap"></div><div class="grid2"><div><label>پورتِ ورودی</label><input id="pf_lp" placeholder="8080"></div><div><label>پورتِ مقصد</label><input id="pf_dp" placeholder="443"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pf_ips" placeholder="10.0.0.1, 10.0.0.2"><label>چرخش هر (دقیقه) — اگر چند آی‌پی دادی</label><input id="pf_int" placeholder="5"><div class="msg" id="pf_msg"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ پورت‌فوروارد</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doPortfw()">افزودن</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>');
+ renderPfLip()}
+function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal('pf_node'));
+ if(ips.length>1){w.innerHTML='<label>آی‌پیِ ورودی (شنود) — پورت فقط روی این آی‌پی فوروارد می‌شود</label>'+ssHTML('pf_lip',ipItems(ips),(SEL['pf_lip']&&ips.indexOf(SEL['pf_lip'])>=0?SEL['pf_lip']:ips[0]),'آی‌پی','')}
+ else{w.innerHTML='';delete SEL['pf_lip']}}   // single-IP node: no picker, and no stale pick
 async function refreshPortfw(){if(editingId)return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
  setHTML(box,PF.length?PF.map(pfCard).join(''):'<div class="card muted">'+(QRY.portfw?'موردی یافت نشد.':'پورت‌فورواردی نیست.')+'</div>');renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
@@ -3177,7 +3184,7 @@ function pfCard(p,i){var h=p.health||{};
  var live=(multi&&h.active)?'<div class="pfrow">هم‌اکنون روی: <b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="pfcols"><div class="pfcol">'+
    '<div class="pfrow">اینترفیس: <b class="mono">'+esc(p.iface)+'</b></div>'+
-   '<div class="pfrow">پورتِ ورودی: <b>'+esc(p.listen_port)+'</b></div>'+
+   '<div class="pfrow">پورتِ ورودی: <b class="mono" style="direction:ltr">'+(p.listen_ip?esc(p.listen_ip)+':':'')+esc(p.listen_port)+'</b></div>'+
    '<div class="pfrow">پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
   '</div><div class="pfcol">'+
    '<div class="pfrow">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
@@ -3197,7 +3204,8 @@ async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
  if(!node||!lp||!dp||!ips){m.className='msg err';m.textContent='نود، پورتِ ورودی/مقصد و آی‌پی لازم است';return}
  m.className='msg';m.textContent='در حال ساخت…';
- var r=await post('portfw',{node:node,listen_port:lp,dst_port:dp,dst_ips:ips,interval_min:intv||5});
+ var lip=el('ssb_pf_lip')?ssVal('pf_lip'):'';   // only when the picker exists (multi-IP node)
+ var r=await post('portfw',{node:node,listen_port:lp,dst_port:dp,dst_ips:ips,interval_min:intv||5,listen_ip:lip});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('پورت‌فوروارد ساخته شد: '+r.d.name,'ok')}
  else{m.className='msg err';m.textContent=r.d.error||'ناموفق'}}
 async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.textContent:'';if(b)b.textContent='…';
