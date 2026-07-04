@@ -1524,6 +1524,9 @@ def _create_tunnel_impl(d):
     tid = explicit or next((i for i in range(42, 255) if i not in used), 0)
     if not tid:
         raise ValueError("no free tunnel id on the pair")
+    _cs = str(d.get("subnet") or "").strip()
+    if _cs and "/" not in _cs:
+        raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
     name = f"{ttype}{tid}"
     extra = {}   # values generated ONCE here so both ends match and edit/rebuild can replay them
@@ -1642,6 +1645,9 @@ def _edit_link_impl(d):
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
         if ttype in IPIP_FAMILY and x.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
             raise ValueError(f"تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    _cs = str(d.get("subnet") or "").strip()
+    if _cs and "/" not in _cs:
+        raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
     subnet = norm_subnet(ttype, tid, d.get("subnet"))
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
@@ -1991,7 +1997,7 @@ def api_settings_set(d):
     with _settings_lock:
         _settings.clear()
         _settings.update(obj)
-    save_json(SETTINGS_FILE, obj)
+        save_json(SETTINGS_FILE, obj)   # write under the lock — concurrent settings-set share one .tmp path and would corrupt it
     return {"ok": True, "settings": obj}
 
 
@@ -2109,8 +2115,17 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
+    def _client_ip(self):
+        # Behind a trusted TLS-terminating proxy (conf['tls']) every request shares the proxy's TCP address,
+        # so keying the login limiter on it would let one attacker lock out ALL clients. Use the forwarded IP.
+        if self._conf().get("tls"):
+            first = (self.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
+            if first:
+                return first
+        return self.client_address[0]
+
     def _login(self):
-        ip = self.client_address[0]
+        ip = self._client_ip()
         if rate_limited(ip):
             self._send(429, {"error": "too many attempts, wait a few minutes"})
             return
