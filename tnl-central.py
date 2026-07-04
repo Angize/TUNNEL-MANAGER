@@ -2752,6 +2752,7 @@ function cssv(n){return getComputedStyle(document.body).getPropertyValue(n).trim
 var _S='stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
 var IC={
  shield:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+ lock:'<svg viewBox="0 0 24 24" '+_S+'><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
  dash:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20h16M7 20v-7M12 20V8M17 20v-4"/></svg>',
  server:'<svg viewBox="0 0 24 24" '+_S+'><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
  link:'<svg viewBox="0 0 24 24" '+_S+'><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>',
@@ -3234,7 +3235,7 @@ function linkCard(l){
   '</div>'+
   '<div class="tnmeta"><span>سابنت: <b class="mono">'+esc(l.subnet)+'</b></span><span>شناسه: <b>'+esc(l.tunnel_id)+'</b></span><span>اینترفیس: <b class="mono">'+esc(l.name)+'</b></span>'+
   (((l.type=='l2tpv3'||l.type=='fou')&&l.port)?'<span>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></span>':'')+
-  (l.type=='ipsec'?'<span style="color:#f43f5e;font-weight:700">🔒 رمزنگاری‌شده</span>':'')+
+  (l.type=='ipsec'?'<span style="color:#f43f5e;font-weight:700;display:inline-flex;align-items:center;gap:4px">'+ic('lock','#f43f5e')+'رمزنگاری‌شده</span>':'')+
   '<span>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></span></div>';
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
