@@ -1855,10 +1855,11 @@ def _create_tunnel_impl(d):
         cover_sni = str(d.get("cover_sni") or "").strip()
         if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
             raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
+        if cover and not cover_sni:   # required: no imposed default SNI
+            raise ValueError("برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی")
         if cover:
             extra["cover"] = True
-            if cover_sni:
-                extra["cover_sni"] = cover_sni
+            extra["cover_sni"] = cover_sni
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B))
@@ -2024,10 +2025,11 @@ def _edit_link_impl(d):
         cover_sni = str(d.get("cover_sni") or "").strip()
         if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
             raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
+        if cover and not cover_sni:   # required: no imposed default SNI
+            raise ValueError("برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی")
         if cover:
             extra["cover"] = True
-            if cover_sni:
-                extra["cover_sni"] = cover_sni
+            extra["cover_sni"] = cover_sni
         server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
     # Compare against the effective stored port: a record created before the
     # settable-port feature has no "port" key, so fall back to the type's default
@@ -3895,7 +3897,7 @@ async function openEngineModal(){var r=await j('node-names');NODES=r.nodes||[];v
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="engSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="engSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="engToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox dis" id="e_coverrow"><div class="tglsw" id="e_cover" onclick="engToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ یک اتصالِ HTTPS دیده می‌شود. فقط با حاملِ TCP.</small></div></div>'+
-  '<div id="e_snirow" style="display:none"><label>دامنهٔ نمایشی (SNI)</label><input id="e_sni" placeholder="مثلاً یک دامنهٔ بازِ محبوب"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">دامنه‌ای که TLS ادعا می‌کند به آن وصل شده‌ای. یک دامنهٔ <b>بازِ (فیلترنشده) و محبوب</b> در منطقه‌ات بگذار، ترجیحاً روی یک CDNِ بزرگ. گواهی بررسی نمی‌شود — فقط برای شبیه‌شدن به HTTPS است.</div></div>'+
+  '<div id="e_snirow" style="display:none"><label>دامنهٔ نمایشی (SNI) — الزامی</label><input id="e_sni" placeholder="مثلاً یک دامنهٔ بازِ محبوب"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">دامنه‌ای که TLS ادعا می‌کند به آن وصل شده‌ای. یک دامنهٔ <b>بازِ (فیلترنشده) و محبوب</b> در منطقه‌ات بگذار، ترجیحاً روی یک CDNِ بزرگ. گواهی بررسی نمی‌شود — فقط برای شبیه‌شدن به HTTPS است.</div></div>'+
   '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onEngSubRange')+'<div id="e_snc"></div>'+
   '<label>پورت (خالی=خودکار · می‌توانی 443 بگذاری)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
@@ -3913,7 +3915,7 @@ function engSetSrv(s){_engSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.class
 async function doCreateEngine(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
  var body={a_node:a,b_node:bb,type:'engine',server_side:_engSrv,cipher:ssVal('e_cipher'),transport:_engTr,obfs:_engObfs,cover:(_engCover&&_engTr=='tcp')};
- if(body.cover){var sni=v('e_sni');if(sni)body.cover_sni=sni}
+ if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
  var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
  var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
@@ -3942,7 +3944,7 @@ function openEngineEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="eeSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="eeSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
   '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="eeToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox'+((_eeTr!='tcp')?' dis':'')+'" id="ee_coverrow"><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="eeToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ یک اتصالِ HTTPS دیده می‌شود. فقط با حاملِ TCP.</small></div></div>'+
-  '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>دامنهٔ نمایشی (SNI)</label><input id="ee_sni" placeholder="مثلاً یک دامنهٔ بازِ محبوب" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">دامنهٔ <b>بازِ محبوب</b> در منطقه‌ات (ترجیحاً روی CDNِ بزرگ). گواهی بررسی نمی‌شود — فقط استتار است.</div></div>'+
+  '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>دامنهٔ نمایشی (SNI) — الزامی</label><input id="ee_sni" placeholder="مثلاً یک دامنهٔ بازِ محبوب" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">دامنهٔ <b>بازِ محبوب</b> در منطقه‌ات (ترجیحاً روی CDNِ بزرگ). گواهی بررسی نمی‌شود — فقط استتار است.</div></div>'+
   '<div class="grid2"><div><label>پورت (می‌توانی 443)</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
@@ -3955,7 +3957,7 @@ function eeSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.class
 async function doEngineEdit(id){var m=el('ee_msg');m.className='msg';m.textContent='در حال ذخیره و بازسازیِ دو سر…';
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'engine',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp')};
- if(body.cover){var sni=v('ee_sni');if(sni)body.cover_sni=sni}
+ if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
  var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
  var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;

@@ -83,10 +83,14 @@ install()
 tnl._create_tunnel_impl({**BASE, "transport": "tcp", "cover": False})
 check("cover off -> no cover key", "cover" not in LINKS[0] and "cover_sni" not in LINKS[0])
 
-# ---- create: cover on but no SNI -> cover stored, no sni ----------------------
+# ---- create: cover on but no SNI -> REJECTED (SNI is required, no default) ----
 install()
-tnl._create_tunnel_impl({**BASE, "transport": "tcp", "cover": True})
-check("cover on w/o sni -> cover stored, sni absent", LINKS[0].get("cover") is True and "cover_sni" not in LINKS[0])
+try:
+    tnl._create_tunnel_impl({**BASE, "transport": "tcp", "cover": True})
+    check("cover on without sni is rejected", False)
+except ValueError:
+    check("cover on without sni is rejected", True)
+check("cover-without-sni stored nothing", not LINKS or "cover" not in LINKS[0])
 
 # ---- create: bad SNI is rejected ---------------------------------------------
 for bad in ["bad sni!", "under_score.com", "a" * 254, "http://x.com"]:
