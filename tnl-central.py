@@ -290,53 +290,61 @@ def _recvn(s, n):
 def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
     """Open a socket to dh:dp through a SOCKS5 proxy (stdlib, no PySocks)."""
     s = socket.create_connection((ph, pp), timeout)
-    s.settimeout(timeout)
-    s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")  # offer no-auth (+ user/pass if creds given)
-    _, method = _recvn(s, 2)
-    if method == 2:
-        if not pu:
-            raise OSError("socks5 proxy requires auth")
-        u, w = pu.encode(), (pw or "").encode()
-        s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
-        if _recvn(s, 2)[1] != 0:
-            raise OSError("socks5 auth rejected")
-    elif method != 0:
-        raise OSError("socks5 no supported auth method")
-    try:
-        addr = b"\x01" + socket.inet_aton(dh)          # IPv4 literal
-    except OSError:
-        hb = dh.encode()
-        addr = b"\x03" + bytes([len(hb)]) + hb          # domain name
-    s.sendall(b"\x05\x01\x00" + addr + int(dp).to_bytes(2, "big"))
-    rep = _recvn(s, 4)
-    if rep[1] != 0:
-        raise OSError(f"socks5 connect failed (code {rep[1]})")
-    atyp = rep[3]  # drain the bound address so the socket is left at the tunnel body
-    _recvn(s, 4 if atyp == 1 else 16 if atyp == 4 else _recvn(s, 1)[0])
-    _recvn(s, 2)
-    return s
+    try:  # close the connected socket on any handshake failure instead of leaking it to GC
+        s.settimeout(timeout)
+        s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")  # offer no-auth (+ user/pass if creds given)
+        _, method = _recvn(s, 2)
+        if method == 2:
+            if not pu:
+                raise OSError("socks5 proxy requires auth")
+            u, w = pu.encode(), (pw or "").encode()
+            s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
+            if _recvn(s, 2)[1] != 0:
+                raise OSError("socks5 auth rejected")
+        elif method != 0:
+            raise OSError("socks5 no supported auth method")
+        try:
+            addr = b"\x01" + socket.inet_aton(dh)          # IPv4 literal
+        except OSError:
+            hb = dh.encode()
+            addr = b"\x03" + bytes([len(hb)]) + hb          # domain name
+        s.sendall(b"\x05\x01\x00" + addr + int(dp).to_bytes(2, "big"))
+        rep = _recvn(s, 4)
+        if rep[1] != 0:
+            raise OSError(f"socks5 connect failed (code {rep[1]})")
+        atyp = rep[3]  # drain the bound address so the socket is left at the tunnel body
+        _recvn(s, 4 if atyp == 1 else 16 if atyp == 4 else _recvn(s, 1)[0])
+        _recvn(s, 2)
+        return s
+    except Exception:
+        s.close()
+        raise
 
 
 def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
     """Open a socket to dh:dp through an HTTP CONNECT proxy."""
     s = socket.create_connection((ph, pp), timeout)
-    s.settimeout(timeout)
-    req = f"CONNECT {dh}:{dp} HTTP/1.1\r\nHost: {dh}:{dp}\r\n"
-    if pu:
-        req += "Proxy-Authorization: Basic " + base64.b64encode(f"{pu}:{pw or ''}".encode()).decode() + "\r\n"
-    s.sendall((req + "\r\n").encode())
-    buf = b""
-    while b"\r\n\r\n" not in buf:
-        c = s.recv(4096)
-        if not c:
-            raise OSError("proxy closed the connection")
-        buf += c
-        if len(buf) > 65536:
-            raise OSError("proxy response too large")
-    line = buf.split(b"\r\n", 1)[0].decode(errors="replace")
-    if " 200" not in line:
-        raise OSError("proxy CONNECT refused: " + line[:80])
-    return s
+    try:  # close the connected socket on any handshake failure instead of leaking it to GC
+        s.settimeout(timeout)
+        req = f"CONNECT {dh}:{dp} HTTP/1.1\r\nHost: {dh}:{dp}\r\n"
+        if pu:
+            req += "Proxy-Authorization: Basic " + base64.b64encode(f"{pu}:{pw or ''}".encode()).decode() + "\r\n"
+        s.sendall((req + "\r\n").encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            c = s.recv(4096)
+            if not c:
+                raise OSError("proxy closed the connection")
+            buf += c
+            if len(buf) > 65536:
+                raise OSError("proxy response too large")
+        line = buf.split(b"\r\n", 1)[0].decode(errors="replace")
+        if " 200" not in line:
+            raise OSError("proxy CONNECT refused: " + line[:80])
+        return s
+    except Exception:
+        s.close()
+        raise
 
 
 def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
@@ -345,6 +353,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
     scheme = (pu.scheme or "socks5").lower()
     if not pu.hostname or not pu.port:
         return {"ok": False, "offline": True, "error": "bad proxy address"}
+    sock = None
     try:
         if scheme.startswith("socks"):
             sock = _socks5_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
@@ -364,12 +373,19 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
         r = conn.getresponse()
         raw = r.read()
         conn.close()
+        sock = None  # conn.close() closed the tunneled socket; nothing left to clean up
         try:
             return json.loads(raw.decode())
         except Exception:
             return {"ok": False, "error": f"HTTP {r.status}"}
     except Exception as e:
         return {"ok": False, "offline": True, "error": ("proxy: " + str(e).split("] ")[-1])[:90]}
+    finally:
+        if sock is not None:  # request/response raised after the tunnel was up -> close the fd, don't lean on GC
+            try:
+                sock.close()
+            except Exception:
+                pass
 
 
 def node_call(node, endpoint, method="POST", body=None, timeout=8):
@@ -459,6 +475,16 @@ def _ensure_cached(nodes):
 
 def poller_loop():
     ex = ThreadPoolExecutor(max_workers=POLL_WORKERS)  # persistent; stragglers can't block the next sweep
+    inflight = set()            # node ids whose poll from a previous sweep hasn't finished yet
+    inflight_lock = threading.Lock()
+
+    def _run(n):
+        try:
+            _poll_node(n)
+        finally:
+            with inflight_lock:
+                inflight.discard(n["id"])
+
     while True:
         try:
             nodes = load_nodes()
@@ -478,8 +504,17 @@ def poller_loop():
                     if lk is not None and not lk.locked():
                         _node_locks.pop(nid, None)
             if nodes:
-                # submit all, then move on after the deadline — one trickling node can't freeze the fleet
-                futures_wait([ex.submit(_poll_node, n) for n in nodes], timeout=SWEEP_DEADLINE)
+                # Only submit nodes that aren't still being polled from an earlier
+                # sweep. Otherwise a fleet of slow/unreachable nodes would pile a
+                # fresh copy of every node onto the (unbounded) work queue each
+                # sweep — growing memory and starving fresh submissions behind old
+                # ones exactly during an outage. Skipping in-flight nodes bounds the
+                # queue to at most one poll per node.
+                with inflight_lock:
+                    todo = [n for n in nodes if n["id"] not in inflight]
+                    inflight.update(n["id"] for n in todo)
+                # submit the batch, then move on after the deadline — one trickling node can't freeze the fleet
+                futures_wait([ex.submit(_run, n) for n in todo], timeout=SWEEP_DEADLINE)
         except Exception:
             pass
         time.sleep(max(1, int(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP)))
@@ -900,7 +935,7 @@ def api_summary(d):
         p = _cached_ping(nid)
         if not p.get("ok"):
             heat.append({"id": nid, "name": nm, "pct": None, "online": False})
-            if p.get("ping") is not None or _cache_get(nid):  # cached & known-offline (not just un-probed)
+            if _cache_get(nid):  # actually probed and found offline (not merely un-probed yet)
                 alerts.append({"level": "bad", "kind": "node", "id": nid, "msg": f"نودِ «{nm}» آفلاین است"})
             continue
         on += 1
@@ -929,6 +964,11 @@ def api_summary(d):
     worst_tun = None
     rtts = []
     for L in links:
+        if L.get("type") == "engine":
+            continue  # engine tunnels have their own panel + health; keep these counters
+                      # (and the `links` total below, which subtracts engines) consistent,
+                      # and avoid emitting link/drift alerts that navigate to the tunnels
+                      # page where engine links are filtered out
         types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
@@ -1084,8 +1124,16 @@ def _install_finish(jid, ok, banner):
             j["done"], j["ok"], j["banner"] = True, ok, banner
 
 
+SSH_KNOWN_HOSTS = os.path.join(CENTRAL_DIR, "known_hosts")
+
+
 def _ssh_argv(cfg, remote_cmd):
-    opts = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+    # TOFU: accept a host key the first time we see a node (needed for unattended
+    # provisioning) but PERSIST it and reject any later change. The old
+    # "StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null" trusted every key
+    # blindly on every connect, so an on-path attacker could MITM the install
+    # session and capture the SSH password / inject a malicious agent as root.
+    opts = ["-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={SSH_KNOWN_HOSTS}",
             "-o", "ConnectTimeout=15", "-p", str(cfg["port"])]
     target = f"{cfg['user']}@{cfg['host']}"
     if cfg.get("keyfile"):
@@ -1291,7 +1339,8 @@ def api_node_del(d):
             peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
             pn = get_node(peer_id)
             if pn:
-                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=30)  # best-effort
+                with _PairLock(nid, peer_id):  # serialize with a rebuild on this pair so it can't recreate the peer half after we tear it down
+                    node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=30)  # best-effort
         out["links_removed"] = len(mine)
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
@@ -1676,22 +1725,30 @@ def api_delete_link(d):
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
         raise ValueError("link not found")
-    errs = []
-    for nid, nm in ((L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])):
-        n = get_node(nid)
-        if n:
-            r = node_call(n, "delete", "POST", {"name": L["name"]})
-            if not r.get("ok"):
-                errs.append(f"{nm}: {r.get('error')}")
-    if errs:  # a registered node failed/was offline — KEEP the record so a later delete can finish teardown (no orphans)
+    # Serialize with create/edit/rebuild on the same node pair. Without this lock a
+    # delete can interleave with an in-flight rebuild: the rebuild tears both ends
+    # down, delete removes the record, then the rebuild recreates the interfaces
+    # with no registry record behind them -> permanent orphan tunnels.
+    with _PairLock(L["a_node"], L["b_node"]):
+        L = next((x for x in load_links() if x["id"] == d["id"]), None)  # re-read under the lock
+        if not L:
+            return {"ok": True}  # a concurrent op already deleted it
+        errs = []
+        for nid, nm in ((L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])):
+            n = get_node(nid)
+            if n:
+                r = node_call(n, "delete", "POST", {"name": L["name"]})
+                if not r.get("ok"):
+                    errs.append(f"{nm}: {r.get('error')}")
+        if errs:  # a registered node failed/was offline — KEEP the record so a later delete can finish teardown (no orphans)
+            _refresh_cache([L["a_node"], L["b_node"]])
+            return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن"}
+        with _reg_lock:  # atomic RMW; re-read so a concurrent create isn't clobbered
+            save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
+        _tf_forget(L["a_node"], [L["name"]])   # drop stale traffic totals so a reused tunnel name starts fresh
+        _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
-        return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن"}
-    with _reg_lock:  # atomic RMW; re-read so a concurrent create isn't clobbered
-        save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
-    _tf_forget(L["a_node"], [L["name"]])   # drop stale traffic totals so a reused tunnel name starts fresh
-    _tf_forget(L["b_node"], [L["name"]])
-    _refresh_cache([L["a_node"], L["b_node"]])
-    return {"ok": True}
+        return {"ok": True}
 
 
 def _restore_link(A, B, L):
@@ -1791,7 +1848,12 @@ def _edit_link_impl(d):
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
         server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
-    port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
+    # Compare against the effective stored port: a record created before the
+    # settable-port feature has no "port" key, so fall back to the type's default
+    # (4789 for vxlan, 20000+id otherwise). Without this a no-op edit of a legacy
+    # link reads as changed and forces a needless rebuild (a brief outage).
+    _defport = 4789 if ttype == "vxlan" else (20000 + tid)
+    port_same = ("port" not in extra) or (extra["port"] == (L.get("port") or _defport))
     engine_same = ttype != "engine" or (
         extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a")
         and (extra.get("transport") or "udp") == (L.get("transport") or "udp")
@@ -2268,12 +2330,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def _client_ip(self):
         # Behind a trusted TLS-terminating proxy (conf['tls']) every request shares the proxy's TCP address,
-        # so keying the login limiter on it would let one attacker lock out ALL clients. Use the forwarded IP.
-        if self._conf().get("tls"):
-            first = (self.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
-            if first:
-                return first
-        return self.client_address[0]
+        # so keying the login limiter on it would let one attacker lock out ALL clients. Use the forwarded IP —
+        # but ONLY when the direct TCP peer is actually a trusted proxy. Otherwise a client could spoof
+        # X-Forwarded-For on every request to dodge the brute-force limiter entirely. The terminator normally
+        # runs on loopback; set conf['trusted_proxies'] (a list of IPs) if it sits on another host.
+        peer = self.client_address[0]
+        conf = self._conf()
+        if conf.get("tls"):
+            trusted = conf.get("trusted_proxies")
+            if isinstance(trusted, list) and trusted:
+                peer_trusted = peer in trusted
+            else:
+                try:
+                    peer_trusted = ipaddress.ip_address(peer).is_loopback
+                except ValueError:
+                    peer_trusted = False
+            if peer_trusted:
+                first = (self.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
+                if first:
+                    return first
+        return peer
 
     def _login(self):
         ip = self._client_ip()
@@ -2283,7 +2359,12 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body()
         conf = self._conf()
         time.sleep(0.3)
-        if str(d.get("user", "")) == conf.get("user") and verify_password(conf, str(d.get("pass", ""))):
+        # Always run the (expensive) PBKDF2 check, even when the username is wrong,
+        # so response time doesn't reveal whether a username exists. compare_digest
+        # keeps the username check constant-time too.
+        user_ok = hmac.compare_digest(str(d.get("user", "")), str(conf.get("user") or ""))
+        pass_ok = verify_password(conf, str(d.get("pass", "")))
+        if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""   # set conf["tls"]=true when TLS-fronted so the cookie never rides plain HTTP
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
@@ -2358,7 +2439,7 @@ INDEX_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="ut
 :root{--acc:#4d6bf0;--acc2:#12a5b8;--ok:#2f9e6f;--bad:#d1524a;--gold:#bd7f18;
 --page:#eef1f6;--card:#ffffff;--side:#ffffff;--glass:#f1f4f8;--field:#f4f6fa;--bord:#e5e9f0;
 --tx:#232b36;--sub:#727e8c;--chart1:#6d5cf0;--chart2:#12a5b8;--hi:transparent;--dsh:0 10px 26px -18px rgba(40,60,100,.2);
---accw:#eef1fe;--okw:#e8f6ef;--badw:#fbeceb;--warnw:#f7efe0;--sh-sm:0 1px 2px rgba(20,30,50,.05)}
+--accw:#eef1fe;--okw:#e8f6ef;--badw:#fbeceb;--warnw:#f7efe0;--goldw:color-mix(in srgb,var(--gold) 16%,transparent);--sh-sm:0 1px 2px rgba(20,30,50,.05)}
 body.dark{--acc:#6f8dff;--acc2:#3fd0e0;--ok:#4ec99a;--bad:#f0736a;--gold:#e0a83a;
 --page:#0e1420;--card:#161f2e;--side:#111826;--glass:#1a2333;--field:#131c29;--bord:#243040;
 --tx:#e6ecf4;--sub:#8b98aa;--chart1:#8f9dff;--chart2:#3fd0e0;--hi:transparent;--dsh:0 14px 34px -20px rgba(0,0,0,.6);
@@ -3560,7 +3641,7 @@ function engineCard(l){
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
 var _engSrv='a',_engTr='udp',_engObfs=false;
-function engSetTr(t){_engTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp')}
+function engSetTr(t){_engTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':'UDP')}
 function engToggleObfs(){if(ssVal('e_cipher')=='none')return;_engObfs=!_engObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_engObfs)}
 function onEngCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
  if(none){_engObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
@@ -3570,7 +3651,7 @@ async function openEngineModal(){var r=await j('node-names');NODES=r.nodes||[];v
  var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onEngNode')+'<div id="e_aip"></div>'+
   '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onEngNode')+'<div id="e_bip"></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="engSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="engSetSrv(\\'b\\')"></button></div>'+
-  '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ UDP را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
+  '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ <span id="e_trword">UDP</span> را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
   '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',ENGINE_CIPHERS,'auto','رمز','onEngCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="engSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="engSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="engToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
