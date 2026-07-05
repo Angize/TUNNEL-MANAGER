@@ -2706,6 +2706,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .primary:active{transform:scale(.98)}
 .ghost{margin-top:18px;margin-inline-start:8px;background:var(--glass);border:1px solid var(--bord);color:var(--sub);padding:12px 16px;border-radius:14px;cursor:pointer;font-family:inherit}
 .msg{margin-top:13px;font-size:12.5px;min-height:18px}.msg.ok{color:var(--ok)}.msg.err{color:var(--bad)}
+.msg:empty{margin-top:0;min-height:0}
 .chh{font-weight:700;margin-bottom:3px}.chl{padding:1.5px 0;line-height:1.6}
 .link{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.arrow{color:var(--acc);font-weight:800;font-size:16px}
 .msbtn{width:100%;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13.5px;cursor:pointer;text-align:start;display:flex;align-items:center;justify-content:space-between;font-family:inherit}
@@ -2932,13 +2933,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-btn.eng{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
 .agx-btn:disabled{opacity:.5;cursor:not-allowed}
 .agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
-.agx-popw{position:absolute;z-index:12;inset-inline-start:11px;top:calc(100% - 4px)}
-.agx-pop{width:196px;background:var(--card);border:1px solid var(--bord);border-radius:12px;box-shadow:0 20px 44px -18px rgba(20,30,60,.5);overflow:hidden}
-.agx-pop .ph{font-size:10.5px;color:var(--sub);padding:9px 12px 6px;font-weight:800}
-.agx-opt{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;font-size:12px;font-weight:700}
-.agx-opt:hover{background:var(--field)}
-.agx-opt .vr{font-family:ui-monospace,monospace;direction:ltr}
-.agx-opt .lb{color:var(--sub);font-weight:600;font-size:10.5px;margin-inline-start:auto;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* icon-only card action buttons */
 .nact.iconly .act{padding:8px 11px}
 .nact.iconly .act .ic{width:15px;height:15px}
@@ -3987,18 +3981,15 @@ function agentBody(){return ''+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+'فایلِ ایجنت</button>'+
   '</div>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
-  '<textarea id="ag_paste" placeholder="کدِ ایجنت را اینجا پیست کن…" style="display:none;width:100%;height:110px;margin-top:10px;padding:11px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:ui-monospace,monospace;font-size:12px;direction:ltr"></textarea>'+
-  '<div id="ag_paste_row" style="display:none;gap:8px;margin-top:9px"><button class="primary" style="margin-top:0;padding:8px 13px;font-size:12px" onclick="agUpload()">ذخیره</button></div>'+
-  '<div class="agx-hint">فقط دریافت/ذخیره می‌شود؛ برای اعمال روی نودها «پوشِ همه» را بزن · <a href="#" onclick="agTogglePaste();return false" style="color:var(--acc)">پیستِ کد</a></div>'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
   '<div class="agx-div"></div>'+
   '<div class="agx-englab"><span class="chip" style="--hue:#8b5cf6;width:22px;height:22px;border-radius:6px">'+ic('cpu','#8b5cf6')+'</span> موتورِ داده</div>'+
   '<div class="agx-engrow"><span id="eng_ver_box" class="grow"></span>'+
     '<button class="agx-mini pri" onclick="engPushAll()">نصبِ همه</button>'+
-    '<button class="agx-mini gho" onclick="el(\\'eng_file\\').click()">'+ic('plus')+'باینری</button>'+
+    '<button class="agx-mini gho" title="آپلودِ فایلِ باینریِ موتور به‌عنوان نسخهٔ custom" onclick="el(\\'eng_file\\').click()">'+ic('plus')+'باینری</button>'+
   '</div>'+
   '<input type="file" id="eng_file" style="display:none" onchange="agEngPick(this)">'+
-  '<div class="agx-hint">⚠️ نسخهٔ سخت‌گیرانه (v2) با نسخهٔ قدیمی سازگار نیست — هر دو سرِ یک تونل باید سازگار باشند. «باینری» = آپلودِ فایلِ موتورِ سفارشی (نسخهٔ custom).</div>'+
+  '<div class="agx-hint">⚠️ دو سرِ هر تونلِ موتور باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.</div>'+
   '<div class="msg" id="eng_msg"></div>'+
  '</div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+
@@ -4028,9 +4019,13 @@ async function engPushAll(){var ver=ssVal('engver');if(!ver){toast('اول نس�
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast('نودِ آنلاینی نیست','err');return}
  if(!await confirmBox('موتورِ نسخهٔ «'+ver+'» روی '+ids.length+' نودِ آنلاین نصب و تونل‌های موتور ری‌استارت شوند؟','بله، همه'))return;
- var m=el('eng_msg');m.className='msg';m.textContent='در حال نصب روی '+ids.length+' نود…';
- var res=await post('engine-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=rs.filter(function(x){return x.ok}).length;
- m.className='msg '+(ok?'ok':'err');m.textContent=ok+'/'+rs.length+' نود روی «'+ver+'» رفت'+(ok<rs.length?' — بعضی ناموفق':'');
+ ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ موتور…'}});   // per-node status, like پوشِ همه
+ var res=await post('engine-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=0;
+ rs.forEach(function(x){var m=el('agres_'+x.id);
+  if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML='موتور → '+esc(x.version||ver)+' · '+num(x.restarted)+' تونل'+CK}}
+  else if(x.offline){if(m){m.className='msg agres';m.textContent='آفلاین — رد شد'}}
+  else{if(m){m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}});
+ toast(ok+'/'+rs.length+' نود بروزرسانی شد',ok?'ok':'err');
  setTimeout(refreshAgent,4500)}
 async function engPush(id,ver){if(!ver){toast('نسخه را انتخاب کن','err');return}
  var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ موتورِ '+ver+'…'}
@@ -4055,19 +4050,15 @@ function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';
  else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';agdis=1}
  else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">آپدیت</span>';agdis=0}
  else{st='';agdis=1}
- return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill eng" title="نسخهٔ موتور">⚙ '+eng+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn eng"'+(n.online?'':' disabled')+' onclick="engMenu(event,\\''+n.id+'\\')" title="بردنِ موتورِ این نود به نسخهٔ خاص">'+ic('cpu')+'موتور ▾</button></div><div class="agx-popw" id="popw_'+n.id+'"></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
-function closeAllEngMenus(){var ws=document.querySelectorAll('.agx-popw');for(var i=0;i<ws.length;i++)ws[i].innerHTML=''}
-function engMenu(ev,id){ev.stopPropagation();var w=el('popw_'+id);if(!w)return;
- var wasOpen=!!w.firstChild;closeAllEngMenus();if(wasOpen)return;
- if(!ENGVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}
- var opts=ENGVERS.map(function(x){return '<div class="agx-opt" data-v="'+esc(x.id)+'" onclick="engPick(\\''+id+'\\',this.getAttribute(\\'data-v\\'))"><span class="vr">'+esc(x.id)+'</span><span class="lb">'+esc(x.label||'')+'</span></div>'}).join('');
- w.innerHTML='<div class="agx-pop"><div class="ph">این نود را ببر به نسخهٔ:</div>'+opts+'</div>'}
-function engPick(id,ver){closeAllEngMenus();engPush(id,ver)}
-document.addEventListener('click',closeAllEngMenus);
+ return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill eng" title="نسخهٔ موتور">⚙ '+eng+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn eng"'+(n.online?'':' disabled')+' onclick="engMenu(\\''+n.id+'\\',\\''+esc(i.engine_ver||'')+'\\')" title="بردنِ موتورِ این نود به نسخهٔ خاص">'+ic('cpu')+'موتور ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+var _engOv=null;
+function engMenu(id,cur){if(!ENGVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
+ var rows=ENGVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" onclick="engPick(\\''+id+'\\',this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
+ _engOv=openModal('<div class="sspop"><div style="padding:4px 4px 9px;font-size:11.5px;color:var(--sub);font-weight:800">موتورِ این نود را ببر به نسخهٔ:</div><div class="sspoplist">'+rows+'</div></div>',{cls:'sssheet'})}
+function engPick(id,row){var ver=row.getAttribute('data-v');if(_engOv){closeModal(_engOv);_engOv=null}engPush(id,ver)}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
-function agTogglePaste(){var t=el('ag_paste'),r=el('ag_paste_row');if(!t)return;var show=(t.style.display=='none');t.style.display=show?'block':'none';if(r)r.style.display=show?'flex':'none'}
-async function agUpload(){var m=el('ag_msg');var code=window._agCode||v('ag_paste');
- if(!code||!code.trim()){m.className='msg err';m.textContent='اول فایل را انتخاب یا کد را پیست کن';return}
+async function agUpload(){var m=el('ag_msg');var code=window._agCode;
+ if(!code||!code.trim()){m.className='msg err';m.textContent='اول فایلِ ایجنت را انتخاب کن';return}
  m.className='msg';m.textContent='در حال بررسی و ذخیره…';
  var r=await post('agent-upload',{code:code});
  if(r.ok&&r.d.ok){m.className='msg ok';m.textContent='ذخیره شد: v'+r.d.version+' · '+r.d.sha256;window._agCode=null;refreshAgent()}
