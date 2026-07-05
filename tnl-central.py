@@ -1068,6 +1068,8 @@ def api_node_add(d):
     token = str(d["token"]).strip()
     if not token:
         raise ValueError("token required")
+    if len(token) < 16:   # token-strength floor: reject weak manual tokens (auto-provisioned ones are long)
+        raise ValueError("token too short — use at least 16 characters")
     proxy = valid_proxy(d.get("proxy"))
     node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token, "proxy": proxy}
     with _reg_lock:
@@ -2451,6 +2453,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        # defense-in-depth CSP: the UI leans on inline scripts/handlers/styles and a Google-Fonts @import,
+        # so 'unsafe-inline' is required for script/style; everything else is locked down.
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                         "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                         "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         # never cache: live JSON polls must stay fresh, and the HTML shell must never serve a stale
         # (old-JS) page after the panel is updated on the server — that stranded users on old behavior.
         self.send_header("Cache-Control", "no-store")
@@ -2540,7 +2549,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(401, {"error": "wrong username or password"})
 
     def _checkin(self):
+        ip = self._client_ip()
+        if rate_limited(ip):   # per-source-IP brute-force cap on token guessing (same limiter as _login)
+            self._send(429, {"error": "too many attempts, wait a few minutes"})
+            return
         res = api_checkin_impl(self.client_address[0], self._body())
+        if not res.get("ok"):
+            note_fail(ip)
         self._send(200 if res.get("ok") else 401, res)
 
     def _api(self, cmd, method):
@@ -3571,7 +3586,7 @@ function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">آنلاین</span>':(n.pending?'<span class="badge na">در حال بررسی…</span>':'<span class="badge bad">آفلاین</span>');
  var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">پروکسی</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+(i.engine_ver?'<span class="nchip" title="نسخهٔ موتور">'+ic('cpu')+'موتور <b>'+esc(i.engine_ver)+'</b></span>':'')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="تست" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="مشخصات" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="ویرایش" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delNode(\\''+n.id+'\\',\\''+esc(n.name)+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="تست" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="مشخصات" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="ویرایش" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
  var up=0,tot=0;for(var i=0;i<r.length;i++){if(r[i]!=null){tot++;if(r[i])up++}}
@@ -3594,7 +3609,7 @@ async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textCo
  var info=(r.d&&r.d.info)||{};if(!m)return;
  if(r.d&&r.d.ok){m.className='msg ok';m.innerHTML=CK+esc(' آنلاین — '+(info.hostname||'')+' · '+ms+'ms')}
  else{m.className='msg err';m.textContent='آفلاین: '+(info.error||'در دسترس نیست')+' · '+ms+'ms'}}
-function delNode(id,nm){
+function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');
  var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:</div>'+
   '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+'فقط از پنل جدا کن</div><div class="do-s">نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.</div></button>'+
   '<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+'پاک‌سازیِ کاملِ نود</div><div class="do-s">روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!</div></button>'+
@@ -4050,12 +4065,12 @@ function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';
  else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';agdis=1}
  else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">آپدیت</span>';agdis=0}
  else{st='';agdis=1}
- return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill eng" title="نسخهٔ موتور">⚙ '+eng+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn eng"'+(n.online?'':' disabled')+' onclick="engMenu(\\''+n.id+'\\',\\''+esc(i.engine_ver||'')+'\\')" title="بردنِ موتورِ این نود به نسخهٔ خاص">'+ic('cpu')+'موتور ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+ return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill eng" title="نسخهٔ موتور">⚙ '+eng+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn eng"'+(n.online?'':' disabled')+' data-nid="'+esc(n.id)+'" data-cur="'+esc(i.engine_ver||'')+'" onclick="engMenu(this)" title="بردنِ موتورِ این نود به نسخهٔ خاص">'+ic('cpu')+'موتور ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 var _engOv=null;
-function engMenu(id,cur){if(!ENGVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
- var rows=ENGVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" onclick="engPick(\\''+id+'\\',this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
+function engMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur');if(!ENGVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
+ var rows=ENGVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" data-nid="'+esc(id)+'" onclick="engPick(this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
  _engOv=openModal('<div class="sspop"><div style="padding:4px 4px 9px;font-size:11.5px;color:var(--sub);font-weight:800">موتورِ این نود را ببر به نسخهٔ:</div><div class="sspoplist">'+rows+'</div></div>',{cls:'sssheet'})}
-function engPick(id,row){var ver=row.getAttribute('data-v');if(_engOv){closeModal(_engOv);_engOv=null}engPush(id,ver)}
+function engPick(row){var id=row.getAttribute('data-nid');var ver=row.getAttribute('data-v');if(_engOv){closeModal(_engOv);_engOv=null}engPush(id,ver)}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode;
  if(!code||!code.trim()){m.className='msg err';m.textContent='اول فایلِ ایجنت را انتخاب کن';return}
