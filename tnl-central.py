@@ -757,6 +757,10 @@ def _tunnel_extra(src):
         e["psk"] = src["psk"]
     if src.get("cipher"):
         e["cipher"] = src["cipher"]
+    if src.get("transport"):
+        e["transport"] = src["transport"]
+    if src.get("obfs"):
+        e["obfs"] = True
     return e
 
 
@@ -1627,6 +1631,14 @@ def _create_tunnel_impl(d):
         extra["cipher"] = cipher
         if cipher != "none":
             extra["psk"] = secrets.token_hex(32)   # shared AEAD key, never sent to the browser
+        transport = str(d.get("transport") or "udp").strip().lower()
+        if transport not in ("udp", "tcp"):
+            raise ValueError("حاملِ اتصال نامعتبر است")
+        extra["transport"] = transport
+        if bool(d.get("obfs")):                    # anti-DPI needs the AEAD key
+            if cipher == "none":
+                raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
+            extra["obfs"] = True
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **extra}
@@ -1770,9 +1782,20 @@ def _edit_link_impl(d):
         extra["cipher"] = cipher
         if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
             extra["psk"] = L.get("psk") or secrets.token_hex(32)
+        transport = str(d.get("transport") or L.get("transport") or "udp").strip().lower()
+        if transport not in ("udp", "tcp"):
+            raise ValueError("حاملِ اتصال نامعتبر است")
+        extra["transport"] = transport
+        if bool(d.get("obfs")):
+            if cipher == "none":
+                raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
+            extra["obfs"] = True
         server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
-    engine_same = ttype != "engine" or (extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a"))
+    engine_same = ttype != "engine" or (
+        extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a")
+        and (extra.get("transport") or "udp") == (L.get("transport") or "udp")
+        and bool(extra.get("obfs")) == bool(L.get("obfs")))
     if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and engine_same:
         return {"ok": True, "unchanged": True, "name": old_name}
     if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
@@ -1799,7 +1822,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -2774,6 +2797,11 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .toast .ic{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-inline-end:4px}
 .tag.engine{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 40%,transparent);background:color-mix(in srgb,#8b5cf6 12%,transparent)}
 body.dark .tag.engine{color:#a78bfa}
+.tag.obfs{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent);text-transform:none;letter-spacing:0}
+.tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
+.tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
+.tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
+.tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:var(--accw)}
 .rl.cli{color:var(--gold);background:var(--goldw)}
@@ -3506,9 +3534,10 @@ async function refreshEngine(){if(editingId||CHECKING)return;var f=await j('flee
  setHTML(box,FLEET.length?FLEET.map(engineCard).join(''):'<div class="card muted">'+(QRY.engine?'موردی یافت نشد.':'هنوز تونلِ موتوری نیست — دکمهٔ «تونلِ موتور» بالا را بزن.')+'</div>');renderPager('engine')}
 function engineMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
- var prt=l.port?'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>':'';
+ var tr=(l.transport=='tcp')?'TCP':'UDP';
+ var prt=l.port?'<div>پورتِ '+tr+': <b class="mono">'+esc(l.port)+'</b></div>':'';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div>نوع: <span class="tag engine">bip</span></div>';
+ var typ='<div class="wrap">نوع: <span class="tag engine">bip</span>'+(l.obfs?' <span class="tag obfs">استتار</span>':'')+'</div>';
  var enc=(l.cipher&&l.cipher!='none')
    ?'<div class="wrap">رمزنگاری: <span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span></div>'
    :'<div>رمزنگاری: <b>بدونِ رمز</b></div>';
@@ -3530,17 +3559,23 @@ function engineCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openEngineEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
-var _engSrv='a';
+var _engSrv='a',_engTr='udp',_engObfs=false;
+function engSetTr(t){_engTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp')}
+function engToggleObfs(){if(ssVal('e_cipher')=='none')return;_engObfs=!_engObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_engObfs)}
+function onEngCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
+ if(none){_engObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 async function openEngineModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_engSrv='a';
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_engSrv='a';_engTr='udp';_engObfs=false;
  var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onEngNode')+'<div id="e_aip"></div>'+
   '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onEngNode')+'<div id="e_bip"></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="engSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="engSetSrv(\\'b\\')"></button></div>'+
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ UDP را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
-  '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',ENGINE_CIPHERS,'auto','رمز','')+
+  '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',ENGINE_CIPHERS,'auto','رمز','onEngCipher')+
+  '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="engSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="engSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
+  '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="engToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onEngSubRange')+'<div id="e_snc"></div>'+
-  '<label>پورتِ UDP (خالی=خودکار)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
+  '<label>پورت (خالی=خودکار · می‌توانی 443 بگذاری)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ موتور</h3><div class="sb">موتورِ اختصاصی · packet/bip</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateEngine()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
  engRoleLbls();renderEngIps()}
@@ -3555,7 +3590,7 @@ function engRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
 function engSetSrv(s){_engSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
 async function doCreateEngine(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
- var body={a_node:a,b_node:bb,type:'engine',server_side:_engSrv,cipher:ssVal('e_cipher')};
+ var body={a_node:a,b_node:bb,type:'engine',server_side:_engSrv,cipher:ssVal('e_cipher'),transport:_engTr,obfs:_engObfs};
  var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
  var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
@@ -3565,16 +3600,22 @@ async function doCreateEngine(){var m=el('e_msg');m.className='msg';var a=ssVal(
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونلِ موتور ساخته شد','ok');refreshEngine()}
  else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 // ===== engine edit (cipher / role / port / subnet / ips -> rebuild both ends)
-var _eeSrv='a';
+var _eeSrv='a',_eeTr='udp',_eeObfs=false;
+function eeSetTr(t){_eeTr=t;var u=el('ee_tr_udp'),c=el('ee_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp')}
+function eeToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeObfs=!_eeObfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeObfs)}
+function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
+ if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 function openEngineEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(l.transport=='tcp')?'tcp':'udp';_eeObfs=!!l.obfs;
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){return '<label>آی‌پیِ «'+esc(nm)+'»</label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
   ipsel('a',l.a_ip,aips,l.a_name)+ipsel('b',l.b_ip,bips,l.b_name)+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="eeSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="eeSetSrv(\\'b\\')"></button></div>'+
-  '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',ENGINE_CIPHERS,(l.cipher||'auto'),'رمز','')+
-  '<div class="grid2"><div><label>پورتِ UDP</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
+  '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',ENGINE_CIPHERS,(l.cipher||'auto'),'رمز','onEeCipher')+
+  '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="eeSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="eeSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
+  '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="eeToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
+  '<div class="grid2"><div><label>پورت (می‌توانی 443)</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ تونلِ موتور</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doEngineEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
@@ -3585,7 +3626,7 @@ function eeRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
 function eeSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
 async function doEngineEdit(id){var m=el('ee_msg');m.className='msg';m.textContent='در حال ذخیره و بازسازیِ دو سر…';
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
- var body={id:id,type:'engine',server_side:_eeSrv,cipher:ssVal('ee_cipher')};
+ var body={id:id,type:'engine',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs};
  var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
  var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
