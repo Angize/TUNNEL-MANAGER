@@ -799,6 +799,10 @@ def _tunnel_extra(src):
         e["transport"] = src["transport"]
     if src.get("obfs"):
         e["obfs"] = True
+    if src.get("cover"):                 # TLS camouflage (HTTPS cover); engine TCP-only
+        e["cover"] = True
+        if src.get("cover_sni"):
+            e["cover_sni"] = src["cover_sni"]
     return e
 
 
@@ -1847,6 +1851,14 @@ def _create_tunnel_impl(d):
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
+        cover = bool(d.get("cover")) and transport == "tcp"   # TLS cover (HTTPS camouflage) is TCP-only; ignore on UDP
+        cover_sni = str(d.get("cover_sni") or "").strip()
+        if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
+            raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
+        if cover:
+            extra["cover"] = True
+            if cover_sni:
+                extra["cover_sni"] = cover_sni
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B))
@@ -2008,6 +2020,14 @@ def _edit_link_impl(d):
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
+        cover = bool(d.get("cover")) and transport == "tcp"   # TLS cover (HTTPS camouflage) is TCP-only; ignore on UDP
+        cover_sni = str(d.get("cover_sni") or "").strip()
+        if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
+            raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
+        if cover:
+            extra["cover"] = True
+            if cover_sni:
+                extra["cover_sni"] = cover_sni
         server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
     # Compare against the effective stored port: a record created before the
     # settable-port feature has no "port" key, so fall back to the type's default
@@ -2018,7 +2038,9 @@ def _edit_link_impl(d):
     engine_same = ttype != "engine" or (
         extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a")
         and (extra.get("transport") or "udp") == (L.get("transport") or "udp")
-        and bool(extra.get("obfs")) == bool(L.get("obfs")))
+        and bool(extra.get("obfs")) == bool(L.get("obfs"))
+        and bool(extra.get("cover")) == bool(L.get("cover"))
+        and (extra.get("cover_sni") or "") == (L.get("cover_sni") or ""))
     if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and engine_same:
         return {"ok": True, "unchanged": True, "name": old_name}
     # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
@@ -2051,7 +2073,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -3832,7 +3854,7 @@ function engineMeta(l){   // right col under box A, left col under box B (lock a
  var tr=(l.transport=='tcp')?'TCP':'UDP';
  var prt=l.port?'<div>پورتِ '+tr+': <b class="mono">'+esc(l.port)+'</b></div>':'';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div class="wrap">نوع: <span class="tag engine">bip</span>'+(l.obfs?' <span class="tag obfs">استتار</span>':'')+'</div>';
+ var typ='<div class="wrap">نوع: <span class="tag engine">bip</span>'+(l.obfs?' <span class="tag obfs">استتار</span>':'')+(l.cover?' <span class="tag obfs">پوششِ TLS</span>':'')+'</div>';
  var enc=(l.cipher&&l.cipher!='none')
    ?'<div class="wrap">رمزنگاری: <span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span></div>'
    :'<div>رمزنگاری: <b>بدونِ رمز</b></div>';
@@ -3854,14 +3876,17 @@ function engineCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openEngineEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
-var _engSrv='a',_engTr='udp',_engObfs=false;
-function engSetTr(t){_engTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':'UDP')}
+var _engSrv='a',_engTr='udp',_engObfs=false,_engCover=false;
+function engSetTr(t){_engTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':'UDP');engCoverGate()}
 function engToggleObfs(){if(ssVal('e_cipher')=='none')return;_engObfs=!_engObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_engObfs)}
+function engToggleCover(){if(_engTr!='tcp')return;_engCover=!_engCover;var s=el('e_cover');if(s)s.classList.toggle('on',_engCover);engSniVis()}
+function engSniVis(){var w=el('e_snirow');if(w)w.style.display=(_engCover&&_engTr=='tcp')?'':'none'}
+function engCoverGate(){var tcp=_engTr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_engCover=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',!tcp);engSniVis()}
 function onEngCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
  if(none){_engObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 async function openEngineModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_engSrv='a';_engTr='udp';_engObfs=false;
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_engSrv='a';_engTr='udp';_engObfs=false;_engCover=false;
  var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onEngNode')+'<div id="e_aip"></div>'+
   '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onEngNode')+'<div id="e_bip"></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="engSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="engSetSrv(\\'b\\')"></button></div>'+
@@ -3869,11 +3894,13 @@ async function openEngineModal(){var r=await j('node-names');NODES=r.nodes||[];v
   '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',ENGINE_CIPHERS,'auto','رمز','onEngCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="engSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="engSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="engToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
+  '<div class="tglbox dis" id="e_coverrow"><div class="tglsw" id="e_cover" onclick="engToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ یک اتصالِ HTTPS دیده می‌شود. فقط با حاملِ TCP.</small></div></div>'+
+  '<div id="e_snirow" style="display:none"><label>دامنهٔ نمایشی (SNI)</label><input id="e_sni" placeholder="مثلاً یک دامنهٔ بازِ محبوب"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">دامنه‌ای که TLS ادعا می‌کند به آن وصل شده‌ای. یک دامنهٔ <b>بازِ (فیلترنشده) و محبوب</b> در منطقه‌ات بگذار، ترجیحاً روی یک CDNِ بزرگ. گواهی بررسی نمی‌شود — فقط برای شبیه‌شدن به HTTPS است.</div></div>'+
   '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onEngSubRange')+'<div id="e_snc"></div>'+
   '<label>پورت (خالی=خودکار · می‌توانی 443 بگذاری)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ موتور</h3><div class="sb">موتورِ اختصاصی · packet/bip</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateEngine()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- engRoleLbls();renderEngIps()}
+ engRoleLbls();renderEngIps();engCoverGate()}
 function onEngNode(){renderEngIps();engRoleLbls()}
 function renderEngIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;var nid=ssVal('e_'+side),ips=nodeIps(nid),k='e_'+side+'ip_sel';
  if(ips.length>1){w.innerHTML='<label>آی‌پیِ «'+esc(nodeName(nid))+'» <small>— چند آی‌پی دارد</small></label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}
@@ -3885,7 +3912,8 @@ function engRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
 function engSetSrv(s){_engSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
 async function doCreateEngine(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
- var body={a_node:a,b_node:bb,type:'engine',server_side:_engSrv,cipher:ssVal('e_cipher'),transport:_engTr,obfs:_engObfs};
+ var body={a_node:a,b_node:bb,type:'engine',server_side:_engSrv,cipher:ssVal('e_cipher'),transport:_engTr,obfs:_engObfs,cover:(_engCover&&_engTr=='tcp')};
+ if(body.cover){var sni=v('e_sni');if(sni)body.cover_sni=sni}
  var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
  var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
@@ -3895,13 +3923,16 @@ async function doCreateEngine(){var m=el('e_msg');m.className='msg';var a=ssVal(
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونلِ موتور ساخته شد','ok');refreshEngine()}
  else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 // ===== engine edit (cipher / role / port / subnet / ips -> rebuild both ends)
-var _eeSrv='a',_eeTr='udp',_eeObfs=false;
-function eeSetTr(t){_eeTr=t;var u=el('ee_tr_udp'),c=el('ee_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp')}
+var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false;
+function eeSetTr(t){_eeTr=t;var u=el('ee_tr_udp'),c=el('ee_tr_tcp');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');eeCoverGate()}
 function eeToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeObfs=!_eeObfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeObfs)}
+function eeToggleCover(){if(_eeTr!='tcp')return;_eeCover=!_eeCover;var s=el('ee_cover');if(s)s.classList.toggle('on',_eeCover);eeSniVis()}
+function eeSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeCover&&_eeTr=='tcp')?'':'none'}
+function eeCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeCover=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',!tcp);eeSniVis()}
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 function openEngineEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(l.transport=='tcp')?'tcp':'udp';_eeObfs=!!l.obfs;
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(l.transport=='tcp')?'tcp':'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){return '<label>آی‌پیِ «'+esc(nm)+'»</label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
@@ -3910,6 +3941,8 @@ function openEngineEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];
   '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',ENGINE_CIPHERS,(l.cipher||'auto'),'رمز','onEeCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="eeSetTr(\\'udp\\')"><b>UDP</b><span>پیش‌فرض · دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="eeSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر پشتِ فیلتر</span></button></div>'+
   '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="eeToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
+  '<div class="tglbox'+((_eeTr!='tcp')?' dis':'')+'" id="ee_coverrow"><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="eeToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ یک اتصالِ HTTPS دیده می‌شود. فقط با حاملِ TCP.</small></div></div>'+
+  '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>دامنهٔ نمایشی (SNI)</label><input id="ee_sni" placeholder="مثلاً یک دامنهٔ بازِ محبوب" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">دامنهٔ <b>بازِ محبوب</b> در منطقه‌ات (ترجیحاً روی CDNِ بزرگ). گواهی بررسی نمی‌شود — فقط استتار است.</div></div>'+
   '<div class="grid2"><div><label>پورت (می‌توانی 443)</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
@@ -3921,7 +3954,8 @@ function eeRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
 function eeSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
 async function doEngineEdit(id){var m=el('ee_msg');m.className='msg';m.textContent='در حال ذخیره و بازسازیِ دو سر…';
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
- var body={id:id,type:'engine',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs};
+ var body={id:id,type:'engine',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp')};
+ if(body.cover){var sni=v('ee_sni');if(sni)body.cover_sni=sni}
  var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
  var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
