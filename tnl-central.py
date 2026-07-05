@@ -46,6 +46,8 @@ SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable p
 UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")     # persisted per-minute up/down history so the bar survives restarts
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")          # the node-agent source the operator uploaded, pushed to nodes
 AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")   # {version, sha256, size, uploaded_ts}
+ENGINE_BLOB = os.path.join(CENTRAL_DIR, "engine.bin")        # a custom engine binary the operator uploaded, pushed to nodes
+ENGINE_BLOB_META = os.path.join(CENTRAL_DIR, "engine.meta.json")  # {sha256, size, name, uploaded_ts}
 SERVICE_FILE = "/etc/systemd/system/tnl-central.service"
 SELF_PATH = os.path.realpath(__file__)
 INSTALLED = os.path.join(CENTRAL_DIR, "tnl-central.py")  # stable path the systemd unit points at
@@ -59,6 +61,7 @@ IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (lo
 ENGINE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
+_engine_blob_lock = threading.Lock()   # serialize the custom engine binary + its meta writes
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
 _node_locks_guard = threading.Lock()   # ops on disjoint nodes run concurrently — one hung node can't stall the fleet
 _settings = {}                   # in-memory copy of settings.json (read hot-path by the loops); seeded in serve()
@@ -1534,15 +1537,76 @@ def api_engine_versions(d):
             _engine_versions_cache["data"] = vers
             _engine_versions_cache["ts"] = now
         vers = list(_engine_versions_cache["data"] or [])
-    return {"versions": [{"id": "latest", "label": "آخرین (latest)"}] + vers}
+    out = [{"id": "latest", "label": "آخرین (latest)"}] + vers
+    info = _engine_blob_info()
+    if info:                                          # offer the operator-uploaded binary as its own choice
+        out.append({"id": "custom", "label": "باینریِ آپلودشده" + (" · " + info["name"] if info.get("name") else ""),
+                    "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
+    return {"versions": out}
+
+
+def _engine_blob_info():
+    """Metadata for the custom engine binary the operator uploaded, or None if none is stored."""
+    try:
+        with open(ENGINE_BLOB_META) as f:
+            m = json.load(f)
+        if os.path.isfile(ENGINE_BLOB):
+            return m
+    except Exception:
+        pass
+    return None
+
+
+def api_engine_upload(d):
+    """Store a custom engine binary (base64) in the panel so it can be pushed to nodes as version 'custom'.
+    Verifies it looks like a Linux ELF and isn't absurdly small/large before saving."""
+    _require(d, ["data"])
+    try:
+        raw = base64.b64decode(d["data"], validate=True)
+    except Exception:
+        raise ValueError("فایل base64 نامعتبر است")
+    if len(raw) < 100000:
+        raise ValueError("فایل خیلی کوچک است — این باینریِ موتور نیست")
+    if len(raw) > 15 * 1024 * 1024:
+        raise ValueError("فایل بیش از حد بزرگ است")
+    if raw[:4] != b"\x7fELF":                       # a Linux engine binary must be an ELF — reject anything else early
+        raise ValueError("این یک باینریِ ELF لینوکسی نیست")
+    sha = hashlib.sha256(raw).hexdigest()
+    name = str(d.get("name") or "engine.bin")[:80]
+    with _engine_blob_lock:
+        with open(ENGINE_BLOB, "wb") as f:
+            f.write(raw)
+        save_json(ENGINE_BLOB_META, {"sha256": sha, "size": len(raw), "name": name, "uploaded_ts": int(time.time())})
+    return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name}
 
 
 def api_engine_update(d):
-    """Install a specific engine version (or 'latest') on the given node ids and restart their engine
-    tunnels. Downgrade is just an older tag. Mirrors agent-push, but for the data-plane binary."""
+    """Install an engine version on the given node ids and restart their engine tunnels. `version` is a
+    release tag, "latest", or "custom" (the operator-uploaded binary). Downgrade is just an older tag.
+    Mirrors agent-push, but for the data-plane binary."""
     _require(d, ["ids", "version"])
     version = str(d.get("version") or "latest").strip()
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
+
+    if version == "custom":                          # push the stored blob's bytes directly (engine-install)
+        info = _engine_blob_info()
+        if not info:
+            raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
+        with _engine_blob_lock:
+            with open(ENGINE_BLOB, "rb") as f:
+                raw = f.read()
+        b64, sha = base64.b64encode(raw).decode(), info["sha256"]
+
+        def one_custom(nid):
+            n = get_node(nid)
+            if not n:
+                return {"id": nid, "ok": False, "error": "node removed"}
+            r = node_call(n, "engine-install", "POST", {"data": b64, "sha256": sha, "version": "custom"}, timeout=200)
+            err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
+            return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
+                    "version": r.get("version"), "restarted": r.get("restarted"), "engine_sha": r.get("engine_sha"), "error": err}
+
+        return {"results": parallel_map(one_custom, ids)}
 
     def one(nid):
         n = get_node(nid)
@@ -2356,10 +2420,11 @@ API = {
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
     "engine-versions": api_engine_versions, "engine-update": api_engine_update,
+    "engine-upload": api_engine_upload,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "engine-update"}
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "engine-update", "engine-upload"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -2394,12 +2459,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _body(self):
+    def _body(self, cap=1048576):
         try:
             n = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             n = 0
-        n = min(max(n, 0), 1048576)   # 1MB — headroom for the agent-upload source (JSON-escaped)
+        n = min(max(n, 0), cap)   # 1MB default — headroom for the agent-upload source (JSON-escaped)
         raw = self.rfile.read(n) if n > 0 else b""
         try:
             obj = json.loads(raw.decode()) if raw else {}
@@ -2492,7 +2557,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("X-Requested-With") != "tnl-central":
                 self._send(403, {"error": "bad request"})
                 return
-        d = self._body() if method == "POST" else query_dict(self.path)  # GET query powers pagination+search
+        # a custom engine binary (base64) needs far more than the 1MB default; everything else keeps the tight cap
+        d = self._body(cap=20971520 if cmd == "engine-upload" else 1048576) if method == "POST" else query_dict(self.path)
         try:
             self._send(200, API[cmd](d))
         except ValueError as e:
@@ -2836,6 +2902,43 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agrow .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 .drop{border:1.5px dashed color-mix(in srgb,var(--acc) 45%,transparent);border-radius:13px;padding:18px;text-align:center;background:var(--accw);color:var(--sub);font-size:12.5px;cursor:pointer;margin-top:4px}.drop b{color:var(--acc)}
 .banner{display:flex;align-items:center;gap:12px}.banner .v{font-size:13.5px;font-weight:800}
+/* --- unified agent+engine card (compact) --- */
+.agx-uni{padding:13px}
+.agx-uni .k{margin-bottom:10px}
+.agx-uni .k .grow{flex:1}
+.agx-meta{display:flex;flex-wrap:wrap;gap:5px 10px;align-items:center;font-size:11.5px;color:var(--sub);background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 11px;margin-bottom:11px}
+.agx-meta .sep{width:3px;height:3px;border-radius:50%;background:var(--sub);opacity:.5}
+.agx-act{display:flex;gap:7px;flex-wrap:wrap}
+.agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
+.agx-act .primary{flex:1;justify-content:center}
+.agx-hint{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.6}
+.agx-div{height:1px;background:var(--bord);margin:12px -2px}
+.agx-englab{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;margin-bottom:9px}
+.agx-englab .now{margin-inline-start:auto;font-weight:600;color:var(--sub);font-size:11px}
+.agx-engrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.agx-engrow #eng_ver_box{flex:1;min-width:120px}
+.agx-engrow .msbtn{margin-top:0;padding:8px 11px;font-size:12px;border-radius:10px}
+.agx-mini{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border-radius:10px;font-family:inherit;font-weight:800;font-size:11.5px;cursor:pointer;border:1px solid transparent}
+.agx-mini.pri{background:#8b5cf6;color:#fff}
+.agx-mini.gho{background:var(--field);color:var(--tx);border:1px solid var(--bord)}
+/* --- compact node row + per-node engine picker --- */
+.agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
+.agx-row .nm{font-weight:800;font-size:13px}
+.agx-pill{font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:6px;font-family:ui-monospace,monospace;direction:ltr;background:var(--field);color:var(--sub);border:1px solid var(--bord)}
+.agx-pill.eng{background:color-mix(in srgb,#8b5cf6 12%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 26%,transparent)}
+.agx-col{display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
+.agx-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;font-weight:800;font-size:10.5px;padding:5px 10px;border-radius:8px;cursor:pointer;min-width:74px;border:1px solid var(--bord);background:var(--glass);color:var(--tx)}
+.agx-btn .ic{width:13px;height:13px}
+.agx-btn.eng{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
+.agx-btn:disabled{opacity:.5;cursor:not-allowed}
+.agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
+.agx-popw{position:absolute;z-index:12;inset-inline-start:11px;top:calc(100% - 4px)}
+.agx-pop{width:196px;background:var(--card);border:1px solid var(--bord);border-radius:12px;box-shadow:0 20px 44px -18px rgba(20,30,60,.5);overflow:hidden}
+.agx-pop .ph{font-size:10.5px;color:var(--sub);padding:9px 12px 6px;font-weight:800}
+.agx-opt{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;font-size:12px;font-weight:700}
+.agx-opt:hover{background:var(--field)}
+.agx-opt .vr{font-family:ui-monospace,monospace;direction:ltr}
+.agx-opt .lb{color:var(--sub);font-weight:600;font-size:10.5px;margin-inline-start:auto;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* icon-only card action buttons */
 .nact.iconly .act{padding:8px 11px}
 .nact.iconly .act .ic{width:15px;height:15px}
@@ -3876,39 +3979,52 @@ async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox('این پ
 
 // ===== agent push-update page =====
 function agentBody(){return ''+
- '<div class="card" id="ag_stored" style="margin-bottom:12px"></div>'+
- '<div class="card gitcard" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('redo','var(--acc)')+'</span> بروزرسانی از گیت‌هاب</div>'+
-  '<div class="muted" style="font-size:12px;margin:3px 0 12px">آخرین نسخهٔ <b>tnl-node.py</b> از ریپوی عمومی دریافت، بررسی و روی همهٔ نودهای آنلاین اعمال می‌شود.</div>'+
-  '<button class="primary" onclick="agFetchGit()" id="ag_git_btn" style="display:inline-flex;align-items:center;gap:7px">'+ic('redo')+'دریافت از گیت و بروزرسانیِ همه</button><div class="msg" id="ag_git_msg"></div></div>'+
- '<div class="card" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:#34d399">'+ic('plus','#34d399')+'</span> بارگذاریِ دستیِ ایجنت</div>'+
+ '<div class="card agx-uni">'+
+  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('cpu','var(--acc)')+'</span> ایجنت و موتور<span class="grow"></span><span id="ag_status"></span></div>'+
+  '<div class="agx-meta" id="ag_meta"></div>'+
+  '<div class="agx-act">'+
+    '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
+    '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+'فایلِ ایجنت</button>'+
+  '</div>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
-  '<div class="drop" id="ag_drop" onclick="el(\\'ag_file\\').click()">فایلِ <b>tnl-node.py</b> را انتخاب کن — قبل از ذخیره صحتِ کد بررسی می‌شود</div>'+
-  '<textarea id="ag_paste" placeholder="یا کدِ ایجنت را اینجا پیست کن…" style="display:none;width:100%;height:120px;margin-top:10px;padding:11px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:ui-monospace,monospace;font-size:12px;direction:ltr"></textarea>'+
-  '<div style="display:flex;gap:9px;margin-top:12px;align-items:center"><button class="primary" onclick="agUpload()">بارگذاری و ذخیره</button><button class="ghost" onclick="agTogglePaste()">پیستِ کد</button></div><div class="msg" id="ag_msg"></div></div>'+
- '<div class="card" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> موتورِ داده (engine)</div>'+
-  '<div class="muted" style="font-size:12px;margin:3px 0 10px">نصب یا دانگریدِ نسخهٔ موتور روی نودها. نسخه‌ها از Releaseهای گیت‌هاب خوانده می‌شوند؛ نصب، تونل‌های موتورِ آن نود را ری‌استارت می‌کند.</div>'+
-  '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap"><select id="eng_ver" class="fld2" style="max-width:300px;padding:9px 11px;border:1px solid var(--bord);border-radius:11px;background:var(--field);color:var(--tx);font-family:inherit;font-size:13px"></select>'+
-  '<button class="primary" onclick="engPushAll()">نصب روی همهٔ آنلاین‌ها</button></div>'+
-  '<div class="muted" style="font-size:11px;margin-top:8px">⚠️ نسخهٔ سخت‌گیرانه (v2) با نسخهٔ قدیمی سازگار نیست — <b>هر دو سرِ یک تونل</b> باید نسخهٔ سازگار داشته باشند وگرنه آن تونل قطع می‌شود.</div>'+
-  '<div class="msg" id="eng_msg"></div></div>'+
+  '<textarea id="ag_paste" placeholder="کدِ ایجنت را اینجا پیست کن…" style="display:none;width:100%;height:110px;margin-top:10px;padding:11px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:ui-monospace,monospace;font-size:12px;direction:ltr"></textarea>'+
+  '<div id="ag_paste_row" style="display:none;gap:8px;margin-top:9px"><button class="primary" style="margin-top:0;padding:8px 13px;font-size:12px" onclick="agUpload()">ذخیره</button></div>'+
+  '<div class="agx-hint">فقط دریافت/ذخیره می‌شود؛ برای اعمال روی نودها «پوشِ همه» را بزن · <a href="#" onclick="agTogglePaste();return false" style="color:var(--acc)">پیستِ کد</a></div>'+
+  '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
+  '<div class="agx-div"></div>'+
+  '<div class="agx-englab"><span class="chip" style="--hue:#8b5cf6;width:22px;height:22px;border-radius:6px">'+ic('cpu','#8b5cf6')+'</span> موتورِ داده</div>'+
+  '<div class="agx-engrow"><span id="eng_ver_box" class="grow"></span>'+
+    '<button class="agx-mini pri" onclick="engPushAll()">نصبِ همه</button>'+
+    '<button class="agx-mini gho" onclick="el(\\'eng_file\\').click()">'+ic('plus')+'باینری</button>'+
+  '</div>'+
+  '<input type="file" id="eng_file" style="display:none" onchange="agEngPick(this)">'+
+  '<div class="agx-hint">⚠️ نسخهٔ سخت‌گیرانه (v2) با نسخهٔ قدیمی سازگار نیست — هر دو سرِ یک تونل باید سازگار باشند. «باینری» = آپلودِ فایلِ موتورِ سفارشی (نسخهٔ custom).</div>'+
+  '<div class="msg" id="eng_msg"></div>'+
+ '</div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+
- '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"><button class="primary" onclick="agPush(\\'all\\')">بروزرسانیِ همه</button></div>'+
+ '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"><button class="primary" onclick="agPush(\\'all\\')">پوشِ همه</button></div>'+
  '<div id="agList"></div>'+pagerBottom('agent')}
-function agentSkel(){el('view').innerHTML='<h1>'+ic('redo','var(--acc)')+' بروزرسانیِ ایجنت</h1><p class="sub">آپدیت و ری‌استارتِ ایجنتِ نودها از پنل، بدونِ SSH</p>'+agentBody();refreshAgent()}
+function agentSkel(){el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' ایجنت و موتور</h1><p class="sub">آپدیت و ری‌استارتِ ایجنت و موتورِ نودها از پنل، بدونِ SSH</p>'+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
- var sb=el('ag_stored');if(sb)sb.innerHTML=(info&&!info.none)?
-  '<div class="banner"><span class="chip">'+ic('cpu')+'</span><div><div class="v">ایجنتِ ذخیره‌شده: v'+num(info.version)+' · <span class="mono">'+esc(String(info.sha256||'').slice(0,12))+'</span></div><div class="muted" style="font-size:11.5px">'+Math.round(num(info.size)/1024)+' کیلوبایت</div></div><span class="grow"></span><span class="badge ok">آمادهٔ پوش</span></div>'
-  :'<div class="emptybox"><div class="ei">'+ic('redo')+'</div><h3>هنوز ایجنتی بارگذاری نشده</h3><p>فایلِ tnl-node.py را بالا بارگذاری کن تا قابلِ پوش شود</p></div>';
+ var st=el('ag_status'),mt=el('ag_meta');
+ if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">آمادهٔ پوش</span>':'<span class="badge na">خالی</span>';
+ if(mt)mt.innerHTML=(info&&!info.none)?
+  '<span>ایجنت</span><span class="mono">v'+num(info.version)+'</span><span class="sep"></span><span class="mono">'+esc(String(info.sha256||'').slice(0,12))+'</span><span class="sep"></span><span>'+Math.round(num(info.size)/1024)+' کیلوبایت</span>'
+  :'<span class="muted">هنوز ایجنتی بارگذاری نشده — «دریافت از گیت‌هاب» یا «فایلِ ایجنت».</span>';
  loadEngineVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
  box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">موردی نیست</div>';renderPager('agent')}
-async function loadEngineVersions(){var sel=el('eng_ver');if(!sel)return;
+var ENGVERS=[];
+async function loadEngineVersions(want){
  var r=await j('engine-versions').catch(function(){return{versions:[{id:'latest',label:'آخرین (latest)'}]}});
- var cur=sel.value;
- sel.innerHTML=(r.versions||[]).map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.label||x.id)+'</option>'}).join('');
- if(cur){sel.value=cur}}
-async function engPushAll(){var sel=el('eng_ver');var ver=sel?sel.value:'';if(!ver){toast('اول نسخه را انتخاب کن','err');return}
+ ENGVERS=r.versions||[];
+ var box=el('eng_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
+ var items=ENGVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
+ var sel=want||ssVal('engver')||'latest';
+ if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'latest';
+ box.innerHTML=ssHTML('engver',items,sel,'انتخاب نسخه','')}
+async function engPushAll(){var ver=ssVal('engver');if(!ver){toast('اول نسخه را انتخاب کن','err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast('نودِ آنلاینی نیست','err');return}
  if(!await confirmBox('موتورِ نسخهٔ «'+ver+'» روی '+ids.length+' نودِ آنلاین نصب و تونل‌های موتور ری‌استارت شوند؟','بله، همه'))return;
@@ -3916,21 +4032,40 @@ async function engPushAll(){var sel=el('eng_ver');var ver=sel?sel.value:'';if(!v
  var res=await post('engine-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=rs.filter(function(x){return x.ok}).length;
  m.className='msg '+(ok?'ok':'err');m.textContent=ok+'/'+rs.length+' نود روی «'+ver+'» رفت'+(ok<rs.length?' — بعضی ناموفق':'');
  setTimeout(refreshAgent,4500)}
-async function engPush(id){var sel=el('eng_ver');var ver=sel?sel.value:'';if(!ver){toast('اول نسخهٔ موتور را از بالا انتخاب کن','err');return}
+async function engPush(id,ver){if(!ver){toast('نسخه را انتخاب کن','err');return}
  var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ موتورِ '+ver+'…'}
  var res=await post('engine-update',{ids:[id],version:ver});var x=((res.d&&res.d.results)||[])[0]||{};
  if(m){if(x.ok){m.className='msg agres ok';m.innerHTML='موتور → '+esc(x.version||ver)+' · '+num(x.restarted)+' تونل ری‌استارت'+CK}
   else if(x.offline){m.className='msg agres';m.textContent='آفلاین — رد شد'}
   else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
  setTimeout(refreshAgent,4000)}
-function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var eng=i.engine_ver?esc(i.engine_ver):'—';var st,dis;
- if(!n.online){st='<span class="badge na">آفلاین</span>';dis=1}
- else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';dis=1}
- else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">نیازمند بروزرسانی</span>';dis=0}
- else{st='';dis=1}
- return '<div class="agrow"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="name">'+esc(n.name)+'</span><span class="ver mono">'+ver+'</span><span class="ver mono" title="نسخهٔ موتور" style="color:#8b5cf6">⚙ '+eng+'</span>'+st+'<span class="grow"></span><button class="act info"'+(dis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="act"'+(n.online?'':' disabled')+' onclick="engPush(\\''+n.id+'\\')" title="نصبِ نسخهٔ انتخاب‌شدهٔ موتور روی این نود">'+ic('cpu')+'موتور</button><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
-function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;var d=el('ag_drop');if(d)d.innerHTML='فایل انتخاب شد: <b>'+esc(f.name)+'</b> · '+Math.round(f.size/1024)+'KB — حالا «بارگذاری و ذخیره» را بزن'};rd.readAsText(f)}
-function agTogglePaste(){var t=el('ag_paste');if(t)t.style.display=(t.style.display=='none')?'block':'none'}
+function agEngPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
+ var m=el('eng_msg');m.className='msg';m.textContent='در حال خواندن و آپلودِ باینری…';
+ var rd=new FileReader();
+ rd.onload=function(){var b=String(rd.result||'');var i=b.indexOf(',');agEngUpload(i>=0?b.slice(i+1):b,f.name)};
+ rd.onerror=function(){m.className='msg err';m.textContent='خواندنِ فایل ناموفق'};
+ rd.readAsDataURL(f)}
+async function agEngUpload(b64,name){var m=el('eng_msg');
+ var res=await post('engine-upload',{data:b64,name:name});
+ if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML='باینری ذخیره شد: '+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+' — «نصبِ همه» را بزن یا از منوی هر نود';
+  await loadEngineVersions('custom')}
+ else{m.className='msg err';m.textContent=(res.d&&res.d.error)||'ناموفق'}}
+function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var eng=i.engine_ver?esc(i.engine_ver):'—';var st,agdis;
+ if(!n.online){st='<span class="badge na">آفلاین</span>';agdis=1}
+ else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';agdis=1}
+ else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">آپدیت</span>';agdis=0}
+ else{st='';agdis=1}
+ return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill eng" title="نسخهٔ موتور">⚙ '+eng+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn eng"'+(n.online?'':' disabled')+' onclick="engMenu(event,\\''+n.id+'\\')" title="بردنِ موتورِ این نود به نسخهٔ خاص">'+ic('cpu')+'موتور ▾</button></div><div class="agx-popw" id="popw_'+n.id+'"></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+function closeAllEngMenus(){var ws=document.querySelectorAll('.agx-popw');for(var i=0;i<ws.length;i++)ws[i].innerHTML=''}
+function engMenu(ev,id){ev.stopPropagation();var w=el('popw_'+id);if(!w)return;
+ var wasOpen=!!w.firstChild;closeAllEngMenus();if(wasOpen)return;
+ if(!ENGVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}
+ var opts=ENGVERS.map(function(x){return '<div class="agx-opt" data-v="'+esc(x.id)+'" onclick="engPick(\\''+id+'\\',this.getAttribute(\\'data-v\\'))"><span class="vr">'+esc(x.id)+'</span><span class="lb">'+esc(x.label||'')+'</span></div>'}).join('');
+ w.innerHTML='<div class="agx-pop"><div class="ph">این نود را ببر به نسخهٔ:</div>'+opts+'</div>'}
+function engPick(id,ver){closeAllEngMenus();engPush(id,ver)}
+document.addEventListener('click',closeAllEngMenus);
+function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
+function agTogglePaste(){var t=el('ag_paste'),r=el('ag_paste_row');if(!t)return;var show=(t.style.display=='none');t.style.display=show?'block':'none';if(r)r.style.display=show?'flex':'none'}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode||v('ag_paste');
  if(!code||!code.trim()){m.className='msg err';m.textContent='اول فایل را انتخاب یا کد را پیست کن';return}
  m.className='msg';m.textContent='در حال بررسی و ذخیره…';
@@ -3941,10 +4076,9 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg';m.textContent='در حال دریافت از گیت‌هاب…';if(btn)btn.disabled=true;
  var r=await post('agent-fetch-git',{});
  if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=r.d.error||'ناموفق';if(btn)btn.disabled=false;return}
- m.className='msg ok';m.innerHTML='نسخهٔ v'+r.d.version+' از گیت دریافت شد · <span class="mono">'+esc(r.d.sha256)+'</span>'+CK;
+ m.className='msg ok';m.innerHTML='دریافت شد: v'+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span> — حالا «پوشِ همه» را بزن'+CK;
  if(btn)btn.disabled=false;
- await refreshAgent();
- agPush('all')}
+ await refreshAgent()}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast('اول یک ایجنت بارگذاری کن','err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
