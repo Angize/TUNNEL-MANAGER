@@ -1507,6 +1507,55 @@ def api_agent_push(d):
     return {"results": parallel_map(push_one, ids)}  # poller re-reads each node's version within ~2s after it bounces
 
 
+_ENGINE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-ENGINE/releases"
+_engine_versions_cache = {"ts": 0.0, "data": None}
+_engine_versions_lock = threading.Lock()
+
+
+def api_engine_versions(d):
+    """The engine versions the operator can install/downgrade to — the engine repo's GitHub releases,
+    newest first, plus a "latest" option. Cached ~5 min; degrades to just "latest" if the API is
+    unreachable so the control still works."""
+    now = time.time()
+    with _engine_versions_lock:
+        if _engine_versions_cache["data"] is None or now - _engine_versions_cache["ts"] > 300:
+            vers = []
+            try:
+                req = urllib.request.Request(_ENGINE_RELEASES_API,
+                                             headers={"User-Agent": "tnl-central", "Accept": "application/vnd.github+json"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    for rel in json.loads(r.read().decode()):
+                        tag = rel.get("tag_name")
+                        if not tag or rel.get("draft"):
+                            continue
+                        vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
+            except Exception:
+                pass
+            _engine_versions_cache["data"] = vers
+            _engine_versions_cache["ts"] = now
+        vers = list(_engine_versions_cache["data"] or [])
+    return {"versions": [{"id": "latest", "label": "آخرین (latest)"}] + vers}
+
+
+def api_engine_update(d):
+    """Install a specific engine version (or 'latest') on the given node ids and restart their engine
+    tunnels. Downgrade is just an older tag. Mirrors agent-push, but for the data-plane binary."""
+    _require(d, ["ids", "version"])
+    version = str(d.get("version") or "latest").strip()
+    ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
+
+    def one(nid):
+        n = get_node(nid)
+        if not n:
+            return {"id": nid, "ok": False, "error": "node removed"}
+        r = node_call(n, "engine-update", "POST", {"version": version}, timeout=200)  # download + rebuild takes a while
+        err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
+        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
+                "version": r.get("version"), "restarted": r.get("restarted"), "engine_sha": r.get("engine_sha"), "error": err}
+
+    return {"results": parallel_map(one, ids)}
+
+
 def api_fleet(d):
     off, lim, q = _paginate(d)
     nodes = {n["id"]: n for n in load_nodes()}
@@ -2306,10 +2355,11 @@ API = {
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
+    "engine-versions": api_engine_versions, "engine-update": api_engine_update,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set"}
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "engine-update"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -3423,7 +3473,7 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
 function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">آنلاین</span>':(n.pending?'<span class="badge na">در حال بررسی…</span>':'<span class="badge bad">آفلاین</span>');
  var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">پروکسی</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
- var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
+ var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+(i.engine_ver?'<span class="nchip" title="نسخهٔ موتور">'+ic('cpu')+'موتور <b>'+esc(i.engine_ver)+'</b></span>':'')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="تست" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="مشخصات" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="ویرایش" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delNode(\\''+n.id+'\\',\\''+esc(n.name)+'\\')">'+ic('trash')+'</button></div>';
  return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
@@ -3835,6 +3885,12 @@ function agentBody(){return ''+
   '<div class="drop" id="ag_drop" onclick="el(\\'ag_file\\').click()">فایلِ <b>tnl-node.py</b> را انتخاب کن — قبل از ذخیره صحتِ کد بررسی می‌شود</div>'+
   '<textarea id="ag_paste" placeholder="یا کدِ ایجنت را اینجا پیست کن…" style="display:none;width:100%;height:120px;margin-top:10px;padding:11px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:ui-monospace,monospace;font-size:12px;direction:ltr"></textarea>'+
   '<div style="display:flex;gap:9px;margin-top:12px;align-items:center"><button class="primary" onclick="agUpload()">بارگذاری و ذخیره</button><button class="ghost" onclick="agTogglePaste()">پیستِ کد</button></div><div class="msg" id="ag_msg"></div></div>'+
+ '<div class="card" style="margin-bottom:12px"><div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> موتورِ داده (engine)</div>'+
+  '<div class="muted" style="font-size:12px;margin:3px 0 10px">نصب یا دانگریدِ نسخهٔ موتور روی نودها. نسخه‌ها از Releaseهای گیت‌هاب خوانده می‌شوند؛ نصب، تونل‌های موتورِ آن نود را ری‌استارت می‌کند.</div>'+
+  '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap"><select id="eng_ver" class="fld2" style="max-width:300px;padding:9px 11px;border:1px solid var(--bord);border-radius:11px;background:var(--field);color:var(--tx);font-family:inherit;font-size:13px"></select>'+
+  '<button class="primary" onclick="engPushAll()">نصب روی همهٔ آنلاین‌ها</button></div>'+
+  '<div class="muted" style="font-size:11px;margin-top:8px">⚠️ نسخهٔ سخت‌گیرانه (v2) با نسخهٔ قدیمی سازگار نیست — <b>هر دو سرِ یک تونل</b> باید نسخهٔ سازگار داشته باشند وگرنه آن تونل قطع می‌شود.</div>'+
+  '<div class="msg" id="eng_msg"></div></div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"><button class="primary" onclick="agPush(\\'all\\')">بروزرسانیِ همه</button></div>'+
  '<div id="agList"></div>'+pagerBottom('agent')}
@@ -3843,15 +3899,36 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  var sb=el('ag_stored');if(sb)sb.innerHTML=(info&&!info.none)?
   '<div class="banner"><span class="chip">'+ic('cpu')+'</span><div><div class="v">ایجنتِ ذخیره‌شده: v'+num(info.version)+' · <span class="mono">'+esc(String(info.sha256||'').slice(0,12))+'</span></div><div class="muted" style="font-size:11.5px">'+Math.round(num(info.size)/1024)+' کیلوبایت</div></div><span class="grow"></span><span class="badge ok">آمادهٔ پوش</span></div>'
   :'<div class="emptybox"><div class="ei">'+ic('redo')+'</div><h3>هنوز ایجنتی بارگذاری نشده</h3><p>فایلِ tnl-node.py را بالا بارگذاری کن تا قابلِ پوش شود</p></div>';
+ loadEngineVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
  box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">موردی نیست</div>';renderPager('agent')}
-function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var st,dis;
+async function loadEngineVersions(){var sel=el('eng_ver');if(!sel)return;
+ var r=await j('engine-versions').catch(function(){return{versions:[{id:'latest',label:'آخرین (latest)'}]}});
+ var cur=sel.value;
+ sel.innerHTML=(r.versions||[]).map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.label||x.id)+'</option>'}).join('');
+ if(cur){sel.value=cur}}
+async function engPushAll(){var sel=el('eng_ver');var ver=sel?sel.value:'';if(!ver){toast('اول نسخه را انتخاب کن','err');return}
+ var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
+ if(!ids.length){toast('نودِ آنلاینی نیست','err');return}
+ if(!await confirmBox('موتورِ نسخهٔ «'+ver+'» روی '+ids.length+' نودِ آنلاین نصب و تونل‌های موتور ری‌استارت شوند؟','بله، همه'))return;
+ var m=el('eng_msg');m.className='msg';m.textContent='در حال نصب روی '+ids.length+' نود…';
+ var res=await post('engine-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=rs.filter(function(x){return x.ok}).length;
+ m.className='msg '+(ok?'ok':'err');m.textContent=ok+'/'+rs.length+' نود روی «'+ver+'» رفت'+(ok<rs.length?' — بعضی ناموفق':'');
+ setTimeout(refreshAgent,4500)}
+async function engPush(id){var sel=el('eng_ver');var ver=sel?sel.value:'';if(!ver){toast('اول نسخهٔ موتور را از بالا انتخاب کن','err');return}
+ var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ موتورِ '+ver+'…'}
+ var res=await post('engine-update',{ids:[id],version:ver});var x=((res.d&&res.d.results)||[])[0]||{};
+ if(m){if(x.ok){m.className='msg agres ok';m.innerHTML='موتور → '+esc(x.version||ver)+' · '+num(x.restarted)+' تونل ری‌استارت'+CK}
+  else if(x.offline){m.className='msg agres';m.textContent='آفلاین — رد شد'}
+  else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
+ setTimeout(refreshAgent,4000)}
+function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var eng=i.engine_ver?esc(i.engine_ver):'—';var st,dis;
  if(!n.online){st='<span class="badge na">آفلاین</span>';dis=1}
  else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';dis=1}
  else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">نیازمند بروزرسانی</span>';dis=0}
  else{st='';dis=1}
- return '<div class="agrow"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="name">'+esc(n.name)+'</span><span class="ver mono">'+ver+'</span>'+st+'<span class="grow"></span><button class="act info"'+(dis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'بروزرسانی</button><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+ return '<div class="agrow"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="name">'+esc(n.name)+'</span><span class="ver mono">'+ver+'</span><span class="ver mono" title="نسخهٔ موتور" style="color:#8b5cf6">⚙ '+eng+'</span>'+st+'<span class="grow"></span><button class="act info"'+(dis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="act"'+(n.online?'':' disabled')+' onclick="engPush(\\''+n.id+'\\')" title="نصبِ نسخهٔ انتخاب‌شدهٔ موتور روی این نود">'+ic('cpu')+'موتور</button><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;var d=el('ag_drop');if(d)d.innerHTML='فایل انتخاب شد: <b>'+esc(f.name)+'</b> · '+Math.round(f.size/1024)+'KB — حالا «بارگذاری و ذخیره» را بزن'};rd.readAsText(f)}
 function agTogglePaste(){var t=el('ag_paste');if(t)t.style.display=(t.style.display=='none')?'block':'none'}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode||v('ag_paste');
