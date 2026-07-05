@@ -1545,6 +1545,50 @@ def _link_nodes(d):
     return (L["a_node"], L["b_node"]) if L else (None, None)
 
 
+def _default_tunnel_port(ttype, tid):
+    if ttype == "vxlan":
+        return 4789
+    if ttype in ("l2tpv3", "fou", "engine"):
+        return 20000 + int(tid)
+    return None
+
+
+def _port_bindings(ttype, port, transport, server_side, tid, A, B):
+    """The (node, port, proto) sockets a tunnel will actually LISTEN on — the set whose
+    freeness must be verified before building. Scope per the tunnel model:
+      engine (bip): only the server node binds; the client dials from a random ephemeral
+                    port, so it is never checked. proto follows transport (udp|tcp).
+      fou/l2tpv3/vxlan: BOTH nodes decap on that UDP port.
+      gre/sit/ipip/ipsec: no listening L4 port -> nothing to check."""
+    p = int(port or _default_tunnel_port(ttype, tid) or 0)
+    if not p:
+        return []
+    if ttype == "engine":
+        srv = A if (server_side or "a") == "a" else B
+        return [(srv, p, "tcp" if (transport or "udp") == "tcp" else "udp")]
+    if ttype in ("fou", "l2tpv3", "vxlan"):
+        return [(A, p, "udp"), (B, p, "udp")]
+    return []
+
+
+def _guard_port_conflicts(bindings, exclude=frozenset()):
+    """Ask each target node whether the port it will bind is already in use (by ANY
+    service — Xray/nginx/x-ui/…, not just our tunnels) and raise a clear Persian error
+    if so. `exclude` holds (node_id, port, proto) tuples the edited tunnel already owns,
+    so a tunnel never conflicts with itself. Nodes too old to know `portcheck` (or briefly
+    unreachable) are skipped rather than hard-blocked."""
+    for node, port, proto in bindings:
+        if (node["id"], int(port), proto) in exclude:
+            continue
+        r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto}, timeout=10)
+        if not r.get("ok"):
+            continue  # unknown endpoint (old agent) / offline -> can't verify, don't block the build
+        if r.get("busy"):
+            who = str(r.get("who") or "").strip()
+            tail = f" — {who}" if who else ""
+            raise ValueError(f"پورتِ {port}/{proto.upper()} روی نودِ «{node['name']}» اشغال است{tail}؛ یک پورتِ دیگر انتخاب کن")
+
+
 def api_create_tunnel(d):
     d = d or {}
     with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
@@ -1640,6 +1684,8 @@ def _create_tunnel_impl(d):
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
+    # Refuse to build if the chosen port is already taken on a node that will bind it.
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B))
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **extra}
     if ttype == "engine":
@@ -1798,6 +1844,12 @@ def _edit_link_impl(d):
         and bool(extra.get("obfs")) == bool(L.get("obfs")))
     if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and engine_same:
         return {"ok": True, "unchanged": True, "name": old_name}
+    # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
+    # occupies (its current port/proto/server node are excluded so it can't clash with
+    # itself). A binding that is unchanged needs no check; a new/changed one must be free.
+    _own = frozenset((N["id"], p, pr) for N, p, pr in
+                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B))
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B), exclude=_own)
     if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
