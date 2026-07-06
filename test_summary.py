@@ -27,8 +27,8 @@ tnl._cache_get = lambda nid: None if nid == "A" else {"ping": {"ok": False}}
 
 # Three links: two core (both healthy), one gre (down).
 tnl.load_links = lambda: [
-    {"id": "e1", "type": "core", "name": "eng1", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
-    {"id": "e2", "type": "core", "name": "eng2", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
+    {"id": "e1", "type": "core", "name": "cor1", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
+    {"id": "e2", "type": "core", "name": "cor2", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
     {"id": "g1", "type": "gre", "name": "gre1", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
 ]
 tnl._link_side_health = lambda L, side: (

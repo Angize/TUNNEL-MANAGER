@@ -56,7 +56,7 @@ SESSION_TTL = 8 * 3600
 PBKDF2_ITERS = 150_000
 TYPES = ("vxlan", "gre", "sit", "ipip", "l2tpv3", "fou", "ipsec", "core")
 IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (local,remote) — one per ip-pair
-# Ciphers the custom core accepts (see TUNNEL-MANAGER-ENGINE). "auto" resolves core-side to a fixed
+# Ciphers the custom core accepts (see TUNNEL-MANAGER-CORE). "auto" resolves core-side to a fixed
 # choice so both ends match; "none" disables encryption. Kept in sync with the core's crypto factory.
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
 CORE_RAW_PROFILES = ("bip", "ipip", "gre", "icmp", "udp", "tcp")   # raw-transport encapsulation profiles
@@ -1521,7 +1521,7 @@ def api_agent_push(d):
     return {"results": parallel_map(push_one, ids)}  # poller re-reads each node's version within ~2s after it bounces
 
 
-_CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-ENGINE/releases"
+_CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
 _core_versions_cache = {"ts": 0.0, "data": None}
 _core_versions_lock = threading.Lock()
 
@@ -2981,7 +2981,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-corlab{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;margin-bottom:9px}
 .agx-corlab .now{margin-inline-start:auto;font-weight:600;color:var(--sub);font-size:11px}
 .agx-corrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
-.agx-corrow #eng_ver_box{flex:1;min-width:120px}
+.agx-corrow #cor_ver_box{flex:1;min-width:120px}
 .agx-corrow .msbtn{margin-top:0;padding:8px 11px;font-size:12px;border-radius:10px}
 .agx-mini{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border-radius:10px;font-family:inherit;font-weight:800;font-size:11.5px;cursor:pointer;border:1px solid transparent}
 .agx-mini.pri{background:#8b5cf6;color:#fff}
@@ -2990,11 +2990,11 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
 .agx-row .nm{font-weight:800;font-size:13px}
 .agx-pill{font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:6px;font-family:ui-monospace,monospace;direction:ltr;background:var(--field);color:var(--sub);border:1px solid var(--bord)}
-.agx-pill.eng{background:color-mix(in srgb,#8b5cf6 12%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 26%,transparent)}
+.agx-pill.cor{background:color-mix(in srgb,#8b5cf6 12%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 26%,transparent)}
 .agx-col{display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
 .agx-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;font-weight:800;font-size:10.5px;padding:5px 10px;border-radius:8px;cursor:pointer;min-width:74px;border:1px solid var(--bord);background:var(--glass);color:var(--tx)}
 .agx-btn .ic{width:13px;height:13px}
-.agx-btn.eng{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
+.agx-btn.cor{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
 .agx-btn:disabled{opacity:.5;cursor:not-allowed}
 .agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 /* icon-only card action buttons */
@@ -3912,52 +3912,53 @@ function coreCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
-var _engSrv='a',_engTr='udp',_engObfs=false,_engCover=false,_engRawProfile='bip',_engGso=false;
-var ENG_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
-function rawTiles(px,sel){return ENG_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
-function corSetTr(t){_engTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp'),r=el('e_tr_raw');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');if(r)r.classList.toggle('on',t=='raw');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':'UDP'));corRawVis();corPortGate();corCoverGate()}
-function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_engTr=='raw')?'':'none'}
-function corPortGate(){var p=el('e_port');if(!p)return;var raw=_engTr=='raw';p.disabled=raw;if(raw)p.value='';p.placeholder=raw?'raw پورت ندارد':'20050'}
-function corSetProfile(p){_engRawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)})}
-function corToggleGso(){_engGso=!_engGso;var s=el('e_gso');if(s)s.classList.toggle('on',_engGso)}
-function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_engObfs=!_engObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_engObfs)}
-function corToggleCover(){if(_engTr!='tcp')return;_engCover=!_engCover;var s=el('e_cover');if(s)s.classList.toggle('on',_engCover);corSniVis()}
-function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_engCover&&_engTr=='tcp')?'':'none'}
-function corCoverGate(){var tcp=_engTr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_engCover=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',!tcp);corSniVis()}
-function onEngCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
- if(none){_engObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
+var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false;
+var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
+function rawTiles(px,sel){return COR_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
+function corSetTr(t){_corTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp'),r=el('e_tr_raw');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');if(r)r.classList.toggle('on',t=='raw');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':'UDP'));corRawVis();corPortGate();corCoverGate()}
+function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corTr=='raw')?'':'none'}
+function corPortGate(){var p=el('e_port');if(!p)return;var raw=_corTr=='raw';p.disabled=raw;if(raw)p.value='';p.placeholder=raw?'raw پورت ندارد':'20050'}
+function corSetProfile(p){_corRawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)})}
+function corToggleGso(){_corGso=!_corGso;var s=el('e_gso');if(s)s.classList.toggle('on',_corGso)}
+function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corObfs=!_corObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corObfs)}
+function corToggleCover(){if(_corTr!='tcp')return;_corCover=!_corCover;var s=el('e_cover');if(s)s.classList.toggle('on',_corCover);corSniVis()}
+function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corCover&&_corTr=='tcp')?'':'none'}
+function corCoverGate(){var tcp=_corTr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_corCover=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',!tcp);corSniVis()}
+function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
+ if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_engSrv='a';_engTr='udp';_engObfs=false;_engCover=false;_engRawProfile='bip';_engGso=false;
- var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onEngNode')+'<div id="e_aip"></div>'+
-  '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onEngNode')+'<div id="e_bip"></div>'+
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;
+ var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'<div id="e_aip"></div>'+
+  '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'<div id="e_bip"></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div>'+
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ <span id="e_trword">UDP</span> را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
-  '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',CORE_CIPHERS,'auto','رمز','onEngCipher')+
+  '<div class="autonote">'+ic('warn')+'<span><b>سرور باید سمتِ خارج باشد.</b> اگر نودِ داخلِ ایران را سرور بگذاری، تونل وصل نمی‌شود — ترافیکِ ورودی به ایران بسته است. سمتِ ایران باید کلاینت باشد و خودش به خارج وصل شود.</span></div>'+
+  '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',CORE_CIPHERS,'auto','رمز','onCorCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button></div>'+
-  '<div id="e_rawblk" style="display:none"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="e_pg">'+rawTiles('eng','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NATِ ایران رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
+  '<div id="e_rawblk" style="display:none"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NATِ ایران رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox dis" id="e_coverrow"><div class="tglsw" id="e_cover" onclick="corToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
   '<div id="e_snirow" style="display:none"><label>سایتِ پوشش (SNI) — الزامی</label><input id="e_sni" placeholder="مثلاً یک سایتِ HTTPSِ واقعی و محبوب"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.</div></div>'+
   '<div class="tglbox" id="e_gsorow"><div class="tglsw" id="e_gso" onclick="corToggleGso()"></div><div class="tt"><b>شتاب‌دهیِ GSO/GRO</b><small>عبورِ حجیم را سریع‌تر می‌کند (پکت‌های بزرگ، syscallِ کمتر). فقط لینوکس؛ اگر پشتیبانی نشود بی‌اثر است.</small></div></div>'+
-  '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onEngSubRange')+'<div id="e_snc"></div>'+
+  '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onCorSubRange')+'<div id="e_snc"></div>'+
   '<label>پورت (خالی=خودکار · می‌توانی 443 بگذاری)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ هسته</h3><div class="sb">هستهٔ اختصاصی · packet/core</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- corRoleLbls();renderEngIps();corCoverGate();corPortGate()}
-function onEngNode(){renderEngIps();corRoleLbls()}
-function renderEngIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;var nid=ssVal('e_'+side),ips=nodeIps(nid),k='e_'+side+'ip_sel';
+ corRoleLbls();renderCorIps();corCoverGate();corPortGate()}
+function onCorNode(){renderCorIps();corRoleLbls()}
+function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;var nid=ssVal('e_'+side),ips=nodeIps(nid),k='e_'+side+'ip_sel';
  if(ips.length>1){w.innerHTML='<label>آی‌پیِ «'+esc(nodeName(nid))+'» <small>— چند آی‌پی دارد</small></label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}
  else{w.innerHTML='';delete SEL[k]}})}
-function onEngSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>سابنتِ دلخواه</label><input id="e_subnet" placeholder="مثلا 192.168.99.0/24">':''}
+function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>سابنتِ دلخواه</label><input id="e_subnet" placeholder="مثلا 192.168.99.0/24">':''}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' سرور</b><span>'+esc(bn)+' کلاینت</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' سرور</b><span>'+esc(an)+' کلاینت</span>'}
-function corSetSrv(s){_engSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
+function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
- var body={a_node:a,b_node:bb,type:'core',server_side:_engSrv,cipher:ssVal('e_cipher'),transport:_engTr,obfs:_engObfs,cover:(_engCover&&_engTr=='tcp'),gso:_engGso};
- if(_engTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_engRawProfile}
+ var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
+ if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_corRawProfile}
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
  var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
  var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
@@ -3987,6 +3988,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
   ipsel('a',l.a_ip,aips,l.a_name)+ipsel('b',l.b_ip,bips,l.b_name)+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div>'+
+  '<div class="autonote">'+ic('warn')+'<span><b>سرور باید سمتِ خارج باشد.</b> اگر نودِ داخلِ ایران را سرور بگذاری، تونل وصل نمی‌شود — ترافیکِ ورودی به ایران بسته است. سمتِ ایران باید کلاینت باشد و خودش به خارج وصل شود.</span></div>'+
   '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',CORE_CIPHERS,(l.cipher||'auto'),'رمز','onEeCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="ee_pg">'+rawTiles('ee',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
@@ -4085,13 +4087,13 @@ function agentBody(){return ''+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
   '<div class="agx-div"></div>'+
   '<div class="agx-corlab"><span class="chip" style="--hue:#8b5cf6;width:22px;height:22px;border-radius:6px">'+ic('cpu','#8b5cf6')+'</span> هستهٔ داده</div>'+
-  '<div class="agx-corrow"><span id="eng_ver_box" class="grow"></span>'+
+  '<div class="agx-corrow"><span id="cor_ver_box" class="grow"></span>'+
     '<button class="agx-mini pri" onclick="corPushAll()">نصبِ همه</button>'+
-    '<button class="agx-mini gho" title="آپلودِ فایلِ باینریِ هسته به‌عنوان نسخهٔ custom" onclick="el(\\'eng_file\\').click()">'+ic('plus')+'باینری</button>'+
+    '<button class="agx-mini gho" title="آپلودِ فایلِ باینریِ هسته به‌عنوان نسخهٔ custom" onclick="el(\\'cor_file\\').click()">'+ic('plus')+'باینری</button>'+
   '</div>'+
-  '<input type="file" id="eng_file" style="display:none" onchange="agEngPick(this)">'+
+  '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.</div>'+
-  '<div class="msg" id="eng_msg"></div>'+
+  '<div class="msg" id="cor_msg"></div>'+
  '</div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"><button class="primary" onclick="agPush(\\'all\\')">پوشِ همه</button></div>'+
@@ -4107,12 +4109,12 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
  box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">موردی نیست</div>';renderPager('agent')}
-var ENGVERS=[];
+var CORVERS=[];
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[{id:'latest',label:'آخرین (latest)'}]}});
- ENGVERS=r.versions||[];
- var box=el('eng_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
- var items=ENGVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
+ CORVERS=r.versions||[];
+ var box=el('cor_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
+ var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
  var sel=want||ssVal('corver')||'latest';
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'latest';
  box.innerHTML=ssHTML('corver',items,sel,'انتخاب نسخه','')}
@@ -4135,28 +4137,28 @@ async function corPush(id,ver){if(!ver){toast('نسخه را انتخاب کن',
   else if(x.offline){m.className='msg agres';m.textContent='آفلاین — رد شد'}
   else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
  setTimeout(refreshAgent,4000)}
-function agEngPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
- var m=el('eng_msg');m.className='msg';m.textContent='در حال خواندن و آپلودِ باینری…';
+function agCorPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
+ var m=el('cor_msg');m.className='msg';m.textContent='در حال خواندن و آپلودِ باینری…';
  var rd=new FileReader();
- rd.onload=function(){var b=String(rd.result||'');var i=b.indexOf(',');agEngUpload(i>=0?b.slice(i+1):b,f.name)};
+ rd.onload=function(){var b=String(rd.result||'');var i=b.indexOf(',');agCorUpload(i>=0?b.slice(i+1):b,f.name)};
  rd.onerror=function(){m.className='msg err';m.textContent='خواندنِ فایل ناموفق'};
  rd.readAsDataURL(f)}
-async function agEngUpload(b64,name){var m=el('eng_msg');
+async function agCorUpload(b64,name){var m=el('cor_msg');
  var res=await post('core-upload',{data:b64,name:name});
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML='باینری ذخیره شد: '+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+' — «نصبِ همه» را بزن یا از منوی هر نود';
   await loadCoreVersions('custom')}
  else{m.className='msg err';m.textContent=(res.d&&res.d.error)||'ناموفق'}}
-function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var eng=i.core_ver?esc(i.core_ver):'—';var st,agdis;
+function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var cor=i.core_ver?esc(i.core_ver):'—';var st,agdis;
  if(!n.online){st='<span class="badge na">آفلاین</span>';agdis=1}
  else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';agdis=1}
  else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">آپدیت</span>';agdis=0}
  else{st='';agdis=1}
- return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill eng" title="نسخهٔ هسته">⚙ '+eng+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn eng"'+(n.online?'':' disabled')+' data-nid="'+esc(n.id)+'" data-cur="'+esc(i.core_ver||'')+'" onclick="corMenu(this)" title="بردنِ هستهٔ این نود به نسخهٔ خاص">'+ic('cpu')+'هسته ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
-var _engOv=null;
-function corMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur');if(!ENGVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
- var rows=ENGVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" data-nid="'+esc(id)+'" onclick="corPick(this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
- _engOv=openModal('<div class="sspop"><div style="padding:4px 4px 9px;font-size:11.5px;color:var(--sub);font-weight:800">هستهٔ این نود را ببر به نسخهٔ:</div><div class="sspoplist">'+rows+'</div></div>',{cls:'sssheet'})}
-function corPick(row){var id=row.getAttribute('data-nid');var ver=row.getAttribute('data-v');if(_engOv){closeModal(_engOv);_engOv=null}corPush(id,ver)}
+ return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+cor+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn cor"'+(n.online?'':' disabled')+' data-nid="'+esc(n.id)+'" data-cur="'+esc(i.core_ver||'')+'" onclick="corMenu(this)" title="بردنِ هستهٔ این نود به نسخهٔ خاص">'+ic('cpu')+'هسته ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+var _corOv=null;
+function corMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur');if(!CORVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
+ var rows=CORVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" data-nid="'+esc(id)+'" onclick="corPick(this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
+ _corOv=openModal('<div class="sspop"><div style="padding:4px 4px 9px;font-size:11.5px;color:var(--sub);font-weight:800">هستهٔ این نود را ببر به نسخهٔ:</div><div class="sspoplist">'+rows+'</div></div>',{cls:'sssheet'})}
+function corPick(row){var id=row.getAttribute('data-nid');var ver=row.getAttribute('data-v');if(_corOv){closeModal(_corOv);_corOv=null}corPush(id,ver)}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode;
  if(!code||!code.trim()){m.className='msg err';m.textContent='اول فایلِ ایجنت را انتخاب کن';return}
