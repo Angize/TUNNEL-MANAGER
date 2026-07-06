@@ -2134,8 +2134,8 @@ def _edit_link_impl(d):
     if name_changed or ttype == "core":
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, **extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name, **extra}
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **extra}
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
@@ -2231,8 +2231,8 @@ def _rebuild_link_impl(d):
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
     extra = _tunnel_extra(L)   # same UDP port / key / cipher as before
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **extra}
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     if ttype == "core":   # role is per-node, replayed from the stored server_side
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
     ra = node_call(A, "tunnel", "POST", a_body, timeout=200)
@@ -2254,6 +2254,29 @@ def _rebuild_link_impl(d):
     _set_drift(L["id"], False)  # rebuilt with live IPs -> any pending drift warning is resolved
     _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True, "name": name}
+
+
+def api_link_toggle(d):
+    """Turn a tunnel on/off — bring its interface down/up on both nodes without rebuilding it. The panel
+    record's `enabled` flag is the source of truth and is replayed to the nodes on edit/rebuild too, so a
+    disabled tunnel stays down across reboots."""
+    _require(d, ["id"])
+    enabled = bool(d.get("enabled"))
+    with _reg_lock:
+        links = load_links()
+        L = next((x for x in links if x["id"] == d["id"]), None)
+        if not L:
+            raise ValueError("link not found")
+        L["enabled"] = enabled
+        save_json(LINKS_FILE, links)
+    sides = {}
+    for tag, nid in (("a", L["a_node"]), ("b", L["b_node"])):
+        N = get_node(nid)
+        if N:
+            sides[tag] = node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled}, timeout=90)
+    _refresh_cache([L["a_node"], L["b_node"]])
+    both = len(sides) == 2 and all((sides.get(t) or {}).get("ok") for t in ("a", "b"))
+    return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
 
 
 # --------------------------------------------------------------------------- link reconciler
@@ -2520,7 +2543,7 @@ API = {
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
-    "rebuild-link": api_rebuild_link, "delete-link": api_delete_link,
+    "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
@@ -2530,7 +2553,7 @@ API = {
     "core-upload": api_core_upload,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-toggle", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload"}
 
 # ----------------------------------------------------------------------------- HTTP
@@ -2778,6 +2801,29 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .card{position:relative;overflow:hidden;border-radius:15px;padding:14px;margin-bottom:11px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
 .grid .card{margin-bottom:0}
+/* accordion tunnel/core cards */
+.card.acc{padding:0}
+.card.acc.off{opacity:.72}
+.chead{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none}
+.chead:hover{background:color-mix(in srgb,var(--acc) 4%,transparent)}
+.hmain{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.hrow1{display:flex;align-items:center;gap:8px;min-width:0}
+.hrow2{display:flex;align-items:center;gap:10px;font-size:10.5px;color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums}
+.card.open .hrow2{display:none}
+.hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
+.ctag.core{background:var(--accw);color:var(--acc)}
+.hpeers{margin-inline-start:auto;display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;white-space:nowrap;color:var(--tx)}
+.chev{width:16px;height:16px;color:var(--sub);transition:transform .2s;flex:0 0 auto}
+.card.open .chev{transform:rotate(180deg)}
+.cbody{max-height:0;overflow:hidden;transition:max-height .28s ease}
+.card.open .cbody{max-height:720px}
+.cbody-in{padding:12px 14px 14px;border-top:1px solid var(--bord)}
+.offtxt{color:var(--bad);font-weight:700}
+.offbadge{margin-top:11px;font-size:11.5px;color:var(--bad);display:flex;gap:7px;align-items:flex-start;line-height:1.6}
+.tsw{width:38px;height:22px;border-radius:20px;background:var(--bord);position:relative;flex:0 0 auto;cursor:pointer;transition:.15s}
+.tsw::after{content:"";position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.tsw.on{background:var(--ok)}.tsw.on::after{right:19px}
 .hero{border-radius:24px;padding:18px 16px 15px;background:linear-gradient(140deg,color-mix(in srgb,var(--acc) 22%,var(--card)),color-mix(in srgb,var(--acc2) 11%,var(--card)) 55%,color-mix(in srgb,var(--card) 94%,transparent));border:1px solid color-mix(in srgb,var(--acc) 32%,transparent);box-shadow:0 18px 44px -18px color-mix(in srgb,var(--acc) 50%,transparent),inset 0 1px 0 var(--hi);margin-bottom:14px}
 .k{color:var(--sub);font-size:11.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .hero .v{font-size:30px;font-weight:800;text-shadow:0 0 26px color-mix(in srgb,var(--acc) 50%,transparent)}
@@ -3803,22 +3849,51 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  else if((l.type=='l2tpv3'||l.type=='fou'||l.type=='vxlan')&&l.port){right=sub+idr+ifc;left=typ+'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>'}
  else{right=sub+ifc;left=idr+typ}   // plain (gre/ipip/sit, or vxlan without a custom port): balanced 2+2
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
+// ===== accordion cards (collapsed row -> click to expand) + on/off toggle =====
+var TOPEN={};   // per-link open state, kept across the periodic re-render
+var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+function cardTog(id,e){TOPEN[id]=!TOPEN[id];var c=el('c_'+id);if(c)c.classList.toggle('open',TOPEN[id])}
+async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(x){return x.id==id})[0];if(!L)return;
+ var next=(L.enabled===false);L.enabled=next;   // optimistic flip
+ var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',next);c.classList.toggle('off',!next)}
+ var r=await post('link-toggle',{id:id,enabled:next});
+ if(!(r.ok&&r.d.ok)){L.enabled=!next;toast('ناموفق','err')}else{toast(next?'روشن شد':'خاموش شد','ok')}
+ refreshFleet()}
+function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="خاموش"></span>';
+ var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health);return '<span class="sdot '+s.k+'"></span>'}
+function accStat(l,side){if(l.enabled===false)return '<span class="stw na">خاموش</span><span class="sdot na"></span>';
+ return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
+function accTrafLine(l){if(l.enabled===false)return '<div class="hrow2"><span class="offtxt">خاموش — اینترفیس down</span></div>';
+ var hasT=(l.rx_total!=null||l.rx_bps!=null);
+ if(!hasT)return '<div class="hrow2"><span class="muted">دادهٔ زنده نیست</span></div>';
+ return '<div class="hrow2"><span class="din">↓'+fmtRate(l.rx_bps)+'</span><span class="dout">↑'+fmtRate(l.tx_bps)+'</span><span style="margin-inline-start:auto">مجموع <span class="din">↓'+fmtBytes(l.rx_total)+'</span> <span class="dout">↑'+fmtBytes(l.tx_total)+'</span></span></div>'}
+function accHead(l,isCore){var on=l.enabled!==false;
+ var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag">'+esc((l.type||'').toUpperCase())+'</span>';
+ return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+
+  '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="روشن/خاموشِ تونل"></div>'+
+  '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+
+   '<span class="hpeers">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div>'+
+   accTrafLine(l)+'</div>'+CHEVI+'</div>'}
+function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.</span></div>';
+ var hasT=(l.rx_total!=null||l.rx_bps!=null);
+ var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
+ var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
+ return '<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>'}
+function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
+ return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+'" id="c_'+l.id+'">'+accHead(l,isCore)+
+  '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkCard(l){
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+sideDot(l.a_online,l.a_health)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+sideDot(l.b_online,l.b_health)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   metaCols(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف — فعلاً: '+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
- var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
- var traf='<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>';
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.</span></div>':'';
- return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
+ return accShell(l,false,drift+body+accBodyTraf(l)+acts+msg)}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?'موردی یافت نشد.':'هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.')+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
@@ -3917,7 +3992,7 @@ async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];v
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','onCreateSrc')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('c_b',items,items[1].v,'نودِ مقصد','onCreateDst')+'</div></div>'+
-  ipSecTitle()+'<div class="grid2"><div id="c_srcip"></div><div id="c_dstip"></div></div>'+
+  '<div class="grid2" style="margin-top:11px"><div id="c_srcip"></div><div id="c_dstip"></div></div>'+
   '<label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<div id="c_typex"></div>'+
   '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ تونل</h3><div class="sb">سیستمی · یک مبدأ ↔ یک مقصد</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">ساخت تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
@@ -3931,8 +4006,8 @@ function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(s
   if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
  renderTypeExtra()}
 function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type');
- if(t=='l2tpv3'||t=='fou'){w.innerHTML='<label>پورتِ UDP (اختیاری — خالی = خودکار از شناسه)</label><input id="c_port" inputmode="numeric" placeholder="مثلا 51820"><div class="muted" style="font-size:11px;margin:-4px 2px 11px">روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.</div>'}
- else if(t=='vxlan'){w.innerHTML='<label>پورتِ UDP (خالی = 4789)</label><input id="c_port" inputmode="numeric" placeholder="4789"><div class="muted" style="font-size:11px;margin:-4px 2px 11px">پورتِ استانداردِ VXLAN؛ برای دورزدنِ فیلتر می‌توانی عوضش کنی (مثلاً 443).</div>'}
+ if(t=='l2tpv3'||t=='fou'){w.innerHTML='<label>پورتِ UDP (اختیاری — خالی = خودکار از شناسه)</label><input id="c_port" inputmode="numeric" placeholder="مثلا 51820"><div class="muted" style="font-size:11px;margin:6px 2px 11px">روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.</div>'}
+ else if(t=='vxlan'){w.innerHTML='<label>پورتِ UDP (خالی = 4789)</label><input id="c_port" inputmode="numeric" placeholder="4789"><div class="muted" style="font-size:11px;margin:6px 2px 11px">پورتِ استانداردِ VXLAN؛ برای دورزدنِ فیلتر می‌توانی عوضش کنی (مثلاً 443).</div>'}
  else if(t=='ipsec'){w.innerHTML='<div class="autonote" style="margin-bottom:11px">'+ic('shield')+'<span>رمزنگاری‌شده (ESP). کلید خودکار ساخته و امن به هر دو سر داده می‌شود — بدونِ دیمنِ خارجی.</span></div>'}
  else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
@@ -3971,20 +4046,16 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?'سرور':'کلاینت')+'</span><span class="stat" id="lba_'+l.id+'">'+sideDot(l.a_online,l.a_health)+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?'سرور':'کلاینت')+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?'کلاینت':'سرور')+'</span><span class="stat" id="lbb_'+l.id+'">'+sideDot(l.b_online,l.b_health)+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?'کلاینت':'سرور')+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف — فعلاً: '+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
- var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
- var traf='<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>';
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
- return '<div class="card">'+drift+body+traf+acts+msg+'</div>'}
+ return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
 var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false;
 var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
 function rawTiles(px,sel){return COR_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
@@ -4032,7 +4103,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
-  ipSecTitle()+'<div class="grid2"><div id="e_aip"></div><div id="e_bip"></div></div>'+
+  '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div>'+
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ <span id="e_trword">UDP</span> را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
   '<div class="autonote">'+ic('warn')+'<span><b>توصیه: سرور را سمتِ خارج بگذار.</b> اگر نودِ ایران پشتِ NAT باشد یا پورتش فیلتر شود، ایران‌سرور وصل نمی‌شود. اگر آی‌پیِ عمومیِ باز داشته باشد ممکن است کار کند، ولی ورودی به ایران بیشتر فیلتر/پایش می‌شود و کم‌دوام‌تر است.</span></div>'+
