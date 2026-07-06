@@ -1798,7 +1798,7 @@ def api_core_update(d):
             r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom"}, timeout=200)
             err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
             return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
-                    "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
+                    "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
         return {"results": parallel_map(one_custom, ids)}
 
@@ -1811,7 +1811,7 @@ def api_core_update(d):
         r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
         return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
-                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
+                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
     return {"results": parallel_map(one, ids)}
 
@@ -1831,7 +1831,7 @@ def api_core_push(d):
         r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
         return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
-                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
+                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
     return {"results": parallel_map(one, ids)}
 
@@ -3382,11 +3382,13 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-l1{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .agx-l2{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .agx-colb{display:flex;flex-direction:column;gap:5px;flex:0 0 auto;margin-inline-start:auto}
-.st{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
-.st .k{font-weight:700;opacity:.65}
-.st.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
-.st.up{background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--gold)}
-.st.na{background:color-mix(in srgb,var(--sub) 15%,transparent);color:var(--sub)}
+.stx{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--sub)}
+.ico{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:12px}
+.ico .ic{width:11px;height:11px}
+.ico.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.ico.up{background:color-mix(in srgb,var(--gold) 20%,transparent);color:var(--gold)}
+.ico.na{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.ico.offl{background:color-mix(in srgb,var(--sub) 18%,transparent);color:var(--sub)}
 .agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 /* icon-only card action buttons */
 .nact.iconly .act{padding:8px 11px}
@@ -3655,6 +3657,7 @@ var IC={
  logout:'<svg viewBox="0 0 24 24" '+_S+'><path d="M15 12H4M9 7l-5 5 5 5M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4"/></svg>',
  menu:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
  check:'<svg viewBox="0 0 24 24" '+_S+'><path d="M20 6 9 17l-5-5"/></svg>',
+ dl:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>',
  info:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
  plugoff:'<svg viewBox="0 0 24 24" '+_S+'><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 01-12 0zM12 17v5"/><path d="M3 3l18 18"/></svg>',
  cpu:'<svg viewBox="0 0 24 24" '+_S+'><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>',
@@ -4666,7 +4669,7 @@ async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');
  else{m.className='msg err';m.textContent=(res.d&&(res.d.error||res.d.msg))||'ناموفق — پنل به گیت‌هاب دسترسی دارد؟'}}
 async function corPushStaged(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال پوشِ هستهٔ آماده…'}
  var res=await post('core-push',{ids:[id]});var x=((res.d&&res.d.results)||[])[0]||{};
- if(m){if(x.ok){m.className='msg agres ok';m.innerHTML='هسته → '+esc(x.version||'')+' · '+num(x.restarted)+' تونل'+CK}
+ if(m){if(x.ok){m.className='msg agres ok';m.innerHTML=(x.unchanged?'هسته از قبل به‌روز بود':'هسته به‌روز شد')+CK}
   else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
  setTimeout(refreshAgent,4000)}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast('اول نسخه را انتخاب کن','err');return}
@@ -4676,7 +4679,7 @@ async function corPushAll(){var ver=ssVal('corver');if(!ver){toast('اول نس�
  ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ هسته…'}});   // per-node status, like پوشِ همه
  var res=await post('core-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=0;
  rs.forEach(function(x){var m=el('agres_'+x.id);
-  if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML='هسته → '+esc(x.version||ver)+' · '+num(x.restarted)+' تونل'+CK}}
+  if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=(x.unchanged?'هسته از قبل به‌روز بود':'هسته به‌روز شد')+CK}}
   else if(x.offline){if(m){m.className='msg agres';m.textContent='آفلاین — رد شد'}}
   else{if(m){m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}});
  toast(ok+'/'+rs.length+' نود بروزرسانی شد',ok?'ok':'err');
@@ -4704,18 +4707,20 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
  var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    // agent update available
  var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  // core update available/missing
- // agent status badge + button-enable
+ // status = a colored icon only (no به‌روز/آپدیت text); full text lives in the tooltip.
+ function stx(lbl,cls,icon,tip){return '<span class="stx" title="'+tip+'">'+lbl+' <span class="ico '+cls+'">'+icon+'</span></span>'}
+ // agent status + button-enable
  var agbdg,agdis;
- if(!n.online){agbdg='<span class="st na">آفلاین</span>';agdis=1}
+ if(!n.online){agbdg=stx('ایجنت','offl','—','آفلاین');agdis=1}
  else if(!AGMETA||AGMETA.none){agbdg='';agdis=1}
- else if(agup){agbdg='<span class="st up"><span class="k">ایجنت</span> ⟳ آپدیت</span>';agdis=0}
- else{agbdg='<span class="st ok"><span class="k">ایجنت</span> ✓ به‌روز</span>';agdis=1}
- // core status badge + button-enable
+ else if(agup){agbdg=stx('ایجنت','up',ic('redo'),'ایجنت: آپدیت دارد');agdis=0}
+ else{agbdg=stx('ایجنت','ok',ic('check'),'ایجنت: به‌روز');agdis=1}
+ // core status + button-enable
  var cbdg,cdis;
- if(!n.online){cbdg='';cdis=1}
- else if(!cinst){cbdg='<span class="st na"><span class="k">هسته</span> نصب نیست</span>';cdis=!STAGED}
- else if(cup){cbdg='<span class="st up"><span class="k">هسته</span> ⟳ آپدیت</span>';cdis=0}
- else{cbdg='<span class="st ok"><span class="k">هسته</span> ✓ به‌روز</span>';cdis=1}
+ if(!n.online){cbdg=stx('هسته','offl','—','آفلاین');cdis=1}
+ else if(!cinst){cbdg=stx('هسته','na',ic('dl'),'هسته: نصب نیست');cdis=!STAGED}
+ else if(cup){cbdg=stx('هسته','up',ic('redo'),'هسته: آپدیت دارد');cdis=0}
+ else{cbdg=stx('هسته','ok',ic('check'),'هسته: به‌روز');cdis=1}
  var corpill=cinst?'<span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+esc(i.core_ver||'?')+'</span>':'';
  return '<div class="agx-row">'+
    '<div class="agx-right">'+
