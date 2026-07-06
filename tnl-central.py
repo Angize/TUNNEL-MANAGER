@@ -814,6 +814,12 @@ def _tunnel_extra(src):
         e["flux_shape"] = src["flux_shape"]
     if src.get("flux_epoch_offset"):     # flux manual "rotate now" epoch bump
         e["flux_epoch_offset"] = src["flux_epoch_offset"]
+    if src.get("ws_host"):               # ws (WebSocket/CDN) Host header + TLS SNI
+        e["ws_host"] = src["ws_host"]
+    if src.get("ws_path"):               # ws request path
+        e["ws_path"] = src["ws_path"]
+    if src.get("ws_tls"):                # ws client speaks wss (TLS to the CDN edge)
+        e["ws_tls"] = True
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
     if src.get("spoof_src"):             # forge the outer source (raw bip; client only, node applies by role)
@@ -1841,6 +1847,30 @@ def _flux_fields(d, transport, cipher, cur=None):
     return out
 
 
+def _ws_fields(d, transport, cur=None):
+    """Validate and return the ws (WebSocket/CDN) carrier fields. ws_host is the Host
+    header + TLS SNI (the fronting/origin domain); ws_path the request path; ws_tls makes
+    the client speak wss to a CDN edge. cur supplies edit defaults."""
+    out = {}
+    if transport != "ws":
+        return out
+    cur = cur or {}
+    host = str(d.get("ws_host") or cur.get("ws_host") or "").strip()
+    if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
+        raise ValueError("دامنهٔ WebSocket (ws_host) نامعتبر است")
+    if host:
+        out["ws_host"] = host
+    path = str(d.get("ws_path") or cur.get("ws_path") or "").strip()
+    if path:
+        out["ws_path"] = path
+    tls = d.get("ws_tls") if ("ws_tls" in d) else cur.get("ws_tls")
+    if bool(tls):
+        if not host:
+            raise ValueError("برای wss (TLS به CDN) باید دامنه (ws_host) را وارد کنی")
+        out["ws_tls"] = True
+    return out
+
+
 def api_create_tunnel(d):
     d = d or {}
     with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
@@ -1928,7 +1958,7 @@ def _create_tunnel_impl(d):
         if cipher != "none":
             extra["psk"] = secrets.token_hex(32)   # shared AEAD key, never sent to the browser
         transport = str(d.get("transport") or "udp").strip().lower()
-        if transport not in ("udp", "tcp", "raw", "flux"):
+        if transport not in ("udp", "tcp", "raw", "flux", "ws"):
             raise ValueError("حاملِ اتصال نامعتبر است")
         extra["transport"] = transport
         if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
@@ -1941,6 +1971,8 @@ def _create_tunnel_impl(d):
             extra.update(_spoof_fields(d, transport, profile, cipher))   # decoy / source spoofing (bip only)
         if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
             extra.update(_flux_fields(d, transport, cipher))
+        if transport == "ws":                      # WebSocket carrier (CDN-frontable)
+            extra.update(_ws_fields(d, transport))
         if bool(d.get("obfs")):                    # anti-DPI needs the AEAD key
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -2128,7 +2160,7 @@ def _edit_link_impl(d):
         if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
             extra["psk"] = L.get("psk") or secrets.token_hex(32)
         transport = str(d.get("transport") or L.get("transport") or "udp").strip().lower()
-        if transport not in ("udp", "tcp", "raw", "flux"):
+        if transport not in ("udp", "tcp", "raw", "flux", "ws"):
             raise ValueError("حاملِ اتصال نامعتبر است")
         extra["transport"] = transport
         if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
@@ -2141,6 +2173,8 @@ def _edit_link_impl(d):
             extra.update(_spoof_fields(d, transport, profile, cipher))   # decoy / source spoofing (bip only)
         if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
             extra.update(_flux_fields(d, transport, cipher, L))
+        if transport == "ws":                      # WebSocket carrier (CDN-frontable)
+            extra.update(_ws_fields(d, transport, L))
         if bool(d.get("obfs")):
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -2174,6 +2208,9 @@ def _edit_link_impl(d):
         and (extra.get("flux_rotate_secs") or 0) == (L.get("flux_rotate_secs") or 0)
         and (extra.get("flux_shape") or "") == (L.get("flux_shape") or "")
         and (extra.get("flux_epoch_offset") or 0) == (L.get("flux_epoch_offset") or 0)
+        and (extra.get("ws_host") or "") == (L.get("ws_host") or "")
+        and (extra.get("ws_path") or "") == (L.get("ws_path") or "")
+        and bool(extra.get("ws_tls")) == bool(L.get("ws_tls"))
         and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
         and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
         and bool(extra.get("gso")) == bool(L.get("gso")))
@@ -2218,7 +2255,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "ws_host", "ws_path", "ws_tls", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -4091,7 +4128,7 @@ async function refreshCore(){if(editingId||CHECKING)return;var f=await j('fleet?
  setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?'موردی یافت نشد.':'هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.')+'</div>');renderPager('core')}
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):'UDP';
+ var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='ws')?(l.ws_tls?'WSS':'WS'):'UDP';
  var prt=(l.transport!='raw'&&l.transport!='flux'&&l.port)?'<div>پورت: <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>حامل: <b class="mono">'+tr+'</b></div>';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
@@ -4116,11 +4153,13 @@ function coreCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
-var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random';
+var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false;
 var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
 function rawTiles(px,sel){return COR_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
-function corSetTr(t){_corTr=t;['udp','tcp','raw','flux'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':'UDP')));corRawVis();corFluxVis();corPortGate();corCoverGate();corSpoofVis()}
+function corSetTr(t){_corTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':'UDP'))));corRawVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corSpoofVis()}
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corTr=='flux')?'':'none';fluxTick()}
+function corWsVis(){var w=el('e_wsblk');if(w)w.style.display=(_corTr=='ws')?'':'none'}
+function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corWsTls)}
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function corSetFluxShape(s){_corFluxShape=s;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function corFluxRotChg(){_corFluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
@@ -4161,6 +4200,13 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
  +(rotId?'<button type="button" class="ghost" style="margin-top:9px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px" onclick="doFluxRotate(\\''+rotId+'\\')">'+ic('redo')+'چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)</button>':'')
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. <b>udp/stun</b> رویِ اینترنت رد می‌شوند؛ <b>raw</b> فقط هم‌سگمنت. رمزنگاری الزامی است.</div>'
  +'</div>'}
+// ---- ws (WebSocket / CDN) — shared markup.
+function wsSection(idp,fnp,host,path,tls){return '<div id="'+idp+'wsblk" style="display:none">'
+ +'<label>دامنهٔ فرانت (Host / SNI)</label><input id="'+idp+'wshost" placeholder="مثلاً cdn.example.com" value="'+esc(host||'')+'">'
+ +'<div class="tglbox" style="margin-top:11px"><div class="tglsw'+(tls?' on':'')+'" id="'+idp+'wstls" onclick="'+fnp+'ToggleWsTls()"></div><div class="tt"><b>wss (TLS به CDN)</b><small>کلاینت با TLS به لبهٔ CDN وصل می‌شود؛ سرور پشتِ CDN ساده می‌ماند. برای فرانتینگ لازم است.</small></div></div>'
+ +'<label>مسیر (path)</label><input id="'+idp+'wspath" placeholder="/" value="'+esc(path||'')+'">'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">ترافیک شبیهِ WebSocket رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) با همین دامنه بگذار و <b>peer را به لبهٔ CDN</b> اشاره بده. رمزنگاری/استتار مثلِ TCP اعمال می‌شود.</div>'
+ +'</div>'}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">شکلِ زنده</b> · epoch <span class="mono">#'+ep+'</span> · حامل <span class="mono">'+fc+'</span> · چرخشِ بعدی تا <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> دیگر';}
 function fluxTick(){[['e_',_corTr,_corFluxCarrier,_corFluxRotate],['ee_',_eeTr,_eeFluxCarrier,_eeFluxRotate]].forEach(function(a){
@@ -4187,7 +4233,7 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -4195,9 +4241,10 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ <span id="e_trword">UDP</span> را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
   '<div class="autonote">'+ic('warn')+'<span><b>توصیه: سرور را سمتِ خارج بگذار.</b> اگر نودِ ایران پشتِ NAT باشد یا پورتش فیلتر شود، ایران‌سرور وصل نمی‌شود. اگر آی‌پیِ عمومیِ باز داشته باشد ممکن است کار کند، ولی ورودی به ایران بیشتر فیلتر/پایش می‌شود و کم‌دوام‌تر است.</span></div>'+
   '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',CORE_CIPHERS,'auto','رمز','onCorCipher')+
-  '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button></div>'+
+  '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="e_rawblk" style="display:none"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NATِ ایران رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   fluxSection('e_','cor','udp',600,'random',null)+
+  wsSection('e_','cor','','',false)+
   spoofSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox dis" id="e_coverrow"><div class="tglsw" id="e_cover" onclick="corToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
@@ -4222,6 +4269,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_corRawProfile}
  if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
+ if(_corTr=='ws'){body.ws_host=(v('e_wshost')||'').trim();body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
  if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
   if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
@@ -4235,9 +4283,11 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونلِ هسته ساخته شد','ok');refreshCore()}
  else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random';
-function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();cePortGate();ceCoverGate();ceSpoofVis()}
+var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false;
+function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceSpoofVis()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeTr=='flux')?'':'none';fluxTick()}
+function ceWsVis(){var w=el('ee_wsblk');if(w)w.style.display=(_eeTr=='ws')?'':'none'}
+function ceToggleWsTls(){_eeWsTls=!_eeWsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeWsTls)}
 function ceSetFluxCarrier(c){_eeFluxCarrier=c;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function ceSetFluxShape(s){_eeFluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function ceFluxRotChg(){_eeFluxRotate=parseInt(ssVal('ee_fluxrot'))||600;fluxTick()}
@@ -4265,7 +4315,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
@@ -4273,9 +4323,10 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div>'+
   '<div class="autonote">'+ic('warn')+'<span><b>توصیه: سرور را سمتِ خارج بگذار.</b> اگر نودِ ایران پشتِ NAT باشد یا پورتش فیلتر شود، ایران‌سرور وصل نمی‌شود. اگر آی‌پیِ عمومیِ باز داشته باشد ممکن است کار کند، ولی ورودی به ایران بیشتر فیلتر/پایش می‌شود و کم‌دوام‌تر است.</span></div>'+
   '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',CORE_CIPHERS,(l.cipher||'auto'),'رمز','onEeCipher')+
-  '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt'+(_eeTr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button></div>'+
+  '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt'+(_eeTr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt'+(_eeTr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   fluxSection('ee_','ce',_eeFluxCarrier,_eeFluxRotate,_eeFluxShape,id)+
+  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls)+
   spoofSection('ee_','ce')+
   '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox'+((_eeTr!='tcp')?' dis':'')+'" id="ee_coverrow"><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
@@ -4285,7 +4336,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ تونلِ هسته</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- ceRoleLbls(l);cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis()}
+ ceRoleLbls(l);cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis();ceWsVis()}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' سرور</b><span>'+esc(l.b_name)+' کلاینت</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' سرور</b><span>'+esc(l.a_name)+' کلاینت</span>'}
@@ -4295,6 +4346,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_eeRawProfile}
  if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
+ if(_eeTr=='ws'){body.ws_host=(v('ee_wshost')||'').trim();body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
  if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
   if(_eeDecoy){var dip=(v('ee_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
   if(_eeSrc){var sip=(v('ee_srcip')||'').trim();if(sip)body.spoof_src=sip}}
