@@ -3863,17 +3863,13 @@ function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title
  var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health);return '<span class="sdot '+s.k+'"></span>'}
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">خاموش</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
-function accTrafLine(l){if(l.enabled===false)return '<div class="hrow2"><span class="offtxt">خاموش — اینترفیس down</span></div>';
- var hasT=(l.rx_total!=null||l.rx_bps!=null);
- if(!hasT)return '<div class="hrow2"><span class="muted">دادهٔ زنده نیست</span></div>';
- return '<div class="hrow2"><span class="din">↓'+fmtRate(l.rx_bps)+'</span><span class="dout">↑'+fmtRate(l.tx_bps)+'</span><span style="margin-inline-start:auto">مجموع <span class="din">↓'+fmtBytes(l.rx_total)+'</span> <span class="dout">↑'+fmtBytes(l.tx_total)+'</span></span></div>'}
 function accHead(l,isCore){var on=l.enabled!==false;
  var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag">'+esc((l.type||'').toUpperCase())+'</span>';
+ var off=on?'':'<span class="offtxt" style="font-size:11px">خاموش</span>';
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="روشن/خاموشِ تونل"></div>'+
-  '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+
-   '<span class="hpeers">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div>'+
-   accTrafLine(l)+'</div>'+CHEVI+'</div>'}
+  '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
+   '<span class="hpeers">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
 function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.</span></div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
