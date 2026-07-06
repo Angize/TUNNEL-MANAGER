@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Behavioral tests for the engine "TLS cover" (HTTPS camouflage) option in
+# Behavioral tests for the core "TLS cover" (HTTPS camouflage) option in
 # create/edit: cover(bool) + cover_sni(str) validated, stored on the link
 # record next to obfs/cipher, and forwarded in the node "tunnel" payload.
 # TCP-only; ignored on UDP. Run: python3 test_tlscover.py
@@ -54,12 +54,12 @@ def tunnel_bodies():
     return [b for (ep, nid, b) in CALLS if ep == "tunnel"]
 
 
-BASE = {"a_node": "na", "b_node": "nb", "type": "engine", "server_side": "a", "cipher": "auto"}
+BASE = {"a_node": "na", "b_node": "nb", "type": "core", "server_side": "a", "cipher": "auto"}
 
 # ---- create: cover + tcp stored on the record and forwarded to both nodes ----
 install()
 r = tnl._create_tunnel_impl({**BASE, "transport": "tcp", "cover": True, "cover_sni": "www.microsoft.com"})
-check("engine create with cover+tcp succeeds", r.get("ok") is True)
+check("core create with cover+tcp succeeds", r.get("ok") is True)
 rec = LINKS[0]
 check("record stores cover=True", rec.get("cover") is True)
 check("record stores cover_sni", rec.get("cover_sni") == "www.microsoft.com")
@@ -101,15 +101,15 @@ for bad in ["bad sni!", "under_score.com", "a" * 254, "http://x.com"]:
     except ValueError:
         check("bad SNI rejected: %r" % bad, True)
 
-# ---- edit: turn cover ON on an existing tcp engine link ----------------------
-LINK = {"id": "L1", "name": "engine50", "type": "engine", "subnet": "192.168.50.0/24",
+# ---- edit: turn cover ON on an existing tcp core link ----------------------
+LINK = {"id": "L1", "name": "core50", "type": "core", "subnet": "192.168.50.0/24",
         "tunnel_id": 50, "a_node": "na", "a_name": "NodeA", "a_ip": "1.1.1.1",
         "b_node": "nb", "b_name": "NodeB", "b_ip": "2.2.2.2",
         "port": 443, "transport": "tcp", "cipher": "auto", "server_side": "a", "psk": "x" * 64}
 
 install()
 LINKS[:] = [dict(LINK)]
-r = tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "tcp",
+r = tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "tcp",
                          "port": 443, "cipher": "auto", "cover": True, "cover_sni": "www.apple.com"})
 check("edit turning cover on succeeds", r.get("ok") is True)
 check("edit persisted cover=True", LINKS[0].get("cover") is True)
@@ -119,7 +119,7 @@ check("edit forwarded cover to nodes", all(b.get("cover") is True for b in tunne
 # ---- edit: turn cover OFF drops both keys from the record --------------------
 install()
 LINKS[:] = [dict(LINK, cover=True, cover_sni="www.apple.com")]
-r = tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "tcp",
+r = tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "tcp",
                          "port": 443, "cipher": "auto", "cover": False})
 check("edit turning cover off succeeds", r.get("ok") is True)
 check("edit dropped cover key", "cover" not in LINKS[0])
@@ -128,14 +128,14 @@ check("edit dropped cover_sni key", "cover_sni" not in LINKS[0])
 # ---- edit: switching transport to udp ignores cover --------------------------
 install()
 LINKS[:] = [dict(LINK, cover=True, cover_sni="www.apple.com")]
-tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "udp",
+tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "udp",
                      "port": 443, "cipher": "auto", "cover": True, "cover_sni": "www.apple.com"})
 check("edit to udp drops cover", "cover" not in LINKS[0] and "cover_sni" not in LINKS[0])
 
 # ---- edit: no-op when cover/sni unchanged (rebuild not forced) ---------------
 install()
 LINKS[:] = [dict(LINK, cover=True, cover_sni="www.apple.com")]
-r = tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "tcp",
+r = tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "tcp",
                          "port": 443, "cipher": "auto", "cover": True, "cover_sni": "www.apple.com"})
 check("unchanged cover+sni -> no rebuild", r.get("unchanged") is True)
 
@@ -143,7 +143,7 @@ check("unchanged cover+sni -> no rebuild", r.get("unchanged") is True)
 install()
 LINKS[:] = [dict(LINK)]
 try:
-    tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "tcp",
+    tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "tcp",
                          "port": 443, "cipher": "auto", "cover": True, "cover_sni": "bad sni!"})
     check("edit bad SNI rejected", False)
 except ValueError:
