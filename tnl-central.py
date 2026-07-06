@@ -1691,11 +1691,11 @@ def _stage_core(version):
     the panel itself cannot fetch the amd64 asset (e.g. the panel has no internet)."""
     rel = _resolve_core_version(version)
     os.makedirs(CORE_STAGE_DIR, exist_ok=True)
-    got = []
+    got, shas, sizes = [], {}, {}
     with _core_stage_lock:
         for arch in ("amd64", "arm64"):
             try:
-                raw, _ = _fetch_release(rel, arch)
+                raw, sha = _fetch_release(rel, arch)
             except Exception:
                 if arch == "amd64":
                     raise
@@ -1703,7 +1703,9 @@ def _stage_core(version):
             with open(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), "wb") as f:
                 f.write(raw)
             got.append(arch)
-        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "ts": int(time.time())})
+            shas[arch] = sha       # per-arch sha lets the panel tell which nodes are out of date
+            sizes[arch] = len(raw)
+        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": sizes, "ts": int(time.time())})
     return {"version": rel, "arches": got}
 
 
@@ -3374,7 +3376,17 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;font-weight:800;font-size:10.5px;padding:5px 10px;border-radius:8px;cursor:pointer;min-width:74px;border:1px solid var(--bord);background:var(--glass);color:var(--tx)}
 .agx-btn .ic{width:13px;height:13px}
 .agx-btn.cor{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
-.agx-btn:disabled{opacity:.5;cursor:not-allowed}
+.agx-btn.up{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent)}
+.agx-btn:disabled{opacity:.45;cursor:not-allowed}
+.agx-right{display:flex;flex-direction:column;gap:7px;min-width:0}
+.agx-l1{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.agx-l2{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.agx-colb{display:flex;flex-direction:column;gap:5px;flex:0 0 auto;margin-inline-start:auto}
+.st{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
+.st .k{font-weight:700;opacity:.65}
+.st.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.st.up{background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--gold)}
+.st.na{background:color-mix(in srgb,var(--sub) 15%,transparent);color:var(--sub)}
 .agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 /* icon-only card action buttons */
 .nact.iconly .act{padding:8px 11px}
@@ -4593,29 +4605,32 @@ async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox('این پ
 
 // ===== agent push-update page =====
 function agentBody(){return ''+
- '<div class="card agx-uni">'+
-  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('cpu','var(--acc)')+'</span> ایجنت و هسته<span class="grow"></span><span id="ag_status"></span></div>'+
+ '<div class="card agx-uni">'+   // AGENT card
+  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('cpu','var(--acc)')+'</span> ایجنتِ نودها<span class="grow"></span><span id="ag_status"></span></div>'+
   '<div class="agx-meta" id="ag_meta"></div>'+
   '<div class="agx-act">'+
     '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+'فایلِ ایجنت</button>'+
   '</div>'+
+  '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+'پوشِ ایجنت به همهٔ نودها</button>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
-  '<div class="agx-div"></div>'+
-  '<div class="agx-corlab"><span class="chip" style="--hue:#8b5cf6;width:22px;height:22px;border-radius:6px">'+ic('cpu','#8b5cf6')+'</span> هستهٔ داده</div>'+
-  '<div class="agx-corrow"><span id="cor_ver_box" class="grow"></span>'+
-    '<button class="agx-mini gho" title="دانلودِ نسخهٔ انتخابی روی پنل (آماده‌ی پوش به نودها)" onclick="corStage()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
-    '<button class="agx-mini pri" onclick="corPushAll()">نصبِ همه</button>'+
-    '<button class="agx-mini gho" title="آپلودِ فایلِ باینریِ هسته به‌عنوان نسخهٔ custom" onclick="el(\\'cor_file\\').click()">'+ic('plus')+'باینری</button>'+
+ '</div>'+
+ '<div class="card agx-uni">'+   // CORE card — matched to the agent card
+  '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> هستهٔ داده<span class="grow"></span><span id="cor_status"></span></div>'+
+  '<div class="agx-meta" id="cor_meta"></div>'+
+  '<div id="cor_ver_box" style="margin-bottom:9px"></div>'+
+  '<div class="agx-act">'+
+    '<button class="primary" style="background:#8b5cf6" title="دانلودِ نسخهٔ انتخابی روی پنل (آماده‌ی پوش به نودها)" onclick="corStage()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
+    '<button class="ghost" title="آپلودِ فایلِ باینریِ هسته به‌عنوان نسخهٔ custom" onclick="el(\\'cor_file\\').click()">'+ic('plus')+'باینری</button>'+
   '</div>'+
-  '<div id="cor_staged" class="agx-hint"></div>'+
+  '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+'نصبِ هسته روی همهٔ نودها</button>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.</div>'+
   '<div class="msg" id="cor_msg"></div>'+
  '</div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+
- '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"><button class="primary" onclick="agPush(\\'all\\')">پوشِ همه</button></div>'+
+ '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"></div>'+
  '<div id="agList"></div>'+pagerBottom('agent')}
 function agentSkel(){el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' ایجنت و هسته</h1><p class="sub">آپدیت و ری‌استارتِ ایجنت و هستهٔ نودها از پنل، بدونِ SSH</p>'+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
@@ -4632,8 +4647,14 @@ var CORVERS=[],STAGED=null;
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[]}});
  CORVERS=r.versions||[];STAGED=r.staged||null;
- var sb=el('cor_staged');
- if(sb)sb.innerHTML=STAGED?('✅ آماده‌ی پوش روی پنل: <b class="mono">'+esc(STAGED.version)+'</b>'+(STAGED.arches&&STAGED.arches.length?' ('+STAGED.arches.join(', ')+')':'')):'<span class="muted">هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.</span>';
+ var stt=el('cor_status');
+ if(stt)stt.innerHTML=STAGED?'<span class="badge ok">آمادهٔ پوش</span>':'<span class="badge na">خالی</span>';
+ var mt=el('cor_meta');
+ if(mt){
+  if(STAGED){var a=(STAGED.arches&&STAGED.arches[0])||'amd64';var sh=(STAGED.sha&&STAGED.sha[a])||'';var sz=(STAGED.size&&STAGED.size[a])||0;
+   mt.innerHTML='<span>هسته</span><span class="mono">'+esc(STAGED.version)+'</span>'+(sh?'<span class="sep"></span><span class="mono">'+esc(String(sh).slice(0,12))+'</span>':'')+(sz?'<span class="sep"></span><span>'+(sz/1048576).toFixed(1)+' مگابایت</span>':'')+((STAGED.arches||[]).length?'<span class="sep"></span><span>'+STAGED.arches.join(' · ')+'</span>':'');}
+  else mt.innerHTML='<span class="muted">هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.</span>';
+ }
  var box=el('cor_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
  var sel=want||ssVal('corver')||(items.length?items[0].v:'');   // default to the newest real version (no synthetic "latest")
@@ -4678,14 +4699,34 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML='باینری ذخیره شد: '+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+' — «نصبِ همه» را بزن یا از منوی هر نود';
   await loadCoreVersions('custom')}
  else{m.className='msg err';m.textContent=(res.d&&res.d.error)||'ناموفق'}}
-function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';
- var installed=!!(i.core_sha&&String(i.core_sha).length);   // core_sha empty => no binary on the node
- var cor=installed?esc(i.core_ver||'?'):'نصب نیست';var st,agdis;
- if(!n.online){st='<span class="badge na">آفلاین</span>';agdis=1}
- else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';agdis=1}
- else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">آپدیت</span>';agdis=0}
- else{st='';agdis=1}
- return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+cor+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn cor"'+(n.online&&STAGED?'':' disabled')+' onclick="corPushStaged(\\''+n.id+'\\')" title="پوشِ هستهٔ آماده‌ی روی پنل به این نود">'+ic('cpu')+'پوشِ آماده'+(STAGED?(' · '+esc(STAGED.version)):'')+'</button><button class="agx-btn cor"'+(n.online?'':' disabled')+' data-nid="'+esc(n.id)+'" data-cur="'+esc(i.core_ver||'')+'" onclick="corMenu(this)" title="دانلود و پوشِ نسخهٔ خاص از پنل به این نود">'+ic('cpu')+'نسخه ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
+ var cinst=!!(i.core_sha&&String(i.core_sha).length);            // core_sha empty => no binary on the node
+ var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
+ var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    // agent update available
+ var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  // core update available/missing
+ // agent status badge + button-enable
+ var agbdg,agdis;
+ if(!n.online){agbdg='<span class="st na">آفلاین</span>';agdis=1}
+ else if(!AGMETA||AGMETA.none){agbdg='';agdis=1}
+ else if(agup){agbdg='<span class="st up"><span class="k">ایجنت</span> ⟳ آپدیت</span>';agdis=0}
+ else{agbdg='<span class="st ok"><span class="k">ایجنت</span> ✓ به‌روز</span>';agdis=1}
+ // core status badge + button-enable
+ var cbdg,cdis;
+ if(!n.online){cbdg='';cdis=1}
+ else if(!cinst){cbdg='<span class="st na"><span class="k">هسته</span> نصب نیست</span>';cdis=!STAGED}
+ else if(cup){cbdg='<span class="st up"><span class="k">هسته</span> ⟳ آپدیت</span>';cdis=0}
+ else{cbdg='<span class="st ok"><span class="k">هسته</span> ✓ به‌روز</span>';cdis=1}
+ var corpill=cinst?'<span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+esc(i.core_ver||'?')+'</span>':'';
+ return '<div class="agx-row">'+
+   '<div class="agx-right">'+
+     '<div class="agx-l1"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+agver+'</span>'+corpill+'</div>'+
+     '<div class="agx-l2">'+agbdg+cbdg+'</div>'+
+   '</div>'+
+   '<div class="agx-colb">'+
+     '<button class="agx-btn'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button>'+
+     '<button class="agx-btn'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' onclick="corPushStaged(\\''+n.id+'\\')" title="پوشِ هستهٔ آماده‌ی روی پنل به این نود">'+ic('redo')+'هسته</button>'+
+   '</div>'+
+   '<div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 var _corOv=null;
 function corMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur');if(!CORVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
  var rows=CORVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" data-nid="'+esc(id)+'" onclick="corPick(this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
