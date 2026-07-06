@@ -25,23 +25,23 @@ tnl.load_nodes = lambda: [{"id": "A", "name": "na"}, {"id": "B", "name": "nb"}]
 tnl._cached_ping = lambda nid: {"ok": False}
 tnl._cache_get = lambda nid: None if nid == "A" else {"ping": {"ok": False}}
 
-# Three links: two engine (both healthy), one gre (down).
+# Three links: two core (both healthy), one gre (down).
 tnl.load_links = lambda: [
-    {"id": "e1", "type": "engine", "name": "eng1", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
-    {"id": "e2", "type": "engine", "name": "eng2", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
+    {"id": "e1", "type": "core", "name": "eng1", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
+    {"id": "e2", "type": "core", "name": "eng2", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
     {"id": "g1", "type": "gre", "name": "gre1", "a_node": "A", "b_node": "B", "subnet": "", "a_ip": "", "b_ip": ""},
 ]
 tnl._link_side_health = lambda L, side: (
-    ({"up": True, "peer_ping": True}, None) if L["type"] == "engine" else ({"up": False}, None)
+    ({"up": True, "peer_ping": True}, None) if L["type"] == "core" else ({"up": False}, None)
 )
 tnl.link_drift = lambda i: False
 
 res = tnl.api_summary({})
 
-# #8: healthy count must never exceed the reported (non-engine) link total.
-check("links total excludes engine (==1)", res["links"] == 1)
-check("engine counted separately (==2)", res["engine"] == 2)
-check("link_up counts only non-engine links (==0)", res["link_up"] == 0)
+# #8: healthy count must never exceed the reported (non-core) link total.
+check("links total excludes core (==1)", res["links"] == 1)
+check("core counted separately (==2)", res["core"] == 2)
+check("link_up counts only non-core links (==0)", res["link_up"] == 0)
 check("link_down == 1 (the gre)", res["link_down"] == 1)
 check("healthy <= total (no '2/1')", res["link_up"] <= res["links"])
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Behavioral tests for the engine "raw" transport (raw_profile) and the GSO
+# Behavioral tests for the core "raw" transport (raw_profile) and the GSO
 # throughput toggle in create/edit: validated, stored on the link record, and
 # forwarded in the node "tunnel" payload. Run: python3 test_raw_gso.py
 import importlib.util
@@ -53,12 +53,12 @@ def tunnel_bodies():
     return [b for (ep, nid, b) in CALLS if ep == "tunnel"]
 
 
-BASE = {"a_node": "na", "b_node": "nb", "type": "engine", "server_side": "a", "cipher": "auto"}
+BASE = {"a_node": "na", "b_node": "nb", "type": "core", "server_side": "a", "cipher": "auto"}
 
 # ---- create: raw transport stores the profile and forwards it to both nodes ----
 install()
 r = tnl._create_tunnel_impl({**BASE, "transport": "raw", "raw_profile": "gre"})
-check("engine create with raw+profile succeeds", r.get("ok") is True)
+check("core create with raw+profile succeeds", r.get("ok") is True)
 rec = LINKS[0]
 check("record stores transport=raw", rec.get("transport") == "raw")
 check("record stores raw_profile", rec.get("raw_profile") == "gre")
@@ -101,7 +101,7 @@ install()
 tnl._create_tunnel_impl({**BASE, "transport": "udp"})
 check("gso off -> not stored", "gso" not in LINKS[0])
 
-LINK = {"id": "L1", "name": "engine50", "type": "engine", "subnet": "192.168.50.0/24",
+LINK = {"id": "L1", "name": "core50", "type": "core", "subnet": "192.168.50.0/24",
         "tunnel_id": 50, "a_node": "na", "a_name": "NodeA", "a_ip": "1.1.1.1",
         "b_node": "nb", "b_name": "NodeB", "b_ip": "2.2.2.2",
         "port": 443, "transport": "udp", "cipher": "auto", "server_side": "a", "psk": "x" * 64}
@@ -109,7 +109,7 @@ LINK = {"id": "L1", "name": "engine50", "type": "engine", "subnet": "192.168.50.
 # ---- edit: switch to raw + choose a profile --------------------------------
 install()
 LINKS[:] = [dict(LINK)]
-r = tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "raw",
+r = tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "raw",
                          "raw_profile": "icmp", "cipher": "auto"})
 check("edit to raw succeeds", r.get("ok") is True)
 check("edit persisted transport=raw", LINKS[0].get("transport") == "raw")
@@ -118,23 +118,23 @@ check("edit persisted raw_profile", LINKS[0].get("raw_profile") == "icmp")
 # ---- edit: switching away from raw drops raw_profile -----------------------
 install()
 LINKS[:] = [dict(LINK, transport="raw", raw_profile="icmp")]
-tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "udp", "cipher": "auto"})
+tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "udp", "cipher": "auto"})
 check("edit off raw drops raw_profile", "raw_profile" not in LINKS[0])
 
 # ---- edit: toggling gso on then off ----------------------------------------
 install()
 LINKS[:] = [dict(LINK)]
-tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "udp", "cipher": "auto", "gso": True})
+tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "udp", "cipher": "auto", "gso": True})
 check("edit turned gso on", LINKS[0].get("gso") is True)
 install()
 LINKS[:] = [dict(LINK, gso=True)]
-tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "udp", "cipher": "auto"})
+tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "udp", "cipher": "auto"})
 check("edit turned gso off", "gso" not in LINKS[0])
 
 # ---- edit: changing profile forces a rebuild (not a no-op) -----------------
 install()
 LINKS[:] = [dict(LINK, transport="raw", raw_profile="bip")]
-r = tnl._edit_link_impl({"id": "L1", "type": "engine", "server_side": "a", "transport": "raw",
+r = tnl._edit_link_impl({"id": "L1", "type": "core", "server_side": "a", "transport": "raw",
                          "raw_profile": "gre", "cipher": "auto"})
 check("changing raw_profile rebuilds (not unchanged)", not r.get("unchanged"))
 
