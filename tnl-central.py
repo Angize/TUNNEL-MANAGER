@@ -3168,8 +3168,8 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.feat{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
 .enmeta .emcol>div.tagrow{overflow:visible;white-space:nowrap}
 .enmeta .feat .nofeat{opacity:.55}
-.enmeta .encrow{grid-column:1 / -1;display:flex;align-items:center;gap:5px;border-top:1px dashed var(--bord);margin-top:4px;padding-top:8px}
-.enmeta .encrow .enclock{align-items:center}
+.enmeta .emcol>div.enc-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
+.enmeta .enc-line .enclock{align-items:center}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
 .sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
@@ -3907,7 +3907,8 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  var encv=(l.cipher&&l.cipher!='none')
    ?'<span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span>'
    :'<b>بدونِ رمز</b>';
- return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+'</div><div class="encrow">رمزنگاری: '+encv+'</div></div>'}
+ var enc='<div class="enc-line">رمزنگاری: '+encv+'</div>';
+ return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
