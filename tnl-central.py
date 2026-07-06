@@ -808,6 +808,10 @@ def _tunnel_extra(src):
         e["raw_profile"] = src["raw_profile"]
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
+    if src.get("spoof_src"):             # forge the outer source (raw bip; client only, node applies by role)
+        e["spoof_src"] = src["spoof_src"]
+    if src.get("spoof_dst"):             # decoy destination (raw bip; the node wires the AF_PACKET side by role)
+        e["spoof_dst"] = src["spoof_dst"]
     return e
 
 
@@ -872,6 +876,21 @@ def api_node_names(d):
         out.append({"id": n["id"], "name": n["name"], "host": n["host"],
                     "online": bool(p.get("ok")), "info": {"ips": p.get("ips") or {}}})
     return {"nodes": out, "total": len(out)}
+
+
+def api_spoof_probe(d):
+    """Ask a node whether IP spoofing (decoy) can run on it — local CAP_NET_RAW / AF_PACKET capability
+    only (it can't prove the datacenter forwards a forged source). The create/edit forms call this for
+    both ends to enable or disable the spoofing controls and show the reason when it can't."""
+    n = get_node(str(d.get("node") or ""))
+    if not n:
+        return {"ok": False, "reason": "node not found"}
+    r = node_call(n, "spoof-probe", "GET", timeout=20)
+    if not isinstance(r, dict) or ("ok" not in r and "reason" not in r):
+        return {"ok": False, "reason": (r.get("error") if isinstance(r, dict) else None) or "نود پاسخ نداد"}
+    return {"ok": bool(r.get("ok")), "reason": r.get("reason") or "",
+            "cap_net_raw": bool(r.get("cap_net_raw")), "af_packet": bool(r.get("af_packet")),
+            "node": n["name"]}
 
 
 def _link_side_health(L, node_key):
@@ -1764,6 +1783,27 @@ def _guard_port_conflicts(bindings, exclude=frozenset()):
             raise ValueError(f"پورتِ {port}/{proto.upper()} روی نودِ «{node['name']}» اشغال است{tail}؛ یک پورتِ دیگر انتخاب کن")
 
 
+def _spoof_fields(d, transport, profile, cipher):
+    """Validate and return the raw-bip IP-spoofing fields to store on a core link. Spoofing forges the
+    outer IPv4 addresses so an on-path censor sees a decoy instead of the real server; it only applies
+    to transport=raw + profile=bip + crypto on. spoof_dst is the decoy destination; spoof_src an
+    optional forged source. The node applies these per role (see tnl-node _core_config)."""
+    out = {}
+    if transport != "raw" or profile != "bip" or cipher == "none":
+        return out
+    src = str(d.get("spoof_src") or "").strip()
+    dst = str(d.get("spoof_dst") or "").strip()
+    if src and not is_ipv4(src):
+        raise ValueError("آی‌پیِ مبدأِ جعلی نامعتبر است (باید IPv4 باشد)")
+    if dst and not is_ipv4(dst):
+        raise ValueError("آی‌پیِ طُعمه (مقصد) نامعتبر است (باید IPv4 باشد)")
+    if src:
+        out["spoof_src"] = src
+    if dst:
+        out["spoof_dst"] = dst
+    return out
+
+
 def api_create_tunnel(d):
     d = d or {}
     with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
@@ -1861,6 +1901,7 @@ def _create_tunnel_impl(d):
             if profile not in CORE_RAW_PROFILES:
                 raise ValueError("پروفایلِ raw نامعتبر است")
             extra["raw_profile"] = profile
+            extra.update(_spoof_fields(d, transport, profile, cipher))   # decoy / source spoofing (bip only)
         if bool(d.get("obfs")):                    # anti-DPI needs the AEAD key
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -2040,6 +2081,7 @@ def _edit_link_impl(d):
             if profile not in CORE_RAW_PROFILES:
                 raise ValueError("پروفایلِ raw نامعتبر است")
             extra["raw_profile"] = profile
+            extra.update(_spoof_fields(d, transport, profile, cipher))   # decoy / source spoofing (bip only)
         if bool(d.get("obfs")):
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -2069,6 +2111,8 @@ def _edit_link_impl(d):
         and bool(extra.get("cover")) == bool(L.get("cover"))
         and (extra.get("cover_sni") or "") == (L.get("cover_sni") or "")
         and (extra.get("raw_profile") or "") == (L.get("raw_profile") or "")
+        and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
+        and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
         and bool(extra.get("gso")) == bool(L.get("gso")))
     if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and core_same:
         return {"ok": True, "unchanged": True, "name": old_name}
@@ -2102,7 +2146,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "gso"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -2459,6 +2503,7 @@ def api_checkin_impl(source_ip, d):
 
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
+    "spoof-probe": api_spoof_probe,
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
     "node-install": api_node_install, "install-status": api_node_install_status,
@@ -3079,6 +3124,15 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .seg button .ic{width:15px;height:15px}
 .autonote{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;color:var(--sub);background:var(--warnw);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:11px;padding:10px 12px;margin-bottom:13px}
 .autonote .ic{color:var(--gold);flex:0 0 auto;margin-top:1px}
+.spoofsec{margin-top:12px;padding:12px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
+.spoofhd{display:flex;gap:8px;align-items:center;font-size:12.5px;font-weight:800;margin-bottom:2px}
+.spoofhd .ic{color:var(--acc)}
+.spoofcap{display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.65;border-radius:10px;padding:9px 11px;margin-top:10px}
+.spoofcap .ic{flex:0 0 auto;margin-top:1px}
+.spoofcap.ok{background:var(--okw);color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent)}
+.spoofcap.no{background:var(--badw);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 30%,transparent)}
+.spoofcap.wait{background:var(--field);color:var(--sub);border:1px solid var(--bord)}
+.spoofcap b{font-weight:800}
 .authbox{border:1px solid var(--bord);border-radius:13px;background:var(--field);padding:11px;margin-top:16px;margin-bottom:12px}
 .authhd{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .authhd .t{font-size:12.5px;font-weight:800}
@@ -3925,10 +3979,38 @@ function coreCard(l){
 var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false;
 var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
 function rawTiles(px,sel){return COR_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
-function corSetTr(t){_corTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp'),r=el('e_tr_raw');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');if(r)r.classList.toggle('on',t=='raw');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':'UDP'));corRawVis();corPortGate();corCoverGate()}
+function corSetTr(t){_corTr=t;var u=el('e_tr_udp'),c=el('e_tr_tcp'),r=el('e_tr_raw');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');if(r)r.classList.toggle('on',t=='raw');var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':'UDP'));corRawVis();corPortGate();corCoverGate();corSpoofVis()}
+// ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
+function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
+ +'<div class="spoofhd">'+ic('shield')+'جعلِ آی‌پی (استتار)</div>'
+ +'<div class="tglbox" id="'+idp+'decoyrow"><div class="tglsw" id="'+idp+'decoysw" onclick="'+fnp+'ToggleDecoy()"></div><div class="tt"><b>جعلِ مقصد (Decoy)</b><small>روی سیم وانمود می‌شود ترافیک به آی‌پیِ زیر می‌رود، ولی واقعاً به سرورت می‌رسد.</small></div></div>'
+ +'<div id="'+idp+'decoyiprow" style="display:none;margin:8px 0 2px"><input id="'+idp+'decoyip" class="mono" placeholder="آی‌پیِ طُعمه (مقصدِ جعلی) — مثلاً 185.51.200.10" inputmode="numeric"></div>'
+ +'<div class="tglbox" id="'+idp+'srcrow"><div class="tglsw" id="'+idp+'srcsw" onclick="'+fnp+'ToggleSrc()"></div><div class="tt"><b>جعلِ مبدأ</b><small>آی‌پیِ مبدأِ واقعی روی سیم مخفی می‌شود (اختیاری).</small></div></div>'
+ +'<div id="'+idp+'srciprow" style="display:none;margin:8px 0 2px"><input id="'+idp+'srcip" class="mono" placeholder="آی‌پیِ مبدأِ جعلی — مثلاً 198.51.100.9" inputmode="numeric"></div>'
+ +'<div class="spoofcap wait" id="'+idp+'cap">…</div></div>'}
+async function spoofProbePair(a,b){try{
+  var ra=await j('spoof-probe?node='+encodeURIComponent(a));
+  var rb=(a==b)?ra:await j('spoof-probe?node='+encodeURIComponent(b));
+  if(ra.ok&&rb.ok)return {ok:true,html:'<b>هر دو نود از نظرِ فنی مجازند.</b> ولی اینکه واقعاً کار کند به خروجیِ دیتاسنتر و مسیر هم بستگی دارد — این چک فقط قابلیتِ نودها را می‌سنجد، نه آن را؛ با ساختِ تونل قطعی می‌شود.'};
+  var bad=(!ra.ok)?ra:rb;
+  return {ok:false,html:'<b>غیرفعال — روی نودِ «'+esc(bad.node||'?')+'» نمی‌شود.</b> علت: '+esc(bad.reason||'نامشخص')};
+ }catch(e){return {ok:false,html:'<b>بررسی ناموفق بود.</b> نتوانستم امکانِ جعل را از نودها بپرسم.'}}}
+function spoofApplyCap(idp,ok,html,offFn){var cap=el(idp+'cap');if(cap){cap.className='spoofcap '+(ok?'ok':'no');cap.innerHTML=(ok?ic('okc'):ic('xc'))+'<span>'+html+'</span>'}
+ var dr=el(idp+'decoyrow'),sr=el(idp+'srcrow');
+ if(dr)dr.classList.toggle('dis',!ok);if(sr)sr.classList.toggle('dis',!ok);
+ if(!ok&&offFn)offFn()}
+var _corDecoy=false,_corSrc=false,_corSpoofOk=false;
+function corSpoofVis(){var w=el('e_spoofblk');if(!w)return;var show=(_corTr=='raw'&&_corRawProfile=='bip');w.style.display=show?'':'none';if(show)corSpoofProbe()}
+async function corSpoofProbe(){var cap=el('e_cap');if(!cap)return;cap.className='spoofcap wait';cap.innerHTML='بررسیِ امکانِ جعل روی نودها…';
+ var res=await spoofProbePair(ssVal('e_a'),ssVal('e_b'));_corSpoofOk=res.ok;
+ spoofApplyCap('e_',res.ok,res.html,function(){_corDecoy=false;_corSrc=false;
+  var d=el('e_decoysw'),s=el('e_srcsw');if(d)d.classList.remove('on');if(s)s.classList.remove('on');
+  var di=el('e_decoyiprow'),si=el('e_srciprow');if(di)di.style.display='none';if(si)si.style.display='none'})}
+function corToggleDecoy(){if(!_corSpoofOk)return;_corDecoy=!_corDecoy;el('e_decoysw').classList.toggle('on',_corDecoy);el('e_decoyiprow').style.display=_corDecoy?'':'none'}
+function corToggleSrc(){if(!_corSpoofOk)return;_corSrc=!_corSrc;el('e_srcsw').classList.toggle('on',_corSrc);el('e_srciprow').style.display=_corSrc?'':'none'}
 function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corTr=='raw')?'':'none'}
 function corPortGate(){var p=el('e_port');if(!p)return;var raw=_corTr=='raw';p.disabled=raw;if(raw)p.value='';p.placeholder=raw?'raw پورت ندارد':'20050'}
-function corSetProfile(p){_corRawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)})}
+function corSetProfile(p){_corRawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis()}
 function corToggleGso(){_corGso=!_corGso;var s=el('e_gso');if(s)s.classList.toggle('on',_corGso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corObfs=!_corObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corObfs)}
 function corToggleCover(){if(_corTr!='tcp')return;_corCover=!_corCover;var s=el('e_cover');if(s)s.classList.toggle('on',_corCover);corSniVis()}
@@ -3938,7 +4020,7 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
   ipSecTitle()+'<div class="grid2"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -3948,6 +4030,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>روشِ رمزنگاری</label>'+ssHTML('e_cipher',CORE_CIPHERS,'auto','رمز','onCorCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button></div>'+
   '<div id="e_rawblk" style="display:none"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NATِ ایران رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
+  spoofSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox dis" id="e_coverrow"><div class="tglsw" id="e_cover" onclick="corToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
   '<div id="e_snirow" style="display:none"><label>سایتِ پوشش (SNI) — الزامی</label><input id="e_sni" placeholder="مثلاً یک سایتِ HTTPSِ واقعی و محبوب"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.</div></div>'+
@@ -3957,7 +4040,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ هسته</h3><div class="sb">هستهٔ اختصاصی · packet/core</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corCoverGate();corPortGate()}
-function onCorNode(){renderCorIps();corRoleLbls()}
+function onCorNode(){renderCorIps();corRoleLbls();if(el('e_spoofblk')&&_corTr=='raw'&&_corRawProfile=='bip')corSpoofProbe()}
 function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;
  var ips=nodeIps(ssVal('e_'+side)),lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';
  w.innerHTML=ipField('e_'+side+'ip_sel',ips,lab)})}
@@ -3970,6 +4053,9 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_corRawProfile}
+ if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
+  if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
+  if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
  var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
  var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
@@ -3981,10 +4067,23 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false;
-function ceSetTr(t){_eeTr=t;var u=el('ee_tr_udp'),c=el('ee_tr_tcp'),r=el('ee_tr_raw');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');if(r)r.classList.toggle('on',t=='raw');ceRawVis();cePortGate();ceCoverGate()}
+function ceSetTr(t){_eeTr=t;var u=el('ee_tr_udp'),c=el('ee_tr_tcp'),r=el('ee_tr_raw');if(u)u.classList.toggle('on',t=='udp');if(c)c.classList.toggle('on',t=='tcp');if(r)r.classList.toggle('on',t=='raw');ceRawVis();cePortGate();ceCoverGate();ceSpoofVis()}
+var _eeDecoy=false,_eeSrc=false,_eeSpoofOk=false,_eeNodesArr=['',''];
+function ceSpoofVis(){var w=el('ee_spoofblk');if(!w)return;var show=(_eeTr=='raw'&&_eeRawProfile=='bip');w.style.display=show?'':'none';if(show)ceSpoofProbe()}
+async function ceSpoofProbe(){var cap=el('ee_cap');if(!cap)return;cap.className='spoofcap wait';cap.innerHTML='بررسیِ امکانِ جعل روی نودها…';
+ var res=await spoofProbePair(_eeNodesArr[0],_eeNodesArr[1]);_eeSpoofOk=res.ok;
+ spoofApplyCap('ee_',res.ok,res.html,function(){_eeDecoy=false;_eeSrc=false;
+  var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.remove('on');if(s)s.classList.remove('on');
+  var di=el('ee_decoyiprow'),si=el('ee_srciprow');if(di)di.style.display='none';if(si)si.style.display='none'})}
+function ceToggleDecoy(){if(!_eeSpoofOk)return;_eeDecoy=!_eeDecoy;el('ee_decoysw').classList.toggle('on',_eeDecoy);el('ee_decoyiprow').style.display=_eeDecoy?'':'none'}
+function ceToggleSrc(){if(!_eeSpoofOk)return;_eeSrc=!_eeSrc;el('ee_srcsw').classList.toggle('on',_eeSrc);el('ee_srciprow').style.display=_eeSrc?'':'none'}
+function ceSpoofPrefill(l){var di=el('ee_decoyip'),si=el('ee_srcip');if(di&&l.spoof_dst)di.value=l.spoof_dst;if(si&&l.spoof_src)si.value=l.spoof_src;
+ _eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;
+ var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.toggle('on',_eeDecoy);if(s)s.classList.toggle('on',_eeSrc);
+ var dr=el('ee_decoyiprow'),sr=el('ee_srciprow');if(dr)dr.style.display=_eeDecoy?'':'none';if(sr)sr.style.display=_eeSrc?'':'none'}
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeTr=='raw')?'':'none'}
 function cePortGate(){var p=el('ee_port');if(!p)return;var raw=_eeTr=='raw';p.disabled=raw;if(raw)p.value='';p.placeholder=raw?'raw پورت ندارد':'20050'}
-function ceSetProfile(p){_eeRawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)})}
+function ceSetProfile(p){_eeRawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis()}
 function ceToggleGso(){_eeGso=!_eeGso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeGso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeObfs=!_eeObfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeObfs)}
 function ceToggleCover(){if(_eeTr!='tcp')return;_eeCover=!_eeCover;var s=el('ee_cover');if(s)s.classList.toggle('on',_eeCover);ceSniVis()}
@@ -3993,7 +4092,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(l.transport=='tcp'||l.transport=='raw')?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(l.transport=='tcp'||l.transport=='raw')?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
@@ -4003,6 +4102,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',CORE_CIPHERS,(l.cipher||'auto'),'رمز','onEeCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
+  spoofSection('ee_','ce')+
   '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox'+((_eeTr!='tcp')?' dis':'')+'" id="ee_coverrow"><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
   '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>سایتِ پوشش (SNI) — الزامی</label><input id="ee_sni" placeholder="مثلاً یک سایتِ HTTPSِ واقعی و محبوب" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).</div></div>'+
@@ -4011,7 +4111,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ تونلِ هسته</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- ceRoleLbls(l);cePortGate()}
+ ceRoleLbls(l);cePortGate();ceSpoofPrefill(l);ceSpoofVis()}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' سرور</b><span>'+esc(l.b_name)+' کلاینت</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' سرور</b><span>'+esc(l.a_name)+' کلاینت</span>'}
@@ -4020,6 +4120,9 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_eeRawProfile}
+ if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
+  if(_eeDecoy){var dip=(v('ee_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
+  if(_eeSrc){var sip=(v('ee_srcip')||'').trim();if(sip)body.spoof_src=sip}}
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
  var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
  var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
