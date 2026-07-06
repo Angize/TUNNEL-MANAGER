@@ -29,20 +29,20 @@ def check(name, cond):
 # in data-* attributes (attribute-escaped via esc) and the handlers read them from `this`.
 html = tnl.INDEX_HTML
 
-check("eng button uses onclick=engMenu(this)", 'onclick="engMenu(this)"' in html)
-check("eng button carries data-nid/data-cur", 'data-nid="' in html and 'data-cur="' in html)
-check("engMenu reads data-nid/data-cur from the button",
-      "function engMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur')" in html)
-check("engPick reads data-nid/data-v from the row",
-      "function engPick(row){var id=row.getAttribute('data-nid');var ver=row.getAttribute('data-v')" in html)
-check("eng menu row uses onclick=engPick(this)", 'onclick="engPick(this)"' in html)
+check("cor button uses onclick=corMenu(this)", 'onclick="corMenu(this)"' in html)
+check("cor button carries data-nid/data-cur", 'data-nid="' in html and 'data-cur="' in html)
+check("corMenu reads data-nid/data-cur from the button",
+      "function corMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur')" in html)
+check("corPick reads data-nid/data-v from the row",
+      "function corPick(row){var id=row.getAttribute('data-nid');var ver=row.getAttribute('data-v')" in html)
+check("cor menu row uses onclick=corPick(this)", 'onclick="corPick(this)"' in html)
 check("del button uses onclick=delNode(this) with data-nm", 'onclick="delNode(this)"' in html and 'data-nm="' in html)
 check("delNode reads data-nid/data-nm from the button",
       "function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm')" in html)
 
 # The vulnerable pattern (a node string interpolated into a quoted arg of an inline on*= handler)
-# must be gone. In the runtime JS these looked like  onclick="engMenu(\'..'+esc(..)+'..\')".
-check("no engMenu(\\' inline-JS interpolation remains", "engMenu(\\'" not in html)
+# must be gone. In the runtime JS these looked like  onclick="corMenu(\'..'+esc(..)+'..\')".
+check("no corMenu(\\' inline-JS interpolation remains", "corMenu(\\'" not in html)
 check("no delNode(...,esc(name)) inline-JS interpolation remains", "esc(n.name)+'\\')" not in html)
 # No on*= handler embeds an esc()-encoded value inside a single-quoted JS string literal.
 bad = re.findall(r"on\w+=\"[^\"]*\\'[^\"]*esc\(", html)
