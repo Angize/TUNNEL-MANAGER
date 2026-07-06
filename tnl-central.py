@@ -820,6 +820,8 @@ def _tunnel_extra(src):
         e["ws_path"] = src["ws_path"]
     if src.get("ws_tls"):                # ws client speaks wss (TLS to the CDN edge)
         e["ws_tls"] = True
+    if src.get("edge_ip"):               # ws client dials this CDN edge instead of the origin
+        e["edge_ip"] = src["edge_ip"]
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
     if src.get("spoof_src"):             # forge the outer source (raw bip; client only, node applies by role)
@@ -1868,6 +1870,12 @@ def _ws_fields(d, transport, cur=None):
         if not host:
             raise ValueError("برای wss (TLS به CDN) باید دامنه (ws_host) را وارد کنی")
         out["ws_tls"] = True
+    edge = str(d.get("edge_ip") or cur.get("edge_ip") or "").strip()  # CDN edge the client dials
+    if edge:
+        eh = edge.rpartition(":")[0] or edge
+        if not re.match(r"^[A-Za-z0-9.\-]{1,253}$", eh):
+            raise ValueError("آدرسِ لبهٔ CDN (edge_ip) نامعتبر است")
+        out["edge_ip"] = edge
     return out
 
 
@@ -2211,6 +2219,7 @@ def _edit_link_impl(d):
         and (extra.get("ws_host") or "") == (L.get("ws_host") or "")
         and (extra.get("ws_path") or "") == (L.get("ws_path") or "")
         and bool(extra.get("ws_tls")) == bool(L.get("ws_tls"))
+        and (extra.get("edge_ip") or "") == (L.get("edge_ip") or "")
         and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
         and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
         and bool(extra.get("gso")) == bool(L.get("gso")))
@@ -2255,7 +2264,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "ws_host", "ws_path", "ws_tls", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "ws_host", "ws_path", "ws_tls", "edge_ip", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -4201,11 +4210,12 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. <b>udp/stun</b> رویِ اینترنت رد می‌شوند؛ <b>raw</b> فقط هم‌سگمنت. رمزنگاری الزامی است.</div>'
  +'</div>'}
 // ---- ws (WebSocket / CDN) — shared markup.
-function wsSection(idp,fnp,host,path,tls){return '<div id="'+idp+'wsblk" style="display:none">'
+function wsSection(idp,fnp,host,path,tls,edge){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>دامنهٔ فرانت (Host / SNI)</label><input id="'+idp+'wshost" placeholder="مثلاً cdn.example.com" value="'+esc(host||'')+'">'
  +'<div class="tglbox" style="margin-top:11px"><div class="tglsw'+(tls?' on':'')+'" id="'+idp+'wstls" onclick="'+fnp+'ToggleWsTls()"></div><div class="tt"><b>wss (TLS به CDN)</b><small>کلاینت با TLS به لبهٔ CDN وصل می‌شود؛ سرور پشتِ CDN ساده می‌ماند. برای فرانتینگ لازم است.</small></div></div>'
+ +'<label>آی‌پیِ لبهٔ CDN (اختیاری) — کلاینت به‌جای مبدأ به این وصل می‌شود</label><input id="'+idp+'wsedge" class="mono" placeholder="مثلاً 104.16.0.1 یا 104.16.0.1:443" value="'+esc(edge||'')+'">'
  +'<label>مسیر (path)</label><input id="'+idp+'wspath" placeholder="/" value="'+esc(path||'')+'">'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">ترافیک شبیهِ WebSocket رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) با همین دامنه بگذار و <b>peer را به لبهٔ CDN</b> اشاره بده. رمزنگاری/استتار مثلِ TCP اعمال می‌شود.</div>'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">ترافیک شبیهِ WebSocket رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) با همین دامنه بگذار. اگر <b>لبهٔ CDN</b> را پر کنی، کلاینت مستقیم به لبه وصل می‌شود و دامنه فقط در Host/SNI می‌رود؛ خالی بگذاری، به آی‌پیِ مبدأ وصل می‌شود. رمزنگاری/استتار مثلِ TCP اعمال می‌شود.</div>'
  +'</div>'}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">شکلِ زنده</b> · epoch <span class="mono">#'+ep+'</span> · حامل <span class="mono">'+fc+'</span> · چرخشِ بعدی تا <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> دیگر';}
@@ -4244,7 +4254,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="e_rawblk" style="display:none"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NATِ ایران رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   fluxSection('e_','cor','udp',600,'random',null)+
-  wsSection('e_','cor','','',false)+
+  wsSection('e_','cor','','',false,'')+
   spoofSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox dis" id="e_coverrow"><div class="tglsw" id="e_cover" onclick="corToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
@@ -4269,7 +4279,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_corRawProfile}
  if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
- if(_corTr=='ws'){body.ws_host=(v('e_wshost')||'').trim();body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
+ if(_corTr=='ws'){body.ws_host=(v('e_wshost')||'').trim();body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;body.edge_ip=(v('e_wsedge')||'').trim();if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
  if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
   if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
@@ -4326,7 +4336,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt'+(_eeTr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt'+(_eeTr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   fluxSection('ee_','ce',_eeFluxCarrier,_eeFluxRotate,_eeFluxShape,id)+
-  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls)+
+  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls,l.edge_ip)+
   spoofSection('ee_','ce')+
   '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox'+((_eeTr!='tcp')?' dis':'')+'" id="ee_coverrow"><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
@@ -4346,7 +4356,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_eeRawProfile}
  if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
- if(_eeTr=='ws'){body.ws_host=(v('ee_wshost')||'').trim();body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
+ if(_eeTr=='ws'){body.ws_host=(v('ee_wshost')||'').trim();body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
  if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
   if(_eeDecoy){var dip=(v('ee_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
   if(_eeSrc){var sip=(v('ee_srcip')||'').trim();if(sip)body.spoof_src=sip}}
