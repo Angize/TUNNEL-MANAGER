@@ -2768,6 +2768,7 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--bord);border-ra
 input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
 .edit{margin-top:13px;padding:13px;border-radius:13px;background:var(--field);border:1px solid var(--bord)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.ipsec{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--tx);font-size:13px;margin:16px 2px 8px}
 .primary{margin-top:18px;background:var(--acc);color:#fff;border:0;font-weight:800;padding:12px 18px;border-radius:12px;cursor:pointer;font-family:inherit;box-shadow:0 9px 20px -11px color-mix(in srgb,var(--acc) 70%,transparent)}
 .primary:active{transform:scale(.98)}
 .ghost{margin-top:18px;margin-inline-start:8px;background:var(--glass);border:1px solid var(--bord);color:var(--sub);padding:12px 16px;border-radius:14px;cursor:pointer;font-family:inherit}
@@ -3843,29 +3844,26 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
 async function delLink(id){if(!await confirmBox('این تونل روی هر دو نود حذف شود؟'))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast('حذف ناقص: '+r.d.msg,'err');delete CHK[id];editingId=null;refreshFleet()}
 
 // ===== Create
+// one endpoint's IP field for the create forms: multi-IP -> dropdown; single-IP -> disabled box (like the edit form)
+function ipField(k,ips,lab){
+ if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','');
+ delete SEL[k];return '<label class="first">'+lab+'</label><input class="mono" value="'+esc(ips[0]||'—')+'" disabled style="opacity:.6">'}
+function ipSecTitle(){return '<div class="ipsec">'+ic('pin','var(--acc)')+'آی‌پیِ هر سرِ تونل</div>'}
 async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});selTargets={};
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','fillTargets')+'<div id="c_srcip"></div><label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<div id="c_typex"></div><label>نودِ مقصد (یک یا چند)</label><button type="button" class="msbtn ph" id="c_tgt_btn" onclick="toggleTgtList()"><span id="c_tgt_lbl">انتخابِ نودهای مقصد</span><span class="cv">'+ic('chev')+'</span></button><div id="c_tgtips"></div><label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه (فقط برای یک مقصد)</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ تونل</h3><div class="sb">یک مبدأ + یک یا چند مقصد</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">ساخت تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- fillTargets();renderTypeExtra()}
+ var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','onCreateSrc')+'</div>'+
+  '<div><label class="first">نودِ مقصد</label>'+ssHTML('c_b',items,items[1].v,'نودِ مقصد','onCreateDst')+'</div></div>'+
+  ipSecTitle()+'<div class="grid2"><div id="c_srcip"></div><div id="c_dstip"></div></div>'+
+  '<label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<div id="c_typex"></div>'+
+  '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ تونل</h3><div class="sb">سیستمی · یک مبدأ ↔ یک مقصد</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">ساخت تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
+ renderSrcIp();renderDstIp();renderTypeExtra()}
 function onSubnetRange(){var w=el('c_snc_wrap');if(w)w.style.display=(ssVal('c_snr')=='custom')?'block':'none'}
-function fillTargets(){selTargets={};updateTgt();renderSrcIp();renderTgtIps()}  // reset on source change; list builds on open
-var _tgtOv=null;
-function toggleTgtList(){var a=ssVal('c_a');var on=NODES.filter(function(n){return n.online&&n.id!=a});  // destination = multi-select popup
- var search=on.length>10?'<input class="search sspopq" placeholder="جستجو…" oninput="msFilter(this)" autocomplete="off">':'';
- var rows=on.length?on.map(function(n){return '<div class="msrow'+(selTargets[n.id]?' sel':'')+'" data-id="'+n.id+'" onclick="tgtToggle(\\''+n.id+'\\')"><span class="mscheck"></span><span>'+esc(n.name)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(n.host)+'</span></div>'}).join(''):'<div class="muted" style="padding:11px 12px">نودِ آنلاینِ دیگری نیست</div>';
- _tgtOv=openModal('<div class="sspop">'+search+'<div class="sspoplist" id="c_tgt_list">'+rows+'</div></div><div style="padding:10px 6px 2px"><button class="primary" style="width:100%" onclick="if(_tgtOv){closeModal(_tgtOv);_tgtOv=null}">تمام</button></div>',{cls:'sssheet'})}
-function tgtToggle(id){if(selTargets[id])delete selTargets[id];else selTargets[id]=1;
- var row=document.querySelector('#c_tgt_list .msrow[data-id="'+id+'"]');if(row)row.classList.toggle('sel',!!selTargets[id]);updateTgt();renderTgtIps()}
-function updateTgt(){var b=el('c_tgt_btn'),l=el('c_tgt_lbl');if(!l)return;var n=Object.keys(selTargets).length;
- l.textContent=n?(n+' نود انتخاب شده'):'انتخابِ نودهای مقصد';b.classList.toggle('ph',!n)}
-function renderSrcIp(){var w=el('c_srcip');if(!w)return;var ips=nodeIps(ssVal('c_a'));
- if(ips.length>1){w.innerHTML='<label>آی‌پیِ نودِ مبدأ (چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</label>'+ssHTML('c_aip',ipItems(ips),(SEL['c_aip']&&ips.indexOf(SEL['c_aip'])>=0?SEL['c_aip']:ips[0]),'آی‌پی','')}
- else{w.innerHTML='';delete SEL['c_aip']}}   // single-IP source: clear any stale pick from a previous multi-IP source
-function renderTgtIps(){var w=el('c_tgtips');if(!w)return;var html='';Object.keys(selTargets).forEach(function(id){var ips=nodeIps(id);
- if(ips.length>1){var k='c_bip_'+id;html+='<label>آی‌پیِ مقصد «'+esc(nodeName(id))+'» (چند آی‌پی دارد)</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}});
- w.innerHTML=html}
+function onCreateSrc(){renderSrcIp()}
+function onCreateDst(){renderDstIp()}
+function renderDstIp(){var w=el('c_dstip');if(!w)return;w.innerHTML=ipField('c_bip',nodeIps(ssVal('c_b')),'آی‌پیِ نودِ مقصد')}
+function renderSrcIp(){var w=el('c_srcip');if(!w)return;w.innerHTML=ipField('c_aip',nodeIps(ssVal('c_a')),'آی‌پیِ نودِ مبدأ')}
 function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(ssVal('c_type')=='sit');
   if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
  renderTypeExtra()}
@@ -3875,19 +3873,17 @@ function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type'
  else if(t=='ipsec'){w.innerHTML='<div class="autonote" style="margin-bottom:11px">'+ic('shield')+'<span>رمزنگاری‌شده (ESP). کلید خودکار ساخته و امن به هر دو سر داده می‌شود — بدونِ دیمنِ خارجی.</span></div>'}
  else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
-async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a');var tgts=Object.keys(selTargets);
- if(!tgts.length){m.className='msg err';m.textContent='حداقل یک نودِ مقصد انتخاب کن';return}
- var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet'),aip=el('ssb_c_aip')?ssVal('c_aip'):'',okc=0,errs=[];
- if(range=='custom'&&tgts.length>1){m.className='msg err';m.textContent='سابنتِ دلخواه فقط برای یک مقصد است؛ برای چند مقصد یک رنجِ خودکار انتخاب کن';return}
- for(var i=0;i<tgts.length;i++){m.className='msg';m.textContent='در حال ساخت '+(i+1)+'/'+tgts.length+'…';
-  var bip=el('ssb_c_bip_'+tgts[i])?ssVal('c_bip_'+tgts[i]):'';   // only send an IP when its picker exists (multi-IP node); never a stale value
-  var body={a_node:a,b_node:tgts[i],type:type,a_ip:aip,b_ip:bip};
-  if(range=='custom')body.subnet=custom;else body.subnet_base=range;
-  if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
-  var r=await post('create-tunnel',body);
-  if(r.ok&&r.d.ok)okc++;else errs.push(nodeName(a)+' ↔ '+nodeName(tgts[i])+': '+(r.d.error||r.d.msg||'ناموفق'))}
- if(!errs.length){closeModal(m.closest('.modalov'));toast(okc+' تونل ساخته شد','ok')}
- else{if(okc>0)toast(okc+' تونل ساخته شد','ok');m.className='msg err';m.textContent=okc+'/'+tgts.length+' — '+errs.join(' | ')}}
+async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a'),b=ssVal('c_b');
+ if(a==b){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
+ var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet');
+ var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bip=el('ssb_c_bip')?ssVal('c_bip'):'';   // only send an IP when its picker exists (multi-IP node)
+ var body={a_node:a,b_node:b,type:type,a_ip:aip,b_ip:bip};
+ if(range=='custom')body.subnet=custom;else body.subnet_base=range;
+ if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
+ m.textContent='در حال ساختِ تونل…';
+ var r=await post('create-tunnel',body);
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونل ساخته شد','ok');refreshTunnels()}
+ else{m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}
 
 // ===== Custom core (packet/core) — its own view, list and create form
 function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' هستهٔ اختصاصی</h1><p class="sub">تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی</p>'+
@@ -3943,8 +3939,9 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;
- var b='<label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'<div id="e_aip"></div>'+
-  '<label>نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'<div id="e_bip"></div>'+
+ var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
+  '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
+  ipSecTitle()+'<div class="grid2"><div id="e_aip"></div><div id="e_bip"></div></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div>'+
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ <span id="e_trword">UDP</span> را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
   '<div class="autonote">'+ic('warn')+'<span><b>سرور باید سمتِ خارج باشد.</b> اگر نودِ داخلِ ایران را سرور بگذاری، تونل وصل نمی‌شود — ترافیکِ ورودی به ایران بسته است. سمتِ ایران باید کلاینت باشد و خودش به خارج وصل شود.</span></div>'+
@@ -3961,9 +3958,9 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ هسته</h3><div class="sb">هستهٔ اختصاصی · packet/core</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corCoverGate();corPortGate()}
 function onCorNode(){renderCorIps();corRoleLbls()}
-function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;var nid=ssVal('e_'+side),ips=nodeIps(nid),k='e_'+side+'ip_sel';
- if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';w.innerHTML='<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}
- else{w.innerHTML='';delete SEL[k]}})}
+function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;
+ var ips=nodeIps(ssVal('e_'+side)),lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';
+ w.innerHTML=ipField('e_'+side+'ip_sel',ips,lab)})}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>سابنتِ دلخواه</label><input id="e_subnet" placeholder="مثلا 192.168.99.0/24">':''}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' سرور</b><span>'+esc(bn)+' کلاینت</span>';
