@@ -3168,8 +3168,8 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.feat{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
 .enmeta .emcol>div.tagrow{overflow:visible;white-space:nowrap}
 .enmeta .feat .nofeat{opacity:.55}
-.enmeta .emcol>div.enc-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
-.enmeta .enc-line .enclock{align-items:center}
+.enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
+.enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
 .sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
@@ -3905,7 +3905,7 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  var feats=[];if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');
  var cap='<div class="feat">قابلیت‌ها: '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
  var encv=(l.cipher&&l.cipher!='none')
-   ?'<span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span>'
+   ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
    :'<b>بدونِ رمز</b>';
  var enc='<div class="enc-line">رمزنگاری: '+encv+'</div>';
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'}
