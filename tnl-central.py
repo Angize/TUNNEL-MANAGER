@@ -1126,6 +1126,8 @@ def api_node_add(d):
         save_json(NODES_FILE, nodes)
     p = node_call(node, "ping", "GET")
     _refresh_cache([node["id"]])
+    if p.get("ok"):                      # node reachable → stage-push the core now so it's ready before any tunnel build
+        _push_staged_on_add(get_node(node["id"]) or {**node, "arch": p.get("arch")})
     return {"ok": True, "id": node["id"], "online": bool(p.get("ok")),
             "error": "" if p.get("ok") else p.get("error", "unreachable")}
 
@@ -1255,6 +1257,8 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
             time.sleep(2)
         with _install_lock:
             _install_jobs[jid]["node_id"] = node["id"]
+        if online:                       # push the staged core now so the node is ready before any tunnel build
+            _push_staged_on_add(get_node(node["id"]) or node)
         _install_step(jid, "register", "ok" if online else "warn",
                       "نود وصل شد و آنلاین است" if online else "ثبت شد ولی هنوز پاسخ نمی‌دهد (پورتِ ایجنت را به سرورِ مرکزی باز کن)")
         _install_finish(jid, True, f"«{name}» نصب و وصل شد" if online else f"«{name}» ثبت شد؛ در انتظارِ آنلاین‌شدن")
@@ -1590,7 +1594,7 @@ def api_core_versions(d):
     if info:                                          # offer the operator-uploaded binary as its own choice
         out.append({"id": "custom", "label": "باینریِ آپلودشده" + (" · " + info["name"] if info.get("name") else ""),
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
-    return {"versions": out}
+    return {"versions": out, "staged": _staged_info()}   # staged = the core the panel has ready to push
 
 
 def _core_blob_info():
@@ -1628,15 +1632,155 @@ def api_core_upload(d):
     return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name}
 
 
+# ----------------------------------------------------------------------------- core delivery (panel is the source)
+# The NODE never downloads the core (nodes may have no internet — e.g. an Iran node). The panel is the
+# single source: it stages the binary on its own disk (downloaded from GitHub, per arch) and pushes
+# verified bytes to nodes via core-install. Everything below is that staging + push machinery.
+_CORE_REL_DL = "https://github.com/Angize/TUNNEL-MANAGER-CORE/releases"
+CORE_STAGE_DIR = os.path.join(CENTRAL_DIR, "core-stage")            # tnl-core-<arch> binaries, ready to push
+CORE_STAGE_META = os.path.join(CENTRAL_DIR, "core-stage.meta.json")  # {version, arches, ts}
+_core_stage_lock = threading.Lock()
+
+
+def _resolve_core_version(version):
+    """Turn "latest"/"" into the newest concrete release tag, so a staged/pushed node records a real
+    version rather than the abstract "latest". Falls back to "latest" if the release list is unknown."""
+    version = (version or "latest").strip() or "latest"
+    if version != "latest":
+        return version
+    for v in (api_core_versions({}).get("versions") or []):
+        if v.get("id") and v["id"] != "custom":
+            return v["id"]
+    return "latest"
+
+
+def _dl(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": "tnl-central"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def _fetch_release(version, arch):
+    """Download + verify a core release asset (binary + its .sha256) from GitHub. Returns (raw, sha).
+    Raises on any failure — this is the ONLY place that talks to GitHub for the core binary."""
+    asset = f"tnl-core-linux-{arch}"
+    base = (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
+            else f"{_CORE_REL_DL}/download/{version}/{asset}")
+    sha = _dl(base + ".sha256", 30).decode().split()[0].strip().lower()
+    if len(sha) != 64:
+        raise RuntimeError("checksum unavailable from the release")
+    raw = _dl(base, 180)
+    if hashlib.sha256(raw).hexdigest() != sha:
+        raise RuntimeError("release checksum mismatch")
+    return raw, sha
+
+
+def _staged_info():
+    """{version, arches, ts} for the core currently staged on the panel, or None if nothing is staged."""
+    try:
+        with open(CORE_STAGE_META) as f:
+            info = json.load(f)
+        return info if info.get("version") else None
+    except Exception:
+        return None
+
+
+def _stage_core(version):
+    """Download the resolved version for amd64 (required) and arm64 (best-effort) and persist it on the
+    panel as the staged core, ready to push to internet-less nodes. Returns {version, arches}. Raises if
+    the panel itself cannot fetch the amd64 asset (e.g. the panel has no internet)."""
+    rel = _resolve_core_version(version)
+    os.makedirs(CORE_STAGE_DIR, exist_ok=True)
+    got = []
+    with _core_stage_lock:
+        for arch in ("amd64", "arm64"):
+            try:
+                raw, _ = _fetch_release(rel, arch)
+            except Exception:
+                if arch == "amd64":
+                    raise
+                continue           # arm64 is optional; fetched on demand at push time if a node needs it
+            with open(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), "wb") as f:
+                f.write(raw)
+            got.append(arch)
+        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "ts": int(time.time())})
+    return {"version": rel, "arches": got}
+
+
+def _staged_bytes(arch):
+    """(raw, sha, version) for the staged core at arch — fetching+persisting that arch on demand if the
+    staged version is set but its file isn't present yet. None if nothing is staged (or the arch can't
+    be fetched and isn't cached)."""
+    info = _staged_info()
+    if not info:
+        return None
+    ver = info["version"]
+    p = os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}")
+    if not os.path.isfile(p):
+        try:
+            raw, sha = _fetch_release(ver, arch)
+        except Exception:
+            return None
+        os.makedirs(CORE_STAGE_DIR, exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(raw)
+        return raw, sha, ver
+    with open(p, "rb") as f:
+        raw = f.read()
+    return raw, hashlib.sha256(raw).hexdigest(), ver
+
+
+def _push_staged(node):
+    """Push the staged core to one node via core-install (no node download). Returns a result dict."""
+    b = _staged_bytes(node.get("arch") or "amd64")
+    if not b:
+        return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
+    raw, sha, ver = b
+    return node_call(node, "core-install", "POST",
+                     {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver}, timeout=200)
+
+
+def _push_staged_on_add(node):
+    """Best-effort: push the staged core to a freshly-added node so it is ready before any tunnel build.
+    Silent on failure (the node may be briefly unreachable; the build path relays as a fallback)."""
+    try:
+        if _staged_info():
+            _push_staged(node)
+    except Exception:
+        pass
+
+
+def _node_tunnel(node, body):
+    """node_call the tunnel op; if a core tunnel fails because the node has no core binary (it never
+    downloads its own), push the staged binary from the panel and retry once — so building a core tunnel
+    on an internet-less node just works. If the panel has nothing staged, surface a clear message."""
+    r = node_call(node, "tunnel", "POST", body, timeout=200)
+    err = str(r.get("error") or r.get("msg") or "")
+    if not r.get("ok") and "core not installed" in err:
+        pr = _push_staged(node)
+        if not pr.get("ok"):
+            r["error"] = f"هسته روی نودِ «{node.get('name', '?')}» نصب نیست و پنل هم چیزی برای پوش ندارد — اول یک نسخه دانلود کن"
+            return r
+        r = node_call(node, "tunnel", "POST", body, timeout=200)
+    return r
+
+
+def api_core_stage(d):
+    """Download a core version onto the PANEL and keep it staged (ready to push). This is the
+    'get from GitHub' action for the core. version defaults to latest."""
+    info = _stage_core(str((d or {}).get("version") or "latest").strip())
+    return {"ok": True, **info}
+
+
 def api_core_update(d):
-    """Install an core version on the given node ids and restart their core tunnels. `version` is a
-    release tag, "latest", or "custom" (the operator-uploaded binary). Downgrade is just an older tag.
-    Mirrors agent-push, but for the data-plane binary."""
+    """Install a core version on the given node ids and restart their core tunnels. The panel stages the
+    version (downloads it once) and PUSHES the bytes to each node — nodes never download. `version` is a
+    release tag, "latest", or "custom" (the operator-uploaded binary)."""
     _require(d, ["ids", "version"])
     version = str(d.get("version") or "latest").strip()
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
-    if version == "custom":                          # push the stored blob's bytes directly (core-install)
+    if version == "custom":                          # push the operator-uploaded blob's bytes directly
         info = _core_blob_info()
         if not info:
             raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
@@ -1651,19 +1795,41 @@ def api_core_update(d):
                 return {"id": nid, "ok": False, "error": "node removed"}
             r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom"}, timeout=200)
             err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-            return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
-                    "version": r.get("version"), "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
+            return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+                    "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
 
         return {"results": parallel_map(one_custom, ids)}
+
+    _stage_core(version)   # download the chosen version onto the panel first (raises if the panel is offline)
 
     def one(nid):
         n = get_node(nid)
         if not n:
             return {"id": nid, "ok": False, "error": "node removed"}
-        r = node_call(n, "core-update", "POST", {"version": version}, timeout=200)  # download + rebuild takes a while
+        r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
-                "version": r.get("version"), "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
+        return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
+
+    return {"results": parallel_map(one, ids)}
+
+
+def api_core_push(d):
+    """Push the currently-staged core to the given node ids (the 'push the ready binary' per-node action).
+    No download, no version pick — just deliver what the panel already has staged."""
+    _require(d, ["ids"])
+    if not _staged_info():
+        raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
+    ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
+
+    def one(nid):
+        n = get_node(nid)
+        if not n:
+            return {"id": nid, "ok": False, "error": "node removed"}
+        r = _push_staged(n)
+        err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
+        return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "error": err}
 
     return {"results": parallel_map(one, ids)}
 
@@ -2004,10 +2170,10 @@ def _create_tunnel_impl(d):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
-    ra = node_call(A, "tunnel", "POST", a_body, timeout=200)
+    ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
-    rb = node_call(B, "tunnel", "POST", b_body, timeout=200)
+    rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         rr = node_call(A, "delete", "POST", {"name": name})  # roll back A side
         warn = "" if rr.get("ok") else f" — هشدار: '{name}' روی {A['name']} پاک نشد، دستی تمیزش کن"
@@ -2248,11 +2414,11 @@ def _edit_link_impl(d):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
-    ra = node_call(A, "tunnel", "POST", a_body, timeout=200)
+    ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
-    rb = node_call(B, "tunnel", "POST", b_body, timeout=200)
+    rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         if name_changed:
             node_call(A, "delete", "POST", {"name": new_name})
@@ -2344,11 +2510,11 @@ def _rebuild_link_impl(d):
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     if ttype == "core":   # role is per-node, replayed from the stored server_side
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-    ra = node_call(A, "tunnel", "POST", a_body, timeout=200)
+    ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L)   # both ends were pre-deleted; best-effort rebuild to the prior state
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
-    rb = node_call(B, "tunnel", "POST", b_body, timeout=200)
+    rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
@@ -2660,11 +2826,11 @@ API = {
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-update": api_core_update,
-    "core-upload": api_core_upload,
+    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload"}
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -3873,7 +4039,7 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
 function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">آنلاین</span>':(n.pending?'<span class="badge na">در حال بررسی…</span>':'<span class="badge bad">آفلاین</span>');
  var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">پروکسی</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
- var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+(i.core_ver?'<span class="nchip" title="نسخهٔ هسته">'+ic('cpu')+'هسته <b>'+esc(i.core_ver)+'</b></span>':'')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
+ var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip" title="نسخهٔ هسته">'+ic('cpu')+'هسته <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" title="هسته روی نود نصب نیست" style="color:var(--sub)">'+ic('cpu')+'هسته <b>نصب نیست</b></span>')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="تست" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="مشخصات" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="ویرایش" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
@@ -4439,9 +4605,11 @@ function agentBody(){return ''+
   '<div class="agx-div"></div>'+
   '<div class="agx-corlab"><span class="chip" style="--hue:#8b5cf6;width:22px;height:22px;border-radius:6px">'+ic('cpu','#8b5cf6')+'</span> هستهٔ داده</div>'+
   '<div class="agx-corrow"><span id="cor_ver_box" class="grow"></span>'+
+    '<button class="agx-mini gho" title="دانلودِ نسخهٔ انتخابی روی پنل (آماده‌ی پوش به نودها)" onclick="corStage()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
     '<button class="agx-mini pri" onclick="corPushAll()">نصبِ همه</button>'+
     '<button class="agx-mini gho" title="آپلودِ فایلِ باینریِ هسته به‌عنوان نسخهٔ custom" onclick="el(\\'cor_file\\').click()">'+ic('plus')+'باینری</button>'+
   '</div>'+
+  '<div id="cor_staged" class="agx-hint"></div>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.</div>'+
   '<div class="msg" id="cor_msg"></div>'+
@@ -4460,15 +4628,26 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
  box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">موردی نیست</div>';renderPager('agent')}
-var CORVERS=[];
+var CORVERS=[],STAGED=null;
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[]}});
- CORVERS=r.versions||[];
+ CORVERS=r.versions||[];STAGED=r.staged||null;
+ var sb=el('cor_staged');
+ if(sb)sb.innerHTML=STAGED?('✅ آماده‌ی پوش روی پنل: <b class="mono">'+esc(STAGED.version)+'</b>'+(STAGED.arches&&STAGED.arches.length?' ('+STAGED.arches.join(', ')+')':'')):'<span class="muted">هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.</span>';
  var box=el('cor_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
  var sel=want||ssVal('corver')||(items.length?items[0].v:'');   // default to the newest real version (no synthetic "latest")
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
  box.innerHTML=ssHTML('corver',items,sel,'انتخاب نسخه','')}
+async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';m.textContent='در حال دانلودِ هسته روی پنل…';
+ var res=await post('core-stage',{version:ver});
+ if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML='هستهٔ «'+esc(res.d.version)+'» روی پنل آماده شد'+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+CK;loadCoreVersions()}
+ else{m.className='msg err';m.textContent=(res.d&&(res.d.error||res.d.msg))||'ناموفق — پنل به گیت‌هاب دسترسی دارد؟'}}
+async function corPushStaged(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال پوشِ هستهٔ آماده…'}
+ var res=await post('core-push',{ids:[id]});var x=((res.d&&res.d.results)||[])[0]||{};
+ if(m){if(x.ok){m.className='msg agres ok';m.innerHTML='هسته → '+esc(x.version||'')+' · '+num(x.restarted)+' تونل'+CK}
+  else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
+ setTimeout(refreshAgent,4000)}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast('اول نسخه را انتخاب کن','err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast('نودِ آنلاینی نیست','err');return}
@@ -4499,12 +4678,14 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML='باینری ذخیره شد: '+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+' — «نصبِ همه» را بزن یا از منوی هر نود';
   await loadCoreVersions('custom')}
  else{m.className='msg err';m.textContent=(res.d&&res.d.error)||'ناموفق'}}
-function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';var cor=i.core_ver?esc(i.core_ver):'—';var st,agdis;
+function agRow(n){var i=n.info||{};var ver=i.version?('v'+num(i.version)):'—';
+ var installed=!!(i.core_sha&&String(i.core_sha).length);   // core_sha empty => no binary on the node
+ var cor=installed?esc(i.core_ver||'?'):'نصب نیست';var st,agdis;
  if(!n.online){st='<span class="badge na">آفلاین</span>';agdis=1}
  else if(AGMETA&&!AGMETA.none&&i.sha256===AGMETA.sha256){st='<span class="badge ok">به‌روز</span>';agdis=1}
  else if(AGMETA&&!AGMETA.none){st='<span class="badge warn">آپدیت</span>';agdis=0}
  else{st='';agdis=1}
- return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+cor+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn cor"'+(n.online?'':' disabled')+' data-nid="'+esc(n.id)+'" data-cur="'+esc(i.core_ver||'')+'" onclick="corMenu(this)" title="بردنِ هستهٔ این نود به نسخهٔ خاص">'+ic('cpu')+'هسته ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+ return '<div class="agx-row"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+ver+'</span><span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+cor+'</span>'+st+'<span class="grow"></span><div class="agx-col"><button class="agx-btn"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button><button class="agx-btn cor"'+(n.online&&STAGED?'':' disabled')+' onclick="corPushStaged(\\''+n.id+'\\')" title="پوشِ هستهٔ آماده‌ی روی پنل به این نود">'+ic('cpu')+'پوشِ آماده'+(STAGED?(' · '+esc(STAGED.version)):'')+'</button><button class="agx-btn cor"'+(n.online?'':' disabled')+' data-nid="'+esc(n.id)+'" data-cur="'+esc(i.core_ver||'')+'" onclick="corMenu(this)" title="دانلود و پوشِ نسخهٔ خاص از پنل به این نود">'+ic('cpu')+'نسخه ▾</button></div><div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 var _corOv=null;
 function corMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur');if(!CORVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
  var rows=CORVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" data-nid="'+esc(id)+'" onclick="corPick(this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
@@ -4677,6 +4858,11 @@ def do_install():
     write_service()
     svc("enable")
     svc("restart")
+    try:                              # stage the latest core now so nodes (incl. internet-less ones) get it by push
+        info = _stage_core("latest")
+        print(f"[✔] staged core {info['version']} ({', '.join(info['arches'])}) — ready to push to nodes")
+    except Exception as e:
+        print(f"[!] could not pre-download the core ({e}); stage it later from the panel (هستهٔ داده → دریافت از گیت‌هاب)")
     print("[✔] tnl-central installed and started.")
     print(f"[→] open  http://{central_ip()}:{conf['port']}/   (user: {conf.get('user')})")
 
