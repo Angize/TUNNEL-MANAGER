@@ -1548,7 +1548,9 @@ def api_core_versions(d):
             _core_versions_cache["data"] = vers
             _core_versions_cache["ts"] = now
         vers = list(_core_versions_cache["data"] or [])
-    out = [{"id": "latest", "label": "آخرین (latest)"}] + vers
+    out = list(vers)  # newest first
+    if out:  # tag the newest real release "(latest)" instead of a synthetic "latest" item
+        out[0] = {**out[0], "label": (out[0].get("label") or out[0]["id"]) + " (latest)", "latest": True}
     info = _core_blob_info()
     if info:                                          # offer the operator-uploaded binary as its own choice
         out.append({"id": "custom", "label": "باینریِ آپلودشده" + (" · " + info["name"] if info.get("name") else ""),
@@ -2953,7 +2955,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .bigrow{display:flex;gap:18px;align-items:baseline;margin-bottom:4px}.bigrow .b{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .subline{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
 /* slimmed node card: plain meta labels (NOT boxed — distinct from the .chip icon badge) */
-.nchips{display:flex;flex-wrap:wrap;gap:8px 15px;margin-top:9px}
+.nchips{display:grid;grid-template-columns:auto auto;justify-content:start;gap:7px 16px;margin-top:9px}
 .nchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--sub)}
 .nchip b{color:var(--tx);font-weight:700}.nchip .ic{width:13px;height:13px;color:var(--sub)}
 /* uptime bar on the node card */
@@ -3061,19 +3063,14 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .rbrow.sel .rbdot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
 .rbrow .rbtags{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 /* IP peer chips (node details + picker): tap a node chip to reveal the tunnel type */
-.ippeer{position:relative;display:inline-flex}
-.ipchip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:var(--accw);color:var(--acc);cursor:pointer;user-select:none;transition:transform .12s}
-.ipchip:active{transform:scale(.95)}
-.ippeer .iptyp{position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);display:none;font-size:10px;font-weight:800;padding:3px 8px;border-radius:7px;white-space:nowrap;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.2)}
-.ippeer.show .iptyp{display:inline-flex}
-.ippeer .iptyp::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent}
-.iptyp.vxlan{color:#fff;background:var(--acc)}.iptyp.vxlan::after{border-top-color:var(--acc)}
-.iptyp.gre{color:#fff;background:var(--ok)}.iptyp.gre::after{border-top-color:var(--ok)}
-.iptyp.sit{color:#fff;background:#a855f7}.iptyp.sit::after{border-top-color:#a855f7}
-.iptyp.ipip{color:#fff;background:#14b8a6}.iptyp.ipip::after{border-top-color:#14b8a6}
-.iptyp.l2tpv3{color:#fff;background:#8b5cf6}.iptyp.l2tpv3::after{border-top-color:#8b5cf6}
-.iptyp.fou{color:#fff;background:#ec4899}.iptyp.fou::after{border-top-color:#ec4899}
-.iptyp.ipsec{color:#fff;background:#f43f5e}.iptyp.ipsec::after{border-top-color:#f43f5e}
+/* IP peer chip: tap to swap the label in place between node name and interface name */
+.ippeer{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;background:var(--accw);color:var(--acc);cursor:pointer;user-select:none;transition:transform .12s,background .15s,color .15s}
+.ippeer:active{transform:scale(.95)}
+.ippeer .ipn{display:inline-flex;align-items:center;gap:4px}
+.ippeer .ipi{display:none}
+.ippeer.show .ipn{display:none}
+.ippeer.show .ipi{display:inline}
+.ippeer.show{background:var(--acc);color:#fff}
 /* ===== add-node: mode switch + SSH auto-install progress ===== */
 .seg{display:flex;background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:4px;gap:4px;margin-bottom:14px}
 .seg button{flex:1;border:0;background:transparent;color:var(--sub);font-family:inherit;font-weight:800;font-size:13px;padding:9px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
@@ -3122,6 +3119,15 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .ippf{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,#fb923c 15%,transparent);color:#fb923c}.ippf .ic{width:12px;height:12px}
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
+/* compact settings rows (option B) */
+.setrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bord)}
+.setrow:last-of-type{border-bottom:0}
+.setlbl b{font-size:13px;font-weight:700;color:var(--tx)}
+.setlbl span{display:block;font-size:11px;color:var(--sub);margin-top:1px}
+.setctl{flex:0 0 auto;min-width:118px;max-width:150px}
+.setctl>*{width:100%}
+.setctl .setfield{padding:8px 12px;font-size:13px}
+.setctl input.search{padding:8px 12px}
 .setfield .val{color:var(--gold)}
 .setfield .cv{margin-inline-start:auto;color:var(--sub)}
 .modal.modesheet{max-width:320px;padding:6px}
@@ -3159,6 +3165,11 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.wrap{white-space:normal;overflow:visible}
 .enmeta .emcol b{color:var(--tx);font-weight:700}
 .enmeta .earrow{visibility:hidden}
+.enmeta .emcol>div.feat{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
+.enmeta .emcol>div.tagrow{overflow:visible;white-space:nowrap}
+.enmeta .feat .nofeat{opacity:.55}
+.enmeta .encrow{grid-column:1 / -1;display:flex;align-items:center;gap:5px;border-top:1px dashed var(--bord);margin-top:4px;padding-top:8px}
+.enmeta .encrow .enclock{align-items:center}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
 .sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
@@ -3722,7 +3733,7 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
  var idr='<div>شناسه: <b>'+esc(l.tunnel_id)+'</b></div>';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div>نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
+ var typ='<div class="tagrow">نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
  var right,left;
  if(l.type=='ipsec'){right=sub+idr+ifc;left=typ+'<div class="wrap">رمزنگاری: <span class="enc">'+ic('lock','var(--bad)')+'رمزنگاری‌شده</span></div>'}
  else if((l.type=='l2tpv3'||l.type=='fou'||l.type=='vxlan')&&l.port){right=sub+idr+ifc;left=typ+'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>'}
@@ -3798,7 +3809,7 @@ var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="c
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
 var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 function ipChips(x){var t=(x.peers||[]).map(function(p){
-  return '<span class="ippeer" onclick="ipTog(event,this)"><span class="ipchip">'+LINKI+' '+esc(p.node)+'</span><span class="iptyp '+esc(p.type)+'">'+esc(p.name||p.type)+'</span></span>'});
+  return '<span class="ippeer" onclick="ipTog(event,this)" title="بزن تا بینِ نامِ نود و اینترفیس جابه‌جا شود"><span class="ipn">'+LINKI+' '+esc(p.node)+'</span><span class="ipi">'+esc(p.name||p.type)+'</span></span>'});
  (x.pf||[]).forEach(function(nm){t.push('<span class="ippf">'+ic('globe')+' پورت‌فوروارد · '+esc(nm)+'</span>')});
  if(x.free)t.push('<span class="ipfree">آزاد</span>');return t.join('')}
 function ipTog(ev,el){if(ev)ev.stopPropagation();el.classList.toggle('show')}
@@ -3890,11 +3901,13 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  var prt=(l.transport!='raw'&&l.port)?'<div>پورت: <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>حامل: <b class="mono">'+tr+'</b></div>';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div class="wrap">نوع: <span class="tag core">Core</span>'+(l.obfs?' <span class="tag obfs">obfs</span>':'')+(l.cover?' <span class="tag obfs">TLS</span>':'')+(l.gso?' <span class="tag obfs">GSO</span>':'')+'</div>';
- var enc=(l.cipher&&l.cipher!='none')
-   ?'<div class="wrap">رمزنگاری: <span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span></div>'
-   :'<div>رمزنگاری: <b>بدونِ رمز</b></div>';
- return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+enc+'</div></div>'}
+ var typ='<div class="tagrow">نوع: <span class="tag core">Core</span></div>';
+ var feats=[];if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');
+ var cap='<div class="feat">قابلیت‌ها: '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
+ var encv=(l.cipher&&l.cipher!='none')
+   ?'<span class="enclock">'+ic('lock','var(--ok)')+'<span>'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span></span>'
+   :'<b>بدونِ رمز</b>';
+ return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+'</div><div class="encrow">رمزنگاری: '+encv+'</div></div>'}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
@@ -3929,8 +3942,8 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;
- var b='<label class="first">نودِ مبدأ (A)</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'<div id="e_aip"></div>'+
-  '<label>نودِ مقصد (B)</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'<div id="e_bip"></div>'+
+ var b='<label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'<div id="e_aip"></div>'+
+  '<label>نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'<div id="e_bip"></div>'+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div>'+
   '<div class="muted" style="font-size:11px;margin:-5px 2px 11px">نودِ سرور پورتِ <span id="e_trword">UDP</span> را باز می‌کند؛ نودِ کلاینت (معمولاً پشتِ NAT) به آن وصل می‌شود.</div>'+
   '<div class="autonote">'+ic('warn')+'<span><b>سرور باید سمتِ خارج باشد.</b> اگر نودِ داخلِ ایران را سرور بگذاری، تونل وصل نمی‌شود — ترافیکِ ورودی به ایران بسته است. سمتِ ایران باید کلاینت باشد و خودش به خارج وصل شود.</span></div>'+
@@ -3948,7 +3961,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  corRoleLbls();renderCorIps();corCoverGate();corPortGate()}
 function onCorNode(){renderCorIps();corRoleLbls()}
 function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;var nid=ssVal('e_'+side),ips=nodeIps(nid),k='e_'+side+'ip_sel';
- if(ips.length>1){w.innerHTML='<label>آی‌پیِ «'+esc(nodeName(nid))+'» <small>— چند آی‌پی دارد</small></label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}
+ if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';w.innerHTML='<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','')}
  else{w.innerHTML='';delete SEL[k]}})}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>سابنتِ دلخواه</label><input id="e_subnet" placeholder="مثلا 192.168.99.0/24">':''}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
@@ -3984,7 +3997,7 @@ function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
  editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(l.transport=='tcp'||l.transport=='raw')?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;
  var aips=l.a_ips||[],bips=l.b_ips||[];
- function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){return '<label>آی‌پیِ «'+esc(nm)+'»</label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
+ function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
   ipsel('a',l.a_ip,aips,l.a_name)+ipsel('b',l.b_ip,bips,l.b_name)+
   '<label>نقش‌ها — کدام نود listen کند (سرور)</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div>'+
@@ -4111,12 +4124,12 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">موردی نیست</div>';renderPager('agent')}
 var CORVERS=[];
 async function loadCoreVersions(want){
- var r=await j('core-versions').catch(function(){return{versions:[{id:'latest',label:'آخرین (latest)'}]}});
+ var r=await j('core-versions').catch(function(){return{versions:[]}});
  CORVERS=r.versions||[];
  var box=el('cor_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
- var sel=want||ssVal('corver')||'latest';
- if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'latest';
+ var sel=want||ssVal('corver')||(items.length?items[0].v:'');   // default to the newest real version (no synthetic "latest")
+ if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
  box.innerHTML=ssHTML('corver',items,sel,'انتخاب نسخه','')}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast('اول نسخه را انتخاب کن','err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
@@ -4198,9 +4211,9 @@ var _setMode='alert',_modeOv=null;
 function modeLabel(m){return m=='auto'?'خودکار':'هشدار'}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
- var row=function(t,d,ctl){return '<div style="display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--bord)"><div style="min-width:190px"><b>'+t+'</b><div class="muted" style="font-size:12px;margin-top:3px">'+d+'</div></div><div style="min-width:200px;flex:0 0 auto">'+ctl+'</div></div>'};
+ var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
  box.innerHTML='<div class="card">'+
-  row('وقتی آی‌پیِ نود عوض شد','روی این بزن تا انتخاب کنی','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
+  row('وقتی آی‌پیِ نود عوض شد','هشدار بده یا خودکار ترمیم کن','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
   row('بازهٔ بررسیِ ترمیم (ثانیه)','۵ تا ۳۶۰۰','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
   row('بازهٔ پایشِ فلیت (ثانیه)','۱ تا ۶۰','<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
   row('پنجرهٔ نوارِ آپ‌تایم','۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰',ssHTML('set_upwin',[{v:'1',label:'۱ ساعت'},{v:'3',label:'۳ ساعت'},{v:'6',label:'۶ ساعت'},{v:'8',label:'۸ ساعت'},{v:'12',label:'۱۲ ساعت'},{v:'24',label:'۲۴ ساعت'}],String(num(s.uptime_window)||1),'',''))+

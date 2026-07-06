@@ -19,18 +19,19 @@ def check(name, cond):
         FAILS.append(name)
 
 
-# ---- api_core_versions always offers "latest", degrades gracefully offline ----
+# ---- api_core_versions tags the newest real release "(latest)"; no synthetic item ----
 tnl._core_versions_cache["data"] = [{"id": "v2", "label": "v2 — strict"}, {"id": "v1", "label": "v1 — stable"}]
 tnl._core_versions_cache["ts"] = 9e18  # keep the cache, don't hit the network
 r = tnl.api_core_versions({})
 ids = [x["id"] for x in r["versions"]]
-check("latest is first", ids[0] == "latest")
-check("release tags follow", ids == ["latest", "v2", "v1"])
+check("real release tags only (no synthetic 'latest')", ids == ["v2", "v1"])
+check("newest is flagged latest", r["versions"][0].get("latest") is True)
+check("newest label carries (latest)", r["versions"][0]["label"].endswith("(latest)"))
 
-# offline (empty cache) still yields latest
+# offline (empty cache) yields an empty list (no synthetic latest)
 tnl._core_versions_cache["data"] = []
 tnl._core_versions_cache["ts"] = 9e18
-check("degrades to just latest when no releases", [x["id"] for x in tnl.api_core_versions({})["versions"]] == ["latest"])
+check("empty when no releases", [x["id"] for x in tnl.api_core_versions({})["versions"]] == [])
 
 # ---- api_core_update fans out to each node's core-update op ----
 tnl.get_node = lambda i: {"id": i, "name": "N" + i} if i in ("a", "b") else None
