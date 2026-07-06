@@ -3991,7 +3991,7 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
 async function spoofProbePair(a,b){try{
   var ra=await j('spoof-probe?node='+encodeURIComponent(a));
   var rb=(a==b)?ra:await j('spoof-probe?node='+encodeURIComponent(b));
-  if(ra.ok&&rb.ok)return {ok:true,html:'<b>روی هر دو نود مجاز است.</b> جعلِ آی‌پی روی این تونل شدنی است.'};
+  if(ra.ok&&rb.ok)return {ok:true,html:'<b>هر دو نود از نظرِ فنی مجازند.</b> ولی اینکه واقعاً کار کند به خروجیِ دیتاسنتر و مسیر هم بستگی دارد — این چک فقط قابلیتِ نودها را می‌سنجد، نه آن را؛ با ساختِ تونل قطعی می‌شود.'};
   var bad=(!ra.ok)?ra:rb;
   return {ok:false,html:'<b>غیرفعال — روی نودِ «'+esc(bad.node||'?')+'» نمی‌شود.</b> علت: '+esc(bad.reason||'نامشخص')};
  }catch(e){return {ok:false,html:'<b>بررسی ناموفق بود.</b> نتوانستم امکانِ جعل را از نودها بپرسم.'}}}
