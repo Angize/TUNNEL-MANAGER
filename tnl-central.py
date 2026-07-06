@@ -3470,7 +3470,7 @@ function toast(msg,kind){var t=document.createElement('div');t.className='toast 
  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove()},320)},3400)}
 
 // ===== pagination + search =====
-function toolbar(kind,ph){return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')"><div class="pager" id="pg_'+kind+'"></div></div>'}
+function toolbar(kind,ph){return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')"></div>'}
 function pagerBottom(kind){return '<div class="pager" id="pgb_'+kind+'"></div>'}
 function renderPager(kind){var total=TOT[kind]||0,pages=Math.max(1,Math.ceil(total/LIM)),cur=Math.min(PG[kind]+1,pages);
  var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">قبلی</button><span class="pinfo">صفحه '+cur+' از '+pages+' · '+total+' مورد</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">بعدی</button>';
