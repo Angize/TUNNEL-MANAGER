@@ -2114,7 +2114,10 @@ def _edit_link_impl(d):
         and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
         and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
         and bool(extra.get("gso")) == bool(L.get("gso")))
-    if ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and core_same:
+    # Non-core links may short-circuit an unchanged edit (avoids a needless outage). Core links must
+    # NOT: the button is "save AND rebuild", and a core edit always does a clean both-ends-down rebuild
+    # below (the only reliable way to un-wedge a tunnel), so never silently no-op it.
+    if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and core_same:
         return {"ok": True, "unchanged": True, "name": old_name}
     # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
     # occupies (its current port/proto/server node are excluded so it can't clash with
@@ -2122,7 +2125,13 @@ def _edit_link_impl(d):
     _own = frozenset((N["id"], p, pr) for N, p, pr in
                      _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B))
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B), exclude=_own)
-    if name_changed:  # veth/OVS ids are shared per tunnel_id, so the old iface must go before the new one
+    # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
+    # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running
+    # its old crypto session: the freshly restarted server latches onto the stale still-live client and
+    # never re-handshakes, so the tunnel stays wedged. Tearing both ends down together (exactly what the
+    # standalone rebuild does) forces a clean simultaneous re-handshake. This is why "save & rebuild" used
+    # to leave a core tunnel dead while a separate "rebuild" fixed it.
+    if name_changed or ttype == "core":
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, **extra}
