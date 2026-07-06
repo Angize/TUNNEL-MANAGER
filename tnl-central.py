@@ -814,6 +814,10 @@ def _tunnel_extra(src):
         e["flux_shape"] = src["flux_shape"]
     if src.get("flux_epoch_offset"):     # flux manual "rotate now" epoch bump
         e["flux_epoch_offset"] = src["flux_epoch_offset"]
+    if src.get("fec"):                   # flux FEC (loss recovery); carry the block geometry too
+        e["fec"] = True
+        e["fec_data"] = src.get("fec_data") or 10
+        e["fec_parity"] = src.get("fec_parity") or 3
     if src.get("ws_host"):               # ws (WebSocket/CDN) Host header + TLS SNI
         e["ws_host"] = src["ws_host"]
     if src.get("ws_path"):               # ws request path
@@ -2014,6 +2018,18 @@ def _flux_fields(d, transport, cipher, cur=None):
     # The manual epoch offset ("rotate now") is not a form field: preserve it across edits,
     # and let a caller (api_flux_rotate) pass an explicit bumped value.
     out["flux_epoch_offset"] = int(d.get("flux_epoch_offset") or cur.get("flux_epoch_offset") or 0)
+    # FEC (forward error correction): every flux carrier is datagram-based, so FEC applies
+    # to all of them. It repairs lost carrier packets from parity so a throttled/high-loss
+    # link stays usable without retransmits. Both ends get the same setting (this link).
+    fec = bool(d.get("fec")) if ("fec" in d) else bool(cur.get("fec"))
+    out["fec"] = fec
+    if fec:
+        fd = int(d.get("fec_data") or cur.get("fec_data") or 10)
+        fp = int(d.get("fec_parity") or cur.get("fec_parity") or 3)
+        if fd < 1 or fp < 1 or fd + fp > 255:
+            raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥۱، مجموع ≤۲۵۵)")
+        out["fec_data"] = fd
+        out["fec_parity"] = fp
     return out
 
 
@@ -2390,6 +2406,9 @@ def _edit_link_impl(d):
         and (extra.get("edge_ip") or "") == (L.get("edge_ip") or "")
         and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
         and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
+        and bool(extra.get("fec")) == bool(L.get("fec"))
+        and (extra.get("fec_data") or 0) == (L.get("fec_data") or 0)
+        and (extra.get("fec_parity") or 0) == (L.get("fec_parity") or 0)
         and bool(extra.get("gso")) == bool(L.get("gso")))
     # Non-core links may short-circuit an unchanged edit (avoids a needless outage). Core links must
     # NOT: the button is "save AND rebuild", and a core edit always does a clean both-ends-down rebuild
@@ -2432,7 +2451,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "ws_host", "ws_path", "ws_tls", "edge_ip", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "edge_ip", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -4323,7 +4342,7 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  var car='<div>حامل: <b class="mono">'+tr+'</b></div>';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
  var typ='<div class="tagrow">نوع: <span class="tag core">Core</span></div>';
- var feats=[];if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');
+ var feats=[];if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');if(l.fec)feats.push('<span class="tag obfs">FEC '+((l.fec_data||10)+'+'+(l.fec_parity||3))+'</span>');
  var cap='<div class="feat">قابلیت‌ها: '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
  var encv=(l.cipher&&l.cipher!='none')
    ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
@@ -4343,7 +4362,7 @@ function coreCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
-var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false;
+var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corFec=false,_corFecData=10,_corFecParity=3;
 var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
 function rawTiles(px,sel){return COR_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
 function corSetTr(t){_corTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':'UDP'))));corRawVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corSpoofVis()}
@@ -4353,6 +4372,8 @@ function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classL
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function corSetFluxShape(s){_corFluxShape=s;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function corFluxRotChg(){_corFluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
+function corToggleFec(){_corFec=!_corFec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corFec);var r=el('e_fecrates');if(r)r.style.display=_corFec?'':'none'}
+function corSetFecRate(d,p){_corFecData=d;_corFecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast('چرخش انجام شد — تونل بازسازی شد','ok');fluxTick()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
@@ -4376,7 +4397,9 @@ function spoofApplyCap(idp,ok,html,offFn){var cap=el(idp+'cap');if(cap){cap.clas
 // ---- flux (polymorphic moving-target carrier) — shared markup + live epoch status.
 var FLUX_ROTS=[{v:'600',label:'هر ۱۰ دقیقه (پیش‌فرض)'},{v:'300',label:'هر ۵ دقیقه'},{v:'1800',label:'هر ۳۰ دقیقه'},{v:'3600',label:'هر ۱ ساعت'}];
 var FLUX_SHAPES=[{v:'random',n:'تصادفی',m:'بدونِ تقلید'},{v:'quic',n:'QUIC',m:'شبیهِ HTTP/3'},{v:'video',n:'ویدیوکال',m:'بسته‌های بزرگ'},{v:'webrtc',n:'WebRTC',m:'RTPِ کوچک'}];
-function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" style="display:none">'
+// FEC redundancy presets: data+parity, overhead label, and the max burst loss they repair.
+var FEC_RATES=[{d:10,p:2,n:'سبک',ov:'۲۰٪ سربار'},{d:10,p:3,n:'متعادل',ov:'۳۰٪ سربار'},{d:8,p:4,n:'قوی',ov:'۵۰٪ سربار'}];
+function fluxSection(idp,fnp,fc,rot,shp,rotId,fec,fd,fp){return '<div id="'+idp+'fluxblk" style="display:none">'
  +'<label>حاملِ flux</label>'
  +'<div class="pgrid">'
  +'<button type="button" class="ptile'+(fc=='udp'?' on':'')+'" data-fc="udp" onclick="'+fnp+'SetFluxCarrier(\\'udp\\')"><span class="best">اینترنت</span><div class="pn">udp</div><div class="pmeta">UDPِ واقعی · پورت می‌چرخد</div></button>'
@@ -4389,6 +4412,9 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
  +'<div id="'+idp+'fluxstat" style="margin-top:10px;font-size:11.5px;padding:8px 11px;border-radius:9px;line-height:1.8;background:color-mix(in srgb,var(--ok) 9%,transparent);border:1px solid color-mix(in srgb,var(--ok) 28%,transparent)">…</div>'
  +(rotId?'<button type="button" class="ghost" style="margin-top:9px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px" onclick="doFluxRotate(\\''+rotId+'\\')">'+ic('redo')+'چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)</button>':'')
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. <b>udp/stun</b> رویِ اینترنت رد می‌شوند؛ <b>raw</b> فقط هم‌سگمنت. رمزنگاری الزامی است.</div>'
+ +'<label style="margin-top:14px">تصحیحِ خطا (FEC)</label>'
+ +'<div class="tglbox"><div class="tglsw'+(fec?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>بازیابیِ پکتِ گم‌شده</b><small>پکت‌های افتاده را با پریتی و بدونِ ری‌ترنسمیت بازسازی می‌کند — برای لینکِ پُرافت/throttle. سربارِ پهنای‌باند دارد؛ رو لینکِ تمیز خاموشش کن.</small></div></div>'
+ +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>نرخِ افزونگی</label><div class="pgrid">'+FEC_RATES.map(function(r){var sel=(r.d==(fd||10)&&r.p==(fp||3));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+r.n+'</div><div class="pmeta" style="color:var(--warn)">'+r.ov+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">«۱۰+۳» یعنی هر ۱۰ پکتِ داده، ۳ پکتِ پریتی؛ گیرنده تا ۳ تا از هر ۱۳ تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند.</div></div>'
  +'</div>'}
 // ---- ws (WebSocket / CDN) — shared markup.
 function wsSection(idp,fnp,host,path,tls,edge){return '<div id="'+idp+'wsblk" style="display:none">'
@@ -4424,7 +4450,7 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corFec=false;_corFecData=10;_corFecParity=3;
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -4459,7 +4485,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_corRawProfile}
- if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
+ if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape;body.fec=_corFec;if(_corFec){body.fec_data=_corFecData;body.fec_parity=_corFecParity}}
  if(_corTr=='ws'){body.ws_host=(v('e_wshost')||'').trim();body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;body.edge_ip=(v('e_wsedge')||'').trim();if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
  if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
@@ -4474,7 +4500,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونلِ هسته ساخته شد','ok');refreshCore()}
  else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false;
+var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeFec=false,_eeFecData=10,_eeFecParity=3;
 function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceSpoofVis()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeTr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var w=el('ee_wsblk');if(w)w.style.display=(_eeTr=='ws')?'':'none'}
@@ -4482,6 +4508,8 @@ function ceToggleWsTls(){_eeWsTls=!_eeWsTls;var s=el('ee_wstls');if(s)s.classLis
 function ceSetFluxCarrier(c){_eeFluxCarrier=c;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function ceSetFluxShape(s){_eeFluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function ceFluxRotChg(){_eeFluxRotate=parseInt(ssVal('ee_fluxrot'))||600;fluxTick()}
+function ceToggleFec(){_eeFec=!_eeFec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeFec);var r=el('ee_fecrates');if(r)r.style.display=_eeFec?'':'none'}
+function ceSetFecRate(d,p){_eeFecData=d;_eeFecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 var _eeDecoy=false,_eeSrc=false,_eeSpoofOk=false,_eeNodesArr=['',''];
 function ceSpoofVis(){var w=el('ee_spoofblk');if(!w)return;var show=(_eeTr=='raw'&&_eeRawProfile=='bip');w.style.display=show?'':'none';if(show)ceSpoofProbe()}
 async function ceSpoofProbe(){var cap=el('ee_cap');if(!cap)return;cap.className='spoofcap wait';cap.innerHTML='بررسیِ امکانِ جعل روی نودها…';
@@ -4506,7 +4534,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
@@ -4516,7 +4544,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>روشِ رمزنگاری</label>'+ssHTML('ee_cipher',CORE_CIPHERS,(l.cipher||'auto'),'رمز','onEeCipher')+
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt'+(_eeTr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt'+(_eeTr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
-  fluxSection('ee_','ce',_eeFluxCarrier,_eeFluxRotate,_eeFluxShape,id)+
+  fluxSection('ee_','ce',_eeFluxCarrier,_eeFluxRotate,_eeFluxShape,id,_eeFec,_eeFecData,_eeFecParity)+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls,l.edge_ip)+
   spoofSection('ee_','ce')+
   '<div class="tglbox'+((l.cipher=='none')?' dis':'')+'" id="ee_obfsrow"><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
@@ -4536,7 +4564,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_eeRawProfile}
- if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
+ if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape;body.fec=_eeFec;if(_eeFec){body.fec_data=_eeFecData;body.fec_parity=_eeFecParity}}
  if(_eeTr=='ws'){body.ws_host=(v('ee_wshost')||'').trim();body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
  if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
   if(_eeDecoy){var dip=(v('ee_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
