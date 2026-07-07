@@ -392,6 +392,37 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
                 pass
 
 
+_SIGN_KEY = None
+
+
+def _signing_keys():
+    """Ensure the panel's RSA update-signing keypair exists in the config dir; return (priv_path, pub_pem).
+    The private key (600, panel-only) signs update / core-install payloads; nodes hold only the public key
+    and verify with it — so a stolen node token can no longer authorize a malicious root-code push."""
+    global _SIGN_KEY
+    if _SIGN_KEY:
+        return _SIGN_KEY
+    priv = os.path.join(CENTRAL_DIR, "sign_key.pem")
+    if not os.path.isfile(priv):
+        subprocess.run(["openssl", "genrsa", "-out", priv, "2048"], check=True, capture_output=True)
+        os.chmod(priv, 0o600)
+    pub = subprocess.run(["openssl", "rsa", "-in", priv, "-pubout"], check=True, capture_output=True).stdout.decode()
+    _SIGN_KEY = (priv, pub)
+    return _SIGN_KEY
+
+
+def _sign_sha(sha_hex):
+    """RSA-SHA256 signature (base64) over the sha256 hex string a code push carries; '' if unavailable
+    (an unprovisioned node ignores it; a provisioned node then rejects the unsigned push, fail-closed)."""
+    try:
+        priv, _ = _signing_keys()
+        sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", priv],
+                             input=str(sha_hex).encode(), check=True, capture_output=True).stdout
+        return base64.b64encode(sig).decode()
+    except Exception:
+        return ""
+
+
 def node_call(node, endpoint, method="POST", body=None, timeout=8):
     proxy = (node.get("proxy") or "").strip()
     if proxy:  # route this node's control traffic through its SOCKS5/HTTP proxy
@@ -406,10 +437,12 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
         req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
+            out = json.loads(r.read().decode())
+            return out if isinstance(out, dict) else {"ok": False, "error": "non-dict node response"}
     except urllib.error.HTTPError as e:
         try:
-            return json.loads(e.read().decode())
+            out = json.loads(e.read().decode())
+            return out if isinstance(out, dict) else {"ok": False, "error": f"HTTP {e.code}"}
         except Exception:
             return {"ok": False, "error": f"HTTP {e.code}"}
     except Exception as e:
@@ -442,6 +475,8 @@ _uh = {}                   # node_id -> {"ring":[1/0,...], "bts":ts, "dn":bool} 
 _uh_lock = threading.Lock()
 UPTIME_BUCKET = 60         # seconds per uptime sample (one minute; a bucket is DOWN if unreachable any time in it)
 UPTIME_KEEP = 1440         # ring length -> 24h of per-minute history (aggregated to 60 cells for display)
+_tomb = {}                 # node_id -> expiry ts: a node deleted mid-poll must not have its cache resurrected
+_tomb_lock = threading.Lock()
 
 
 def _cache_get(nid):
@@ -454,6 +489,10 @@ def _poll_node(n):
     ping = node_call(n, "ping", "GET", timeout=6)
     lst = node_call(n, "list", "GET", timeout=12)
     now = time.time()
+    with _tomb_lock:  # node deleted while this poll was in flight? don't resurrect its cache/traffic/uptime
+        exp = _tomb.get(n["id"])
+        if exp and now < exp:
+            return
     with _pc_lock:  # publish ping+list together so readers never see a torn (fresh-ping / stale-list) pair
         _pc[n["id"]] = {"ping": ping, "list": lst, "ping_ts": now, "list_ts": now}
     if ping.get("ok"):  # fold traffic under its own lock (never nested inside _pc_lock)
@@ -502,6 +541,9 @@ def poller_loop():
             with _uh_lock:
                 for nid in [k for k in _uh if k not in valid]:
                     _uh.pop(nid, None)
+            with _tomb_lock:  # expire delete-tombstones (their in-flight poll has long finished)
+                for nid in [k for k, exp in _tomb.items() if time.time() > exp]:
+                    _tomb.pop(nid, None)
             with _node_locks_guard:  # drop per-node build locks for removed nodes (skip any currently held)
                 for nid in [k for k in _node_locks if k not in valid]:
                     lk = _node_locks.get(nid)
@@ -538,6 +580,17 @@ def _cached_list(nid):
 # all collapse to "delta:=0, re-baseline", so a counter reset never fabricates a throughput spike or
 # corrupts the lifetime total. cum only ever adds validated (>=0) deltas — never the raw counter.
 
+TF_IF_MAX = 512            # max interfaces tracked per node — a compromised node must not grow this map unbounded
+TF_IF_KEY_MAX = 32         # max interface-name length stored (Linux ifname is <=15; slack for exotic names)
+TF_CTR_CEIL = 1 << 64      # /proc counters are uint64 — reject implausibly large values (bigint-accumulation DoS)
+TF_IF_PRUNE_MISSES = 15    # prune an iface not reported for this many consecutive sweeps
+
+
+def _tf_valid_key(key):
+    return (isinstance(key, str) and 1 <= len(key) <= TF_IF_KEY_MAX
+            and re.match(r"^[A-Za-z0-9_.@:-]+$", key) is not None)
+
+
 def _tf_ingest(nid, net, up, now):
     if not isinstance(net, dict):
         return
@@ -553,18 +606,25 @@ def _tf_ingest(nid, net, up, now):
         gap = dt > TF_MAX_GAP and not reboot            # long stall: keep the bytes, suppress the smeared rate
         ifs = e["if"]
         for key, v in net.items():
+            if not _tf_valid_key(key):                  # ignore malformed / abusive interface keys (len/charset)
+                continue
             if not (isinstance(v, list) and len(v) == 2):
                 continue
             try:
                 rx, tx = int(v[0]), int(v[1])
             except (TypeError, ValueError):
                 continue
+            if not (0 <= rx < TF_CTR_CEIL and 0 <= tx < TF_CTR_CEIL):
+                continue                                # counters are uint64 on the wire -> reject implausible bigints
             s = ifs.get(key)
             if s is None:                               # first sample -> baseline; restore lifetime cum from seed
+                if len(ifs) >= TF_IF_MAX:
+                    continue                            # per-node iface cap: a node can't grow this map unbounded
                 sd = e["seed"].get(key)
                 ifs[key] = {"prx": rx, "ptx": tx, "rx_bps": 0.0, "tx_bps": 0.0,
-                            "crx": sd[0] if sd else 0, "ctx": sd[1] if sd else 0}
+                            "crx": sd[0] if sd else 0, "ctx": sd[1] if sd else 0, "miss": 0}
                 continue
+            s["miss"] = 0                               # reported this sweep -> reset its prune counter
             for raw, pk, ck, bk in ((rx, "prx", "crx", "rx_bps"), (tx, "ptx", "ctx", "tx_bps")):
                 draw = raw - s[pk]
                 if draw < 0 or reboot:                  # counter went backwards / node rebooted -> don't fabricate
@@ -581,10 +641,16 @@ def _tf_ingest(nid, net, up, now):
                     if draw <= TF_BPS_CEIL / 8.0 * dt:   # bound the gap credit too: ignore an implausibly large delta
                         s[ck] += draw
                 s[pk] = raw
-        for key in e["if"]:               # an iface that dropped out of the report (deleted / mid-rebuild /
+        stale = []
+        for key, s in e["if"].items():    # an iface that dropped out of the report (deleted / mid-rebuild /
             if key not in net:            # no default route) must decay its rate, else it shows phantom throughput
-                e["if"][key]["rx_bps"] = 0.0
-                e["if"][key]["tx_bps"] = 0.0
+                s["rx_bps"] = 0.0
+                s["tx_bps"] = 0.0
+                s["miss"] = s.get("miss", 0) + 1   # ...and after enough absent sweeps, prune it so a node that
+                if s["miss"] > TF_IF_PRUNE_MISSES:  # rotates iface names cannot grow the map (paired with TF_IF_MAX)
+                    stale.append(key)
+        for key in stale:
+            e["if"].pop(key, None)
         e["prev_ts"] = now
         e["prev_up"] = up
 
@@ -862,8 +928,14 @@ def valid_proxy(p):
     return p if "://" in p else "socks5://" + p
 
 
+def _redact_proxy(proxy):
+    """Strip any user:pass@ userinfo from a proxy URL before it is serialized toward the browser —
+    a node's control-proxy credentials must never leave the server (they also ride plain HTTP)."""
+    return re.sub(r"://[^/@]*@", "://", str(proxy or "").strip())
+
+
 def _node_view(n):
-    base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": n.get("proxy", ""),
+    base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": _redact_proxy(n.get("proxy")),
             "uptime": _uh_cells(n["id"], get_settings().get("uptime_window", 1))}
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -1392,12 +1464,14 @@ def api_node_del(d):
             mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
             mine_ids = {L["id"] for L in mine}
             save_json(LINKS_FILE, [L for L in links if L["id"] not in mine_ids])
-        for L in mine:  # tear the peer's half of each tunnel down too, so no orphan is left behind
+        def _del_peer_half(L):  # tear the peer's half of each tunnel down too, so no orphan is left behind
             peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
             pn = get_node(peer_id)
-            if pn:
-                with _PairLock(nid, peer_id):  # serialize with a rebuild on this pair so it can't recreate the peer half after we tear it down
-                    node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=30)  # best-effort
+            if not pn:
+                return
+            with _PairLock(nid, peer_id):  # serialize with a rebuild on this pair so it can't recreate the peer half
+                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # best-effort, short deadline
+        parallel_map(_del_peer_half, mine, workers=32)  # fan out: N offline peers must not serialize to N*timeout
         out["links_removed"] = len(mine)
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
@@ -1407,6 +1481,8 @@ def api_node_del(d):
         _tf.pop(nid, None)
     with _uh_lock:
         _uh.pop(nid, None)
+    with _tomb_lock:  # block an in-flight poll (submitted before this delete) from re-inserting the popped cache
+        _tomb[nid] = time.time() + 20
     return out
 
 
@@ -1551,13 +1627,15 @@ def api_agent_push(d):
                 meta = json.load(f)
     except OSError:
         raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
+    if not isinstance(d.get("ids"), list):
+        raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
     def push_one(nid):
         n = get_node(nid)
         if not n:                                        # deleted between the filter and here -> report it, don't crash the whole push
             return {"id": nid, "ok": False, "offline": True, "restarting": False, "already": False, "error": "node removed"}
-        r = node_call(n, "update", "POST", {"code": src, "sha256": meta["sha256"]}, timeout=30)
+        r = node_call(n, "update", "POST", {"code": src, "sha256": meta["sha256"], "sig": _sign_sha(meta["sha256"])}, timeout=30)
         return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
                 "restarting": bool(r.get("restarting")), "already": bool(r.get("already")), "error": r.get("error") or r.get("msg") or ""}
 
@@ -1743,7 +1821,7 @@ def _push_staged(node):
         return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
     raw, sha, ver = b
     return node_call(node, "core-install", "POST",
-                     {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver}, timeout=200)
+                     {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver, "sig": _sign_sha(sha)}, timeout=200)
 
 
 def _push_staged_on_add(node):
@@ -1784,6 +1862,8 @@ def api_core_update(d):
     release tag, "latest", or "custom" (the operator-uploaded binary)."""
     _require(d, ["ids", "version"])
     version = str(d.get("version") or "latest").strip()
+    if not isinstance(d.get("ids"), list):
+        raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
     if version == "custom":                          # push the operator-uploaded blob's bytes directly
@@ -1799,7 +1879,7 @@ def api_core_update(d):
             n = get_node(nid)
             if not n:
                 return {"id": nid, "ok": False, "error": "node removed"}
-            r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom"}, timeout=200)
+            r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom", "sig": _sign_sha(sha)}, timeout=200)
             err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
             return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
                     "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
@@ -1826,6 +1906,8 @@ def api_core_push(d):
     _require(d, ["ids"])
     if not _staged_info():
         raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
+    if not isinstance(d.get("ids"), list):
+        raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
     def one(nid):
@@ -1947,7 +2029,10 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B):
         return []
     if ttype == "core":
         srv = A if (server_side or "a") == "a" else B
-        return [(srv, p, "tcp" if (transport or "udp") == "tcp" else "udp")]
+        t = (transport or "udp").lower()
+        if t in ("raw", "flux"):
+            return []                        # raw-IP / rotating-protocol carrier — no fixed L4 port to portcheck
+        return [(srv, p, "tcp" if t in ("tcp", "ws") else "udp")]  # ws is a TCP/WebSocket carrier
     if ttype in ("fou", "l2tpv3", "vxlan"):
         return [(A, p, "udp"), (B, p, "udp")]
     return []
@@ -1971,16 +2056,19 @@ def _guard_port_conflicts(bindings, exclude=frozenset()):
             raise ValueError(f"پورتِ {port}/{proto.upper()} روی نودِ «{node['name']}» اشغال است{tail}؛ یک پورتِ دیگر انتخاب کن")
 
 
-def _spoof_fields(d, transport, profile, cipher):
+def _spoof_fields(d, transport, profile, cipher, cur=None):
     """Validate and return the raw-bip IP-spoofing fields to store on a core link. Spoofing forges the
     outer IPv4 addresses so an on-path censor sees a decoy instead of the real server; it only applies
     to transport=raw + profile=bip + crypto on. spoof_dst is the decoy destination; spoof_src an
-    optional forged source. The node applies these per role (see tnl-node _core_config)."""
+    optional forged source. The node applies these per role (see tnl-node _core_config). cur (the
+    existing link) supplies edit defaults so an edit that omits the fields keeps the stored values
+    (mirroring _flux_fields/_ws_fields/_fec_fields) instead of silently wiping the decoy config."""
     out = {}
     if transport != "raw" or profile != "bip" or cipher == "none":
         return out
-    src = str(d.get("spoof_src") or "").strip()
-    dst = str(d.get("spoof_dst") or "").strip()
+    cur = cur or {}
+    src = str((d["spoof_src"] if "spoof_src" in d else cur.get("spoof_src")) or "").strip()
+    dst = str((d["spoof_dst"] if "spoof_dst" in d else cur.get("spoof_dst")) or "").strip()
     if src and not is_ipv4(src):
         raise ValueError("آی‌پیِ مبدأِ جعلی نامعتبر است (باید IPv4 باشد)")
     if dst and not is_ipv4(dst):
@@ -2058,6 +2146,8 @@ def _ws_fields(d, transport, cur=None):
         out["ws_host"] = host
     path = str(d.get("ws_path") or cur.get("ws_path") or "").strip()
     if path:
+        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
+            raise ValueError("مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)")
         out["ws_path"] = path
     tls = d.get("ws_tls") if ("ws_tls" in d) else cur.get("ws_tls")
     if bool(tls):
@@ -2373,7 +2463,7 @@ def _edit_link_impl(d):
             if profile not in CORE_RAW_PROFILES:
                 raise ValueError("پروفایلِ raw نامعتبر است")
             extra["raw_profile"] = profile
-            extra.update(_spoof_fields(d, transport, profile, cipher))   # decoy / source spoofing (bip only)
+            extra.update(_spoof_fields(d, transport, profile, cipher, L))   # decoy / source spoofing (bip only); L preserves omitted fields
         if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
             extra.update(_flux_fields(d, transport, cipher, L))
         if transport == "ws":                      # WebSocket carrier (CDN-frontable)
@@ -2631,13 +2721,14 @@ def _reconcile_once():
             continue
         if now - _reconcile_last.get(L["id"], 0) < RECONCILE_RETRY:
             continue
-        _reconcile_last[L["id"]] = now
         try:
             r = api_rebuild_link({"id": L["id"]})  # single-IP side(s): rebuild binds to the only live IP
             if r.get("ok"):
-                _set_drift(L["id"], False)
+                _set_drift(L["id"], False)          # healed -> no cool-down (drift cleared, won't retry)
+            else:
+                _reconcile_last[L["id"]] = now      # ran and definitively failed -> back off before retrying
         except Exception:
-            pass
+            _reconcile_last[L["id"]] = now          # errored after a real attempt -> back off, don't hammer
 
 
 def reconcile_loop():
@@ -2649,17 +2740,54 @@ def reconcile_loop():
             pass
 
 
+def _pf_field(k, v):
+    """Validate+coerce ONE port-forward field before it is forwarded to a root node's iptables/ip
+    handler. Port-forward is the fleet's most injection-prone endpoint (dst_ips/listen_ip/iface feed
+    straight into `ip`/`iptables`), yet unlike every sibling tunnel-build endpoint it was relayed
+    unvalidated. Raise ValueError on anything malformed so central never becomes the conduit; return
+    the coerced value."""
+    if k in ("listen_port", "dst_port"):
+        p = _sint(v)
+        if not 1 <= p <= 65535:
+            raise ValueError(f"bad {k} (1..65535)")
+        return p
+    if k == "dst_ips":
+        ips = v if isinstance(v, list) else [v]
+        ips = [str(x).strip() for x in ips]
+        if not ips or not all(is_ipv4(x) for x in ips):
+            raise ValueError("dst_ips must be a non-empty list of IPv4 addresses")
+        return ips
+    if k == "listen_ip":
+        s = str(v).strip()
+        if not is_ipv4(s):
+            raise ValueError("bad listen_ip")
+        return s
+    if k == "iface":
+        s = str(v).strip()
+        if not re.match(r"^[A-Za-z0-9._-]{1,15}$", s):   # Linux ifname charset + 15-char limit
+            raise ValueError("bad iface")
+        return s
+    if k == "interval_min":
+        m = _sint(v)
+        if not 1 <= m <= 1440:
+            raise ValueError("bad interval_min (1..1440)")
+        return m
+    return v
+
+
 def api_portfw(d):
     _require(d, ["node", "listen_port", "dst_port", "dst_ips"])
     n = get_node(d["node"])
     if not n:
         raise ValueError("node not found")
-    body = {"listen_port": d["listen_port"], "dst_port": d["dst_port"],
-            "dst_ips": d["dst_ips"], "interval_min": d.get("interval_min", 5)}
+    body = {"listen_port": _pf_field("listen_port", d["listen_port"]),
+            "dst_port": _pf_field("dst_port", d["dst_port"]),
+            "dst_ips": _pf_field("dst_ips", d["dst_ips"]),
+            "interval_min": _pf_field("interval_min", d.get("interval_min", 5))}
     if d.get("iface"):
-        body["iface"] = d["iface"]
+        body["iface"] = _pf_field("iface", d["iface"])
     if d.get("listen_ip"):
-        body["listen_ip"] = str(d["listen_ip"]).strip()
+        body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
     r = node_call(n, "portfw", "POST", body, timeout=120)
     if not r.get("ok"):
         raise ValueError(r.get("error") or r.get("msg") or "failed")
@@ -2703,7 +2831,7 @@ def api_portfw_edit(d):
     body = {"name": d["name"]}
     for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
-            body[k] = d[k]
+            body[k] = _pf_field(k, d[k])
     if "rotate" in d:
         body["rotate"] = bool(d["rotate"])
     r = node_call(n, "portfw-edit", "POST", body, timeout=120)
@@ -2815,6 +2943,26 @@ def api_settings_set(d):
     return {"ok": True, "settings": obj}
 
 
+def api_signing_pubkey(d):
+    """Return the panel's update-signing PUBLIC key (PEM) — safe to expose; the operator provisions it to nodes."""
+    _, pub = _signing_keys()
+    return {"pubkey": pub}
+
+
+def api_provision_key(d):
+    """Push the panel's public signing key to a node so it thereafter accepts ONLY signed code pushes.
+    First-set on the node side; re-provisioning the identical key is a no-op."""
+    _require(d, ["id"])
+    n = get_node(d["id"])
+    if not n:
+        raise ValueError("node not found")
+    _, pub = _signing_keys()
+    r = node_call(n, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
+    if not r.get("ok"):
+        raise ValueError(r.get("error") or r.get("msg") or "failed")
+    return {"ok": True}
+
+
 def api_checkin_impl(source_ip, d):
     """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
     whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
@@ -2823,22 +2971,30 @@ def api_checkin_impl(source_ip, d):
     tok = str((d or {}).get("token") or "")
     if not tok:
         return {"ok": False, "error": "token required"}
-    changed = False
-    host = None
     with _reg_lock:
+        n = next((x for x in load_nodes() if hmac.compare_digest(str(x.get("token", "")), tok)), None)
+        if not n:
+            return {"ok": False, "error": "unknown node"}
+        n_snap, host = dict(n), n.get("host")
+    if not (source_ip and is_ipv4(source_ip) and host != source_ip):
+        return {"ok": True, "updated": False, "host": host}
+    # probe the CONFIGURED host LIVE (not the cached poll, which may have transiently failed); a working
+    # DNS/static host must never be clobbered on a blip. node_call runs outside _reg_lock (no network in-lock).
+    if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
+        return {"ok": True, "updated": False, "host": host}
+    probe = dict(n_snap)
+    probe["host"] = source_ip
+    if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
+        return {"ok": True, "updated": False, "host": host}  # old host down but new addr doesn't reach us -> reject
+    with _reg_lock:  # re-find under lock (registry may have changed during the probes) and persist
         nodes = load_nodes()
         n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
         if not n:
             return {"ok": False, "error": "unknown node"}
-        host = n.get("host")
-        if (source_ip and is_ipv4(source_ip) and n.get("host") != source_ip
-                and not _cached_ping(n["id"]).get("ok")):
-            n["host"], host, changed = source_ip, source_ip, True
-            save_json(NODES_FILE, nodes)
-        nid = n["id"]
-    if changed:
-        _refresh_cache([nid])  # re-probe at the new address at once so the fleet view + reconciler catch up
-    return {"ok": True, "updated": changed, "host": host}
+        n["host"], host, nid = source_ip, source_ip, n["id"]
+        save_json(NODES_FILE, nodes)
+    _refresh_cache([nid])  # re-probe at the new address at once so the fleet view + reconciler catch up
+    return {"ok": True, "updated": True, "host": host}
 
 
 API = {
@@ -2860,10 +3016,12 @@ API = {
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-update": api_core_update,
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
+    "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
+             "provision-key"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -2990,7 +3148,14 @@ class Handler(BaseHTTPRequestHandler):
         if rate_limited(ip):   # per-source-IP brute-force cap on token guessing (same limiter as _login)
             self._send(429, {"error": "too many attempts, wait a few minutes"})
             return
-        res = api_checkin_impl(self.client_address[0], self._body())
+        try:  # like _api: a handler exception (e.g. mid-refresh) must still yield a clean response
+            res = api_checkin_impl(self.client_address[0], self._body())
+        except ValueError as e:
+            self._send(400, {"error": str(e)})
+            return
+        except Exception as e:
+            self._send(500, {"error": f"internal error: {str(e)[:120]}"})
+            return
         if not res.get("ok"):
             note_fail(ip)
         self._send(200 if res.get("ok") else 401, res)
@@ -5064,6 +5229,32 @@ def menu():
             print(f"[!] {e}")
 
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that caps concurrent worker threads. The stock server spawns one
+    unbounded thread per connection, so a connection flood (e.g. slow POST /api/login, each
+    buffering a 1 MB body) spawns unbounded root threads/RAM until OOM. Here process_request
+    blocks on a bounded semaphore, so at most _MAX_WORKERS requests run at once; excess
+    connections wait in the listen backlog (or are refused) instead of exhausting the box."""
+    daemon_threads = True
+    request_queue_size = 128
+    _MAX_WORKERS = 256
+    _sem = threading.BoundedSemaphore(_MAX_WORKERS)
+
+    def process_request(self, request, client_address):
+        self._sem.acquire()
+        try:
+            super().process_request(request, client_address)  # spawns the worker thread
+        except BaseException:
+            self._sem.release()  # thread never started -> don't leak the slot
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._sem.release()
+
+
 def serve():
     if not os.path.isfile(WEB_CONF):
         print("Not configured. Run the setup menu:  sudo python3 tnl-central.py")
@@ -5072,12 +5263,16 @@ def serve():
     global _CENTRAL_PORT
     _CENTRAL_PORT = int(conf.get("port", 8080))  # advertised to nodes so they can call back /api/checkin
     _seed_settings()  # load settings.json into memory (defaults if absent) for the loops
+    try:
+        _signing_keys()  # generate the update-signing keypair on first boot so pushes can be signed
+    except Exception as e:
+        print(f"warning: could not init signing key (openssl missing?): {e}")
     _tf_load()  # restore lifetime traffic totals from disk so they survive a central restart
     _uh_load()  # restore per-minute uptime history so the uptime bar survives a restart
     threading.Thread(target=poller_loop, daemon=True).start()  # warm the fleet cache in the background
     threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
     threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
-    httpd = ThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
+    httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
     try:
