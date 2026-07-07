@@ -1719,6 +1719,7 @@ def api_core_upload(d):
 # single source: it stages the binary on its own disk (downloaded from GitHub, per arch) and pushes
 # verified bytes to nodes via core-install. Everything below is that staging + push machinery.
 _CORE_REL_DL = "https://github.com/Angize/TUNNEL-MANAGER-CORE/releases"
+_CORE_TAG_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")  # release-tag charset: forbids "/" and ".." so a version can't traverse the GitHub path
 CORE_STAGE_DIR = os.path.join(CENTRAL_DIR, "core-stage")            # tnl-core-<arch> binaries, ready to push
 CORE_STAGE_META = os.path.join(CENTRAL_DIR, "core-stage.meta.json")  # {version, arches, ts}
 _core_stage_lock = threading.Lock()
@@ -1729,6 +1730,8 @@ def _resolve_core_version(version):
     version rather than the abstract "latest". Falls back to "latest" if the release list is unknown."""
     version = (version or "latest").strip() or "latest"
     if version != "latest":
+        if version in (".", "..") or not _CORE_TAG_RE.match(version):
+            raise ValueError("نسخهٔ هسته نامعتبر است — فقط حروف/عدد و کاراکترهای «._+-» مجاز است")
         return version
     for v in (api_core_versions({}).get("versions") or []):
         if v.get("id") and v["id"] != "custom":
@@ -2672,19 +2675,26 @@ def api_link_toggle(d):
     disabled tunnel stays down across reboots."""
     _require(d, ["id"])
     enabled = bool(d.get("enabled"))
-    with _reg_lock:
-        links = load_links()
-        L = next((x for x in links if x["id"] == d["id"]), None)
-        if not L:
-            raise ValueError("link not found")
-        L["enabled"] = enabled
-        save_json(LINKS_FILE, links)
-    sides = {}
-    for tag, nid in (("a", L["a_node"]), ("b", L["b_node"])):
-        N = get_node(nid)
-        if N:
-            sides[tag] = node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled}, timeout=90)
-    _refresh_cache([L["a_node"], L["b_node"]])
+    a, b = _link_nodes(d)  # resolve the two node ids so we can serialize with any in-flight edit/rebuild on this pair
+    if not a or not b:
+        raise ValueError("link not found")
+    # Hold the pair lock across BOTH the record flip and the node push, so a concurrent edit/rebuild can't
+    # interleave and leave a node in the opposite `enabled` state from the record. Lock order mirrors the
+    # edit/rebuild paths: _PairLock outer, _reg_lock inner (deadlock-free).
+    with _PairLock(a, b):
+        with _reg_lock:
+            links = load_links()
+            L = next((x for x in links if x["id"] == d["id"]), None)
+            if not L:
+                raise ValueError("link not found")
+            L["enabled"] = enabled
+            save_json(LINKS_FILE, links)
+        sides = {}
+        for tag, nid in (("a", L["a_node"]), ("b", L["b_node"])):
+            N = get_node(nid)
+            if N:
+                sides[tag] = node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled}, timeout=90)
+        _refresh_cache([L["a_node"], L["b_node"]])
     both = len(sides) == 2 and all((sides.get(t) or {}).get("ok") for t in ("a", "b"))
     return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
 
