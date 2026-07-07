@@ -1202,7 +1202,15 @@ def api_node_add(d):
         save_json(NODES_FILE, nodes)
     p = node_call(node, "ping", "GET")
     _refresh_cache([node["id"]])
-    if p.get("ok"):                      # node reachable → stage-push the core now so it's ready before any tunnel build
+    if p.get("ok"):                      # node reachable → provision the signing key FIRST, then stage-push the core
+        try:
+            # Pin the panel's update-signing key before any code push, so even the first core install is
+            # signature-verified — closes the bootstrap window where an unprovisioned node accepts unsigned
+            # pushes. First-set-only on the node side; best-effort, provision-key can retry if this blips.
+            _, _pub = _signing_keys()
+            node_call(get_node(node["id"]) or node, "set-update-key", "POST", {"pubkey": _pub}, timeout=15)
+        except Exception:
+            pass
         _push_staged_on_add(get_node(node["id"]) or {**node, "arch": p.get("arch")})
     return {"ok": True, "id": node["id"], "online": bool(p.get("ok")),
             "error": "" if p.get("ok") else p.get("error", "unreachable")}
@@ -2711,7 +2719,7 @@ _reconcile_last = {}     # link_id -> last rebuild-attempt ts (touched only by t
 
 
 def _reconcile_once():
-    mode = get_settings().get("reconcile_mode", "auto")
+    mode = get_settings().get("reconcile_mode", "alert")   # match settings_defaults(): default to alert-only, never auto-rebuild
     now = time.time()
     links = load_links()
     valid_ids = {L["id"] for L in links}
