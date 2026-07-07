@@ -2151,13 +2151,49 @@ def _fec_fields(d, transport, cur=None):
 
 
 _ECH_RE = re.compile(r'ech="?([A-Za-z0-9+/=]+)"?')
+_GENERIC_RE = re.compile(r'\\#\s+\d+\s+([0-9A-Fa-f][0-9A-Fa-f\s]+)')
+
+
+def _ech_from_svcb(raw):
+    """Parse HTTPS/SVCB RDATA (2-byte priority + target name + SvcParams) and return the base64 of
+    SvcParamKey 5 (ech), or '' if absent/malformed. Used when a resolver returns the RFC 3597
+    generic form (\\# len hex) instead of the presentation form."""
+    try:
+        i = 2  # skip 2-byte SvcPriority
+        while i < len(raw) and raw[i] != 0:   # skip the target name (length-prefixed labels)
+            i += 1 + raw[i]
+        i += 1                                 # skip the root (zero-length) label
+        while i + 4 <= len(raw):
+            key = int.from_bytes(raw[i:i + 2], "big"); i += 2
+            ln = int.from_bytes(raw[i:i + 2], "big"); i += 2
+            val = raw[i:i + ln]; i += ln
+            if key == 5:                       # SvcParamKey 5 == ech
+                return base64.b64encode(val).decode()
+    except Exception:
+        pass
+    return ""
+
+
+def _ech_from_text(s):
+    """Pull the base64 ECHConfigList out of a record string in either the presentation form
+    (ech="...") or the RFC 3597 generic form (\\# len hex...). '' if neither is present."""
+    m = _ECH_RE.search(s)
+    if m:
+        return m.group(1)
+    g = _GENERIC_RE.search(s)
+    if g:
+        try:
+            return _ech_from_svcb(bytes.fromhex(re.sub(r"\s", "", g.group(1))))
+        except Exception:
+            pass
+    return ""
 
 
 def _fetch_ech(host):
-    """Return the base64 ECHConfigList from host's HTTPS (type 65) DNS record, fetched over
-    DoH. Ordinary DNS is often poisoned in-country, so we ask a public resolver over HTTPS and
-    parse the record's presentation form for the ech= SvcParam. Tries Cloudflare then Google;
-    returns '' if neither answers or the domain publishes no ECH key. Never raises."""
+    """Return the base64 ECHConfigList from host's HTTPS (type 65) DNS record. Ordinary DNS is
+    often poisoned in-country, so we ask public resolvers over DoH (HTTPS) and, as a last resort,
+    shell out to dig. Handles both the presentation (ech=...) and RFC 3597 generic (\\# len hex)
+    forms a resolver may hand back. Returns '' if no ECH key is published. Never raises."""
     import urllib.request
     host = str(host or "").strip()
     if not host or not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
@@ -2172,11 +2208,19 @@ def _fetch_ech(host):
             for ans in data.get("Answer", []):
                 if ans.get("type") not in (65, "65", "HTTPS"):
                     continue
-                m = _ECH_RE.search(str(ans.get("data", "")))
-                if m:
-                    return m.group(1)
+                v = _ech_from_text(str(ans.get("data", "")))
+                if v:
+                    return v
         except Exception:
             continue
+    try:  # last resort: the host's own dig, which prints the presentation form
+        out = subprocess.run(["dig", "+short", "HTTPS", host],
+                             capture_output=True, timeout=8).stdout.decode("utf-8", "replace")
+        v = _ech_from_text(out)
+        if v:
+            return v
+    except Exception:
+        pass
     return ""
 
 
