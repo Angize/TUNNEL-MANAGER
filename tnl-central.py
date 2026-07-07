@@ -2427,7 +2427,10 @@ def _edit_link_impl(d):
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
-    subnet = norm_subnet(ttype, tid, d.get("subnet"))
+    # Fall back to the stored subnet when the request omits it, so a PARTIAL edit (e.g. flux
+    # "rotate now", which sends only the epoch offset) doesn't silently reset a custom overlay
+    # subnet to the type default and renumber both ends of the tunnel.
+    subnet = norm_subnet(ttype, tid, d.get("subnet") or L.get("subnet"))
     old_name = L["name"]
     name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
     new_name = (f"core{tid}" if ttype == "core" else f"{ttype}{tid}") if name_changed else old_name
@@ -2469,7 +2472,10 @@ def _edit_link_impl(d):
         if transport == "ws":                      # WebSocket carrier (CDN-frontable)
             extra.update(_ws_fields(d, transport, L))
         extra.update(_fec_fields(d, transport, L)) # FEC (datagram carriers only); {} elsewhere
-        if bool(d.get("obfs")):
+        # obfs/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
+        # (flux "rotate now" sends neither) doesn't strip the anti-DPI layer or the throughput
+        # offload. A full form edit always sends both as booleans, so it still overrides correctly.
+        if (bool(d.get("obfs")) if "obfs" in d else bool(L.get("obfs"))):
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
@@ -2482,7 +2488,7 @@ def _edit_link_impl(d):
         if cover:
             extra["cover"] = True
             extra["cover_sni"] = cover_sni
-        if bool(d.get("gso")):                     # TUN segmentation offload (throughput); any transport
+        if (bool(d.get("gso")) if "gso" in d else bool(L.get("gso"))):   # TUN segmentation offload; fall back to stored on a partial edit
             extra["gso"] = True
         server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
     # Compare against the effective stored port: a record created before the
@@ -4718,7 +4724,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.classList.toggle('dis',none)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
