@@ -1756,6 +1756,8 @@ def _dl(url, timeout):
 def _fetch_release(version, arch):
     """Download + verify a core release asset (binary + its .sha256) from GitHub. Returns (raw, sha).
     Raises on any failure — this is the ONLY place that talks to GitHub for the core binary."""
+    if arch not in ("amd64", "arm64"):   # never interpolate an unvetted arch into a GitHub asset URL
+        raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
     asset = f"tnl-core-linux-{arch}"
     base = (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
@@ -1806,6 +1808,8 @@ def _staged_bytes(arch):
     """(raw, sha, version) for the staged core at arch — fetching+persisting that arch on demand if the
     staged version is set but its file isn't present yet. None if nothing is staged (or the arch can't
     be fetched and isn't cached)."""
+    if arch not in ("amd64", "arm64"):   # arch reaches a local file path + a GitHub asset URL — whitelist
+        raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
     info = _staged_info()
     if not info:
         return None
@@ -2010,7 +2014,7 @@ def api_traffic_reset(d):
         n = get_node(d["node"])
         if not n:
             raise ValueError("node not found")
-        _tf_reset(n["id"], ["pf:" + str(d["name"])])
+        _tf_reset(n["id"], ["pf:" + _pf_name(d["name"])])
         return {"ok": True}
     raise ValueError("missing id or node/name")
 
@@ -2807,6 +2811,19 @@ def _pf_field(k, v):
     return v
 
 
+def _pf_name(v):
+    """Validate a port-forward / chain identifier before it reaches the node's iptables/ip handlers,
+    the delete path, or the traffic-store key. The name is a raw identifier central never generated
+    itself (the caller supplies it on edit/next/del/reset), so — like every sibling portfw field — it
+    must be constrained instead of relayed as-is. Same safe charset as node NAME/iface (letters, digits
+    and «._-», 1..40 chars). Defense-in-depth so central never becomes the conduit for an unvalidated
+    identifier; raises a clear Persian ValueError on anything malformed; returns the stripped name."""
+    s = str(v).strip()
+    if not re.match(r"^[A-Za-z0-9_.-]{1,40}$", s):
+        raise ValueError("نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «._-» (۱ تا ۴۰ کاراکتر) مجاز است")
+    return s
+
+
 def api_portfw(d):
     _require(d, ["node", "listen_port", "dst_port", "dst_ips"])
     n = get_node(d["node"])
@@ -2860,7 +2877,7 @@ def api_portfw_edit(d):
     n = get_node(d["node"])
     if not n:
         raise ValueError("node not found")
-    body = {"name": d["name"]}
+    body = {"name": _pf_name(d["name"])}
     for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
             body[k] = _pf_field(k, d[k])
@@ -2878,7 +2895,7 @@ def api_portfw_next(d):
     n = get_node(d["node"])
     if not n:
         raise ValueError("node not found")
-    r = node_call(n, "portfw-next", "POST", {"name": d["name"]}, timeout=60)
+    r = node_call(n, "portfw-next", "POST", {"name": _pf_name(d["name"])}, timeout=60)
     if not r.get("ok"):
         raise ValueError(r.get("error") or r.get("msg") or "failed")
     _refresh_cache([n["id"]])
@@ -2890,9 +2907,10 @@ def api_portfw_del(d):
     n = get_node(d["node"])
     if not n:
         raise ValueError("node not found")
-    r = node_call(n, "delete", "POST", {"name": d["name"]})
+    name = _pf_name(d["name"])
+    r = node_call(n, "delete", "POST", {"name": name})
     if r.get("ok"):
-        _tf_forget(n["id"], ["pf:" + str(d["name"])])   # drop stale totals so a reused portfw id starts fresh
+        _tf_forget(n["id"], ["pf:" + name])   # drop stale totals so a reused portfw id starts fresh
     _refresh_cache([n["id"]])
     return {"ok": bool(r.get("ok")), "msg": r.get("error", "")}
 
