@@ -2139,12 +2139,14 @@ def _ws_fields(d, transport, cur=None):
     if transport != "ws":
         return out
     cur = cur or {}
-    host = str(d.get("ws_host") or cur.get("ws_host") or "").strip()
+    # "key in d" (not `or cur`) so an explicit empty value from an edit CLEARS the field; an
+    # omitted key keeps the stored one. The ws form always sends these keys, so blanking works.
+    host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip()
     if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         raise ValueError("دامنهٔ WebSocket (ws_host) نامعتبر است")
     if host:
         out["ws_host"] = host
-    path = str(d.get("ws_path") or cur.get("ws_path") or "").strip()
+    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
     if path:
         if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
             raise ValueError("مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)")
@@ -2154,7 +2156,7 @@ def _ws_fields(d, transport, cur=None):
         if not host:
             raise ValueError("برای wss (TLS به CDN) باید دامنه (ws_host) را وارد کنی")
         out["ws_tls"] = True
-    edge = str(d.get("edge_ip") or cur.get("edge_ip") or "").strip()  # CDN edge the client dials
+    edge = str((d["edge_ip"] if "edge_ip" in d else cur.get("edge_ip")) or "").strip()  # CDN edge; explicit empty clears
     if edge:
         eh = edge.rpartition(":")[0] or edge
         if not re.match(r"^[A-Za-z0-9.\-]{1,253}$", eh):
@@ -2271,6 +2273,8 @@ def _create_tunnel_impl(d):
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
         cover = bool(d.get("cover")) and transport == "tcp"   # TLS cover (HTTPS camouflage) is TCP-only; ignore on UDP/raw
+        if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
+            raise ValueError("پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
         cover_sni = str(d.get("cover_sni") or "").strip()
         if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
             raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
@@ -2480,6 +2484,8 @@ def _edit_link_impl(d):
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
             extra["obfs"] = True
         cover = bool(d.get("cover")) and transport == "tcp"   # TLS cover (HTTPS camouflage) is TCP-only; ignore on UDP/raw
+        if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
+            raise ValueError("پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
         cover_sni = str(d.get("cover_sni") or "").strip()
         if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
             raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
@@ -4758,9 +4764,14 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
  if(ceFecDatagram()){body.fec=_eeFec;if(_eeFec){body.fec_data=_eeFecData;body.fec_parity=_eeFecParity}}
  if(_eeTr=='ws'){body.ws_host=(v('ee_wshost')||'').trim();body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}}
- if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
-  if(_eeDecoy){var dip=(v('ee_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
-  if(_eeSrc){var sip=(v('ee_srcip')||'').trim();if(sip)body.spoof_src=sip}}
+ if(_eeTr=='raw'&&_eeRawProfile=='bip'){
+  // Always send both spoof fields (empty when the toggle is off) so an edit that turns the
+  // decoy/source OFF actually CLEARS it — the backend keys on presence, so an omitted field
+  // would otherwise be read as "unchanged" and the old decoy would silently persist.
+  var dip=(_eeDecoy&&_eeSpoofOk)?(v('ee_decoyip')||'').trim():'';
+  var sip=(_eeSrc&&_eeSpoofOk)?(v('ee_srcip')||'').trim():'';
+  if(_eeDecoy&&_eeSpoofOk&&!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}
+  body.spoof_dst=dip;body.spoof_src=sip}
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
  var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
  var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
