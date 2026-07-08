@@ -4960,17 +4960,21 @@ var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:
 function rawTiles(px,sel){return COR_RAW_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+p.tag+'</span>':'')+(p.warn?'<span class="pwarn" title="ممکن است از NAT رد نشود"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
 var WS_PROFILES=[{v:'ws',m:'وب‌سوکتِ استاندارد'},{v:'xhttp',m:'GET/POST · دور زدنِ بلاکِ WS'}];
 function wsProfTiles(px,cur){return WS_PROFILES.map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
-function corSetWsProf(p){_corXhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corXhttp?'':'none'}
-function ceSetWsProf(p){_eeXhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeXhttp?'':'none'}
+function corSetWsProf(p){_corXhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corXhttp?'':'none';corWssGate()}
+function ceSetWsProf(p){_eeXhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeXhttp?'':'none';ceWssGate()}
 // xhttp upstream style: packet-up (default) | stream-one. Shown only when the XHTTP profile is picked.
 var XHTTP_MODES=[{v:'packet',n:'packet-up',m:'چند POSTِ کوتاه'},{v:'stream',n:'stream-one',m:'یک درخواستِ h2'},{v:'grpc',n:'gRPC',m:'gRPC واقعی · h2c'}];
 function xhModeTiles(px,cur){return XHTTP_MODES.map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
-function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)})}
-function ceSetXhMode(m){_eeXhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)})}
+function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
+function ceSetXhMode(m){_eeXhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});ceWssGate()}
 function corSetTr(t){_corTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':'UDP'))));corRawVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis()}
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corTr=='flux')?'':'none';fluxTick()}
-function corWsVis(){var ws=_corTr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';if(ws)poolVis('e_')}
+function corWsVis(){var ws=_corTr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corWsTls);if(!_corWsTls&&_corEch){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on')}}
+// wss is MANDATORY for an edge pool and for the stream/gRPC xhttp modes (all need HTTP/2 to the
+// edge). In those cases force the toggle on and grey it (pointer-events:none) so it can't be turned
+// off in the UI only to be silently forced back on at save — the bug the user hit. Free otherwise.
+function corWssGate(){var mand=poolGet('e_').pool||(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc'));var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corWsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on');alert('اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.');return}_corEch=!_corEch;var s=el('e_wsech');if(s)s.classList.toggle('on',_corEch)}
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
@@ -5003,8 +5007,8 @@ function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(p
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
 function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
-function corTogglePool(){poolToggle('e_');if(poolGet('e_').pool&&!_corWsTls)corToggleWsTls()}
-function ceTogglePool(){poolToggle('ee_');if(poolGet('ee_').pool&&!_eeWsTls)ceToggleWsTls()}
+function corTogglePool(){poolToggle('e_');corWssGate()}
+function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function corSetFluxShape(s){_corFluxShape=s;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function corFluxRotChg(){_corFluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
@@ -5196,8 +5200,9 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
 var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeEch=false,_eeXhttp=false,_eeXhMode='packet',_eeFec=false,_eeFecData=10,_eeFecParity=3;
 function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeTr=='flux')?'':'none';fluxTick()}
-function ceWsVis(){var ws=_eeTr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';if(ws)poolVis('ee_')}
+function ceWsVis(){var ws=_eeTr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeWsTls=!_eeWsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeWsTls);if(!_eeWsTls&&_eeEch){_eeEch=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}}
+function ceWssGate(){var mand=poolGet('ee_').pool||(_eeXhttp&&(_eeXhMode=='stream'||_eeXhMode=='grpc'));var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeWsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function ceToggleEch(){if(!_eeWsTls){_eeEch=false;var e=el('ee_wsech');if(e)e.classList.remove('on');alert('اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.');return}_eeEch=!_eeEch;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeEch)}
 function ceSetFluxCarrier(c){_eeFluxCarrier=c;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function ceSetFluxShape(s){_eeFluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
