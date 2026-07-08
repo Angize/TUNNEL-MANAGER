@@ -3765,16 +3765,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .emptybox .ei{width:52px;height:52px;border-radius:15px;margin:0 auto 13px;display:grid;place-items:center;background:var(--accw);color:var(--acc)}
 .emptybox .ei .ic{width:26px;height:26px}
 .emptybox h3{margin:0 0 5px;font-size:15px}.emptybox p{margin:0 0 15px;font-size:12.5px;color:var(--sub)}
-.selbtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:9px 13px;border-radius:12px;border:1px solid var(--bord);background:var(--card);color:var(--tx);cursor:pointer;font-family:inherit}
-.selbtn.on{background:var(--accw);color:var(--acc);border-color:color-mix(in srgb,var(--acc) 32%,transparent);font-weight:700}.selbtn .ic{width:15px;height:15px}
-.cardck{position:absolute;top:12px;inset-inline-start:12px;z-index:3;width:22px;height:22px;border-radius:7px;border:1.7px solid var(--sub);background:var(--card);cursor:pointer;display:none;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:800}
-.selmode .cardck{display:inline-flex}
-.cardck.on{background:var(--acc);border-color:var(--acc)}
-.selmode>.card{padding-inline-start:44px}
-.card.selon{outline:2px solid var(--acc);outline-offset:-1px}
-.selbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:56;display:flex;align-items:center;gap:9px;background:var(--acc);color:#fff;padding:9px 12px 9px 16px;border-radius:14px;box-shadow:0 16px 36px -14px rgba(40,60,120,.55);font-size:12.5px;font-weight:700;max-width:92vw;flex-wrap:wrap}
-.selbar button{background:rgba(255,255,255,.18);border:0;color:#fff;font-size:12px;padding:7px 12px;border-radius:10px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px}
-.selbar button:hover{background:rgba(255,255,255,.3)}.selbar .ic{width:14px;height:14px}
 @media(prefers-reduced-motion:reduce){.sk,.pulse{animation:none}}
 /* ===== popup modal shell (edit forms + node details) — gated behind .wide so confirmBox's .modal is untouched ===== */
 .modal.wide{width:414px;max-width:100%;display:flex;flex-direction:column;max-height:min(88vh,760px);padding:0;overflow:hidden;background:var(--card);animation:modrise .2s cubic-bezier(.2,.7,.3,1)}
@@ -4296,7 +4286,6 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
 var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1;
-var SELN={},SELT={},selN=false,selT=false;  // bulk-select state (nodes / tunnels)
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var CORE_CIPHERS=[{v:'auto',label:'خودکار'},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:'بدونِ رمز'}];
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
@@ -4369,40 +4358,6 @@ function renderEditPort(id){var w=el('lpx_'+id);if(!w)return;var t=ssVal('lt_'+i
  if(t=='vxlan')w.innerHTML='<label>پورتِ UDP (خالی = 4789)</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="4789" value="'+esc(pre)+'">';
  else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>پورتِ UDP (خالی = خودکار از شناسه)</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="مثلا 51820" value="'+esc(pre)+'">';
  else w.innerHTML=''}
-
-// ===== bulk select (nodes / tunnels) =====
-function ckN(id){return '<span class="cardck'+(SELN[id]?' on':'')+'" onclick="event.stopPropagation();toggleSelN(\\''+id+'\\')">'+(SELN[id]?'✓':'')+'</span>'}
-function ckT(id){return '<span class="cardck'+(SELT[id]?' on':'')+'" onclick="event.stopPropagation();toggleSelT(\\''+id+'\\')">'+(SELT[id]?'✓':'')+'</span>'}
-function toggleSelN(id){if(SELN[id])delete SELN[id];else SELN[id]=1;refreshNodes();renderSelbar()}
-function toggleSelT(id){if(SELT[id])delete SELT[id];else SELT[id]=1;refreshTunnels();renderSelbar()}
-function selModeBtn(kind){var on=kind=='nodes'?selN:selT;return '<button class="selbtn'+(on?' on':'')+'" onclick="toggleSelMode(\\''+kind+'\\')">'+ic('check')+(on?'لغوِ انتخاب':'انتخابِ گروهی')+'</button>'}
-function toggleSelMode(kind){if(kind=='nodes'){selN=!selN;if(!selN)SELN={};var b=el('nodeList');if(b)b.classList.toggle('selmode',selN);refreshNodes()}
- else{selT=!selT;if(!selT)SELT={};var b=el('linkList');if(b)b.classList.toggle('selmode',selT);refreshTunnels()}
- var w=el('selw_'+kind);if(w)w.innerHTML=selModeBtn(kind);renderSelbar()}
-function clearSel(){SELN={};SELT={};selN=false;selT=false;['nodes','tunnels'].forEach(function(k){var w=el('selw_'+k);if(w)w.innerHTML=selModeBtn(k)});
- var a=el('nodeList'),b=el('linkList');if(a)a.classList.remove('selmode');if(b)b.classList.remove('selmode');
- if(cur=='nodes')refreshNodes();else if(cur=='tunnels')refreshTunnels();renderSelbar()}
-function renderSelbar(){var bar=el('selbar');var kind=cur=='nodes'?'nodes':cur=='tunnels'?'tunnels':'';
- var on=kind=='nodes'?selN:kind=='tunnels'?selT:false;var sel=kind=='nodes'?SELN:SELT;var n=on?Object.keys(sel).length:0;
- if(!on||!n){if(bar)bar.remove();return}
- var acts=kind=='nodes'
-  ?'<button onclick="bulkNodes(\\'test\\')">'+ic('bolt')+'تست</button><button onclick="bulkNodes(\\'del\\')">'+ic('trash')+'حذف</button>'
-  :'<button onclick="bulkTun(\\'check\\')">'+ic('activity')+'بررسی</button><button onclick="bulkTun(\\'rebuild\\')">'+ic('redo')+'بازسازی</button><button onclick="bulkTun(\\'del\\')">'+ic('trash')+'حذف</button>';
- if(!bar){bar=document.createElement('div');bar.className='selbar';bar.id='selbar';document.body.appendChild(bar)}
- bar.innerHTML='<span>'+n+' '+(kind=='nodes'?'نود':'تونل')+' انتخاب شده</span>'+acts+'<button onclick="clearSel()">لغو</button>'}
-async function bulkNodes(action){var ids=Object.keys(SELN);if(!ids.length)return;
- if(action=='del'){if(!await confirmBox(ids.length+' نود از رجیستری حذف شود؟ (تونل‌هایشان دست‌نخورده می‌ماند)'))return;
-  for(var i=0;i<ids.length;i++)await post('node-del',{id:ids[i]});toast(ids.length+' نود حذف شد','ok');SELN={};selN=false}
- else if(action=='test'){toast('در حال تستِ '+ids.length+' نود…');var okc=0;
-  for(var i=0;i<ids.length;i++){var r=await post('node-test',{id:ids[i]});if(r.d&&r.d.ok)okc++}toast(okc+'/'+ids.length+' نود آنلاین','ok')}
- var w=el('selw_nodes');if(w)w.innerHTML=selModeBtn('nodes');var b=el('nodeList');if(b)b.classList.toggle('selmode',selN);refreshNodes();renderSelbar()}
-async function bulkTun(action){var ids=Object.keys(SELT);if(!ids.length)return;
- if(action=='check'){CHECKING++;try{for(var i=0;i<ids.length;i++)await checkLink(ids[i])}finally{CHECKING--}toast('بررسیِ '+ids.length+' تونل تمام شد','ok');renderSelbar();return}
- if(action=='del'){if(!await confirmBox(ids.length+' تونل روی هر دو نود حذف شود؟'))return;
-  for(var i=0;i<ids.length;i++)await post('delete-link',{id:ids[i]});toast(ids.length+' تونل حذف شد','ok');SELT={};selT=false}
- else if(action=='rebuild'){if(!await confirmBox(ids.length+' تونل از نو ساخته شود؟'))return;toast('در حال بازسازی…');var okc=0;
-  for(var i=0;i<ids.length;i++){var r=await post('rebuild-link',{id:ids[i]});if(r.ok&&r.d.ok)okc++}toast(okc+'/'+ids.length+' تونل بازسازی شد','ok');SELT={};selT=false}
- var w=el('selw_tunnels');if(w)w.innerHTML=selModeBtn('tunnels');var b=el('linkList');if(b)b.classList.toggle('selmode',selT);refreshTunnels();renderSelbar()}
 
 // ===== Overview
 function go(t){cur=t;drawer(false);render()}
