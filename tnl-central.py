@@ -911,6 +911,7 @@ def _tunnel_extra(src):
         e["ws_edge_snis"] = src["ws_edge_snis"]
         e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
+        e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
     if src.get("spoof_src"):             # forge the outer source (raw bip; client only, node applies by role)
@@ -2406,6 +2407,7 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_snis_burned": burned_hosts,  # host list — panel-side only
         "ws_rotate_secs": max(0, min(28800, int(d.get("ws_rotate_secs") if "ws_rotate_secs" in d else (cur.get("ws_rotate_secs") or 600)))),
         "ws_auto_burn": bool(d.get("ws_auto_burn") if "ws_auto_burn" in d else cur.get("ws_auto_burn")),
+        "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
     }
     # xhttp upstream style over the pool (only stored when non-default, mirroring the single edge).
@@ -2879,6 +2881,7 @@ def _edit_link_impl(d):
         and (extra.get("ws_edge_snis_burned") or []) == (L.get("ws_edge_snis_burned") or [])
         and (extra.get("ws_rotate_secs") or 0) == (L.get("ws_rotate_secs") or 0)
         and bool(extra.get("ws_auto_burn")) == bool(L.get("ws_auto_burn"))
+        and bool(extra.get("ws_warm_standby")) == bool(L.get("ws_warm_standby"))
         and (extra.get("edge_ip") or "") == (L.get("edge_ip") or "")
         and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
         and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
@@ -2928,7 +2931,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -3603,15 +3606,21 @@ button:active{transform:scale(.98)}
 .e{color:var(--bad);font-size:12.5px;margin-top:14px;min-height:18px;text-align:center}
 </style></head><body>
 <form class="box" onsubmit="return login(event)">
-<h1><span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span> <span><b>tnl</b> کنترل فلیت</span></h1>
-<p class="s">برای ورود، نام کاربری و رمز را وارد کنید</p>
-<label>نام کاربری</label><input id="u" autocomplete="username" autofocus>
-<label>رمز عبور</label><input id="p" type="password" autocomplete="current-password">
-<button>ورود</button><div class="e" id="e"></div></form>
+<h1><span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span> <span><b>tnl</b> <span id="lg_brand">کنترل فلیت</span></span></h1>
+<p class="s" id="lg_sub">برای ورود، نام کاربری و رمز را وارد کنید</p>
+<label id="lg_luser">نام کاربری</label><input id="u" autocomplete="username" autofocus>
+<label id="lg_lpass">رمز عبور</label><input id="p" type="password" autocomplete="current-password">
+<button id="lg_btn">ورود</button><div class="e" id="e"></div></form>
 <script>
+var L2={fa:{brand:"کنترل فلیت",sub:"برای ورود، نام کاربری و رمز را وارد کنید",user:"نام کاربری",pass:"رمز عبور",go:"ورود",fail:"ورود ناموفق"},
+ en:{brand:"Fleet control",sub:"Enter your username and password to sign in",user:"Username",pass:"Password",go:"Sign in",fail:"Login failed"}};
+var LG='fa';try{var _l=localStorage.getItem('tnl_lang');if(_l=='en')LG='en'}catch(e){}
+(function(){var d=L2[LG],dir=(LG=='fa')?'rtl':'ltr';document.documentElement.lang=LG;document.documentElement.dir=dir;
+ function set(id,t){var e=document.getElementById(id);if(e)e.textContent=t}
+ set('lg_brand',d.brand);set('lg_sub',d.sub);set('lg_luser',d.user);set('lg_lpass',d.pass);set('lg_btn',d.go)})();
 async function login(ev){ev.preventDefault();var e=document.getElementById('e');e.textContent='';
  var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u.value,pass:p.value})});
- var j=await r.json().catch(()=>({}));if(r.ok)location.href='/';else e.textContent=j.error||'ورود ناموفق';return false}
+ var j=await r.json().catch(()=>({}));if(r.ok)location.href='/';else e.textContent=j.error||L2[LG].fail;return false}
 </script></body></html>"""
 
 INDEX_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
@@ -4242,23 +4251,281 @@ body.dark .tag.core{color:#a78bfa}
 <div class="backdrop" onclick="drawer(false)"></div>
 <div class="shell">
  <aside class="side" id="side">
-  <div class="sbrand"><span class="logo"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER<small>کنترل فلیت</small></span></div>
+  <div class="sbrand"><span class="logo"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER<small id="brandsub">کنترل فلیت</small></span></div>
   <nav class="nav" id="nav">
-   <a class="navi" data-t="overview"><span class="ic" data-ic="dash"></span> نمای کلی</a>
-   <a class="navi" data-t="nodes"><span class="ic" data-ic="server"></span> نودها<span class="ct" id="ct_nodes"></span></a>
-   <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> تونل‌ها<span class="ct" id="ct_tunnels"></span></a>
-   <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> پورت‌فوروارد<span class="ct" id="ct_portfw"></span></a>
-   <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> هستهٔ اختصاصی<span class="ct" id="ct_core"></span></a>
-   <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> تنظیمات</a>
+   <a class="navi" data-t="overview"><span class="ic" data-ic="dash"></span> <span class="nlbl">نمای کلی</span></a>
+   <a class="navi" data-t="nodes"><span class="ic" data-ic="server"></span> <span class="nlbl">نودها</span><span class="ct" id="ct_nodes"></span></a>
+   <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
+   <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
+   <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
+   <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
+   <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
   </nav>
-  <div class="sfoot"><button id="thbtn" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span> تم</button><button onclick="logout()"><span class="ic" data-ic="logout"></span> خروج</button></div>
+  <div class="sfoot"><button id="thbtn" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span> تم</button><button id="foutbtn" onclick="logout()"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></button></div>
  </aside>
  <main class="main">
-  <div class="mtop"><button class="hb" onclick="drawer(true)"><span class="ic" data-ic="menu"></span></button><div class="sbrand"><span class="logo" style="width:28px;height:28px;font-size:14px"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER</span></div></div>
+  <div class="mtop"><button class="hb" onclick="drawer(true)"><span class="ic" data-ic="menu"></span></button><div class="sbrand"><span class="logo" style="width:28px;height:28px;font-size:14px"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER</span></div><button class="hb" id="thbtn2" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span></button></div>
   <div id="view"></div>
  </main>
 </div>
 <script>
+// ===== i18n — Persian (default) + English. localStorage 'tnl_lang' is the source of truth. =====
+var LANG='fa';
+try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}catch(e){}
+var I18N={fa:{
+ nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_settings:"تنظیمات",nav_logout:"خروج",
+ brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
+ save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",del:"حذف",add:"افزودن",edit:"ویرایش",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
+ online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
+ no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",done:"انجام شد",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
+ prev:"قبلی",next:"بعدی",page:"صفحه",of:"از",items:"مورد",search:"جستجو…",
+ disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
+ // overview
+ ov_sub:"آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده",ov_health:"سلامتِ فلیت",ov_attention:"نیازمندِ توجه",ov_allnodes:"همهٔ نودها یک‌نگاه",
+ st_healthy:"سالم",st_warn:"هشدار (>۶۰٪)",st_crit:"بحرانی (>۸۵٪)",ov_central:"سرورِ مرکزی (این پنل)",ov_worst:"پرمصرف‌ترین نودها",
+ ov_tunbreak:"وضعیتِ تفکیکیِ تونل‌ها",ov_traffic:"ترافیکِ فلیت",ov_uptime:"آپ‌تایم",ov_rxtot:"↓ ورودیِ کل",ov_txtot:"↑ خروجیِ کل",
+ ov_uptime_avg:"میانگینِ آپ‌تایم",ov_down_nodes:"نود قطعی داشته",ov_chip_node:"نود",ov_chip_uplink:"لینکِ سالم",ov_chip_tunnel:"تونل",ov_chip_alert:"هشدار",ov_chip_noalert:"بدونِ هشدار",
+ ov_noalert:"همه‌چیز مرتب است — هشداری نیست",ov_no_nodes:"نودی نیست",ov_no_online:"نودِ آنلاینی نیست",ov_no_tunnel:"تونلی نیست",
+ ov_heat_note:"نود · هر میله = بدترین متریکِ آن نود (دیسک/رم/CPU) · خاکستری = آفلاین",
+ tst_connected:"متصل",tst_noping:"بدونِ پینگ",tst_down:"قطع",tst_rebuild:"نیازمندِ بازسازی",
+ ov_worst_q:"بدترین کیفیت: تونلِ",ov_loss:"اتلاف",ov_ping:"پینگ",ov_all_good:"کیفیتِ همهٔ تونل‌ها خوب است",ov_fleet_ping:"میانگینِ پینگِ فلیت",
+ ov_uptime_lbl:"میانگینِ آپ‌تایمِ",ov_hours_recent:"ساعتِ اخیر",load:"لود",
+ // nodes
+ nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
+ nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",checking_dots:"در حال بررسی…",
+ tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",
+ nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",
+ uptime_bar:"آپتایم",node_min2:"حداقل ۲ نودِ آنلاین لازم است",
+ // tunnels
+ tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
+ tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
+ st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
+ subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
+ no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
+ turned_on:"روشن شد",turned_off:"خاموش شد",
+ // core view
+ core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
+ core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
+ server:"سرور",client:"کلاینت",carrier:"حامل",port:"پورت",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",
+ // portfw
+ pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
+ pf_empty:"پورت‌فورواردی نیست.",pf_no_online:"هیچ نودِ آنلاینی نیست",
+ // settings
+ set_sub:"رفتار خودکارِ پنل و بازه‌های بررسی",set_saved:"تنظیمات ذخیره شد",
+ // toasts common
+ t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",t_this_edge:"این لبه فعال شد",
+},en:{
+ nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_settings:"Settings",nav_logout:"Log out",
+ brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
+ save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",del:"Delete",add:"Add",edit:"Edit",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
+ online:"Online",offline:"Offline",failed:"Failed",saving:"Saving…",checking:"Checking…",sending:"Sending…",loading:"Loading…",
+ no_results:"No results.",live:"Live",select:"Select",ip:"IP",done:"Done",err_check:"Check failed",not_available:"Unreachable",
+ prev:"Previous",next:"Next",page:"Page",of:"of",items:"items",search:"Search…",
+ disk:"Disk",cpu_cores:"Cores",os:"OS",uptime:"Uptime",host:"Host",proxy:"Proxy",
+ ov_sub:"Precise fleet stats — no misleading averages",ov_health:"Fleet health",ov_attention:"Needs attention",ov_allnodes:"All nodes at a glance",
+ st_healthy:"Healthy",st_warn:"Warning (>60%)",st_crit:"Critical (>85%)",ov_central:"Central server (this panel)",ov_worst:"Busiest nodes",
+ ov_tunbreak:"Tunnel status breakdown",ov_traffic:"Fleet traffic",ov_uptime:"Uptime",ov_rxtot:"↓ Total in",ov_txtot:"↑ Total out",
+ ov_uptime_avg:"Average uptime",ov_down_nodes:"nodes had downtime",ov_chip_node:"Nodes",ov_chip_uplink:"Links up",ov_chip_tunnel:"Tunnels",ov_chip_alert:"Alerts",ov_chip_noalert:"No alerts",
+ ov_noalert:"All good — no alerts",ov_no_nodes:"No nodes",ov_no_online:"No node online",ov_no_tunnel:"No tunnels",
+ ov_heat_note:"nodes · each bar = that node's worst metric (disk/RAM/CPU) · gray = offline",
+ tst_connected:"Connected",tst_noping:"No ping",tst_down:"Down",tst_rebuild:"Needs rebuild",
+ ov_worst_q:"Worst quality: tunnel",ov_loss:"loss",ov_ping:"ping",ov_all_good:"All tunnels are in good shape",ov_fleet_ping:"fleet avg ping",
+ ov_uptime_lbl:"Average uptime over the last",ov_hours_recent:"hours",load:"load",
+ nodes_sub:"Add nodes and watch them live",add_node:"Add node",nodes_fleet:"Fleet nodes",nodes_search:"Search name or IP…",
+ nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",checking_dots:"Checking…",
+ tip_test:"Test",tip_details:"Details",tip_edit:"Edit",tip_delete:"Delete",
+ nd_tunnels:"Tunnels",nd_portfw:"Port-forward",nd_agent:"agent",nd_core:"core",nd_core_missing:"not installed",nd_ctrlproxy:"Control proxy",
+ uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
+ tun_sub:"Every node-to-node link is separate — check, edit and delete each independently",add_tunnel:"Add tunnel",check_all:"Check all links",
+ tun_search:"Search node name / type / ID…",tun_empty:"No links yet — use the \\"Add tunnel\\" button above.",
+ st_off:"Off",st_half:"Partial",st_disc:"Down",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
+ subnet:"Subnet",tid:"ID",iface:"Interface",ttype:"Type",udp_port:"UDP port",enc:"Encryption",encrypted:"Encrypted",total:"Total",
+ no_live_side:"No live data from this end",tun_off_note:"This tunnel is off — the interface is down. Toggle it above to bring it back up.",
+ turned_on:"Turned on",turned_off:"Turned off",
+ core_sub:"Custom-core (Go) tunnels — packet/core mode with built-in encryption, separate from system tunnels",core_add:"Core tunnel",
+ core_search:"Search node name / ID…",core_empty:"No core tunnels yet — use the \\"Core tunnel\\" button above.",
+ server:"Server",client:"Client",carrier:"Carrier",port:"Port",caps:"Features",no_cipher:"No cipher",cdn_edge:"CDN edge",active_edge:"Current active edge (live)",
+ pf_sub:"Forward a port on a node (with multi-target rotation)",pf_add:"Add port-forward",pf_active:"Active port-forwards",pf_search:"Search node / name…",
+ pf_empty:"No port-forwards.",pf_no_online:"No node is online",
+ set_sub:"Panel automation and check intervals",set_saved:"Settings saved",
+ t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",t_this_edge:"This edge is now active",
+}};
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+ ram:"رم",cpu:"CPU",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانی هر ۲ ثانیه",
+ // node details
+ nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
+ ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
+ // node edit / add
+ nd_edit:"ویرایشِ نود",f_name:"نام",f_host_ip:"هاست / آی‌پی",f_port:"پورت",f_token:"توکن",tok_keep:"خالی = توکن فعلی بماند",
+ f_ctrlproxy_empty:"پروکسیِ کنترل (خالی = بدون پروکسی)",need_nhp:"نام، هاست و پورت لازم است",
+ nd_add:"افزودنِ نود",m_auto:"خودکار",m_manual:"دستی",f_nodename:"نامِ نود",f_serverip:"آی‌پیِ سرور",f_sshport:"پورتِ SSH",f_sshuser:"کاربرِ SSH",
+ f_agentport:"پورتِ ایجنت",f_ctrlproxy_opt:"پروکسیِ کنترل (اختیاری)",ssh_auth:"احرازِ هویتِ SSH",auth_pass:"رمز",auth_key:"کلیدِ خصوصی",ssh_pass_ph:"رمزِ SSH سرور",
+ auth_hint_pass:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",auth_hint_key:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
+ install_go:"نصب و اتصالِ خودکار",manual_add:"افزودن و اتصال",retry:"تلاشِ مجدد",n_port_lbl:"پورت agent",n_tok_lbl:"توکن نود",n_tok_ph:"توکن نود",
+ need_name_ip:"نام و آی‌پیِ سرور لازم است",need_req:"لازم است",installing:"در حالِ نصب…",node_installed:"نود نصب شد",connecting_dots:"در حال اتصال…",
+ need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added:"نود اضافه شد",
+ istep_ssh:"اتصالِ SSH",istep_dl:"دانلودِ ایجنت",istep_svc:"نصب و راه‌اندازیِ سرویس",istep_reg:"ثبت و اتصال در پنل",idet_connecting:"در حالِ اتصال…",idet_wait:"در انتظار…",
+ inst_notfound:"وضعیتِ نصب یافت نشد",inst_lost:"ارتباط با پنل قطع شد",inst_done:"انجام شد",
+ // node delete
+ nd_del:"حذفِ نود",del_how:"می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:",del_detach_t:"فقط از پنل جدا کن",
+ del_detach_s:"نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.",
+ del_wipe_t:"پاک‌سازیِ کاملِ نود",del_wipe_s:"روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!",
+ del_wipe_confirm:"مطمئنی؟ کلِ نود روی سرور — تونل‌ها، ایجنت و توکن — پاک می‌شود و برگشت ندارد.",del_wipe_yes:"بله، پاک کن",
+ del_wiping:"در حال پاک‌سازیِ نود…",del_detaching:"در حال جدا کردن…",node_wiped:"نود کاملاً پاک‌سازی شد",node_detached:"نود از پنل جدا شد",
+ test_testing:"در حال تست…",node_added_online:" · آنلاین",node_added_offline:" · آفلاین: ",
+ // tunnels
+ t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
+ t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
+ tag_encrypted:"رمزنگاری‌شده",no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
+ rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
+ rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
+ conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
+ pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",del_partial:"حذف ناقص: ",
+ view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
+ tip_flip:"تعویضِ دیدِ مصرف — فعلاً: ",
+ // create tunnel
+ add_tunnel_t:"افزودنِ تونل",create_sub:"سیستمی · یک مبدأ ↔ یک مقصد",src_node:"نودِ مبدأ",dst_node:"نودِ مقصد",
+ tun_type:"نوع تونل",local_range:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)",custom_subnet:"سابنتِ دلخواه",range:"رنج",
+ create_tun_btn:"ساخت تونل",two_diff_nodes:"دو نودِ متفاوت انتخاب کن",creating_tun:"در حال ساختِ تونل…",tun_created:"تونل ساخته شد",
+ src_ip:"آی‌پیِ نودِ مبدأ",dst_ip:"آی‌پیِ نودِ مقصد",
+ // rebuild picker
+ rb_title:"بازسازیِ تونل",rb_newip:"آی‌پیِ جدید",rb_no_ip:"آی‌پیِ قابلِ انتخابی نیست",rb_info:"آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.",
+ rb_no_link:"اطلاعاتِ لینک در دسترس نیست",rb_no_drift:"این تونل driftی ندارد",rebuilding:"در حال بازسازی…",rb_fetch_err:"خطا در دریافتِ اطلاعات",
+ // core roles / meta
+ core_edit_t:"ویرایشِ تونلِ هسته",not_found:"یافت نشد",no_change:"تغییری نبود",saved_rebuilt:"ذخیره و بازسازی شد",core_tun_t:"تونلِ هسته",core_tun_sub:"هستهٔ اختصاصی · packet/core",
+ core_created:"تونلِ هسته ساخته شد",raw_need_enc:"حاملِ raw به رمزنگاری نیاز دارد",flux_need_enc:"حاملِ flux به رمزنگاری نیاز دارد",
+ wss_need_host:"برای wss باید دامنه (Host) را وارد کنی",ech_need_wss:"ECH به wss نیاز دارد — اول wss را روشن کن",
+ xh_need_wss:"این حالت نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا packet-up را انتخاب کن",
+ decoy_need_ip:"آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن",cover_need_sni:"برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی",
+ creating_core:"در حال ساختِ تونلِ هسته روی دو نود…",saving_rebuild_both:"در حال ذخیره و بازسازیِ دو سر…",
+ // portfw
+ pf_add_t:"افزودنِ پورت‌فوروارد",pf_edit_t:"ویرایشِ پورت‌فوروارد",pf_node:"نود",pf_listen_port:"پورتِ ورودی",pf_dst_port:"پورتِ مقصد",
+ pf_dst_ips:"آی‌پی(های) مقصد — با کاما جدا کن",pf_rot_min:"چرخش هر (دقیقه) — اگر چند آی‌پی دادی",pf_rot_between:"چرخش بینِ مقصدها",
+ pf_rot_interval:"بازهٔ چرخش (دقیقه)",pf_lip:"آی‌پیِ ورودی (شنود)",pf_lip_note:"پورت فقط روی این آی‌پی فوروارد می‌شود",
+ pf_lip_full:"آی‌پیِ ورودی (شنود) — پورت فقط روی این آی‌پی فوروارد می‌شود",pf_rot_note:"چرخش فقط با ۲ آی‌پیِ مقصد یا بیشتر فعال می‌شود.",
+ pf_need_ports:"پورت‌ها و آی‌پیِ مقصد لازم است",pf_need_all:"نود، پورتِ ورودی/مقصد و آی‌پی لازم است",creating_dots:"در حال ساخت…",
+ pf_created:"پورت‌فوروارد ساخته شد: ",pf_del_confirm:"این پورت‌فوروارد حذف شود؟",pf_active_now:"هم‌اکنون روی: ",pf_targets:"مقصدها: ",
+ pf_iface:"اینترفیس: ",pf_lip_lbl:"آی‌پیِ ورودی: ",pf_lp_lbl:"پورتِ ورودی: ",pf_dp_lbl:"پورتِ مقصد: ",pf_active_badge:"فعال · مقصد",
+ pf_disabled:"غیرفعال",pf_rule:"قانون",pf_rotate_now:"چرخش الان",pf_rotate_done:"چرخش انجام شد ← ",pf_rotate_failed:"چرخش ناموفق",
+ // settings
+ set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
+ set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۱ تا ۶۰",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
+ set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
+ h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
+ // generic states
+ pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
+},en:{
+ ram:"RAM",cpu:"CPU",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"refreshes every 2s",
+ nd_title:"Node details",nd_status:"Node status",nd_off_last:"Offline — last values",nd_conn_test:"Connection test",nd_traffic:"Traffic",nd_ips:"IPs",
+ ip_leg:"tunneled / port-forward / free",ip_none:"no IPs reported",free:"Free",nd_no_tp:"No tunnels or port-forwards on this node",nd_ctrlproxy:"Control proxy",
+ nd_edit:"Edit node",f_name:"Name",f_host_ip:"Host / IP",f_port:"Port",f_token:"Token",tok_keep:"empty = keep current token",
+ f_ctrlproxy_empty:"Control proxy (empty = none)",need_nhp:"Name, host and port are required",
+ nd_add:"Add node",m_auto:"Auto",m_manual:"Manual",f_nodename:"Node name",f_serverip:"Server IP",f_sshport:"SSH port",f_sshuser:"SSH user",
+ f_agentport:"Agent port",f_ctrlproxy_opt:"Control proxy (optional)",ssh_auth:"SSH auth",auth_pass:"Password",auth_key:"Private key",ssh_pass_ph:"Server SSH password",
+ auth_hint_pass:"Server SSH password — not stored, used only during install.",auth_hint_key:"SSH private key — safer than a password; no sshpass needed.",
+ install_go:"Install & auto-connect",manual_add:"Add & connect",retry:"Retry",n_port_lbl:"agent port",n_tok_lbl:"Node token",n_tok_ph:"node token",
+ need_name_ip:"Node name and server IP required",need_req:"required",installing:"Installing…",node_installed:"Node installed",connecting_dots:"Connecting…",
+ need_all_nhpt:"Please fill in name, host, port and token",node_added:"Node added",
+ istep_ssh:"SSH connect",istep_dl:"Download agent",istep_svc:"Install & start service",istep_reg:"Register & connect in panel",idet_connecting:"Connecting…",idet_wait:"Waiting…",
+ inst_notfound:"Install status not found",inst_lost:"Lost connection to the panel",inst_done:"Done",
+ nd_del:"Delete node",del_how:"How should the node be removed? Pick one:",del_detach_t:"Detach from panel only",
+ del_detach_s:"The node and its tunnels stay intact and keep working; it is only removed from this panel's registry. You can add it back later.",
+ del_wipe_t:"Full node wipe",del_wipe_s:"Everything is wiped on the node server: all tunnels, the agent, the systemd service, the token and JSON files. Tunnels are also torn down on the peer nodes. Irreversible!",
+ del_wipe_confirm:"Are you sure? The entire node on the server — tunnels, agent and token — is wiped and cannot be recovered.",del_wipe_yes:"Yes, wipe it",
+ del_wiping:"Wiping node…",del_detaching:"Detaching…",node_wiped:"Node fully wiped",node_detached:"Node detached from panel",
+ test_testing:"Testing…",node_added_online:" · online",node_added_offline:" · offline: ",
+ t_side_off:"Node offline (agent unreachable — port/token may have changed)",t_side_notun:"Down (tunnel not on node)",t_side_ifdown:"Down (interface down)",
+ t_side_conn:"Connected",t_side_nopingr:"No ping reply",t_side_up_unk:"Up (ping unknown)",t_ping:"ping",t_loss:"loss",t_noloss:"no loss",
+ tag_encrypted:"Encrypted",no_tunnel_check:"No tunnels to check",checkall_done:"Finished checking all tunnels",
+ rebuild_confirm:"Rebuild this tunnel on both nodes? (delete and recreate with the same settings)",rebuilding_both:"Rebuilding the tunnel on both nodes…",
+ rebuilt_test:"Tunnel rebuilt — test it with \\"Check\\"",rebuild_failed:"Rebuild failed",checking_conn:"Checking connection (live ping on both ends)…",
+ conn_ok:"Connected",conn_bad:"Connection problem",reset_confirm:"Reset this tunnel's total to zero? (live rate is untouched)",
+ pf_reset_confirm:"Reset this port-forward's total to zero?",del_tun_confirm:"Delete this tunnel on both nodes?",del_partial:"Partial delete: ",
+ view_switched:"Traffic view switched to node \\"",view_switched2:"\\".",drift_note:"One node's IP changed — this tunnel needs a rebuild. Click \\"Rebuild\\".",
+ tip_flip:"Switch traffic view — currently: ",
+ add_tunnel_t:"Add tunnel",create_sub:"System · one source ↔ one destination",src_node:"Source node",dst_node:"Destination node",
+ tun_type:"Tunnel type",local_range:"Local subnet (private range — auto by ID, no overlap)",custom_subnet:"Custom subnet",range:"Range",
+ create_tun_btn:"Create tunnel",two_diff_nodes:"Pick two different nodes",creating_tun:"Creating tunnel…",tun_created:"Tunnel created",
+ src_ip:"Source node IP",dst_ip:"Destination node IP",
+ rb_title:"Rebuild tunnel",rb_newip:"new IP",rb_no_ip:"No selectable IP",rb_info:"The old IP is no longer on the node. Pick this tunnel's new IP — the tags show where each IP is attached.",
+ rb_no_link:"Link info unavailable",rb_no_drift:"This tunnel has no drift",rebuilding:"Rebuilding…",rb_fetch_err:"Error fetching info",
+ core_edit_t:"Edit core tunnel",not_found:"Not found",no_change:"No changes",saved_rebuilt:"Saved & rebuilt",core_tun_t:"Core tunnel",core_tun_sub:"Custom core · packet/core",
+ core_created:"Core tunnel created",raw_need_enc:"The raw carrier requires encryption",flux_need_enc:"The flux carrier requires encryption",
+ wss_need_host:"For wss you must enter the domain (Host)",ech_need_wss:"ECH requires wss — turn on wss first",
+ xh_need_wss:"This mode requires wss — turn on wss (TLS to CDN) first, or pick packet-up",
+ decoy_need_ip:"Enter the decoy (fake destination) IP",cover_need_sni:"For TLS cover you must enter the display domain (SNI)",
+ creating_core:"Creating the core tunnel on both nodes…",saving_rebuild_both:"Saving and rebuilding both ends…",
+ pf_add_t:"Add port-forward",pf_edit_t:"Edit port-forward",pf_node:"Node",pf_listen_port:"Listen port",pf_dst_port:"Destination port",
+ pf_dst_ips:"Destination IP(s) — comma-separated",pf_rot_min:"Rotate every (minutes) — if you gave several IPs",pf_rot_between:"Rotate between targets",
+ pf_rot_interval:"Rotate interval (minutes)",pf_lip:"Listen IP",pf_lip_note:"The port is forwarded only on this IP",
+ pf_lip_full:"Listen IP — the port is forwarded only on this IP",pf_rot_note:"Rotation is enabled only with 2 or more destination IPs.",
+ pf_need_ports:"Ports and destination IP are required",pf_need_all:"Node, listen/destination port and IP are required",creating_dots:"Creating…",
+ pf_created:"Port-forward created: ",pf_del_confirm:"Delete this port-forward?",pf_active_now:"Currently on: ",pf_targets:"Targets: ",
+ pf_iface:"Interface: ",pf_lip_lbl:"Listen IP: ",pf_lp_lbl:"Listen port: ",pf_dp_lbl:"Destination port: ",pf_active_badge:"Active · target",
+ pf_disabled:"Inactive",pf_rule:"Rule",pf_rotate_now:"Rotate now",pf_rotate_done:"Rotated → ",pf_rotate_failed:"Rotation failed",
+ set_on_ipchange:"When a node's IP changes",set_on_ipchange_d:"Alert, or auto-heal",set_rec_int:"Reconcile check interval (seconds)",
+ set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"1 to 60",set_upwin:"Uptime-bar window",
+ set_upwin_d:"60 cells; each cell = window ÷ 60",set_mode_auto:"Auto",set_mode_alert:"Alert",set_default:"default",set_agent_update:"Agent update",
+ h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
+ pending_check:"Checking…",off_word:"Off",on_word:"On",
+}});
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+ pf_dest:"مقصد",
+ // command palette
+ pal_search:"جستجوی نود، تونل یا دستور…",pal_move:"حرکت",pal_pick:"انتخاب",pal_close:"بستن",pal_none:"موردی یافت نشد",
+ pal_g_nodes:"نودها",pal_g_tuns:"تونل‌ها",pal_g_acts:"دستورها",
+ pal_add_tun:"افزودن تونل",pal_agent:"بروزرسانیِ ایجنت",pal_checkall:"تستِ همهٔ تونل‌های صفحه",pal_theme:"تغییرِ تمِ روشن/تیره",
+ // agent/core update page (partial)
+ ag_title:"ایجنت و هسته",ag_sub:"آپدیت و ری‌استارتِ ایجنت و هستهٔ نودها از پنل، بدونِ SSH",
+ ag_node_agent:"ایجنتِ نودها",ag_data_core:"هستهٔ داده",ag_fetch_git:"دریافت از گیت‌هاب",ag_file_btn:"فایلِ ایجنت",ag_push_all:"پوشِ ایجنت به همهٔ نودها",
+ ag_binary:"باینری",ag_install_all:"نصبِ هسته روی همهٔ نودها",ag_search:"جستجوی نود…",ag_ready:"آمادهٔ پوش",ag_empty:"خالی",ag_no_item:"موردی نیست",
+ ag_core_hint:"⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.",
+ ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",
+ ag_no_online:"نودِ آنلاینی نیست",ag_skipped_off:"آفلاین — رد شد",ag_fail:"ناموفق: ",ag_already:"از قبل به‌روز",ag_updated:"به‌روز شد",ag_restarting:" · در حال ری‌استارت…",
+ ag_nodes_updated:" نود بروزرسانی شد",ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
+ ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
+ ag_installing_core:"در حال نصبِ هسته…",ag_core_already:"هسته از قبل به‌روز بود",ag_core_updated:"هسته به‌روز شد",
+},en:{
+ pf_dest:"target",
+ pal_search:"Search a node, tunnel or command…",pal_move:"move",pal_pick:"select",pal_close:"close",pal_none:"No results",
+ pal_g_nodes:"Nodes",pal_g_tuns:"Tunnels",pal_g_acts:"Commands",
+ pal_add_tun:"Add tunnel",pal_agent:"Agent update",pal_checkall:"Check all tunnels on this page",pal_theme:"Toggle light/dark theme",
+ ag_title:"Agent & core",ag_sub:"Update and restart node agents and cores from the panel, without SSH",
+ ag_node_agent:"Node agent",ag_data_core:"Data core",ag_fetch_git:"Fetch from GitHub",ag_file_btn:"Agent file",ag_push_all:"Push agent to all nodes",
+ ag_binary:"Binary",ag_install_all:"Install core on all nodes",ag_search:"Search node…",ag_ready:"Ready to push",ag_empty:"Empty",ag_no_item:"Nothing here",
+ ag_core_hint:"⚠️ Both ends of a core tunnel must run the same version; if you change one node's version, move the peer node to the same version too, or that tunnel drops.",
+ ag_lbl_agent:"agent",ag_lbl_core:"core",ag_up_avail:"update available",ag_uptodate:"up to date",ag_not_installed:"not installed",
+ ag_no_online:"No node is online",ag_skipped_off:"Offline — skipped",ag_fail:"Failed: ",ag_already:"Already up to date",ag_updated:"Updated",ag_restarting:" · restarting…",
+ ag_nodes_updated:" nodes updated",ag_pick_first:"Load an agent first",ag_confirm_all:"Update and restart the agent on ",ag_confirm_all2:" online nodes?",
+ ag_pick_ver:"Pick a version first",ag_confirm_core:"Install core version \\"",ag_confirm_core2:"\\" on ",ag_confirm_core3:" online nodes and restart core tunnels?",
+ ag_installing_core:"Installing core…",ag_core_already:"Core already up to date",ag_core_updated:"Core updated",
+}});
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+ fmt_day:"روز",fmt_hr:"س",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
+ edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
+ link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
+ le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
+ ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
+ pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
+ pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",
+ flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
+},en:{
+ fmt_day:"d",fmt_hr:"h",cipher_auto:"Auto",cipher_none:"No cipher",
+ edit_tun_t:"Edit tunnel",ip_of:"IP of ",multi_ip:"multi-IP",ip_each_end:"IP of each tunnel end",
+ link_ip_note1:"If a node has several IPs, choose which one the tunnel binds to. Changing type, subnet or IP rebuilds the tunnel on both nodes (ID ",link_ip_note2:" is kept).",
+ le_port_4789:"UDP port (empty = 4789)",le_port_auto:"UDP port (empty = auto from ID)",
+ ph_burned_manual:"Burned (manual)",ph_dead:"Dead (permanent)",ph_suspect:"Suspect (temporary)",ph_active:"Healthy · active edge",ph_healthy:"Healthy",
+ pb_healthy:"healthy",pb_temp:"temp",pb_dead:"dead",pb_burned:"burned",pool_empty:"Empty — add an entry",
+ pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",
+ flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
+}});
+function T(k){var d=I18N[LANG]||{};if(k in d)return d[k];if(k in I18N.fa)return I18N.fa[k];return k}
+function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
+function paintNav(){var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
+function applyLang(lang){if(lang!='fa'&&lang!='en')lang='fa';LANG=lang;try{localStorage.setItem('tnl_lang',lang)}catch(e){}
+ var dir=(lang=='fa')?'rtl':'ltr';document.documentElement.lang=lang;document.documentElement.dir=dir;try{document.body.dir=dir}catch(e){}
+ paintNav();render();updateSidebar()}
+(function(){var dir=(LANG=='fa')?'rtl':'ltr';document.documentElement.lang=LANG;document.documentElement.dir=dir;try{document.body.dir=dir}catch(e){}})();
 var H={'Content-Type':'application/json','X-Requested-With':'tnl-central'};
 function j(u){return fetch('/api/'+u).then(function(r){return r.json()})}
 function post(u,b){return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{})}).then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})}
@@ -4269,7 +4536,7 @@ function v(id){var e=el(id);return e?e.value.trim():''}
 function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t}
 function setHTML(box,html){if(!box)return;if(box._html===html)return;box._html=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
 function num(x){x=+x;return isFinite(x)?x:0}
-function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600);return d+'روز '+h+'س'}
+function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600);return d+T('fmt_day')+' '+h+T('fmt_hr')}
 function fmtBytes(n){n=num(n);var u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<4){n/=1024;i++}return (i?(n<10?n.toFixed(2):n<100?n.toFixed(1):Math.round(n)):Math.round(n))+' '+u[i]}
 function fmtRate(b){b=num(b);var u=['bps','Kbps','Mbps','Gbps'],i=0;while(b>=1000&&i<3){b/=1000;i++}return (i?(b<10?b.toFixed(1):Math.round(b)):Math.round(b))+' '+u[i]}
 function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span><span class="tag '+esc(t.type)+'">'+esc(t.type)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso">'+fmtBytes(num(t.rx_total)+num(t.tx_total))+'</span></div></div>'}
@@ -4322,9 +4589,9 @@ var IC={
 };
 function ic(n,c){return '<span class="ic"'+(c?' style="color:'+c+'"':'')+'>'+(IC[n]||'')+'</span>'}
 function paintIcons(root){(root||document).querySelectorAll('[data-ic]').forEach(function(e){e.innerHTML=IC[e.dataset.ic]||''})}
-function toggleTheme(){var d=document.body.classList.toggle('dark');try{localStorage.setItem('tnl_dark',d?'1':'')}catch(e){}el('thbtn').innerHTML=ic(d?'sun':'moon')+' تم';refresh()}
+function toggleTheme(){var d=document.body.classList.toggle('dark');try{localStorage.setItem('tnl_dark',d?'1':'')}catch(e){}paintThemeBtns();refresh()}
 try{if(localStorage.getItem('tnl_dark'))document.body.classList.add('dark')}catch(e){}
-paintIcons();el('thbtn').innerHTML=ic(document.body.classList.contains('dark')?'sun':'moon')+' تم';
+paintIcons();paintNav();
 
 function area(id,vals,color){var svg=el(id);if(!svg)return;var W=520,Hh=150,pad=12,bh=6;
  vals=vals.slice();if(vals.length<2)vals=vals.concat(vals.length?[vals[0]]:[0,0]);
@@ -4350,11 +4617,11 @@ function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
 var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1;
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
-var CORE_CIPHERS=[{v:'auto',label:'خودکار'},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:'بدونِ رمز'}];
+var CORE_CIPHERS=[{v:'auto',label:T('cipher_auto')},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:T('cipher_none')}];
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 var SUBNETRANGES=[{v:'192.168',label:'خودکار · 192.168.x (پیشنهادی)'},{v:'10',label:'خودکار · 10.x'},{v:'172.16',label:'خودکار · 172.16.x'},{v:'custom',label:'دلخواه (دستی وارد کن)'}];
 var SUBNETRANGES2=[{v:'192.168',label:'192.168.x'},{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'}];
-document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){cur=p.dataset.t;drawer(false);render()}});
+document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){if(p.dataset.t=='logout'){logout();return}cur=p.dataset.t;drawer(false);render()}});
 function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.classList.toggle('on',p.dataset.t==cur)})}
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
@@ -4366,11 +4633,12 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
- return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(ph||'انتخاب کنید'))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
+ return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
+function _ssph(ph){return ph||T('select')}
 function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(it.sub)+'</span>':'')+'</div>'}
 var SS_OV={};
 function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  // open the list as a centered popup (scrolls; search for long lists)
- var search=items.length>10?'<input class="search sspopq" placeholder="جستجو…" oninput="msFilter(this)" autocomplete="off">':'';
+ var search=items.length>10?'<input class="search sspopq" placeholder="'+esc(T('search'))+'" oninput="msFilter(this)" autocomplete="off">':'';
  SS_OV[key]=openModal('<div class="sspop">'+search+'<div class="sspoplist">'+items.map(function(it){return ssRow(key,it)}).join('')+'</div></div>',{cls:'sssheet'})}
 function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
  var items=SSI[key]||[],cur=items.filter(function(x){return String(x.v)==String(val)})[0];
@@ -4387,8 +4655,8 @@ document.addEventListener('click',function(e){document.querySelectorAll('.mslist
 // ===== styled confirm modal + toast (replace native alert/confirm) =====
 function confirmBox(msg,yes){return new Promise(function(resolve){
  var ov=document.createElement('div');ov.className='modalov';
- ov.innerHTML='<div class="modal"><div class="mtext"></div><div class="mbtns"><button class="primary myes"></button><button class="ghost mno">انصراف</button></div></div>';
- ov.querySelector('.mtext').textContent=msg;ov.querySelector('.myes').textContent=yes||'تأیید و حذف';
+ ov.innerHTML='<div class="modal"><div class="mtext"></div><div class="mbtns"><button class="primary myes"></button><button class="ghost mno">'+esc(T('cancel'))+'</button></div></div>';
+ ov.querySelector('.mtext').textContent=msg;ov.querySelector('.myes').textContent=yes||T('confirm_del');
  document.body.appendChild(ov);
  function done(val){ov.remove();document.removeEventListener('keydown',onk);resolve(val)}
  function onk(e){if(e.key!='Escape')return;var a=document.querySelectorAll('.modalov');if(a[a.length-1]!==ov)return;e.stopImmediatePropagation();done(false)}
@@ -4406,7 +4674,7 @@ function toast(msg,kind){var t=document.createElement('div');t.className='toast 
 function toolbar(kind,ph){return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')"></div>'}
 function pagerBottom(kind){return '<div class="pager" id="pgb_'+kind+'"></div>'}
 function renderPager(kind){var total=TOT[kind]||0,pages=Math.max(1,Math.ceil(total/LIM)),cur=Math.min(PG[kind]+1,pages);
- var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">قبلی</button><span class="pinfo">صفحه '+cur+' از '+pages+' · '+total+' مورد</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">بعدی</button>';
+ var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">'+esc(T('prev'))+'</button><span class="pinfo">'+esc(T('page'))+' '+cur+' '+esc(T('of'))+' '+pages+' · '+total+' '+esc(T('items'))+'</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">'+esc(T('next'))+'</button>';
  var a=el('pg_'+kind),b=el('pgb_'+kind);if(a)a.innerHTML=pages>1?h:'';if(b)b.innerHTML=pages>1?h:''}
 function goPage(kind,delta){var pages=Math.max(1,Math.ceil((TOT[kind]||0)/LIM));PG[kind]=Math.max(0,Math.min(pages-1,PG[kind]+delta));refresh()}
 function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);PG[kind]=0;refresh()},280)}
@@ -4418,8 +4686,8 @@ function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){retur
 var LEDTYPE='',LEDPORT='';
 function renderEditPort(id){var w=el('lpx_'+id);if(!w)return;var t=ssVal('lt_'+id);
  var pre=(t==LEDTYPE&&LEDPORT!=null)?String(LEDPORT):'';
- if(t=='vxlan')w.innerHTML='<label>پورتِ UDP (خالی = 4789)</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="4789" value="'+esc(pre)+'">';
- else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>پورتِ UDP (خالی = خودکار از شناسه)</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="مثلا 51820" value="'+esc(pre)+'">';
+ if(t=='vxlan')w.innerHTML='<label>'+esc(T('le_port_4789'))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="4789" value="'+esc(pre)+'">';
+ else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>'+esc(T('le_port_auto'))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="مثلا 51820" value="'+esc(pre)+'">';
  else w.innerHTML=''}
 
 // ===== Overview
@@ -4430,56 +4698,56 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
  tip.innerHTML='<span>'+esc(bar.dataset.nm)+'</span> '+bar.dataset.info;
  tip.style.left=(bar.offsetLeft+bar.offsetWidth/2)+'px';tip.style.display='block';
  clearTimeout(box._tt);box._tt=setTimeout(function(){if(tip)tip.style.display='none'},2400)}
-function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' نمای کلی</h1><p class="sub">آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده</p>'+
- '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">سلامتِ فلیت</div></div><div class="ochips" id="o_chips"></div></div>'+
- '<div class="sec">'+ic('warn','var(--acc)')+' نیازمندِ توجه</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
- '<div class="sec">'+ic('grid','var(--acc)')+' همهٔ نودها یک‌نگاه</div><div class="card ohcard"><div class="oheat" id="o_heat"></div><div class="heat-lg"><span><i style="background:var(--ok)"></i>سالم</span><span><i style="background:var(--gold)"></i>هشدار (>۶۰٪)</span><span><i style="background:var(--bad)"></i>بحرانی (>۸۵٪)</span></div><div class="muted" style="text-align:center;margin-top:6px;font-size:11px" id="o_heat_c"></div></div>'+
- '<div class="sec">'+ic('server','var(--acc)')+' سرورِ مرکزی (این پنل)</div><div class="card"><div class="gauges">'+gaugeHTML('scpu','CPU')+gaugeHTML('sram','RAM')+gaugeHTML('sdisk','دیسک')+'</div></div>'+
- '<div class="sec">'+ic('activity','var(--acc)')+' پرمصرف‌ترین نودها</div><div class="card" id="o_worst"><div class="muted" style="padding:8px 0">…</div></div>'+
- '<div class="sec">'+ic('link','var(--acc)')+' وضعیتِ تفکیکیِ تونل‌ها</div><div class="card"><div class="tst" id="o_tst"></div><div class="typebar" id="o_typebar"></div><div class="typleg" id="o_typleg"></div><div id="o_wtun"></div></div>'+
- '<div class="sec">'+ic('traf','var(--acc)')+' ترافیکِ فلیت<span class="lpill"><span class="pd"></span>زنده</span></div><div class="card"><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="o_frx">—</b></span><span class="dout iso">↑ <b id="o_ftx">—</b></span></div><svg id="o_traf" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="o_ftin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="o_ftout">—</b></div></div></div>'+
- '<div class="sec">'+ic('clock','var(--acc)')+' آپ‌تایم</div><div class="ostat2"><div class="card"><div class="big" id="o_uptime" style="color:var(--ok)">—</div><div class="muted" style="font-size:11.5px" id="o_uptime_l">میانگینِ آپ‌تایم</div></div><div class="card"><div class="big" id="o_updown">—</div><div class="muted" style="font-size:11.5px">نود قطعی داشته</div></div></div>'}
+function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' '+esc(T('nav_overview'))+'</h1><p class="sub">'+esc(T('ov_sub'))+'</p>'+
+ '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">'+esc(T('ov_health'))+'</div></div><div class="ochips" id="o_chips"></div></div>'+
+ '<div class="sec">'+ic('warn','var(--acc)')+' '+esc(T('ov_attention'))+'</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
+ '<div class="sec">'+ic('grid','var(--acc)')+' '+esc(T('ov_allnodes'))+'</div><div class="card ohcard"><div class="oheat" id="o_heat"></div><div class="heat-lg"><span><i style="background:var(--ok)"></i>'+esc(T('st_healthy'))+'</span><span><i style="background:var(--gold)"></i>'+esc(T('st_warn'))+'</span><span><i style="background:var(--bad)"></i>'+esc(T('st_crit'))+'</span></div><div class="muted" style="text-align:center;margin-top:6px;font-size:11px" id="o_heat_c"></div></div>'+
+ '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('ov_central'))+'</div><div class="card"><div class="gauges">'+gaugeHTML('scpu','CPU')+gaugeHTML('sram','RAM')+gaugeHTML('sdisk',T('disk'))+'</div></div>'+
+ '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('ov_worst'))+'</div><div class="card" id="o_worst"><div class="muted" style="padding:8px 0">…</div></div>'+
+ '<div class="sec">'+ic('link','var(--acc)')+' '+esc(T('ov_tunbreak'))+'</div><div class="card"><div class="tst" id="o_tst"></div><div class="typebar" id="o_typebar"></div><div class="typleg" id="o_typleg"></div><div id="o_wtun"></div></div>'+
+ '<div class="sec">'+ic('traf','var(--acc)')+' '+esc(T('ov_traffic'))+'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span></div><div class="card"><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="o_frx">—</b></span><span class="dout iso">↑ <b id="o_ftx">—</b></span></div><svg id="o_traf" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">'+esc(T('ov_rxtot'))+'</span><b id="o_ftin">—</b></div><div class="ttile"><span class="dout">'+esc(T('ov_txtot'))+'</span><b id="o_ftout">—</b></div></div></div>'+
+ '<div class="sec">'+ic('clock','var(--acc)')+' '+esc(T('ov_uptime'))+'</div><div class="ostat2"><div class="card"><div class="big" id="o_uptime" style="color:var(--ok)">—</div><div class="muted" style="font-size:11.5px" id="o_uptime_l">'+esc(T('ov_uptime_avg'))+'</div></div><div class="card"><div class="big" id="o_updown">—</div><div class="muted" style="font-size:11.5px">'+esc(T('ov_down_nodes'))+'</div></div></div>'}
 async function refreshOverview(){var s=await j('summary');if(!el('o_score'))return;
  var on=num(s.nodes_online),tot=num(s.nodes_total),links=num(s.links),alerts=s.alerts||[];
  // ---- health score + chips
  var sc=num(s.health_score),scol=sc>=85?cssv('--ok'):sc>=60?cssv('--gold'):cssv('--bad');
  var se=el('o_score');se.textContent=sc;se.style.color=scol;
- el('o_chips').innerHTML='<span class="ochip a">نود <b dir="ltr">'+on+'/'+tot+'</b></span>'+
-  '<span class="ochip o">لینکِ سالم <b dir="ltr">'+num(s.link_up)+'/'+links+'</b></span>'+
-  '<span class="ochip a">تونل <b>'+num(s.tunnels)+'</b></span>'+
-  (alerts.length?'<span class="ochip b">هشدار <b>'+alerts.length+'</b></span>':'<span class="ochip o">بدونِ هشدار</span>');
+ el('o_chips').innerHTML='<span class="ochip a">'+esc(T('ov_chip_node'))+' <b dir="ltr">'+on+'/'+tot+'</b></span>'+
+  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+links+'</b></span>'+
+  '<span class="ochip a">'+esc(T('ov_chip_tunnel'))+' <b>'+num(s.tunnels)+'</b></span>'+
+  (alerts.length?'<span class="ochip b">'+esc(T('ov_chip_alert'))+' <b>'+alerts.length+'</b></span>':'<span class="ochip o">'+esc(T('ov_chip_noalert'))+'</span>');
  // ---- alerts feed
  var goMap={node:'nodes',link:'tunnels',drift:'tunnels',disk:'nodes',ram:'nodes',cpu:'nodes',agent:'settings'};
- var goLbl={nodes:'نودها',tunnels:'تونل‌ها',settings:'تنظیمات'};
- el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" onclick="go(\\''+g+'\\')">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' همه‌چیز مرتب است — هشداری نیست</div>';
+ var goLbl={nodes:T('nav_nodes'),tunnels:T('nav_tunnels'),settings:T('nav_settings')};
+ el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" onclick="go(\\''+g+'\\')">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' '+esc(T('ov_noalert'))+'</div>';
  // ---- heat row (every node at a glance; height = worst metric)
  var heat=s.heat||[];
- setHTML(el('o_heat'),heat.length?heat.map(function(h){var nm=esc(h.name);if(!h.online)return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="آفلاین" title="'+nm+' — آفلاین" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+p+'٪" title="'+nm+' — '+p+'٪" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">نودی نیست</div>');
- setT('o_heat_c',(heat.length||0)+' نود · هر میله = بدترین متریکِ آن نود (دیسک/رم/CPU) · خاکستری = آفلاین');
+ setHTML(el('o_heat'),heat.length?heat.map(function(h){var nm=esc(h.name);if(!h.online)return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+esc(T('offline'))+'" title="'+nm+' — '+esc(T('offline'))+'" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+p+'٪" title="'+nm+' — '+p+'٪" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">'+esc(T('ov_no_nodes'))+'</div>');
+ setT('o_heat_c',(heat.length||0)+' '+T('ov_heat_note'));
  // ---- central server gauges
  var c=s.central||{},cl=(c.load||[])[0];
- setGauge('scpu',c.cpu_pct,'لود '+(cl!=null?cl:'—')+' · '+(num(c.cpus)||'?')+' هسته');
- setGauge('sram',c.ram_pct,c.mem_used_mb!=null?(num(c.mem_used_mb)+' / '+num(c.mem_total_mb)+' م‌ب'):'—');
- setGauge('sdisk',c.disk_pct,c.disk_used_mb!=null?(Math.round(num(c.disk_used_mb)/1024)+' / '+Math.round(num(c.disk_total_mb)/1024)+' گیگ'):'—');
+ setGauge('scpu',c.cpu_pct,T('load')+' '+(cl!=null?cl:'—')+' · '+(num(c.cpus)||'?')+' '+T('cores_word'));
+ setGauge('sram',c.ram_pct,c.mem_used_mb!=null?(num(c.mem_used_mb)+' / '+num(c.mem_total_mb)+' '+T('unit_mb')):'—');
+ setGauge('sdisk',c.disk_pct,c.disk_used_mb!=null?(Math.round(num(c.disk_used_mb)/1024)+' / '+Math.round(num(c.disk_total_mb)/1024)+' '+T('unit_gb')):'—');
  // ---- worst nodes per metric
  var w=s.worst||{},wr=function(k,o){if(!o)return '';var p=num(o.pct),cc=ocol(p);return '<div class="wrow"><span class="wk">'+k+'</span><span class="wnm">'+esc(o.name)+'</span><span class="wbar"><i style="width:'+p+'%;background:'+cc+'"></i></span><span class="wpc" style="color:'+cc+'">'+p+'٪</span></div>'};
- var wh=wr('دیسک',w.disk)+wr('رم',w.ram)+wr('CPU',w.cpu);
- el('o_worst').innerHTML=wh||'<div class="muted" style="text-align:center;padding:8px 0;font-size:12.5px">نودِ آنلاینی نیست</div>';
+ var wh=wr(T('disk'),w.disk)+wr(T('ram'),w.ram)+wr('CPU',w.cpu);
+ el('o_worst').innerHTML=wh||'<div class="muted" style="text-align:center;padding:8px 0;font-size:12.5px">'+esc(T('ov_no_online'))+'</div>';
  // ---- tunnel status breakdown
  var lu=num(s.link_up),ln=num(s.link_noping),ld=num(s.link_down),ldr=num(s.link_drift);
- el('o_tst').innerHTML='<div class="tb"><div class="n" style="color:var(--ok)">'+lu+'</div><div class="l">متصل</div></div>'+
-  '<div class="tb"><div class="n" style="color:var(--gold)">'+ln+'</div><div class="l">بدونِ پینگ</div></div>'+
-  '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">قطع</div></div>'+
-  '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">نیازمندِ بازسازی</div></div>';
+ el('o_tst').innerHTML='<div class="tb"><div class="n" style="color:var(--ok)">'+lu+'</div><div class="l">'+esc(T('tst_connected'))+'</div></div>'+
+  '<div class="tb"><div class="n" style="color:var(--gold)">'+ln+'</div><div class="l">'+esc(T('tst_noping'))+'</div></div>'+
+  '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">'+esc(T('tst_down'))+'</div></div>'+
+  '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">'+esc(T('tst_rebuild'))+'</div></div>';
  var ty=s.link_types||{};
  var TYD=[['vxlan','var(--acc)'],['gre','var(--ok)'],['sit','#a855f7'],['ipip','#14b8a6'],['l2tpv3','#8b5cf6'],['fou','#ec4899'],['ipsec','#f43f5e']];
  var tt=0;TYD.forEach(function(x){tt+=num(ty[x[0]])});tt=tt||1;
  el('o_typebar').innerHTML=TYD.map(function(x){return '<i style="width:'+(num(ty[x[0]])/tt*100)+'%;background:'+x[1]+'"></i>'}).join('');
- el('o_typleg').innerHTML=TYD.filter(function(x){return num(ty[x[0]])>0}).map(function(x){return '<span><i class="otrack" style="background:'+x[1]+'"></i>'+x[0]+' <b>'+num(ty[x[0]])+'</b></span>'}).join('')||'<span class="muted">تونلی نیست</span>';
+ el('o_typleg').innerHTML=TYD.filter(function(x){return num(ty[x[0]])>0}).map(function(x){return '<span><i class="otrack" style="background:'+x[1]+'"></i>'+x[0]+' <b>'+num(ty[x[0]])+'</b></span>'}).join('')||'<span class="muted">'+esc(T('ov_no_tunnel'))+'</span>';
  var wt=s.worst_tunnel;
  if(wt){var pr=(wt.a&&wt.b)?' <span dir="ltr" style="color:var(--tx);font-weight:800">'+esc(wt.a)+' ↔ '+esc(wt.b)+'</span>':'';
-  setHTML(el('o_wtun'),'<div class="onote">📡 بدترین کیفیت: تونلِ <b>'+esc(wt.name)+'</b>'+pr+(num(wt.loss)>0?' · اتلاف <b style="color:var(--bad)">'+Math.round(num(wt.loss))+'٪</b>':'')+(wt.rtt!=null?' · پینگ <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+'</div>');}
- else{setHTML(el('o_wtun'),'<div class="onote">✅ کیفیتِ همهٔ تونل‌ها خوب است'+(s.fleet_avg_ping!=null?' · میانگینِ پینگِ فلیت <b style="color:var(--tx)">'+num(s.fleet_avg_ping)+'ms</b>':'')+'</div>');}
+  setHTML(el('o_wtun'),'<div class="onote">📡 '+esc(T('ov_worst_q'))+' <b>'+esc(wt.name)+'</b>'+pr+(num(wt.loss)>0?' · '+esc(T('ov_loss'))+' <b style="color:var(--bad)">'+Math.round(num(wt.loss))+'٪</b>':'')+(wt.rtt!=null?' · '+esc(T('ov_ping'))+' <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+'</div>');}
+ else{setHTML(el('o_wtun'),'<div class="onote">✅ '+esc(T('ov_all_good'))+(s.fleet_avg_ping!=null?' · '+esc(T('ov_fleet_ping'))+' <b style="color:var(--tx)">'+num(s.fleet_avg_ping)+'ms</b>':'')+'</div>');}
  // ---- fleet traffic
  var frx=num(s.fleet_rx_bps),ftx=num(s.fleet_tx_bps);
  setT('o_frx',fmtRate(frx));setT('o_ftx',fmtRate(ftx));
@@ -4487,13 +4755,13 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  FRXHIST.push(frx);FTXHIST.push(ftx);if(FRXHIST.length>26){FRXHIST.shift();FTXHIST.shift()}dualSpark('o_traf',FRXHIST,FTXHIST);
  // ---- uptime
  var uw=num(s.uptime_window)||1;
- setT('o_uptime',num(s.uptime_avg)+'٪');setT('o_uptime_l','میانگینِ آپ‌تایمِ '+uw+' ساعتِ اخیر');
+ setT('o_uptime',num(s.uptime_avg)+'٪');setT('o_uptime_l',T('ov_uptime_lbl')+' '+uw+' '+T('ov_hours_recent'));
  setT('o_updown',num(s.uptime_down_nodes))}
 
 // ===== Nodes
-function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' نودها</h1><p class="sub">افزودن و وضعیت زنده‌ی نودها</p>'+
- '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن نود</button>'+
- '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+toolbar('nodes','جستجوی نام یا آی‌پی…')+'<div id="nodeList"></div>'+pagerBottom('nodes')}
+function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' '+esc(T('nav_nodes'))+'</h1><p class="sub">'+esc(T('nodes_sub'))+'</p>'+
+ '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
+ '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList"></div>'+pagerBottom('nodes')}
 var _naddMode='auto';
 function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+'خودکار</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+'دستی</button></div>';
@@ -4580,7 +4848,7 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  _inst={job:r.d.job,steps:_INSTEPS.map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:'در حالِ نصب…',bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
 async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
- setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?'موردی یافت نشد.':'هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.')+'</div>');renderPager('nodes')}
+ setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
 function proxyScheme(p){if(!p)return '';var i=p.indexOf('://');return (i>0?p.slice(0,i):'socks5').toLowerCase()}
 // ===== popup modal shell (edit forms + node-details) =====
@@ -4609,22 +4877,22 @@ function setGauge(key,pct,sub){var C=207.3,g=el('g_'+key),t=el('gt_'+key),s=el('
  t.innerHTML=pct+'<i>٪</i>';if(s&&sub!=null)s.textContent=sub}
 function ndTile(icn,label,val,wide,ltr){return '<div class="nd-tile'+(wide?' nd-wide':'')+'"><span class="medi">'+ic(icn)+'</span><span>'+label+'</span><b'+(ltr?' class="ltr"':'')+'>'+val+'</b></div>'}
 function ndApplyStats(s){var rp=s.mem_total_mb?Math.round(num(s.mem_used_mb)/num(s.mem_total_mb)*100):0;
- setGauge('cpu',s.cpu_pct,'لود '+((s.load||[])[0]||'—'));
- setGauge('ram',rp,num(s.mem_used_mb)+' / '+num(s.mem_total_mb)+' م‌ب');
- setGauge('disk',s.disk_pct,s.disk_used_mb!=null?(Math.round(num(s.disk_used_mb)/1024)+' / '+Math.round(num(s.disk_total_mb)/1024)+' گیگ'):'—')}
+ setGauge('cpu',s.cpu_pct,T('load')+' '+((s.load||[])[0]||'—'));
+ setGauge('ram',rp,num(s.mem_used_mb)+' / '+num(s.mem_total_mb)+' '+T('unit_mb'));
+ setGauge('disk',s.disk_pct,s.disk_used_mb!=null?(Math.round(num(s.disk_used_mb)/1024)+' / '+Math.round(num(s.disk_total_mb)/1024)+' '+T('unit_gb')):'—')}
 function ndSetHead(ov,online){var dot=ov.querySelector('.nd-head .dot');if(dot)dot.className='dot '+(online?'ok':'bad');
- var bd=ov.querySelector('.nd-head .nd-ping');if(bd){bd.className='badge '+(online?'ok':'bad')+' nd-ping';bd.textContent=online?'آنلاین':'آفلاین'}
- var sb=ov.querySelector('.msticky .sb');if(sb)sb.innerHTML=online?'<span class="lpill"><span class="pd"></span>زنده</span> به‌روزرسانی هر ۲ ثانیه':'آفلاین — آخرین مقادیر'}
+ var bd=ov.querySelector('.nd-head .nd-ping');if(bd){bd.className='badge '+(online?'ok':'bad')+' nd-ping';bd.textContent=online?T('online'):T('offline')}
+ var sb=ov.querySelector('.msticky .sb');if(sb)sb.innerHTML=online?'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span> '+esc(T('refresh2s')):esc(T('nd_off_last'))}
 function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;var i=n.info||{},s=i.stats||{};
- var head='<div class="nd-head"><span class="dot '+(n.online?'ok':'bad')+'"></span><div class="nd-id"><b class="nd-name">'+esc(n.name)+'</b><span class="nd-hp">'+esc(n.host)+':'+esc(n.port)+'</span></div>'+(n.proxy?'<span class="tag" style="margin-inline-start:6px">پروکسی</span>':'')+'<span class="badge '+(n.online?'ok':'bad')+' nd-ping">'+(n.online?'آنلاین':'آفلاین')+'</span></div>';
+ var head='<div class="nd-head"><span class="dot '+(n.online?'ok':'bad')+'"></span><div class="nd-id"><b class="nd-name">'+esc(n.name)+'</b><span class="nd-hp">'+esc(n.host)+':'+esc(n.port)+'</span></div>'+(n.proxy?'<span class="tag" style="margin-inline-start:6px">'+esc(T('proxy'))+'</span>':'')+'<span class="badge '+(n.online?'ok':'bad')+' nd-ping">'+(n.online?T('online'):T('offline'))+'</span></div>';
  var mb;
- if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk','دیسک')+'</div>';
-  var traf='<div class="nd-sec">'+ic('traf')+' ترافیک<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>زنده</span></div><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="tf_rin">—</b></span><span class="dout iso">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">↓ ورودیِ کل</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">↑ خروجیِ کل</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
-  var tiles='<div class="nd-grid">'+ndTile('os','سیستم‌عامل',esc(s.os||'?'),false,true)+ndTile('clock','آپ‌تایم',s.uptime?fmtup(s.uptime):'?')+ndTile('cores','تعداد هسته',num(s.cpus)||'?')+ndTile('link','تونل',num(i.tunnels))+ndTile('globe','پورت‌فوروارد',num(i.portfw))+ndTile('shield','پروکسیِ کنترل',n.proxy?esc(proxyScheme(n.proxy)):'—')+ndTile('server','میزبان',esc(i.hostname||'?'),true,true)+ndTile('pin','آی‌پی',esc(n.host),true,true)+'</div>';
-  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' آی‌پی‌ها<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">تونل‌شده / پورت‌فوروارد / آزاد</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
- else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
- var sub=n.online?'<span class="lpill"><span class="pd"></span>زنده</span> به‌روزرسانی هر ۲ ثانیه':'وضعیت نود';
- var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>مشخصات نود</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" onclick="ndRetest(\\''+id+'\\')">تستِ اتصال</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">بستن</button></div>';
+ if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk',T('disk'))+'</div>';
+  var traf='<div class="nd-sec">'+ic('traf')+' '+esc(T('nd_traffic'))+'<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>'+esc(T('live'))+'</span></div><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="tf_rin">—</b></span><span class="dout iso">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">'+esc(T('ov_rxtot'))+'</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">'+esc(T('ov_txtot'))+'</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
+  var tiles='<div class="nd-grid">'+ndTile('os',T('os'),esc(s.os||'?'),false,true)+ndTile('clock',T('uptime'),s.uptime?fmtup(s.uptime):'?')+ndTile('cores',T('cpu_cores'),num(s.cpus)||'?')+ndTile('link',T('nd_tunnels'),num(i.tunnels))+ndTile('globe',T('nd_portfw'),num(i.portfw))+ndTile('shield',T('nd_ctrlproxy'),n.proxy?esc(proxyScheme(n.proxy)):'—')+ndTile('server',T('host'),esc(i.hostname||'?'),true,true)+ndTile('pin',T('ip'),esc(n.host),true,true)+'</div>';
+  mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' '+esc(T('nd_ips'))+'<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">'+esc(T('ip_leg'))+'</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
+ else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
+ var sub=n.online?'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span> '+esc(T('refresh2s')):esc(T('nd_status'));
+ var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>'+esc(T('nd_title'))+'</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" onclick="ndRetest(\\''+id+'\\')">'+esc(T('nd_conn_test'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('close'))+'</button></div>';
  var ov=openModal(html,{cls:'ndsheet',onclose:function(){if(ov._iv){clearInterval(ov._iv);ov._iv=0}}});
  if(n.online){ndApplyStats(s);var tfin=[],tfout=[];
   j('node-ips?id='+id).then(function(r){if(ov._closed)return;var ib=el('nd_ips');if(ib)ib.innerHTML=ipTagsHTML(r&&r.ips)}).catch(function(){});
@@ -4634,103 +4902,103 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
     setT('tf_rin',fmtRate(nd.rx_bps));setT('tf_rout',fmtRate(nd.tx_bps));setT('tf_tin',fmtBytes(nd.rx_total));setT('tf_tout',fmtBytes(nd.tx_total));
     tfin.push(num(nd.rx_bps));tfout.push(num(nd.tx_bps));if(tfin.length>30){tfin.shift();tfout.shift()}dualSpark('tf_spark',tfin,tfout);
     var rows=(r.tunnels||[]).concat(r.portfw||[]);
-    var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">تونل یا پورت‌فورواردی روی این نود نیست</div>'}).catch(function(){})};
+    var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">'+esc(T('nd_no_tp'))+'</div>'}).catch(function(){})};
   poll();ov._iv=setInterval(poll,2500)}}
-function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast('آنلاین','ok')}else{toast('آفلاین: '+((r&&r.error)||'در دسترس نیست'),'err')}}).catch(function(){toast('خطا در بررسی','err')})}
+function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast(T('online'),'ok')}else{toast(T('offline')+': '+((r&&r.error)||T('not_available')),'err')}}).catch(function(){toast(T('err_check'),'err')})}
 function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
- var b='<div class="grid2"><div><label class="first">نام</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">هاست / آی‌پی</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>پورت</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>توکن</label><input id="e_tok_'+id+'" placeholder="خالی = توکن فعلی بماند"></div></div><label>پروکسیِ کنترل (خالی = بدون پروکسی)</label><input id="e_proxy_'+id+'" value="'+esc(n.proxy||'')+'" placeholder="socks5://host:1080 یا http://user:pass@host:8080"><div class="msg" id="em_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ نود</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">ذخیره</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
-function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">آی‌پیِ '+esc(nm)+'</label>';
+ var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div><label>'+esc(T('f_ctrlproxy_empty'))+'</label><input id="e_proxy_'+id+'" value="'+esc(n.proxy||'')+'" placeholder="socks5://host:1080 یا http://user:pass@host:8080"><div class="msg" id="em_'+id+'"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">'+esc(T('ip_of'))+esc(nm)+'</label>';
  ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
  if(ips.length>1)return '<div>'+lab+ssHTML('lip'+side+'_'+id,ips.map(function(x){return{v:x,label:x}}),(cur&&ips.indexOf(cur)>=0)?cur:ips[0],'آی‌پی','')+'</div>';
  return '<div>'+lab+'<input class="mono" value="'+esc(cur||ips[0]||'—')+'" disabled style="opacity:.6"></div>'}
 function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)return;EDID=id;LEDTYPE=l.type;LEDPORT=(l.port==null?'':l.port);
  var multi=((l.a_ips||[]).length>1)||((l.b_ips||[]).length>1);
- var b='<div class="grid2"><div><label class="first">نوع تونل</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,'نوع','recalcEditSubnet')+'</div><div><label class="first">رنجِ لوکال</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168','رنج','recalcEditSubnet')+'</div></div><label>سابنت</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div id="lpx_'+id+'"></div>'+
-  '<div class="muted" style="font-weight:700;color:var(--tx);margin:16px 2px 9px;display:flex;align-items:center;gap:6px">'+ic('pin','var(--acc)')+'آی‌پیِ هر سرِ تونل'+(multi?' <span class="tag" style="font-size:9.5px;padding:1px 7px">مولتی‌آی‌پی</span>':'')+'</div>'+
+ var b='<div class="grid2"><div><label class="first">'+esc(T('tun_type'))+'</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,T('ttype'),'recalcEditSubnet')+'</div><div><label class="first">'+esc(T('range'))+'</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168',T('range'),'recalcEditSubnet')+'</div></div><label>'+esc(T('subnet'))+'</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div id="lpx_'+id+'"></div>'+
+  '<div class="muted" style="font-weight:700;color:var(--tx);margin:16px 2px 9px;display:flex;align-items:center;gap:6px">'+ic('pin','var(--acc)')+esc(T('ip_each_end'))+(multi?' <span class="tag" style="font-size:9.5px;padding:1px 7px">'+esc(T('multi_ip'))+'</span>':'')+'</div>'+
   '<div class="grid2">'+ipEndField('a',id,l.a_name,l.a_ips,l.a_ip)+ipEndField('b',id,l.b_name,l.b_ips,l.b_ip)+'</div>'+
-  '<div class="muted" style="font-size:11.5px;margin-top:9px">اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه '+esc(l.tunnel_id)+' حفظ می‌شود).</div><div class="msg" id="lem_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>ویرایشِ تونل</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{onclose:function(){EDID=null}});
+  '<div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('link_ip_note1'))+esc(l.tunnel_id)+esc(T('link_ip_note2'))+'</div><div class="msg" id="lem_'+id+'"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>'+esc(T('edit_tun_t'))+'</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{onclose:function(){EDID=null}});
  renderEditPort(id)}
 async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
  var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);   // load node IPs for the listen-IP picker
- var lipsec=(ips.length>1)?'<label class="first">آی‌پیِ ورودی (شنود)</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),'آی‌پی','')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">پورت فقط روی این آی‌پی فوروارد می‌شود</div>':'';
+ var lipsec=(ips.length>1)?'<label class="first">'+esc(T('pf_lip'))+'</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),T('ip'),'')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">'+esc(T('pf_lip_note'))+'</div>':'';
  var fc=lipsec?'':' class="first"';
- var b=lipsec+'<div class="grid2"><div><label'+fc+'>پورتِ ورودی</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>پورتِ مقصد</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>چرخش بینِ مقصدها</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?'روشن':'خاموش')+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>بازهٔ چرخش (دقیقه)</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">چرخش فقط با ۲ آی‌پیِ مقصد یا بیشتر فعال می‌شود.</div><div class="msg" id="pem_'+i+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ پورت‌فوروارد</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">ذخیره</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+ var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(T('pf_listen_port'))+'</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(T('pf_dst_port'))+'</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem_'+i+'"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function nodeCard(n){var i=n.info||{};
- var badge=n.online?'<span class="badge ok">آنلاین</span>':(n.pending?'<span class="badge na">در حال بررسی…</span>':'<span class="badge bad">آفلاین</span>');
- var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">پروکسی</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
- var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+'تونل <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+'پورت‌فوروارد <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+'ایجنت v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip" title="نسخهٔ هسته">'+ic('cpu')+'هسته <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" title="هسته روی نود نصب نیست" style="color:var(--sub)">'+ic('cpu')+'هسته <b>نصب نیست</b></span>')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>در دسترس نیست</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="تست" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="مشخصات" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="ویرایش" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="حذف" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
+ var badge=n.online?'<span class="badge ok">'+esc(T('online'))+'</span>':(n.pending?'<span class="badge na">'+esc(T('pending_check'))+'</span>':'<span class="badge bad">'+esc(T('offline'))+'</span>');
+ var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
+ var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
  var up=0,tot=0;for(var i=0;i<r.length;i++){if(r[i]!=null){tot++;if(r[i])up++}}
  var pct=tot?Math.round(up/tot*100):0;
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
- return '<div class="upwrap"><div class="uptop">آپتایم<b style="margin-inline-start:6px">'+pct+'٪</b><span class="r">'+UPWIN+' ساعتِ اخیر</span></div><div class="upbar">'+cells+'</div></div>'}
+ return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+'٪</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
- if(!name||!host||!port){m.className='msg err';m.textContent='نام، هاست و پورت لازم است';return}
- m.className='msg';m.textContent='در حال ذخیره…';
+ if(!name||!host||!port){m.className='msg err';m.textContent=T('need_nhp');return}
+ m.className='msg';m.textContent=T('saving');
  var r=await post('node-edit',{id:id,name:name,host:host,port:port,token:tok,proxy:v('e_proxy_'+id)});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||'ناموفق'}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||T('failed')}}
 async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host'),port=v('n_port'),tok=v('n_tok');
- if(!name||!host||!port||!tok){m.className='msg err';m.textContent='لطفاً نام، هاست، پورت و توکن را پر کن';return}
- m.className='msg';m.textContent='در حال اتصال…';
+ if(!name||!host||!port||!tok){m.className='msg err';m.textContent=T('need_all_nhpt');return}
+ m.className='msg';m.textContent=T('connecting_dots');
  var r=await post('node-add',{name:name,host:host,port:port,token:tok,proxy:v('n_proxy')});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('نود اضافه شد'+(r.d.online?' · آنلاین':' · آفلاین: '+(r.d.error||'')),r.d.online?'ok':'err')}
- else{m.className='msg err';m.textContent=r.d.error||'ناموفق'}}
-async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent='در حال تست…'}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+(r.d.error||'')),r.d.online?'ok':'err')}
+ else{m.className='msg err';m.textContent=r.d.error||T('failed')}}
+async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
  var t0=performance.now();var r=await post('node-test',{id:id});var ms=Math.round(performance.now()-t0);
  var info=(r.d&&r.d.info)||{};if(!m)return;
- if(r.d&&r.d.ok){m.className='msg ok';m.innerHTML=CK+esc(' آنلاین — '+(info.hostname||'')+' · '+ms+'ms')}
- else{m.className='msg err';m.textContent='آفلاین: '+(info.error||'در دسترس نیست')+' · '+ms+'ms'}}
+ if(r.d&&r.d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+' · '+ms+'ms')}
+ else{m.className='msg err';m.textContent=T('offline')+': '+(info.error||T('not_available'))+' · '+ms+'ms'}}
 function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');
- var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:</div>'+
-  '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+'فقط از پنل جدا کن</div><div class="do-s">نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.</div></button>'+
-  '<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+'پاک‌سازیِ کاملِ نود</div><div class="do-s">روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!</div></button>'+
+ var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">'+esc(T('del_how'))+'</div>'+
+  '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+esc(T('del_detach_t'))+'</div><div class="do-s">'+esc(T('del_detach_s'))+'</div></button>'+
+  '<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>'+
   '<div class="msg" id="del_msg"></div>';
- openModal('<div class="msticky"><span class="medi medi-bad">'+ic('trash')+'</span><div class="ttl"><h3>حذفِ نود</h3><div class="sb">'+esc(nm)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>')}
+ openModal('<div class="msticky"><span class="medi medi-bad">'+ic('trash')+'</span><div class="ttl"><h3>'+esc(T('nd_del'))+'</h3><div class="sb">'+esc(nm)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 async function doDelNode(id,wipe){var m=el('del_msg');
- if(wipe&&!await confirmBox('مطمئنی؟ کلِ نود روی سرور — تونل‌ها، ایجنت و توکن — پاک می‌شود و برگشت ندارد.','بله، پاک کن'))return;
- if(m){m.className='msg';m.textContent=wipe?'در حال پاک‌سازیِ نود…':'در حال جدا کردن…'}
+ if(wipe&&!await confirmBox(T('del_wipe_confirm'),T('del_wipe_yes')))return;
+ if(m){m.className='msg';m.textContent=wipe?T('del_wiping'):T('del_detaching')}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=true});
  var r=await post('node-del',{id:id,wipe:wipe});
  if(r.ok&&r.d.ok){editingId=null;var ov=m?m.closest('.modalov'):null;
-  toast(wipe?'نود کاملاً پاک‌سازی شد':'نود از پنل جدا شد','ok');
+  toast(wipe?T('node_wiped'):T('node_detached'),'ok');
   if(ov)closeModal(ov);else refreshNodes()}
- else{if(m){m.className='msg err';m.textContent=(r.d&&r.d.error)||'ناموفق'}document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false})}}
+ else{if(m){m.className='msg err';m.textContent=(r.d&&r.d.error)||T('failed')}document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false})}}
 
 // ===== Tunnels
-function tunnelsSkel(){CHK={};el('view').innerHTML='<h1>'+ic('link','var(--acc)')+' تونل‌ها</h1><p class="sub">هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد</p>'+
- '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+'افزودن تونل</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+'بررسی اتصال همگانی</button></div>'+
- toolbar('tunnels','جستجوی نام نود / نوع / شناسه…')+'<div id="linkList"></div>'+pagerBottom('tunnels')}
+function tunnelsSkel(){CHK={};el('view').innerHTML='<h1>'+ic('link','var(--acc)')+' '+esc(T('nav_tunnels'))+'</h1><p class="sub">'+esc(T('tun_sub'))+'</p>'+
+ '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
+ toolbar('tunnels',T('tun_search'))+'<div id="linkList"></div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
-function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push('پینگ '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?('اتلاف '+(Math.round(h.loss_pct*10)/10)+'٪'):'بدون اتلاف');return p.join(' · ')}
+function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+'٪'):T('t_noloss'));return p.join(' · ')}
 function sideTxt(online,h){
- if(!online)return 'نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)';
- if(!h)return 'قطع (تونل روی نود نیست)';
- if(h.up==null)return 'در حال بررسی…';
- if(!h.up)return 'قطع (اینترفیس پایین)';
- if(h.peer_ping===true){var e=pingInfo(h);return 'متصل'+(e?' · '+e:'')}
- if(h.peer_ping===false)return 'پینگ جواب نداد'+(h.loss_pct!=null?' (اتلاف '+(Math.round(h.loss_pct)||100)+'٪)':'');
- return 'بالا (پینگ نامشخص)'}
+ if(!online)return T('t_side_off');
+ if(!h)return T('t_side_notun');
+ if(h.up==null)return T('checking');
+ if(!h.up)return T('t_side_ifdown');
+ if(h.peer_ping===true){var e=pingInfo(h);return T('t_side_conn')+(e?' · '+e:'')}
+ if(h.peer_ping===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+'٪)':'');
+ return T('t_side_up_unk')}
 function sideState(online,h){  // k: dot color class, w: the word to show ONLY when there's a problem
- if(!online||!h)return {k:'bad',w:'قطع'};
+ if(!online||!h)return {k:'bad',w:T('st_disc')};
  if(h.up==null)return {k:'na',w:'…'};
- if(!h.up)return {k:'bad',w:'قطع'};
- if(h.peer_ping===false)return {k:'warn',w:'نیم‌بند'};
+ if(!h.up)return {k:'bad',w:T('st_disc')};
+ if(h.peer_ping===false)return {k:'warn',w:T('st_half')};
  return {k:'ok',w:''}}   // connected -> clean, just the green dot
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
- return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="متصل"')+'></span>'}
+ return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="'+esc(T('tst_connected'))+'"')+'></span>'}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
- var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
- var idr='<div>شناسه: <b>'+esc(l.tunnel_id)+'</b></div>';
- var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div class="tagrow">نوع: <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
+ var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
+ var idr='<div>'+esc(T('tid'))+': <b>'+esc(l.tunnel_id)+'</b></div>';
+ var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
+ var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
  var right,left;
- if(l.type=='ipsec'){right=sub+idr+ifc;left=typ+'<div class="wrap">رمزنگاری: <span class="enc">'+ic('lock','var(--bad)')+'رمزنگاری‌شده</span></div>'}
- else if((l.type=='l2tpv3'||l.type=='fou'||l.type=='vxlan')&&l.port){right=sub+idr+ifc;left=typ+'<div>پورتِ UDP: <b class="mono">'+esc(l.port)+'</b></div>'}
+ if(l.type=='ipsec'){right=sub+idr+ifc;left=typ+'<div class="wrap">'+esc(T('enc'))+': <span class="enc">'+ic('lock','var(--bad)')+esc(T('encrypted'))+'</span></div>'}
+ else if((l.type=='l2tpv3'||l.type=='fou'||l.type=='vxlan')&&l.port){right=sub+idr+ifc;left=typ+'<div>'+esc(T('udp_port'))+': <b class="mono">'+esc(l.port)+'</b></div>'}
  else{right=sub+ifc;left=idr+typ}   // plain (gre/ipip/sit, or vxlan without a custom port): balanced 2+2
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
 // ===== accordion cards (collapsed row -> click to expand) + on/off toggle =====
@@ -4741,24 +5009,24 @@ async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(
  var next=(L.enabled===false);L.enabled=next;   // optimistic flip
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',next);c.classList.toggle('off',!next)}
  var r=await post('link-toggle',{id:id,enabled:next});
- if(!(r.ok&&r.d.ok)){L.enabled=!next;toast('ناموفق','err')}else{toast(next?'روشن شد':'خاموش شد','ok')}
+ if(!(r.ok&&r.d.ok)){L.enabled=!next;toast(T('failed'),'err')}else{toast(next?T('turned_on'):T('turned_off'),'ok')}
  refreshFleet()}
-function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="خاموش"></span>';
+function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="'+esc(T('st_off'))+'"></span>';
  var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health);return '<span class="sdot '+s.k+'"></span>'}
-function accStat(l,side){if(l.enabled===false)return '<span class="stw na">خاموش</span><span class="sdot na"></span>';
+function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
 function accHead(l,isCore){var on=l.enabled!==false;
  var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag">'+esc((l.type||'').toUpperCase())+'</span>';
- var off=on?'':'<span class="offtxt" style="font-size:11px">خاموش</span>';
+ var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+
-  '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="روشن/خاموشِ تونل"></div>'+
+  '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
   '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
    '<span class="hpeers">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
-function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.</span></div>';
+function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>'+esc(T('tun_off_note'))+'</span></div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
- var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">دادهٔ زنده از این سر نیست</span>';
- return '<div class="ltraf">'+rates+'<span class="tot">مجموع '+tot+'</span></div>'}
+ var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">'+esc(T('no_live_side'))+'</span>';
+ return '<div class="ltraf">'+rates+'<span class="tot">'+esc(T('total'))+' '+tot+'</span></div>'}
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
  return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+'" id="c_'+l.id+'">'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
@@ -4770,96 +5038,96 @@ function linkCard(l){
   '</div>'+
   metaCols(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف — فعلاً: '+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
- var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.</span></div>':'';
+ var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,false,drift+body+accBodyTraf(l)+acts+msg)}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
- setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?'موردی یافت نشد.':'هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.')+'</div>');renderPager('tunnels')}
+ setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
- if(!type){m.className='msg err';m.textContent='نوع تونل لازم است';return}
+ if(!type){m.className='msg err';m.textContent=T('tun_type');return}
  var L=FLEET.find(function(x){return x.id==id})||{};
  var a_ip=ssVal('lipa_'+id)||L.a_ip||'',b_ip=ssVal('lipb_'+id)||L.b_ip||'';
- m.className='msg';m.textContent='در حال بازسازی تونل روی دو نود…';
+ m.className='msg';m.textContent=T('rebuilding_both');
  var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
  var r=await post('edit-link',body);
- if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
+ if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||T('failed')}}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
 async function checkLink(id){CHECKING++;
  try{
-  setChk(id,'',esc('در حال بررسی اتصال (پینگِ زنده روی دو سر)…'));
+  setChk(id,'',esc(T('checking_conn')));
   var r=await post('check-link',{id:id});
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
-  if(!(r.ok&&r.d.ok)){setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'ناموفق'));return}
+  if(!(r.ok&&r.d.ok)){setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||T('failed')));return}
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.peer_ping===true)||(d.b_health&&d.b_health.peer_ping===true);
   var okAll=aup&&bup&&pinged;
-  setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' اتصال برقرار':XK+' مشکل در اتصال',
+  setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health)));
  }finally{CHECKING--}}
-async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast('تونلی برای بررسی نیست','err');return}
+async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast(T('no_tunnel_check'),'err');return}
  if(b){b.disabled=true;b.style.opacity='.6'}CHECKING++;  // hold guard across the whole batch
  try{await Promise.all(FLEET.map(function(l){return checkLink(l.id)}))}
  finally{CHECKING--;if(b){b.disabled=false;b.style.opacity=''}}
- toast('بررسیِ همهٔ تونل‌ها تمام شد','ok')}
+ toast(T('checkall_done'),'ok')}
 async function rebuildLink(id){
  var _L=FLEET.filter(function(x){return x.id==id})[0];
  if(_L&&_L.drift){openRebuildPicker(id);return}   // IP drifted -> let the operator pick the new IP
- if(!await confirmBox('این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)'))return;
+ if(!await confirmBox(T('rebuild_confirm')))return;
  CHECKING++;
- try{setChk(id,'',esc('در حال بازسازیِ تونل روی دو نود…'));
+ try{setChk(id,'',esc(T('rebuilding_both')));
   var r=await post('rebuild-link',{id:id});
-  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc('تونل از نو ساخته شد — با «بررسی اتصال» تستش کن'));toast('بازسازی شد','ok')}
-  else setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق'));
+  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('rebuilt_test')));toast(T('t_rebuilt'),'ok')}
+  else setChk(id,'err',esc((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')));
  }finally{CHECKING--}}
 async function flipView(id){var r=await post('link-view',{id:id});
  if(r.ok&&r.d.ok){var L=FLEET.filter(function(x){return x.id==id})[0];var nm=L?(r.d.view_side=='b'?L.b_name:L.a_name):'';
-  setChk(id,'ok',ic('swap')+esc('دیدِ مصرف به نودِ «'+nm+'» تغییر یافت.'));
+  setChk(id,'ok',ic('swap')+esc(T('view_switched')+nm+T('view_switched2')));
   setTimeout(function(){if(CHK[id]){CHK[id]=null;var m=el('lchk_'+id);if(m){m.className='msg';m.innerHTML=''}}},4000);
   refreshFleet()}
- else{toast('ناموفق','err')}}
-async function resetTraffic(id){if(!await confirmBox('حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)'))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast('حجمِ کل صفر شد','ok');refreshFleet()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
-async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox('حجمِ کلِ این پورت‌فوروارد صفر شود؟'))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast('حجمِ کل صفر شد','ok');refreshPortfw()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+ else{toast(T('failed'),'err')}}
+async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast((r.d&&(r.d.error||r.d.msg))||T('failed'),'err')}}
+async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast((r.d&&(r.d.error||r.d.msg))||T('failed'),'err')}}
 // ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
 var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
 var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 function ipChips(x){var t=(x.peers||[]).map(function(p){
   return '<span class="ippeer" onclick="ipTog(event,this)" title="بزن تا بینِ نامِ نود و اینترفیس جابه‌جا شود"><span class="ipn">'+LINKI+' '+esc(p.node)+'</span><span class="ipi">'+esc(p.name||p.type)+'</span></span>'});
- (x.pf||[]).forEach(function(nm){t.push('<span class="ippf">'+ic('globe')+' پورت‌فوروارد · '+esc(nm)+'</span>')});
- if(x.free)t.push('<span class="ipfree">آزاد</span>');return t.join('')}
+ (x.pf||[]).forEach(function(nm){t.push('<span class="ippf">'+ic('globe')+' '+esc(T('nd_portfw'))+' · '+esc(nm)+'</span>')});
+ if(x.free)t.push('<span class="ipfree">'+esc(T('free'))+'</span>');return t.join('')}
 function ipTog(ev,el){if(ev)ev.stopPropagation();el.classList.toggle('show')}
-function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" style="font-size:11.5px;padding:6px 2px">آی‌پی‌ای گزارش نشد</div>';
+function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" style="font-size:11.5px;padding:6px 2px">'+esc(T('ip_none'))+'</div>';
  return ips.map(function(x){return '<div class="iptag"><span class="mono" style="direction:ltr;font-size:12.5px">'+esc(x.ip)+'</span><span class="tgs">'+ipChips(x)+'</span></div>'}).join('')}
 var _rbSel={},_rbOv=null;
 function openRebuildPicker(id){
  j('link-rebuild-info?id='+id).then(function(r){
-  if(!r||!r.id){toast('اطلاعاتِ لینک در دسترس نیست','err');return}
+  if(!r||!r.id){toast(T('rb_no_link'),'err');return}
   _rbSel={};var secs='';
   [['a','a_ip'],['b','b_ip']].forEach(function(pp){var side=r[pp[0]],key=pp[1];
    if(!side||!side.drifted)return;
    var free=(side.ips||[]).filter(function(x){return x.free})[0];
    _rbSel[key]=free?free.ip:(((side.ips||[])[0]||{}).ip||'');
-   secs+='<div class="nd-sec">'+esc(side.node)+' — آی‌پیِ جدید</div><div class="rbsec">'+
-     (side.ips&&side.ips.length?side.ips.map(function(x){return rbRow(key,x)}).join(''):'<div class="muted" style="font-size:12px;padding:4px 2px">آی‌پیِ قابلِ انتخابی نیست</div>')+'</div>'});
-  if(!secs){toast('این تونل driftی ندارد','ok');refreshTunnels();return}
-  var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.</div>'+secs;
-  _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>بازسازیِ تونل</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="doRebuildPick(\\''+id+'\\')">'+ic('redo')+'بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>');
- }).catch(function(){toast('خطا در دریافتِ اطلاعات','err')})}
+   secs+='<div class="nd-sec">'+esc(side.node)+' — '+esc(T('rb_newip'))+'</div><div class="rbsec">'+
+     (side.ips&&side.ips.length?side.ips.map(function(x){return rbRow(key,x)}).join(''):'<div class="muted" style="font-size:12px;padding:4px 2px">'+esc(T('rb_no_ip'))+'</div>')+'</div>'});
+  if(!secs){toast(T('rb_no_drift'),'ok');refreshTunnels();return}
+  var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">'+esc(T('rb_info'))+'</div>'+secs;
+  _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>'+esc(T('rb_title'))+'</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="doRebuildPick(\\''+id+'\\')">'+ic('redo')+esc(T('tip_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
+ }).catch(function(){toast(T('rb_fetch_err'),'err')})}
 function rbRow(key,x){var sel=_rbSel[key]==x.ip;
  return '<div class="rbrow'+(sel?' sel':'')+'" data-ip="'+esc(x.ip)+'" onclick="rbPick(\\''+key+'\\',this)"><span class="rbdot"></span><span class="mono" style="direction:ltr;font-size:13px">'+esc(x.ip)+'</span><span class="rbtags">'+ipChips(x)+'</span></div>'}
 function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
  var sec=row.closest('.rbsec')||row.parentNode;sec.querySelectorAll('.rbrow').forEach(function(r){r.classList.remove('sel')});
  row.classList.add('sel')}
 async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
- toast('در حال بازسازی…');
+ toast(T('rebuilding'));
  var r=await post('rebuild-link',body);
- if(r.ok&&r.d.ok){toast('بازسازی شد','ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
- else toast((r.d&&(r.d.error||r.d.msg))||'بازسازی ناموفق','err')}
-async function delLink(id){if(!await confirmBox('این تونل روی هر دو نود حذف شود؟'))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast('حذف ناقص: '+r.d.msg,'err');delete CHK[id];editingId=null;refreshFleet()}
+ if(r.ok&&r.d.ok){toast(T('t_rebuilt'),'ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
+ else toast((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed'),'err')}
+async function delLink(id){if(!await confirmBox(T('del_tun_confirm')))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast(T('del_partial')+r.d.msg,'err');delete CHK[id];editingId=null;refreshFleet()}
 
 // ===== Create
 // one endpoint's IP field for the create forms: multi-IP -> dropdown; single-IP -> disabled box (like the edit form)
@@ -4867,20 +5135,20 @@ function ipField(k,ips,lab){
  if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','');
  delete SEL[k];return '<label class="first">'+lab+'</label><input class="mono" value="'+esc(ips[0]||'—')+'" disabled style="opacity:.6">'}
 async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});selTargets={};
- if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
+ if(on.length<2){toast(T('node_min2'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('c_a',items,items[0].v,'نودِ مبدأ','onCreateSrc')+'</div>'+
-  '<div><label class="first">نودِ مقصد</label>'+ssHTML('c_b',items,items[1].v,'نودِ مقصد','onCreateDst')+'</div></div>'+
+ var b='<div class="grid2"><div><label class="first">'+esc(T('src_node'))+'</label>'+ssHTML('c_a',items,items[0].v,T('src_node'),'onCreateSrc')+'</div>'+
+  '<div><label class="first">'+esc(T('dst_node'))+'</label>'+ssHTML('c_b',items,items[1].v,T('dst_node'),'onCreateDst')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="c_srcip"></div><div id="c_dstip"></div></div>'+
-  '<label>نوع تونل</label>'+ssHTML('c_type',TYPEITEMS,'vxlan','نوع','onCreateType')+'<div id="c_typex"></div>'+
-  '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168','رنج','onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>سابنتِ دلخواه</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ تونل</h3><div class="sb">سیستمی · یک مبدأ ↔ یک مقصد</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">ساخت تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
+  '<label>'+esc(T('tun_type'))+'</label>'+ssHTML('c_type',TYPEITEMS,'vxlan',T('ttype'),'onCreateType')+'<div id="c_typex"></div>'+
+  '<label>'+esc(T('local_range'))+'</label>'+ssHTML('c_snr',SUBNETRANGES,'192.168',T('range'),'onSubnetRange')+'<div id="c_snc_wrap" style="display:none"><label>'+esc(T('custom_subnet'))+'</label><input id="c_subnet" placeholder="مثلا 192.168.99.0/24 یا fd00:99::/64"></div><div class="msg" id="c_msg"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('add_tunnel_t'))+'</h3><div class="sb">'+esc(T('create_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreate()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  renderSrcIp();renderDstIp();renderTypeExtra()}
 function onSubnetRange(){var w=el('c_snc_wrap');if(w)w.style.display=(ssVal('c_snr')=='custom')?'block':'none'}
 function onCreateSrc(){renderSrcIp()}
 function onCreateDst(){renderDstIp()}
-function renderDstIp(){var w=el('c_dstip');if(!w)return;w.innerHTML=ipField('c_bip',nodeIps(ssVal('c_b')),'آی‌پیِ نودِ مقصد')}
-function renderSrcIp(){var w=el('c_srcip');if(!w)return;w.innerHTML=ipField('c_aip',nodeIps(ssVal('c_a')),'آی‌پیِ نودِ مبدأ')}
+function renderDstIp(){var w=el('c_dstip');if(!w)return;w.innerHTML=ipField('c_bip',nodeIps(ssVal('c_b')),T('dst_ip'))}
+function renderSrcIp(){var w=el('c_srcip');if(!w)return;w.innerHTML=ipField('c_aip',nodeIps(ssVal('c_a')),T('src_ip'))}
 function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(ssVal('c_type')=='sit');
   if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
  renderTypeExtra()}
@@ -4891,61 +5159,61 @@ function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type'
  else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a'),b=ssVal('c_b');
- if(a==b){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
+ if(a==b){m.className='msg err';m.textContent=T('two_diff_nodes');return}
  var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet');
  var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bip=el('ssb_c_bip')?ssVal('c_bip'):'';   // only send an IP when its picker exists (multi-IP node)
  var body={a_node:a,b_node:b,type:type,a_ip:aip,b_ip:bip};
  if(range=='custom')body.subnet=custom;else body.subnet_base=range;
  if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
- m.textContent='در حال ساختِ تونل…';
+ m.textContent=T('creating_tun');
  var r=await post('create-tunnel',body);
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونل ساخته شد','ok');refreshTunnels()}
- else{m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('tun_created'),'ok');refreshTunnels()}
+ else{m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||T('failed')}}
 
 // ===== Custom core (packet/core) — its own view, list and create form
-function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' هستهٔ اختصاصی</h1><p class="sub">تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی</p>'+
- '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+'تونلِ هسته</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+'بررسی اتصال همگانی</button></div>'+
- toolbar('core','جستجوی نام نود / شناسه…')+'<div id="corList"></div>'+pagerBottom('core')}
+function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('nav_core'))+'</h1><p class="sub">'+esc(T('core_sub'))+'</p>'+
+ '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
+ toolbar('core',T('core_search'))+'<div id="corList"></div>'+pagerBottom('core')}
 async function refreshCore(){if(editingId||CHECKING)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
- setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?'موردی یافت نشد.':'هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.')+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
+ setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
- var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
+ var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
  var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?('xHTTP·'+((l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet')):(l.ws_tls?'WSS':'WS')):'UDP';
- var prt=(l.transport!='raw'&&l.transport!='flux'&&l.port)?'<div>پورت: <b class="mono">'+esc(l.port)+'</b></div>':'';
- var car='<div>حامل: <b class="mono">'+tr+'</b></div>';
- var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div class="tagrow">نوع: <span class="tag core">Core</span></div>';
+ var prt=(l.transport!='raw'&&l.transport!='flux'&&l.port)?'<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>':'';
+ var car='<div>'+esc(T('carrier'))+': <b class="mono">'+tr+'</b></div>';
+ var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
+ var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="tag core">Core</span></div>';
  var feats=[];
  if(l.transport=='ws'&&l.ws_pool)feats.push('<span class="tag obfs">pool</span>');
  if(l.transport=='ws'&&l.ws_tls)feats.push('<span class="tag obfs">wss</span>');
  if(l.transport=='ws'&&l.ech)feats.push('<span class="tag obfs">ECH</span>');
  if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');if(l.fec)feats.push('<span class="tag obfs">FEC '+((l.fec_data||10)+'+'+(l.fec_parity||3))+'</span>');
- var cap='<div class="feat">قابلیت‌ها: '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
+ var cap='<div class="feat">'+esc(T('caps'))+': '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
  var encv=(l.cipher&&l.cipher!='none')
    ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
-   :'<b>بدونِ رمز</b>';
- var enc='<div class="enc-line">رمزنگاری: '+encv+'</div>';
+   :'<b>'+esc(T('no_cipher'))+'</b>';
+ var enc='<div class="enc-line">'+esc(T('enc'))+': '+encv+'</div>';
  // WS/CDN edge box: pool -> the LIVE active edge (filled by refreshCardEdges from the core
  // status file); single edge -> the fixed SNI · edge (static, no polling).
  var edge='';
  if(l.transport=='ws'){
-   if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>لبهٔ فعالِ فعلی (زنده)</div><div class="cv mono" id="cardedge_'+l.id+'">…</div></div>';}
+   if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="cv mono" id="cardedge_'+l.id+'">…</div></div>';}
    else{var pp=[];if(l.ws_host)pp.push(esc(l.ws_host));if(l.edge_ip)pp.push(esc(l.edge_ip));
-     if(pp.length)edge='<div class="cedge"><div class="ct">لبهٔ CDN</div><div class="cv mono">'+pp.join(' · ')+'</div></div>';}
+     if(pp.length)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="cv mono">'+pp.join(' · ')+'</div></div>';}
  }
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?'سرور':'کلاینت')+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?'کلاینت':'سرور')+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="تعویضِ دیدِ مصرف — فعلاً: '+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="تستِ پینگ" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="ریستِ حجمِ کل" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="ویرایش" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="بازسازی" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="حذف" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
- var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>آی‌پیِ یکی از نودها عوض شده — بازسازی لازم است.</span></div>':'';
+ var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
 var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corEch=false,_corXhttp=false,_corXhMode='packet',_corFec=false,_corFecData=10,_corFecParity=3;
 var COR_RAW_PROFILES=[{v:'bip',m:'proto 253 · نیتیو',tag:'بهینه'},{v:'icmp',m:'proto 1 · شبیهِ ping'},{v:'gre',m:'proto 47 · GRE',warn:1},{v:'ipip',m:'proto 4 · IP-in-IP',warn:1},{v:'udp',m:'proto 17 · UDP'},{v:'tcp',m:'proto 6 · TCP جعلی'}];
@@ -4969,7 +5237,7 @@ function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classL
 function corWssGate(){var mand=poolGet('e_').pool||(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc'));var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corWsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on');alert('اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.');return}_corEch=!_corEch;var s=el('e_wsech');if(s)s.classList.toggle('on',_corEch)}
 var _poolData={};
-function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
+function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,warm:l?!!l.ws_warm_standby:false,
   open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return typeof s=='string'?s:((s&&s.host)||'')}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
@@ -4993,41 +5261,42 @@ function poolBarPct(d,h){var tot=poolStepTotal(h),rem=poolRemain(d,h.next);if(re
 function poolBar(d,h){var p=poolBarPct(d,h);if(p<0)return '';return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+poolStepTotal(h)+'"><i style="width:'+p+'%"></i></span>';}
 function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   var lv=d.live||{};var ns=0,nd=0;d[kind].clean.forEach(function(v){var h=lv[kind+':'+v];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
-  var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' سالم</span>'+(ns?'<span class="pbadge warn">'+ns+' موقت</span>':'')+(nd?'<span class="pbadge bad">'+nd+' دائمی</span>':'')+(nb?'<span class="pbadge bad">'+nb+' سوخته</span>':'');}
+  var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'')+(nb?'<span class="pbadge bad">'+nb+' '+T('pb_burned')+'</span>':'');}
   var host=el(pfx+'lst_'+kind);if(!host)return;
   function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
     var h=(!dead)?lv[kind+':'+v]:null;
     var rowc,sc,sic,stt;   // row stripe class, state-icon color class, state icon, tooltip
-    if(dead){rowc='bad';sc='mut';sic='xc';stt='سوخته (دستی)';}
-    else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt='سوختهٔ دائمی';}
-    else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt='سوختهٔ موقت';}
-    else if(act){rowc='ok';sc='ok';sic='bolt';stt='سالم · لبهٔ فعال';}
-    else{rowc='ok';sc='ok';sic='okc';stt='سالم';}
+    if(dead){rowc='bad';sc='mut';sic='xc';stt=T('ph_burned_manual');}
+    else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
+    else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
+    else if(act){rowc='ok';sc='ok';sic='bolt';stt=T('ph_active');}
+    else{rowc='ok';sc='ok';sic='okc';stt=T('ph_healthy');}
     var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+poolCd(d,h.next)+poolBar(d,h)+'</span>':'';
     var acts='';
     if(dead){
-      acts='<button type="button" class="eib" title="بازگرداندن به چرخش" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
+      acts='<button type="button" class="eib" title="'+esc(T('pa_restore'))+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
     }else{
-      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="الان تست کن" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
-      if(d.lid)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?'آی‌پیِ فعلی':'این را فعال کن')+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';
+      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
+      if(d.lid)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';
     }
-    acts+='<button type="button" class="eib del" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
+    acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
     return '<div class="erow '+rowc+((dead||(h&&h.state=='dead'))?' dead':'')+'">'
      +'<span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span>'
      +'<span class="eip" title="'+esc(v)+'">'+esc(v)+'</span>'+rt
      +'<span class="eacts">'+acts+'</span></div>';}
   var html=d[kind].clean.map(function(v){return row(v,'clean')}).join('')+d[kind].burned.map(function(v){return row(v,'burned')}).join('');
-  host.innerHTML=html||'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
+  host.innerHTML=html||'<div class="pempty">'+esc(T('pool_empty'))+'</div>';}
 function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(pfx+'chev_'+kind);if(b)b.style.display=d.open[kind]?'':'none';if(c)c.classList.toggle('open',d.open[kind]);}
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
-function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);}
+function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var d=poolGet(pfx);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);var w=el(pfx+'poolwarm');if(w)w.classList.toggle('on',d.warm);}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?'آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)':'دامنهٔ نامعتبر (مثلاً cdn.example.com)');return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
 function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
 function poolDel(pfx,kind,from,val){var d=poolGet(pfx);d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
+function poolToggleWarm(pfx){var d=poolGet(pfx);d.warm=!d.warm;var w=el(pfx+'poolwarm');if(w)w.classList.toggle('on',d.warm);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;body.ws_warm_standby=d.warm;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
@@ -5037,7 +5306,7 @@ function corFecDatagram(){return _corTr=='udp'||_corTr=='raw'||_corTr=='flux'}
 function corToggleFec(){if(!corFecDatagram())return;_corFec=!_corFec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corFec);var r=el('e_fecrates');if(r)r.style.display=_corFec?'':'none'}
 function corSetFecRate(d,p){_corFecData=d;_corFecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corFec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
-async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast('چرخش انجام شد — تونل بازسازی شد','ok');fluxTick()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast(T('flux_rotated'),'ok');fluxTick()}else{toast((r.d&&(r.d.error||r.d.msg))||T('failed'),'err')}}
 // Live edge-pool status: poll the active edge for the open edit link and reflect it (active
 // row highlight + live bar), plus mirror any auto-burns the core reported. doPoolRotate signals
 // the core to jump one dimension with no rebuild, then re-polls shortly after.
@@ -5055,9 +5324,9 @@ function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=poolRemain(d,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
-async function poolProbeNow(lid){if(!lid){toast('اول تونل را بساز','err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast('پروبِ فوری فرستاده شد','ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||T('failed'),'err')}}
 // "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
-async function poolSelect(lid,kind,key){if(!lid){toast('اول تونل را بساز','err');return}var r=await post('pool-select',{id:lid,kind:kind,key:key});if(r.ok&&r.d&&r.d.ok){toast('این لبه فعال شد','ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-select',{id:lid,kind:kind,key:key});if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||T('failed'),'err')}}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');for(var i=0;i<els.length;i++){var lid=els[i].id.slice(9);try{var r=await post('edge-status',{id:lid});if(r.ok&&r.d&&r.d.ok&&r.d.pool){var e=el('cardedge_'+lid);if(e)e.textContent=r.d.active||'—';}}catch(_){}}}
 setInterval(refreshCardEdges,12000);
@@ -5144,7 +5413,8 @@ function wsPoolInner(idp,fnp,lid){
  return block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
    +block('sni','دامنه‌ها (SNI)','cdn.example.com')
    +'<label style="margin-top:14px">بازهٔ چرخش</label>'+sel
-   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.</small></div></div>';}
+   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.</small></div></div>'
+   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw" id="'+idp+'poolwarm" onclick="poolToggleWarm(\\''+idp+'\\')"></div><div class="tt"><b>لبهٔ یدکیِ گرم</b><small>یک لبهٔ دومِ آماده در پس‌زمینه نگه می‌دارد؛ لبهٔ فعال که بمیرد، آنی و بدونِ قطعیِ محسوس سوییچ می‌شود. کمی ترافیکِ اضافهٔ ناچیز (فقط keepalive).</small></div></div>';}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">شکلِ زنده</b> · epoch <span class="mono">#'+ep+'</span> · حامل <span class="mono">'+fc+'</span> · چرخشِ بعدی تا <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> دیگر';}
 function fluxTick(){[['e_',_corTr,_corFluxCarrier,_corFluxRotate],['ee_',_eeTr,_eeFluxCarrier,_eeFluxRotate]].forEach(function(a){
@@ -5170,7 +5440,7 @@ function corCoverGate(){var tcp=_corTr=='tcp',row=el('e_coverrow'),s=el('e_cover
 function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
- if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
+ if(on.length<2){toast(T('node_min2'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corXhttp=false;_corXhMode='packet';_corFec=false;_corFecData=10;_corFecParity=3;_eePoolLid='';poolInit('e_',null);
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
@@ -5193,7 +5463,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)</label>'+ssHTML('e_snr',SUBNETRANGES,'192.168','رنج','onCorSubRange')+'<div id="e_snc"></div>'+
   '<label>پورت (خالی=خودکار · می‌توانی 443 بگذاری)</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>تونلِ هسته</h3><div class="sb">هستهٔ اختصاصی · packet/core</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">ساختِ تونل</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
+ openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corCoverGate();corPortGate()}
 function onCorNode(){renderCorIps();corRoleLbls();if(el('e_spoofblk')&&_corTr=='raw'&&_corRawProfile=='bip')corSpoofProbe()}
 function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;
@@ -5205,24 +5475,24 @@ function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
  if(b)b.innerHTML='<b>'+esc(bn)+' سرور</b><span>'+esc(an)+' کلاینت</span>'}
 function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
- if(a==bb){m.className='msg err';m.textContent='دو نودِ متفاوت انتخاب کن';return}
+ if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
- if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_corRawProfile}
- if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
+ if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_corRawProfile}
+ if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
  if(corFecDatagram()){body.fec=_corFec;if(_corFec){body.fec_data=_corFecData;body.fec_parity=_corFecParity}}
- if(_corTr=='ws'){body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;body.ech=_corEch;body.ws_xhttp=_corXhttp;if(_corXhttp)body.ws_xhttp_mode=_corXhMode;if(poolGet('e_').pool){var pe=poolCollect('e_',body);if(pe!==true){m.className='msg err';m.textContent=pe;return}}else{body.ws_pool=false;body.ws_host=(v('e_wshost')||'').trim();body.edge_ip=(v('e_wsedge')||'').trim();if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}if(_corEch&&!_corWsTls){m.className='msg err';m.textContent='ECH به wss نیاز دارد — اول wss را روشن کن';return}if(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc')&&!_corWsTls){m.className='msg err';m.textContent='این حالت نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا packet-up را انتخاب کن';return}}}
+ if(_corTr=='ws'){body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;body.ech=_corEch;body.ws_xhttp=_corXhttp;if(_corXhttp)body.ws_xhttp_mode=_corXhMode;if(poolGet('e_').pool){var pe=poolCollect('e_',body);if(pe!==true){m.className='msg err';m.textContent=pe;return}}else{body.ws_pool=false;body.ws_host=(v('e_wshost')||'').trim();body.edge_ip=(v('e_wsedge')||'').trim();if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_corEch&&!_corWsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc')&&!_corWsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
  if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
-  if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}body.spoof_dst=dip}
+  if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
   if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
- if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
+ if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
  var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
  var port=v('e_port');if(port)body.port=port;
- m.textContent='در حال ساختِ تونلِ هسته روی دو نود…';
+ m.textContent=T('creating_core');
  var r=await post('create-tunnel',body);
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('تونلِ هسته ساخته شد','ok');refreshCore()}
- else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
+ else{m.className='msg err';m.textContent=r.d.error||r.d.msg||T('failed')}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeEch=false,_eeXhttp=false,_eeXhMode='packet',_eeFec=false,_eeFecData=10,_eeFecParity=3;
 function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis()}
@@ -5261,7 +5531,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeCover&&_eeTr=
 function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeCover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
-function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
+function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
  editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
@@ -5284,19 +5554,19 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="grid2"><div><label>پورت (می‌توانی 443)</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>سابنتِ داخلی</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ تونلِ هسته</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  ceRoleLbls(l);cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis();ceWsVis();if(_eePoolLid)setTimeout(poolTick,200)}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' سرور</b><span>'+esc(l.b_name)+' کلاینت</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' سرور</b><span>'+esc(l.a_name)+' کلاینت</span>'}
 function ceSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
-async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent='در حال ذخیره و بازسازیِ دو سر…';
+async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent=T('saving_rebuild_both');
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
- if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ raw به رمزنگاری نیاز دارد';return}body.raw_profile=_eeRawProfile}
- if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent='حاملِ flux به رمزنگاری نیاز دارد';return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
+ if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_eeRawProfile}
+ if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
  if(ceFecDatagram()){body.fec=_eeFec;if(_eeFec){body.fec_data=_eeFecData;body.fec_parity=_eeFecParity}}
- if(_eeTr=='ws'){body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.ech=_eeEch;body.ws_xhttp=_eeXhttp;if(_eeXhttp)body.ws_xhttp_mode=_eeXhMode;if(poolGet('ee_').pool){var pe2=poolCollect('ee_',body);if(pe2!==true){m.className='msg err';m.textContent=pe2;return}}else{body.ws_pool=false;body.ws_host=(v('ee_wshost')||'').trim();body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent='برای wss باید دامنه (Host) را وارد کنی';return}if(_eeEch&&!_eeWsTls){m.className='msg err';m.textContent='ECH به wss نیاز دارد — اول wss را روشن کن';return}if(_eeXhttp&&(_eeXhMode=='stream'||_eeXhMode=='grpc')&&!_eeWsTls){m.className='msg err';m.textContent='این حالت نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا packet-up را انتخاب کن';return}}}
+ if(_eeTr=='ws'){body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.ech=_eeEch;body.ws_xhttp=_eeXhttp;if(_eeXhttp)body.ws_xhttp_mode=_eeXhMode;if(poolGet('ee_').pool){var pe2=poolCollect('ee_',body);if(pe2!==true){m.className='msg err';m.textContent=pe2;return}}else{body.ws_pool=false;body.ws_host=(v('ee_wshost')||'').trim();body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_eeEch&&!_eeWsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_eeXhttp&&(_eeXhMode=='stream'||_eeXhMode=='grpc')&&!_eeWsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
  if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
   // Send an explicit value for both spoof fields ONLY when the capability probe resolved OK —
   // then the toggles reflect real user intent, so an empty value legitimately CLEARS a decoy/source
@@ -5305,119 +5575,119 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
   // force-toggles the switches off in the UI) must never silently strip a working decoy config.
   var dip=_eeDecoy?(v('ee_decoyip')||'').trim():'';
   var sip=_eeSrc?(v('ee_srcip')||'').trim():'';
-  if(_eeDecoy&&!dip){m.className='msg err';m.textContent='آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن';return}
+  if(_eeDecoy&&!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}
   body.spoof_dst=dip;body.spoof_src=sip}
- if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent='برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی';return}body.cover_sni=sni}
+ if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var aip=el('ssb_ee_aip')?ssVal('ee_aip'):(l.a_ip||'');if(aip)body.a_ip=aip;
  var bip=el('ssb_ee_bip')?ssVal('ee_bip'):(l.b_ip||'');if(bip)body.b_ip=bip;
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
- if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?'تغییری نبود':'ذخیره و بازسازی شد','ok');refreshCore()}
- else{m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}
+ if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
+ else{m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||T('failed')}}
 
 // ===== Port-forward
-function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' پورت‌فوروارد</h1><p class="sub">فوروارد پورت روی یک نود (با چرخشِ چند مقصد)</p>'+
- '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+'افزودن پورت‌فوروارد</button>'+
- '<div class="sec">'+ic('activity','var(--acc)')+' پورت‌فورواردهای فعال</div>'+toolbar('portfw','جستجوی نود / نام…')+'<div id="pfList"></div>'+pagerBottom('portfw');
+function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' '+esc(T('nav_portfw'))+'</h1><p class="sub">'+esc(T('pf_sub'))+'</p>'+
+ '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
+ '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList"></div>'+pagerBottom('portfw');
  refreshPortfw()}
 async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
- if(!on.length){toast('هیچ نودِ آنلاینی نیست','err');return}
+ if(!on.length){toast(T('pf_no_online'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<label class="first">نود</label>'+ssHTML('pf_node',items,items[0].v,'نود','renderPfLip')+'<div id="pf_lipwrap"></div><div class="grid2"><div><label>پورتِ ورودی</label><input id="pf_lp" placeholder="8080"></div><div><label>پورتِ مقصد</label><input id="pf_dp" placeholder="443"></div></div><label>آی‌پی(های) مقصد — با کاما جدا کن</label><input id="pf_ips" placeholder="10.0.0.1, 10.0.0.2"><label>چرخش هر (دقیقه) — اگر چند آی‌پی دادی</label><input id="pf_int" placeholder="5"><div class="msg" id="pf_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>افزودنِ پورت‌فوروارد</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doPortfw()">افزودن</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>');
+ var b='<label class="first">'+esc(T('pf_node'))+'</label>'+ssHTML('pf_node',items,items[0].v,T('pf_node'),'renderPfLip')+'<div id="pf_lipwrap"></div><div class="grid2"><div><label>'+esc(T('pf_listen_port'))+'</label><input id="pf_lp" placeholder="8080"></div><div><label>'+esc(T('pf_dst_port'))+'</label><input id="pf_dp" placeholder="443"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pf_ips" placeholder="10.0.0.1, 10.0.0.2"><label>'+esc(T('pf_rot_min'))+'</label><input id="pf_int" placeholder="5"><div class="msg" id="pf_msg"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('pf_add_t'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doPortfw()">'+esc(T('add'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
  renderPfLip()}
 function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal('pf_node'));
- if(ips.length>1){w.innerHTML='<label>آی‌پیِ ورودی (شنود) — پورت فقط روی این آی‌پی فوروارد می‌شود</label>'+ssHTML('pf_lip',ipItems(ips),(SEL['pf_lip']&&ips.indexOf(SEL['pf_lip'])>=0?SEL['pf_lip']:ips[0]),'آی‌پی','')}
+ if(ips.length>1){w.innerHTML='<label>'+esc(T('pf_lip_full'))+'</label>'+ssHTML('pf_lip',ipItems(ips),(SEL['pf_lip']&&ips.indexOf(SEL['pf_lip'])>=0?SEL['pf_lip']:ips[0]),T('ip'),'')}
  else{w.innerHTML='';delete SEL['pf_lip']}}   // single-IP node: no picker, and no stale pick
 async function refreshPortfw(){if(editingId)return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
- setHTML(box,PF.length?PF.map(pfCard).join(''):'<div class="card muted">'+(QRY.portfw?'موردی یافت نشد.':'پورت‌فورواردی نیست.')+'</div>');renderPager('portfw')}
+ setHTML(box,PF.length?PF.map(pfCard).join(''):'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>');renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
- var st=h.rule?(h.reachable?'<span class="badge ok">فعال · مقصد'+CK+'</span>':'<span class="badge bad">قانون'+CK+' · مقصد'+XK+'</span>'):'<span class="badge bad">غیرفعال</span>';
+ var st=h.rule?(h.reachable?'<span class="badge ok">'+esc(T('pf_active_badge'))+CK+'</span>':'<span class="badge bad">'+esc(T('pf_rule'))+CK+' · '+esc(T('pf_dest'))+XK+'</span>'):'<span class="badge bad">'+esc(T('pf_disabled'))+'</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
  var lip=p.listen_ip||p.node_ip||'';   // effective listen IP: the pin (multi-IP) or the node's sole IP (single-IP)
  var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
  var head='<div class="link"><span class="name">'+esc(p.node)+'</span><span class="grow"></span>'+rotchip+'<span class="tag" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)">portfw</span>'+st+'</div>';
- var live=(multi&&h.active)?'<div class="wrap">هم‌اکنون روی: <b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
+ var live=(multi&&h.active)?'<div class="wrap">'+esc(T('pf_active_now'))+'<b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="enmeta"><div class="emcol">'+
-   '<div>اینترفیس: <b class="mono">'+esc(p.iface)+'</b></div>'+
-   (lip?'<div>آی‌پیِ ورودی: <b class="mono" style="color:var(--acc)">'+esc(lip)+'</b></div>':'')+
-   '<div>پورتِ ورودی: <b class="mono">'+esc(p.listen_port)+'</b></div>'+
+   '<div>'+esc(T('pf_iface'))+'<b class="mono">'+esc(p.iface)+'</b></div>'+
+   (lip?'<div>'+esc(T('pf_lip_lbl'))+'<b class="mono" style="color:var(--acc)">'+esc(lip)+'</b></div>':'')+
+   '<div>'+esc(T('pf_lp_lbl'))+'<b class="mono">'+esc(p.listen_port)+'</b></div>'+
   '</div><span class="tnarrow earrow">↔</span><div class="emcol">'+
-   '<div>پورتِ مقصد: <b>'+esc(p.dst_port)+'</b></div>'+
-   '<div class="wrap">مقصدها: <b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
+   '<div>'+esc(T('pf_dp_lbl'))+'<b>'+esc(p.dst_port)+'</b></div>'+
+   '<div class="wrap">'+esc(T('pf_targets'))+'<b class="mono">'+esc((p.dst_ips||[]).join('، '))+'</b></div>'+
    live+
   '</div></div>';
- var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">مجموع <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
- var acts='<div class="nact iconly"><button class="act reset" title="ریستِ حجمِ کل" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="چرخش الان" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="ویرایش" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="حذف" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
+ var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
+ var acts='<div class="nact iconly"><button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="'+esc(T('pf_rotate_now'))+'" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
  return '<div class="card">'+head+body+traf+acts+'</div>'}
 function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
- setT('pe_tgllbl_'+i,on?'روشن':'خاموش');var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
+ setT('pe_tgllbl_'+i,on?T('on_word'):T('off_word'));var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
 async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=v('pe_lp_'+i),dp=v('pe_dp_'+i),ips=v('pe_ips_'+i);
- if(!lp||!dp||!ips){m.className='msg err';m.textContent='پورت‌ها و آی‌پیِ مقصد لازم است';return}
+ if(!lp||!dp||!ips){m.className='msg err';m.textContent=T('pf_need_ports');return}
  var rot=el('pe_tgl_'+i).classList.contains('on'),intv=v('pe_int_'+i);
- m.className='msg';m.textContent='در حال ذخیره…';
+ m.className='msg';m.textContent=T('saving');
  var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   // only multi-IP nodes expose the picker; empty ⇒ node keeps old pin
  var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5,listen_ip:lip});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||'ناموفق'}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=r.d.error||r.d.msg||T('failed')}}
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
- if(!node||!lp||!dp||!ips){m.className='msg err';m.textContent='نود، پورتِ ورودی/مقصد و آی‌پی لازم است';return}
- m.className='msg';m.textContent='در حال ساخت…';
+ if(!node||!lp||!dp||!ips){m.className='msg err';m.textContent=T('pf_need_all');return}
+ m.className='msg';m.textContent=T('creating_dots');
  var lip=el('ssb_pf_lip')?ssVal('pf_lip'):'';   // only when the picker exists (multi-IP node)
  var r=await post('portfw',{node:node,listen_port:lp,dst_port:dp,dst_ips:ips,interval_min:intv||5,listen_ip:lip});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast('پورت‌فوروارد ساخته شد: '+r.d.name,'ok')}
- else{m.className='msg err';m.textContent=r.d.error||'ناموفق'}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('pf_created')+r.d.name,'ok')}
+ else{m.className='msg err';m.textContent=r.d.error||T('failed')}}
 async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.textContent:'';if(b)b.textContent='…';
  var r=await post('portfw-next',{node:p.node_id,name:p.name});
- if(r.ok&&r.d.ok){if(b)b.textContent=r.d.active;toast('چرخش انجام شد ← '+r.d.active,'ok')}
- else{if(b)b.textContent=old;toast((r.d&&(r.d.error||r.d.msg))||'چرخش ناموفق','err')}}
-async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox('این پورت‌فوروارد حذف شود؟'))return;await post('portfw-del',{node:p.node_id,name:p.name});editingId=null;refreshPortfw()}
+ if(r.ok&&r.d.ok){if(b)b.textContent=r.d.active;toast(T('pf_rotate_done')+r.d.active,'ok')}
+ else{if(b)b.textContent=old;toast((r.d&&(r.d.error||r.d.msg))||T('pf_rotate_failed'),'err')}}
+async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});editingId=null;refreshPortfw()}
 
 // ===== agent push-update page =====
 function agentBody(){return ''+
  '<div class="card agx-uni">'+   // AGENT card
-  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('cpu','var(--acc)')+'</span> ایجنتِ نودها<span class="grow"></span><span id="ag_status"></span></div>'+
+  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('cpu','var(--acc)')+'</span> '+esc(T('ag_node_agent'))+'<span class="grow"></span><span id="ag_status"></span></div>'+
   '<div class="agx-meta" id="ag_meta"></div>'+
   '<div class="agx-act">'+
-    '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
-    '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+'فایلِ ایجنت</button>'+
+    '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
+    '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
-  '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+'پوشِ ایجنت به همهٔ نودها</button>'+
+  '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
  '</div>'+
  '<div class="card agx-uni">'+   // CORE card — matched to the agent card
-  '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> هستهٔ داده<span class="grow"></span><span id="cor_status"></span></div>'+
+  '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> '+esc(T('ag_data_core'))+'<span class="grow"></span><span id="cor_status"></span></div>'+
   '<div class="agx-meta" id="cor_meta"></div>'+
   '<div id="cor_ver_box" style="margin-bottom:9px"></div>'+
   '<div class="agx-act">'+
-    '<button class="primary" style="background:#8b5cf6" title="دانلودِ نسخهٔ انتخابی روی پنل (آماده‌ی پوش به نودها)" onclick="corStage()">'+ic('redo')+'دریافت از گیت‌هاب</button>'+
-    '<button class="ghost" title="آپلودِ فایلِ باینریِ هسته به‌عنوان نسخهٔ custom" onclick="el(\\'cor_file\\').click()">'+ic('plus')+'باینری</button>'+
+    '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
+    '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
-  '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+'نصبِ هسته روی همهٔ نودها</button>'+
+  '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
-  '<div class="agx-hint">⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.</div>'+
+  '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+
   '<div class="msg" id="cor_msg"></div>'+
  '</div>'+
- '<div class="sec">'+ic('server','var(--acc)')+' نودهای فلیت</div>'+
- '<div class="toolbar"><input id="q_agent" class="search" placeholder="جستجوی نود…" oninput="onSearch(\\'agent\\')"></div>'+
+ '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
+ '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
  '<div id="agList"></div>'+pagerBottom('agent')}
-function agentSkel(){el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' ایجنت و هسته</h1><p class="sub">آپدیت و ری‌استارتِ ایجنت و هستهٔ نودها از پنل، بدونِ SSH</p>'+agentBody();refreshAgent()}
+function agentSkel(){el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('ag_title'))+'</h1><p class="sub">'+esc(T('ag_sub'))+'</p>'+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
  var st=el('ag_status'),mt=el('ag_meta');
- if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">آمادهٔ پوش</span>':'<span class="badge na">خالی</span>';
+ if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
  if(mt)mt.innerHTML=(info&&!info.none)?
   '<span>ایجنت</span><span class="mono">v'+num(info.version)+'</span><span class="sep"></span><span class="mono">'+esc(String(info.sha256||'').slice(0,12))+'</span><span class="sep"></span><span>'+Math.round(num(info.size)/1024)+' کیلوبایت</span>'
   :'<span class="muted">هنوز ایجنتی بارگذاری نشده — «دریافت از گیت‌هاب» یا «فایلِ ایجنت».</span>';
  loadCoreVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
- box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">موردی نیست</div>';renderPager('agent')}
+ box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">'+esc(T('ag_no_item'))+'</div>';renderPager('agent')}
 var CORVERS=[],STAGED=null;
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[]}});
  CORVERS=r.versions||[];STAGED=r.staged||null;
  var stt=el('cor_status');
- if(stt)stt.innerHTML=STAGED?'<span class="badge ok">آمادهٔ پوش</span>':'<span class="badge na">خالی</span>';
+ if(stt)stt.innerHTML=STAGED?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
  var mt=el('cor_meta');
  if(mt){
   if(STAGED){var a=(STAGED.arches&&STAGED.arches[0])||'amd64';var sh=(STAGED.sha&&STAGED.sha[a])||'';var sz=(STAGED.size&&STAGED.size[a])||0;
@@ -5438,17 +5708,17 @@ async function corPushStaged(id){var m=el('agres_'+id);if(m){m.className='msg ag
  if(m){if(x.ok){m.className='msg agres ok';m.innerHTML=(x.unchanged?'هسته از قبل به‌روز بود':'هسته به‌روز شد')+CK}
   else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
  setTimeout(refreshAgent,4000)}
-async function corPushAll(){var ver=ssVal('corver');if(!ver){toast('اول نسخه را انتخاب کن','err');return}
+async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ver'),'err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
- if(!ids.length){toast('نودِ آنلاینی نیست','err');return}
- if(!await confirmBox('هستهٔ نسخهٔ «'+ver+'» روی '+ids.length+' نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟','بله، همه'))return;
- ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ هسته…'}});   // per-node status, like پوشِ همه
+ if(!ids.length){toast(T('ag_no_online'),'err');return}
+ if(!await confirmBox(T('ag_confirm_core')+ver+T('ag_confirm_core2')+ids.length+T('ag_confirm_core3'),T('yes_all')))return;
+ ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent=T('ag_installing_core')}});   // per-node status, like پوشِ همه
  var res=await post('core-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=0;
  rs.forEach(function(x){var m=el('agres_'+x.id);
-  if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=(x.unchanged?'هسته از قبل به‌روز بود':'هسته به‌روز شد')+CK}}
-  else if(x.offline){if(m){m.className='msg agres';m.textContent='آفلاین — رد شد'}}
-  else{if(m){m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}});
- toast(ok+'/'+rs.length+' نود بروزرسانی شد',ok?'ok':'err');
+  if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=(x.unchanged?T('ag_core_already'):T('ag_core_updated'))+CK}}
+  else if(x.offline){if(m){m.className='msg agres';m.textContent=T('ag_skipped_off')}}
+  else{if(m){m.className='msg agres err';m.textContent=T('ag_fail')+(x.error||'')}}});
+ toast(ok+'/'+rs.length+T('ag_nodes_updated'),ok?'ok':'err');
  setTimeout(refreshAgent,4500)}
 function agCorPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
  var m=el('cor_msg');m.className='msg';m.textContent='در حال خواندن و آپلودِ باینری…';
@@ -5469,26 +5739,26 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  // status = a colored icon only (no به‌روز/آپدیت text); full text lives in the tooltip.
  function stx(lbl,cls,icon,tip){return '<span class="stx" title="'+tip+'">'+lbl+' <span class="ico '+cls+'">'+icon+'</span></span>'}
  // agent status + button-enable
- var agbdg,agdis;
- if(!n.online){agbdg=stx('ایجنت','offl','—','آفلاین');agdis=1}
+ var agbdg,agdis;var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
+ if(!n.online){agbdg=stx(LA,'offl','—',T('offline'));agdis=1}
  else if(!AGMETA||AGMETA.none){agbdg='';agdis=1}
- else if(agup){agbdg=stx('ایجنت','up',ic('redo'),'ایجنت: آپدیت دارد');agdis=0}
- else{agbdg=stx('ایجنت','ok',ic('check'),'ایجنت: به‌روز');agdis=1}
+ else if(agup){agbdg=stx(LA,'up',ic('redo'),LA+': '+T('ag_up_avail'));agdis=0}
+ else{agbdg=stx(LA,'ok',ic('check'),LA+': '+T('ag_uptodate'));agdis=1}
  // core status + button-enable
  var cbdg,cdis;
- if(!n.online){cbdg=stx('هسته','offl','—','آفلاین');cdis=1}
- else if(!cinst){cbdg=stx('هسته','na',ic('dl'),'هسته: نصب نیست');cdis=!STAGED}
- else if(cup){cbdg=stx('هسته','up',ic('redo'),'هسته: آپدیت دارد');cdis=0}
- else{cbdg=stx('هسته','ok',ic('check'),'هسته: به‌روز');cdis=1}
- var corpill=cinst?'<span class="agx-pill cor" title="نسخهٔ هسته">⚙ '+esc(i.core_ver||'?')+'</span>':'';
+ if(!n.online){cbdg=stx(LC,'offl','—',T('offline'));cdis=1}
+ else if(!cinst){cbdg=stx(LC,'na',ic('dl'),LC+': '+T('ag_not_installed'));cdis=!STAGED}
+ else if(cup){cbdg=stx(LC,'up',ic('redo'),LC+': '+T('ag_up_avail'));cdis=0}
+ else{cbdg=stx(LC,'ok',ic('check'),LC+': '+T('ag_uptodate'));cdis=1}
+ var corpill=cinst?'<span class="agx-pill cor">⚙ '+esc(i.core_ver||'?')+'</span>':'';
  return '<div class="agx-row">'+
    '<div class="agx-right">'+
      '<div class="agx-l1"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+agver+'</span>'+corpill+'</div>'+
      '<div class="agx-l2">'+agbdg+cbdg+'</div>'+
    '</div>'+
    '<div class="agx-colb">'+
-     '<button class="agx-btn'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+'ایجنت</button>'+
-     '<button class="agx-btn'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' onclick="corPushStaged(\\''+n.id+'\\')" title="پوشِ هستهٔ آماده‌ی روی پنل به این نود">'+ic('redo')+'هسته</button>'+
+     '<button class="agx-btn'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+esc(LA)+'</button>'+
+     '<button class="agx-btn'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' onclick="corPushStaged(\\''+n.id+'\\')">'+ic('redo')+esc(LC)+'</button>'+
    '</div>'+
    '<div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
@@ -5505,19 +5775,19 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg ok';m.innerHTML='دریافت شد: v'+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span> — حالا «پوشِ همه» را بزن'+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
-async function agPush(target){if(!AGMETA||AGMETA.none){toast('اول یک ایجنت بارگذاری کن','err');return}
+async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
-  if(!ids.length){toast('نودِ آنلاینی نیست','err');return}
-  if(!await confirmBox('ایجنت روی '+ids.length+' نودِ آنلاین آپدیت و ری‌استارت شود؟','بله، همه'))return}
- else{ids=[target];var mm=el('agres_'+target);if(mm){mm.className='msg agres';mm.textContent='در حال ارسال…'}}
+  if(!ids.length){toast(T('ag_no_online'),'err');return}
+  if(!await confirmBox(T('ag_confirm_all')+ids.length+T('ag_confirm_all2'),T('yes_all')))return}
+ else{ids=[target];var mm=el('agres_'+target);if(mm){mm.className='msg agres';mm.textContent=T('sending')}}
  var res=await post('agent-push',{ids:ids});var rs=(res.d&&res.d.results)||[];var ok=0;
  rs.forEach(function(x){var m=el('agres_'+x.id);
-  if(x.ok&&x.already){ok++;if(m){m.className='msg agres ok';m.innerHTML='از قبل به‌روز'+CK}}
-  else if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML='به‌روز شد'+CK+' · در حال ری‌استارت…'}}
-  else if(x.offline){if(m){m.className='msg agres';m.textContent='آفلاین — رد شد'}}
-  else{if(m){m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}});
- if(target=='all')toast(ok+'/'+rs.length+' نود بروزرسانی شد',ok?'ok':'err');
+  if(x.ok&&x.already){ok++;if(m){m.className='msg agres ok';m.innerHTML=T('ag_already')+CK}}
+  else if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=T('ag_updated')+CK+T('ag_restarting')}}
+  else if(x.offline){if(m){m.className='msg agres';m.textContent=T('ag_skipped_off')}}
+  else{if(m){m.className='msg agres err';m.textContent=T('ag_fail')+(x.error||'')}}});
+ if(target=='all')toast(ok+'/'+rs.length+T('ag_nodes_updated'),ok?'ok':'err');
  setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 function render(){setnav();editingId=null;
@@ -5525,28 +5795,30 @@ function render(){setnav();editingId=null;
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
 // ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
-function settingsSkel(){el('view').innerHTML='<h1>'+ic('cog','var(--acc)')+' تنظیمات</h1><p class="sub">رفتار خودکارِ پنل و بازه‌های بررسی</p><div id="setBox"><div class="card muted">در حال بارگذاری…</div></div>'}
+function settingsSkel(){el('view').innerHTML='<h1>'+ic('cog','var(--acc)')+' '+esc(T('nav_settings'))+'</h1><p class="sub">'+esc(T('set_sub'))+'</p><div id="setBox"><div class="card muted">'+esc(T('loading'))+'</div></div>'}
 var _setMode='alert',_modeOv=null;
-function modeLabel(m){return m=='auto'?'خودکار':'هشدار'}
+function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
  var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
+ var langseg='<div class="seg2" style="max-width:240px"><button type="button" class="segopt'+(LANG=='fa'?' on':'')+'" onclick="applyLang(\\'fa\\')"><b>فارسی</b></button><button type="button" class="segopt'+(LANG=='en'?' on':'')+'" onclick="applyLang(\\'en\\')"><b>English</b></button></div>';
  box.innerHTML='<div class="card">'+
-  row('وقتی آی‌پیِ نود عوض شد','هشدار بده یا خودکار ترمیم کن','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
-  row('بازهٔ بررسیِ ترمیم (ثانیه)','۵ تا ۳۶۰۰','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
-  row('بازهٔ پایشِ فلیت (ثانیه)','۱ تا ۶۰','<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
-  row('پنجرهٔ نوارِ آپ‌تایم','۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰',ssHTML('set_upwin',[{v:'1',label:'۱ ساعت'},{v:'3',label:'۳ ساعت'},{v:'6',label:'۶ ساعت'},{v:'8',label:'۸ ساعت'},{v:'12',label:'۱۲ ساعت'},{v:'24',label:'۲۴ ساعت'}],String(num(s.uptime_window)||1),'',''))+
-  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+'ذخیره</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
+  row(T('lang_label'),'فارسی / English',langseg)+
+  row(T('set_on_ipchange'),T('set_on_ipchange_d'),'<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
+  row(T('set_rec_int'),T('set_rec_range'),'<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
+  row(T('set_poll_int'),T('set_poll_range'),'<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
+  row(T('set_upwin'),T('set_upwin_d'),ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
+  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
   '</div>'+
-  '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' بروزرسانیِ ایجنت</div>'+agentBody();
+  '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  refreshAgent()}
-function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">پیش‌فرض</span>':'')+'</div>'};
+function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
-async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent='در حال ذخیره…'}
+async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),uptime_window:ssVal('set_upwin')});
- if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast('تنظیمات ذخیره شد','ok')}
- else{if(m){m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||'ناموفق'}}}
+ if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
+ else{if(m){m.className='msg err';m.textContent=(r.d&&(r.d.error||r.d.msg))||T('failed')}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,6000);return}  // don't burn cycles (or queue work) while the tab is hidden
  updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,6000)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
@@ -5557,7 +5829,7 @@ document.addEventListener('keydown',function(e){if(!((e.ctrlKey||e.metaKey)&&(e.
  if(tn=='INPUT'||tn=='SELECT'||tn=='TEXTAREA'||document.querySelector('.modalov'))return;  // don't hijack typing or stack over an open modal
  e.preventDefault();openPal()});
 function openPal(){if(PAL)return;var ov=document.createElement('div');ov.className='modalov palov';
- ov.innerHTML='<div class="pal"><div class="palin">'+ic('search')+'<input id="pal_q" placeholder="جستجوی نود، تونل یا دستور…" autocomplete="off"><kbd>Esc</kbd></div><div class="pallist" id="pal_list"></div><div class="palfoot"><span><kbd>↑</kbd><kbd>↓</kbd> حرکت</span><span><kbd>↵</kbd> انتخاب</span><span><kbd>Esc</kbd> بستن</span></div></div>';
+ ov.innerHTML='<div class="pal"><div class="palin">'+ic('search')+'<input id="pal_q" placeholder="'+esc(T('pal_search'))+'" autocomplete="off"><kbd>Esc</kbd></div><div class="pallist" id="pal_list"></div><div class="palfoot"><span><kbd>↑</kbd><kbd>↓</kbd> '+esc(T('pal_move'))+'</span><span><kbd>↵</kbd> '+esc(T('pal_pick'))+'</span><span><kbd>Esc</kbd> '+esc(T('pal_close'))+'</span></div></div>';
  document.body.appendChild(ov);PAL=ov;editingId='pal';try{document.body.style.overflow='hidden'}catch(e){}
  ov.addEventListener('mousedown',function(e){if(e.target===ov)closePal()});
  var inp=el('pal_q');inp.addEventListener('input',function(){palRender(inp.value)});inp.addEventListener('keydown',palKey);
@@ -5568,22 +5840,22 @@ function openPal(){if(PAL)return;var ov=document.createElement('div');ov.classNa
 function closePal(){if(!PAL)return;PAL.remove();PAL=null;editingId=null;try{if(!document.querySelector('.modalov'))document.body.style.overflow=''}catch(e){}}
 function palNav(p){cur=p;closePal();render()}
 function palActions(){return [
- {i:'dash',label:'نمای کلی',act:function(){palNav('overview')}},{i:'server',label:'نودها',act:function(){palNav('nodes')}},
- {i:'link',label:'تونل‌ها',act:function(){palNav('tunnels')}},{i:'globe',label:'پورت‌فوروارد',act:function(){palNav('portfw')}},
- {i:'plus',label:'افزودن تونل',act:function(){cur='tunnels';closePal();render();setTimeout(openCreateModal,300)}},{i:'redo',label:'بروزرسانیِ ایجنت',act:function(){palNav('agent')}},
- {i:'activity',label:'تستِ همهٔ تونل‌های صفحه',act:function(){cur='tunnels';closePal();render();setTimeout(function(){if(window.checkAll)checkAll()},600)}},
- {i:document.body.classList.contains('dark')?'sun':'moon',label:'تغییرِ تمِ روشن/تیره',act:function(){closePal();toggleTheme()}}]}
+ {i:'dash',label:T('nav_overview'),act:function(){palNav('overview')}},{i:'server',label:T('nav_nodes'),act:function(){palNav('nodes')}},
+ {i:'link',label:T('nav_tunnels'),act:function(){palNav('tunnels')}},{i:'globe',label:T('nav_portfw'),act:function(){palNav('portfw')}},
+ {i:'plus',label:T('pal_add_tun'),act:function(){cur='tunnels';closePal();render();setTimeout(openCreateModal,300)}},{i:'redo',label:T('pal_agent'),act:function(){palNav('agent')}},
+ {i:'activity',label:T('pal_checkall'),act:function(){cur='tunnels';closePal();render();setTimeout(function(){if(window.checkAll)checkAll()},600)}},
+ {i:document.body.classList.contains('dark')?'sun':'moon',label:T('pal_theme'),act:function(){closePal();toggleTheme()}}]}
 function palRender(q){q=(q||'').trim().toLowerCase();
  var nodes=(PALDATA.nodes||[]).filter(function(n){return !q||n.name.toLowerCase().indexOf(q)>=0||(n.host||'').indexOf(q)>=0}).slice(0,6)
   .map(function(n){return {i:'server',label:esc(n.name),sub:esc(n.host),act:function(){cur='nodes';QRY.nodes=n.name;PG.nodes=0;closePal();render()}}});
  var tuns=(PALDATA.tuns||[]).filter(function(l){return !q||((l.a_name||'')+' '+(l.b_name||'')+' '+(l.name||'')+' '+(l.type||'')).toLowerCase().indexOf(q)>=0}).slice(0,6)
   .map(function(l){return {i:'link',label:esc(l.a_name)+' ↔ '+esc(l.b_name),sub:esc(l.name),act:function(){cur='tunnels';QRY.tunnels=l.name;PG.tunnels=0;closePal();render()}}});
  var acts=palActions().filter(function(a){return !q||a.label.toLowerCase().indexOf(q)>=0});
- var groups=[['نودها',nodes],['تونل‌ها',tuns],['دستورها',acts]];PALITEMS=[];var html='';
+ var groups=[[T('pal_g_nodes'),nodes],[T('pal_g_tuns'),tuns],[T('pal_g_acts'),acts]];PALITEMS=[];var html='';
  groups.forEach(function(g){if(!g[1].length)return;html+='<div class="palsec">'+g[0]+'</div>';
   g[1].forEach(function(it){var idx=PALITEMS.length;PALITEMS.push(it);
    html+='<div class="palrow" onmouseenter="PALIDX='+idx+';palHi()" onclick="palGo('+idx+')"><span class="gi">'+ic(it.i)+'</span>'+it.label+(it.sub?'<span class="sub mono">'+it.sub+'</span>':'')+'</div>'})});
- if(!PALITEMS.length)html='<div class="palrow" style="cursor:default;color:var(--sub)">موردی یافت نشد</div>';
+ if(!PALITEMS.length)html='<div class="palrow" style="cursor:default;color:var(--sub)">'+esc(T('pal_none'))+'</div>';
  var lst=el('pal_list');if(lst)lst.innerHTML=html;PALIDX=0;palHi()}
 function palHi(){document.querySelectorAll('#pal_list .palrow').forEach(function(r,i){r.classList.toggle('sel',i==PALIDX)})}
 function palGo(i){var it=PALITEMS[i];if(it&&it.act)it.act()}
