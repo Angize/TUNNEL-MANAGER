@@ -4051,6 +4051,12 @@ body.dark .tag.core{color:#a78bfa}
 .pitem.dead .pv{color:var(--sub);text-decoration:line-through}
 .pitem .pb{border:1px solid var(--bord);background:var(--glass);color:var(--sub);width:26px;height:26px;border-radius:7px;cursor:pointer;font-size:13px;line-height:1;flex:0 0 auto}
 .pauto{font-size:9px;font-weight:700;color:#f07070;background:rgba(214,69,69,.16);border-radius:5px;padding:1px 5px}
+.ptabs{display:flex;gap:6px;margin:7px 0 8px}
+.ptab{flex:1;text-align:center;padding:7px 6px;border:1px solid var(--bord);border-radius:8px;background:var(--field);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;user-select:none}
+.ptab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.ptab.on.burn{background:var(--bad);border-color:var(--bad)}
+.ptabc{display:inline-block;min-width:15px;padding:0 5px;border-radius:99px;background:rgba(255,255,255,.18);font-size:10.5px;margin-right:3px}
+.ptab:not(.on) .ptabc{background:var(--glass);color:var(--sub)}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:var(--accw)}
@@ -4854,17 +4860,21 @@ function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.
 function corToggleXhttp(){_corXhttp=!_corXhttp;var s=el('e_wsxh');if(s)s.classList.toggle('on',_corXhttp)}
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
+  tab:{ip:'clean',sni:'clean'},
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return typeof s=='string'?s:((s&&s.host)||'')}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
 function poolValid(kind,val){if(kind=='ip'){var c=val.lastIndexOf(':'),h=c>=0?val.slice(0,c):val,p=c>=0?val.slice(c+1):'';if(p&&!(/^\d+$/.test(p)&&+p>=1&&+p<=65535))return false;return /^[A-Za-z0-9.\-]{1,253}$/.test(h);}return /^[A-Za-z0-9.\-]{1,253}$/.test(val);}
-function poolRenderKind(pfx,kind){var d=poolGet(pfx);['clean','burned'].forEach(function(w){var host=el(pfx+'lst_'+kind+'_'+w);if(!host)return;var arr=d[kind][w];var cnt=el(pfx+'cnt_'+kind+'_'+w);if(cnt)cnt.textContent=arr.length;
-  host.innerHTML=arr.length?arr.map(function(v){var dead=w=='burned';
+function poolRenderKind(pfx,kind){var d=poolGet(pfx),active=d.tab[kind];
+  ['clean','burned'].forEach(function(w){var c=el(pfx+'tcnt_'+kind+'_'+w);if(c)c.textContent=d[kind][w].length;var t=el(pfx+'tab_'+kind+'_'+w);if(t)t.classList.toggle('on',w==active);});
+  var host=el(pfx+'lst_'+kind);if(!host)return;var arr=d[kind][active],dead=active=='burned';
+  host.innerHTML=arr.length?arr.map(function(v){
     return '<div class="pitem'+(dead?' dead':'')+'"><span class="pv" title="'+esc(v)+'">'+esc(v)+'</span>'
-     +'<button type="button" class="pb" title="'+(dead?'به تمیز':'به سوخته')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+w+'\\',\\''+esc(v)+'\\')">&#8596;</button>'
-     +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+w+'\\',\\''+esc(v)+'\\')">&#10005;</button></div>';}).join(''):'<div class="muted" style="text-align:center;font-size:11px;padding:8px">خالی</div>';});}
+     +'<button type="button" class="pb" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+active+'\\',\\''+esc(v)+'\\')">&#8596;</button>'
+     +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+active+'\\',\\''+esc(v)+'\\')">&#10005;</button></div>';}).join(''):'<div class="muted" style="text-align:center;font-size:11px;padding:12px">'+(dead?'چیزی سوخته نشده':'خالی — یک مورد اضافه کن')+'</div>';}
+function poolTab(pfx,kind,which){poolGet(pfx).tab[kind]=which;poolRenderKind(pfx,kind);}
 function poolRender(pfx){poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');var r=el(pfx+'poolrot');if(r)r.value=String(poolGet(pfx).rotate);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);}
-function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?'آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)':'دامنهٔ نامعتبر');return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';poolRenderKind(pfx,kind);}
+function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?'آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)':'دامنهٔ نامعتبر (مثلاً cdn.example.com)');return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.tab[kind]='clean';poolRenderKind(pfx,kind);}
 function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
 function poolDel(pfx,kind,from,val){var d=poolGet(pfx);d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
@@ -4940,17 +4950,21 @@ function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp){return '<div id="'+idp+
 function wsPoolInner(idp,fnp){
  var rotOpts=[[180,'هر ۳ دقیقه'],[300,'هر ۵ دقیقه'],[600,'هر ۱۰ دقیقه'],[900,'هر ۱۵ دقیقه'],[1800,'هر ۳۰ دقیقه'],[3600,'هر ۱ ساعت'],[14400,'هر ۴ ساعت'],[28800,'هر ۸ ساعت'],[0,'خاموش (فقط failover)']];
  var sel='<select id="'+idp+'poolrot">'+rotOpts.map(function(o){return '<option value="'+o[0]+'">'+o[1]+'</option>'}).join('')+'</select>';
- function col(kind,which,title,cls){return '<div style="border:1px solid var(--bd,#2a3550);border-radius:10px;overflow:hidden">'
-   +'<div class="'+cls+'" style="padding:8px 11px;font-size:12px;font-weight:700;display:flex;justify-content:space-between"><span>'+title+'</span><span id="'+idp+'cnt_'+kind+'_'+which+'"></span></div>'
-   +'<div id="'+idp+'lst_'+kind+'_'+which+'" style="padding:7px;display:flex;flex-direction:column;gap:6px"></div>'
-   +(which=='clean'?'<div style="display:flex;gap:6px;padding:8px 7px;border-top:1px dashed var(--bd,#2a3550)"><input id="'+idp+'add_'+kind+'" class="mono" style="flex:1" placeholder="'+(kind=='ip'?'104.16.0.1:443':'cdn.example.com')+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--ac,#3f5be0);color:#fff;border:none;border-radius:9px;min-width:40px;font-size:17px;cursor:pointer">+</button></div>':'')
-   +'</div>';}
- function pool(kind,label,hint){return '<label style="margin-top:12px">'+label+'</label><div class="muted" style="font-size:11px;margin-bottom:6px">'+hint+'</div>'
-   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+col(kind,'clean','تمیز · در چرخش','okbg')+col(kind,'burned','سوخته','badbg')+'</div>';}
+ // Each kind (ip / sni) is one card with two tabs — «در چرخش» (clean) and «سوخته»
+ // (burned) — and a single list showing the active tab, so only one list is on screen
+ // at a time. New entries always go to the clean tab.
+ function block(kind,label,hint,ph){
+   var tabs='<div class="ptabs">'
+     +'<div id="'+idp+'tab_'+kind+'_clean" class="ptab on" onclick="poolTab(\\''+idp+'\\',\\''+kind+'\\',\\'clean\\')">در چرخش <span class="ptabc" id="'+idp+'tcnt_'+kind+'_clean">0</span></div>'
+     +'<div id="'+idp+'tab_'+kind+'_burned" class="ptab burn" onclick="poolTab(\\''+idp+'\\',\\''+kind+'\\',\\'burned\\')">سوخته <span class="ptabc" id="'+idp+'tcnt_'+kind+'_burned">0</span></div>'
+     +'</div>';
+   return '<label style="margin-top:14px">'+label+'</label><div class="muted" style="font-size:11px;margin-bottom:2px">'+hint+'</div>'+tabs
+     +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
+     +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" style="flex:1" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>';}
  return '<label>بازهٔ چرخش</label>'+sel
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>وقتی لبه‌ای بلاک شد، خودکار به لیستِ سوخته می‌رود.</small></div></div>'
-   +pool('ip','آی‌پی‌های لبهٔ CDN','هر IP یک خط. سوخته‌ها استفاده نمی‌شوند.')
-   +pool('sni','دامنه‌ها (SNI)','ECHِ هر دامنه خودکار گرفته می‌شود. سوخته‌ها کنار می‌روند.');}
+   +block('ip','آی‌پی‌های لبهٔ CDN','هر IP یک مورد؛ سوخته‌ها در چرخش استفاده نمی‌شوند.','104.16.0.1:443')
+   +block('sni','دامنه‌ها (SNI)','ECHِ هر دامنه خودکار گرفته می‌شود.','cdn.example.com');}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">شکلِ زنده</b> · epoch <span class="mono">#'+ep+'</span> · حامل <span class="mono">'+fc+'</span> · چرخشِ بعدی تا <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> دیگر';}
 function fluxTick(){[['e_',_corTr,_corFluxCarrier,_corFluxRotate],['ee_',_eeTr,_eeFluxCarrier,_eeFluxRotate]].forEach(function(a){
