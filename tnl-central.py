@@ -2675,6 +2675,28 @@ def api_pool_probe_now(d):
     return {"ok": True}
 
 
+def api_pool_select(d):
+    """Live 'pin this edge': tell the client node to write a command file the running core polls
+    so it jumps its rotation onto THIS specific IP/SNI (kind+key) and re-dials onto it — no
+    rebuild, TUN stays up. Backs the per-edge select button."""
+    d = d or {}
+    _require(d, ["id", "kind", "key"])
+    if d["kind"] not in ("ip", "sni"):
+        raise ValueError("kind باید ip یا sni باشد")
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L or L.get("type") != "core" or not L.get("ws_pool"):
+        raise ValueError("این لینک استخرِ لبه ندارد")
+    server_side = L.get("server_side", "a")
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        raise ValueError("نودِ کلاینت پیدا نشد")
+    r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
+    return {"ok": True}
+
+
 def api_pool_rotate(d):
     """Live 'rotate now' for a ws edge pool: tell the client node to signal the running core
     to advance ONE dimension (dim='ip' or 'sni') with no rebuild — the TUN stays up while the
@@ -3383,7 +3405,7 @@ API = {
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
-    "pool-probe-now": api_pool_probe_now,
+    "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
@@ -3394,7 +3416,7 @@ API = {
     "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
              "provision-key"}
 
@@ -4987,7 +5009,7 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
       acts='<button type="button" class="eib" title="بازگرداندن به چرخش" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
     }else{
       if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="الان تست کن" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
-      if(d.lid)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?'آی‌پیِ فعلی':'انتخابِ آی‌پیِ فعلی (چرخش)')+'" onclick="doPoolRotate(\\''+d.lid+'\\',\\''+kind+'\\')">'+ic('pin')+'</button>';
+      if(d.lid)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?'آی‌پیِ فعلی':'این را فعال کن')+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';
     }
     acts+='<button type="button" class="eib del" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
     return '<div class="erow '+rowc+((dead||(h&&h.state=='dead'))?' dead':'')+'">'
@@ -5034,12 +5056,11 @@ function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
 async function poolProbeNow(lid){if(!lid){toast('اول تونل را بساز','err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast('پروبِ فوری فرستاده شد','ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+// "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
+async function poolSelect(lid,kind,key){if(!lid){toast('اول تونل را بساز','err');return}var r=await post('pool-select',{id:lid,kind:kind,key:key});if(r.ok&&r.d&&r.d.ok){toast('این لبه فعال شد','ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');for(var i=0;i<els.length;i++){var lid=els[i].id.slice(9);try{var r=await post('edge-status',{id:lid});if(r.ok&&r.d&&r.d.ok&&r.d.pool){var e=el('cardedge_'+lid);if(e)e.textContent=r.d.active||'—';}}catch(_){}}}
 setInterval(refreshCardEdges,12000);
-async function doPoolRotate(lid,dim){if(!lid){toast('اول تونل را بساز','err');return}var b=el('ee_roth_'+dim);if(b)b.disabled=true;
-  var r=await post('pool-rotate',{id:lid,dim:dim});if(b)b.disabled=false;
-  if(r.ok&&r.d&&r.d.ok){toast(dim=='ip'?'آی‌پی چرخید':'دامنه چرخید','ok');[900,2200,4000].forEach(function(t){setTimeout(poolTick,t)})}else{toast((r.d&&(r.d.error||r.d.msg))||'چرخش ناموفق','err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+'جعلِ آی‌پی (استتار)</div>'
@@ -5112,10 +5133,10 @@ function wsPoolInner(idp,fnp,lid){
  // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
  // list — every entry with a status pill (فعال / در چرخش / سوخته) — plus the add bar.
  function block(kind,label,ph){
-   var rot=lid?'<button type="button" class="rothdr" id="'+idp+'roth_'+kind+'" title="چرخشِ الان (بدونِ قطع)" onclick="event.stopPropagation();doPoolRotate(\\''+lid+'\\',\\''+kind+'\\')">&#8635;</button>':'';
+   // per-edge selection replaced the header rotate button — pin a specific edge from its row instead.
    return '<div class="pacc"><div class="pacchd" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
      +'<div><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
-     +'<div style="display:flex;align-items:center;gap:8px">'+rot+'<div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
+     +'<div style="display:flex;align-items:center;gap:8px"><div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
      +'<div class="paccbody" id="'+idp+'body_'+kind+'">'
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
