@@ -2346,13 +2346,17 @@ def _ws_pool_fields(d, cur=None):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise ValueError("مسیر (path) نامعتبر است")
-    # Fetch the ECHConfigList for each clean SNI (dig-first). A domain with no ECH is still usable
-    # (just no SNI hiding). Reuse a stored ech for an unchanged host to avoid a refetch storm.
+    # ECH for the pool is a single toggle (ws_pool_ech, default on): when on we fetch the
+    # ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every SNI is
+    # used with no ECH. A domain with no ECH record is still usable (just no SNI hiding).
+    # Reuse a stored ech for an unchanged host to avoid a refetch storm.
+    ech_on = bool(d.get("ws_pool_ech") if "ws_pool_ech" in d else (cur.get("ws_pool_ech") if cur.get("ws_pool_ech") is not None else True))
     prev = {s.get("host"): s.get("ech", "") for s in (cur.get("ws_edge_snis") or []) if isinstance(s, dict)}
-    snis = [{"host": h, "ech": _fetch_ech(h) or prev.get(h, ""), "path": path} for h in clean_hosts]
+    snis = [{"host": h, "ech": (_fetch_ech(h) or prev.get(h, "")) if ech_on else "", "path": path} for h in clean_hosts]
     return {
         "ws_pool": True,
         "ws_tls": True,
+        "ws_pool_ech": ech_on,
         "ws_edge_ips": clean_ips,
         "ws_edge_ips_burned": burned_ips,
         "ws_edge_snis": snis,                # [{host,ech,path}] — sent to the node + stored
@@ -2776,6 +2780,7 @@ def _edit_link_impl(d):
         and bool(extra.get("ws_xhttp")) == bool(L.get("ws_xhttp"))
         and bool(extra.get("ech")) == bool(L.get("ech"))
         and bool(extra.get("ws_pool")) == bool(L.get("ws_pool"))
+        and bool(extra.get("ws_pool_ech")) == bool(L.get("ws_pool_ech"))
         and (extra.get("ws_edge_ips") or []) == (L.get("ws_edge_ips") or [])
         and (extra.get("ws_edge_ips_burned") or []) == (L.get("ws_edge_ips_burned") or [])
         and [s.get("host") for s in (extra.get("ws_edge_snis") or [])] == [s.get("host") for s in (L.get("ws_edge_snis") or [])]
@@ -2830,7 +2835,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "ws_xhttp", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "ws_xhttp", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_pool_ech", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -4860,6 +4865,7 @@ function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.
 function corToggleXhttp(){_corXhttp=!_corXhttp;var s=el('e_wsxh');if(s)s.classList.toggle('on',_corXhttp)}
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
+  ech:(l&&l.ws_pool_ech!=null)?!!l.ws_pool_ech:true,
   tab:{ip:'clean',sni:'clean'},
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return typeof s=='string'?s:((s&&s.host)||'')}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
@@ -4873,14 +4879,15 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx),active=d.tab[kind];
      +'<button type="button" class="pb" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+active+'\\',\\''+esc(v)+'\\')">&#8596;</button>'
      +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+active+'\\',\\''+esc(v)+'\\')">&#10005;</button></div>';}).join(''):'<div class="muted" style="text-align:center;font-size:11px;padding:12px">'+(dead?'چیزی سوخته نشده':'خالی — یک مورد اضافه کن')+'</div>';}
 function poolTab(pfx,kind,which){poolGet(pfx).tab[kind]=which;poolRenderKind(pfx,kind);}
-function poolRender(pfx){poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');var r=el(pfx+'poolrot');if(r)r.value=String(poolGet(pfx).rotate);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);}
+function poolRender(pfx){poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');var r=el(pfx+'poolrot');if(r)r.value=String(poolGet(pfx).rotate);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);var ec=el(pfx+'poolech');if(ec)ec.classList.toggle('on',poolGet(pfx).ech);}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?'آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)':'دامنهٔ نامعتبر (مثلاً cdn.example.com)');return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.tab[kind]='clean';poolRenderKind(pfx,kind);}
 function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
 function poolDel(pfx,kind,from,val){var d=poolGet(pfx);d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
+function poolToggleECH(pfx){var d=poolGet(pfx);d.ech=!d.ech;var ec=el(pfx+'poolech');if(ec)ec.classList.toggle('on',d.ech);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wssingle'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var r=el(pfx+'poolrot');if(r)d.rotate=+r.value;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var r=el(pfx+'poolrot');if(r)d.rotate=+r.value;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;body.ws_pool_ech=d.ech;return true;}
 function corTogglePool(){poolToggle('e_')}
 function ceTogglePool(){poolToggle('ee_')}
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
@@ -4963,6 +4970,7 @@ function wsPoolInner(idp,fnp){
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" style="flex:1" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>';}
  return '<label>بازهٔ چرخش</label>'+sel
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>وقتی لبه‌ای بلاک شد، خودکار به لیستِ سوخته می‌رود.</small></div></div>'
+   +'<div class="tglbox" style="margin-top:9px"><div class="tglsw on" id="'+idp+'poolech" onclick="poolToggleECH(\\''+idp+'\\')"></div><div class="tt"><b>ECH — مخفی‌کردنِ SNI</b><small>برای هر دامنهٔ استخر کلیدِ ECH خودکار گرفته و SNI پنهان می‌شود. اگر خاموش کنی، دامنه‌ها بدونِ ECH استفاده می‌شوند.</small></div></div>'
    +block('ip','آی‌پی‌های لبهٔ CDN','هر IP یک مورد؛ سوخته‌ها در چرخش استفاده نمی‌شوند.','104.16.0.1:443')
    +block('sni','دامنه‌ها (SNI)','ECHِ هر دامنه خودکار گرفته می‌شود.','cdn.example.com');}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
