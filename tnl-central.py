@@ -2043,43 +2043,48 @@ def _default_tunnel_port(ttype, tid):
     return None
 
 
-def _port_bindings(ttype, port, transport, server_side, tid, A, B):
-    """The (node, port, proto) sockets a tunnel will actually LISTEN on — the set whose
-    freeness must be verified before building. Scope per the tunnel model:
-      core (bip): only the server node binds; the client dials from a random ephemeral
-                    port, so it is never checked. proto follows transport (udp|tcp).
-      fou/l2tpv3/vxlan: BOTH nodes decap on that UDP port.
+def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_ip=None):
+    """The (node, ip, port, proto) sockets a tunnel will actually LISTEN on — the set whose
+    freeness must be verified before building. The core server binds its self_ip:port, so the
+    bind IP is carried too: two ws tunnels on one host but different IPs share a port without a
+    false conflict. Scope per the tunnel model:
+      core (bip): only the server node binds (on its self_ip); the client dials from a random
+                    ephemeral port, so it is never checked. proto follows transport (udp|tcp).
+      fou/l2tpv3/vxlan: BOTH nodes decap on that UDP port (any-IP, ip=None).
       gre/sit/ipip/ipsec: no listening L4 port -> nothing to check."""
     p = int(port or _default_tunnel_port(ttype, tid) or 0)
     if not p:
         return []
     if ttype == "core":
-        srv = A if (server_side or "a") == "a" else B
+        server_a = (server_side or "a") == "a"
+        srv = A if server_a else B
+        srv_ip = a_ip if server_a else b_ip
         t = (transport or "udp").lower()
         if t in ("raw", "flux"):
             return []                        # raw-IP / rotating-protocol carrier — no fixed L4 port to portcheck
-        return [(srv, p, "tcp" if t in ("tcp", "ws") else "udp")]  # ws is a TCP/WebSocket carrier
+        return [(srv, srv_ip, p, "tcp" if t in ("tcp", "ws") else "udp")]  # ws is a TCP/WebSocket carrier
     if ttype in ("fou", "l2tpv3", "vxlan"):
-        return [(A, p, "udp"), (B, p, "udp")]
+        return [(A, None, p, "udp"), (B, None, p, "udp")]
     return []
 
 
 def _guard_port_conflicts(bindings, exclude=frozenset()):
     """Ask each target node whether the port it will bind is already in use (by ANY
     service — Xray/nginx/x-ui/…, not just our tunnels) and raise a clear Persian error
-    if so. `exclude` holds (node_id, port, proto) tuples the edited tunnel already owns,
+    if so. `exclude` holds (node_id, ip, port, proto) tuples the edited tunnel already owns,
     so a tunnel never conflicts with itself. Nodes too old to know `portcheck` (or briefly
     unreachable) are skipped rather than hard-blocked."""
-    for node, port, proto in bindings:
-        if (node["id"], int(port), proto) in exclude:
+    for node, ip, port, proto in bindings:
+        if (node["id"], ip or "", int(port), proto) in exclude:
             continue
-        r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto}, timeout=10)
+        r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or ""}, timeout=10)
         if not r.get("ok"):
             continue  # unknown endpoint (old agent) / offline -> can't verify, don't block the build
         if r.get("busy"):
             who = str(r.get("who") or "").strip()
             tail = f" — {who}" if who else ""
-            raise ValueError(f"پورتِ {port}/{proto.upper()} روی نودِ «{node['name']}» اشغال است{tail}؛ یک پورتِ دیگر انتخاب کن")
+            onip = f" (روی {ip})" if ip else ""
+            raise ValueError(f"پورتِ {port}/{proto.upper()} روی نودِ «{node['name']}»{onip} اشغال است{tail}؛ یک پورتِ دیگر انتخاب کن")
 
 
 def _spoof_fields(d, transport, profile, cipher, cur=None):
@@ -2471,7 +2476,7 @@ def _create_tunnel_impl(d):
             extra["gso"] = True
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
     # Refuse to build if the chosen port is already taken on a node that will bind it.
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B))
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **extra}
     if ttype == "core":
@@ -2782,9 +2787,9 @@ def _edit_link_impl(d):
     # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
     # occupies (its current port/proto/server node are excluded so it can't clash with
     # itself). A binding that is unchanged needs no check; a new/changed one must be free.
-    _own = frozenset((N["id"], p, pr) for N, p, pr in
-                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B))
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B), exclude=_own)
+    _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
+                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip")))
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude=_own)
     # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
     # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running
     # its old crypto session: the freshly restarted server latches onto the stale still-live client and
