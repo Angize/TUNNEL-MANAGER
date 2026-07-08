@@ -2621,60 +2621,58 @@ def api_edit_link(d):
         return _edit_link_impl(d)
 
 
-def _persist_pool_burns(lid, bips, bhosts):
-    """Move any auto-burned edge (reported live by the core) from a link's clean pool lists into
-    its burned lists, so the UI shows it and the next rebuild stops sending it as clean. Returns
-    True if anything moved."""
-    with _reg_lock:
-        links = load_links()
-        for x in links:
-            if x.get("id") != lid:
-                continue
-            changed = False
-            cips, bips_l = list(x.get("ws_edge_ips") or []), list(x.get("ws_edge_ips_burned") or [])
-            for ip in bips:
-                if ip in cips:
-                    cips.remove(ip)
-                    if ip not in bips_l:
-                        bips_l.append(ip)
-                    changed = True
-            csnis, bsnis_l = list(x.get("ws_edge_snis") or []), list(x.get("ws_edge_snis_burned") or [])
-            for h in bhosts:
-                if any(isinstance(s, dict) and s.get("host") == h for s in csnis):
-                    csnis = [s for s in csnis if not (isinstance(s, dict) and s.get("host") == h)]
-                    if h not in bsnis_l:
-                        bsnis_l.append(h)
-                    changed = True
-            if changed:
-                x["ws_edge_ips"], x["ws_edge_ips_burned"] = cips, bips_l
-                x["ws_edge_snis"], x["ws_edge_snis_burned"] = csnis, bsnis_l
-                save_json(LINKS_FILE, links)
-            return changed
-    return False
-
-
 def api_edge_status(d):
-    """Poll the ws edge pool's live status for a link: read the client node's core status file
-    (active edge + auto-burned IP/SNI), persist any auto-burn into the link's burned lists, and
-    return the live view so the panel can show the active edge and the freshly-burned entries."""
+    """Poll the ws edge pool's live health for a link: read the client node's core status file
+    (active edge + per-entry health FSM) and return it so the panel can render سالم/موقت/دائمی
+    with live retest countdowns. It does NOT persist anything into the link's stored lists — the
+    core's health is transient and self-healing (a temporary block clears on its own retest), so
+    baking it into the operator's permanent burned list would defeat the auto-recovery. The
+    operator's clean/burned curation stays exactly as they set it."""
     d = d or {}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        return {"ok": True, "pool": False, "active": "", "burned_ips": [], "burned_snis": []}
+        return {"ok": True, "pool": False, "active": "", "health": []}
     server_side = L.get("server_side", "a")
     client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
     node = get_node(client_id)
     if not node:
-        return {"ok": True, "pool": True, "active": "", "burned_ips": [], "burned_snis": [], "error": "client node not found"}
+        return {"ok": True, "pool": True, "active": "", "health": [], "error": "client node not found"}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
-        return {"ok": True, "pool": True, "active": "", "burned_ips": [], "burned_snis": [], "error": r.get("error") or r.get("msg")}
-    bips = [str(x) for x in (r.get("burned_ips") or [])]
-    bhosts = [str(x) for x in (r.get("burned_snis") or [])]
-    persisted = _persist_pool_burns(L["id"], bips, bhosts)
+        return {"ok": True, "pool": True, "active": "", "health": [], "error": r.get("error") or r.get("msg")}
+    health = []
+    for h in (r.get("health") or []):
+        if not isinstance(h, dict):
+            continue
+        health.append({
+            "key": str(h.get("key") or ""),
+            "kind": "sni" if str(h.get("kind")) == "sni" else "ip",
+            "state": str(h.get("state") or "healthy"),
+            "fails": int(h.get("fails") or 0),
+            "next_retest_unix": int(h.get("next_retest_unix") or 0),
+        })
     return {"ok": True, "pool": True, "active": str(r.get("active") or ""),
-            "burned_ips": bips, "burned_snis": bhosts, "persisted": persisted}
+            "health": health, "now": int(time.time())}
+
+
+def api_pool_probe_now(d):
+    """Live 'probe now' for a ws edge pool: tell the client node to SIGHUP the running core so
+    it retests every suspect/dead edge at once (no rebuild). Returns fresh status via the next poll."""
+    d = d or {}
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L or L.get("type") != "core" or not L.get("ws_pool"):
+        raise ValueError("این لینک استخرِ لبه ندارد")
+    server_side = L.get("server_side", "a")
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        raise ValueError("نودِ کلاینت پیدا نشد")
+    r = node_call(node, "pool-probe-now", "POST", {"name": L.get("name")}, timeout=10)
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or r.get("msg") or "پروب ناموفق بود"}
+    return {"ok": True}
 
 
 def api_pool_rotate(d):
@@ -3385,6 +3383,7 @@ API = {
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
+    "pool-probe-now": api_pool_probe_now,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
@@ -3395,7 +3394,7 @@ API = {
     "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
              "provision-key"}
 
@@ -4130,6 +4129,7 @@ body.dark .tag.core{color:#a78bfa}
 .pbadge{font-size:10px;font-weight:700;border-radius:99px;padding:1px 8px}
 .pbadge.ok{background:rgba(78,201,154,.16);color:var(--ok)}
 .pbadge.bad{background:rgba(240,115,106,.16);color:var(--bad)}
+.pbadge.warn{background:rgba(224,165,92,.18);color:var(--warn,#e0a55c)}
 .pchev{color:var(--sub);transition:transform .2s;font-size:12px;flex:0 0 auto}
 .pchev.open{transform:rotate(180deg)}
 .paccbody{padding:0 11px 11px}
@@ -4137,6 +4137,10 @@ body.dark .tag.core{color:#a78bfa}
 .ppill.live{background:rgba(78,201,154,.14);color:var(--ok);border-color:rgba(78,201,154,.4)}
 .ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
 .ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
+.ppill.susp{background:rgba(224,165,92,.16);color:var(--warn,#e0a55c);border-color:rgba(224,165,92,.45)}
+.pcd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--sub);direction:ltr;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.poolprobe{margin-top:10px;width:100%;border:1px solid var(--bord);background:var(--glass);color:var(--fg);border-radius:9px;padding:8px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.poolprobe:hover{border-color:var(--acc);color:var(--acc)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
 .rotbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--acc);color:#fff;border:none;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
 .rothdr{border:1px solid var(--bord);background:var(--glass);color:var(--acc);border-radius:8px;width:28px;height:28px;font-size:15px;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
@@ -4929,12 +4933,25 @@ function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx
 var _ip4Re=/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
 function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h)||_domRe.test(h);}return _domRe.test(val);}
+// poolRemain: seconds left until an entry's next retest, using the server clock sampled at the
+// last poll plus the client-side elapsed time since — so the countdown ticks smoothly between polls.
+function poolRemain(d,next){if(!next||!d.srvNow)return -1;var el=d.srvNow+(Date.now()-(d.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-el));}
+function poolCdTxt(r){var m=Math.floor(r/60),s=r%60;return m+':'+(s<10?'0'+s:s);}
+function poolCd(d,next){var r=poolRemain(d,next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 function poolRenderKind(pfx,kind){var d=poolGet(pfx);
-  var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+d[kind].clean.length+' در چرخش</span>'+(nb?'<span class="pbadge bad">'+nb+' سوخته</span>':'');}
+  var lv=d.live||{};var ns=0,nd=0;d[kind].clean.forEach(function(v){var h=lv[kind+':'+v];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
+  var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' سالم</span>'+(ns?'<span class="pbadge warn">'+ns+' موقت</span>':'')+(nd?'<span class="pbadge bad">'+nd+' دائمی</span>':'')+(nb?'<span class="pbadge bad">'+nb+' سوخته</span>':'');}
   var host=el(pfx+'lst_'+kind);if(!host)return;
   function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
-    return '<div class="prow'+(dead?' dead':'')+(act?' active':'')+'"><span class="pval" title="'+esc(v)+'">'+esc(v)+'</span>'
-     +'<span class="pacts"><span class="ppill '+(dead?'burn':(act?'now':'live'))+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+(dead?'سوخته':(act?'فعال':'در چرخش'))+'</span>'
+    var h=(!dead)?lv[kind+':'+v]:null;var cls,txt,cd='';
+    if(dead){cls='burn';txt='سوخته';}
+    else if(h&&h.state=='dead'){cls='burn';txt='سوختهٔ دائمی';cd=poolCd(d,h.next);}
+    else if(h&&h.state=='suspect'){cls='susp';txt='سوختهٔ موقت';cd=poolCd(d,h.next);}
+    else if(act){cls='now';txt='فعال';}
+    else{cls='live';txt='در چرخش';}
+    var strike=dead||(h&&h.state=='dead');
+    return '<div class="prow'+(strike?' dead':'')+(act?' active':'')+'"><span class="pval" title="'+esc(v)+'">'+esc(v)+'</span>'
+     +'<span class="pacts">'+cd+'<span class="ppill '+cls+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+txt+'</span>'
      +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">&#10005;</button></span></div>';}
   var html=d[kind].clean.map(function(v){return row(v,'clean')}).join('')+d[kind].burned.map(function(v){return row(v,'burned')}).join('');
   host.innerHTML=html?'<div class="plist">'+html+'</div>':'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
@@ -4964,11 +4981,16 @@ async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&
 var _eePoolLid='';
 function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').split(' · ');
   d.act={ip:(a[0]||'').trim(),sni:(a[1]||'').trim()};
-  (st.burned_ips||[]).forEach(function(v){v=String(v);if(d.ip.clean.indexOf(v)>=0){d.ip.clean=d.ip.clean.filter(function(x){return x!=v});if(d.ip.burned.indexOf(v)<0)d.ip.burned.push(v)}});
-  (st.burned_snis||[]).forEach(function(v){v=String(v);if(d.sni.clean.indexOf(v)>=0){d.sni.clean=d.sni.clean.filter(function(x){return x!=v});if(d.sni.burned.indexOf(v)<0)d.sni.burned.push(v)}});
-  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // active edge shows as the «فعال» row in the list itself
+  d.live={};(st.health||[]).forEach(function(h){if(h&&h.key)d.live[(h.kind=='sni'?'sni':'ip')+':'+h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
+  d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
+  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // live health (سالم/موقت/دائمی) + active edge overlay onto the rows
 async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 setInterval(poolTick,4000);
+// Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
+function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){var h=el('ee_lst_'+k);if(!h)return;Array.prototype.forEach.call(h.querySelectorAll('.pcd'),function(sp){var r=poolRemain(d,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)})})}
+setInterval(poolCdTick,1000);
+// "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
+async function poolProbeNow(lid){if(!lid){toast('اول تونل را بساز','err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast('پروبِ فوری فرستاده شد','ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');for(var i=0;i<els.length;i++){var lid=els[i].id.slice(9);try{var r=await post('edge-status',{id:lid});if(r.ok&&r.d&&r.d.ok&&r.d.pool){var e=el('cardedge_'+lid);if(e)e.textContent=r.d.active||'—';}}catch(_){}}}
 setInterval(refreshCardEdges,12000);
@@ -5055,10 +5077,12 @@ function wsPoolInner(idp,fnp,lid){
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
+ var probe=lid?'<button type="button" class="poolprobe" onclick="poolProbeNow(\\''+lid+'\\')">الان همه را تست کن (رِتِستِ فوریِ سوخته‌ها)</button>':'';
  return block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
    +block('sni','دامنه‌ها (SNI)','cdn.example.com')
    +'<label style="margin-top:14px">بازهٔ چرخش</label>'+sel
-   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>وقتی لبه‌ای بلاک شد، خودکار به لیستِ سوخته می‌رود.</small></div></div>';}
+   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.</small></div></div>'
+   +probe;}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">شکلِ زنده</b> · epoch <span class="mono">#'+ep+'</span> · حامل <span class="mono">'+fc+'</span> · چرخشِ بعدی تا <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> دیگر';}
 function fluxTick(){[['e_',_corTr,_corFluxCarrier,_corFluxRotate],['ee_',_eeTr,_eeFluxCarrier,_eeFluxRotate]].forEach(function(a){
