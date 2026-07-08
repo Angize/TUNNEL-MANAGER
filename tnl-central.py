@@ -4965,7 +4965,7 @@ async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;v
 setInterval(poolTick,4000);
 async function doPoolRotate(lid,dim){if(!lid){toast('اول تونل را بساز','err');return}var b=el('ee_roth_'+dim);if(b)b.disabled=true;
   var r=await post('pool-rotate',{id:lid,dim:dim});if(b)b.disabled=false;
-  if(r.ok&&r.d&&r.d.ok){toast(dim=='ip'?'آی‌پی چرخید':'دامنه چرخید','ok');setTimeout(poolTick,800)}else{toast((r.d&&(r.d.error||r.d.msg))||'چرخش ناموفق','err')}}
+  if(r.ok&&r.d&&r.d.ok){toast(dim=='ip'?'آی‌پی چرخید':'دامنه چرخید','ok');[900,2200,4000].forEach(function(t){setTimeout(poolTick,t)})}else{toast((r.d&&(r.d.error||r.d.msg))||'چرخش ناموفق','err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+'جعلِ آی‌پی (استتار)</div>'
