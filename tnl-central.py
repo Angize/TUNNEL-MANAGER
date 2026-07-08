@@ -4105,10 +4105,6 @@ body.dark .tag.core{color:#a78bfa}
 .ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
 .ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
-.livebar{flex:0 0 auto;background:color-mix(in srgb,var(--ok) 8%,transparent);border:1px solid color-mix(in srgb,var(--ok) 34%,transparent);border-radius:12px;padding:11px 13px;margin-bottom:12px}
-.livebar .lt{font-size:11px;color:var(--sub);display:flex;align-items:center;gap:7px;margin-bottom:4px}
-.livedot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:0 0 auto}
-.livebar .lv{font-size:13px;font-weight:700;font-family:ui-monospace,Consolas,monospace;color:var(--ok);direction:ltr;text-align:left;word-break:break-all;line-height:1.5}
 .rotbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--acc);color:#fff;border:none;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
 .rothdr{border:1px solid var(--bord);background:var(--glass);color:var(--acc);border-radius:8px;width:28px;height:28px;font-size:15px;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .tglbox.dis{opacity:.45;pointer-events:none}
@@ -4964,8 +4960,7 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
   d.act={ip:(a[0]||'').trim(),sni:(a[1]||'').trim()};
   (st.burned_ips||[]).forEach(function(v){v=String(v);if(d.ip.clean.indexOf(v)>=0){d.ip.clean=d.ip.clean.filter(function(x){return x!=v});if(d.ip.burned.indexOf(v)<0)d.ip.burned.push(v)}});
   (st.burned_snis||[]).forEach(function(v){v=String(v);if(d.sni.clean.indexOf(v)>=0){d.sni.clean=d.sni.clean.filter(function(x){return x!=v});if(d.sni.burned.indexOf(v)<0)d.sni.burned.push(v)}});
-  var bar=el(pfx+'livebar'),lv=el(pfx+'liveval');if(bar)bar.style.display=st.active?'':'none';if(lv)lv.textContent=st.active||'—';
-  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}
+  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // active edge shows as the «فعال» row in the list itself
 async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 setInterval(poolTick,4000);
 async function doPoolRotate(lid,dim){if(!lid){toast('اول تونل را بساز','err');return}var b=el('ee_roth_'+dim);if(b)b.disabled=true;
@@ -5036,7 +5031,6 @@ function wsPoolInner(idp,fnp,lid){
  var rotOpts=[[180,'هر ۳ دقیقه'],[300,'هر ۵ دقیقه'],[600,'هر ۱۰ دقیقه'],[900,'هر ۱۵ دقیقه'],[1800,'هر ۳۰ دقیقه'],[3600,'هر ۱ ساعت'],[14400,'هر ۴ ساعت'],[28800,'هر ۸ ساعت'],[0,'خاموش (فقط failover)']];
  var sel='<select id="'+idp+'poolrot">'+rotOpts.map(function(o){return '<option value="'+o[0]+'">'+o[1]+'</option>'}).join('')+'</select>';
  // Live "active edge" bar (edit only — a running tunnel exists). Populated by poolTick.
- var live=lid?'<div class="livebar" id="'+idp+'livebar" style="display:none"><div class="lt"><span class="livedot"></span>الان فعال (زنده از هسته)</div><div class="lv" id="'+idp+'liveval">—</div></div>':'';
  // Each kind (ip / sni) is one collapsible accordion: the header shows a live «X در چرخش · Y
  // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
  // list — every entry with a status pill (فعال / در چرخش / سوخته) — plus the add bar.
@@ -5049,7 +5043,7 @@ function wsPoolInner(idp,fnp,lid){
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
- return live+block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
+ return block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
    +block('sni','دامنه‌ها (SNI)','cdn.example.com')
    +'<label style="margin-top:14px">بازهٔ چرخش</label>'+sel
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>وقتی لبه‌ای بلاک شد، خودکار به لیستِ سوخته می‌رود.</small></div></div>';}
