@@ -2204,41 +2204,64 @@ def _ech_from_text(s):
 
 
 def _fetch_ech(host):
-    """Return the base64 ECHConfigList from host's HTTPS (type 65) DNS record. Ordinary DNS is
-    often poisoned in-country, so we ask public resolvers over DoH (HTTPS) and, as a last resort,
-    shell out to dig. Handles both the presentation (ech=...) and RFC 3597 generic (\\# len hex)
-    forms a resolver may hand back. Returns '' if no ECH key is published. Never raises."""
-    import urllib.request
+    """Return the base64 ECHConfigList from host's HTTPS (type 65) DNS record — for THIS host only
+    (no fallback to another domain's key). To kill the transient "not found" that a single slow or
+    stale resolver caused, we RACE dig + several public DoH resolvers (Cloudflare & Google, by name
+    and by IP for censorship resilience) in parallel and take the first that returns an ech=, and
+    RETRY the whole race a few times with a short backoff (helps a record that was just published and
+    is still propagating). Handles both the presentation (ech=...) and RFC 3597 generic forms.
+    Returns '' only when no source yields an ECH key after all rounds. Never raises."""
+    import urllib.request, concurrent.futures, time
     host = str(host or "").strip()
     if not host or not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         return ""
-    # Try dig FIRST: the panel runs abroad with a clean local resolver, so dig answers in
-    # milliseconds and prints the presentation form. DoH is only a fallback for a host without
-    # dig — and, crucially, it is tried AFTER dig, so a network that blocks DoH (a common panel
-    # setup) no longer stalls every ECH save for the DoH connect-timeout before reaching dig.
-    try:
-        out = subprocess.run(["dig", "+short", "HTTPS", host],
-                             capture_output=True, timeout=6).stdout.decode("utf-8", "replace")
-        v = _ech_from_text(out)
-        if v:
-            return v
-    except Exception:
-        pass
-    for base in ("https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"):
+
+    def via_dig():
         try:
-            url = "%s?name=%s&type=HTTPS" % (base, host)
-            req = urllib.request.Request(url, headers={"accept": "application/dns-json",
-                                                       "user-agent": "tnl-central"})
+            out = subprocess.run(["dig", "+short", "HTTPS", host],
+                                 capture_output=True, timeout=6).stdout.decode("utf-8", "replace")
+            return _ech_from_text(out)
+        except Exception:
+            return ""
+
+    def via_doh(base):
+        try:
+            req = urllib.request.Request("%s?name=%s&type=HTTPS" % (base, host),
+                                         headers={"accept": "application/dns-json", "user-agent": "tnl-central"})
             with urllib.request.urlopen(req, timeout=5) as r:
                 data = json.loads(r.read().decode("utf-8", "replace"))
             for ans in data.get("Answer", []):
-                if ans.get("type") not in (65, "65", "HTTPS"):
-                    continue
-                v = _ech_from_text(str(ans.get("data", "")))
-                if v:
-                    return v
+                if ans.get("type") in (65, "65", "HTTPS"):
+                    v = _ech_from_text(str(ans.get("data", "")))
+                    if v:
+                        return v
         except Exception:
-            continue
+            pass
+        return ""
+
+    doh = ["https://cloudflare-dns.com/dns-query", "https://1.1.1.1/dns-query",
+           "https://dns.google/resolve", "https://8.8.8.8/resolve"]
+    tasks = [via_dig] + [(lambda b=b: via_doh(b)) for b in doh]
+    for attempt in range(3):
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks))
+        futs = [ex.submit(t) for t in tasks]
+        found = ""
+        try:
+            for f in concurrent.futures.as_completed(futs, timeout=8):
+                try:
+                    v = f.result()
+                except Exception:
+                    v = ""
+                if v:
+                    found = v
+                    break
+        except Exception:
+            pass
+        ex.shutdown(wait=False)   # return as soon as one source answers; don't wait on slow ones
+        if found:
+            return found
+        if attempt < 2:
+            time.sleep(0.8)
     return ""
 
 
