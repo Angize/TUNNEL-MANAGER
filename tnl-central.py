@@ -4124,6 +4124,12 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.feat{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
 .enmeta .emcol>div.tagrow{overflow:visible;white-space:nowrap}
 .enmeta .feat .nofeat{opacity:.55}
+.cedge{margin-top:10px;background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 12px}
+.cedge.live{background:color-mix(in srgb,var(--ok) 8%,transparent);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+.cedge .ct{font-size:10.5px;color:var(--sub);display:flex;align-items:center;gap:6px}
+.cedge .cdot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.cedge .cv{direction:ltr;text-align:right;font-size:12.5px;font-weight:700;margin-top:3px;word-break:break-all;color:var(--tx)}
+.cedge.live .cv{color:var(--ok)}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
@@ -4871,7 +4877,7 @@ function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' 
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+'تونلِ هسته</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+'بررسی اتصال همگانی</button></div>'+
  toolbar('core','جستجوی نام نود / شناسه…')+'<div id="corList"></div>'+pagerBottom('core')}
 async function refreshCore(){if(editingId||CHECKING)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
- setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?'موردی یافت نشد.':'هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.')+'</div>');renderPager('core')}
+ setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?'موردی یافت نشد.':'هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.')+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
  var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?'xHTTP':(l.ws_tls?'WSS':'WS')):'UDP';
@@ -4879,13 +4885,25 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  var car='<div>حامل: <b class="mono">'+tr+'</b></div>';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
  var typ='<div class="tagrow">نوع: <span class="tag core">Core</span></div>';
- var feats=[];if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');if(l.fec)feats.push('<span class="tag obfs">FEC '+((l.fec_data||10)+'+'+(l.fec_parity||3))+'</span>');
+ var feats=[];
+ if(l.transport=='ws'&&l.ws_pool)feats.push('<span class="tag obfs">pool</span>');
+ if(l.transport=='ws'&&l.ws_tls)feats.push('<span class="tag obfs">wss</span>');
+ if(l.transport=='ws'&&l.ech)feats.push('<span class="tag obfs">ECH</span>');
+ if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');if(l.fec)feats.push('<span class="tag obfs">FEC '+((l.fec_data||10)+'+'+(l.fec_parity||3))+'</span>');
  var cap='<div class="feat">قابلیت‌ها: '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
  var encv=(l.cipher&&l.cipher!='none')
    ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
    :'<b>بدونِ رمز</b>';
  var enc='<div class="enc-line">رمزنگاری: '+encv+'</div>';
- return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'}
+ // WS/CDN edge box: pool -> the LIVE active edge (filled by refreshCardEdges from the core
+ // status file); single edge -> the fixed SNI · edge (static, no polling).
+ var edge='';
+ if(l.transport=='ws'){
+   if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>لبهٔ فعالِ فعلی (زنده)</div><div class="cv mono" id="cardedge_'+l.id+'">…</div></div>';}
+   else{var pp=[];if(l.ws_host)pp.push(esc(l.ws_host));if(l.edge_ip)pp.push(esc(l.edge_ip));
+     if(pp.length)edge='<div class="cedge"><div class="ct">لبهٔ CDN</div><div class="cv mono">'+pp.join(' · ')+'</div></div>';}
+ }
+ return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
@@ -4934,14 +4952,14 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   host.innerHTML=html?'<div class="plist">'+html+'</div>':'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
 function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(pfx+'chev_'+kind);if(b)b.style.display=d.open[kind]?'':'none';if(c)c.classList.toggle('open',d.open[kind]);}
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
-function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var r=el(pfx+'poolrot');if(r)r.value=String(poolGet(pfx).rotate);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);}
+function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?'آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)':'دامنهٔ نامعتبر (مثلاً cdn.example.com)');return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
 function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
 function poolDel(pfx,kind,from,val){var d=poolGet(pfx);d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var r=el(pfx+'poolrot');if(r)d.rotate=+r.value;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(!d.ip.clean.length||!d.sni.clean.length)return 'استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد';body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
 function corTogglePool(){poolToggle('e_');if(poolGet('e_').pool&&!_corWsTls)corToggleWsTls()}
 function ceTogglePool(){poolToggle('ee_');if(poolGet('ee_').pool&&!_eeWsTls)ceToggleWsTls()}
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
@@ -4963,6 +4981,9 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
   poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // active edge shows as the «فعال» row in the list itself
 async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 setInterval(poolTick,4000);
+// Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
+async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');for(var i=0;i<els.length;i++){var lid=els[i].id.slice(9);try{var r=await post('edge-status',{id:lid});if(r.ok&&r.d&&r.d.ok&&r.d.pool){var e=el('cardedge_'+lid);if(e)e.textContent=r.d.active||'—';}}catch(_){}}}
+setInterval(refreshCardEdges,12000);
 async function doPoolRotate(lid,dim){if(!lid){toast('اول تونل را بساز','err');return}var b=el('ee_roth_'+dim);if(b)b.disabled=true;
   var r=await post('pool-rotate',{id:lid,dim:dim});if(b)b.disabled=false;
   if(r.ok&&r.d&&r.d.ok){toast(dim=='ip'?'آی‌پی چرخید':'دامنه چرخید','ok');[900,2200,4000].forEach(function(t){setTimeout(poolTick,t)})}else{toast((r.d&&(r.d.error||r.d.msg))||'چرخش ناموفق','err')}}
@@ -5029,7 +5050,8 @@ function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp,lid){return '<div id="'+
  +'</div>'}
 function wsPoolInner(idp,fnp,lid){
  var rotOpts=[[180,'هر ۳ دقیقه'],[300,'هر ۵ دقیقه'],[600,'هر ۱۰ دقیقه'],[900,'هر ۱۵ دقیقه'],[1800,'هر ۳۰ دقیقه'],[3600,'هر ۱ ساعت'],[14400,'هر ۴ ساعت'],[28800,'هر ۸ ساعت'],[0,'خاموش (فقط failover)']];
- var sel='<select id="'+idp+'poolrot">'+rotOpts.map(function(o){return '<option value="'+o[0]+'">'+o[1]+'</option>'}).join('')+'</select>';
+ // Custom styled list (like the IP picker) instead of the native <select>.
+ var sel=ssHTML(idp+'poolrot',rotOpts.map(function(o){return {v:o[0],label:o[1]}}),poolGet(idp).rotate,'بازهٔ چرخش');
  // Live "active edge" bar (edit only — a running tunnel exists). Populated by poolTick.
  // Each kind (ip / sni) is one collapsible accordion: the header shows a live «X در چرخش · Y
  // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
