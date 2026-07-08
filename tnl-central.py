@@ -4105,11 +4105,10 @@ body.dark .tag.core{color:#a78bfa}
 .ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
 .ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
-.livebar{display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--ok) 8%,transparent);border:1px solid color-mix(in srgb,var(--ok) 34%,transparent);border-radius:12px;padding:10px 12px;margin-bottom:12px}
-.livedot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent);flex:0 0 auto}
-.livebar .li{flex:1;min-width:0}
-.livebar .lt{font-size:10.5px;color:var(--sub)}
-.livebar .lv{font-size:12.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;color:var(--ok);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.livebar{flex:0 0 auto;background:color-mix(in srgb,var(--ok) 8%,transparent);border:1px solid color-mix(in srgb,var(--ok) 34%,transparent);border-radius:12px;padding:11px 13px;margin-bottom:12px}
+.livebar .lt{font-size:11px;color:var(--sub);display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.livedot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.livebar .lv{font-size:13px;font-weight:700;font-family:ui-monospace,Consolas,monospace;color:var(--ok);direction:ltr;text-align:left;word-break:break-all;line-height:1.5}
 .rotbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--acc);color:#fff;border:none;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
 .rothdr{border:1px solid var(--bord);background:var(--glass);color:var(--acc);border-radius:8px;width:28px;height:28px;font-size:15px;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .tglbox.dis{opacity:.45;pointer-events:none}
@@ -5037,7 +5036,7 @@ function wsPoolInner(idp,fnp,lid){
  var rotOpts=[[180,'هر ۳ دقیقه'],[300,'هر ۵ دقیقه'],[600,'هر ۱۰ دقیقه'],[900,'هر ۱۵ دقیقه'],[1800,'هر ۳۰ دقیقه'],[3600,'هر ۱ ساعت'],[14400,'هر ۴ ساعت'],[28800,'هر ۸ ساعت'],[0,'خاموش (فقط failover)']];
  var sel='<select id="'+idp+'poolrot">'+rotOpts.map(function(o){return '<option value="'+o[0]+'">'+o[1]+'</option>'}).join('')+'</select>';
  // Live "active edge" bar (edit only — a running tunnel exists). Populated by poolTick.
- var live=lid?'<div class="livebar" id="'+idp+'livebar" style="display:none"><span class="livedot"></span><div class="li"><div class="lt">الان فعال (زنده از هسته)</div><div class="lv" id="'+idp+'liveval">—</div></div></div>':'';
+ var live=lid?'<div class="livebar" id="'+idp+'livebar" style="display:none"><div class="lt"><span class="livedot"></span>الان فعال (زنده از هسته)</div><div class="lv" id="'+idp+'liveval">—</div></div>':'';
  // Each kind (ip / sni) is one collapsible accordion: the header shows a live «X در چرخش · Y
  // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
  // list — every entry with a status pill (فعال / در چرخش / سوخته) — plus the add bar.
