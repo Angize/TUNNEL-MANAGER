@@ -4138,7 +4138,13 @@ body.dark .tag.core{color:#a78bfa}
 .ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
 .ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
 .ppill.susp{background:rgba(224,165,92,.16);color:var(--warn,#e0a55c);border-color:rgba(224,165,92,.45)}
+.pretest{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
 .pcd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--sub);direction:ltr;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
+.pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
+.pbar.bad>i{background:var(--bad)}
+.pprobe{border:1px solid var(--bord);background:var(--glass);color:var(--sub);border-radius:7px;padding:3px 8px;font-size:10.5px;cursor:pointer;font-family:inherit;flex:0 0 auto}
+.pprobe:hover{border-color:var(--acc);color:var(--acc)}
 .poolprobe{margin-top:10px;width:100%;border:1px solid var(--bord);background:var(--glass);color:var(--fg);border-radius:9px;padding:8px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .poolprobe:hover{border-color:var(--acc);color:var(--acc)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
@@ -4938,20 +4944,27 @@ function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':')
 function poolRemain(d,next){if(!next||!d.srvNow)return -1;var el=d.srvNow+(Date.now()-(d.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-el));}
 function poolCdTxt(r){var m=Math.floor(r/60),s=r%60;return m+':'+(s<10?'0'+s:s);}
 function poolCd(d,next){var r=poolRemain(d,next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
+// Backoff schedule (must mirror the core): a suspect entry's current step length by fail count;
+// a dead entry retests slowly. Used to draw the fill bar (elapsed / step) like the mockup.
+var _poolBackoff=[30,60,120,300,600],_poolDeadStep=1800;
+function poolStepTotal(h){return h.state=='dead'?_poolDeadStep:(_poolBackoff[Math.min(h.fails||0,4)]||600);}
+function poolBarPct(d,h){var tot=poolStepTotal(h),rem=poolRemain(d,h.next);if(rem<0)return -1;return Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));}
+function poolBar(d,h){var p=poolBarPct(d,h);if(p<0)return '';return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+poolStepTotal(h)+'"><i style="width:'+p+'%"></i></span>';}
 function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   var lv=d.live||{};var ns=0,nd=0;d[kind].clean.forEach(function(v){var h=lv[kind+':'+v];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
   var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' سالم</span>'+(ns?'<span class="pbadge warn">'+ns+' موقت</span>':'')+(nd?'<span class="pbadge bad">'+nd+' دائمی</span>':'')+(nb?'<span class="pbadge bad">'+nb+' سوخته</span>':'');}
   var host=el(pfx+'lst_'+kind);if(!host)return;
   function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
-    var h=(!dead)?lv[kind+':'+v]:null;var cls,txt,cd='';
+    var h=(!dead)?lv[kind+':'+v]:null;var cls,txt,retest='',probe='';
     if(dead){cls='burn';txt='سوخته';}
-    else if(h&&h.state=='dead'){cls='burn';txt='سوختهٔ دائمی';cd=poolCd(d,h.next);}
-    else if(h&&h.state=='suspect'){cls='susp';txt='سوختهٔ موقت';cd=poolCd(d,h.next);}
+    else if(h&&h.state=='dead'){cls='burn';txt='سوختهٔ دائمی';retest='<span class="pretest">'+poolCd(d,h.next)+poolBar(d,h)+'</span>';}
+    else if(h&&h.state=='suspect'){cls='susp';txt='سوختهٔ موقت';retest='<span class="pretest">'+poolCd(d,h.next)+poolBar(d,h)+'</span>';}
     else if(act){cls='now';txt='فعال';}
     else{cls='live';txt='در چرخش';}
+    if(h&&d.lid)probe='<button type="button" class="pprobe" title="رِتِستِ فوری" onclick="poolProbeNow(\\''+d.lid+'\\')">الان تست کن</button>';
     var strike=dead||(h&&h.state=='dead');
     return '<div class="prow'+(strike?' dead':'')+(act?' active':'')+'"><span class="pval" title="'+esc(v)+'">'+esc(v)+'</span>'
-     +'<span class="pacts">'+cd+'<span class="ppill '+cls+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+txt+'</span>'
+     +'<span class="pacts">'+retest+probe+'<span class="ppill '+cls+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+txt+'</span>'
      +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">&#10005;</button></span></div>';}
   var html=d[kind].clean.map(function(v){return row(v,'clean')}).join('')+d[kind].burned.map(function(v){return row(v,'burned')}).join('');
   host.innerHTML=html?'<div class="plist">'+html+'</div>':'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
@@ -4987,7 +5000,9 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
 async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 setInterval(poolTick,4000);
 // Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
-function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){var h=el('ee_lst_'+k);if(!h)return;Array.prototype.forEach.call(h.querySelectorAll('.pcd'),function(sp){var r=poolRemain(d,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)})})}
+function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){var host=el('ee_lst_'+k);if(!host)return;
+  Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=poolRemain(d,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
+  Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=poolRemain(d,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
 async function poolProbeNow(lid){if(!lid){toast('اول تونل را بساز','err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast('پروبِ فوری فرستاده شد','ok');setTimeout(poolTick,1500)}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
