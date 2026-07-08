@@ -4768,7 +4768,7 @@ async function corSpoofProbe(){var cap=el('e_cap');if(!cap)return;cap.className=
 function corToggleDecoy(){if(!_corSpoofOk)return;_corDecoy=!_corDecoy;el('e_decoysw').classList.toggle('on',_corDecoy);el('e_decoyiprow').style.display=_corDecoy?'':'none'}
 function corToggleSrc(){if(!_corSpoofOk)return;_corSrc=!_corSrc;el('e_srcsw').classList.toggle('on',_corSrc);el('e_srciprow').style.display=_corSrc?'':'none'}
 function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corTr=='raw')?'':'none'}
-function corPortGate(){var p=el('e_port');if(!p)return;var np=(_corTr=='raw'||_corTr=='flux');p.disabled=np;if(np)p.value='';p.placeholder=(_corTr=='flux')?'flux پورت ثابت ندارد':(np?'raw پورت ندارد':'20050')}
+function corPortGate(){var p=el('e_port');if(!p)return;if(_corTr=='ws'){p.value='80';p.disabled=true;p.placeholder='۸۰';return}var np=(_corTr=='raw'||_corTr=='flux');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_corTr=='flux')?'flux پورت ثابت ندارد':(np?'raw پورت ندارد':'20050')}
 function corSetProfile(p){_corRawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis()}
 function corToggleGso(){_corGso=!_corGso;var s=el('e_gso');if(s)s.classList.toggle('on',_corGso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corObfs=!_corObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corObfs)}
@@ -4858,7 +4858,7 @@ function ceSpoofPrefill(l){var di=el('ee_decoyip'),si=el('ee_srcip');if(di&&l.sp
  var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.toggle('on',_eeDecoy);if(s)s.classList.toggle('on',_eeSrc);
  var dr=el('ee_decoyiprow'),sr=el('ee_srciprow');if(dr)dr.style.display=_eeDecoy?'':'none';if(sr)sr.style.display=_eeSrc?'':'none'}
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeTr=='raw')?'':'none'}
-function cePortGate(){var p=el('ee_port');if(!p)return;var np=(_eeTr=='raw'||_eeTr=='flux');p.disabled=np;if(np)p.value='';p.placeholder=(_eeTr=='flux')?'flux پورت ثابت ندارد':(np?'raw پورت ندارد':'20050')}
+function cePortGate(){var p=el('ee_port');if(!p)return;if(_eeTr=='ws'){p.value='80';p.disabled=true;p.placeholder='۸۰';return}var np=(_eeTr=='raw'||_eeTr=='flux');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_eeTr=='flux')?'flux پورت ثابت ندارد':(np?'raw پورت ندارد':'20050')}
 function ceSetProfile(p){_eeRawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis()}
 function ceToggleGso(){_eeGso=!_eeGso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeGso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeObfs=!_eeObfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeObfs)}
