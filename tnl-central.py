@@ -723,12 +723,6 @@ def _uh_sample(nid, up, now):
             e["dn"] = not up
 
 
-def _uh_ring(nid):
-    with _uh_lock:
-        e = _uh.get(nid)
-        return list(e["ring"]) if e else []
-
-
 def _uh_cells(nid, window_hours, cells=60):
     """Aggregate the per-minute ring into exactly `cells` bars for the given window (hours). Each bar
     spans window/cells minutes -> down(0) if any minute in it was down, up(1) if all up, None if no data
@@ -1052,7 +1046,6 @@ def central_stats():
 
 
 UP_CRIT = 85    # a node metric at/above this is "critical" (red)
-UP_WARN = 60    # at/above this is "warning" (amber)
 PING_BAD = 150  # tunnel rtt (ms) above this counts as a real quality problem
 
 
@@ -4298,11 +4291,8 @@ function donut(id,parts){var svg=el(id);if(!svg)return;var CIR=2*Math.PI*46,tota
  svg.innerHTML=g}
 function ring(pct,color){pct=Math.max(0,Math.min(100,pct||0));var C=(2*Math.PI*15).toFixed(1),o=(C*(1-pct/100)).toFixed(1);
  return '<svg viewBox="0 0 40 40" style="width:44px;height:44px;flex:0 0 auto"><circle cx="20" cy="20" r="15" fill="none" stroke="var(--bord)" stroke-width="4"/><circle cx="20" cy="20" r="15" fill="none" stroke="'+color+'" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+C+'" stroke-dashoffset="'+o+'" transform="rotate(-90 20 20)" style="transition:stroke-dashoffset .5s"/><text x="20" y="24" text-anchor="middle" font-size="11" fill="var(--tx)" font-family="Vazirmatn,Tahoma">'+Math.round(pct)+'</text></svg>'}
-function dotc(c){return '<i class="dot" style="background:'+c+'"></i>'}
-function ramColor(p){return p>85?'#e0564f':p>60?'#fbbf24':'#2ea875'}
 function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.info||!n.info.ips)return [];
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
-function subnetDefaultJS(type,tid){return type=='sit'?('fd00:'+tid+'::/64'):('192.168.'+tid+'.0/24')}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
 var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1;
@@ -4415,7 +4405,6 @@ async function bulkTun(action){var ids=Object.keys(SELT);if(!ids.length)return;
  var w=el('selw_tunnels');if(w)w.innerHTML=selModeBtn('tunnels');var b=el('linkList');if(b)b.classList.toggle('selmode',selT);refreshTunnels();renderSelbar()}
 
 // ===== Overview
-function statc(id,label,hue,icon){return '<div class="card stat"><div class="k"><span class="chip" style="--hue:'+hue+'">'+ic(icon,hue)+'</span> '+label+'</div><div class="v" id="'+id+'">—</div></div>'}
 function go(t){cur=t;drawer(false);render()}
 function ocol(p){return p>85?cssv('--bad'):p>60?cssv('--gold'):cssv('--ok')}
 function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box.querySelector('.htip');
@@ -4698,14 +4687,6 @@ async function doDelNode(id,wipe){var m=el('del_msg');
 function tunnelsSkel(){CHK={};el('view').innerHTML='<h1>'+ic('link','var(--acc)')+' تونل‌ها</h1><p class="sub">هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد</p>'+
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+'افزودن تونل</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+'بررسی اتصال همگانی</button></div>'+
  toolbar('tunnels','جستجوی نام نود / نوع / شناسه…')+'<div id="linkList"></div>'+pagerBottom('tunnels')}
-function sideB(online,h){
- if(!online)return '<span class="badge bad">نود آفلاین</span>';          // به agentِ نود وصل نشد
- if(!h)return '<span class="badge bad">قطع</span>';                      // تونل روی نود نیست
- if(h.up==null)return '<span class="badge na">در حال بررسی…</span>';     // هنوز پروب نشده
- if(!h.up)return '<span class="badge bad">قطع</span>';                    // اینترفیس پایین
- if(h.peer_ping===true)return '<span class="badge ok">متصل'+CK+'</span>';     // پینگِ پیر برقرار = ترافیک رد می‌شود
- if(h.peer_ping===false)return '<span class="badge warn">بدون پینگ</span>'; // بالا ولی پیر جواب نمی‌دهد
- return '<span class="badge na">بالا</span>'}                             // بالا، پینگ نامشخص
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
 function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push('پینگ '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?('اتلاف '+(Math.round(h.loss_pct*10)/10)+'٪'):'بدون اتلاف');return p.join(' · ')}
 function sideTxt(online,h){
@@ -4716,12 +4697,6 @@ function sideTxt(online,h){
  if(h.peer_ping===true){var e=pingInfo(h);return 'متصل'+(e?' · '+e:'')}
  if(h.peer_ping===false)return 'پینگ جواب نداد'+(h.loss_pct!=null?' (اتلاف '+(Math.round(h.loss_pct)||100)+'٪)':'');
  return 'بالا (پینگ نامشخص)'}
-function sideMini(online,h){
- if(!online||!h)return {t:'قطع',c:'var(--bad)'};
- if(h.up==null)return {t:'…',c:'var(--sub)'};
- if(!h.up)return {t:'قطع',c:'var(--bad)'};
- if(h.peer_ping===false)return {t:'نیم‌بند',c:'var(--gold)'};
- return {t:'متصل',c:'var(--ok)'}}
 function sideState(online,h){  // k: dot color class, w: the word to show ONLY when there's a problem
  if(!online||!h)return {k:'bad',w:'قطع'};
  if(h.up==null)return {k:'na',w:'…'};
@@ -4873,7 +4848,6 @@ async function delLink(id){if(!await confirmBox('این تونل روی هر د�
 function ipField(k,ips,lab){
  if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),'آی‌پی','');
  delete SEL[k];return '<label class="first">'+lab+'</label><input class="mono" value="'+esc(ips[0]||'—')+'" disabled style="opacity:.6">'}
-function ipSecTitle(){return '<div class="ipsec">'+ic('pin','var(--acc)')+'آی‌پیِ هر سرِ تونل</div>'}
 async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});selTargets={};
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
@@ -5423,13 +5397,6 @@ async function corPushAll(){var ver=ssVal('corver');if(!ver){toast('اول نس�
   else{if(m){m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}});
  toast(ok+'/'+rs.length+' نود بروزرسانی شد',ok?'ok':'err');
  setTimeout(refreshAgent,4500)}
-async function corPush(id,ver){if(!ver){toast('نسخه را انتخاب کن','err');return}
- var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent='در حال نصبِ هستهٔ '+ver+'…'}
- var res=await post('core-update',{ids:[id],version:ver});var x=((res.d&&res.d.results)||[])[0]||{};
- if(m){if(x.ok){m.className='msg agres ok';m.innerHTML='هسته → '+esc(x.version||ver)+' · '+num(x.restarted)+' تونل ری‌استارت'+CK}
-  else if(x.offline){m.className='msg agres';m.textContent='آفلاین — رد شد'}
-  else{m.className='msg agres err';m.textContent='ناموفق: '+(x.error||'')}}
- setTimeout(refreshAgent,4000)}
 function agCorPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
  var m=el('cor_msg');m.className='msg';m.textContent='در حال خواندن و آپلودِ باینری…';
  var rd=new FileReader();
@@ -5471,11 +5438,6 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
      '<button class="agx-btn'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' onclick="corPushStaged(\\''+n.id+'\\')" title="پوشِ هستهٔ آماده‌ی روی پنل به این نود">'+ic('redo')+'هسته</button>'+
    '</div>'+
    '<div class="msg agres" id="agres_'+n.id+'"></div></div>'}
-var _corOv=null;
-function corMenu(btn){var id=btn.getAttribute('data-nid');var cur=btn.getAttribute('data-cur');if(!CORVERS.length){toast('نسخه‌ها هنوز آماده نیست','err');return}   // centered popup, like every other list
- var rows=CORVERS.map(function(x){return '<div class="msrow'+(String(x.id)==String(cur)?' sel':'')+'" data-v="'+esc(x.id)+'" data-nid="'+esc(id)+'" onclick="corPick(this)"><span class="mscheck"></span><span>'+esc(x.label||x.id)+'</span><span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(x.id)+'</span></div>'}).join('');
- _corOv=openModal('<div class="sspop"><div style="padding:4px 4px 9px;font-size:11.5px;color:var(--sub);font-weight:800">هستهٔ این نود را ببر به نسخهٔ:</div><div class="sspoplist">'+rows+'</div></div>',{cls:'sssheet'})}
-function corPick(row){var id=row.getAttribute('data-nid');var ver=row.getAttribute('data-v');if(_corOv){closeModal(_corOv);_corOv=null}corPush(id,ver)}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode;
  if(!code||!code.trim()){m.className='msg err';m.textContent='اول فایلِ ایجنت را انتخاب کن';return}
