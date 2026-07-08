@@ -2198,12 +2198,24 @@ def _fetch_ech(host):
     host = str(host or "").strip()
     if not host or not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         return ""
+    # Try dig FIRST: the panel runs abroad with a clean local resolver, so dig answers in
+    # milliseconds and prints the presentation form. DoH is only a fallback for a host without
+    # dig — and, crucially, it is tried AFTER dig, so a network that blocks DoH (a common panel
+    # setup) no longer stalls every ECH save for the DoH connect-timeout before reaching dig.
+    try:
+        out = subprocess.run(["dig", "+short", "HTTPS", host],
+                             capture_output=True, timeout=6).stdout.decode("utf-8", "replace")
+        v = _ech_from_text(out)
+        if v:
+            return v
+    except Exception:
+        pass
     for base in ("https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"):
         try:
             url = "%s?name=%s&type=HTTPS" % (base, host)
             req = urllib.request.Request(url, headers={"accept": "application/dns-json",
                                                        "user-agent": "tnl-central"})
-            with urllib.request.urlopen(req, timeout=8) as r:
+            with urllib.request.urlopen(req, timeout=5) as r:
                 data = json.loads(r.read().decode("utf-8", "replace"))
             for ans in data.get("Answer", []):
                 if ans.get("type") not in (65, "65", "HTTPS"):
@@ -2213,14 +2225,6 @@ def _fetch_ech(host):
                     return v
         except Exception:
             continue
-    try:  # last resort: the host's own dig, which prints the presentation form
-        out = subprocess.run(["dig", "+short", "HTTPS", host],
-                             capture_output=True, timeout=8).stdout.decode("utf-8", "replace")
-        v = _ech_from_text(out)
-        if v:
-            return v
-    except Exception:
-        pass
     return ""
 
 
