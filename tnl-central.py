@@ -844,6 +844,16 @@ def norm_subnet(ttype, tid, provided, base=None):
     return sub if ok else subnet_default(ttype, tid, base)
 
 
+# Pool blacklists are panel-side only (the operator's memory of which edges are burned); the node/core
+# never consume them, so strip them from any node body. _tunnel_extra (rebuild) already omits them by
+# construction — this keeps the create/edit node bodies consistent with that.
+_PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned")
+
+
+def _node_extra(extra):
+    return {k: v for k, v in extra.items() if k not in _PANEL_ONLY_KEYS}
+
+
 def _tunnel_extra(src):
     """Type-specific fields that must reach BOTH tunnel ends identically: the UDP port (l2tpv3/fou/core),
     the shared key (IPsec psk / core AEAD psk) and the core cipher. Read from a stored link record
@@ -2529,8 +2539,9 @@ def _create_tunnel_impl(d):
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **extra}
+    node_extra = _node_extra(extra)
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **node_extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **node_extra}
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
@@ -2875,8 +2886,9 @@ def _edit_link_impl(d):
     if name_changed or ttype == "core":
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **extra}
+    node_extra = _node_extra(extra)
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **node_extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **node_extra}
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
