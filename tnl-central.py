@@ -4139,7 +4139,7 @@ body.dark .tag.core{color:#a78bfa}
 .ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
 .ppill.susp{background:rgba(224,165,92,.16);color:var(--warn,#e0a55c);border-color:rgba(224,165,92,.45)}
 /* edge health rows — colored start-stripe card, right-aligned IP, icon state + icon actions */
-.erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord)}
+.erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord);flex-wrap:wrap;row-gap:7px}
 .erow.ok{border-inline-start-color:var(--ok)}
 .erow.warn{border-inline-start-color:var(--warn)}
 .erow.bad{border-inline-start-color:var(--bad)}
@@ -4147,9 +4147,11 @@ body.dark .tag.core{color:#a78bfa}
 .estat{flex:0 0 auto;display:grid;place-items:center}
 .estat .ic{width:16px;height:16px}
 .estat.ok{color:var(--ok)}.estat.warn{color:var(--warn)}.estat.bad{color:var(--bad)}.estat.mut{color:var(--sub)}
-.eip{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;unicode-bidi:isolate;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* IP takes the whole first line on narrow screens (basis 150px), so it never truncates and the
+   retest + action buttons wrap onto a second line; on a wide row everything stays on one line. */
+.eip{flex:1 1 150px;min-width:0;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;unicode-bidi:isolate;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ert{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
-.eacts{display:flex;gap:5px;flex:0 0 auto}
+.eacts{display:flex;gap:5px;flex:0 0 auto;margin-inline-start:auto}
 .eib{width:28px;height:28px;border:1px solid var(--bord);background:transparent;color:var(--sub);border-radius:8px;cursor:pointer;display:grid;place-items:center;flex:0 0 auto;padding:0}
 .eib .ic{width:15px;height:15px}
 .eib:hover{border-color:var(--acc);color:var(--acc)}
@@ -4984,7 +4986,7 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
     if(dead){
       acts='<button type="button" class="eib" title="بازگرداندن به چرخش" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
     }else{
-      if(h&&d.lid)acts+='<button type="button" class="eib" title="الان تست کن" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
+      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="الان تست کن" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
       if(d.lid)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?'آی‌پیِ فعلی':'انتخابِ آی‌پیِ فعلی (چرخش)')+'" onclick="doPoolRotate(\\''+d.lid+'\\',\\''+kind+'\\')">'+ic('pin')+'</button>';
     }
     acts+='<button type="button" class="eib del" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
