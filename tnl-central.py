@@ -4138,6 +4138,23 @@ body.dark .tag.core{color:#a78bfa}
 .ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
 .ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
 .ppill.susp{background:rgba(224,165,92,.16);color:var(--warn,#e0a55c);border-color:rgba(224,165,92,.45)}
+/* edge health rows — colored start-stripe card, right-aligned IP, icon state + icon actions */
+.erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord)}
+.erow.ok{border-inline-start-color:var(--ok)}
+.erow.warn{border-inline-start-color:var(--warn)}
+.erow.bad{border-inline-start-color:var(--bad)}
+.erow.dead .eip{text-decoration:line-through;color:var(--sub)}
+.estat{flex:0 0 auto;display:grid;place-items:center}
+.estat .ic{width:16px;height:16px}
+.estat.ok{color:var(--ok)}.estat.warn{color:var(--warn)}.estat.bad{color:var(--bad)}.estat.mut{color:var(--sub)}
+.eip{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;unicode-bidi:isolate;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ert{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
+.eacts{display:flex;gap:5px;flex:0 0 auto}
+.eib{width:28px;height:28px;border:1px solid var(--bord);background:transparent;color:var(--sub);border-radius:8px;cursor:pointer;display:grid;place-items:center;flex:0 0 auto;padding:0}
+.eib .ic{width:15px;height:15px}
+.eib:hover{border-color:var(--acc);color:var(--acc)}
+.eib.del:hover{border-color:var(--bad);color:var(--bad)}
+.eib.on{border-color:var(--ok);color:var(--ok)}
 .pretest{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
 .pcd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--sub);direction:ltr;font-variant-numeric:tabular-nums;flex:0 0 auto}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
@@ -4929,7 +4946,7 @@ function corWssGate(){var mand=poolGet('e_').pool||(_corXhttp&&(_corXhMode=='str
 function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on');alert('اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.');return}_corEch=!_corEch;var s=el('e_wsech');if(s)s.classList.toggle('on',_corEch)}
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
-  open:{ip:true,sni:true},act:{ip:'',sni:''},lid:(l&&l.id)||'',
+  open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return typeof s=='string'?s:((s&&s.host)||'')}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
@@ -4955,19 +4972,28 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' سالم</span>'+(ns?'<span class="pbadge warn">'+ns+' موقت</span>':'')+(nd?'<span class="pbadge bad">'+nd+' دائمی</span>':'')+(nb?'<span class="pbadge bad">'+nb+' سوخته</span>':'');}
   var host=el(pfx+'lst_'+kind);if(!host)return;
   function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
-    var h=(!dead)?lv[kind+':'+v]:null;var cls,txt,retest='',probe='';
-    if(dead){cls='burn';txt='سوخته';}
-    else if(h&&h.state=='dead'){cls='burn';txt='سوختهٔ دائمی';retest='<span class="pretest">'+poolCd(d,h.next)+poolBar(d,h)+'</span>';}
-    else if(h&&h.state=='suspect'){cls='susp';txt='سوختهٔ موقت';retest='<span class="pretest">'+poolCd(d,h.next)+poolBar(d,h)+'</span>';}
-    else if(act){cls='now';txt='فعال';}
-    else{cls='live';txt='در چرخش';}
-    if(h&&d.lid)probe='<button type="button" class="pprobe" title="رِتِستِ فوری" onclick="poolProbeNow(\\''+d.lid+'\\')">الان تست کن</button>';
-    var strike=dead||(h&&h.state=='dead');
-    return '<div class="prow'+(strike?' dead':'')+(act?' active':'')+'"><span class="pval" title="'+esc(v)+'">'+esc(v)+'</span>'
-     +'<span class="pacts">'+retest+probe+'<span class="ppill '+cls+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+txt+'</span>'
-     +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">&#10005;</button></span></div>';}
+    var h=(!dead)?lv[kind+':'+v]:null;
+    var rowc,sc,sic,stt;   // row stripe class, state-icon color class, state icon, tooltip
+    if(dead){rowc='bad';sc='mut';sic='xc';stt='سوخته (دستی)';}
+    else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt='سوختهٔ دائمی';}
+    else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt='سوختهٔ موقت';}
+    else if(act){rowc='ok';sc='ok';sic='bolt';stt='سالم · لبهٔ فعال';}
+    else{rowc='ok';sc='ok';sic='okc';stt='سالم';}
+    var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+poolCd(d,h.next)+poolBar(d,h)+'</span>':'';
+    var acts='';
+    if(dead){
+      acts='<button type="button" class="eib" title="بازگرداندن به چرخش" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
+    }else{
+      if(h&&d.lid)acts+='<button type="button" class="eib" title="الان تست کن" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
+      if(d.lid)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?'آی‌پیِ فعلی':'انتخابِ آی‌پیِ فعلی (چرخش)')+'" onclick="doPoolRotate(\\''+d.lid+'\\',\\''+kind+'\\')">'+ic('pin')+'</button>';
+    }
+    acts+='<button type="button" class="eib del" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
+    return '<div class="erow '+rowc+((dead||(h&&h.state=='dead'))?' dead':'')+'">'
+     +'<span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span>'
+     +'<span class="eip" title="'+esc(v)+'">'+esc(v)+'</span>'+rt
+     +'<span class="eacts">'+acts+'</span></div>';}
   var html=d[kind].clean.map(function(v){return row(v,'clean')}).join('')+d[kind].burned.map(function(v){return row(v,'burned')}).join('');
-  host.innerHTML=html?'<div class="plist">'+html+'</div>':'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
+  host.innerHTML=html||'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
 function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(pfx+'chev_'+kind);if(b)b.style.display=d.open[kind]?'':'none';if(c)c.classList.toggle('open',d.open[kind]);}
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
 function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',poolGet(pfx).autoBurn);}
@@ -5092,12 +5118,10 @@ function wsPoolInner(idp,fnp,lid){
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
- var probe=lid?'<button type="button" class="poolprobe" onclick="poolProbeNow(\\''+lid+'\\')">الان همه را تست کن (رِتِستِ فوریِ سوخته‌ها)</button>':'';
  return block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
    +block('sni','دامنه‌ها (SNI)','cdn.example.com')
    +'<label style="margin-top:14px">بازهٔ چرخش</label>'+sel
-   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.</small></div></div>'
-   +probe;}
+   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.</small></div></div>';}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">شکلِ زنده</b> · epoch <span class="mono">#'+ep+'</span> · حامل <span class="mono">'+fc+'</span> · چرخشِ بعدی تا <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> دیگر';}
 function fluxTick(){[['e_',_corTr,_corFluxCarrier,_corFluxRotate],['ee_',_eeTr,_eeFluxCarrier,_eeFluxRotate]].forEach(function(a){
