@@ -2322,12 +2322,12 @@ def _ws_fields(d, transport, cur=None):
     xh = d.get("ws_xhttp") if ("ws_xhttp" in d) else cur.get("ws_xhttp")
     if bool(xh):
         out["ws_xhttp"] = True
-        # Upstream style: packet-up (default, many short POSTs — most CDN-compatible),
-        # stream-one (a single full-duplex request; needs HTTP/2), or grpc (stream-one as a real
-        # gRPC call so a CDN streams it over h2c instead of buffering). stream/grpc pair with wss.
+        # Upstream style: packet-up (default, many short POSTs — most CDN-compatible) or grpc (a
+        # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
+        # buffering; needs wss). The legacy plain "stream" value canonicalizes to grpc.
         mode = str((d.get("ws_xhttp_mode") if "ws_xhttp_mode" in d else cur.get("ws_xhttp_mode")) or "").strip().lower()
         if mode in ("stream", "grpc"):
-            out["ws_xhttp_mode"] = mode
+            out["ws_xhttp_mode"] = "grpc"
     return out
 
 
@@ -2409,7 +2409,7 @@ def _ws_pool_fields(d, cur=None):
     if res["ws_xhttp"]:
         mode = str((d.get("ws_xhttp_mode") if "ws_xhttp_mode" in d else cur.get("ws_xhttp_mode")) or "").strip().lower()
         if mode in ("stream", "grpc"):
-            res["ws_xhttp_mode"] = mode
+            res["ws_xhttp_mode"] = "grpc"
     return res
 
 
@@ -4918,7 +4918,7 @@ async function refreshCore(){if(editingId||CHECKING)return;var f=await j('fleet?
  setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?'موردی یافت نشد.':'هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.')+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>سابنت: <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?('xHTTP·'+((l.ws_xhttp_mode=='grpc')?'grpc':((l.ws_xhttp_mode=='stream')?'stream':'packet'))):(l.ws_tls?'WSS':'WS')):'UDP';
+ var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?('xHTTP·'+((l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet')):(l.ws_tls?'WSS':'WS')):'UDP';
  var prt=(l.transport!='raw'&&l.transport!='flux'&&l.port)?'<div>پورت: <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>حامل: <b class="mono">'+tr+'</b></div>';
  var ifc='<div>اینترفیس: <b class="mono">'+esc(l.name)+'</b></div>';
@@ -4963,7 +4963,7 @@ function wsProfTiles(px,cur){return WS_PROFILES.map(function(p){return '<button 
 function corSetWsProf(p){_corXhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corXhttp?'':'none';corWssGate()}
 function ceSetWsProf(p){_eeXhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeXhttp?'':'none';ceWssGate()}
 // xhttp upstream style: packet-up (default) | stream-one. Shown only when the XHTTP profile is picked.
-var XHTTP_MODES=[{v:'packet',n:'packet-up',m:'چند POSTِ کوتاه'},{v:'stream',n:'stream-one',m:'یک درخواستِ h2'},{v:'grpc',n:'gRPC',m:'gRPC واقعی · h2c'}];
+var XHTTP_MODES=[{v:'packet',n:'packet-up',m:'چند POSTِ کوتاه · سازگارترین'},{v:'grpc',n:'gRPC',m:'یک درخواستِ دوطرفه · رویِ CDN استریم'}];
 function xhModeTiles(px,cur){return XHTTP_MODES.map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+p.m+'</div></button>'}).join('')}
 function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
 function ceSetXhMode(m){_eeXhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});ceWssGate()}
@@ -5086,8 +5086,8 @@ function wsToggleRows(idp,fnp,tls,ech,show){var hide=show?'':';display:none';
 function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp,mode,lid){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>پروفایلِ CDN</label><div class="pgrid" id="'+idp+'wspg">'+wsProfTiles(fnp,xhttp?'xhttp':'ws')+'</div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 8px"><b>WS</b> = وب‌سوکتِ استاندارد. <b>XHTTP</b> = جفتِ GET(دانلود)+POST(آپلود)؛ اکانت/CDNی را که وب‌سوکت را بلاک کرده دور می‌زند. هر دو با همین دامنه/wss/ECH فرانت می‌شوند.</div>'
- +'<div id="'+idp+'xhmblk" style="display:'+(xhttp?'':'none')+';margin-bottom:8px"><label style="margin-top:2px">حالتِ xHTTP</label><div class="pgrid" id="'+idp+'xhmpg" style="grid-template-columns:1fr 1fr 1fr">'+xhModeTiles(fnp,(mode=='stream'||mode=='grpc')?mode:'packet')+'</div>'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 0"><b>packet-up</b> = چند POSTِ کوتاه؛ سازگارترین (حتی اگر CDN بدنه را بافر کند رد می‌شود). <b>stream-one</b> = یک درخواستِ دوطرفه (h2). <b>gRPC</b> = همان stream-one ولی به‌شکلِ gRPCِ واقعی، تا Cloudflare با h2c به مبدأ وصل شود و به‌جای بافر <b>استریم</b> کند — بهترین گزینه اگر gRPC رویِ کلادفلرت روشن است. stream-one و gRPC هر دو <b>wss</b> لازم دارند.</div></div>'
+ +'<div id="'+idp+'xhmblk" style="display:'+(xhttp?'':'none')+';margin-bottom:8px"><label style="margin-top:2px">حالتِ xHTTP</label><div class="pgrid" id="'+idp+'xhmpg">'+xhModeTiles(fnp,(mode=='grpc'||mode=='stream')?'grpc':'packet')+'</div>'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 0"><b>packet-up</b> = چند POSTِ کوتاه؛ سازگارترین (حتی اگر CDN بدنه را بافر کند رد می‌شود). <b>gRPC</b> = یک درخواستِ کاملاً دوطرفه به‌شکلِ gRPCِ واقعی، تا Cloudflare با h2c به مبدأ وصل شود و به‌جای بافر <b>استریم</b> کند — بهترین گزینه رویِ Cloudflare. gRPC به <b>wss</b> نیاز دارد.</div></div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>استخرِ لبه (چرخش + بلک‌لیست)</b><small>چند IP و چند دامنه؛ هسته می‌چرخد و سوخته‌ها را کنار می‌گذارد. خاموش = یک لبهٔ ثابت.</small></div></div>'
  +'<div id="'+idp+'wshostblk" style="margin-top:11px">'
  +'<label>دامنهٔ فرانت (Host / SNI)</label><input id="'+idp+'wshost" dir="ltr" placeholder="مثلاً cdn.example.com" value="'+esc(host||'')+'">'
@@ -5235,7 +5235,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(['stream','grpc'].indexOf(l.ws_xhttp_mode)>=0)?l.ws_xhttp_mode:'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
