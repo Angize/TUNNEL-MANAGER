@@ -2636,6 +2636,28 @@ def api_edge_status(d):
             "burned_ips": bips, "burned_snis": bhosts, "persisted": persisted}
 
 
+def api_pool_rotate(d):
+    """Live 'rotate now' for a ws edge pool: tell the client node to signal the running core
+    to advance ONE dimension (dim='ip' or 'sni') with no rebuild — the TUN stays up while the
+    carrier re-dials on the new edge. Returns the fresh live status so the UI updates at once."""
+    d = d or {}
+    _require(d, ["id", "dim"])
+    if d["dim"] not in ("ip", "sni"):
+        raise ValueError("dim باید ip یا sni باشد")
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L or L.get("type") != "core" or not L.get("ws_pool"):
+        raise ValueError("این لینک استخرِ لبه ندارد")
+    server_side = L.get("server_side", "a")
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        raise ValueError("نودِ کلاینت پیدا نشد")
+    r = node_call(node, "pool-rotate", "POST", {"name": L.get("name"), "dim": d["dim"]}, timeout=10)
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or r.get("msg") or "چرخش ناموفق بود"}
+    return {"ok": True}
+
+
 def api_flux_rotate(d):
     """'Rotate now' for a flux link: bump the manual epoch offset by one and rebuild both
     ends with it. Both ends get the same offset, so the moving target jumps a shape ahead
@@ -3319,7 +3341,7 @@ API = {
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
-    "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
+    "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
@@ -3330,7 +3352,7 @@ API = {
     "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
              "provision-key"}
 
@@ -4081,6 +4103,15 @@ body.dark .tag.core{color:#a78bfa}
 .ppill{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;border-radius:99px;padding:3px 10px;cursor:pointer;white-space:nowrap;border:1px solid transparent;flex:0 0 auto}
 .ppill.live{background:rgba(78,201,154,.14);color:var(--ok);border-color:rgba(78,201,154,.4)}
 .ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
+.ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
+.prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
+.livebar{display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--ok) 8%,transparent);border:1px solid color-mix(in srgb,var(--ok) 34%,transparent);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.livedot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent);flex:0 0 auto}
+.livebar .li{flex:1;min-width:0}
+.livebar .lt{font-size:10.5px;color:var(--sub)}
+.livebar .lv{font-size:12.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;color:var(--ok);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rotbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--acc);color:#fff;border:none;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.rothdr{border:1px solid var(--bord);background:var(--glass);color:var(--acc);border-radius:8px;width:28px;height:28px;font-size:15px;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:var(--accw)}
@@ -4887,7 +4918,7 @@ function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classL
 function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on');alert('اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.');return}_corEch=!_corEch;var s=el('e_wsech');if(s)s.classList.toggle('on',_corEch)}
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
-  open:{ip:true,sni:true},
+  open:{ip:true,sni:true},act:{ip:'',sni:''},lid:(l&&l.id)||'',
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return typeof s=='string'?s:((s&&s.host)||'')}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
@@ -4900,9 +4931,9 @@ function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':')
 function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+d[kind].clean.length+' در چرخش</span>'+(nb?'<span class="pbadge bad">'+nb+' سوخته</span>':'');}
   var host=el(pfx+'lst_'+kind);if(!host)return;
-  function row(v,st){var dead=st=='burned';
-    return '<div class="prow'+(dead?' dead':'')+'"><span class="pval" title="'+esc(v)+'">'+esc(v)+'</span>'
-     +'<span class="pacts"><span class="ppill '+(dead?'burn':'live')+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+(dead?'سوخته':'در چرخش')+'</span>'
+  function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
+    return '<div class="prow'+(dead?' dead':'')+(act?' active':'')+'"><span class="pval" title="'+esc(v)+'">'+esc(v)+'</span>'
+     +'<span class="pacts"><span class="ppill '+(dead?'burn':(act?'now':'live'))+'" title="'+(dead?'بازگرداندن به چرخش':'سوزاندن (به سوخته)')+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+(dead?'سوخته':(act?'فعال':'در چرخش'))+'</span>'
      +'<button type="button" class="pb" title="حذف" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">&#10005;</button></span></div>';}
   var html=d[kind].clean.map(function(v){return row(v,'clean')}).join('')+d[kind].burned.map(function(v){return row(v,'burned')}).join('');
   host.innerHTML=html?'<div class="plist">'+html+'</div>':'<div class="pempty">خالی — یک مورد اضافه کن</div>';}
@@ -4926,6 +4957,21 @@ function corToggleFec(){if(!corFecDatagram())return;_corFec=!_corFec;var s=el('e
 function corSetFecRate(d,p){_corFecData=d;_corFecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corFec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
 async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast('چرخش انجام شد — تونل بازسازی شد','ok');fluxTick()}else{toast((r.d&&(r.d.error||r.d.msg))||'ناموفق','err')}}
+// Live edge-pool status: poll the active edge for the open edit link and reflect it (active
+// row highlight + live bar), plus mirror any auto-burns the core reported. doPoolRotate signals
+// the core to jump one dimension with no rebuild, then re-polls shortly after.
+var _eePoolLid='';
+function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').split(' · ');
+  d.act={ip:(a[0]||'').trim(),sni:(a[1]||'').trim()};
+  (st.burned_ips||[]).forEach(function(v){v=String(v);if(d.ip.clean.indexOf(v)>=0){d.ip.clean=d.ip.clean.filter(function(x){return x!=v});if(d.ip.burned.indexOf(v)<0)d.ip.burned.push(v)}});
+  (st.burned_snis||[]).forEach(function(v){v=String(v);if(d.sni.clean.indexOf(v)>=0){d.sni.clean=d.sni.clean.filter(function(x){return x!=v});if(d.sni.burned.indexOf(v)<0)d.sni.burned.push(v)}});
+  var bar=el(pfx+'livebar'),lv=el(pfx+'liveval');if(bar)bar.style.display=st.active?'':'none';if(lv)lv.textContent=st.active||'—';
+  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}
+async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
+setInterval(poolTick,4000);
+async function doPoolRotate(lid,dim){if(!lid){toast('اول تونل را بساز','err');return}var b=el('ee_roth_'+dim);if(b)b.disabled=true;
+  var r=await post('pool-rotate',{id:lid,dim:dim});if(b)b.disabled=false;
+  if(r.ok&&r.d&&r.d.ok){toast(dim=='ip'?'آی‌پی چرخید':'دامنه چرخید','ok');setTimeout(poolTick,800)}else{toast((r.d&&(r.d.error||r.d.msg))||'چرخش ناموفق','err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+'جعلِ آی‌پی (استتار)</div>'
@@ -4975,7 +5021,7 @@ function wsToggleRows(idp,fnp,tls,ech,show){var hide=show?'':';display:none';
  return '<div class="tglbox" id="'+idp+'wstlsrow" style="margin-top:10px'+hide+'"><div class="tglsw'+(tls?' on':'')+'" id="'+idp+'wstls" onclick="'+fnp+'ToggleWsTls()"></div><div class="tt"><b>wss (TLS به CDN)</b><small>کلاینت با TLS به لبهٔ CDN وصل می‌شود؛ سرور پشتِ CDN ساده می‌ماند. برای فرانتینگ لازم است. فقط با حاملِ WS/CDN.</small></div></div>'
   +'<div class="tglbox" id="'+idp+'wsechrow" style="margin-top:9px'+hide+'"><div class="tglsw'+(ech?' on':'')+'" id="'+idp+'wsech" onclick="'+fnp+'ToggleEch()"></div><div class="tt"><b>ECH — مخفی‌کردنِ SNI</b><small>نامِ دامنه را داخلِ ClientHello رمز می‌کند تا فیلترچیِ SNI نبیند کدام دامنه است. نیازمندِ wss؛ برای استخر برای هر دامنه خودکار گرفته می‌شود.</small></div></div>';}
 // ---- ws (WebSocket / CDN) — shared markup.
-function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp){return '<div id="'+idp+'wsblk" style="display:none">'
+function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp,lid){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>پروفایلِ CDN</label><div class="pgrid" id="'+idp+'wspg">'+wsProfTiles(fnp,xhttp?'xhttp':'ws')+'</div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 8px"><b>WS</b> = وب‌سوکتِ استاندارد. <b>XHTTP</b> = جفتِ GET(دانلود)+POST(آپلود)؛ اکانت/CDNی را که وب‌سوکت را بلاک کرده دور می‌زند. هر دو با همین دامنه/wss/ECH فرانت می‌شوند.</div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>استخرِ لبه (چرخش + بلک‌لیست)</b><small>چند IP و چند دامنه؛ هسته می‌چرخد و سوخته‌ها را کنار می‌گذارد. خاموش = یک لبهٔ ثابت.</small></div></div>'
@@ -4983,26 +5029,28 @@ function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp){return '<div id="'+idp+
  +'<label>دامنهٔ فرانت (Host / SNI)</label><input id="'+idp+'wshost" dir="ltr" placeholder="مثلاً cdn.example.com" value="'+esc(host||'')+'">'
  +'<label>آی‌پیِ لبهٔ CDN (اختیاری) — کلاینت به‌جای مبدأ به این وصل می‌شود</label><input id="'+idp+'wsedge" class="mono" dir="ltr" placeholder="مثلاً 104.16.0.1 یا 104.16.0.1:443" value="'+esc(edge||'')+'">'
  +'</div>'
- +'<div id="'+idp+'wspool" style="display:none;margin-top:11px">'+wsPoolInner(idp,fnp)+'</div>'
+ +'<div id="'+idp+'wspool" style="display:none;margin-top:11px">'+wsPoolInner(idp,fnp,lid)+'</div>'
  +'<label>مسیر (path)</label><input id="'+idp+'wspath" dir="ltr" placeholder="/" value="'+esc(path||'')+'">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ ۸۰. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.</div>'
  +'</div>'}
-function wsPoolInner(idp,fnp){
+function wsPoolInner(idp,fnp,lid){
  var rotOpts=[[180,'هر ۳ دقیقه'],[300,'هر ۵ دقیقه'],[600,'هر ۱۰ دقیقه'],[900,'هر ۱۵ دقیقه'],[1800,'هر ۳۰ دقیقه'],[3600,'هر ۱ ساعت'],[14400,'هر ۴ ساعت'],[28800,'هر ۸ ساعت'],[0,'خاموش (فقط failover)']];
  var sel='<select id="'+idp+'poolrot">'+rotOpts.map(function(o){return '<option value="'+o[0]+'">'+o[1]+'</option>'}).join('')+'</select>';
- // Each kind (ip / sni) is one collapsible accordion: the header shows a live
- // «X در چرخش · Y سوخته» summary and the body (toggled by clicking the header) holds
- // the unified list — every entry with an inline status pill you click to burn/restore
- // — plus the add bar. Keeps the whole section short while staying one click from edit.
+ // Live "active edge" bar (edit only — a running tunnel exists). Populated by poolTick.
+ var live=lid?'<div class="livebar" id="'+idp+'livebar" style="display:none"><span class="livedot"></span><div class="li"><div class="lt">الان فعال (زنده از هسته)</div><div class="lv" id="'+idp+'liveval">—</div></div></div>':'';
+ // Each kind (ip / sni) is one collapsible accordion: the header shows a live «X در چرخش · Y
+ // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
+ // list — every entry with a status pill (فعال / در چرخش / سوخته) — plus the add bar.
  function block(kind,label,ph){
+   var rot=lid?'<button type="button" class="rothdr" id="'+idp+'roth_'+kind+'" title="چرخشِ الان (بدونِ قطع)" onclick="event.stopPropagation();doPoolRotate(\\''+lid+'\\',\\''+kind+'\\')">&#8635;</button>':'';
    return '<div class="pacc"><div class="pacchd" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
      +'<div><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
-     +'<div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div>'
+     +'<div style="display:flex;align-items:center;gap:8px">'+rot+'<div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
      +'<div class="paccbody" id="'+idp+'body_'+kind+'">'
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
- return block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
+ return live+block('ip','آی‌پی‌های لبهٔ CDN','104.16.0.1:443')
    +block('sni','دامنه‌ها (SNI)','cdn.example.com')
    +'<label style="margin-top:14px">بازهٔ چرخش</label>'+sel
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>سوختهٔ خودکار</b><small>وقتی لبه‌ای بلاک شد، خودکار به لیستِ سوخته می‌رود.</small></div></div>';}
@@ -5032,7 +5080,7 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast('حداقل ۲ نودِ آنلاین لازم است','err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corXhttp=false;_corFec=false;_corFecData=10;_corFecParity=3;poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corXhttp=false;_corFec=false;_corFecData=10;_corFecParity=3;_eePoolLid='';poolInit('e_',null);
  var b='<div class="grid2"><div><label class="first">نودِ مبدأ</label>'+ssHTML('e_a',items,items[0].v,'نودِ مبدأ','onCorNode')+'</div>'+
   '<div><label class="first">نودِ مقصد</label>'+ssHTML('e_b',items,items[1].v,'نودِ مقصد','onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -5043,7 +5091,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="e_rawblk" style="display:none"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NATِ ایران رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   fluxSection('e_','cor','udp',600,'random',null)+
-  wsSection('e_','cor','','',false,'',false,false)+
+  wsSection('e_','cor','','',false,'',false,false,'')+
   spoofSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox" id="e_coverrow" style="display:none"><div class="tglsw" id="e_cover" onclick="corToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
@@ -5122,7 +5170,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast('یافت نشد','err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;poolInit('ee_',l);
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?'آی‌پیِ نودِ مبدأ':'آی‌پیِ نودِ مقصد';return '<label>'+lab+' <small>(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),'آی‌پی','')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
@@ -5133,7 +5181,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>حاملِ اتصال</label><div class="seg2"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>دیتاگرام</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>پایدارتر</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>پکتِ خام</span></button><button type="button" class="segopt'+(_eeTr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>جهش‌پذیر</span></button><button type="button" class="segopt'+(_eeTr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>پروفایلِ کپسوله‌سازی (raw)</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.</div></div>'+
   fluxSection('ee_','ce',_eeFluxCarrier,_eeFluxRotate,_eeFluxShape,id)+
-  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls,l.edge_ip,_eeEch,_eeXhttp)+
+  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls,l.edge_ip,_eeEch,_eeXhttp,l.id)+
   spoofSection('ee_','ce')+
   '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>استتار در برابرِ DPI</b><small>حذفِ امضا · پَدینگ/جیتر · مقاومت در برابرِ probe. رمزنگاری لازم است.</small></div></div>'+
   '<div class="tglbox" id="ee_coverrow"'+((_eeTr!='tcp')?' style="display:none"':'')+'><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>پوششِ TLS (شبیهِ HTTPS)</b><small>ترافیک شبیهِ HTTPS دیده می‌شود و در برابرِ پروبِ فعال هم مقاوم است. فقط با حاملِ TCP.</small></div></div>'+
@@ -5145,7 +5193,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).</div>'+
   '<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>ویرایشِ تونلِ هسته</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">ذخیره و بازسازی</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">انصراف</button></div>',{cls:'edit'});
- ceRoleLbls(l);cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis();ceWsVis()}
+ ceRoleLbls(l);cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis();ceWsVis();if(_eePoolLid)setTimeout(poolTick,200)}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' سرور</b><span>'+esc(l.b_name)+' کلاینت</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' سرور</b><span>'+esc(l.a_name)+' کلاینت</span>'}
