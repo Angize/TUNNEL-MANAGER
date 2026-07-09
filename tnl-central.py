@@ -488,22 +488,33 @@ def _cache_get(nid):
         return dict(e) if e else None
 
 
+def _tombed(nid, ts):
+    """True if this node was deleted recently enough (short tombstone) that an in-flight poll must
+    NOT resurrect its cache/traffic/uptime."""
+    with _tomb_lock:
+        exp = _tomb.get(nid)
+        return bool(exp and ts < exp)
+
+
 def _poll_node(n):
     ping = node_call(n, "ping", "GET", timeout=6)
-    lst = node_call(n, "list", "GET", timeout=12)
+    t_ping = time.time()   # stamp the rate at ping-return time, not after the slower list call
+    # Publish traffic + uptime from the ping IMMEDIATELY — don't make the live rate wait for the
+    # (slower) list call. The rate's dt uses this accurate ping timestamp, so it's correct even at a
+    # sub-second poll interval.
+    if not _tombed(n["id"], t_ping):
+        if ping.get("ok"):
+            s = ping.get("stats") or {}
+            _tf_ingest(n["id"], s.get("net"), s.get("uptime"), t_ping)
+        else:               # unreachable -> decay rates to 0 so a dead node isn't counted as still flowing
+            _tf_zero_rates(n["id"])
+        _uh_sample(n["id"], bool(ping.get("ok")), t_ping)
+    lst = node_call(n, "list", "GET", timeout=12)   # health/configs (for tunnel up/down status)
     now = time.time()
-    with _tomb_lock:  # node deleted while this poll was in flight? don't resurrect its cache/traffic/uptime
-        exp = _tomb.get(n["id"])
-        if exp and now < exp:
-            return
+    if _tombed(n["id"], now):  # node deleted while this poll was in flight? don't resurrect its cache
+        return
     with _pc_lock:  # publish ping+list together so readers never see a torn (fresh-ping / stale-list) pair
-        _pc[n["id"]] = {"ping": ping, "list": lst, "ping_ts": now, "list_ts": now}
-    if ping.get("ok"):  # fold traffic under its own lock (never nested inside _pc_lock)
-        s = ping.get("stats") or {}
-        _tf_ingest(n["id"], s.get("net"), s.get("uptime"), now)
-    else:               # unreachable -> decay rates to 0 so a dead node isn't counted as still flowing
-        _tf_zero_rates(n["id"])
-    _uh_sample(n["id"], bool(ping.get("ok")), now)
+        _pc[n["id"]] = {"ping": ping, "list": lst, "ping_ts": t_ping, "list_ts": now}
 
 
 def _refresh_cache(nids):
@@ -587,8 +598,13 @@ def poller_loop():
                 with inflight_lock:
                     todo = [n for n in nodes if n["id"] not in inflight]
                     inflight.update(n["id"] for n in todo)
-                # submit the batch, then move on after the deadline — one trickling node can't freeze the fleet
-                futures_wait([ex.submit(_run, n) for n in todo], timeout=SWEEP_DEADLINE)
+                # Fire each due node's poll and immediately loop — do NOT wait for the batch to finish.
+                # A slow/offline node stays in `inflight` (so it's never resubmitted mid-flight) but it can
+                # no longer delay the others: every healthy node is resampled each poll_interval, so live
+                # rates/status stay fresh even while part of the fleet is unreachable. Workers publish into
+                # the cache as each finishes; `inflight` bounds the queue to at most one poll per node.
+                for n in todo:
+                    ex.submit(_run, n)
         except Exception:
             pass
         time.sleep(max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP)))  # fractional/sub-second OK
