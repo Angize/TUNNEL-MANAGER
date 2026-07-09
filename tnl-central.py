@@ -2002,6 +2002,48 @@ def api_fleet(d):
     return {"links": out, "total": total, "offset": off, "limit": lim}
 
 
+def api_link_live(d):
+    """One compact LIVE snapshot for a single tunnel, for the per-tunnel Live Monitor: current
+    traffic rate + totals, per-side link health (rtt/loss/up), and — for a ws-pool core tunnel —
+    the ACTIVE edge (which IP·SNI it is going through right now) plus the core's recent event ring
+    (connect/disconnect+reason/burn). Polled ~1/s while the monitor is open."""
+    d = d or {}
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L:
+        raise ValueError("link not found")
+    nmap = {n["id"]: n.get("name", "") for n in load_nodes()}
+    side = "b" if L.get("view_side") == "b" else "a"
+    nid = L["b_node"] if side == "b" else L["a_node"]
+    tf = {"rx_bps": 0.0, "tx_bps": 0.0, "rx_total": 0, "tx_total": 0}
+    with _tf_lock:
+        s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])
+        if s:
+            tf = {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"], "rx_total": s["crx"], "tx_total": s["ctx"]}
+    la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
+    ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
+    bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
+    res = {"ok": True, "id": L["id"], "name": L.get("name"), "type": L.get("type"),
+           "transport": L.get("transport") or "", "server_side": L.get("server_side", "a"),
+           "a_name": nmap.get(L.get("a_node"), L.get("a_name", "")),
+           "b_name": nmap.get(L.get("b_node"), L.get("b_name", "")),
+           "a_health": ah, "b_health": bh, "drift": link_drift(L["id"]),
+           "now": int(time.time()), **tf}
+    if L.get("type") == "core" and L.get("ws_pool"):
+        try:
+            es = api_edge_status({"id": L["id"]})
+            if es and es.get("pool"):
+                res["active"] = es.get("active") or ""
+                res["events"] = es.get("events") or []
+                res["pool_health"] = es.get("health") or []
+                res["srv_now"] = es.get("now") or res["now"]
+        except Exception:
+            pass
+    else:  # non-pool: the "edge" it goes through is the fronting host / edge IP / peer
+        res["active"] = L.get("ws_host") or L.get("edge_ip") or ""
+    return res
+
+
 def api_link_view(d):
     """Toggle which node's iface the tunnel's traffic figures are read from (a<->b)."""
     _require(d, ["id"])
@@ -3653,7 +3695,7 @@ API = {
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
-    "link-view": api_link_view, "traffic-reset": api_traffic_reset,
+    "link-view": api_link_view, "link-live": api_link_live, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
@@ -4547,6 +4589,7 @@ var I18N={fa:{
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
  st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
+ tip_live:"نمایشِ زنده",lm_title:"نمایشِ زندهٔ تونل",lm_feed:"رویدادهای زنده",lm_wait:"در انتظارِ داده…",lm_via:"از مسیرِ",lm_no_edge:"—",lm_up:"وصل",lm_down:"قطع",lm_drift:"نیازمندِ بازسازی (IP عوض شده)",lm_no_ev:"هنوز رویدادی نیست",lm_ev_pool_only:"رویدادهای لبه فقط برای تونل‌های استخری هستند",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -4587,6 +4630,7 @@ var I18N={fa:{
  tun_sub:"Every node-to-node link is separate — check, edit and delete each independently",add_tunnel:"Add tunnel",check_all:"Check all links",
  tun_search:"Search node name / type / ID…",tun_empty:"No links yet — use the \\"Add tunnel\\" button above.",
  st_off:"Off",st_half:"Partial",st_disc:"Down",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
+ tip_live:"Live view",lm_title:"Tunnel live monitor",lm_feed:"Live events",lm_wait:"Waiting for data…",lm_via:"via",lm_no_edge:"—",lm_up:"up",lm_down:"down",lm_drift:"needs rebuild (IP changed)",lm_no_ev:"no events yet",lm_ev_pool_only:"edge events are only for pool tunnels",
  subnet:"Subnet",tid:"ID",iface:"Interface",ttype:"Type",udp_port:"UDP port",enc:"Encryption",encrypted:"Encrypted",total:"Total",
  no_live_side:"No live data from this end",tun_off_note:"This tunnel is off — the interface is down. Toggle it above to bring it back up.",
  turned_on:"Turned on",turned_off:"Turned off",
@@ -5037,6 +5081,7 @@ var IC={
  bolt:'<svg viewBox="0 0 24 24" '+_S+'><path d="M13 3L4 14h7l-1 7 9-11h-7z"/></svg>',
  globe:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>',
  activity:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
+ live:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M6 6a9 9 0 0 0 0 12M18 6a9 9 0 0 1 0 12"/></svg>',
  plus:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 5v14M5 12h14"/></svg>',
  pen:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
  trash:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
@@ -5518,7 +5563,7 @@ function linkCard(l){
   metaCols(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act info" title="'+esc(T('tip_live'))+'" onclick="openLiveMon(\\''+l.id+'\\')">'+ic('live')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,false,drift+body+accBodyTraf(l)+acts+msg)}
 async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
@@ -5691,7 +5736,7 @@ function coreCard(l){
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act info" title="'+esc(T('tip_live'))+'" onclick="openLiveMon(\\''+l.id+'\\')">'+ic('live')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
 var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corEch=false,_corXhttp=false,_corXhMode='packet',_corFec=false,_corFecData=10,_corFecParity=3;
@@ -6297,6 +6342,36 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
      '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span></div>';
  }).join('')+'</div>');}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
+// ===== per-tunnel LIVE monitor: live traffic flow + which edge/IP it goes through + core events =====
+var _liveTimer=null,_liveId=null,_liveRx=[],_liveTx=[];
+var _EVD={ping_timeout:['بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش','no keepalive — throttled/blackholed or peer down'],reset:['اتصال ریست شد (RST/DPI)','connection reset (RST/DPI)'],refused:['اتصال رد شد','connection refused'],timeout:['تایم‌اوت/بی‌مسیر','timeout/unreachable'],eof:['بسته شد (EOF)','closed (EOF)'],tls:['TLS شکست (SNI بلاک؟)','TLS failed (SNI blocked?)'],ws_upgrade:['ارتقاء WebSocket رد شد','WebSocket upgrade refused'],closed:['قطع شد','dropped'],dropped:['قطع شد','dropped']};
+var _EVB={ip_blocked:['آی‌پی بلاک است','IP blocked'],sni_blocked:['SNI بلاک است','SNI blocked'],throttle:['گلوگاه/کند شد (دیتا مرد)','throttled (data died)']};
+function liveEvText(e){var en=LANG=='en';var key=String(e.detail||'').replace(/^ip:/,'').replace(/^sni:/,'');
+  if(e.kind=='burn'){var m=_EVB[e.code]||['سوخت','burned'];return {col:'var(--gold)',ic:'warn',txt:en?('Edge “'+key+'” burned — '+m[1]):('لبهٔ «'+key+'» سوخت — '+m[0])};}
+  var d=_EVD[e.code]||['قطع شد','dropped'];return {col:'var(--bad)',ic:'xc',txt:en?('Disconnected — '+d[1]):('قطع شد — '+d[0])};}
+function openLiveMon(id){stopLive();_liveId=id;_liveRx=[];_liveTx=[];
+  var body='<div id="lm_head" class="muted" style="font-size:12.5px;margin-bottom:10px">'+esc(T('loading'))+'</div>'
+   +'<div class="card" style="margin-bottom:10px"><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="lm_rx">—</b></span><span class="dout iso">↑ <b id="lm_tx">—</b></span></div><svg id="lm_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div>'
+     +'<div class="ttiles"><div class="ttile"><span class="din">'+esc(T('ov_rxtot'))+'</span><b id="lm_rxt">—</b></div><div class="ttile"><span class="dout">'+esc(T('ov_txtot'))+'</span><b id="lm_txt">—</b></div></div></div>'
+   +'<div id="lm_stat" class="card" style="margin-bottom:10px;font-size:12.5px;line-height:1.9"></div>'
+   +'<div class="sec">'+ic('live','var(--acc)')+' '+esc(T('lm_feed'))+'</div><div id="lm_feed" class="card"><div class="muted">'+esc(T('lm_wait'))+'</div></div>';
+  openModal('<div class="msticky"><span class="medi">'+ic('live')+'</span><div class="ttl"><h3>'+esc(T('lm_title'))+'</h3><div class="sb" id="lm_sub"></div></div><button class="mx" onclick="stopLive();closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div>',{cls:'edit'});
+  liveTick();_liveTimer=setInterval(liveTick,1500);}
+function stopLive(){if(_liveTimer){clearInterval(_liveTimer);_liveTimer=null}_liveId=null;}
+async function liveTick(){if(!_liveId)return;var r=await post('link-live',{id:_liveId}).catch(function(){return{}});
+  if(!el('lm_rx')){stopLive();return}   // modal closed
+  if(!r.ok||!r.d||!r.d.ok)return;var d=r.d;
+  var sub=el('lm_sub');if(sub)sub.textContent=(d.a_name||'')+' ↔ '+(d.b_name||'')+' · '+(d.name||'');
+  var edge=d.active?('<span class="mono">'+esc(d.active)+'</span>'):('<span class="muted">'+esc(T('lm_no_edge'))+'</span>');
+  setHTML(el('lm_head'),'<b>'+esc(String(d.transport||d.type||'').toUpperCase())+'</b> · '+esc(T('lm_via'))+' '+edge);
+  setT('lm_rx',fmtRate(d.rx_bps));setT('lm_tx',fmtRate(d.tx_bps));setT('lm_rxt',fmtBytes(d.rx_total));setT('lm_txt',fmtBytes(d.tx_total));
+  _liveRx.push(num(d.rx_bps));_liveTx.push(num(d.tx_bps));if(_liveRx.length>40){_liveRx.shift();_liveTx.shift()}dualSpark('lm_spark',_liveRx,_liveTx);
+  function sideTxt(nm,h){if(!h)return '<b>'+esc(nm)+'</b> — <span class="muted">—</span>';var up=h.up?('<span style="color:var(--ok)">'+esc(T('lm_up'))+'</span>'):('<span style="color:var(--bad)">'+esc(T('lm_down'))+'</span>');var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+Math.round(h.rtt_ms)+'ms');if(h.loss_pct!=null)p.push(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct'));return '<b>'+esc(nm)+'</b> — '+up+(p.length?' · '+p.join(' · '):'');}
+  setHTML(el('lm_stat'),sideTxt(d.a_name,d.a_health)+'<br>'+sideTxt(d.b_name,d.b_health)+(d.drift?'<br><span style="color:var(--gold)">'+ic('warn')+' '+esc(T('lm_drift'))+'</span>':''));
+  var feed=el('lm_feed');if(feed){if(d.events===undefined){setHTML(feed,'<div class="muted">'+esc(T('lm_ev_pool_only'))+'</div>');}
+    else{var evs=(d.events||[]).slice().sort(function(a,b){return (b.seq||0)-(a.seq||0)});
+      if(!evs.length)setHTML(feed,'<div class="muted">'+esc(T('lm_no_ev'))+'</div>');
+      else setHTML(feed,evs.map(function(e){var t=liveEvText(e);return '<div style="display:flex;gap:9px;align-items:center;padding:6px 3px;border-bottom:1px solid rgba(128,128,128,.12)"><span style="color:'+t.col+';display:inline-flex">'+ic(t.ic)+'</span><span style="flex:1;min-width:0;font-size:12px;line-height:1.5">'+esc(t.txt)+'</span><span class="mono" style="color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span></div>'}).join(''));}}}
 function render(){setnav();editingId=null;
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
