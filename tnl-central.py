@@ -2633,16 +2633,20 @@ def api_edge_status(d):
     d = d or {}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        return {"ok": True, "pool": False, "active": "", "health": []}
+    if not L or L.get("type") != "core":
+        return {"ok": True, "pool": False, "active": "", "health": [], "events": []}
+    # Any core tunnel may have a status file: a ws pool writes the rich pool state, and a datagram
+    # client (udp/raw/flux) writes a lightweight event ring (self-heal reasons). Read whichever
+    # exists; `pool` stays accurate so pool-only UI keeps behaving.
+    is_pool = bool(L.get("ws_pool"))
     server_side = L.get("server_side", "a")
     client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
     node = get_node(client_id)
     if not node:
-        return {"ok": True, "pool": True, "active": "", "health": [], "error": "client node not found"}
+        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": "client node not found"}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
-        return {"ok": True, "pool": True, "active": "", "health": [], "error": r.get("error") or r.get("msg")}
+        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": r.get("error") or r.get("msg")}
     health = []
     for h in (r.get("health") or []):
         if not isinstance(h, dict):
@@ -2659,7 +2663,7 @@ def api_edge_status(d):
     # status file's write time -> the UI can flag a stale file (dead tunnel) as offline. Fall back to
     # the panel clock only if an older node build didn't send `now`.
     node_now = int(r.get("now") or 0) or int(time.time())
-    return {"ok": True, "pool": True, "active": str(r.get("active") or ""),
+    return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
@@ -3157,6 +3161,14 @@ _EV_DOWN_CODE = {
     "ws_upgrade": ("ارتقاءِ WebSocket رد شد (Origin/CDN)", "WebSocket upgrade refused (origin/CDN)"),
     "closed": ("اتصال قطع شد", "connection dropped"),
     "dropped": ("اتصال قطع شد", "connection dropped"),
+    # datagram transports (udp/raw/flux) — connectionless self-heal reasons
+    "stale": ("سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد", "session went stale (peer down/restarted?) — re-handshaking"),
+    "keepalive": ("keepalive بی‌پاسخ ماند — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش", "no keepalive — throttled/blackholed or peer down"),
+    "handshake": ("دست‌دادن شکست خورد (سرِ مقابل نبود/فیلتر شد)", "handshake failed (peer down/filtered)"),
+}
+_EV_UP_CODE = {
+    "reconnect": ("پس از افتِ سشن، خودکار وصل شد (self-heal)", "auto-recovered after a session drop (self-heal)"),
+    "connect": ("تونل وصل شد", "tunnel connected"),
 }
 _EV_BURN_CODE = {
     "ip_blocked": ("آی‌پیِ لبه بلاک است (روی SNIِ سالم هم جواب نداد)", "edge IP blocked (failed even with a healthy SNI)"),
@@ -3175,6 +3187,9 @@ def _ev_core_text(kind, code, detail, nm):
     if kind == "down":
         rf, re_ = _EV_DOWN_CODE.get(code, ("اتصال قطع شد", "connection dropped"))
         return ("bad", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
+    if kind == "up":
+        rf, re_ = _EV_UP_CODE.get(code, ("تونل وصل شد", "tunnel connected"))
+        return ("ok", f"تونلِ «{nm}» — {rf}", f"Tunnel “{nm}” — {re_}")
     if kind == "burn":
         rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
         return ("warn", f"لبهٔ «{key}» تونلِ «{nm}» سوخت — {rf}", f"Edge “{key}” of tunnel “{nm}” burned — {re_}")
@@ -3295,13 +3310,20 @@ def _events_once():
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
 
-    # --- ws-pool core tunnels: PRECISE core-recorded events (down reason + burns) and the
-    #     automatic edge-IP change. The core saw the real error; the panel just renders it. ---
+    # --- core tunnels: PRECISE core-recorded events (down reason + burns for a ws pool;
+    #     self-heal/reconnect reasons for a udp/raw/flux datagram client) and — for a pool — the
+    #     automatic edge-IP change. The core saw the real error; the panel just renders it. Any core
+    #     with a status file qualifies: a pool, or a datagram transport (which now writes an event
+    #     ring). Plain tcp / single-edge ws cores write no status file, so they're skipped. ---
     seen = set()
     now = int(time.time())
     for L in links:
-        if L.get("type") != "core" or not L.get("ws_pool") or not L.get("enabled", True):
+        if L.get("type") != "core" or not L.get("enabled", True):
             continue
+        is_pool = bool(L.get("ws_pool"))
+        tr = str(L.get("transport") or "").lower()
+        if not is_pool and tr not in ("udp", "raw", "flux"):
+            continue  # no core status file -> nothing precise to read
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
@@ -3309,10 +3331,10 @@ def _events_once():
             r = api_edge_status({"id": lid})
         except Exception:
             r = None
-        if not r or not r.get("pool"):
+        if not r:
             continue
 
-        # core event ring (down/burn) — consume each exactly once by seq; seed silently on first pass
+        # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass
         evs = r.get("events") or []
         mx = max([0] + [int(e.get("seq") or 0) for e in evs])
         if first:
@@ -3326,6 +3348,9 @@ def _events_once():
                 if txt:
                     log_event(*txt)
             _ev_state["evseq"][lid] = max(last, mx)
+
+        if not is_pool:
+            continue  # datagram: event ring only — no active-edge concept to diff
 
         # automatic active-edge switch (suppressed briefly after an operator pin)
         active = str(r.get("active") or "")
