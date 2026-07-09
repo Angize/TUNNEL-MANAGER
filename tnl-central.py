@@ -66,7 +66,7 @@ _core_blob_lock = threading.Lock()   # serialize the custom core binary + its me
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
 _node_locks_guard = threading.Lock()   # ops on disjoint nodes run concurrently — one hung node can't stall the fleet
 _settings = {}                   # in-memory copy of settings.json (read hot-path by the loops); seeded in serve()
-_settings_lock = threading.Lock()
+_settings_lock = threading.RLock()  # reentrant: api_settings_set holds it across validate_settings() -> get_settings()
 _drift = {}                      # link_id -> True when a node IP has drifted and a rebuild is pending/needed
 _drift_lock = threading.Lock()
 _CENTRAL_PORT = 0                # panel port, advertised to nodes (X-Central-Port) so they can call back /api/checkin
@@ -138,6 +138,7 @@ def settings_defaults():
         "poll_interval": 2,         # seconds the fleet poller rests between sweeps (0.3–60, fractional OK)
         "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
         "uptime_window": 1,         # uptime-bar span in hours (1/3/6/8/12/24); always 60 cells, each = window/60
+        "ech_refresh_mins": 15,     # minutes between background ECH re-fetches for ECH links (0 = off; min 1)
     }
 
 
@@ -181,6 +182,9 @@ def validate_settings(d):
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
         w = int(d["uptime_window"])
         out["uptime_window"] = w if w in (1, 3, 6, 8, 12, 24) else 1
+    if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
+        m = round(float(d["ech_refresh_mins"]), 2)
+        out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))  # 0 = off; else 1min–24h
     return out
 
 
@@ -898,11 +902,12 @@ def _node_extra(extra):
     return {k: v for k, v in extra.items() if k not in _PANEL_ONLY_KEYS}
 
 
-def _tunnel_extra(src):
+def _tunnel_extra(src, refetch_ech=True):
     """Type-specific fields that must reach BOTH tunnel ends identically: the UDP port (l2tpv3/fou/core),
     the shared key (IPsec psk / core AEAD psk) and the core cipher. Read from a stored link record
     (edit/rebuild) or a create request. NOTE: the core role is per-node, so it is NOT here — inject it
-    separately with _core_role()."""
+    separately with _core_role(). refetch_ech=False reuses the stored per-SNI ECH verbatim (no DNS
+    fetch, never raises) — used only as a last-resort restore path when a fresh fetch failed."""
     e = {}
     if src.get("port"):
         e["port"] = src["port"]
@@ -952,7 +957,28 @@ def _tunnel_extra(src):
         e["ws_pool"] = True
         e["ws_tls"] = True
         e["ws_edge_ips"] = src["ws_edge_ips"]
-        e["ws_edge_snis"] = src["ws_edge_snis"]
+        # Re-fetch each SNI's ECHConfigList fresh on rebuild — a stored key goes stale when the CDN
+        # rotates it (~hourly on Cloudflare) and a stale key fails the ws-upgrade on EVERY edge (the
+        # whole pool goes dark and only a recreate recovers). NO fallback: if ECH is on and a key
+        # can't be fetched, the rebuild FAILS (raises) rather than replaying a stale/empty key — the
+        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact. (The
+        # restore path passes refetch_ech=False to reuse the stored key verbatim without raising.)
+        pool_ech = bool(src.get("ech"))
+        hosts = [s.get("host") for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
+        ech_map = _fetch_ech_map(hosts) if (pool_ech and refetch_ech) else {}   # concurrent — not host-by-host
+        psnis = []
+        for s in src["ws_edge_snis"]:
+            if not (isinstance(s, dict) and s.get("host")):
+                continue
+            h = s.get("host")
+            if refetch_ech:
+                ec = ech_map.get(h, "") if pool_ech else ""
+                if pool_ech and not ec:
+                    raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % h)
+            else:
+                ec = s.get("ech", "") if pool_ech else ""   # last-resort restore: reuse the stored key verbatim
+            psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
+        e["ws_edge_snis"] = psnis
         e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
         e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
@@ -1998,7 +2024,7 @@ def api_core_update(d):
                 return {"id": nid, "ok": False, "error": "node removed"}
             r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom", "sig": _sign_sha(sha)}, timeout=200)
             err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-            return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+            return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
                     "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
         return {"results": parallel_map(one_custom, ids)}
@@ -2011,7 +2037,7 @@ def api_core_update(d):
             return {"id": nid, "ok": False, "error": "node removed"}
         r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
                 "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
     return {"results": parallel_map(one, ids)}
@@ -2033,7 +2059,7 @@ def api_core_push(d):
             return {"id": nid, "ok": False, "error": "node removed"}
         r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
                 "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
     return {"results": parallel_map(one, ids)}
@@ -2354,6 +2380,26 @@ def _fetch_ech(host):
     return ""
 
 
+def _fetch_ech_map(hosts):
+    """Fetch the ECHConfigList for MANY hosts CONCURRENTLY. _fetch_ech already races resolvers per
+    host, but calling it host-by-host serializes a whole pool — a 64-host pool with blackholed DoH
+    could hold the caller (and the _PairLock, blocking reconcile) for minutes. Returns {host: ech};
+    ech is '' when a host has no key. Never raises."""
+    import concurrent.futures
+    uniq = list(dict.fromkeys(h for h in hosts if h))
+    if not uniq:
+        return {}
+    out = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(uniq))) as ex:
+        futs = {ex.submit(_fetch_ech, h): h for h in uniq}
+        for f in concurrent.futures.as_completed(futs):
+            try:
+                out[futs[f]] = f.result() or ""
+            except Exception:
+                out[futs[f]] = ""
+    return out
+
+
 def _ws_fields(d, transport, cur=None):
     """Validate and return the ws (WebSocket/CDN) carrier fields. ws_host is the Host
     header + TLS SNI (the fronting/origin domain); ws_path the request path; ws_tls makes
@@ -2472,13 +2518,20 @@ def _ws_pool_fields(d, cur=None):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise ValueError("مسیر (path) نامعتبر است")
-    # ECH is driven by the shared "ech" toggle (same one as the single edge): when on we
-    # fetch the ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every
-    # SNI is used with no ECH. A domain with no ECH record is still usable (just no SNI
-    # hiding). Reuse a stored ech for an unchanged host to avoid a refetch storm.
+    # ECH is driven by the shared "ech" toggle (same one as the single edge): when on we fetch the
+    # ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every SNI is used with
+    # no ECH. Re-fetch FRESH on every save — the CDN rotates its ECH key (~hourly on Cloudflare), so
+    # a reused/stored key goes stale and would fail the ws-upgrade on every edge. NO fallback: if ECH
+    # is on and a SNI's key can't be fetched, the save FAILS (we never store an empty or stale key),
+    # matching the single-edge ws path.
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
-    prev = {s.get("host"): s.get("ech", "") for s in (cur.get("ws_edge_snis") or []) if isinstance(s, dict)}
-    snis = [{"host": h, "ech": (_fetch_ech(h) or prev.get(h, "")) if ech_on else "", "path": path} for h in clean_hosts]
+    ech_map = _fetch_ech_map(clean_hosts) if ech_on else {}   # concurrent — never serialize the pool host-by-host
+    snis = []
+    for h in clean_hosts:
+        ec = ech_map.get(h, "") if ech_on else ""
+        if ech_on and not ec:
+            raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد). استخر با ECH روشن ساخته نمی‌شود." % h)
+        snis.append({"host": h, "ech": ec, "path": path})
     res = {
         "ws_pool": True,
         "ws_tls": True,
@@ -2687,17 +2740,29 @@ def api_delete_link(d):
         return {"ok": True}
 
 
-def _restore_link(A, B, L):
-    """Best-effort rebuild of the OLD tunnel on both sides (used to roll back a failed edit)."""
+def _restore_link(A, B, L, extra=None):
+    """Best-effort rebuild of the OLD tunnel on both sides (roll back a failed edit/rebuild). NEVER
+    raises — a restore failure must not mask the real error or leave the tunnel down. `extra` may be
+    passed pre-computed (rebuild already ran _tunnel_extra(L) before teardown); otherwise it is
+    computed here, and if the fresh-ECH fetch raises we fall back to the stored key verbatim so the
+    old tunnel still comes back up instead of a misleading ECH error stranding it."""
     tid = int(L["tunnel_id"])
+    if extra is None:
+        try:
+            extra = _tunnel_extra(L)                     # prefer a fresh ECH key
+        except Exception:
+            extra = _tunnel_extra(L, refetch_ech=False)  # last resort: stored key verbatim, never raises
     for N, self_ip, peer_ip in ((A, L["a_ip"], L["b_ip"]), (B, L["b_ip"], L["a_ip"])):
         if N:
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
-                    "subnet": L["subnet"], "id": tid, "name": L["name"], **_tunnel_extra(L)}
+                    "subnet": L["subnet"], "id": tid, "name": L["name"], **extra}
             role = _core_role(L, N["id"])
             if role:
                 body["role"] = role
-            node_call(N, "tunnel", "POST", body, timeout=200)
+            try:
+                node_call(N, "tunnel", "POST", body, timeout=200)
+            except Exception:
+                pass   # best-effort; swallow so restore never masks the original failure
 
 
 def api_edit_link(d):
@@ -2788,7 +2853,14 @@ def api_pool_select(d):
     r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
-    _ev_suppress[d["id"]] = int(time.time()) + 45  # operator pin: don't log the edge change it causes
+    now = int(time.time())
+    _ev_suppress[d["id"]] = now + 45  # operator pin: don't log the edge change it causes
+    try:  # prune expired entries so the map can't grow unbounded (esp. after links are deleted)
+        for k, ts in list(_ev_suppress.items()):
+            if ts < now:
+                _ev_suppress.pop(k, None)
+    except RuntimeError:
+        pass  # a concurrent pin mutated it mid-iteration; the next call prunes
     return {"ok": True}
 
 
@@ -3097,20 +3169,21 @@ def _rebuild_link_impl(d):
             if (x.get("id") != L["id"] and x.get("type") in IPIP_FAMILY
                     and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
                 raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    extra = _tunnel_extra(L)   # same UDP port / key / cipher as before; also re-fetches fresh ECH and
+                               # MAY RAISE — do it BEFORE teardown so a fetch failure leaves the tunnel intact
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
-    extra = _tunnel_extra(L)   # same UDP port / key / cipher as before
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     if ttype == "core":   # role is per-node, replayed from the stored server_side
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
-        _restore_link(A, B, L)   # both ends were pre-deleted; best-effort rebuild to the prior state
+        _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
-        _restore_link(A, B, L)
+        _restore_link(A, B, L, extra)
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
     if a_ip != L["a_ip"] or b_ip != L["b_ip"]:
         with _reg_lock:
@@ -3214,6 +3287,141 @@ def reconcile_loop():
         time.sleep(max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP)))
         try:
             _reconcile_once()
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------- automatic ECH refresh
+# A CDN (Cloudflare) rotates its ECH key roughly hourly; a stale stored ECHConfigList then fails the
+# ws-upgrade on EVERY edge and the tunnel goes dark (only a manual rebuild recovered it). The client
+# core and the in-country node sit behind poisoned DNS, so ONLY the panel can re-resolve the key.
+# This background loop re-fetches ECH for every ECH-enabled core link and:
+#   - key CHANGED, tunnel healthy  -> freshen the stored record silently (the live core self-heals
+#     in-band via retry_configs; the fresh stored key just keeps restarts/rebuilds valid) — no drop.
+#   - key CHANGED, tunnel DOWN     -> rebuild with the fresh key (auto-recovery when in-band failed).
+#   - record REMOVED (confirmed by _ECH_EMPTY_CYCLES consecutive empty fetches, so a transient DoH
+#     blip can't strip a good key) -> degrade the link to plain wss so it can't hard-fail, + rebuild.
+_ECH_EMPTY_CYCLES = 3   # consecutive empty fetches before an ECH record counts as truly REMOVED (blip guard)
+_ech_empty = {}         # (link_id, host) -> consecutive-empty count
+_ech_empty_lock = threading.Lock()
+
+
+def _ech_link_hosts(L):
+    """(kind, hosts) for an ECH-carrying core link, else None. Single edge carries one ws_host; a pool
+    carries one ech per ws_edge_snis entry."""
+    if L.get("type") != "core" or not L.get("ech") or not L.get("enabled", True):
+        return None
+    if L.get("ws_pool") and L.get("ws_edge_snis"):
+        hosts = [s.get("host") for s in L["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
+        return ("pool", hosts) if hosts else None
+    if L.get("ws_host"):
+        return ("single", [L.get("ws_host")])
+    return None
+
+
+def _link_is_down(lid):
+    """True only when the client core is REACHABLE but not carrying data (active edge empty) — the
+    'ECH rotation broke the live tunnel' signal. A merely-offline node returns an error and is treated
+    as not-actionable (a rebuild can't help it)."""
+    try:
+        st = api_edge_status({"id": lid})
+    except Exception:
+        return False
+    return bool(st.get("ok")) and not st.get("error") and not str(st.get("active") or "")
+
+
+def _ech_write(lid, kind, updates, degrade):
+    """Under the registry lock, apply refreshed per-host ECH (updates: host->new_key) or, on a
+    confirmed removal, turn ECH off. Returns True if the stored record actually changed."""
+    changed = False
+    with _reg_lock:
+        links = load_links()
+        for x in links:
+            if x.get("id") != lid:
+                continue
+            if degrade:
+                if x.get("ech"):
+                    x["ech"] = False          # confirmed removed -> plain wss so a rebuild can't hard-fail on a missing key
+                    x.pop("ws_ech", None)
+                    changed = True
+                for s in (x.get("ws_edge_snis") or []):
+                    if isinstance(s, dict) and s.get("ech"):
+                        s["ech"] = ""
+                        changed = True
+            elif kind == "single":
+                nk = updates.get(x.get("ws_host"), "")
+                if nk and nk != x.get("ws_ech", ""):
+                    x["ws_ech"] = nk
+                    changed = True
+            else:
+                for s in (x.get("ws_edge_snis") or []):
+                    if not isinstance(s, dict):
+                        continue
+                    nk = updates.get(s.get("host"), "")
+                    if nk and nk != s.get("ech", ""):
+                        s["ech"] = nk
+                        changed = True
+            break
+        if changed:
+            save_json(LINKS_FILE, links)
+    return changed
+
+
+def _ech_safe_rebuild(lid):
+    try:
+        api_rebuild_link({"id": lid})   # re-fetches ECH itself; applies the fresh (or now-off) key to both ends
+    except Exception:
+        pass
+
+
+def _ech_refresh_once():
+    for L in load_links():
+        hk = _ech_link_hosts(L)
+        if not hk:
+            continue
+        kind, hosts = hk
+        lid, nm = L.get("id"), L.get("name")
+        ech_map = _fetch_ech_map(hosts)   # concurrent DNS fetch — NO lock held here
+        updates, empty_flags = {}, []
+        for h in hosts:
+            nk = ech_map.get(h, "")
+            key = (lid, h)
+            if nk:
+                with _ech_empty_lock:
+                    _ech_empty.pop(key, None)
+                updates[h] = nk
+            else:
+                with _ech_empty_lock:
+                    _ech_empty[key] = _ech_empty.get(key, 0) + 1
+                    empty_flags.append(_ech_empty[key] >= _ECH_EMPTY_CYCLES)
+        removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)  # every host gone, persistently
+        if removed:
+            if _ech_write(lid, kind, {}, degrade=True):
+                log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت",
+                          f"Tunnel “{nm}” ECH record vanished; degraded to plain wss")
+                _ech_safe_rebuild(lid)
+            continue
+        if _ech_write(lid, kind, updates, degrade=False):   # a fresh key differs from the stored one
+            # Down-detection needs a live status file, which only a pool writes; a single edge is left
+            # to Layer 1 (in-band retry) + the freshened stored key. Only rebuild a pool we can SEE is down.
+            if kind == "pool" and _link_is_down(lid):   # the live core didn't self-heal in-band -> rebuild with the fresh key
+                log_event("warn", "ech", f"کلیدِ ECHِ تونلِ «{nm}» چرخید و تونل قطع بود؛ با کلیدِ تازه بازسازی شد",
+                          f"Tunnel “{nm}” ECH key rotated while it was down; rebuilt with the fresh key")
+                _ech_safe_rebuild(lid)
+            # else: healthy (or single edge) -> the stored key is freshened silently; the live core self-heals in-band (no drop)
+
+
+def ech_refresh_loop():
+    while True:
+        try:
+            mins = float(get_settings().get("ech_refresh_mins", 15) or 0)
+        except Exception:
+            mins = 15.0
+        time.sleep(60.0 if mins <= 0 else max(60.0, mins * 60.0))  # min 1 real minute; re-check the knob when off
+        if mins <= 0:
+            continue   # disabled from Settings — keep re-reading the knob every minute
+        try:
+            _ech_refresh_once()
         except Exception:
             pass
 
@@ -3715,8 +3923,8 @@ def api_settings(d):
 
 
 def api_settings_set(d):
-    obj = validate_settings(d or {})
-    with _settings_lock:
+    with _settings_lock:   # atomic read-modify-write (RLock so validate_settings' get_settings re-enters);
+        obj = validate_settings(d or {})   # a concurrent set can't now merge onto a stale snapshot and clobber
         _settings.clear()
         _settings.update(obj)
         save_json(SETTINGS_FILE, obj)   # write under the lock — concurrent settings-set share one .tmp path and would corrupt it
@@ -4801,7 +5009,7 @@ var I18N={fa:{
  pf_disabled:"غیرفعال",pf_rule:"قانون",pf_rotate_now:"چرخش الان",pf_rotate_done:"چرخش انجام شد ← ",pf_rotate_failed:"چرخش ناموفق",
  // settings
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
- set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۰٫۳ تا ۶۰ — زیرِ ۱ هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"۰٫۳ تا ۶۰ — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
+ set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۰٫۳ تا ۶۰ — زیرِ ۱ هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"۰٫۳ تا ۶۰ — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"۰ = خاموش، وگرنه ۱ تا ۱۴۴۰ — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
@@ -4856,7 +5064,7 @@ var I18N={fa:{
  pf_iface:"Interface: ",pf_lip_lbl:"Listen IP: ",pf_lp_lbl:"Listen port: ",pf_dp_lbl:"Destination port: ",pf_active_badge:"Active · target",
  pf_disabled:"Inactive",pf_rule:"Rule",pf_rotate_now:"Rotate now",pf_rotate_done:"Rotated → ",pf_rotate_failed:"Rotation failed",
  set_on_ipchange:"When a node's IP changes",set_on_ipchange_d:"Alert, or auto-heal",set_rec_int:"Reconcile check interval (seconds)",
- set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"0.3 to 60 — sub-1s allowed (heavier load)",set_ui_int:"UI refresh interval (seconds)",set_ui_range:"0.3 to 60 — rates/gauges refresh at this cadence",set_upwin:"Uptime-bar window",
+ set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"0.3 to 60 — sub-1s allowed (heavier load)",set_ui_int:"UI refresh interval (seconds)",set_ui_range:"0.3 to 60 — rates/gauges refresh at this cadence",set_ech_int:"ECH key refresh interval (minutes)",set_ech_range:"0 = off, else 1 to 1440 — a CDN key rotation self-heals",set_upwin:"Uptime-bar window",
  set_upwin_d:"60 cells; each cell = window ÷ 60",set_mode_auto:"Auto",set_mode_alert:"Alert",set_default:"default",set_agent_update:"Agent update",
  h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
  pending_check:"Checking…",off_word:"Off",on_word:"On",
@@ -6494,6 +6702,16 @@ function evLine(l){var i=l.indexOf(': ');
  if(i>0)return '<div style="display:flex;gap:6px;align-items:baseline;margin-top:3px"><span style="color:var(--sub);font-size:11px;flex:0 0 auto">'+esc(l.slice(0,i))+':</span>'+
    '<span class="mono" dir="ltr" style="font-size:12px;color:var(--tx);overflow-wrap:anywhere;text-align:left;flex:1;min-width:0;unicode-bidi:isolate">'+esc(l.slice(i+2))+'</span></div>';
  return '<div dir="auto" style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere;margin-top:3px">'+esc(l)+'</div>';}
+// Edge-switch detail on ONE line: «از» + old pill, «به» + accent new pill. Values are LTR-isolated
+// so IP:port · domain reads cleanly in the RTL page. lines are ["از: OLD","به: NEW"] (from evParts).
+var EPILL='display:inline-block;direction:ltr;unicode-bidi:isolate;font-size:11px;padding:3px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle';
+function evVal(l){var i=l.indexOf(': ');return i>0?l.slice(i+2):l;}
+function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]||''));
+ return '<div style="margin-top:7px;line-height:2.2">'+
+   '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'from':'از')+'</span> '+
+   '<span style="'+EPILL+'">'+frm+'</span> '+
+   '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'to':'به')+'</span> '+
+   '<span style="'+EPILL+';color:var(--acc);border-color:color-mix(in srgb,var(--acc) 30%,transparent);background:var(--accw)">'+to+'</span></div>';}
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
  if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
  setHTML(box,evs.map(function(e){
@@ -6504,7 +6722,7 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
      '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
      '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
        '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
-       '<div style="flex:1;min-width:0"><div dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</div>'+p.lines.map(evLine).join('')+'</div>'+
+       '<div style="flex:1;min-width:0"><div dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</div>'+((e.kind=='edge'&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
        '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';
  }).join(''));}
@@ -6527,6 +6745,7 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
   row(T('set_rec_int'),T('set_rec_range'),'<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
   row(T('set_poll_int'),T('set_poll_range'),'<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.poll_interval)||2)+'">')+
   row(T('set_ui_int'),T('set_ui_range'),'<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.ui_interval)||2)+'">')+
+  row(T('set_ech_int'),T('set_ech_range'),'<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+(s.ech_refresh_mins!=null?num(s.ech_refresh_mins):15)+'">')+
   row(T('set_upwin'),T('set_upwin_d'),ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
   '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
   '</div>'+
@@ -6536,7 +6755,7 @@ function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setM
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
- var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),uptime_window:ssVal('set_upwin')});
+ var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin')});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
@@ -6807,6 +7026,7 @@ def serve():
     threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
     threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
     threading.Thread(target=events_loop, daemon=True).start()      # record system events (node/tunnel up-down, auto edge change)
+    threading.Thread(target=ech_refresh_loop, daemon=True).start() # re-fetch ECH keys so a CDN key rotation self-heals
     httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
