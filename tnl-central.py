@@ -952,7 +952,15 @@ def _tunnel_extra(src):
         e["ws_pool"] = True
         e["ws_tls"] = True
         e["ws_edge_ips"] = src["ws_edge_ips"]
-        e["ws_edge_snis"] = src["ws_edge_snis"]
+        # Re-fetch each SNI's ECHConfigList fresh on rebuild — a stored key goes stale when the CDN
+        # rotates it (~hourly on Cloudflare) and a stale key fails the ws-upgrade on EVERY edge (the
+        # whole pool goes dark and only a recreate recovers). On a fetch failure fall back to NO ech
+        # (plain wss), never replay the stored (possibly stale) key.
+        pool_ech = bool(src.get("ech"))
+        e["ws_edge_snis"] = [{"host": s.get("host"),
+                              "ech": (_fetch_ech(s.get("host")) if pool_ech else ""),
+                              "path": s.get("path") or src.get("ws_path") or "/"}
+                             for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
         e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
         e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
@@ -2474,11 +2482,12 @@ def _ws_pool_fields(d, cur=None):
         raise ValueError("مسیر (path) نامعتبر است")
     # ECH is driven by the shared "ech" toggle (same one as the single edge): when on we
     # fetch the ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every
-    # SNI is used with no ECH. A domain with no ECH record is still usable (just no SNI
-    # hiding). Reuse a stored ech for an unchanged host to avoid a refetch storm.
+    # SNI is used with no ECH. A domain with no ECH record is still usable (just no SNI hiding).
+    # Re-fetch FRESH on every save — the CDN rotates its ECH key (~hourly on Cloudflare), so a
+    # reused/stored key goes stale and would fail the ws-upgrade on every edge. On a fetch failure
+    # fall back to NO ech (plain wss), never to the previous (possibly stale) stored key.
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
-    prev = {s.get("host"): s.get("ech", "") for s in (cur.get("ws_edge_snis") or []) if isinstance(s, dict)}
-    snis = [{"host": h, "ech": (_fetch_ech(h) or prev.get(h, "")) if ech_on else "", "path": path} for h in clean_hosts]
+    snis = [{"host": h, "ech": (_fetch_ech(h) if ech_on else ""), "path": path} for h in clean_hosts]
     res = {
         "ws_pool": True,
         "ws_tls": True,
