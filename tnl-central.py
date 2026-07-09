@@ -66,7 +66,7 @@ _core_blob_lock = threading.Lock()   # serialize the custom core binary + its me
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
 _node_locks_guard = threading.Lock()   # ops on disjoint nodes run concurrently — one hung node can't stall the fleet
 _settings = {}                   # in-memory copy of settings.json (read hot-path by the loops); seeded in serve()
-_settings_lock = threading.Lock()
+_settings_lock = threading.RLock()  # reentrant: api_settings_set holds it across validate_settings() -> get_settings()
 _drift = {}                      # link_id -> True when a node IP has drifted and a rebuild is pending/needed
 _drift_lock = threading.Lock()
 _CENTRAL_PORT = 0                # panel port, advertised to nodes (X-Central-Port) so they can call back /api/checkin
@@ -898,11 +898,12 @@ def _node_extra(extra):
     return {k: v for k, v in extra.items() if k not in _PANEL_ONLY_KEYS}
 
 
-def _tunnel_extra(src):
+def _tunnel_extra(src, refetch_ech=True):
     """Type-specific fields that must reach BOTH tunnel ends identically: the UDP port (l2tpv3/fou/core),
     the shared key (IPsec psk / core AEAD psk) and the core cipher. Read from a stored link record
     (edit/rebuild) or a create request. NOTE: the core role is per-node, so it is NOT here — inject it
-    separately with _core_role()."""
+    separately with _core_role(). refetch_ech=False reuses the stored per-SNI ECH verbatim (no DNS
+    fetch, never raises) — used only as a last-resort restore path when a fresh fetch failed."""
     e = {}
     if src.get("port"):
         e["port"] = src["port"]
@@ -956,18 +957,22 @@ def _tunnel_extra(src):
         # rotates it (~hourly on Cloudflare) and a stale key fails the ws-upgrade on EVERY edge (the
         # whole pool goes dark and only a recreate recovers). NO fallback: if ECH is on and a key
         # can't be fetched, the rebuild FAILS (raises) rather than replaying a stale/empty key — the
-        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact.
+        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact. (The
+        # restore path passes refetch_ech=False to reuse the stored key verbatim without raising.)
         pool_ech = bool(src.get("ech"))
+        hosts = [s.get("host") for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
+        ech_map = _fetch_ech_map(hosts) if (pool_ech and refetch_ech) else {}   # concurrent — not host-by-host
         psnis = []
         for s in src["ws_edge_snis"]:
             if not (isinstance(s, dict) and s.get("host")):
                 continue
             h = s.get("host")
-            ec = ""
-            if pool_ech:
-                ec = _fetch_ech(h)
-                if not ec:
+            if refetch_ech:
+                ec = ech_map.get(h, "") if pool_ech else ""
+                if pool_ech and not ec:
                     raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % h)
+            else:
+                ec = s.get("ech", "") if pool_ech else ""   # last-resort restore: reuse the stored key verbatim
             psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
         e["ws_edge_snis"] = psnis
         e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
@@ -2015,7 +2020,7 @@ def api_core_update(d):
                 return {"id": nid, "ok": False, "error": "node removed"}
             r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom", "sig": _sign_sha(sha)}, timeout=200)
             err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-            return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+            return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
                     "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
         return {"results": parallel_map(one_custom, ids)}
@@ -2028,7 +2033,7 @@ def api_core_update(d):
             return {"id": nid, "ok": False, "error": "node removed"}
         r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
                 "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
     return {"results": parallel_map(one, ids)}
@@ -2050,7 +2055,7 @@ def api_core_push(d):
             return {"id": nid, "ok": False, "error": "node removed"}
         r = _push_staged(n)
         err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "version": r.get("version"),
+        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
                 "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
 
     return {"results": parallel_map(one, ids)}
@@ -2371,6 +2376,26 @@ def _fetch_ech(host):
     return ""
 
 
+def _fetch_ech_map(hosts):
+    """Fetch the ECHConfigList for MANY hosts CONCURRENTLY. _fetch_ech already races resolvers per
+    host, but calling it host-by-host serializes a whole pool — a 64-host pool with blackholed DoH
+    could hold the caller (and the _PairLock, blocking reconcile) for minutes. Returns {host: ech};
+    ech is '' when a host has no key. Never raises."""
+    import concurrent.futures
+    uniq = list(dict.fromkeys(h for h in hosts if h))
+    if not uniq:
+        return {}
+    out = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(uniq))) as ex:
+        futs = {ex.submit(_fetch_ech, h): h for h in uniq}
+        for f in concurrent.futures.as_completed(futs):
+            try:
+                out[futs[f]] = f.result() or ""
+            except Exception:
+                out[futs[f]] = ""
+    return out
+
+
 def _ws_fields(d, transport, cur=None):
     """Validate and return the ws (WebSocket/CDN) carrier fields. ws_host is the Host
     header + TLS SNI (the fronting/origin domain); ws_path the request path; ws_tls makes
@@ -2496,13 +2521,12 @@ def _ws_pool_fields(d, cur=None):
     # is on and a SNI's key can't be fetched, the save FAILS (we never store an empty or stale key),
     # matching the single-edge ws path.
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
+    ech_map = _fetch_ech_map(clean_hosts) if ech_on else {}   # concurrent — never serialize the pool host-by-host
     snis = []
     for h in clean_hosts:
-        ec = ""
-        if ech_on:
-            ec = _fetch_ech(h)
-            if not ec:
-                raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد). استخر با ECH روشن ساخته نمی‌شود." % h)
+        ec = ech_map.get(h, "") if ech_on else ""
+        if ech_on and not ec:
+            raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد). استخر با ECH روشن ساخته نمی‌شود." % h)
         snis.append({"host": h, "ech": ec, "path": path})
     res = {
         "ws_pool": True,
@@ -2712,17 +2736,29 @@ def api_delete_link(d):
         return {"ok": True}
 
 
-def _restore_link(A, B, L):
-    """Best-effort rebuild of the OLD tunnel on both sides (used to roll back a failed edit)."""
+def _restore_link(A, B, L, extra=None):
+    """Best-effort rebuild of the OLD tunnel on both sides (roll back a failed edit/rebuild). NEVER
+    raises — a restore failure must not mask the real error or leave the tunnel down. `extra` may be
+    passed pre-computed (rebuild already ran _tunnel_extra(L) before teardown); otherwise it is
+    computed here, and if the fresh-ECH fetch raises we fall back to the stored key verbatim so the
+    old tunnel still comes back up instead of a misleading ECH error stranding it."""
     tid = int(L["tunnel_id"])
+    if extra is None:
+        try:
+            extra = _tunnel_extra(L)                     # prefer a fresh ECH key
+        except Exception:
+            extra = _tunnel_extra(L, refetch_ech=False)  # last resort: stored key verbatim, never raises
     for N, self_ip, peer_ip in ((A, L["a_ip"], L["b_ip"]), (B, L["b_ip"], L["a_ip"])):
         if N:
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
-                    "subnet": L["subnet"], "id": tid, "name": L["name"], **_tunnel_extra(L)}
+                    "subnet": L["subnet"], "id": tid, "name": L["name"], **extra}
             role = _core_role(L, N["id"])
             if role:
                 body["role"] = role
-            node_call(N, "tunnel", "POST", body, timeout=200)
+            try:
+                node_call(N, "tunnel", "POST", body, timeout=200)
+            except Exception:
+                pass   # best-effort; swallow so restore never masks the original failure
 
 
 def api_edit_link(d):
@@ -2813,7 +2849,14 @@ def api_pool_select(d):
     r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
-    _ev_suppress[d["id"]] = int(time.time()) + 45  # operator pin: don't log the edge change it causes
+    now = int(time.time())
+    _ev_suppress[d["id"]] = now + 45  # operator pin: don't log the edge change it causes
+    try:  # prune expired entries so the map can't grow unbounded (esp. after links are deleted)
+        for k, ts in list(_ev_suppress.items()):
+            if ts < now:
+                _ev_suppress.pop(k, None)
+    except RuntimeError:
+        pass  # a concurrent pin mutated it mid-iteration; the next call prunes
     return {"ok": True}
 
 
@@ -3132,11 +3175,11 @@ def _rebuild_link_impl(d):
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
-        _restore_link(A, B, L)   # both ends were pre-deleted; best-effort rebuild to the prior state
+        _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
-        _restore_link(A, B, L)
+        _restore_link(A, B, L, extra)
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
     if a_ip != L["a_ip"] or b_ip != L["b_ip"]:
         with _reg_lock:
@@ -3741,8 +3784,8 @@ def api_settings(d):
 
 
 def api_settings_set(d):
-    obj = validate_settings(d or {})
-    with _settings_lock:
+    with _settings_lock:   # atomic read-modify-write (RLock so validate_settings' get_settings re-enters);
+        obj = validate_settings(d or {})   # a concurrent set can't now merge onto a stale snapshot and clobber
         _settings.clear()
         _settings.update(obj)
         save_json(SETTINGS_FILE, obj)   # write under the lock — concurrent settings-set share one .tmp path and would corrupt it
