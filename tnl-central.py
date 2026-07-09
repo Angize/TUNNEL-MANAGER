@@ -3263,7 +3263,8 @@ _EV_BURN_CODE = {
 
 
 def _ev_core_text(kind, code, detail, nm):
-    """Render a core event into (level, fa, en) for the panel log."""
+    """Render a core event into (level, kind, title_fa, title_en, detail_fa, detail_en) for
+    log_event(*...). Splitting title from detail lets the UI show the reason on its own line."""
     key = str(detail or "")
     if key.startswith("ip:"):
         key = key[3:]
@@ -3271,13 +3272,13 @@ def _ev_core_text(kind, code, detail, nm):
         key = key[4:]
     if kind == "down":
         rf, re_ = _EV_DOWN_CODE.get(code, ("اتصال قطع شد", "connection dropped"))
-        return ("bad", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
+        return ("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
     if kind == "up":
         rf, re_ = _EV_UP_CODE.get(code, ("تونل وصل شد", "tunnel connected"))
-        return ("ok", f"تونلِ «{nm}» — {rf}", f"Tunnel “{nm}” — {re_}")
+        return ("ok", "link", f"تونلِ «{nm}» دوباره وصل شد", f"Tunnel “{nm}” reconnected", rf, re_)
     if kind == "burn":
         rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
-        return ("warn", f"لبهٔ «{key}» تونلِ «{nm}» سوخت — {rf}", f"Edge “{key}” of tunnel “{nm}” burned — {re_}")
+        return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", f"Edge “{key}” of “{nm}” burned", rf, re_)
     return None
 
 
@@ -3304,12 +3305,15 @@ def _ev_seq_get():
     return _ev_seq_total
 
 
-def log_event(level, kind, fa, en):
-    """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad."""
+def log_event(level, kind, fa, en, dfa="", den=""):
+    """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad.
+    fa/en are the one-line TITLE; dfa/den are an optional detail/reason that may contain "\\n" for
+    multiple lines (e.g. an edge switch's from/to) — the UI renders each line separately."""
     global _ev_seq_total
     with _events_lock:
         evs = load_events()
-        evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind, "fa": fa, "en": en})
+        evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
+                       "fa": fa, "en": en, "dfa": dfa, "den": den})
         if len(evs) > EVENTS_CAP:
             evs = evs[:EVENTS_CAP]
         try:
@@ -3411,7 +3415,7 @@ def _events_once():
                 pass  # core-sourced precise "down" will be logged from its event ring
             else:
                 rf, re_ = _link_down_reason(L, nmap)
-                log_event("bad", "link", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
+                log_event("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
 
@@ -3465,8 +3469,8 @@ def _events_once():
             continue
         if _ev_suppress.get(lid, 0) > now:  # operator pinned this edge -> not a system event
             continue
-        log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد: {prev} ⟵ {active}",
-                  f"Tunnel “{nm}” edge auto-switched: {prev} → {active}")
+        log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد", f"Tunnel “{nm}” edge auto-switched",
+                  f"از: {prev}\nبه: {active}", f"from: {prev}\nto: {active}")
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
         _ev_state["edge"].pop(lid, None)
     for lid in [k for k in _ev_state["evseq"] if k not in seen]:
@@ -6471,15 +6475,20 @@ function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+
  '<div id="logList"><div class="card muted">'+esc(T('loading'))+'</div></div>';markLogsSeen();refreshLogs();}
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
  if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
- setHTML(box,'<div class="card" style="padding:4px 0">'+evs.map(function(e){
+ setHTML(box,evs.map(function(e){
    var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
-   var txt=(LANG=='en'?e.en:e.fa)||e.fa||e.en||'';
-   return '<div style="display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid rgba(128,128,128,.14)">'+
-     '<span style="flex:0 0 auto;color:'+col+';display:inline-flex">'+ic(lv)+'</span>'+
-     '<span style="flex:1;min-width:0;font-size:12.5px;line-height:1.6">'+esc(txt)+'</span>'+
-     '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span></div>';
- }).join('')+'</div>');}
+   var title=(LANG=='en'?e.en:e.fa)||e.fa||e.en||'';
+   var det=(LANG=='en'?e.den:e.dfa)||'';   // reason/detail — may be multi-line (from/to on separate lines)
+   var lines=det?det.split('\\n').map(function(l){return '<div style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere">'+esc(l)+'</div>'}).join(''):'';
+   return '<div class="card" style="display:flex;margin-bottom:9px;box-shadow:var(--sh-sm)">'+
+     '<span style="width:4px;flex:0 0 auto;background:'+col+'"></span>'+
+     '<div style="display:flex;gap:11px;align-items:flex-start;padding:11px 13px;flex:1;min-width:0">'+
+       '<span style="width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 13%,transparent)">'+ic(lv)+'</span>'+
+       '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(title)+'</div>'+lines+'</div>'+
+       '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span>'+
+     '</div></div>';
+ }).join(''));}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
