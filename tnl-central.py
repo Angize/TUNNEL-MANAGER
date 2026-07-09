@@ -6473,20 +6473,39 @@ function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString(LANG=
 function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="refreshLogs()">'+ic('redo')+esc(T('logs_refresh'))+'</button><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  '<div id="logList"><div class="card muted">'+esc(T('loading'))+'</div></div>';markLogsSeen();refreshLogs();}
+// Split an event into a clean title + detail lines. New events carry dfa/den (detail, possibly
+// multi-line). OLD events only have the combined string, so parse the legacy "…: A ⟵ B" (edge
+// switch) and "… — reason" forms too, so both render readably.
+function evParts(e){
+ var title=(LANG=='en'?e.en:e.fa)||e.fa||e.en||'';
+ var det=(LANG=='en'?e.den:e.dfa)||'';
+ if(det)return{title:title,lines:det.split('\\n')};
+ var arrow=title.indexOf(' ⟵ ')>=0?' ⟵ ':(title.indexOf(' → ')>=0?' → ':'');
+ var ci=title.indexOf(': ');
+ if(arrow&&ci>0){var ab=title.slice(ci+2).split(arrow);
+   return{title:title.slice(0,ci),lines:[(LANG=='en'?'from: ':'از: ')+(ab[0]||'').trim(),(LANG=='en'?'to: ':'به: ')+(ab[1]||'').trim()]};}
+ var dash=title.indexOf(' — ');
+ if(dash>0)return{title:title.slice(0,dash),lines:[title.slice(dash+3)]};
+ return{title:title,lines:[]};
+}
+// One detail line. "label: value" -> RTL label + LTR-isolated value (IP:port · domain reads clean in
+// an RTL page). A plain sentence renders with dir=auto so Persian stays RTL.
+function evLine(l){var i=l.indexOf(': ');
+ if(i>0)return '<div style="display:flex;gap:6px;align-items:baseline;margin-top:3px"><span style="color:var(--sub);font-size:11px;flex:0 0 auto">'+esc(l.slice(0,i))+':</span>'+
+   '<span class="mono" dir="ltr" style="font-size:12px;color:var(--tx);overflow-wrap:anywhere;text-align:left;flex:1;min-width:0;unicode-bidi:isolate">'+esc(l.slice(i+2))+'</span></div>';
+ return '<div dir="auto" style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere;margin-top:3px">'+esc(l)+'</div>';}
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
  if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
  setHTML(box,evs.map(function(e){
    var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
-   var title=(LANG=='en'?e.en:e.fa)||e.fa||e.en||'';
-   var det=(LANG=='en'?e.den:e.dfa)||'';   // reason/detail — may be multi-line (from/to on separate lines)
-   var lines=det?det.split('\\n').map(function(l){return '<div style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere">'+esc(l)+'</div>'}).join(''):'';
-   return '<div class="card" style="display:flex;margin-bottom:9px;box-shadow:var(--sh-sm)">'+
-     '<span style="width:4px;flex:0 0 auto;background:'+col+'"></span>'+
-     '<div style="display:flex;gap:11px;align-items:flex-start;padding:11px 13px;flex:1;min-width:0">'+
-       '<span style="width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 13%,transparent)">'+ic(lv)+'</span>'+
-       '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(title)+'</div>'+lines+'</div>'+
-       '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span>'+
+   var p=evParts(e);
+   return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+   // padding:0 so the stripe is flush to the right edge (the base .card has padding)
+     '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
+     '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
+       '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
+       '<div style="flex:1;min-width:0"><div dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</div>'+p.lines.map(evLine).join('')+'</div>'+
+       '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';
  }).join(''));}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
