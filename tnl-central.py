@@ -954,13 +954,22 @@ def _tunnel_extra(src):
         e["ws_edge_ips"] = src["ws_edge_ips"]
         # Re-fetch each SNI's ECHConfigList fresh on rebuild — a stored key goes stale when the CDN
         # rotates it (~hourly on Cloudflare) and a stale key fails the ws-upgrade on EVERY edge (the
-        # whole pool goes dark and only a recreate recovers). On a fetch failure fall back to NO ech
-        # (plain wss), never replay the stored (possibly stale) key.
+        # whole pool goes dark and only a recreate recovers). NO fallback: if ECH is on and a key
+        # can't be fetched, the rebuild FAILS (raises) rather than replaying a stale/empty key — the
+        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact.
         pool_ech = bool(src.get("ech"))
-        e["ws_edge_snis"] = [{"host": s.get("host"),
-                              "ech": (_fetch_ech(s.get("host")) if pool_ech else ""),
-                              "path": s.get("path") or src.get("ws_path") or "/"}
-                             for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
+        psnis = []
+        for s in src["ws_edge_snis"]:
+            if not (isinstance(s, dict) and s.get("host")):
+                continue
+            h = s.get("host")
+            ec = ""
+            if pool_ech:
+                ec = _fetch_ech(h)
+                if not ec:
+                    raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % h)
+            psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
+        e["ws_edge_snis"] = psnis
         e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
         e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
@@ -2480,14 +2489,21 @@ def _ws_pool_fields(d, cur=None):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise ValueError("مسیر (path) نامعتبر است")
-    # ECH is driven by the shared "ech" toggle (same one as the single edge): when on we
-    # fetch the ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every
-    # SNI is used with no ECH. A domain with no ECH record is still usable (just no SNI hiding).
-    # Re-fetch FRESH on every save — the CDN rotates its ECH key (~hourly on Cloudflare), so a
-    # reused/stored key goes stale and would fail the ws-upgrade on every edge. On a fetch failure
-    # fall back to NO ech (plain wss), never to the previous (possibly stale) stored key.
+    # ECH is driven by the shared "ech" toggle (same one as the single edge): when on we fetch the
+    # ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every SNI is used with
+    # no ECH. Re-fetch FRESH on every save — the CDN rotates its ECH key (~hourly on Cloudflare), so
+    # a reused/stored key goes stale and would fail the ws-upgrade on every edge. NO fallback: if ECH
+    # is on and a SNI's key can't be fetched, the save FAILS (we never store an empty or stale key),
+    # matching the single-edge ws path.
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
-    snis = [{"host": h, "ech": (_fetch_ech(h) if ech_on else ""), "path": path} for h in clean_hosts]
+    snis = []
+    for h in clean_hosts:
+        ec = ""
+        if ech_on:
+            ec = _fetch_ech(h)
+            if not ec:
+                raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد). استخر با ECH روشن ساخته نمی‌شود." % h)
+        snis.append({"host": h, "ech": ec, "path": path})
     res = {
         "ws_pool": True,
         "ws_tls": True,
@@ -3106,9 +3122,10 @@ def _rebuild_link_impl(d):
             if (x.get("id") != L["id"] and x.get("type") in IPIP_FAMILY
                     and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
                 raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    extra = _tunnel_extra(L)   # same UDP port / key / cipher as before; also re-fetches fresh ECH and
+                               # MAY RAISE — do it BEFORE teardown so a fetch failure leaves the tunnel intact
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
-    extra = _tunnel_extra(L)   # same UDP port / key / cipher as before
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     if ttype == "core":   # role is per-node, replayed from the stored server_side
