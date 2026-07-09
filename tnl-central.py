@@ -4163,23 +4163,11 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .skrow{display:flex;align-items:center;gap:11px}
 /* skeleton shimmer: a visible placeholder grey (--sk-base) with a clearly brighter sweep (--sk-hi),
    so it reads as a loading placeholder in BOTH themes (the old glass/field pair was near-invisible in light). */
-.sk{background:linear-gradient(90deg,var(--sk-base) 0%,var(--sk-base) 38%,var(--sk-hi) 50%,var(--sk-base) 62%,var(--sk-base) 100%);background-color:var(--sk-base);background-size:220% 100%;border-radius:7px;animation:shim 1.25s ease-in-out infinite}
+.sk{display:block;background:linear-gradient(90deg,var(--sk-base) 0%,var(--sk-base) 38%,var(--sk-hi) 50%,var(--sk-base) 62%,var(--sk-base) 100%);background-color:var(--sk-base);background-size:220% 100%;border-radius:7px;animation:shim 1.25s ease-in-out infinite}
 @keyframes shim{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}
-/* skeleton cards shown while a list page's data loads (async), so the page never looks blank/frozen */
-.skcard{animation:rise .4s both}
-.skgrid{display:flex;flex-direction:column;gap:12px}
-.sk-lead{width:40px;height:40px;border-radius:11px;flex:0 0 auto}
-.sk-b{height:12px;border-radius:6px}
-.sk-badge{width:64px;height:22px;border-radius:20px;flex:0 0 auto}
-.sk-dot{width:30px;height:30px;border-radius:9px}
-.sk-strip{height:40px;border-radius:10px;margin-top:12px}
-.sk-acts{display:flex;gap:7px;margin-top:13px}
-.sk-chips{display:flex;gap:8px;margin-top:12px}
-.sk-chip{height:24px;border-radius:20px;flex:1}
-.sk-ends{display:flex;align-items:center;gap:12px}
-.sk-end{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
-.sk-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+/* skeleton loading: shimmer bars laid out INSIDE the real card classes (skNodeCard/skAccCard/
+   skPfCard/skAgRow), so each page's loading state is pixel-identical to its loaded card. */
 .emptybox{text-align:center;padding:30px 16px}
 .emptybox .ei{width:52px;height:52px;border-radius:15px;margin:0 auto 13px;display:grid;place-items:center;background:var(--accw);color:var(--acc)}
 .emptybox .ei .ic{width:26px;height:26px}
@@ -5317,21 +5305,36 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
 // ===== skeleton loading cards: shown in a list container while its data loads (async), so a page
 // reload never shows a blank/frozen gap. The shells mirror the real card geometry so the swap to
 // live data is seamless; a page's last-known count keeps the height stable (fallback 6).
-function skNodeCard(){return '<div class="card node skcard">'+
-  '<div class="nrow"><div class="sk sk-dot" style="width:14px;height:14px;border-radius:50%"></div>'+
-  '<div class="sk-col"><div class="sk sk-b" style="width:42%"></div><div class="sk sk-b" style="width:62%;height:10px"></div></div>'+
-  '<div class="sk sk-badge"></div></div>'+
-  '<div class="sk-chips"><div class="sk sk-chip"></div><div class="sk sk-chip"></div><div class="sk sk-chip"></div></div>'+
-  '<div class="sk sk-strip" style="height:26px"></div>'+
-  '<div class="sk-acts"><div class="sk sk-dot"></div><div class="sk sk-dot"></div><div class="sk sk-dot"></div><div class="sk sk-dot" style="margin-inline-start:auto"></div></div></div>'}
-function skLinkCard(){var end='<div class="sk-end"><div class="sk-col"><div class="sk sk-b" style="width:70%"></div><div class="sk sk-b" style="width:48%;height:10px"></div></div></div>';
- return '<div class="card skcard">'+
-  '<div class="sk-ends">'+end+'<div class="sk sk-b" style="width:16px;height:8px;flex:0 0 auto"></div>'+end+'</div>'+
-  '<div class="sk-chips"><div class="sk sk-chip"></div><div class="sk sk-chip"></div></div>'+
-  '<div class="sk sk-strip"></div>'+
-  '<div class="sk-acts"><div class="sk sk-dot"></div><div class="sk sk-dot" style="margin-inline-start:auto"></div><div class="sk sk-dot"></div><div class="sk sk-dot"></div><div class="sk sk-dot"></div></div></div>'}
-function skCards(kind){var n=Math.max(3,Math.min(8,num((kind=='nodes'?(NODES||[]):(FLEET||[])).length)||6));
- var one=kind=='nodes'?skNodeCard:skLinkCard,out='';for(var i=0;i<n;i++)out+=one();return '<div class="skgrid">'+out+'</div>'}
+// Each skeleton mirrors the EXACT geometry of its real card (same wrapper classes, so it lands in
+// the same grid/shadow/padding and the swap to live data is seamless). skb() = one shimmer bar.
+function skb(w,h,r){return '<span class="sk" style="width:'+w+';height:'+(h||12)+'px'+(r!=null?';border-radius:'+r+'px':'')+'"></span>'}
+function skAct(){return '<span class="sk" style="width:37px;height:33px;border-radius:11px"></span>'}
+function skNodeCard(){return '<div class="card node">'+       // exact .card.node
+  '<div class="nrow"><span class="sk" style="width:10px;height:10px;border-radius:50%;flex:0 0 auto"></span>'+
+    '<div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:7px">'+skb('46%',14)+skb('64%',11)+'</div>'+
+    '<span class="grow"></span>'+skb('56px',21,10)+'</div>'+
+  '<div class="nchips">'+skb('74px',13)+skb('66px',13)+skb('82px',13)+skb('58px',13)+'</div>'+
+  '<div class="upwrap"><div class="uptop">'+skb('70px',11)+'<span class="grow"></span>'+skb('42px',11)+'</div><span class="sk" style="height:22px;border-radius:2px"></span></div>'+
+  '<div class="nact iconly">'+skAct()+skAct()+skAct()+skAct()+'</div></div>'}
+function skAccCard(core){return '<div class="card acc"><div class="chead">'+   // exact collapsed accordion header
+  '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
+  '<div class="hmain"><div class="hrow1">'+skb('96px',13)+skb('40px',15,20)+
+    '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('58px',11)+'<span class="sk" style="width:14px;height:8px"></span>'+skb('58px',11)+'</span></div></div>'+
+  '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
+function skPfCard(){return '<div class="card">'+                // exact port-forward card
+  '<div class="link">'+skb('90px',15)+'<span class="grow"></span>'+skb('50px',18,20)+skb('60px',20,10)+'</div>'+
+  '<div class="enmeta"><div class="emcol">'+skb('80%',12)+skb('70%',12)+skb('58%',12)+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+skb('52%',12)+skb('86%',12)+'</div></div>'+
+  '<div class="ltraf">'+skb('58px',12)+skb('58px',12)+'<span class="tot" style="margin-inline-start:auto">'+skb('92px',12)+'</span></div>'+
+  '<div class="nact iconly">'+skAct()+skAct()+skAct()+'</div></div>'}
+function skAgRow(){return '<div class="agx-row">'+             // exact agent/update row
+  '<div class="agx-right"><div class="agx-l1"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+skb('42px',16,6)+'</div>'+
+  '<div class="agx-l2">'+skb('118px',15,7)+skb('118px',15,7)+'</div></div>'+
+  '<div class="agx-colb">'+skb('86px',26,9)+skb('86px',26,9)+'</div></div>'}
+function skCards(kind){
+ var arr=(kind=='nodes'?NODES:kind=='portfw'?PF:kind=='agent'?NODES:FLEET)||[];
+ var n=Math.max(3,Math.min(8,num(arr.length)||6));
+ var one=kind=='nodes'?skNodeCard:kind=='portfw'?skPfCard:kind=='agent'?skAgRow:function(){return skAccCard(kind=='core')};
+ var out='';for(var i=0;i<n;i++)out+=one();return out}   // direct children of the list grid — no wrapper
 function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' '+esc(T('nav_overview'))+'</h1><p class="sub">'+esc(T('ov_sub'))+'</p>'+
  '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">'+esc(T('ov_health'))+'</div></div><div class="ochips" id="o_chips"></div></div>'+
  '<div class="sec">'+ic('warn','var(--acc)')+' '+esc(T('ov_attention'))+'</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
@@ -6234,7 +6237,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
 // ===== Port-forward
 function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' '+esc(T('nav_portfw'))+'</h1><p class="sub">'+esc(T('pf_sub'))+'</p>'+
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
- '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList"></div>'+pagerBottom('portfw');
+ '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList">'+skCards('portfw')+'</div>'+pagerBottom('portfw');
  refreshPortfw()}
 async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(!on.length){toast(T('pf_no_online'),'err');return}
@@ -6316,7 +6319,7 @@ function agentBody(){return ''+
  '</div>'+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
- '<div id="agList"></div>'+pagerBottom('agent')}
+ '<div id="agList">'+skCards('agent')+'</div>'+pagerBottom('agent')}
 function agentSkel(){el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('ag_title'))+'</h1><p class="sub">'+esc(T('ag_sub'))+'</p>'+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
  var st=el('ag_status'),mt=el('ag_meta');
