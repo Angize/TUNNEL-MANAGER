@@ -33,7 +33,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
+from concurrent.futures import ThreadPoolExecutor
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -949,8 +949,17 @@ def _tunnel_extra(src, refetch_ech=True):
             e["ws_xhttp_mode"] = src["ws_xhttp_mode"]
     if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
         e["ech"] = True
-        if src.get("ws_ech"):
-            e["ws_ech"] = src["ws_ech"]
+        host = src.get("ws_host")
+        if refetch_ech and host:
+            # Re-fetch fresh on rebuild — a stored single-edge ws_ech goes stale when the CDN rotates
+            # its key (~hourly), and a stale key fails the ws-upgrade (same failure the pool branch
+            # guards). NO fallback: raise rather than replay a stale key (caller runs this BEFORE teardown).
+            ec = _fetch_ech(host)
+            if not ec:
+                raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % host)
+            e["ws_ech"] = ec
+        elif src.get("ws_ech"):
+            e["ws_ech"] = src["ws_ech"]  # restore path (refetch_ech=False): reuse the stored key verbatim
     if src.get("edge_ip"):               # ws client dials this CDN edge instead of the origin
         e["edge_ip"] = src["edge_ip"]
     if src.get("ws_pool") and src.get("ws_edge_ips") and src.get("ws_edge_snis"):  # rotating edge pool (clean lists only)
@@ -979,7 +988,8 @@ def _tunnel_extra(src, refetch_ech=True):
                 ec = s.get("ech", "") if pool_ech else ""   # last-resort restore: reuse the stored key verbatim
             psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
         e["ws_edge_snis"] = psnis
-        e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
+        _rs = src.get("ws_rotate_secs")   # 0 = rotation off (failover-only); a truthiness `or 600` would force 600
+        e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
         e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
     if src.get("gso"):                   # TUN segmentation offload (throughput)
@@ -1569,8 +1579,8 @@ def api_node_del(d):
             pn = get_node(peer_id)
             if not pn:
                 return
-            with _PairLock(nid, peer_id):  # serialize with a rebuild on this pair so it can't recreate the peer half
-                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # best-effort, short deadline
+            with _PairLock(peer_id, peer_id):  # lock ONLY the peer (nid is being wiped/removed): a shared nid lock
+                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # would serialize all N calls -> N*timeout. Still mutually excludes a rebuild on this pair (it holds peer_id too).
         parallel_map(_del_peer_half, mine, workers=32)  # fan out: N offline peers must not serialize to N*timeout
         out["links_removed"] = len(mine)
     with _reg_lock:
@@ -1593,18 +1603,6 @@ def api_node_test(d):
         raise ValueError("not found")
     p = node_call(n, "ping", "GET")
     return {"ok": bool(p.get("ok")), "info": p}
-
-
-def api_node_meta(d):
-    _require(d, ["id"])
-    n = get_node(d["id"])
-    if not n:
-        raise ValueError("not found")
-    p = node_call(n, "ping", "GET")
-    if not p.get("ok"):
-        raise ValueError("node offline")
-    ips = [ip for ips in p.get("ips", {}).values() for ip in ips]
-    return {"ips": ips}
 
 
 def api_node_stats(d):
@@ -2472,6 +2470,16 @@ _IP4_RE = r"^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\
 _DOMAIN_RE = r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
 
 
+def _ws_rotate_default(d, cur):
+    """ws_rotate_secs with 0 (rotation off / failover-only) PRESERVED: the request's value when it
+    sends one, else the stored value (even 0), else 600 — never coerce a legitimate 0 to 600 with a
+    truthiness `or`."""
+    if "ws_rotate_secs" in d and d.get("ws_rotate_secs") is not None:
+        return d["ws_rotate_secs"]
+    v = cur.get("ws_rotate_secs")
+    return 600 if v is None else v
+
+
 def _ws_pool_fields(d, cur=None):
     """Validate + build the ws edge-POOL fields. The form sends clean/burned edge-IP lists and
     clean/burned SNI host lists (+ rotation); we fetch the ECHConfigList for each clean SNI and
@@ -2541,7 +2549,7 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_ips_burned": burned_ips,
         "ws_edge_snis": snis,                # [{host,ech,path}] — sent to the node + stored
         "ws_edge_snis_burned": burned_hosts,  # host list — panel-side only
-        "ws_rotate_secs": max(0, min(28800, int(d.get("ws_rotate_secs") if "ws_rotate_secs" in d else (cur.get("ws_rotate_secs") or 600)))),
+        "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),   # 0 (rotation off) preserved, not coerced to 600
         "ws_auto_burn": bool(d.get("ws_auto_burn") if "ws_auto_burn" in d else cur.get("ws_auto_burn")),
         "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
@@ -2864,28 +2872,6 @@ def api_pool_select(d):
     return {"ok": True}
 
 
-def api_pool_rotate(d):
-    """Live 'rotate now' for a ws edge pool: tell the client node to signal the running core
-    to advance ONE dimension (dim='ip' or 'sni') with no rebuild — the TUN stays up while the
-    carrier re-dials on the new edge. Returns the fresh live status so the UI updates at once."""
-    d = d or {}
-    _require(d, ["id", "dim"])
-    if d["dim"] not in ("ip", "sni"):
-        raise ValueError("dim باید ip یا sni باشد")
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        raise ValueError("این لینک استخرِ لبه ندارد")
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
-    if not node:
-        raise ValueError("نودِ کلاینت پیدا نشد")
-    r = node_call(node, "pool-rotate", "POST", {"name": L.get("name"), "dim": d["dim"]}, timeout=10)
-    if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or "چرخش ناموفق بود"}
-    return {"ok": True}
-
-
 def api_flux_rotate(d):
     """'Rotate now' for a flux link: bump the manual epoch offset by one and rebuild both
     ends with it. Both ends get the same offset, so the moving target jumps a shape ahead
@@ -3022,42 +3008,11 @@ def _edit_link_impl(d):
     # link reads as changed and forces a needless rebuild (a brief outage).
     _defport = 4789 if ttype == "vxlan" else (20000 + tid)
     port_same = ("port" not in extra) or (extra["port"] == (L.get("port") or _defport))
-    core_same = ttype != "core" or (
-        extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a")
-        and (extra.get("transport") or "udp") == (L.get("transport") or "udp")
-        and bool(extra.get("obfs")) == bool(L.get("obfs"))
-        and bool(extra.get("cover")) == bool(L.get("cover"))
-        and (extra.get("cover_sni") or "") == (L.get("cover_sni") or "")
-        and (extra.get("raw_profile") or "") == (L.get("raw_profile") or "")
-        and (extra.get("flux_carrier") or "") == (L.get("flux_carrier") or "")
-        and (extra.get("flux_rotate_secs") or 0) == (L.get("flux_rotate_secs") or 0)
-        and (extra.get("flux_shape") or "") == (L.get("flux_shape") or "")
-        and (extra.get("flux_epoch_offset") or 0) == (L.get("flux_epoch_offset") or 0)
-        and (extra.get("ws_host") or "") == (L.get("ws_host") or "")
-        and (extra.get("ws_path") or "") == (L.get("ws_path") or "")
-        and bool(extra.get("ws_tls")) == bool(L.get("ws_tls"))
-        and bool(extra.get("ws_xhttp")) == bool(L.get("ws_xhttp"))
-        and (extra.get("ws_xhttp_mode") or "") == (L.get("ws_xhttp_mode") or "")
-        and bool(extra.get("ech")) == bool(L.get("ech"))
-        and bool(extra.get("ws_pool")) == bool(L.get("ws_pool"))
-        and (extra.get("ws_edge_ips") or []) == (L.get("ws_edge_ips") or [])
-        and (extra.get("ws_edge_ips_burned") or []) == (L.get("ws_edge_ips_burned") or [])
-        and [s.get("host") for s in (extra.get("ws_edge_snis") or [])] == [s.get("host") for s in (L.get("ws_edge_snis") or [])]
-        and (extra.get("ws_edge_snis_burned") or []) == (L.get("ws_edge_snis_burned") or [])
-        and (extra.get("ws_rotate_secs") or 0) == (L.get("ws_rotate_secs") or 0)
-        and bool(extra.get("ws_auto_burn")) == bool(L.get("ws_auto_burn"))
-        and bool(extra.get("ws_warm_standby")) == bool(L.get("ws_warm_standby"))
-        and (extra.get("edge_ip") or "") == (L.get("edge_ip") or "")
-        and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
-        and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
-        and bool(extra.get("fec")) == bool(L.get("fec"))
-        and (extra.get("fec_data") or 0) == (L.get("fec_data") or 0)
-        and (extra.get("fec_parity") or 0) == (L.get("fec_parity") or 0)
-        and bool(extra.get("gso")) == bool(L.get("gso")))
     # Non-core links may short-circuit an unchanged edit (avoids a needless outage). Core links must
     # NOT: the button is "save AND rebuild", and a core edit always does a clean both-ends-down rebuild
-    # below (the only reliable way to un-wedge a tunnel), so never silently no-op it.
-    if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and core_same:
+    # below (the only reliable way to un-wedge a tunnel), so never silently no-op it — which is exactly
+    # why the guard leads with `ttype != "core"` and no per-field core comparison is needed here.
+    if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "unchanged": True, "name": old_name}
     # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
     # occupies (its current port/proto/server node are excluded so it can't clash with
@@ -3931,26 +3886,6 @@ def api_settings_set(d):
     return {"ok": True, "settings": obj}
 
 
-def api_signing_pubkey(d):
-    """Return the panel's update-signing PUBLIC key (PEM) — safe to expose; the operator provisions it to nodes."""
-    _, pub = _signing_keys()
-    return {"pubkey": pub}
-
-
-def api_provision_key(d):
-    """Push the panel's public signing key to a node so it thereafter accepts ONLY signed code pushes.
-    First-set on the node side; re-provisioning the identical key is a no-op."""
-    _require(d, ["id"])
-    n = get_node(d["id"])
-    if not n:
-        raise ValueError("node not found")
-    _, pub = _signing_keys()
-    r = node_call(n, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
-    if not r.get("ok"):
-        raise ValueError(r.get("error") or r.get("msg") or "failed")
-    return {"ok": True}
-
-
 def api_checkin_impl(source_ip, d):
     """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
     whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
@@ -3991,12 +3926,12 @@ API = {
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
     "node-install": api_node_install, "install-status": api_node_install_status,
-    "node-test": api_node_test, "node-meta": api_node_meta, "node-stats": api_node_stats,
+    "node-test": api_node_test, "node-stats": api_node_stats,
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
-    "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
+    "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
@@ -4006,12 +3941,10 @@ API = {
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-update": api_core_update,
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
-    "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
-             "provision-key"}
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -5439,8 +5372,6 @@ function donut(id,parts){var svg=el(id);if(!svg)return;var CIR=2*Math.PI*46,tota
  parts.forEach(function(p){var len=p[1]/total*CIR;if(len>0.4){g+='<circle cx="60" cy="60" r="46" fill="none" stroke="'+p[2]+'" stroke-width="15" stroke-dasharray="'+Math.max(1,len-1).toFixed(1)+' '+CIR.toFixed(1)+'" stroke-dashoffset="'+(-off).toFixed(1)+'" transform="rotate(-90 60 60)" stroke-linecap="round"/>'}off+=len});
  g+='<text x="60" y="57" text-anchor="middle" font-size="21" font-weight="800" fill="'+cssv('--tx')+'" font-family="Vazirmatn,Tahoma">'+parts[0][1]+'</text><text x="60" y="76" text-anchor="middle" font-size="10" fill="'+cssv('--sub')+'" font-family="Vazirmatn,Tahoma">آنلاین</text>';
  svg.innerHTML=g}
-function ring(pct,color){pct=Math.max(0,Math.min(100,pct||0));var C=(2*Math.PI*15).toFixed(1),o=(C*(1-pct/100)).toFixed(1);
- return '<svg viewBox="0 0 40 40" style="width:44px;height:44px;flex:0 0 auto"><circle cx="20" cy="20" r="15" fill="none" stroke="var(--bord)" stroke-width="4"/><circle cx="20" cy="20" r="15" fill="none" stroke="'+color+'" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+C+'" stroke-dashoffset="'+o+'" transform="rotate(-90 20 20)" style="transition:stroke-dashoffset .5s"/><text x="20" y="24" text-anchor="middle" font-size="11" fill="var(--tx)" font-family="Vazirmatn,Tahoma">'+Math.round(pct)+'</text></svg>'}
 function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.info||!n.info.ips)return [];
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
