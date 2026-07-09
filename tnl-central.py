@@ -3961,11 +3961,11 @@ INDEX_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="ut
 :root{--acc:#4d6bf0;--acc2:#12a5b8;--ok:#2f9e6f;--bad:#d1524a;--gold:#bd7f18;
 --page:#eef1f6;--card:#ffffff;--side:#ffffff;--glass:#f1f4f8;--field:#f4f6fa;--bord:#e5e9f0;
 --tx:#232b36;--sub:#727e8c;--chart1:#6d5cf0;--chart2:#12a5b8;--hi:transparent;--dsh:0 10px 26px -18px rgba(40,60,100,.2);
---accw:#eef1fe;--okw:#e8f6ef;--badw:#fbeceb;--warnw:#f7efe0;--goldw:color-mix(in srgb,var(--gold) 16%,transparent);--sh-sm:0 1px 2px rgba(20,30,50,.05)}
+--accw:#eef1fe;--okw:#e8f6ef;--badw:#fbeceb;--warnw:#f7efe0;--goldw:color-mix(in srgb,var(--gold) 16%,transparent);--sh-sm:0 1px 2px rgba(20,30,50,.05);--sk-base:#d7dde8;--sk-hi:#f3f6fb}
 body.dark{--acc:#6f8dff;--acc2:#3fd0e0;--ok:#4ec99a;--bad:#f0736a;--gold:#e0a83a;
 --page:#0e1420;--card:#161f2e;--side:#111826;--glass:#1a2333;--field:#131c29;--bord:#243040;
 --tx:#e6ecf4;--sub:#8b98aa;--chart1:#8f9dff;--chart2:#3fd0e0;--hi:transparent;--dsh:0 14px 34px -20px rgba(0,0,0,.6);
---accw:rgba(111,141,255,.14);--okw:rgba(78,201,154,.13);--badw:rgba(240,115,106,.13);--warnw:rgba(224,168,58,.12);--sh-sm:0 1px 2px rgba(0,0,0,.3)}
+--accw:rgba(111,141,255,.14);--okw:rgba(78,201,154,.13);--badw:rgba(240,115,106,.13);--warnw:rgba(224,168,58,.12);--sh-sm:0 1px 2px rgba(0,0,0,.3);--sk-base:#1f2a3a;--sk-hi:#36465f}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 html{height:100%;background:var(--page)}
 body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--page);min-height:100vh;touch-action:manipulation}
@@ -4132,8 +4132,25 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pagehd .actbtn{margin-inline-start:auto;display:inline-flex;align-items:center;gap:6px;background:var(--acc);color:#fff;border:0;font-weight:700;font-size:12.5px;padding:9px 15px;border-radius:11px;cursor:pointer;font-family:inherit}
 .pagehd .actbtn .ic{width:15px;height:15px}
 .skrow{display:flex;align-items:center;gap:11px}
-.sk{background:linear-gradient(90deg,var(--glass) 25%,var(--field) 50%,var(--glass) 75%);background-size:200% 100%;border-radius:7px;animation:shim 1.3s infinite}
+/* skeleton shimmer: a visible placeholder grey (--sk-base) with a clearly brighter sweep (--sk-hi),
+   so it reads as a loading placeholder in BOTH themes (the old glass/field pair was near-invisible in light). */
+.sk{background:linear-gradient(90deg,var(--sk-base) 0%,var(--sk-base) 38%,var(--sk-hi) 50%,var(--sk-base) 62%,var(--sk-base) 100%);background-color:var(--sk-base);background-size:220% 100%;border-radius:7px;animation:shim 1.25s ease-in-out infinite}
 @keyframes shim{from{background-position:200% 0}to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.sk{animation:none}}
+/* skeleton cards shown while a list page's data loads (async), so the page never looks blank/frozen */
+.skcard{animation:rise .4s both}
+.skgrid{display:flex;flex-direction:column;gap:12px}
+.sk-lead{width:40px;height:40px;border-radius:11px;flex:0 0 auto}
+.sk-b{height:12px;border-radius:6px}
+.sk-badge{width:64px;height:22px;border-radius:20px;flex:0 0 auto}
+.sk-dot{width:30px;height:30px;border-radius:9px}
+.sk-strip{height:40px;border-radius:10px;margin-top:12px}
+.sk-acts{display:flex;gap:7px;margin-top:13px}
+.sk-chips{display:flex;gap:8px;margin-top:12px}
+.sk-chip{height:24px;border-radius:20px;flex:1}
+.sk-ends{display:flex;align-items:center;gap:12px}
+.sk-end{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.sk-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
 .emptybox{text-align:center;padding:30px 16px}
 .emptybox .ei{width:52px;height:52px;border-radius:15px;margin:0 auto 13px;display:grid;place-items:center;background:var(--accw);color:var(--acc)}
 .emptybox .ei .ic{width:26px;height:26px}
@@ -5262,6 +5279,24 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
  tip.innerHTML='<span>'+esc(bar.dataset.nm)+'</span> '+bar.dataset.info;
  tip.style.left=(bar.offsetLeft+bar.offsetWidth/2)+'px';tip.style.display='block';
  clearTimeout(box._tt);box._tt=setTimeout(function(){if(tip)tip.style.display='none'},2400)}
+// ===== skeleton loading cards: shown in a list container while its data loads (async), so a page
+// reload never shows a blank/frozen gap. The shells mirror the real card geometry so the swap to
+// live data is seamless; a page's last-known count keeps the height stable (fallback 6).
+function skNodeCard(){return '<div class="card node skcard">'+
+  '<div class="nrow"><div class="sk sk-dot" style="width:14px;height:14px;border-radius:50%"></div>'+
+  '<div class="sk-col"><div class="sk sk-b" style="width:42%"></div><div class="sk sk-b" style="width:62%;height:10px"></div></div>'+
+  '<div class="sk sk-badge"></div></div>'+
+  '<div class="sk-chips"><div class="sk sk-chip"></div><div class="sk sk-chip"></div><div class="sk sk-chip"></div></div>'+
+  '<div class="sk sk-strip" style="height:26px"></div>'+
+  '<div class="sk-acts"><div class="sk sk-dot"></div><div class="sk sk-dot"></div><div class="sk sk-dot"></div><div class="sk sk-dot" style="margin-inline-start:auto"></div></div></div>'}
+function skLinkCard(){var end='<div class="sk-end"><div class="sk-col"><div class="sk sk-b" style="width:70%"></div><div class="sk sk-b" style="width:48%;height:10px"></div></div></div>';
+ return '<div class="card skcard">'+
+  '<div class="sk-ends">'+end+'<div class="sk sk-b" style="width:16px;height:8px;flex:0 0 auto"></div>'+end+'</div>'+
+  '<div class="sk-chips"><div class="sk sk-chip"></div><div class="sk sk-chip"></div></div>'+
+  '<div class="sk sk-strip"></div>'+
+  '<div class="sk-acts"><div class="sk sk-dot"></div><div class="sk sk-dot" style="margin-inline-start:auto"></div><div class="sk sk-dot"></div><div class="sk sk-dot"></div><div class="sk sk-dot"></div></div></div>'}
+function skCards(kind){var n=Math.max(3,Math.min(8,num((kind=='nodes'?(NODES||[]):(FLEET||[])).length)||6));
+ var one=kind=='nodes'?skNodeCard:skLinkCard,out='';for(var i=0;i<n;i++)out+=one();return '<div class="skgrid">'+out+'</div>'}
 function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' '+esc(T('nav_overview'))+'</h1><p class="sub">'+esc(T('ov_sub'))+'</p>'+
  '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">'+esc(T('ov_health'))+'</div></div><div class="ochips" id="o_chips"></div></div>'+
  '<div class="sec">'+ic('warn','var(--acc)')+' '+esc(T('ov_attention'))+'</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
@@ -5325,7 +5360,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
 // ===== Nodes
 function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' '+esc(T('nav_nodes'))+'</h1><p class="sub">'+esc(T('nodes_sub'))+'</p>'+
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
- '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList"></div>'+pagerBottom('nodes')}
+ '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'+pagerBottom('nodes')}
 var _naddMode='auto';
 function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+esc(T('nadd_auto'))+'</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+esc(T('nadd_manual'))+'</button></div>';
@@ -5537,7 +5572,7 @@ async function doDelNode(id,wipe){var m=el('del_msg');
 // ===== Tunnels
 function tunnelsSkel(){CHK={};el('view').innerHTML='<h1>'+ic('link','var(--acc)')+' '+esc(T('nav_tunnels'))+'</h1><p class="sub">'+esc(T('tun_sub'))+'</p>'+
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
- toolbar('tunnels',T('tun_search'))+'<div id="linkList"></div>'+pagerBottom('tunnels')}
+ toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
 function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct')):T('t_noloss'));return p.join(' · ')}
 function sideTxt(online,h){
@@ -5738,7 +5773,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
 // ===== Custom core (packet/core) — its own view, list and create form
 function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('nav_core'))+'</h1><p class="sub">'+esc(T('core_sub'))+'</p>'+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
- toolbar('core',T('core_search'))+'<div id="corList"></div>'+pagerBottom('core')}
+ toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(editingId||CHECKING)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
