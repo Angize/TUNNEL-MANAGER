@@ -5555,7 +5555,7 @@ function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=poolRemain(d,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
-async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');setTimeout(poolTick,1500)}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 // "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
 async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-select',{id:lid,kind:kind,key:key});if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');setTimeout(poolTick,1500)}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
