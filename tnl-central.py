@@ -135,7 +135,8 @@ def settings_defaults():
         "reconcile_mode": "alert",  # default. "alert" = only flag a drifted tunnel; the operator clicks
                                     # بازسازی on the affected one. "auto" = panel rebuilds it itself (single-IP).
         "reconcile_interval": 15,   # seconds between reconcile sweeps (5–3600)
-        "poll_interval": 2,         # seconds the fleet poller rests between sweeps (1–60)
+        "poll_interval": 2,         # seconds the fleet poller rests between sweeps (0.3–60, fractional OK)
+        "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
         "uptime_window": 1,         # uptime-bar span in hours (1/3/6/8/12/24); always 60 cells, each = window/60
     }
 
@@ -174,7 +175,9 @@ def validate_settings(d):
     if "reconcile_interval" in d and d["reconcile_interval"] not in (None, ""):
         out["reconcile_interval"] = max(5, min(3600, int(d["reconcile_interval"])))
     if "poll_interval" in d and d["poll_interval"] not in (None, ""):
-        out["poll_interval"] = max(1, min(60, int(d["poll_interval"])))
+        out["poll_interval"] = max(0.3, min(60.0, round(float(d["poll_interval"]), 2)))  # fractional (sub-second) OK
+    if "ui_interval" in d and d["ui_interval"] not in (None, ""):
+        out["ui_interval"] = max(0.3, min(60.0, round(float(d["ui_interval"]), 2)))       # fractional (sub-second) OK
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
         w = int(d["uptime_window"])
         out["uptime_window"] = w if w in (1, 3, 6, 8, 12, 24) else 1
@@ -588,7 +591,7 @@ def poller_loop():
                 futures_wait([ex.submit(_run, n) for n in todo], timeout=SWEEP_DEADLINE)
         except Exception:
             pass
-        time.sleep(max(1, int(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP)))
+        time.sleep(max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP)))  # fractional/sub-second OK
 
 
 def _cached_ping(nid):
@@ -1170,7 +1173,8 @@ def api_summary(d):
     if outdated:
         alerts.append({"level": "warn", "kind": "agent", "msg": f"{outdated} نود ایجنتِ قدیمی دارد"})
 
-    win = get_settings().get("uptime_window", 1)
+    _sset = get_settings()
+    win = _sset.get("uptime_window", 1)
     ups, downcnt = [], 0
     for n in nodes:
         vals = [c for c in _uh_cells(n["id"], win) if c is not None]
@@ -1204,7 +1208,8 @@ def api_summary(d):
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
-            "ev_seq": _ev_seq_get()}
+            "ev_seq": _ev_seq_get(),
+            "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2)}
 
 
 def _name_taken(nodes, name, exclude_id=None):
@@ -4718,7 +4723,7 @@ var I18N={fa:{
  t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",t_this_edge:"This edge is now active",
 }};
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
- ram:"رم",cpu:"CPU",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانی هر ۲ ثانیه",
+ ram:"رم",cpu:"CPU",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
  // node details
  nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
  ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
@@ -4776,13 +4781,13 @@ var I18N={fa:{
  pf_disabled:"غیرفعال",pf_rule:"قانون",pf_rotate_now:"چرخش الان",pf_rotate_done:"چرخش انجام شد ← ",pf_rotate_failed:"چرخش ناموفق",
  // settings
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
- set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۱ تا ۶۰",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
+ set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۰٫۳ تا ۶۰ — زیرِ ۱ هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"۰٫۳ تا ۶۰ — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
 },en:{
- ram:"RAM",cpu:"CPU",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"refreshes every 2s",
+ ram:"RAM",cpu:"CPU",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"live refresh",
  nd_title:"Node details",nd_status:"Node status",nd_off_last:"Offline — last values",nd_conn_test:"Connection test",nd_traffic:"Traffic",nd_ips:"IPs",
  ip_leg:"tunneled / port-forward / free",ip_none:"no IPs reported",free:"Free",nd_no_tp:"No tunnels or port-forwards on this node",nd_ctrlproxy:"Control proxy",
  nd_edit:"Edit node",f_name:"Name",f_host_ip:"Host / IP",f_port:"Port",f_token:"Token",tok_keep:"empty = keep current token",
@@ -4831,7 +4836,7 @@ var I18N={fa:{
  pf_iface:"Interface: ",pf_lip_lbl:"Listen IP: ",pf_lp_lbl:"Listen port: ",pf_dp_lbl:"Destination port: ",pf_active_badge:"Active · target",
  pf_disabled:"Inactive",pf_rule:"Rule",pf_rotate_now:"Rotate now",pf_rotate_done:"Rotated → ",pf_rotate_failed:"Rotation failed",
  set_on_ipchange:"When a node's IP changes",set_on_ipchange_d:"Alert, or auto-heal",set_rec_int:"Reconcile check interval (seconds)",
- set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"1 to 60",set_upwin:"Uptime-bar window",
+ set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"0.3 to 60 — sub-1s allowed (heavier load)",set_ui_int:"UI refresh interval (seconds)",set_ui_range:"0.3 to 60 — rates/gauges refresh at this cadence",set_upwin:"Uptime-bar window",
  set_upwin_d:"60 cells; each cell = window ÷ 60",set_mode_auto:"Auto",set_mode_alert:"Alert",set_default:"default",set_agent_update:"Agent update",
  h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
  pending_check:"Checking…",off_word:"Off",on_word:"On",
@@ -5212,7 +5217,7 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0;
+var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000;   // UIV = live-refresh interval (ms), from settings.ui_interval
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 function CORE_CIPHERS(){return [{v:'auto',label:T('cipher_auto')},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:T('cipher_none')}]}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
@@ -5223,6 +5228,7 @@ function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
  setT('ct_nodes',num(s.nodes_total));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
+ if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   // live-refresh cadence, from settings
  // logs badge = events logged since the operator last opened the log page (viewing it clears it)
  EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
  if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
@@ -5541,7 +5547,7 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
     tfin.push(num(nd.rx_bps));tfout.push(num(nd.tx_bps));if(tfin.length>30){tfin.shift();tfout.shift()}dualSpark('tf_spark',tfin,tfout);
     var rows=(r.tunnels||[]).concat(r.portfw||[]);
     var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">'+esc(T('nd_no_tp'))+'</div>'}).catch(function(){})};
-  poll();ov._iv=setInterval(poll,2500)}}
+  poll();ov._iv=setInterval(poll,UIV)}}   // live CPU/RAM/disk + traffic, at the settings-driven cadence
 function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast(T('online'),'ok')}else{toast(T('offline')+': '+((r&&r.error)||T('not_available')),'err')}}).catch(function(){toast(T('err_check'),'err')})}
 function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
  var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div><label>'+esc(T('f_ctrlproxy_empty'))+'</label><input id="e_proxy_'+id+'" value="'+esc(n.proxy||'')+'" placeholder="socks5://host:1080 یا http://user:pass@host:8080"><div class="msg" id="em_'+id+'"></div>';
@@ -5959,7 +5965,7 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
   if(d.pinPending){var pk=d.pinPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.pinPending=null;}
   poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // live health (سالم/موقت/دائمی) + active edge overlay onto the rows
 async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
-setInterval(poolTick,4000);
+(function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   // live-cadence self-loop
 // Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){var host=el('ee_lst_'+k);if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=poolRemain(d,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
@@ -5977,8 +5983,10 @@ async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
   else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
-async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');for(var i=0;i<els.length;i++){var lid=els[i].id.slice(9);try{var r=await post('edge-status',{id:lid});if(r.ok&&r.d&&r.d.ok&&r.d.pool){var e=el('cardedge_'+lid);if(e)e.textContent=r.d.active||'—';}}catch(_){}}}
-setInterval(refreshCardEdges,12000);
+async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');
+ await Promise.all(Array.prototype.map.call(els,function(elm){var lid=elm.id.slice(9);   // parallel, not one-by-one
+  return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var e=el('cardedge_'+lid);if(e)e.textContent=r.d.active||'—'}},function(){})}))}
+(function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+esc(T('spoof_hd'))+'</div>'
@@ -6472,7 +6480,8 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
   row(T('lang_label'),'فارسی / English',langseg)+
   row(T('set_on_ipchange'),T('set_on_ipchange_d'),'<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
   row(T('set_rec_int'),T('set_rec_range'),'<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
-  row(T('set_poll_int'),T('set_poll_range'),'<input id="set_poll" class="search" type="number" min="1" max="60" value="'+(num(s.poll_interval)||2)+'">')+
+  row(T('set_poll_int'),T('set_poll_range'),'<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.poll_interval)||2)+'">')+
+  row(T('set_ui_int'),T('set_ui_range'),'<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.ui_interval)||2)+'">')+
   row(T('set_upwin'),T('set_upwin_d'),ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
   '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
   '</div>'+
@@ -6482,11 +6491,11 @@ function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setM
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
- var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),uptime_window:ssVal('set_upwin')});
+ var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),uptime_window:ssVal('set_upwin')});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}}
-function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,6000);return}  // don't burn cycles (or queue work) while the tab is hidden
- updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,6000)})}
+function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
+ updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
 // ===== command palette (Ctrl+K) =====
 document.addEventListener('keydown',function(e){if(!((e.ctrlKey||e.metaKey)&&(e.key=='k'||e.key=='K')))return;
