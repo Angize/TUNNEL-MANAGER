@@ -509,11 +509,36 @@ def _refresh_cache(nids):
     parallel_map(_poll_node, [nodes[i] for i in dict.fromkeys(nids) if i in nodes])
 
 
+_warm_inflight = set()          # node ids being warmed by a background _ensure_cached poll
+_warm_lock = threading.Lock()
+
+
 def _ensure_cached(nodes):
-    """Warm the cache for a bounded set of nodes (a single page) that the poller hasn't reached yet."""
+    """Warm the cache for a page's nodes WITHOUT blocking the request. A node the poller hasn't
+    reached yet (cold start / just-added / poller behind on a slow fleet) is polled in the
+    BACKGROUND — the request returns whatever is cached right now (an uncached node reads as offline
+    until the poll lands, and the UI's periodic refresh picks it up seconds later). This is the fix
+    for the page hanging on reload: a slow/unreachable node used to block /api/nodes here for up to
+    ping+list (~18s). Polls are deduped so repeated reloads don't pile up on the same node."""
     miss = [n for n in nodes if not _cache_get(n["id"])]
-    if miss:
-        parallel_map(_poll_node, miss)
+    if not miss:
+        return
+    with _warm_lock:
+        miss = [n for n in miss if n["id"] not in _warm_inflight]
+        for n in miss:
+            _warm_inflight.add(n["id"])
+    if not miss:
+        return
+
+    def _warm():
+        try:
+            parallel_map(_poll_node, miss)
+        finally:
+            with _warm_lock:
+                for n in miss:
+                    _warm_inflight.discard(n["id"])
+
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 def poller_loop():
@@ -1670,31 +1695,57 @@ def api_agent_push(d):
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
-_core_versions_cache = {"ts": 0.0, "data": None}
+_core_versions_cache = {"ts": 0.0, "attempt": 0.0, "data": None}
 _core_versions_lock = threading.Lock()
+_core_versions_refreshing = False
+
+
+def _fetch_core_versions():
+    """Fetch the core repo's GitHub releases (SLOW — runs OFF the request path). Returns the version
+    list, or None on failure so the caller keeps the existing cache instead of blanking it."""
+    try:
+        req = urllib.request.Request(_CORE_RELEASES_API,
+                                     headers={"User-Agent": "tnl-central", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            vers = []
+            for rel in json.loads(r.read().decode()):
+                tag = rel.get("tag_name")
+                if not tag or rel.get("draft"):
+                    continue
+                vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
+            return vers
+    except Exception:
+        return None
+
+
+def _core_versions_refresh_bg():
+    global _core_versions_refreshing
+    try:
+        vers = _fetch_core_versions()
+        with _core_versions_lock:
+            if vers is not None:  # success -> publish; failure -> keep the old cache, just record the attempt
+                _core_versions_cache["data"] = vers
+                _core_versions_cache["ts"] = time.time()
+    finally:
+        with _core_versions_lock:
+            _core_versions_refreshing = False
 
 
 def api_core_versions(d):
     """The core versions the operator can install/downgrade to — the core repo's GitHub releases,
-    newest first, plus a "latest" option. Cached ~5 min; degrades to just "latest" if the API is
-    unreachable so the control still works."""
+    newest first, plus a "latest" tag. Served INSTANTLY from cache; when the cache is stale a refresh
+    runs in the BACKGROUND (deduped, min 60s between attempts) so a slow/blocked GitHub — common from
+    the deployment region — never blocks the settings/agent page load. Degrades to whatever is cached
+    (or just the uploaded/staged binary) until a refresh succeeds."""
+    global _core_versions_refreshing
     now = time.time()
     with _core_versions_lock:
-        if _core_versions_cache["data"] is None or now - _core_versions_cache["ts"] > 300:
-            vers = []
-            try:
-                req = urllib.request.Request(_CORE_RELEASES_API,
-                                             headers={"User-Agent": "tnl-central", "Accept": "application/vnd.github+json"})
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    for rel in json.loads(r.read().decode()):
-                        tag = rel.get("tag_name")
-                        if not tag or rel.get("draft"):
-                            continue
-                        vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
-            except Exception:
-                pass
-            _core_versions_cache["data"] = vers
-            _core_versions_cache["ts"] = now
+        fresh = _core_versions_cache["data"] is not None and now - _core_versions_cache["ts"] <= 300
+        recent_attempt = now - _core_versions_cache["attempt"] < 60
+        if not fresh and not recent_attempt and not _core_versions_refreshing:
+            _core_versions_refreshing = True
+            _core_versions_cache["attempt"] = now
+            threading.Thread(target=_core_versions_refresh_bg, daemon=True).start()
         vers = list(_core_versions_cache["data"] or [])
     out = list(vers)  # newest first
     if out:  # tag the newest real release "(latest)" instead of a synthetic "latest" item
@@ -1763,6 +1814,16 @@ def _resolve_core_version(version):
     for v in (api_core_versions({}).get("versions") or []):
         if v.get("id") and v["id"] != "custom":
             return v["id"]
+    # Cache still cold (its refresh is async) — this is an explicit operator stage/install action, not
+    # a page load, so a one-off synchronous fetch here is fine and avoids recording the abstract "latest".
+    fetched = _fetch_core_versions()
+    if fetched:
+        with _core_versions_lock:
+            _core_versions_cache["data"] = fetched
+            _core_versions_cache["ts"] = time.time()
+        for v in fetched:
+            if v.get("id"):
+                return v["id"]
     return "latest"
 
 
