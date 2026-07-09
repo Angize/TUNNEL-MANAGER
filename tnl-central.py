@@ -2660,7 +2660,7 @@ def api_edge_status(d):
     # the panel clock only if an older node build didn't send `now`.
     node_now = int(r.get("now") or 0) or int(time.time())
     return {"ok": True, "pool": True, "active": str(r.get("active") or ""),
-            "health": health, "now": node_now, "ts": int(r.get("ts") or 0)}
+            "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
 def api_pool_probe_now(d):
@@ -3142,8 +3142,43 @@ def reconcile_loop():
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_CAP = 500
 _events_lock = threading.Lock()
-_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}}  # last-seen state (in-memory)
+_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}}  # last-seen state (in-memory)
 _ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
+
+# Map the CORE's stable reason codes (it saw the real error) to bilingual text for the log. This is
+# the precise, core-level "why" the operator asked for — not the panel's coarse guess.
+_EV_DOWN_CODE = {
+    "ping_timeout": ("بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش", "no keepalive response — throttled/blackholed or peer down"),
+    "reset": ("اتصال ریست شد (RST — احتمالاً کشتنِ DPI)", "connection reset (RST — likely DPI)"),
+    "refused": ("اتصال رد شد (connection refused)", "connection refused"),
+    "timeout": ("مهلتِ اتصال تمام شد / بی‌مسیر", "timeout / unreachable"),
+    "eof": ("اتصال بسته شد (EOF)", "connection closed (EOF)"),
+    "tls": ("دستِ TLS شکست خورد (احتمالاً SNI بلاک شده)", "TLS handshake failed (SNI blocked?)"),
+    "ws_upgrade": ("ارتقاءِ WebSocket رد شد (Origin/CDN)", "WebSocket upgrade refused (origin/CDN)"),
+    "closed": ("اتصال قطع شد", "connection dropped"),
+    "dropped": ("اتصال قطع شد", "connection dropped"),
+}
+_EV_BURN_CODE = {
+    "ip_blocked": ("آی‌پیِ لبه بلاک است (روی SNIِ سالم هم جواب نداد)", "edge IP blocked (failed even with a healthy SNI)"),
+    "sni_blocked": ("دامنه (SNI) بلاک است (روی آی‌پیِ سالم هم جواب نداد)", "SNI blocked (failed even on a healthy IP)"),
+    "throttle": ("آی‌پیِ لبه گلوگاه/کند شد (دست داد ولی دیتا مرد)", "edge IP throttled (handshake OK but data died)"),
+}
+
+
+def _ev_core_text(kind, code, detail, nm):
+    """Render a core event into (level, fa, en) for the panel log."""
+    key = str(detail or "")
+    if key.startswith("ip:"):
+        key = key[3:]
+    elif key.startswith("sni:"):
+        key = key[4:]
+    if kind == "down":
+        rf, re_ = _EV_DOWN_CODE.get(code, ("اتصال قطع شد", "connection dropped"))
+        return ("bad", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
+    if kind == "burn":
+        rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
+        return ("warn", f"لبهٔ «{key}» تونلِ «{nm}» سوخت — {rf}", f"Edge “{key}” of tunnel “{nm}” burned — {re_}")
+    return None
 
 
 def load_events():
@@ -3246,12 +3281,22 @@ def _events_once():
         if up:
             log_event("ok", "link", f"تونلِ «{nm}» وصل شد", f"Tunnel “{nm}” connected")
         else:
-            rf, re_ = _link_down_reason(L, nmap)
-            log_event("bad", "link", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
+            # A ws-pool tunnel's core records the PRECISE down reason itself (see the edge section) —
+            # don't also emit a coarse one here, unless a client node is offline (the core is dead
+            # then and can't report). Non-pool tunnels always use the coarse classification.
+            a_off = _cache_get(L.get("a_node")) and not _node_online(L.get("a_node"))
+            b_off = _cache_get(L.get("b_node")) and not _node_online(L.get("b_node"))
+            pool_core = L.get("type") == "core" and L.get("ws_pool")
+            if pool_core and not (a_off or b_off):
+                pass  # core-sourced precise "down" will be logged from its event ring
+            else:
+                rf, re_ = _link_down_reason(L, nmap)
+                log_event("bad", "link", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
 
-    # --- automatic edge-IP change on ws-pool core tunnels (suppressed right after a manual pin) ---
+    # --- ws-pool core tunnels: PRECISE core-recorded events (down reason + burns) and the
+    #     automatic edge-IP change. The core saw the real error; the panel just renders it. ---
     seen = set()
     now = int(time.time())
     for L in links:
@@ -3259,12 +3304,30 @@ def _events_once():
             continue
         lid = L["id"]
         seen.add(lid)
+        nm = L.get("name", "")
         try:
             r = api_edge_status({"id": lid})
         except Exception:
             r = None
         if not r or not r.get("pool"):
             continue
+
+        # core event ring (down/burn) — consume each exactly once by seq; seed silently on first pass
+        evs = r.get("events") or []
+        mx = max([0] + [int(e.get("seq") or 0) for e in evs])
+        if first:
+            _ev_state["evseq"][lid] = mx
+        else:
+            last = _ev_state["evseq"].get(lid, 0)
+            for e in sorted(evs, key=lambda x: int(x.get("seq") or 0)):
+                if int(e.get("seq") or 0) <= last:
+                    continue
+                txt = _ev_core_text(str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or ""), nm)
+                if txt:
+                    log_event(*txt)
+            _ev_state["evseq"][lid] = max(last, mx)
+
+        # automatic active-edge switch (suppressed briefly after an operator pin)
         active = str(r.get("active") or "")
         prev = _ev_state["edge"].get(lid)
         _ev_state["edge"][lid] = active
@@ -3272,11 +3335,12 @@ def _events_once():
             continue
         if _ev_suppress.get(lid, 0) > now:  # operator pinned this edge -> not a system event
             continue
-        nm = L.get("name", "")
         log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد: {prev} ⟵ {active}",
                   f"Tunnel “{nm}” edge auto-switched: {prev} → {active}")
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
         _ev_state["edge"].pop(lid, None)
+    for lid in [k for k in _ev_state["evseq"] if k not in seen]:
+        _ev_state["evseq"].pop(lid, None)
 
     _ev_state["init"] = True
 
