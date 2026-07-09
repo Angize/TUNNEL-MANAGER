@@ -6456,7 +6456,7 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
      '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span></div>';
  }).join('')+'</div>');}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
-function render(){setnav();editingId=null;
+function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
@@ -6529,6 +6529,8 @@ function palKey(e){if(e.key=='ArrowDown'){e.preventDefault();PALIDX=Math.min(PAL
  else if(e.key=='ArrowUp'){e.preventDefault();PALIDX=Math.max(PALIDX-1,0);palHi();palSc()}
  else if(e.key=='Enter'){e.preventDefault();palGo(PALIDX)}else if(e.key=='Escape'){e.preventDefault();closePal()}}
 function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if(r)r.scrollIntoView({block:'nearest'})}
+(function(){var p=getLS('tnl_page');   // restore the last page on reload (fall back to overview)
+ if(['overview','nodes','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;})();
 render();updateSidebar();TT=setTimeout(tick,6000);
 </script></body></html>"""
 
