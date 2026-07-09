@@ -2654,8 +2654,13 @@ def api_edge_status(d):
             "fails": int(h.get("fails") or 0),
             "next_retest_unix": int(h.get("next_retest_unix") or 0),
         })
+    # Use the CLIENT NODE's clock as "now" (it shares the core's clock that stamped next_retest_unix),
+    # so retest countdowns are correct even if the panel's clock is skewed from the node's. `ts` is the
+    # status file's write time -> the UI can flag a stale file (dead tunnel) as offline. Fall back to
+    # the panel clock only if an older node build didn't send `now`.
+    node_now = int(r.get("now") or 0) or int(time.time())
     return {"ok": True, "pool": True, "active": str(r.get("active") or ""),
-            "health": health, "now": int(time.time())}
+            "health": health, "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
 def api_pool_probe_now(d):
