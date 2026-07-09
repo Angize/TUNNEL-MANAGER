@@ -2701,6 +2701,7 @@ def api_pool_select(d):
     r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
+    _ev_suppress[d["id"]] = int(time.time()) + 45  # operator pin: don't log the edge change it causes
     return {"ok": True}
 
 
@@ -3130,6 +3131,180 @@ def reconcile_loop():
             pass
 
 
+# --------------------------------------------------------------------------- system event log
+# A rolling, persisted record of things the SYSTEM did on its own — node up/down, tunnel up/down
+# (with a best-effort reason), and AUTOMATIC edge-IP changes — i.e. the events an operator would
+# otherwise never see. Operator-driven actions (create/edit/delete, manual pin/rotate, toggling a
+# tunnel off) are deliberately NOT logged: the detector only records STATE TRANSITIONS it observes,
+# newly-added/removed entities are seeded silently, disabled tunnels are skipped, and a manual pin
+# suppresses the edge-change it causes. Each event stores both fa+en text so it renders in either UI
+# language regardless of when it was recorded.
+EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
+EVENTS_CAP = 500
+_events_lock = threading.Lock()
+_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}}  # last-seen state (in-memory)
+_ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
+
+
+def load_events():
+    try:
+        with open(EVENTS_FILE) as f:
+            evs = json.load(f)
+        return evs if isinstance(evs, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def log_event(level, kind, fa, en):
+    """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad."""
+    with _events_lock:
+        evs = load_events()
+        evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind, "fa": fa, "en": en})
+        if len(evs) > EVENTS_CAP:
+            evs = evs[:EVENTS_CAP]
+        try:
+            save_json(EVENTS_FILE, evs)
+        except OSError:
+            pass
+
+
+def _node_online(nid):
+    return bool(_cached_ping(nid).get("ok"))
+
+
+def _link_up(L):
+    ah, _a = _link_side_health(L, "a_node")
+    bh, _b = _link_side_health(L, "b_node")
+    return isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
+
+
+def _link_down_reason(L, nmap):
+    """Best-effort classification of WHY a tunnel went down, from signals the panel already has."""
+    for key in ("a_node", "b_node"):
+        nid = L.get(key)
+        if _cache_get(nid) and not _node_online(nid):
+            nm = nmap.get(nid, nid)
+            return (f"نودِ «{nm}» آفلاین است", f"node “{nm}” is offline")
+    if link_drift(L["id"]):
+        return ("IP عوض شده — نیازمندِ بازسازی", "IP changed — needs rebuild")
+    if L.get("type") == "core" and L.get("ws_pool"):
+        try:
+            r = api_edge_status({"id": L["id"]})
+            h = (r or {}).get("health") or []
+            if r and r.get("pool") and h and not any(e.get("state") == "healthy" for e in h):
+                return ("همهٔ لبه‌های استخر بلاک/سوخته‌اند", "all pool edges are blocked/burned")
+        except Exception:
+            pass
+    return ("قابلِ دسترسی نیست (کریر/سرِ مقابل)", "unreachable (carrier/peer)")
+
+
+def _events_once():
+    nodes = load_nodes()
+    links = load_links()
+    nmap = {n["id"]: n.get("name", "") for n in nodes}
+    first = not _ev_state["init"]
+
+    # --- nodes: online <-> offline (only for nodes actually probed at least once) ---
+    seen = set()
+    for n in nodes:
+        nid = n["id"]
+        seen.add(nid)
+        if not _cache_get(nid):
+            continue
+        online = _node_online(nid)
+        prev = _ev_state["nodes"].get(nid)
+        _ev_state["nodes"][nid] = online
+        if first or prev is None or prev == online:
+            continue
+        nm = n.get("name", "")
+        if online:
+            log_event("ok", "node", f"نودِ «{nm}» آنلاین شد", f"Node “{nm}” came online")
+        else:
+            log_event("bad", "node", f"نودِ «{nm}» آفلاین شد", f"Node “{nm}” went offline")
+    for nid in [k for k in _ev_state["nodes"] if k not in seen]:
+        _ev_state["nodes"].pop(nid, None)
+
+    # --- tunnels: up <-> down (skip operator-disabled ones; reason on the down edge) ---
+    seen = set()
+    for L in links:
+        lid = L["id"]
+        seen.add(lid)
+        if not L.get("enabled", True):
+            _ev_state["links"].pop(lid, None)  # operator turned it off -> not a system event
+            continue
+        # need both ends reachable to judge "up"; if a node isn't probed yet, hold state as-is
+        a_probed = _cache_get(L.get("a_node")) is not None
+        b_probed = _cache_get(L.get("b_node")) is not None
+        if not (a_probed and b_probed):
+            continue
+        up = bool(_link_up(L))
+        prev = _ev_state["links"].get(lid)
+        _ev_state["links"][lid] = up
+        if first or prev is None or prev == up:
+            continue
+        nm = L.get("name", "")
+        if up:
+            log_event("ok", "link", f"تونلِ «{nm}» وصل شد", f"Tunnel “{nm}” connected")
+        else:
+            rf, re_ = _link_down_reason(L, nmap)
+            log_event("bad", "link", f"تونلِ «{nm}» قطع شد — {rf}", f"Tunnel “{nm}” disconnected — {re_}")
+    for lid in [k for k in _ev_state["links"] if k not in seen]:
+        _ev_state["links"].pop(lid, None)
+
+    # --- automatic edge-IP change on ws-pool core tunnels (suppressed right after a manual pin) ---
+    seen = set()
+    now = int(time.time())
+    for L in links:
+        if L.get("type") != "core" or not L.get("ws_pool") or not L.get("enabled", True):
+            continue
+        lid = L["id"]
+        seen.add(lid)
+        try:
+            r = api_edge_status({"id": lid})
+        except Exception:
+            r = None
+        if not r or not r.get("pool"):
+            continue
+        active = str(r.get("active") or "")
+        prev = _ev_state["edge"].get(lid)
+        _ev_state["edge"][lid] = active
+        if first or prev is None or prev == active or not active:
+            continue
+        if _ev_suppress.get(lid, 0) > now:  # operator pinned this edge -> not a system event
+            continue
+        nm = L.get("name", "")
+        log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد: {prev} ⟵ {active}",
+                  f"Tunnel “{nm}” edge auto-switched: {prev} → {active}")
+    for lid in [k for k in _ev_state["edge"] if k not in seen]:
+        _ev_state["edge"].pop(lid, None)
+
+    _ev_state["init"] = True
+
+
+def events_loop():
+    while True:
+        time.sleep(15)
+        try:
+            _events_once()
+        except Exception:
+            pass
+
+
+def api_events(d):
+    d = d or {}
+    lim = max(1, min(EVENTS_CAP, _sint((d or {}).get("limit")) or 200))
+    return {"ok": True, "events": load_events()[:lim]}
+
+
+def api_events_clear(d):
+    with _events_lock:
+        try:
+            save_json(EVENTS_FILE, [])
+        except OSError:
+            pass
+    return {"ok": True}
+
+
 def _pf_field(k, v):
     """Validate+coerce ONE port-forward field before it is forwarded to a root node's iptables/ip
     handler. Port-forward is the fleet's most injection-prone endpoint (dst_ips/listen_ip/iface feed
@@ -3415,6 +3590,7 @@ API = {
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
+    "events": api_events, "events-clear": api_events_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
@@ -3424,7 +3600,7 @@ API = {
     "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
              "provision-key"}
 
@@ -4263,6 +4439,7 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
+   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
   </nav>
@@ -4278,7 +4455,8 @@ body.dark .tag.core{color:#a78bfa}
 var LANG='fa';
 try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}catch(e){}
 var I18N={fa:{
- nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_settings:"تنظیمات",nav_logout:"خروج",
+ nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",ev_kind_node:"نود",ev_kind_link:"تونل",ev_kind_edge:"لبه",
  brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",del:"حذف",add:"افزودن",edit:"ویرایش",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
@@ -4320,7 +4498,8 @@ var I18N={fa:{
  // toasts common
  t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",t_this_edge:"این لبه فعال شد",
 },en:{
- nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_settings:"Settings",nav_logout:"Log out",
+ nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_logs:"Logs",nav_settings:"Settings",nav_logout:"Log out",
+ logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",ev_kind_node:"Node",ev_kind_link:"Tunnel",ev_kind_edge:"Edge",
  brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
  save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",del:"Delete",add:"Add",edit:"Edit",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
  online:"Online",offline:"Offline",failed:"Failed",saving:"Saving…",checking:"Checking…",sending:"Sending…",loading:"Loading…",
@@ -6025,9 +6204,26 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
   else{if(m){m.className='msg agres err';m.textContent=T('ag_fail')+terr(x.error||'')}}});
  if(target=='all')toast(ok+'/'+rs.length+T('ag_nodes_updated'),ok?'ok':'err');
  setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
-function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
+function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
+// ===== system event log (auto events only; operator actions are excluded server-side) =====
+function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString(LANG=='fa'?'fa-IR':'en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
+function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
+ '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="refreshLogs()">'+ic('redo')+esc(T('logs_refresh'))+'</button><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
+ '<div id="logList"><div class="card muted">'+esc(T('loading'))+'</div></div>';refreshLogs();}
+async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
+ if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
+ setHTML(box,'<div class="card" style="padding:4px 0">'+evs.map(function(e){
+   var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
+   var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
+   var txt=(LANG=='en'?e.en:e.fa)||e.fa||e.en||'';
+   return '<div style="display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid rgba(128,128,128,.14)">'+
+     '<span style="flex:0 0 auto;color:'+col+';display:inline-flex">'+ic(lv)+'</span>'+
+     '<span style="flex:1;min-width:0;font-size:12.5px;line-height:1.6">'+esc(txt)+'</span>'+
+     '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:11px;white-space:nowrap">'+esc(fmtEvTime(e.ts))+'</span></div>';
+ }).join('')+'</div>');}
+async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;
- if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
+ if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
 // ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
@@ -6320,6 +6516,7 @@ def serve():
     threading.Thread(target=poller_loop, daemon=True).start()  # warm the fleet cache in the background
     threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
     threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
+    threading.Thread(target=events_loop, daemon=True).start()      # record system events (node/tunnel up-down, auto edge change)
     httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
