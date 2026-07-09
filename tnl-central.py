@@ -6494,6 +6494,16 @@ function evLine(l){var i=l.indexOf(': ');
  if(i>0)return '<div style="display:flex;gap:6px;align-items:baseline;margin-top:3px"><span style="color:var(--sub);font-size:11px;flex:0 0 auto">'+esc(l.slice(0,i))+':</span>'+
    '<span class="mono" dir="ltr" style="font-size:12px;color:var(--tx);overflow-wrap:anywhere;text-align:left;flex:1;min-width:0;unicode-bidi:isolate">'+esc(l.slice(i+2))+'</span></div>';
  return '<div dir="auto" style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere;margin-top:3px">'+esc(l)+'</div>';}
+// Edge-switch detail on ONE line: «از» + old pill, «به» + accent new pill. Values are LTR-isolated
+// so IP:port · domain reads cleanly in the RTL page. lines are ["از: OLD","به: NEW"] (from evParts).
+var EPILL='display:inline-block;direction:ltr;unicode-bidi:isolate;font-size:11px;padding:3px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle';
+function evVal(l){var i=l.indexOf(': ');return i>0?l.slice(i+2):l;}
+function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]||''));
+ return '<div style="margin-top:7px;line-height:2.2">'+
+   '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'from':'از')+'</span> '+
+   '<span style="'+EPILL+'">'+frm+'</span> '+
+   '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'to':'به')+'</span> '+
+   '<span style="'+EPILL+';color:var(--acc);border-color:color-mix(in srgb,var(--acc) 30%,transparent);background:var(--accw)">'+to+'</span></div>';}
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
  if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
  setHTML(box,evs.map(function(e){
@@ -6504,7 +6514,7 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
      '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
      '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
        '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
-       '<div style="flex:1;min-width:0"><div dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</div>'+p.lines.map(evLine).join('')+'</div>'+
+       '<div style="flex:1;min-width:0"><div dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</div>'+((e.kind=='edge'&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
        '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';
  }).join(''));}
