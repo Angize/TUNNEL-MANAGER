@@ -1203,7 +1203,8 @@ def api_summary(d):
             "uptime_avg": round(sum(ups) / len(ups), 1) if ups else 100, "uptime_down_nodes": downcnt, "uptime_window": win,
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
-            "fleet_rx_total": frx, "fleet_tx_total": ftx}
+            "fleet_rx_total": frx, "fleet_tx_total": ftx,
+            "ev_seq": _ev_seq_get()}
 
 
 def _name_taken(nodes, name, exclude_id=None):
@@ -3205,8 +3206,10 @@ def reconcile_loop():
 # suppresses the edge-change it causes. Each event stores both fa+en text so it renders in either UI
 # language regardless of when it was recorded.
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
+EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives the 500-cap)
 EVENTS_CAP = 500
 _events_lock = threading.Lock()
+_ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
 _ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}}  # last-seen state (in-memory)
 _ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
 
@@ -3266,8 +3269,23 @@ def load_events():
         return []
 
 
+def _ev_seq_get():
+    """Monotonic count of ALL events ever logged. Unlike len(events) it keeps growing past the
+    500-cap, so the sidebar 'logs' unread badge (this minus the client's last-seen value) stays
+    correct forever. Seeds from the current file size on first use after this feature shipped."""
+    global _ev_seq_total
+    if _ev_seq_total is None:
+        try:
+            with open(EVENTS_SEQ_FILE) as f:
+                _ev_seq_total = int(json.load(f))
+        except (OSError, ValueError, TypeError):
+            _ev_seq_total = len(load_events())
+    return _ev_seq_total
+
+
 def log_event(level, kind, fa, en):
     """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad."""
+    global _ev_seq_total
     with _events_lock:
         evs = load_events()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind, "fa": fa, "en": en})
@@ -3275,6 +3293,11 @@ def log_event(level, kind, fa, en):
             evs = evs[:EVENTS_CAP]
         try:
             save_json(EVENTS_FILE, evs)
+        except OSError:
+            pass
+        _ev_seq_total = _ev_seq_get() + 1  # bump the monotonic counter for the unread badge
+        try:
+            save_json(EVENTS_SEQ_FILE, _ev_seq_total)
         except OSError:
             pass
 
@@ -3467,8 +3490,11 @@ def _pf_field(k, v):
             raise ValueError(f"bad {k} (1..65535)")
         return p
     if k == "dst_ips":
-        ips = v if isinstance(v, list) else [v]
-        ips = [str(x).strip() for x in ips]
+        # The forms send this as a comma/space-separated STRING ("10.0.0.1, 10.0.0.2"); a rebuild/API
+        # caller may send a real list. Split a string so multi-target (rotating) port-forward validates
+        # instead of failing with the whole string treated as one bogus IP.
+        raw = v if isinstance(v, list) else re.split(r"[\s,]+", str(v))
+        ips = [str(x).strip() for x in raw if str(x).strip()]
         if not ips or not all(is_ipv4(x) for x in ips):
             raise ValueError("dst_ips must be a non-empty list of IPv4 addresses")
         return ips
@@ -4001,7 +4027,10 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .chip svg,.ic svg{width:100%;height:100%;display:block}.chip .ic{width:16px;height:16px}
 .ic{display:inline-flex;width:1.15em;height:1.15em;vertical-align:-3px;flex:0 0 auto;stroke:currentColor}
 @media(max-width:840px){
- .side{position:fixed;right:0;left:auto;top:0;width:250px;flex-basis:250px;transform:translateX(100%);transition:transform .25s;box-shadow:-20px 0 50px -24px rgba(20,30,60,.4)}
+ .side{position:fixed;top:0;width:250px;flex-basis:250px;transition:transform .25s}
+ /* RTL (fa): drawer docks/opens from the RIGHT; LTR (en): from the LEFT */
+ [dir="rtl"] .side{right:0;left:auto;transform:translateX(100%);box-shadow:-20px 0 50px -24px rgba(20,30,60,.4)}
+ [dir="ltr"] .side{left:0;right:auto;transform:translateX(-100%);box-shadow:20px 0 50px -24px rgba(20,30,60,.4)}
  body.navopen .side{transform:translateX(0)}
  body.navopen .backdrop{display:block}
  .mtop{display:flex}
@@ -4606,11 +4635,10 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
-   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span></a>
+   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span><span class="ct" id="ct_logs"></span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
   </nav>
-  <div class="sfoot"><button id="thbtn" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span> تم</button><button id="foutbtn" onclick="logout()"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></button></div>
  </aside>
  <main class="main">
   <div class="mtop"><button class="hb" onclick="drawer(true)"><span class="ic" data-ic="menu"></span></button><div class="sbrand"><span class="logo" style="width:28px;height:28px;font-size:14px"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER</span></div><button class="hb" id="thbtn2" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span></button></div>
@@ -5196,7 +5224,7 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1;
+var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0;
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 function CORE_CIPHERS(){return [{v:'auto',label:T('cipher_auto')},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:T('cipher_none')}]}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
@@ -5207,7 +5235,14 @@ function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
  setT('ct_nodes',num(s.nodes_total));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
+ // logs badge = events logged since the operator last opened the log page (viewing it clears it)
+ EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
+ if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
+ var un=EVSEQ-seen;setT('ct_logs',un>0?(un>99?'99+':String(un)):'');
 }
+function getLS(k){try{return localStorage.getItem(k)||''}catch(e){return ''}}
+function setLS(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setT('ct_logs','')}
 
 // ===== styled single-select dropdown (same look as the node/target lists) =====
 // items:[{v,label,sub}]  key:unique id  cb:optional fn-name called after a pick
@@ -6405,7 +6440,7 @@ function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='no
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString(LANG=='fa'?'fa-IR':'en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="refreshLogs()">'+ic('redo')+esc(T('logs_refresh'))+'</button><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
- '<div id="logList"><div class="card muted">'+esc(T('loading'))+'</div></div>';refreshLogs();}
+ '<div id="logList"><div class="card muted">'+esc(T('loading'))+'</div></div>';markLogsSeen();refreshLogs();}
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
  if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
  setHTML(box,'<div class="card" style="padding:4px 0">'+evs.map(function(e){
