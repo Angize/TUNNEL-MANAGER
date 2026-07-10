@@ -3527,6 +3527,10 @@ def _ev_core_text(kind, code, detail, nm):
     if kind == "burn":
         rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
         return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", f"Edge “{key}” of “{nm}” burned", rf, re_)
+    if kind == "ech":
+        # in-band self-heal reported by the core (Layer 1): detail is "<host> <fresh base64 ECHConfigList>"
+        return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا ترمیم شد",
+                f"Tunnel “{nm}” ECH self-healed in-band", key, key)
     return None
 
 
