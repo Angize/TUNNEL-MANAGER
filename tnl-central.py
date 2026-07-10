@@ -3313,14 +3313,20 @@ def reconcile_loop():
 # ws-upgrade on EVERY edge and the tunnel goes dark (only a manual rebuild recovered it). The client
 # core and the in-country node sit behind poisoned DNS, so ONLY the panel can re-resolve the key.
 # This background loop re-fetches ECH for every ECH-enabled core link and:
-#   - key CHANGED, tunnel healthy  -> freshen the stored record silently (the live core self-heals
+#   - key present, tunnel healthy  -> freshen the stored record silently (the live core self-heals
 #     in-band via retry_configs; the fresh stored key just keeps restarts/rebuilds valid) — no drop.
-#   - key CHANGED, tunnel DOWN     -> rebuild with the fresh key (auto-recovery when in-band failed).
+#   - pool DOWN (core reachable, no active edge) -> rebuild with the fresh key. LEVEL-triggered on the
+#     down STATE, not edge-triggered on the key change: a stale-ECH pool stays down across many cycles
+#     but the key only *changes* once, so gating the rebuild on the change let a down tunnel sit dark
+#     forever (the record was freshened on cycle 1, then _ech_write returned False and the down-check
+#     was never reached again — the exact 1.5h stall). Rebuild once per down-episode (and again if the
+#     key rotates mid-episode); reset when the pool recovers.
 #   - record REMOVED (confirmed by _ECH_EMPTY_CYCLES consecutive empty fetches, so a transient DoH
 #     blip can't strip a good key) -> degrade the link to plain wss so it can't hard-fail, + rebuild.
 _ECH_EMPTY_CYCLES = 3   # consecutive empty fetches before an ECH record counts as truly REMOVED (blip guard)
 _ech_empty = {}         # (link_id, host) -> consecutive-empty count
 _ech_empty_lock = threading.Lock()
+_ech_down_rebuilt = set()  # link_ids already rebuilt during their CURRENT down-episode (touched only by the single ech_refresh_loop thread)
 
 
 def _ech_link_hosts(L):
@@ -3418,14 +3424,21 @@ def _ech_refresh_once():
                           f"Tunnel “{nm}” ECH record vanished; degraded to plain wss")
                 _ech_safe_rebuild(lid)
             continue
-        if _ech_write(lid, kind, updates, degrade=False):   # a fresh key differs from the stored one
-            # Down-detection needs a live status file, which only a pool writes; a single edge is left
-            # to Layer 1 (in-band retry) + the freshened stored key. Only rebuild a pool we can SEE is down.
-            if kind == "pool" and _link_is_down(lid):   # the live core didn't self-heal in-band -> rebuild with the fresh key
-                log_event("warn", "ech", f"کلیدِ ECHِ تونلِ «{nm}» چرخید و تونل قطع بود؛ با کلیدِ تازه بازسازی شد",
-                          f"Tunnel “{nm}” ECH key rotated while it was down; rebuilt with the fresh key")
+        changed = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key silently (keeps restarts/rebuilds valid)
+        # Down-detection needs a live status file, which only a pool writes; a single edge is left to
+        # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
+        # SEE is down — LEVEL-triggered on the down state, NOT gated on the key changing THIS cycle (that
+        # gating is what let a persistently-down pool sit dark: the record is freshened once, then never
+        # changes again). Rebuild once per down-episode, and again if the key rotates while still down;
+        # reset the episode when the pool recovers.
+        if kind == "pool" and _link_is_down(lid):
+            if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
+                _ech_down_rebuilt.add(lid)
+                log_event("warn", "ech", f"تونلِ «{nm}» قطع بود و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد",
+                          f"Tunnel “{nm}” was down with a rotated ECH key; rebuilt with the fresh key")
                 _ech_safe_rebuild(lid)
-            # else: healthy (or single edge) -> the stored key is freshened silently; the live core self-heals in-band (no drop)
+        else:
+            _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
 
 
 def ech_refresh_loop():
