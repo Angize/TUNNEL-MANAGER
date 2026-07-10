@@ -4198,7 +4198,9 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .navi:hover{background:var(--glass)}
 .navi.on{color:var(--acc);background:var(--accw);font-weight:700}
 .navi.on .ct{color:var(--acc);background:transparent;border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
-.navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;margin-inline-start:5px;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
+.navi .ctwrap{margin-inline-start:auto;display:flex;gap:4px;align-items:center;direction:ltr}  /* [total][unread] L->R, pinned to the far edge like other counts */
+.navi .ctwrap .ct{margin-inline-start:0}
+.navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
 .navi.on .ct.ctun{color:#fff;background:var(--acc);border-color:transparent}
 .live{margin-top:14px;padding:12px;border-radius:13px;background:var(--glass);border:1px solid var(--bord)}
 .live .lr{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--sub)}
@@ -4758,7 +4760,7 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
-   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></a>
+   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span><span class="ctwrap"><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
   </nav>
