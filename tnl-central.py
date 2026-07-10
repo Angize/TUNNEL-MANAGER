@@ -4725,9 +4725,10 @@ body.dark .tag.core{color:#a78bfa}
 .cedge .cdot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 .cedge .cv{direction:ltr;text-align:right;font-size:12.5px;font-weight:700;margin-top:3px;word-break:break-all;color:var(--tx)}
 .cedge.live .cv{color:var(--ok)}
-.cedge .echips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
-.cedge .echip{font-family:ui-monospace,Consolas,monospace;direction:ltr;unicode-bidi:isolate;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:9px;background:var(--card);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-.cedge .echip.dom{font-weight:600;color:var(--sub)}
+.cedge .echips{display:flex;flex-wrap:nowrap;gap:6px;margin-top:8px;min-width:0}
+.cedge .echip{font-family:ui-monospace,Consolas,monospace;direction:ltr;unicode-bidi:isolate;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:9px;background:var(--card);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.cedge .echip.ip{flex:0 0 auto}      /* IP:port always shown in full */
+.cedge .echip.dom{flex:0 1 auto;font-weight:600;color:var(--sub)}   /* domain shrinks with … if the row is tight */
 .cedge .echip.wait{font-family:inherit;font-weight:600;color:var(--sub)}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
