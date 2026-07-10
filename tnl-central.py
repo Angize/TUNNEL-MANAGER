@@ -1281,7 +1281,7 @@ def api_summary(d):
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
-            "ev_seq": _ev_seq_get(),
+            "ev_seq": _ev_seq_get(), "log_count": len(load_events()),
             "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2)}
 
 
@@ -4194,6 +4194,8 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .navi:hover{background:var(--glass)}
 .navi.on{color:var(--acc);background:var(--accw);font-weight:700}
 .navi.on .ct{color:var(--acc);background:transparent;border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
+.navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;margin-inline-start:5px;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
+.navi.on .ct.ctun{color:#fff;background:var(--acc);border-color:transparent}
 .live{margin-top:14px;padding:12px;border-radius:13px;background:var(--glass);border:1px solid var(--bord)}
 .live .lr{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--sub)}
 .live .lr b{color:var(--tx);font-size:13.5px}.live .lr b.ok{color:var(--ok)}
@@ -4752,7 +4754,7 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
-   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span><span class="ct" id="ct_logs"></span></a>
+   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
   </nav>
@@ -5350,15 +5352,17 @@ function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
  setT('ct_nodes',num(s.nodes_total));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
+ setT('ct_logs',num(s.log_count));   // ALWAYS the total number of logs (like the other nav counts)
  if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   // live-refresh cadence, from settings
- // logs badge = events logged since the operator last opened the log page (viewing it clears it)
+ // separate UNREAD badge (accent color): events logged since the operator last opened the log page.
  EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
  if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
- var un=EVSEQ-seen;setT('ct_logs',un>0?(un>99?'99+':String(un)):'');
+ var un=EVSEQ-seen;setUnread(un);
 }
+function setUnread(un){var e=el('ct_logs_un');if(!e)return;e.textContent=un>0?(un>99?'99+':String(un)):'';e.style.display=un>0?'':'none'}
 function getLS(k){try{return localStorage.getItem(k)||''}catch(e){return ''}}
 function setLS(k,v){try{localStorage.setItem(k,v)}catch(e){}}
-function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setT('ct_logs','')}
+function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setUnread(0)}  // clear ONLY the unread badge; the total stays
 
 // ===== styled single-select dropdown (same look as the node/target lists) =====
 // items:[{v,label,sub}]  key:unique id  cb:optional fn-name called after a pick
