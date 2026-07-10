@@ -3113,7 +3113,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode"):   # keep only the extras this type uses; drop the rest
                     if k in extra:
                         x[k] = extra[k]
                     else:
