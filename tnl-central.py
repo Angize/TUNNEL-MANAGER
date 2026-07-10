@@ -3479,7 +3479,7 @@ EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-eve
 EVENTS_CAP = 500
 _events_lock = threading.Lock()
 _ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
-_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}}  # last-seen state (in-memory)
+_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "links_coarse_down": set()}  # last-seen state (in-memory)
 _ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
 
 # Map the CORE's stable reason codes (it saw the real error) to bilingual text for the log. This is
@@ -3642,6 +3642,7 @@ def _events_once():
         seen.add(lid)
         if not L.get("enabled", True):
             _ev_state["links"].pop(lid, None)  # operator turned it off -> not a system event
+            _ev_state["links_coarse_down"].discard(lid)  # clear paired state too (lid stays in `seen`, so the tail cleanup skips it)
             continue
         # need both ends reachable to judge "up"; if a node isn't probed yet, hold state as-is
         a_probed = _cache_get(L.get("a_node")) is not None
@@ -3654,22 +3655,32 @@ def _events_once():
         if first or prev is None or prev == up:
             continue
         nm = L.get("name", "")
+        pool_core = L.get("type") == "core" and L.get("ws_pool")
         if up:
-            log_event("ok", "link", f"تونلِ «{nm}» وصل شد", f"Tunnel “{nm}” connected")
+            # A ws-pool core records its own precise reconnect ("up") in the event ring, so don't
+            # ALSO emit a coarse one — UNLESS this link's down was itself coarse (a client node was
+            # offline, so the core was dead and logged nothing); then pair it coarsely too.
+            if pool_core and lid not in _ev_state["links_coarse_down"]:
+                pass  # the paired "up" comes from the core event ring
+            else:
+                log_event("ok", "link", f"تونلِ «{nm}» وصل شد", f"Tunnel “{nm}” connected")
+            _ev_state["links_coarse_down"].discard(lid)
         else:
             # A ws-pool tunnel's core records the PRECISE down reason itself (see the edge section) —
             # don't also emit a coarse one here, unless a client node is offline (the core is dead
             # then and can't report). Non-pool tunnels always use the coarse classification.
             a_off = _cache_get(L.get("a_node")) and not _node_online(L.get("a_node"))
             b_off = _cache_get(L.get("b_node")) and not _node_online(L.get("b_node"))
-            pool_core = L.get("type") == "core" and L.get("ws_pool")
             if pool_core and not (a_off or b_off):
-                pass  # core-sourced precise "down" will be logged from its event ring
+                pass  # core-sourced precise "down" (and its paired "up") come from the event ring
             else:
                 rf, re_ = _link_down_reason(L, nmap)
                 log_event("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
+                if pool_core:
+                    _ev_state["links_coarse_down"].add(lid)  # coarse (node-offline) down -> pair with a coarse up
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
+        _ev_state["links_coarse_down"].discard(lid)
 
     # --- core tunnels: PRECISE core-recorded events (down reason + burns for a ws pool;
     #     self-heal/reconnect reasons for a udp/raw/flux datagram client; in-band ECH self-heal for a
