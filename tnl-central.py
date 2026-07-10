@@ -4176,14 +4176,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .live{margin-top:14px;padding:12px;border-radius:13px;background:var(--glass);border:1px solid var(--bord)}
 .live .lr{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--sub)}
 .live .lr b{color:var(--tx);font-size:13.5px}.live .lr b.ok{color:var(--ok)}
-.livebar{height:6px;border-radius:6px;background:var(--bord);margin:7px 0 10px;overflow:hidden}
-.livebar span{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--acc),var(--ok));transition:width .4s}
-.livefresh{margin-top:9px;font-size:10.5px;color:var(--sub);display:flex;align-items:center;gap:6px}
-.pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:0 0 auto;animation:pulse 2.2s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}}
-.sfoot{margin-top:auto;display:flex;gap:8px;padding-top:14px}
-.sfoot button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12px;padding:9px 0;border-radius:11px;border:1px solid var(--bord);background:transparent;color:var(--sub);cursor:pointer;font-family:inherit}
-.sfoot button:hover{background:var(--glass)}.sfoot .ic{width:15px;height:15px}
 .main{flex:1;min-width:0;max-width:1120px;padding:22px 26px 64px}
 .mtop{display:none;align-items:center;justify-content:space-between;gap:11px;padding:10px 14px;position:sticky;top:0;z-index:30;background:var(--side);border:1px solid var(--bord);border-radius:14px;box-shadow:var(--dsh)}
 .mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px;direction:ltr}
@@ -4214,8 +4207,6 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .chead:hover{background:color-mix(in srgb,var(--acc) 4%,transparent)}
 .hmain{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
 .hrow1{display:flex;align-items:center;gap:8px;min-width:0}
-.hrow2{display:flex;align-items:center;gap:10px;font-size:10.5px;color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums}
-.card.open .hrow2{display:none}
 .hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
 .ctag.core{background:var(--accw);color:var(--acc)}
@@ -4233,16 +4224,12 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .hero{border-radius:24px;padding:18px 16px 15px;background:linear-gradient(140deg,color-mix(in srgb,var(--acc) 22%,var(--card)),color-mix(in srgb,var(--acc2) 11%,var(--card)) 55%,color-mix(in srgb,var(--card) 94%,transparent));border:1px solid color-mix(in srgb,var(--acc) 32%,transparent);box-shadow:0 18px 44px -18px color-mix(in srgb,var(--acc) 50%,transparent),inset 0 1px 0 var(--hi);margin-bottom:14px}
 .k{color:var(--sub);font-size:11.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .hero .v{font-size:30px;font-weight:800;text-shadow:0 0 26px color-mix(in srgb,var(--acc) 50%,transparent)}
-.hsub{margin-top:8px;font-size:11.5px;color:var(--sub);display:inline-flex;gap:5px;align-items:center;background:color-mix(in srgb,var(--tx) 7%,transparent);border:1px solid var(--bord);border-radius:12px;padding:4px 10px}
 .v{font-size:22px;font-weight:800}.stat .v{font-size:22px}
 .sec{font-size:12.5px;font-weight:700;color:var(--sub);margin:20px 4px 9px;display:flex;align-items:center;gap:7px}
 .sec::after{content:'';flex:1;height:1px;background:linear-gradient(to left,var(--bord),transparent)}
 .chart{width:100%;height:auto;display:block}
-.legend{display:flex;gap:6px;font-size:11px;color:var(--sub);margin-top:8px;align-items:center}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:1px}
 .seg{display:flex;align-items:center;gap:14px}.donut{flex:0 0 116px}
-.segs{flex:1;display:flex;flex-direction:column;gap:4px;font-size:13px}
-.segs div{display:flex;justify-content:space-between;align-items:center}.segs b{font-weight:800}
 .nrow{display:flex;align-items:center;gap:11px}
 .ndot{width:10px;height:10px;border-radius:50%;background:var(--sub);flex:0 0 auto;box-shadow:0 0 8px var(--sub)}
 .ndot.on{background:var(--ok);box-shadow:0 0 9px color-mix(in srgb,var(--ok) 80%,transparent)}
@@ -4312,7 +4299,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
 .pbtn:disabled{opacity:.4;cursor:default}.pbtn:not(:disabled):active{transform:scale(.97)}
 .pinfo{color:var(--sub);font-size:12px;min-width:120px;text-align:center}
-.mssearch{width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--bord);background:transparent;color:var(--tx);font-size:13px;font-family:inherit;outline:none}
 @media(prefers-reduced-motion:no-preference){#view>*{animation:rise .45s cubic-bezier(.22,.61,.36,1) both}}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 /* desktop: node/tunnel/portfw cards in two columns */
@@ -4322,11 +4308,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
  #nodeList>.card,#linkList>.card,#pfList>.card{margin-bottom:0}
  #nodeList>.card.muted,#linkList>.card.muted,#pfList>.card.muted{grid-column:1/-1}
 }
-.pagehd{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin:2px 2px 14px}
-.pagehd h1{margin:0}.pagehd .sub{margin:4px 0 0}
-.pagehd .actbtn{margin-inline-start:auto;display:inline-flex;align-items:center;gap:6px;background:var(--acc);color:#fff;border:0;font-weight:700;font-size:12.5px;padding:9px 15px;border-radius:11px;cursor:pointer;font-family:inherit}
-.pagehd .actbtn .ic{width:15px;height:15px}
-.skrow{display:flex;align-items:center;gap:11px}
 /* skeleton shimmer: a visible placeholder grey (--sk-base) with a clearly brighter sweep (--sk-hi),
    so it reads as a loading placeholder in BOTH themes (the old glass/field pair was near-invisible in light). */
 .sk{display:block;background:linear-gradient(90deg,var(--sk-base) 0%,var(--sk-base) 38%,var(--sk-hi) 50%,var(--sk-base) 62%,var(--sk-base) 100%);background-color:var(--sk-base);background-size:220% 100%;border-radius:7px;animation:shim 1.25s ease-in-out infinite}
@@ -4334,11 +4315,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}
 /* skeleton loading: shimmer bars laid out INSIDE the real card classes (skNodeCard/skAccCard/
    skPfCard/skAgRow), so each page's loading state is pixel-identical to its loaded card. */
-.emptybox{text-align:center;padding:30px 16px}
-.emptybox .ei{width:52px;height:52px;border-radius:15px;margin:0 auto 13px;display:grid;place-items:center;background:var(--accw);color:var(--acc)}
-.emptybox .ei .ic{width:26px;height:26px}
-.emptybox h3{margin:0 0 5px;font-size:15px}.emptybox p{margin:0 0 15px;font-size:12.5px;color:var(--sub)}
-@media(prefers-reduced-motion:reduce){.sk,.pulse{animation:none}}
+@media(prefers-reduced-motion:reduce){.sk{animation:none}}
 /* ===== popup modal shell (edit forms + node details) — gated behind .wide so confirmBox's .modal is untouched ===== */
 .modal.wide{width:414px;max-width:100%;display:flex;flex-direction:column;max-height:min(88vh,760px);padding:0;overflow:hidden;background:var(--card);animation:modrise .2s cubic-bezier(.2,.7,.3,1)}
 @keyframes modrise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
@@ -4454,8 +4431,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tot .iso{display:inline-flex;gap:8px}
 .act.flip{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,transparent)}
 .act.reset{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
-.bigrow{display:flex;gap:18px;align-items:baseline;margin-bottom:4px}.bigrow .b{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
-.subline{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
 /* slimmed node card: plain meta labels (NOT boxed — distinct from the .chip icon badge) */
 .nchips{display:grid;grid-template-columns:auto auto;justify-content:start;gap:7px 16px;margin-top:9px}
 .nchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--sub)}
@@ -4481,15 +4456,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
 .agx-act .primary{flex:1;justify-content:center}
 .agx-hint{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.6}
-.agx-div{height:1px;background:var(--bord);margin:12px -2px}
-.agx-corlab{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;margin-bottom:9px}
-.agx-corlab .now{margin-inline-start:auto;font-weight:600;color:var(--sub);font-size:11px}
-.agx-corrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
-.agx-corrow #cor_ver_box{flex:1;min-width:120px}
-.agx-corrow .msbtn{margin-top:0;padding:8px 11px;font-size:12px;border-radius:10px}
-.agx-mini{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border-radius:10px;font-family:inherit;font-weight:800;font-size:11.5px;cursor:pointer;border:1px solid transparent}
-.agx-mini.pri{background:#8b5cf6;color:#fff}
-.agx-mini.gho{background:var(--field);color:var(--tx);border:1px solid var(--bord)}
 /* --- compact node row + per-node core picker --- */
 .agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
 .agx-row .nm{font-weight:800;font-size:13px}
@@ -4549,13 +4515,8 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
-.tnst{font-size:9px;font-weight:800;flex:0 0 auto;padding:2px 7px;border-radius:7px;line-height:1.35;border:1px solid color-mix(in srgb,currentColor 42%,transparent);background:color-mix(in srgb,currentColor 12%,transparent)}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
-.tnmeta{display:grid;grid-template-columns:1fr 1fr;gap:7px 15px;margin-top:12px;font-size:11.5px;color:var(--sub)}.tnmeta b{color:var(--tx);font-weight:700}.tnmeta>span{display:flex;align-items:center;gap:5px;min-width:0}
 /* portfw card: two columns — ports on one side, destinations/rotation on the other */
-.pfcols{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:12px}
-.pfcol{display:flex;flex-direction:column;gap:7px}
-.pfrow{font-size:12px;color:var(--sub)}.pfrow b{color:var(--tx);font-weight:700}
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
 .card.node .noff .ic{width:15px;height:15px;color:var(--bad)}
 .card.node .noff b{font-size:12px;color:var(--bad)}.card.node .noff span{font-size:11px;color:var(--sub)}
@@ -4674,16 +4635,11 @@ body.dark .tag.core{color:#a78bfa}
 .tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
 .tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
 .tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
-.okbg{background:rgba(31,157,87,.14);color:#2ecb7d}.badbg{background:rgba(214,69,69,.14);color:#f07070}
 .plist{border:1px solid var(--bord);border-radius:10px;overflow:hidden;background:var(--field)}
 .prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;min-height:42px;border-bottom:1px solid var(--bord)}
 .prow:last-child{border-bottom:none}
-.prow .pval{flex:1;min-width:0;font-size:12.5px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prow.dead .pval{color:var(--sub);text-decoration:line-through}
-.prow .pacts{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .prow .pb{border:1px solid var(--bord);background:var(--glass);color:var(--sub);width:26px;height:26px;border-radius:7px;cursor:pointer;font-size:12px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .pempty{text-align:center;font-size:11px;color:var(--sub);padding:14px 0}
-.pauto{font-size:9px;font-weight:700;color:#f07070;background:rgba(214,69,69,.16);border-radius:5px;padding:1px 5px}
 .pacc{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--field);margin-top:12px}
 .pacchd{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;gap:10px}
 .pacct{font-size:13px;font-weight:700}
@@ -4695,11 +4651,6 @@ body.dark .tag.core{color:#a78bfa}
 .pchev{color:var(--sub);transition:transform .2s;font-size:12px;flex:0 0 auto}
 .pchev.open{transform:rotate(180deg)}
 .paccbody{padding:0 11px 11px}
-.ppill{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;border-radius:99px;padding:3px 10px;cursor:pointer;white-space:nowrap;border:1px solid transparent;flex:0 0 auto}
-.ppill.live{background:rgba(78,201,154,.14);color:var(--ok);border-color:rgba(78,201,154,.4)}
-.ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
-.ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
-.ppill.susp{background:rgba(224,165,92,.16);color:var(--warn,#e0a55c);border-color:rgba(224,165,92,.45)}
 /* edge health rows — colored start-stripe card, right-aligned IP, icon state + icon actions */
 .erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord);flex-wrap:wrap;row-gap:7px}
 .erow.ok{border-inline-start-color:var(--ok)}
@@ -4719,24 +4670,15 @@ body.dark .tag.core{color:#a78bfa}
 .eib:hover{border-color:var(--acc);color:var(--acc)}
 .eib.del:hover{border-color:var(--bad);color:var(--bad)}
 .eib.on{border-color:var(--ok);color:var(--ok)}
-.pretest{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
 .pcd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--sub);direction:ltr;font-variant-numeric:tabular-nums;flex:0 0 auto}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
 .pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
-.pprobe{border:1px solid var(--bord);background:var(--glass);color:var(--sub);border-radius:7px;padding:3px 8px;font-size:10.5px;cursor:pointer;font-family:inherit;flex:0 0 auto}
-.pprobe:hover{border-color:var(--acc);color:var(--acc)}
-.poolprobe{margin-top:10px;width:100%;border:1px solid var(--bord);background:var(--glass);color:var(--fg);border-radius:9px;padding:8px;font-size:12.5px;cursor:pointer;font-family:inherit}
-.poolprobe:hover{border-color:var(--acc);color:var(--acc)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
-.rotbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--acc);color:#fff;border:none;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
-.rothdr{border:1px solid var(--bord);background:var(--glass);color:var(--acc);border-radius:8px;width:28px;height:28px;font-size:15px;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:var(--accw)}
 .rl.cli{color:var(--gold);background:var(--goldw)}
-.enclock{color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:3px;direction:ltr}
-.enclock .ic{width:12px;height:12px}
 .enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
 /* two meta columns aligned EXACTLY under the two node boxes (same grid + hidden arrow as .tninfo) */
 .enmeta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:start;margin-top:11px;font-size:11.5px;color:var(--sub)}
@@ -4805,11 +4747,11 @@ var LANG='fa';
 try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}catch(e){}
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",ev_kind_node:"نود",ev_kind_link:"تونل",ev_kind_edge:"لبه",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",
  brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
- save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",del:"حذف",add:"افزودن",edit:"ویرایش",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
+ save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
- no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",done:"انجام شد",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
+ no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
  prev:"قبلی",next:"بعدی",page:"صفحه",of:"از",items:"مورد",search:"جستجو…",
  disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
  // overview
@@ -4824,7 +4766,7 @@ var I18N={fa:{
  ov_uptime_lbl:"میانگینِ آپ‌تایمِ",ov_hours_recent:"ساعتِ اخیر",load:"لود",
  // nodes
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
- nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",checking_dots:"در حال بررسی…",
+ nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
  tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",
  uptime_bar:"آپتایم",node_min2:"حداقل ۲ نودِ آنلاین لازم است",
@@ -4845,14 +4787,14 @@ var I18N={fa:{
  // settings
  set_sub:"رفتار خودکارِ پنل و بازه‌های بررسی",set_saved:"تنظیمات ذخیره شد",
  // toasts common
- t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",t_this_edge:"این لبه فعال شد",
+ t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",
 },en:{
  nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_logs:"Logs",nav_settings:"Settings",nav_logout:"Log out",
- logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",ev_kind_node:"Node",ev_kind_link:"Tunnel",ev_kind_edge:"Edge",
+ logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",
  brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
- save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",del:"Delete",add:"Add",edit:"Edit",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
+ save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",add:"Add",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
  online:"Online",offline:"Offline",failed:"Failed",saving:"Saving…",checking:"Checking…",sending:"Sending…",loading:"Loading…",
- no_results:"No results.",live:"Live",select:"Select",ip:"IP",done:"Done",err_check:"Check failed",not_available:"Unreachable",
+ no_results:"No results.",live:"Live",select:"Select",ip:"IP",err_check:"Check failed",not_available:"Unreachable",
  prev:"Previous",next:"Next",page:"Page",of:"of",items:"items",search:"Search…",
  disk:"Disk",cpu_cores:"Cores",os:"OS",uptime:"Uptime",host:"Host",proxy:"Proxy",
  ov_sub:"Precise fleet stats — no misleading averages",ov_health:"Fleet health",ov_attention:"Needs attention",ov_allnodes:"All nodes at a glance",
@@ -4865,7 +4807,7 @@ var I18N={fa:{
  ov_worst_q:"Worst quality: tunnel",ov_loss:"loss",ov_ping:"ping",ov_all_good:"All tunnels are in good shape",ov_fleet_ping:"fleet avg ping",
  ov_uptime_lbl:"Average uptime over the last",ov_hours_recent:"hours",load:"load",
  nodes_sub:"Add nodes and watch them live",add_node:"Add node",nodes_fleet:"Fleet nodes",nodes_search:"Search name or IP…",
- nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",checking_dots:"Checking…",
+ nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",
  tip_test:"Test",tip_details:"Details",tip_edit:"Edit",tip_delete:"Delete",
  nd_tunnels:"Tunnels",nd_portfw:"Port-forward",nd_agent:"agent",nd_core:"core",nd_core_missing:"not installed",nd_ctrlproxy:"Control proxy",
  uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
@@ -4881,24 +4823,24 @@ var I18N={fa:{
  pf_sub:"Forward a port on a node (with multi-target rotation)",pf_add:"Add port-forward",pf_active:"Active port-forwards",pf_search:"Search node / name…",
  pf_empty:"No port-forwards.",pf_no_online:"No node is online",
  set_sub:"Panel automation and check intervals",set_saved:"Settings saved",
- t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",t_this_edge:"This edge is now active",
+ t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",
 }};
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
- ram:"رم",cpu:"CPU",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
+ ram:"رم",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
  // node details
  nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
  ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
  // node edit / add
  nd_edit:"ویرایشِ نود",f_name:"نام",f_host_ip:"هاست / آی‌پی",f_port:"پورت",f_token:"توکن",tok_keep:"خالی = توکن فعلی بماند",
  f_ctrlproxy_empty:"پروکسیِ کنترل (خالی = بدون پروکسی)",need_nhp:"نام، هاست و پورت لازم است",
- nd_add:"افزودنِ نود",m_auto:"خودکار",m_manual:"دستی",f_nodename:"نامِ نود",f_serverip:"آی‌پیِ سرور",f_sshport:"پورتِ SSH",f_sshuser:"کاربرِ SSH",
- f_agentport:"پورتِ ایجنت",f_ctrlproxy_opt:"پروکسیِ کنترل (اختیاری)",ssh_auth:"احرازِ هویتِ SSH",auth_pass:"رمز",auth_key:"کلیدِ خصوصی",ssh_pass_ph:"رمزِ SSH سرور",
- auth_hint_pass:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",auth_hint_key:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
- install_go:"نصب و اتصالِ خودکار",manual_add:"افزودن و اتصال",retry:"تلاشِ مجدد",n_port_lbl:"پورت agent",n_tok_lbl:"توکن نود",n_tok_ph:"توکن نود",
- need_name_ip:"نام و آی‌پیِ سرور لازم است",need_req:"لازم است",installing:"در حالِ نصب…",node_installed:"نود نصب شد",connecting_dots:"در حال اتصال…",
+ 
+ 
+ 
+ 
+ connecting_dots:"در حال اتصال…",
  need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added:"نود اضافه شد",
- istep_ssh:"اتصالِ SSH",istep_dl:"دانلودِ ایجنت",istep_svc:"نصب و راه‌اندازیِ سرویس",istep_reg:"ثبت و اتصال در پنل",idet_connecting:"در حالِ اتصال…",idet_wait:"در انتظار…",
- inst_notfound:"وضعیتِ نصب یافت نشد",inst_lost:"ارتباط با پنل قطع شد",inst_done:"انجام شد",
+ 
+ inst_done:"انجام شد",
  // node delete
  nd_del:"حذفِ نود",del_how:"می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:",del_detach_t:"فقط از پنل جدا کن",
  del_detach_s:"نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.",
@@ -4909,7 +4851,7 @@ var I18N={fa:{
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
- tag_encrypted:"رمزنگاری‌شده",no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
+ no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
  conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
@@ -4948,19 +4890,19 @@ var I18N={fa:{
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
 },en:{
- ram:"RAM",cpu:"CPU",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"live refresh",
+ ram:"RAM",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"live refresh",
  nd_title:"Node details",nd_status:"Node status",nd_off_last:"Offline — last values",nd_conn_test:"Connection test",nd_traffic:"Traffic",nd_ips:"IPs",
  ip_leg:"tunneled / port-forward / free",ip_none:"no IPs reported",free:"Free",nd_no_tp:"No tunnels or port-forwards on this node",nd_ctrlproxy:"Control proxy",
  nd_edit:"Edit node",f_name:"Name",f_host_ip:"Host / IP",f_port:"Port",f_token:"Token",tok_keep:"empty = keep current token",
  f_ctrlproxy_empty:"Control proxy (empty = none)",need_nhp:"Name, host and port are required",
- nd_add:"Add node",m_auto:"Auto",m_manual:"Manual",f_nodename:"Node name",f_serverip:"Server IP",f_sshport:"SSH port",f_sshuser:"SSH user",
- f_agentport:"Agent port",f_ctrlproxy_opt:"Control proxy (optional)",ssh_auth:"SSH auth",auth_pass:"Password",auth_key:"Private key",ssh_pass_ph:"Server SSH password",
- auth_hint_pass:"Server SSH password — not stored, used only during install.",auth_hint_key:"SSH private key — safer than a password; no sshpass needed.",
- install_go:"Install & auto-connect",manual_add:"Add & connect",retry:"Retry",n_port_lbl:"agent port",n_tok_lbl:"Node token",n_tok_ph:"node token",
- need_name_ip:"Node name and server IP required",need_req:"required",installing:"Installing…",node_installed:"Node installed",connecting_dots:"Connecting…",
+ 
+ 
+ 
+ 
+ connecting_dots:"Connecting…",
  need_all_nhpt:"Please fill in name, host, port and token",node_added:"Node added",
- istep_ssh:"SSH connect",istep_dl:"Download agent",istep_svc:"Install & start service",istep_reg:"Register & connect in panel",idet_connecting:"Connecting…",idet_wait:"Waiting…",
- inst_notfound:"Install status not found",inst_lost:"Lost connection to the panel",inst_done:"Done",
+ 
+ inst_done:"Done",
  nd_del:"Delete node",del_how:"How should the node be removed? Pick one:",del_detach_t:"Detach from panel only",
  del_detach_s:"The node and its tunnels stay intact and keep working; it is only removed from this panel's registry. You can add it back later.",
  del_wipe_t:"Full node wipe",del_wipe_s:"Everything is wiped on the node server: all tunnels, the agent, the systemd service, the token and JSON files. Tunnels are also torn down on the peer nodes. Irreversible!",
@@ -4969,7 +4911,7 @@ var I18N={fa:{
  test_testing:"Testing…",node_added_online:" · online",node_added_offline:" · offline: ",
  t_side_off:"Node offline (agent unreachable — port/token may have changed)",t_side_notun:"Down (tunnel not on node)",t_side_ifdown:"Down (interface down)",
  t_side_conn:"Connected",t_side_nopingr:"No ping reply",t_side_up_unk:"Up (ping unknown)",t_ping:"ping",t_loss:"loss",t_noloss:"no loss",
- tag_encrypted:"Encrypted",no_tunnel_check:"No tunnels to check",checkall_done:"Finished checking all tunnels",
+ no_tunnel_check:"No tunnels to check",checkall_done:"Finished checking all tunnels",
  rebuild_confirm:"Rebuild this tunnel on both nodes? (delete and recreate with the same settings)",rebuilding_both:"Rebuilding the tunnel on both nodes…",
  rebuilt_test:"Tunnel rebuilt — test it with \\"Check\\"",rebuild_failed:"Rebuild failed",checking_conn:"Checking connection (live ping on both ends)…",
  conn_ok:"Connected",conn_bad:"Connection problem",reset_confirm:"Reset this tunnel's total to zero? (live rate is untouched)",
