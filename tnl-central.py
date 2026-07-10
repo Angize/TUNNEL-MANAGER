@@ -957,6 +957,11 @@ def _tunnel_extra(src, refetch_ech=True):
         e["fec"] = True
         e["fec_data"] = src.get("fec_data") or 10
         e["fec_parity"] = src.get("fec_parity") or 3
+    if src.get("fake_desync"):           # fake-packet desync (raw/flux client anti-DPI); carry the decoy knobs
+        e["fake_desync"] = True
+        e["fake_ttl"] = src.get("fake_ttl") or 4
+        e["fake_count"] = src.get("fake_count") or 2
+        e["fake_mode"] = src.get("fake_mode") or "ttl"
     if src.get("ws_host"):               # ws (WebSocket/CDN) Host header + TLS SNI
         e["ws_host"] = src["ws_host"]
     if src.get("ws_path"):               # ws request path
@@ -2302,6 +2307,36 @@ def _fec_fields(d, transport, cur=None):
     return out
 
 
+def _desync_fields(d, transport, cur=None):
+    """Fake-packet desync (anti-DPI) on the raw/flux carriers — the two the core builds the IPv4
+    header for, so it can forge a decoy TTL/checksum. Just before each handshake the client emits a
+    few decoy packets that reach an on-path DPI but not the server, mis-syncing a stateful DPI while
+    the real session is untouched. Ignored on udp/tcp/ws (the kernel owns their header). cur (the
+    existing link) supplies edit defaults so a partial edit keeps the stored config. Returns {} when
+    off / not applicable — so switching to a non-raw/flux carrier cleanly drops the fields."""
+    out = {}
+    if transport not in ("raw", "flux"):
+        return out
+    cur = cur or {}
+    on = bool(d.get("fake_desync")) if ("fake_desync" in d) else bool(cur.get("fake_desync"))
+    if not on:
+        return out
+    out["fake_desync"] = True
+    ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
+    if ttl < 1 or ttl > 255:
+        raise ValueError("TTLِ طعمه باید بین ۱ تا ۲۵۵ باشد")
+    out["fake_ttl"] = ttl
+    cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
+    if cnt < 1 or cnt > 64:
+        raise ValueError("تعدادِ طعمه باید بین ۱ تا ۶۴ باشد")
+    out["fake_count"] = cnt
+    mode = str(d.get("fake_mode") or cur.get("fake_mode") or "ttl").strip().lower()
+    if mode not in ("ttl", "badsum", "both"):
+        raise ValueError("حالتِ طعمه نامعتبر است")
+    out["fake_mode"] = mode
+    return out
+
+
 _ECH_RE = re.compile(r'ech="?([A-Za-z0-9+/=]+)"?')
 _GENERIC_RE = re.compile(r'\\#\s+\d+\s+([0-9A-Fa-f][0-9A-Fa-f\s]+)')
 
@@ -2690,6 +2725,7 @@ def _create_tunnel_impl(d):
         if transport == "ws":                      # WebSocket carrier (CDN-frontable)
             extra.update(_ws_fields(d, transport))
         extra.update(_fec_fields(d, transport))    # FEC (datagram carriers only); {} elsewhere
+        extra.update(_desync_fields(d, transport)) # fake-packet desync (raw/flux only); {} elsewhere
         if bool(d.get("obfs")):                    # anti-DPI needs the AEAD key
             if cipher == "none":
                 raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -3004,6 +3040,7 @@ def _edit_link_impl(d):
         if transport == "ws":                      # WebSocket carrier (CDN-frontable)
             extra.update(_ws_fields(d, transport, L))
         extra.update(_fec_fields(d, transport, L)) # FEC (datagram carriers only); {} elsewhere
+        extra.update(_desync_fields(d, transport, L)) # fake-packet desync (raw/flux only); {} elsewhere; L preserves omitted fields
         # obfs/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
         # (flux "rotate now" sends neither) doesn't strip the anti-DPI layer or the throughput
         # offload. A full form edit always sends both as booleans, so it still overrides correctly.
@@ -5054,6 +5091,9 @@ var I18N={fa:{
  // fec section
  fec_t:"تصحیحِ خطا (FEC)",fec_d:"پکت‌های گم‌شده را با پریتی و بدونِ ری‌ترنسمیت بازسازی می‌کند — برای لینکِ پُرافت/throttle. سربارِ پهنای‌باند دارد؛ فقط رو حاملِ دیتاگرامی (udp/raw/flux)، رو tcp/ws بی‌اثر.",fec_rate_lbl:"نرخِ افزونگیِ FEC",
  fec_note:"«۱۰+۳» یعنی هر ۱۰ پکتِ داده، ۳ پکتِ پریتی؛ گیرنده تا ۳ تا از هر ۱۳ تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند.",
+ ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"قبل از هر دست‌دهی چند بستهٔ قلابی می‌فرستد تا ماشینِ حالتِ DPI را گیج کند؛ نشستِ واقعی دست‌نخورده می‌ماند. فقط رو حاملِ raw/flux.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
+ ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (۱ برای رله‌ٔ کوتاه، ۳ تا ۵ برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
+ ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  // ws toggle rows
  wstls_t:"wss (TLS به CDN)",wstls_d:"کلاینت با TLS به لبهٔ CDN وصل می‌شود؛ سرور پشتِ CDN ساده می‌ماند. برای فرانتینگ لازم است. فقط با حاملِ WS/CDN.",
  ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را داخلِ ClientHello رمز می‌کند تا فیلترچیِ SNI نبیند کدام دامنه است. نیازمندِ wss؛ برای استخر برای هر دامنه خودکار گرفته می‌شود.",
@@ -5101,6 +5141,9 @@ var I18N={fa:{
  spoof_cap_bad_pre:"<b>Disabled — not possible on node “",spoof_cap_bad_mid:"”.</b> Reason: ",spoof_reason_unknown:"unknown",spoof_cap_err:"<b>Check failed.</b> Could not query spoof capability from the nodes.",
  fec_t:"Error correction (FEC)",fec_d:"Rebuilds lost packets with parity and no retransmit — for lossy/throttled links. Costs some bandwidth; only on datagram carriers (udp/raw/flux), no effect on tcp/ws.",fec_rate_lbl:"FEC redundancy rate",
  fec_note:"“10+3” means for every 10 data packets, 3 parity packets; the receiver can lose up to 3 of every 13 and still rebuild. Both tunnel ends use the same setting.",
+ ds_t:"Fake-packet desync (anti-DPI)",ds_d:"Emits a few decoy packets before each handshake to mis-sync a stateful DPI; the real session is untouched. raw/flux carriers only.",ds_mode_lbl:"Decoy mode",ds_ttl_lbl:"Decoy TTL",ds_count_lbl:"Decoy count",
+ ds_note:"Low TTL = the decoy survives a few hops and dies before the server (1 for a short relay, 3–5 for an internet path to the DPI). Bad checksum = the server drops it. Count = how many decoys per handshake.",
+ ds_m_ttl_t:"Low TTL",ds_m_ttl_s:"dies en route",ds_m_bad_t:"Bad checksum",ds_m_bad_s:"server drops it",ds_m_both_t:"Both",ds_m_both_s:"combined",
  wstls_t:"wss (TLS to CDN)",wstls_d:"The client connects to the CDN edge over TLS; the server stays plain behind the CDN. Required for fronting. WS/CDN carrier only.",
  ech_t:"ECH — hide the SNI",ech_d:"Encrypts the domain name inside the ClientHello so an SNI filter cannot see which domain it is. Requires wss; for a pool it is fetched automatically per domain.",
  ws_prof_lbl:"CDN profile",ws_prof_note:"<b>WS</b> = standard WebSocket. <b>XHTTP</b> = a GET(download)+POST(upload) pair; bypasses an account/CDN that blocks WebSocket. Both are fronted with the same domain/wss/ECH.",
@@ -5967,7 +6010,7 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  if(l.transport=='ws'&&l.ws_pool)feats.push('<span class="tag obfs">pool</span>');
  if(l.transport=='ws'&&l.ws_tls)feats.push('<span class="tag obfs">wss</span>');
  if(l.transport=='ws'&&l.ech)feats.push('<span class="tag obfs">ECH</span>');
- if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');if(l.fec)feats.push('<span class="tag obfs">FEC '+((l.fec_data||10)+'+'+(l.fec_parity||3))+'</span>');
+ if(l.obfs)feats.push('<span class="tag obfs">obfs</span>');if(l.cover)feats.push('<span class="tag obfs">TLS</span>');if(l.gso)feats.push('<span class="tag obfs">GSO</span>');if(l.fec)feats.push('<span class="tag obfs">FEC '+((l.fec_data||10)+'+'+(l.fec_parity||3))+'</span>');if(l.fake_desync)feats.push('<span class="tag obfs">desync</span>');
  var cap='<div class="feat">'+esc(T('caps'))+': '+(feats.length?feats.join(' '):'<span class="nofeat">—</span>')+'</div>';
  var encv=(l.cipher&&l.cipher!='none')
    ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
@@ -5995,7 +6038,7 @@ function coreCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
-var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corEch=false,_corXhttp=false,_corXhMode='packet',_corFec=false,_corFecData=10,_corFecParity=3;
+var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corEch=false,_corXhttp=false,_corXhMode='packet',_corFec=false,_corFecData=10,_corFecParity=3,_corDesync=false,_corDesyncTtl=4,_corDesyncCount=2,_corDesyncMode='ttl';
 function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'xhttp',m:T('wsp_xhttp_m')}]}
@@ -6007,7 +6050,7 @@ function XHTTP_MODES(){return [{v:'packet',n:'packet-up',m:T('xhm_packet_m')},{v
 function xhModeTiles(px,cur){return XHTTP_MODES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
 function ceSetXhMode(m){_eeXhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});ceWssGate()}
-function corSetTr(t){_corTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':'UDP'))));corRawVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis()}
+function corSetTr(t){_corTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':'UDP'))));corRawVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corDesyncGate()}
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corTr=='flux')?'':'none';fluxTick()}
 function corWsVis(){var ws=_corTr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corWsTls);if(!_corWsTls&&_corEch){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on')}}
@@ -6173,6 +6216,19 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
 // active only on the datagram carriers (udp/raw/flux); greyed on tcp/ws (TCP is already reliable).
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
  +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||10)&&r.p==(fp||3));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--warn)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
+// fake-packet desync (anti-DPI) — a gated feature box shown ONLY on the raw/flux carriers (the ones
+// the core builds the IPv4 header for). Shared create/edit markup; toggle reveals mode + ttl/count.
+function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
+function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
+ +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" onclick="'+fnp+'SetDesyncMode(\\''+m.v+'\\')"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
+ +'<div class="grid2"><div><label>'+esc(T('ds_ttl_lbl'))+'</label><input id="'+idp+'dsttl" dir="ltr" inputmode="numeric" value="'+(ttl||4)+'"></div><div><label>'+esc(T('ds_count_lbl'))+'</label><input id="'+idp+'dscount" dir="ltr" inputmode="numeric" value="'+(count||2)+'"></div></div>'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
+function corToggleDesync(){_corDesync=!_corDesync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corDesync);var b=el('e_dsbody');if(b)b.style.display=_corDesync?'':'none'}
+function corSetDesyncMode(m){_corDesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
+function corDesyncGate(){var dg=(_corTr=='raw'||_corTr=='flux'),row=el('e_dsrow');if(!dg){_corDesync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function ceToggleDesync(){_eeDesync=!_eeDesync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeDesync);var b=el('ee_dsbody');if(b)b.style.display=_eeDesync?'':'none'}
+function ceSetDesyncMode(m){_eeDesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
+function ceDesyncGate(){var dg=(_eeTr=='raw'||_eeTr=='flux'),row=el('ee_dsrow');if(!dg){_eeDesync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 // ---- wss + ECH toggles live down in the general feature-toggle area (next to obfs / cover /
 // gso), not inside the ws block, so they stay put in single AND pool mode. They are shown only
 // when the carrier is WS/CDN (corWsVis/ceWsVis) and hidden otherwise, like the tcp-only cover.
@@ -6261,11 +6317,12 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<div id="e_snirow" style="display:none"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="e_sni" placeholder="'+esc(T('cover_sni_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note1')+'</div></div>'+
   '<div class="tglbox" id="e_gsorow"><div class="tglsw" id="e_gso" onclick="corToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
   fecSection('e_','cor',false,10,3,true)+
+  desyncSection('e_','cor',false,4,2,'ttl',false)+
   '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('e_snr',SUBNETRANGES(),'192.168',T('range'),'onCorSubRange')+'<div id="e_snc"></div>'+
   '<label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050">'+
   '<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- corRoleLbls();renderCorIps();corCoverGate();corPortGate()}
+ corRoleLbls();renderCorIps();corCoverGate();corPortGate();corDesyncGate()}
 function onCorNode(){renderCorIps();corRoleLbls();if(el('e_spoofblk')&&_corTr=='raw'&&_corRawProfile=='bip')corSpoofProbe()}
 function renderCorIps(){['a','b'].forEach(function(side){var w=el('e_'+side+'ip');if(!w)return;
  var ips=nodeIps(ssVal('e_'+side)),lab=(side=='a')?T('src_ip'):T('dst_ip');
@@ -6281,6 +6338,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_corRawProfile}
  if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
  if(corFecDatagram()){body.fec=_corFec;if(_corFec){body.fec_data=_corFecData;body.fec_parity=_corFecParity}}
+ if(_corTr=='raw'||_corTr=='flux'){body.fake_desync=_corDesync;if(_corDesync){body.fake_ttl=parseInt(v('e_dsttl'))||4;body.fake_count=parseInt(v('e_dscount'))||2;body.fake_mode=_corDesyncMode}}
  if(_corTr=='ws'){body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;body.ech=_corEch;body.ws_xhttp=_corXhttp;if(_corXhttp)body.ws_xhttp_mode=_corXhMode;if(poolGet('e_').pool){var pe=poolCollect('e_',body);if(pe!==true){m.className='msg err';m.textContent=pe;return}}else{body.ws_pool=false;body.ws_host=(v('e_wshost')||'').trim();body.edge_ip=(v('e_wsedge')||'').trim();if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_corEch&&!_corWsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc')&&!_corWsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
  if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
@@ -6295,8 +6353,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
  else{m.className='msg err';m.textContent=terr(r.d.error||r.d.msg||T('failed'))}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeEch=false,_eeXhttp=false,_eeXhMode='packet',_eeFec=false,_eeFecData=10,_eeFecParity=3;
-function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis()}
+var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeEch=false,_eeXhttp=false,_eeXhMode='packet',_eeFec=false,_eeFecData=10,_eeFecParity=3,_eeDesync=false,_eeDesyncTtl=4,_eeDesyncCount=2,_eeDesyncMode='ttl';
+function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceDesyncGate()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeTr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeTr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeWsTls=!_eeWsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeWsTls);if(!_eeWsTls&&_eeEch){_eeEch=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}}
@@ -6333,7 +6391,7 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eeDesync=!!l.fake_desync;_eeDesyncTtl=l.fake_ttl||4;_eeDesyncCount=l.fake_count||2;_eeDesyncMode=l.fake_mode||'ttl';_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
  var aips=l.a_ips||[],bips=l.b_ips||[];
  function ipsel(side,cur,ips,nm){var k='ee_'+side+'ip';if(ips.length>1){var lab=(side=='a')?T('src_ip'):T('dst_ip');return '<label>'+esc(lab)+' <small>'+esc(T('ip_multi_hint'))+'</small></label>'+ssHTML(k,ipItems(ips),(ips.indexOf(cur)>=0?cur:ips[0]),T('ip'),'')}return ''}
  var b='<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
@@ -6352,6 +6410,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="ee_sni" placeholder="'+esc(T('cover_sni_ph'))+'" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note2')+'</div></div>'+
   '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeGso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
   fecSection('ee_','ce',_eeFec,_eeFecData,_eeFecParity,(_eeTr=='udp'||_eeTr=='raw'||_eeTr=='flux'))+
+  desyncSection('ee_','ce',_eeDesync,_eeDesyncTtl,_eeDesyncCount,_eeDesyncMode,(_eeTr=='raw'||_eeTr=='flux'))+
   '<div class="grid2"><div><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>'+esc(T('core_subnet_lbl'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div>'+
   '<div class="msg" id="ee_msg"></div>';
@@ -6367,6 +6426,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_eeRawProfile}
  if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
  if(ceFecDatagram()){body.fec=_eeFec;if(_eeFec){body.fec_data=_eeFecData;body.fec_parity=_eeFecParity}}
+ if(_eeTr=='raw'||_eeTr=='flux'){body.fake_desync=_eeDesync;if(_eeDesync){body.fake_ttl=parseInt(v('ee_dsttl'))||4;body.fake_count=parseInt(v('ee_dscount'))||2;body.fake_mode=_eeDesyncMode}}
  if(_eeTr=='ws'){body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.ech=_eeEch;body.ws_xhttp=_eeXhttp;if(_eeXhttp)body.ws_xhttp_mode=_eeXhMode;if(poolGet('ee_').pool){var pe2=poolCollect('ee_',body);if(pe2!==true){m.className='msg err';m.textContent=pe2;return}}else{body.ws_pool=false;body.ws_host=(v('ee_wshost')||'').trim();body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_eeEch&&!_eeWsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_eeXhttp&&(_eeXhMode=='stream'||_eeXhMode=='grpc')&&!_eeWsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
  if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
   // Send an explicit value for both spoof fields ONLY when the capability probe resolved OK —
