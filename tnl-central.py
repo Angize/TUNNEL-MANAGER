@@ -33,7 +33,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
+from concurrent.futures import ThreadPoolExecutor
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -949,8 +949,17 @@ def _tunnel_extra(src, refetch_ech=True):
             e["ws_xhttp_mode"] = src["ws_xhttp_mode"]
     if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
         e["ech"] = True
-        if src.get("ws_ech"):
-            e["ws_ech"] = src["ws_ech"]
+        host = src.get("ws_host")
+        if refetch_ech and host:
+            # Re-fetch fresh on rebuild — a stored single-edge ws_ech goes stale when the CDN rotates
+            # its key (~hourly), and a stale key fails the ws-upgrade (same failure the pool branch
+            # guards). NO fallback: raise rather than replay a stale key (caller runs this BEFORE teardown).
+            ec = _fetch_ech(host)
+            if not ec:
+                raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % host)
+            e["ws_ech"] = ec
+        elif src.get("ws_ech"):
+            e["ws_ech"] = src["ws_ech"]  # restore path (refetch_ech=False): reuse the stored key verbatim
     if src.get("edge_ip"):               # ws client dials this CDN edge instead of the origin
         e["edge_ip"] = src["edge_ip"]
     if src.get("ws_pool") and src.get("ws_edge_ips") and src.get("ws_edge_snis"):  # rotating edge pool (clean lists only)
@@ -979,7 +988,8 @@ def _tunnel_extra(src, refetch_ech=True):
                 ec = s.get("ech", "") if pool_ech else ""   # last-resort restore: reuse the stored key verbatim
             psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
         e["ws_edge_snis"] = psnis
-        e["ws_rotate_secs"] = src.get("ws_rotate_secs") or 600
+        _rs = src.get("ws_rotate_secs")   # 0 = rotation off (failover-only); a truthiness `or 600` would force 600
+        e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
         e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
     if src.get("gso"):                   # TUN segmentation offload (throughput)
@@ -1569,8 +1579,8 @@ def api_node_del(d):
             pn = get_node(peer_id)
             if not pn:
                 return
-            with _PairLock(nid, peer_id):  # serialize with a rebuild on this pair so it can't recreate the peer half
-                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # best-effort, short deadline
+            with _PairLock(peer_id, peer_id):  # lock ONLY the peer (nid is being wiped/removed): a shared nid lock
+                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # would serialize all N calls -> N*timeout. Still mutually excludes a rebuild on this pair (it holds peer_id too).
         parallel_map(_del_peer_half, mine, workers=32)  # fan out: N offline peers must not serialize to N*timeout
         out["links_removed"] = len(mine)
     with _reg_lock:
@@ -1593,18 +1603,6 @@ def api_node_test(d):
         raise ValueError("not found")
     p = node_call(n, "ping", "GET")
     return {"ok": bool(p.get("ok")), "info": p}
-
-
-def api_node_meta(d):
-    _require(d, ["id"])
-    n = get_node(d["id"])
-    if not n:
-        raise ValueError("not found")
-    p = node_call(n, "ping", "GET")
-    if not p.get("ok"):
-        raise ValueError("node offline")
-    ips = [ip for ips in p.get("ips", {}).values() for ip in ips]
-    return {"ips": ips}
 
 
 def api_node_stats(d):
@@ -2472,6 +2470,16 @@ _IP4_RE = r"^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\
 _DOMAIN_RE = r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
 
 
+def _ws_rotate_default(d, cur):
+    """ws_rotate_secs with 0 (rotation off / failover-only) PRESERVED: the request's value when it
+    sends one, else the stored value (even 0), else 600 — never coerce a legitimate 0 to 600 with a
+    truthiness `or`."""
+    if "ws_rotate_secs" in d and d.get("ws_rotate_secs") is not None:
+        return d["ws_rotate_secs"]
+    v = cur.get("ws_rotate_secs")
+    return 600 if v is None else v
+
+
 def _ws_pool_fields(d, cur=None):
     """Validate + build the ws edge-POOL fields. The form sends clean/burned edge-IP lists and
     clean/burned SNI host lists (+ rotation); we fetch the ECHConfigList for each clean SNI and
@@ -2541,7 +2549,7 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_ips_burned": burned_ips,
         "ws_edge_snis": snis,                # [{host,ech,path}] — sent to the node + stored
         "ws_edge_snis_burned": burned_hosts,  # host list — panel-side only
-        "ws_rotate_secs": max(0, min(28800, int(d.get("ws_rotate_secs") if "ws_rotate_secs" in d else (cur.get("ws_rotate_secs") or 600)))),
+        "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),   # 0 (rotation off) preserved, not coerced to 600
         "ws_auto_burn": bool(d.get("ws_auto_burn") if "ws_auto_burn" in d else cur.get("ws_auto_burn")),
         "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
@@ -2864,28 +2872,6 @@ def api_pool_select(d):
     return {"ok": True}
 
 
-def api_pool_rotate(d):
-    """Live 'rotate now' for a ws edge pool: tell the client node to signal the running core
-    to advance ONE dimension (dim='ip' or 'sni') with no rebuild — the TUN stays up while the
-    carrier re-dials on the new edge. Returns the fresh live status so the UI updates at once."""
-    d = d or {}
-    _require(d, ["id", "dim"])
-    if d["dim"] not in ("ip", "sni"):
-        raise ValueError("dim باید ip یا sni باشد")
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        raise ValueError("این لینک استخرِ لبه ندارد")
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
-    if not node:
-        raise ValueError("نودِ کلاینت پیدا نشد")
-    r = node_call(node, "pool-rotate", "POST", {"name": L.get("name"), "dim": d["dim"]}, timeout=10)
-    if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or "چرخش ناموفق بود"}
-    return {"ok": True}
-
-
 def api_flux_rotate(d):
     """'Rotate now' for a flux link: bump the manual epoch offset by one and rebuild both
     ends with it. Both ends get the same offset, so the moving target jumps a shape ahead
@@ -3022,42 +3008,11 @@ def _edit_link_impl(d):
     # link reads as changed and forces a needless rebuild (a brief outage).
     _defport = 4789 if ttype == "vxlan" else (20000 + tid)
     port_same = ("port" not in extra) or (extra["port"] == (L.get("port") or _defport))
-    core_same = ttype != "core" or (
-        extra.get("cipher") == L.get("cipher") and server_side == (L.get("server_side") or "a")
-        and (extra.get("transport") or "udp") == (L.get("transport") or "udp")
-        and bool(extra.get("obfs")) == bool(L.get("obfs"))
-        and bool(extra.get("cover")) == bool(L.get("cover"))
-        and (extra.get("cover_sni") or "") == (L.get("cover_sni") or "")
-        and (extra.get("raw_profile") or "") == (L.get("raw_profile") or "")
-        and (extra.get("flux_carrier") or "") == (L.get("flux_carrier") or "")
-        and (extra.get("flux_rotate_secs") or 0) == (L.get("flux_rotate_secs") or 0)
-        and (extra.get("flux_shape") or "") == (L.get("flux_shape") or "")
-        and (extra.get("flux_epoch_offset") or 0) == (L.get("flux_epoch_offset") or 0)
-        and (extra.get("ws_host") or "") == (L.get("ws_host") or "")
-        and (extra.get("ws_path") or "") == (L.get("ws_path") or "")
-        and bool(extra.get("ws_tls")) == bool(L.get("ws_tls"))
-        and bool(extra.get("ws_xhttp")) == bool(L.get("ws_xhttp"))
-        and (extra.get("ws_xhttp_mode") or "") == (L.get("ws_xhttp_mode") or "")
-        and bool(extra.get("ech")) == bool(L.get("ech"))
-        and bool(extra.get("ws_pool")) == bool(L.get("ws_pool"))
-        and (extra.get("ws_edge_ips") or []) == (L.get("ws_edge_ips") or [])
-        and (extra.get("ws_edge_ips_burned") or []) == (L.get("ws_edge_ips_burned") or [])
-        and [s.get("host") for s in (extra.get("ws_edge_snis") or [])] == [s.get("host") for s in (L.get("ws_edge_snis") or [])]
-        and (extra.get("ws_edge_snis_burned") or []) == (L.get("ws_edge_snis_burned") or [])
-        and (extra.get("ws_rotate_secs") or 0) == (L.get("ws_rotate_secs") or 0)
-        and bool(extra.get("ws_auto_burn")) == bool(L.get("ws_auto_burn"))
-        and bool(extra.get("ws_warm_standby")) == bool(L.get("ws_warm_standby"))
-        and (extra.get("edge_ip") or "") == (L.get("edge_ip") or "")
-        and (extra.get("spoof_src") or "") == (L.get("spoof_src") or "")
-        and (extra.get("spoof_dst") or "") == (L.get("spoof_dst") or "")
-        and bool(extra.get("fec")) == bool(L.get("fec"))
-        and (extra.get("fec_data") or 0) == (L.get("fec_data") or 0)
-        and (extra.get("fec_parity") or 0) == (L.get("fec_parity") or 0)
-        and bool(extra.get("gso")) == bool(L.get("gso")))
     # Non-core links may short-circuit an unchanged edit (avoids a needless outage). Core links must
     # NOT: the button is "save AND rebuild", and a core edit always does a clean both-ends-down rebuild
-    # below (the only reliable way to un-wedge a tunnel), so never silently no-op it.
-    if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same and core_same:
+    # below (the only reliable way to un-wedge a tunnel), so never silently no-op it — which is exactly
+    # why the guard leads with `ttype != "core"` and no per-field core comparison is needed here.
+    if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "unchanged": True, "name": old_name}
     # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
     # occupies (its current port/proto/server node are excluded so it can't clash with
@@ -3931,26 +3886,6 @@ def api_settings_set(d):
     return {"ok": True, "settings": obj}
 
 
-def api_signing_pubkey(d):
-    """Return the panel's update-signing PUBLIC key (PEM) — safe to expose; the operator provisions it to nodes."""
-    _, pub = _signing_keys()
-    return {"pubkey": pub}
-
-
-def api_provision_key(d):
-    """Push the panel's public signing key to a node so it thereafter accepts ONLY signed code pushes.
-    First-set on the node side; re-provisioning the identical key is a no-op."""
-    _require(d, ["id"])
-    n = get_node(d["id"])
-    if not n:
-        raise ValueError("node not found")
-    _, pub = _signing_keys()
-    r = node_call(n, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
-    if not r.get("ok"):
-        raise ValueError(r.get("error") or r.get("msg") or "failed")
-    return {"ok": True}
-
-
 def api_checkin_impl(source_ip, d):
     """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
     whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
@@ -3991,12 +3926,12 @@ API = {
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
     "node-install": api_node_install, "install-status": api_node_install_status,
-    "node-test": api_node_test, "node-meta": api_node_meta, "node-stats": api_node_stats,
+    "node-test": api_node_test, "node-stats": api_node_stats,
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
-    "flux-rotate": api_flux_rotate, "edge-status": api_edge_status, "pool-rotate": api_pool_rotate,
+    "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
@@ -4006,12 +3941,10 @@ API = {
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-update": api_core_update,
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
-    "signing-pubkey": api_signing_pubkey, "provision-key": api_provision_key,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-rotate", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
-             "provision-key"}
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -4243,14 +4176,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .live{margin-top:14px;padding:12px;border-radius:13px;background:var(--glass);border:1px solid var(--bord)}
 .live .lr{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--sub)}
 .live .lr b{color:var(--tx);font-size:13.5px}.live .lr b.ok{color:var(--ok)}
-.livebar{height:6px;border-radius:6px;background:var(--bord);margin:7px 0 10px;overflow:hidden}
-.livebar span{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--acc),var(--ok));transition:width .4s}
-.livefresh{margin-top:9px;font-size:10.5px;color:var(--sub);display:flex;align-items:center;gap:6px}
-.pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:0 0 auto;animation:pulse 2.2s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}}
-.sfoot{margin-top:auto;display:flex;gap:8px;padding-top:14px}
-.sfoot button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12px;padding:9px 0;border-radius:11px;border:1px solid var(--bord);background:transparent;color:var(--sub);cursor:pointer;font-family:inherit}
-.sfoot button:hover{background:var(--glass)}.sfoot .ic{width:15px;height:15px}
 .main{flex:1;min-width:0;max-width:1120px;padding:22px 26px 64px}
 .mtop{display:none;align-items:center;justify-content:space-between;gap:11px;padding:10px 14px;position:sticky;top:0;z-index:30;background:var(--side);border:1px solid var(--bord);border-radius:14px;box-shadow:var(--dsh)}
 .mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px;direction:ltr}
@@ -4281,8 +4207,6 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .chead:hover{background:color-mix(in srgb,var(--acc) 4%,transparent)}
 .hmain{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
 .hrow1{display:flex;align-items:center;gap:8px;min-width:0}
-.hrow2{display:flex;align-items:center;gap:10px;font-size:10.5px;color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums}
-.card.open .hrow2{display:none}
 .hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
 .ctag.core{background:var(--accw);color:var(--acc)}
@@ -4300,16 +4224,12 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .hero{border-radius:24px;padding:18px 16px 15px;background:linear-gradient(140deg,color-mix(in srgb,var(--acc) 22%,var(--card)),color-mix(in srgb,var(--acc2) 11%,var(--card)) 55%,color-mix(in srgb,var(--card) 94%,transparent));border:1px solid color-mix(in srgb,var(--acc) 32%,transparent);box-shadow:0 18px 44px -18px color-mix(in srgb,var(--acc) 50%,transparent),inset 0 1px 0 var(--hi);margin-bottom:14px}
 .k{color:var(--sub);font-size:11.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .hero .v{font-size:30px;font-weight:800;text-shadow:0 0 26px color-mix(in srgb,var(--acc) 50%,transparent)}
-.hsub{margin-top:8px;font-size:11.5px;color:var(--sub);display:inline-flex;gap:5px;align-items:center;background:color-mix(in srgb,var(--tx) 7%,transparent);border:1px solid var(--bord);border-radius:12px;padding:4px 10px}
 .v{font-size:22px;font-weight:800}.stat .v{font-size:22px}
 .sec{font-size:12.5px;font-weight:700;color:var(--sub);margin:20px 4px 9px;display:flex;align-items:center;gap:7px}
 .sec::after{content:'';flex:1;height:1px;background:linear-gradient(to left,var(--bord),transparent)}
 .chart{width:100%;height:auto;display:block}
-.legend{display:flex;gap:6px;font-size:11px;color:var(--sub);margin-top:8px;align-items:center}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:1px}
 .seg{display:flex;align-items:center;gap:14px}.donut{flex:0 0 116px}
-.segs{flex:1;display:flex;flex-direction:column;gap:4px;font-size:13px}
-.segs div{display:flex;justify-content:space-between;align-items:center}.segs b{font-weight:800}
 .nrow{display:flex;align-items:center;gap:11px}
 .ndot{width:10px;height:10px;border-radius:50%;background:var(--sub);flex:0 0 auto;box-shadow:0 0 8px var(--sub)}
 .ndot.on{background:var(--ok);box-shadow:0 0 9px color-mix(in srgb,var(--ok) 80%,transparent)}
@@ -4379,7 +4299,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
 .pbtn:disabled{opacity:.4;cursor:default}.pbtn:not(:disabled):active{transform:scale(.97)}
 .pinfo{color:var(--sub);font-size:12px;min-width:120px;text-align:center}
-.mssearch{width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--bord);background:transparent;color:var(--tx);font-size:13px;font-family:inherit;outline:none}
 @media(prefers-reduced-motion:no-preference){#view>*{animation:rise .45s cubic-bezier(.22,.61,.36,1) both}}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 /* desktop: node/tunnel/portfw cards in two columns */
@@ -4389,11 +4308,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
  #nodeList>.card,#linkList>.card,#pfList>.card{margin-bottom:0}
  #nodeList>.card.muted,#linkList>.card.muted,#pfList>.card.muted{grid-column:1/-1}
 }
-.pagehd{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin:2px 2px 14px}
-.pagehd h1{margin:0}.pagehd .sub{margin:4px 0 0}
-.pagehd .actbtn{margin-inline-start:auto;display:inline-flex;align-items:center;gap:6px;background:var(--acc);color:#fff;border:0;font-weight:700;font-size:12.5px;padding:9px 15px;border-radius:11px;cursor:pointer;font-family:inherit}
-.pagehd .actbtn .ic{width:15px;height:15px}
-.skrow{display:flex;align-items:center;gap:11px}
 /* skeleton shimmer: a visible placeholder grey (--sk-base) with a clearly brighter sweep (--sk-hi),
    so it reads as a loading placeholder in BOTH themes (the old glass/field pair was near-invisible in light). */
 .sk{display:block;background:linear-gradient(90deg,var(--sk-base) 0%,var(--sk-base) 38%,var(--sk-hi) 50%,var(--sk-base) 62%,var(--sk-base) 100%);background-color:var(--sk-base);background-size:220% 100%;border-radius:7px;animation:shim 1.25s ease-in-out infinite}
@@ -4401,11 +4315,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}
 /* skeleton loading: shimmer bars laid out INSIDE the real card classes (skNodeCard/skAccCard/
    skPfCard/skAgRow), so each page's loading state is pixel-identical to its loaded card. */
-.emptybox{text-align:center;padding:30px 16px}
-.emptybox .ei{width:52px;height:52px;border-radius:15px;margin:0 auto 13px;display:grid;place-items:center;background:var(--accw);color:var(--acc)}
-.emptybox .ei .ic{width:26px;height:26px}
-.emptybox h3{margin:0 0 5px;font-size:15px}.emptybox p{margin:0 0 15px;font-size:12.5px;color:var(--sub)}
-@media(prefers-reduced-motion:reduce){.sk,.pulse{animation:none}}
+@media(prefers-reduced-motion:reduce){.sk{animation:none}}
 /* ===== popup modal shell (edit forms + node details) — gated behind .wide so confirmBox's .modal is untouched ===== */
 .modal.wide{width:414px;max-width:100%;display:flex;flex-direction:column;max-height:min(88vh,760px);padding:0;overflow:hidden;background:var(--card);animation:modrise .2s cubic-bezier(.2,.7,.3,1)}
 @keyframes modrise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
@@ -4521,8 +4431,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tot .iso{display:inline-flex;gap:8px}
 .act.flip{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,transparent)}
 .act.reset{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
-.bigrow{display:flex;gap:18px;align-items:baseline;margin-bottom:4px}.bigrow .b{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
-.subline{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
 /* slimmed node card: plain meta labels (NOT boxed — distinct from the .chip icon badge) */
 .nchips{display:grid;grid-template-columns:auto auto;justify-content:start;gap:7px 16px;margin-top:9px}
 .nchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--sub)}
@@ -4548,15 +4456,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
 .agx-act .primary{flex:1;justify-content:center}
 .agx-hint{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.6}
-.agx-div{height:1px;background:var(--bord);margin:12px -2px}
-.agx-corlab{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;margin-bottom:9px}
-.agx-corlab .now{margin-inline-start:auto;font-weight:600;color:var(--sub);font-size:11px}
-.agx-corrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
-.agx-corrow #cor_ver_box{flex:1;min-width:120px}
-.agx-corrow .msbtn{margin-top:0;padding:8px 11px;font-size:12px;border-radius:10px}
-.agx-mini{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border-radius:10px;font-family:inherit;font-weight:800;font-size:11.5px;cursor:pointer;border:1px solid transparent}
-.agx-mini.pri{background:#8b5cf6;color:#fff}
-.agx-mini.gho{background:var(--field);color:var(--tx);border:1px solid var(--bord)}
 /* --- compact node row + per-node core picker --- */
 .agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
 .agx-row .nm{font-weight:800;font-size:13px}
@@ -4616,13 +4515,8 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
-.tnst{font-size:9px;font-weight:800;flex:0 0 auto;padding:2px 7px;border-radius:7px;line-height:1.35;border:1px solid color-mix(in srgb,currentColor 42%,transparent);background:color-mix(in srgb,currentColor 12%,transparent)}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
-.tnmeta{display:grid;grid-template-columns:1fr 1fr;gap:7px 15px;margin-top:12px;font-size:11.5px;color:var(--sub)}.tnmeta b{color:var(--tx);font-weight:700}.tnmeta>span{display:flex;align-items:center;gap:5px;min-width:0}
 /* portfw card: two columns — ports on one side, destinations/rotation on the other */
-.pfcols{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:12px}
-.pfcol{display:flex;flex-direction:column;gap:7px}
-.pfrow{font-size:12px;color:var(--sub)}.pfrow b{color:var(--tx);font-weight:700}
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
 .card.node .noff .ic{width:15px;height:15px;color:var(--bad)}
 .card.node .noff b{font-size:12px;color:var(--bad)}.card.node .noff span{font-size:11px;color:var(--sub)}
@@ -4741,16 +4635,11 @@ body.dark .tag.core{color:#a78bfa}
 .tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
 .tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
 .tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
-.okbg{background:rgba(31,157,87,.14);color:#2ecb7d}.badbg{background:rgba(214,69,69,.14);color:#f07070}
 .plist{border:1px solid var(--bord);border-radius:10px;overflow:hidden;background:var(--field)}
 .prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;min-height:42px;border-bottom:1px solid var(--bord)}
 .prow:last-child{border-bottom:none}
-.prow .pval{flex:1;min-width:0;font-size:12.5px;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prow.dead .pval{color:var(--sub);text-decoration:line-through}
-.prow .pacts{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .prow .pb{border:1px solid var(--bord);background:var(--glass);color:var(--sub);width:26px;height:26px;border-radius:7px;cursor:pointer;font-size:12px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .pempty{text-align:center;font-size:11px;color:var(--sub);padding:14px 0}
-.pauto{font-size:9px;font-weight:700;color:#f07070;background:rgba(214,69,69,.16);border-radius:5px;padding:1px 5px}
 .pacc{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--field);margin-top:12px}
 .pacchd{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;gap:10px}
 .pacct{font-size:13px;font-weight:700}
@@ -4762,11 +4651,6 @@ body.dark .tag.core{color:#a78bfa}
 .pchev{color:var(--sub);transition:transform .2s;font-size:12px;flex:0 0 auto}
 .pchev.open{transform:rotate(180deg)}
 .paccbody{padding:0 11px 11px}
-.ppill{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;border-radius:99px;padding:3px 10px;cursor:pointer;white-space:nowrap;border:1px solid transparent;flex:0 0 auto}
-.ppill.live{background:rgba(78,201,154,.14);color:var(--ok);border-color:rgba(78,201,154,.4)}
-.ppill.burn{background:rgba(240,115,106,.14);color:var(--bad);border-color:rgba(240,115,106,.4)}
-.ppill.now{background:var(--ok);color:#08120c;border-color:var(--ok)}
-.ppill.susp{background:rgba(224,165,92,.16);color:var(--warn,#e0a55c);border-color:rgba(224,165,92,.45)}
 /* edge health rows — colored start-stripe card, right-aligned IP, icon state + icon actions */
 .erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord);flex-wrap:wrap;row-gap:7px}
 .erow.ok{border-inline-start-color:var(--ok)}
@@ -4786,24 +4670,15 @@ body.dark .tag.core{color:#a78bfa}
 .eib:hover{border-color:var(--acc);color:var(--acc)}
 .eib.del:hover{border-color:var(--bad);color:var(--bad)}
 .eib.on{border-color:var(--ok);color:var(--ok)}
-.pretest{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
 .pcd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--sub);direction:ltr;font-variant-numeric:tabular-nums;flex:0 0 auto}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
 .pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
-.pprobe{border:1px solid var(--bord);background:var(--glass);color:var(--sub);border-radius:7px;padding:3px 8px;font-size:10.5px;cursor:pointer;font-family:inherit;flex:0 0 auto}
-.pprobe:hover{border-color:var(--acc);color:var(--acc)}
-.poolprobe{margin-top:10px;width:100%;border:1px solid var(--bord);background:var(--glass);color:var(--fg);border-radius:9px;padding:8px;font-size:12.5px;cursor:pointer;font-family:inherit}
-.poolprobe:hover{border-color:var(--acc);color:var(--acc)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
-.rotbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--acc);color:#fff;border:none;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
-.rothdr{border:1px solid var(--bord);background:var(--glass);color:var(--acc);border-radius:8px;width:28px;height:28px;font-size:15px;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:var(--accw)}
 .rl.cli{color:var(--gold);background:var(--goldw)}
-.enclock{color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:3px;direction:ltr}
-.enclock .ic{width:12px;height:12px}
 .enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
 /* two meta columns aligned EXACTLY under the two node boxes (same grid + hidden arrow as .tninfo) */
 .enmeta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:start;margin-top:11px;font-size:11.5px;color:var(--sub)}
@@ -4872,11 +4747,11 @@ var LANG='fa';
 try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}catch(e){}
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",ev_kind_node:"نود",ev_kind_link:"تونل",ev_kind_edge:"لبه",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",
  brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
- save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",del:"حذف",add:"افزودن",edit:"ویرایش",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
+ save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
- no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",done:"انجام شد",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
+ no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
  prev:"قبلی",next:"بعدی",page:"صفحه",of:"از",items:"مورد",search:"جستجو…",
  disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
  // overview
@@ -4891,7 +4766,7 @@ var I18N={fa:{
  ov_uptime_lbl:"میانگینِ آپ‌تایمِ",ov_hours_recent:"ساعتِ اخیر",load:"لود",
  // nodes
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
- nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",checking_dots:"در حال بررسی…",
+ nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
  tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",
  uptime_bar:"آپتایم",node_min2:"حداقل ۲ نودِ آنلاین لازم است",
@@ -4912,14 +4787,14 @@ var I18N={fa:{
  // settings
  set_sub:"رفتار خودکارِ پنل و بازه‌های بررسی",set_saved:"تنظیمات ذخیره شد",
  // toasts common
- t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",t_this_edge:"این لبه فعال شد",
+ t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",
 },en:{
  nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_logs:"Logs",nav_settings:"Settings",nav_logout:"Log out",
- logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",ev_kind_node:"Node",ev_kind_link:"Tunnel",ev_kind_edge:"Edge",
+ logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",
  brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
- save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",del:"Delete",add:"Add",edit:"Edit",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
+ save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",add:"Add",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
  online:"Online",offline:"Offline",failed:"Failed",saving:"Saving…",checking:"Checking…",sending:"Sending…",loading:"Loading…",
- no_results:"No results.",live:"Live",select:"Select",ip:"IP",done:"Done",err_check:"Check failed",not_available:"Unreachable",
+ no_results:"No results.",live:"Live",select:"Select",ip:"IP",err_check:"Check failed",not_available:"Unreachable",
  prev:"Previous",next:"Next",page:"Page",of:"of",items:"items",search:"Search…",
  disk:"Disk",cpu_cores:"Cores",os:"OS",uptime:"Uptime",host:"Host",proxy:"Proxy",
  ov_sub:"Precise fleet stats — no misleading averages",ov_health:"Fleet health",ov_attention:"Needs attention",ov_allnodes:"All nodes at a glance",
@@ -4932,7 +4807,7 @@ var I18N={fa:{
  ov_worst_q:"Worst quality: tunnel",ov_loss:"loss",ov_ping:"ping",ov_all_good:"All tunnels are in good shape",ov_fleet_ping:"fleet avg ping",
  ov_uptime_lbl:"Average uptime over the last",ov_hours_recent:"hours",load:"load",
  nodes_sub:"Add nodes and watch them live",add_node:"Add node",nodes_fleet:"Fleet nodes",nodes_search:"Search name or IP…",
- nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",checking_dots:"Checking…",
+ nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",
  tip_test:"Test",tip_details:"Details",tip_edit:"Edit",tip_delete:"Delete",
  nd_tunnels:"Tunnels",nd_portfw:"Port-forward",nd_agent:"agent",nd_core:"core",nd_core_missing:"not installed",nd_ctrlproxy:"Control proxy",
  uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
@@ -4948,24 +4823,24 @@ var I18N={fa:{
  pf_sub:"Forward a port on a node (with multi-target rotation)",pf_add:"Add port-forward",pf_active:"Active port-forwards",pf_search:"Search node / name…",
  pf_empty:"No port-forwards.",pf_no_online:"No node is online",
  set_sub:"Panel automation and check intervals",set_saved:"Settings saved",
- t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",t_this_edge:"This edge is now active",
+ t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",
 }};
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
- ram:"رم",cpu:"CPU",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
+ ram:"رم",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
  // node details
  nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
  ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
  // node edit / add
  nd_edit:"ویرایشِ نود",f_name:"نام",f_host_ip:"هاست / آی‌پی",f_port:"پورت",f_token:"توکن",tok_keep:"خالی = توکن فعلی بماند",
  f_ctrlproxy_empty:"پروکسیِ کنترل (خالی = بدون پروکسی)",need_nhp:"نام، هاست و پورت لازم است",
- nd_add:"افزودنِ نود",m_auto:"خودکار",m_manual:"دستی",f_nodename:"نامِ نود",f_serverip:"آی‌پیِ سرور",f_sshport:"پورتِ SSH",f_sshuser:"کاربرِ SSH",
- f_agentport:"پورتِ ایجنت",f_ctrlproxy_opt:"پروکسیِ کنترل (اختیاری)",ssh_auth:"احرازِ هویتِ SSH",auth_pass:"رمز",auth_key:"کلیدِ خصوصی",ssh_pass_ph:"رمزِ SSH سرور",
- auth_hint_pass:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",auth_hint_key:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
- install_go:"نصب و اتصالِ خودکار",manual_add:"افزودن و اتصال",retry:"تلاشِ مجدد",n_port_lbl:"پورت agent",n_tok_lbl:"توکن نود",n_tok_ph:"توکن نود",
- need_name_ip:"نام و آی‌پیِ سرور لازم است",need_req:"لازم است",installing:"در حالِ نصب…",node_installed:"نود نصب شد",connecting_dots:"در حال اتصال…",
+ 
+ 
+ 
+ 
+ connecting_dots:"در حال اتصال…",
  need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added:"نود اضافه شد",
- istep_ssh:"اتصالِ SSH",istep_dl:"دانلودِ ایجنت",istep_svc:"نصب و راه‌اندازیِ سرویس",istep_reg:"ثبت و اتصال در پنل",idet_connecting:"در حالِ اتصال…",idet_wait:"در انتظار…",
- inst_notfound:"وضعیتِ نصب یافت نشد",inst_lost:"ارتباط با پنل قطع شد",inst_done:"انجام شد",
+ 
+ inst_done:"انجام شد",
  // node delete
  nd_del:"حذفِ نود",del_how:"می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:",del_detach_t:"فقط از پنل جدا کن",
  del_detach_s:"نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.",
@@ -4976,7 +4851,7 @@ var I18N={fa:{
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
- tag_encrypted:"رمزنگاری‌شده",no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
+ no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
  conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
@@ -5015,19 +4890,19 @@ var I18N={fa:{
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
 },en:{
- ram:"RAM",cpu:"CPU",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"live refresh",
+ ram:"RAM",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"live refresh",
  nd_title:"Node details",nd_status:"Node status",nd_off_last:"Offline — last values",nd_conn_test:"Connection test",nd_traffic:"Traffic",nd_ips:"IPs",
  ip_leg:"tunneled / port-forward / free",ip_none:"no IPs reported",free:"Free",nd_no_tp:"No tunnels or port-forwards on this node",nd_ctrlproxy:"Control proxy",
  nd_edit:"Edit node",f_name:"Name",f_host_ip:"Host / IP",f_port:"Port",f_token:"Token",tok_keep:"empty = keep current token",
  f_ctrlproxy_empty:"Control proxy (empty = none)",need_nhp:"Name, host and port are required",
- nd_add:"Add node",m_auto:"Auto",m_manual:"Manual",f_nodename:"Node name",f_serverip:"Server IP",f_sshport:"SSH port",f_sshuser:"SSH user",
- f_agentport:"Agent port",f_ctrlproxy_opt:"Control proxy (optional)",ssh_auth:"SSH auth",auth_pass:"Password",auth_key:"Private key",ssh_pass_ph:"Server SSH password",
- auth_hint_pass:"Server SSH password — not stored, used only during install.",auth_hint_key:"SSH private key — safer than a password; no sshpass needed.",
- install_go:"Install & auto-connect",manual_add:"Add & connect",retry:"Retry",n_port_lbl:"agent port",n_tok_lbl:"Node token",n_tok_ph:"node token",
- need_name_ip:"Node name and server IP required",need_req:"required",installing:"Installing…",node_installed:"Node installed",connecting_dots:"Connecting…",
+ 
+ 
+ 
+ 
+ connecting_dots:"Connecting…",
  need_all_nhpt:"Please fill in name, host, port and token",node_added:"Node added",
- istep_ssh:"SSH connect",istep_dl:"Download agent",istep_svc:"Install & start service",istep_reg:"Register & connect in panel",idet_connecting:"Connecting…",idet_wait:"Waiting…",
- inst_notfound:"Install status not found",inst_lost:"Lost connection to the panel",inst_done:"Done",
+ 
+ inst_done:"Done",
  nd_del:"Delete node",del_how:"How should the node be removed? Pick one:",del_detach_t:"Detach from panel only",
  del_detach_s:"The node and its tunnels stay intact and keep working; it is only removed from this panel's registry. You can add it back later.",
  del_wipe_t:"Full node wipe",del_wipe_s:"Everything is wiped on the node server: all tunnels, the agent, the systemd service, the token and JSON files. Tunnels are also torn down on the peer nodes. Irreversible!",
@@ -5036,7 +4911,7 @@ var I18N={fa:{
  test_testing:"Testing…",node_added_online:" · online",node_added_offline:" · offline: ",
  t_side_off:"Node offline (agent unreachable — port/token may have changed)",t_side_notun:"Down (tunnel not on node)",t_side_ifdown:"Down (interface down)",
  t_side_conn:"Connected",t_side_nopingr:"No ping reply",t_side_up_unk:"Up (ping unknown)",t_ping:"ping",t_loss:"loss",t_noloss:"no loss",
- tag_encrypted:"Encrypted",no_tunnel_check:"No tunnels to check",checkall_done:"Finished checking all tunnels",
+ no_tunnel_check:"No tunnels to check",checkall_done:"Finished checking all tunnels",
  rebuild_confirm:"Rebuild this tunnel on both nodes? (delete and recreate with the same settings)",rebuilding_both:"Rebuilding the tunnel on both nodes…",
  rebuilt_test:"Tunnel rebuilt — test it with \\"Check\\"",rebuild_failed:"Rebuild failed",checking_conn:"Checking connection (live ping on both ends)…",
  conn_ok:"Connected",conn_bad:"Connection problem",reset_confirm:"Reset this tunnel's total to zero? (live rate is untouched)",
@@ -5439,8 +5314,6 @@ function donut(id,parts){var svg=el(id);if(!svg)return;var CIR=2*Math.PI*46,tota
  parts.forEach(function(p){var len=p[1]/total*CIR;if(len>0.4){g+='<circle cx="60" cy="60" r="46" fill="none" stroke="'+p[2]+'" stroke-width="15" stroke-dasharray="'+Math.max(1,len-1).toFixed(1)+' '+CIR.toFixed(1)+'" stroke-dashoffset="'+(-off).toFixed(1)+'" transform="rotate(-90 60 60)" stroke-linecap="round"/>'}off+=len});
  g+='<text x="60" y="57" text-anchor="middle" font-size="21" font-weight="800" fill="'+cssv('--tx')+'" font-family="Vazirmatn,Tahoma">'+parts[0][1]+'</text><text x="60" y="76" text-anchor="middle" font-size="10" fill="'+cssv('--sub')+'" font-family="Vazirmatn,Tahoma">آنلاین</text>';
  svg.innerHTML=g}
-function ring(pct,color){pct=Math.max(0,Math.min(100,pct||0));var C=(2*Math.PI*15).toFixed(1),o=(C*(1-pct/100)).toFixed(1);
- return '<svg viewBox="0 0 40 40" style="width:44px;height:44px;flex:0 0 auto"><circle cx="20" cy="20" r="15" fill="none" stroke="var(--bord)" stroke-width="4"/><circle cx="20" cy="20" r="15" fill="none" stroke="'+color+'" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+C+'" stroke-dashoffset="'+o+'" transform="rotate(-90 20 20)" style="transition:stroke-dashoffset .5s"/><text x="20" y="24" text-anchor="middle" font-size="11" fill="var(--tx)" font-family="Vazirmatn,Tahoma">'+Math.round(pct)+'</text></svg>'}
 function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.info||!n.info.ips)return [];
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
