@@ -1208,10 +1208,14 @@ def api_summary(d):
     rtts = []
     for L in links:
         if L.get("type") == "core":
-            continue  # core tunnels have their own panel + health; keep these counters
-                      # (and the `links` total below, which subtracts cores) consistent,
-                      # and avoid emitting link/drift alerts that navigate to the tunnels
-                      # page where core links are filtered out
+            types["core"] = types.get("core", 0) + 1   # count core tunnels in the overview breakdown too
+            if link_drift(L["id"]):
+                drift_n += 1
+            elif _link_up(L):
+                up += 1
+            else:
+                down += 1
+            continue  # but emit NO link/drift alert for core: those navigate to the tunnels page, which hides core
         types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
@@ -1267,7 +1271,7 @@ def api_summary(d):
     score = max(0, min(100, 100 - offline * 8 - len(crit) * 6 - down * 10 - drift_n * 4 - noping * 3))
     n_core = sum(1 for L in links if L.get("type") == "core")
     return {"nodes_online": on, "nodes_total": len(nodes),
-            "links": len(links) - n_core, "core": n_core,
+            "links": len(links) - n_core, "core": n_core, "link_total": len(links),
             "links_healthy": up, "tunnels": tun, "portfw": pf,
             "health_score": score,
             "central": central_stats(),
@@ -4418,8 +4422,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .oalert .msg{font-size:12.5px;font-weight:600;min-width:0}.oalert .msg b{font-weight:800}
 .oalert .go{margin-inline-start:auto;font-size:11px;color:var(--acc);font-weight:700;white-space:nowrap;cursor:pointer}
 .ohcard{overflow:visible}
-.oheat{display:flex;gap:4px;align-items:flex-end;height:66px;direction:ltr;position:relative}
-.hbar{flex:1;border-radius:5px 5px 3px 3px;min-height:8px;cursor:pointer;transition:filter .12s}
+.oheat{display:flex;gap:6px;align-items:flex-end;justify-content:center;height:66px;direction:ltr;position:relative}
+.hbar{flex:1 1 0;max-width:56px;border-radius:5px 5px 3px 3px;min-height:8px;cursor:pointer;transition:filter .12s}
 .hbar:active{filter:brightness(1.12)}
 .htip{position:absolute;bottom:calc(100% + 7px);transform:translateX(-50%);direction:rtl;background:var(--tx);color:var(--card);font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;white-space:nowrap;pointer-events:none;z-index:6;box-shadow:0 5px 16px rgba(0,0,0,.28)}
 .htip span{opacity:.65;font-weight:600}
@@ -5482,7 +5486,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  var sc=num(s.health_score),scol=sc>=85?cssv('--ok'):sc>=60?cssv('--gold'):cssv('--bad');
  var se=el('o_score');se.textContent=sc;se.style.color=scol;
  el('o_chips').innerHTML='<span class="ochip a">'+esc(T('ov_chip_node'))+' <b dir="ltr">'+on+'/'+tot+'</b></span>'+
-  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+links+'</b></span>'+
+  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+(num(s.link_total)||links)+'</b></span>'+
   '<span class="ochip a">'+esc(T('ov_chip_tunnel'))+' <b>'+num(s.tunnels)+'</b></span>'+
   (alerts.length?'<span class="ochip b">'+esc(T('ov_chip_alert'))+' <b>'+alerts.length+'</b></span>':'<span class="ochip o">'+esc(T('ov_chip_noalert'))+'</span>');
  // ---- alerts feed
@@ -5509,7 +5513,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
   '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">'+esc(T('tst_down'))+'</div></div>'+
   '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">'+esc(T('tst_rebuild'))+'</div></div>';
  var ty=s.link_types||{};
- var TYD=[['vxlan','var(--acc)'],['gre','var(--ok)'],['sit','#a855f7'],['ipip','#14b8a6'],['l2tpv3','#8b5cf6'],['fou','#ec4899'],['ipsec','#f43f5e']];
+ var TYD=[['core','#6366f1'],['vxlan','var(--acc)'],['gre','var(--ok)'],['sit','#a855f7'],['ipip','#14b8a6'],['l2tpv3','#8b5cf6'],['fou','#ec4899'],['ipsec','#f43f5e']];
  var tt=0;TYD.forEach(function(x){tt+=num(ty[x[0]])});tt=tt||1;
  el('o_typebar').innerHTML=TYD.map(function(x){return '<i style="width:'+(num(ty[x[0]])/tt*100)+'%;background:'+x[1]+'"></i>'}).join('');
  el('o_typleg').innerHTML=TYD.filter(function(x){return num(ty[x[0]])>0}).map(function(x){return '<span><i class="otrack" style="background:'+x[1]+'"></i>'+x[0]+' <b>'+num(ty[x[0]])+'</b></span>'}).join('')||'<span class="muted">'+esc(T('ov_no_tunnel'))+'</span>';
