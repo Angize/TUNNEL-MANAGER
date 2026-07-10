@@ -752,23 +752,24 @@ def _tf_zero_rates(nid):
 
 
 def _uh_sample(nid, up, now):
-    """Record up/down into the rolling uptime ring; a bucket is DOWN if the node was unreachable at any
-    poll during it. One sample per UPTIME_BUCKET seconds."""
+    """Record up/down into the rolling uptime ring as a per-bucket UP-FRACTION (up polls / total polls
+    in the bucket), so a short blip counts by its REAL duration — a 5s outage is ~5s of downtime, not a
+    whole minute/cell. One bucket per UPTIME_BUCKET seconds; the ring holds floats in [0,1]."""
     with _uh_lock:
         e = _uh.get(nid)
         if e is None:
-            _uh[nid] = {"ring": [], "bts": now, "dn": not up}
+            _uh[nid] = {"ring": [], "bts": now, "up": 1 if up else 0, "tot": 1}
             return
-        if not up:
-            e["dn"] = True
+        e["up"] = e.get("up", 0) + (1 if up else 0)
+        e["tot"] = e.get("tot", 0) + 1
         if now - e["bts"] >= UPTIME_BUCKET:
-            val = 0 if e["dn"] else 1
+            frac = e["up"] / e["tot"] if e["tot"] else 1.0   # fraction of this bucket the node was reachable
             missed = min(int((now - e["bts"]) / UPTIME_BUCKET), UPTIME_KEEP)  # backfill a multi-bucket gap, don't compress it
-            e["ring"].extend([val] * missed)
+            e["ring"].extend([frac] * missed)
             if len(e["ring"]) > UPTIME_KEEP:
                 e["ring"] = e["ring"][-UPTIME_KEEP:]
             e["bts"] = now
-            e["dn"] = not up
+            e["up"], e["tot"] = 0, 0
 
 
 def _uh_cells(nid, window_hours, cells=60):
@@ -791,8 +792,27 @@ def _uh_cells(nid, window_hours, cells=60):
     out = []
     for i in range(cells):
         chunk = [x for x in slots[i * per:(i + 1) * per] if x is not None]
-        out.append(None if not chunk else (0 if 0 in chunk else 1))
+        out.append(None if not chunk else (0 if min(chunk) < 1.0 else 1))  # red if ANY downtime in the cell (visual)
     return out
+
+
+def _uh_pct(nid, window_hours):
+    """True TIME-WEIGHTED uptime % over the window: the mean of the per-bucket up-fractions (each ~1
+    minute), so a 5-second blip lowers it by ~5s/window — not by a whole cell/minute like counting red
+    bars would. Returns 100.0 when there is no history yet."""
+    try:
+        wh = int(window_hours)
+    except Exception:
+        wh = 1
+    if wh not in (1, 3, 6, 8, 12, 24):
+        wh = 1
+    with _uh_lock:
+        e = _uh.get(nid)
+        ring = list(e["ring"]) if e else []
+    ring = ring[-(wh * 60):]
+    if not ring:
+        return 100.0
+    return round(sum(ring) / len(ring) * 100, 2)
 
 
 def _uh_snapshot():
@@ -809,8 +829,8 @@ def _uh_load():
     now = time.time()
     with _uh_lock:
         for nid, ring in (data or {}).items():
-            if isinstance(ring, list):  # bts=now so the offline gap isn't backfilled as up/down
-                _uh[nid] = {"ring": [1 if x else 0 for x in ring][-UPTIME_KEEP:], "bts": now, "dn": False}
+            if isinstance(ring, list):  # bts=now so the offline gap isn't backfilled; floats in [0,1]
+                _uh[nid] = {"ring": [max(0.0, min(1.0, float(x))) for x in ring][-UPTIME_KEEP:], "bts": now, "up": 0, "tot": 0}
 
 
 def _tf_snapshot():
@@ -1035,8 +1055,9 @@ def _redact_proxy(proxy):
 
 
 def _node_view(n):
+    _uw = get_settings().get("uptime_window", 1)
     base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": _redact_proxy(n.get("proxy")),
-            "uptime": _uh_cells(n["id"], get_settings().get("uptime_window", 1))}
+            "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
         return {**base, "online": False, "pending": True, "info": {"error": "در حال بررسی…"}}
@@ -1229,10 +1250,10 @@ def api_summary(d):
     win = _sset.get("uptime_window", 1)
     ups, downcnt = [], 0
     for n in nodes:
-        vals = [c for c in _uh_cells(n["id"], win) if c is not None]
-        if vals:
-            ups.append(sum(vals) / len(vals) * 100)
-            if 0 in vals:
+        cells = _uh_cells(n["id"], win)
+        if any(c is not None for c in cells):
+            ups.append(_uh_pct(n["id"], win))   # time-weighted, not red-cell-counting
+            if any(c == 0 for c in cells):
                 downcnt += 1
 
     frx_bps = ftx_bps = frx = ftx = 0
@@ -5678,8 +5699,7 @@ function nodeCard(n){var i=n.info||{};
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
- var up=0,tot=0;for(var i=0;i<r.length;i++){if(r[i]!=null){tot++;if(r[i])up++}}
- var pct=tot?Math.round(up/tot*100):0;
+ var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  // TIME-WEIGHTED % from the server (a 5s blip != a whole red cell)
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
  return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+T('pct')+'</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
