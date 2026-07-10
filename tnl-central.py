@@ -3672,10 +3672,10 @@ def _events_once():
         _ev_state["links"].pop(lid, None)
 
     # --- core tunnels: PRECISE core-recorded events (down reason + burns for a ws pool;
-    #     self-heal/reconnect reasons for a udp/raw/flux datagram client) and — for a pool — the
-    #     automatic edge-IP change. The core saw the real error; the panel just renders it. Any core
-    #     with a status file qualifies: a pool, or a datagram transport (which now writes an event
-    #     ring). Plain tcp / single-edge ws cores write no status file, so they're skipped. ---
+    #     self-heal/reconnect reasons for a udp/raw/flux datagram client; in-band ECH self-heal for a
+    #     single-edge ws/xhttp client) and — for a pool — the automatic edge-IP change. The core saw
+    #     the real error; the panel just renders it. Any core with a status file qualifies: a pool, a
+    #     datagram transport, or a single-edge ws/xhttp. Only plain tcp cores write no status file. ---
     seen = set()
     now = int(time.time())
     for L in links:
@@ -3683,8 +3683,8 @@ def _events_once():
             continue
         is_pool = bool(L.get("ws_pool"))
         tr = str(L.get("transport") or "").lower()
-        if not is_pool and tr not in ("udp", "raw", "flux"):
-            continue  # no core status file -> nothing precise to read
+        if not is_pool and tr not in ("udp", "raw", "flux", "ws"):
+            continue  # no core status file -> nothing precise to read (single-edge ws writes one; plain tcp doesn't)
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
