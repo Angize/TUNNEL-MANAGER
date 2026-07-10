@@ -4198,7 +4198,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .navi:hover{background:var(--glass)}
 .navi.on{color:var(--acc);background:var(--accw);font-weight:700}
 .navi.on .ct{color:var(--acc);background:transparent;border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
-.navi .ctwrap{margin-inline-start:auto;display:flex;gap:4px;align-items:center;direction:ltr}  /* [total][unread] L->R, pinned to the far edge like other counts */
+.navi .ctwrap{margin-inline-end:auto;display:flex;gap:4px;align-items:center;direction:ltr}  /* [total][unread] L->R, pinned to the far LEFT edge like other counts. NOTE: the wrap is direction:ltr, so in the RTL nav row the auto margin must sit on inline-END (=physical right=main-start) to push the cluster left — margin-inline-START:auto would (wrongly) shove it toward the label. */
 .navi .ctwrap .ct{margin-inline-start:0}
 .navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
 .navi.on .ct.ctun{color:#fff;background:var(--acc);border-color:transparent}
@@ -4725,6 +4725,10 @@ body.dark .tag.core{color:#a78bfa}
 .cedge .cdot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 .cedge .cv{direction:ltr;text-align:right;font-size:12.5px;font-weight:700;margin-top:3px;word-break:break-all;color:var(--tx)}
 .cedge.live .cv{color:var(--ok)}
+.cedge .echips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.cedge .echip{font-family:ui-monospace,Consolas,monospace;direction:ltr;unicode-bidi:isolate;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:9px;background:var(--card);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.cedge .echip.dom{font-weight:600;color:var(--sub)}
+.cedge .echip.wait{font-family:inherit;font-weight:600;color:var(--sub)}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
@@ -5972,7 +5976,7 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  // status file); single edge -> the fixed SNI · edge (static, no polling).
  var edge='';
  if(l.transport=='ws'){
-   if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="cv mono" id="cardedge_'+l.id+'">'+esc(EDGEV[l.id]||'…')+'</div></div>';}
+   if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="echips" id="cardedge_'+l.id+'">'+edgeChips(EDGEV[l.id]||'')+'</div></div>';}
    else{var pp=[];if(l.ws_host)pp.push(esc(l.ws_host));if(l.edge_ip)pp.push(esc(l.edge_ip));
      if(pp.length)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="cv mono">'+pp.join(' · ')+'</div></div>';}
  }
@@ -6113,11 +6117,18 @@ async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err
   var r=await post('pool-select',{id:lid,kind:kind,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
   else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+// Split the active edge "IP:port · domain" into two clean chips (IP primary, domain muted).
+function edgeChips(v){v=String(v||'');
+ if(!v)return '<span class="echip wait">…</span>';
+ var p=v.split(' · '),ip=p[0]||'',dom=p.slice(1).join(' · ');
+ var h='<span class="echip ip">'+esc(ip)+'</span>';
+ if(dom)h+='<span class="echip dom">'+esc(dom)+'</span>';
+ return h}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');
  await Promise.all(Array.prototype.map.call(els,function(elm){var lid=elm.id.slice(9);   // parallel, not one-by-one
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
-    if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.textContent=v}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
+    if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
 (function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
