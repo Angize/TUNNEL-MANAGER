@@ -3355,8 +3355,10 @@ def _link_is_down(lid):
 
 def _ech_write(lid, kind, updates, degrade):
     """Under the registry lock, apply refreshed per-host ECH (updates: host->new_key) or, on a
-    confirmed removal, turn ECH off. Returns True if the stored record actually changed."""
+    confirmed removal, turn ECH off. Returns (changed, chmap): changed is True if the stored record
+    actually changed; chmap maps each host whose key rotated to its new base64 key (empty on degrade)."""
     changed = False
+    chmap = {}
     with _reg_lock:
         links = load_links()
         for x in links:
@@ -3375,6 +3377,7 @@ def _ech_write(lid, kind, updates, degrade):
                 nk = updates.get(x.get("ws_host"), "")
                 if nk and nk != x.get("ws_ech", ""):
                     x["ws_ech"] = nk
+                    chmap[x.get("ws_host")] = nk
                     changed = True
             else:
                 for s in (x.get("ws_edge_snis") or []):
@@ -3383,11 +3386,12 @@ def _ech_write(lid, kind, updates, degrade):
                     nk = updates.get(s.get("host"), "")
                     if nk and nk != s.get("ech", ""):
                         s["ech"] = nk
+                        chmap[s.get("host")] = nk
                         changed = True
             break
         if changed:
             save_json(LINKS_FILE, links)
-    return changed
+    return changed, chmap
 
 
 def _ech_safe_rebuild(lid):
@@ -3419,12 +3423,18 @@ def _ech_refresh_once():
                     empty_flags.append(_ech_empty[key] >= _ECH_EMPTY_CYCLES)
         removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)  # every host gone, persistently
         if removed:
-            if _ech_write(lid, kind, {}, degrade=True):
+            if _ech_write(lid, kind, {}, degrade=True)[0]:
                 log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت",
                           f"Tunnel “{nm}” ECH record vanished; degraded to plain wss")
                 _ech_safe_rebuild(lid)
             continue
-        changed = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key silently (keeps restarts/rebuilds valid)
+        changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
+        if changed and chmap:
+            detail = "\n".join("%s: %s" % (h, k) for h, k in chmap.items())   # host: fresh base64 ECHConfigList
+            log_event("ok", "ech",
+                      "کلیدِ ECHِ تونلِ «%s» تازه شد" % nm,
+                      "Tunnel “%s” ECH key refreshed" % nm,
+                      detail, detail)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to
         # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
         # SEE is down — LEVEL-triggered on the down state, NOT gated on the key changing THIS cycle (that
