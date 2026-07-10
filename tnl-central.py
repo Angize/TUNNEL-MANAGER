@@ -4198,7 +4198,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .navi:hover{background:var(--glass)}
 .navi.on{color:var(--acc);background:var(--accw);font-weight:700}
 .navi.on .ct{color:var(--acc);background:transparent;border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
-.navi .ctwrap{margin-inline-start:auto;display:flex;gap:4px;align-items:center;direction:ltr}  /* [total][unread] L->R, pinned to the far edge like other counts */
+.navi .ctwrap{margin-inline-end:auto;display:flex;gap:4px;align-items:center;direction:ltr}  /* [total][unread] L->R, pinned to the far LEFT edge like other counts. NOTE: the wrap is direction:ltr, so in the RTL nav row the auto margin must sit on inline-END (=physical right=main-start) to push the cluster left — margin-inline-START:auto would (wrongly) shove it toward the label. */
 .navi .ctwrap .ct{margin-inline-start:0}
 .navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
 .navi.on .ct.ctun{color:#fff;background:var(--acc);border-color:transparent}
