@@ -4781,6 +4781,22 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 /* skeleton loading: shimmer bars laid out INSIDE the real card classes (skNodeCard/skAccCard/
    skPfCard/skAgRow), so each page's loading state is pixel-identical to its loaded card. */
 @media(prefers-reduced-motion:reduce){.sk{animation:none}}
+/* ===== system-log category filter: a SINGLE horizontal row that scrolls sideways (never wraps) ===== */
+.logchips{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;margin:0 0 12px;padding:2px 1px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.logchips::-webkit-scrollbar{height:7px}
+.logchips::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--sub) 40%,transparent);border-radius:99px}
+.logchips::-webkit-scrollbar-track{background:transparent}
+.fchip{flex:0 0 auto;font-size:12.5px;font-weight:600;color:var(--sub);background:var(--card);border:1px solid var(--bord);border-radius:999px;padding:6px 13px;cursor:pointer;display:flex;align-items:center;gap:7px;user-select:none;white-space:nowrap;transition:background .12s,color .12s,border-color .12s}
+.fchip:hover{border-color:color-mix(in srgb,var(--acc) 45%,var(--bord))}
+.fchip.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+.fchip .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sub) 18%,transparent);border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
+.fchip.on .ct{background:rgba(255,255,255,.25);color:#fff}
+.lcat{font-size:10px;font-weight:700;border-radius:999px;padding:1px 8px;flex:0 0 auto;white-space:nowrap;line-height:1.7}
+.lcat-tunnel{color:#4d80f0;background:color-mix(in srgb,#4d80f0 15%,transparent)}
+.lcat-rot{color:#12a5b8;background:color-mix(in srgb,#12a5b8 16%,transparent)}
+.lcat-ech{color:#8a63f0;background:color-mix(in srgb,#8a63f0 16%,transparent)}
+.lcat-node{color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
+.lcat-sys{color:var(--sub);background:color-mix(in srgb,var(--sub) 15%,transparent)}
 /* ===== popup modal shell (edit forms + node details) — gated behind .wide so confirmBox's .modal is untouched ===== */
 .modal.wide{width:414px;max-width:100%;display:flex;flex-direction:column;max-height:min(88vh,760px);padding:0;overflow:hidden;background:var(--card);animation:modrise .2s cubic-bezier(.2,.7,.3,1)}
 @keyframes modrise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
@@ -5248,6 +5264,7 @@ try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}ca
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",
+ logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
  brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
@@ -5291,6 +5308,7 @@ var I18N={fa:{
 },en:{
  nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_logs:"Logs",nav_settings:"Settings",nav_logout:"Log out",
  logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",
+ logc_all:"All",logc_tunnel:"Tunnel",logc_rot:"Rotation",logc_ech:"ECH",logc_node:"Node",logc_sys:"System",logc_err:"Errors only",logc_none:"No events in this category",
  brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
  save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",add:"Add",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
  online:"Online",offline:"Offline",failed:"Failed",saving:"Saving…",checking:"Checking…",sending:"Sending…",loading:"Loading…",
@@ -7253,7 +7271,50 @@ function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='no
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString(LANG=='fa'?'fa-IR':'en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="refreshLogs()">'+ic('redo')+esc(T('logs_refresh'))+'</button><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
- '<div id="logList"><div class="card muted">'+esc(T('loading'))+'</div></div>';markLogsSeen();refreshLogs();}
+ '<div id="logChips"></div>'+
+ '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';markLogsSeen();refreshLogs();}
+// One skeleton log card — same geometry as the real logcard (stripe + icon chip + two text bars + time),
+// so the loading state is pixel-identical to the loaded list (matches every other page's skeleton).
+function skLog(){return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
+ '<span class="sk" style="width:5px;flex:0 0 auto;border-radius:0"></span>'+
+ '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
+   '<span class="sk" style="width:30px;height:30px;border-radius:9px;flex:0 0 auto"></span>'+
+   '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px"><span class="sk" style="width:62%;height:13px"></span><span class="sk" style="width:40%;height:11px"></span></div>'+
+   '<span class="sk" style="width:38px;height:11px;flex:0 0 auto"></span>'+
+ '</div></div>';}
+// Map an event to a filter CATEGORY: tunnel (link up/down), rot (rotation/pin/burn/heal = the pool),
+// ech, node, else sys. Kept in one place so the chips and the per-card badge always agree.
+function logCat(e){var k=e.kind;
+ if(k=='link')return 'tunnel';
+ if(k=='rot'||k=='edge')return 'rot';
+ if(k=='ech')return 'ech';
+ if(k=='node')return 'node';
+ return 'sys';}
+var LOGEVS=[],LOGFILTER='all';
+// The horizontal, sideways-scrolling category filter row. Counts are live; empty categories are hidden
+// (but the active one always stays visible). "errors only" spans every category.
+function logChipsHTML(){
+ var c={all:LOGEVS.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
+ LOGEVS.forEach(function(e){c[logCat(e)]++;if(e.level=='bad')c.err++;});
+ var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
+ return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||o[0]=='err'||c[o[0]]>0||LOGFILTER==o[0]}).map(function(o){var k=o[0];
+   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
+// The filtered list. Each card carries a colored category badge before the title.
+function logListHTML(){
+ var evs=LOGEVS.filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':logCat(e)==LOGFILTER;});
+ if(!evs.length)return '<div class="card muted">'+esc(T('logc_none'))+'</div>';
+ return evs.map(function(e){
+   var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
+   var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
+   var p=evParts(e),cat=logCat(e);
+   return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
+     '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
+     '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
+       '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
+       '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="lcat lcat-'+cat+'">'+esc(T('logc_'+cat))+'</span><span dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</span></div>'+((e.kind=='edge'&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
+       '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
+     '</div></div>';}).join('');}
+function logFilter(k){LOGFILTER=k;var ch=el('logChips');if(ch)ch.innerHTML=logChipsHTML();var box=el('logList');if(box)setHTML(box,logListHTML());}
 // Split an event into a clean title + detail lines. New events carry dfa/den (detail, possibly
 // multi-line). OLD events only have the combined string, so parse the legacy "…: A ⟵ B" (edge
 // switch) and "… — reason" forms too, so both render readably.
@@ -7285,20 +7346,11 @@ function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]
    '<span style="'+EPILL+'">'+frm+'</span> '+
    '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'to':'به')+'</span> '+
    '<span style="'+EPILL+';color:var(--acc);border-color:color-mix(in srgb,var(--acc) 30%,transparent);background:var(--accw)">'+to+'</span></div>';}
-async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;var evs=(r&&r.events)||[];
- if(!evs.length){setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
- setHTML(box,evs.map(function(e){
-   var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
-   var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
-   var p=evParts(e);
-   return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+   // padding:0 so the stripe is flush to the right edge (the base .card has padding)
-     '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
-     '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
-       '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
-       '<div style="flex:1;min-width:0"><div dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</div>'+((e.kind=='edge'&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
-       '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
-     '</div></div>';
- }).join(''));}
+async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
+ var ch=el('logChips');
+ if(!LOGEVS.length){if(ch)ch.innerHTML='';setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
+ if(ch)ch.innerHTML=logChipsHTML();
+ setHTML(box,logListHTML());}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
