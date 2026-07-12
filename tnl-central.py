@@ -130,6 +130,98 @@ def save_text(path, txt):
 # Operator-tunable knobs, persisted to settings.json and cached in memory. Kept deliberately open so
 # new keys can be added later: unknown stored keys are preserved and unset keys fall back to defaults.
 
+# Operational self-heal / pool-health timing knobs, exposed fleet-wide in Settings and stamped into
+# every core config on build/rebuild. Defaults MUST match the core's compiled-in defaults (tuning.go)
+# so an unchanged knob is a no-op. Each scalar has a (min, max) clamp matching the core's clamp; the
+# core clamps again, so the panel is convenience-validation, not the authority. suspect_backoff is a
+# list of positive seconds (the retest schedule). Grouped by category for the Settings UI.
+_TUNING_DEFAULTS = {
+    # دستهٔ ۱ — سلامتِ استخر (Pool health FSM)
+    "suspect_backoff": [30, 60, 120, 300, 600],
+    "dead_retest_secs": 1800,
+    "pin_ttl_secs": 30,
+    "data_fail_threshold": 2,
+    "data_good_window_secs": 120,
+    # دستهٔ ۲ — تشخیصِ مرگ / self-heal
+    "idle_mult": 4,
+    "idle_min_secs": 60,
+    "session_stale_mult": 3,
+    "session_stale_min_secs": 10,
+    "ping_loss_threshold": 3,
+    "min_liveness_secs": 20,
+    "probe_timeout_secs": 5,
+    # دستهٔ ۳ — چرخش (Rotation)
+    "flux_rotate_default_secs": 600,
+}
+_TUNING_RANGES = {
+    "dead_retest_secs": (5, 86400), "pin_ttl_secs": (1, 3600),
+    "data_fail_threshold": (1, 100), "data_good_window_secs": (1, 86400),
+    "idle_mult": (1, 100), "idle_min_secs": (1, 86400),
+    "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
+    "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
+    "probe_timeout_secs": (1, 120), "flux_rotate_default_secs": (1, 86400),
+}
+
+
+def _validate_tuning(raw, base=None):
+    """Merge a partial tuning update onto the current tuning (or defaults), coercing+clamping each knob
+    to its range. Unknown keys and malformed values are ignored (the knob keeps its prior value), so a
+    bad field can never poison the stored settings. suspect_backoff must be a non-empty list of positive
+    ints or it is left unchanged."""
+    out = dict(_TUNING_DEFAULTS)
+    if isinstance(base, dict):
+        out.update({k: base[k] for k in _TUNING_DEFAULTS if k in base})
+    if not isinstance(raw, dict):
+        return out
+    for k, (lo, hi) in _TUNING_RANGES.items():
+        if k in raw and raw[k] not in (None, ""):
+            try:
+                out[k] = max(lo, min(hi, int(raw[k])))
+            except (TypeError, ValueError):
+                pass
+    if "suspect_backoff" in raw:
+        sb = raw["suspect_backoff"]
+        if isinstance(sb, (list, tuple)):
+            steps = []
+            for x in sb:
+                try:
+                    iv = int(x)
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= iv <= 86400:
+                    steps.append(iv)
+            if steps:
+                out["suspect_backoff"] = steps
+    return out
+
+
+def _settings_tuning():
+    """The tuning overrides to stamp into a core config: only the knobs that DIFFER from the core's
+    built-in defaults, so an unchanged knob is omitted and the core keeps its own default (panel and
+    core defaults stay in lock-step automatically). Returns {} when everything is at default."""
+    s = get_settings().get("tuning")
+    if not isinstance(s, dict):   # a hand-edited settings.json could make this a truthy non-dict; guard so
+        s = {}                    # a build never crashes on `.get` — fall back to all-defaults (empty diff)
+    out = {}
+    for k, dv in _TUNING_DEFAULTS.items():
+        v = s.get(k, dv)
+        if k == "suspect_backoff":
+            try:
+                lv = [int(x) for x in v]
+            except (TypeError, ValueError):
+                continue
+            if lv != dv:
+                out[k] = lv
+        else:
+            try:
+                iv = int(v)
+            except (TypeError, ValueError):
+                continue
+            if iv != dv:
+                out[k] = iv
+    return out
+
+
 def settings_defaults():
     return {
         "reconcile_mode": "alert",  # default. "alert" = only flag a drifted tunnel; the operator clicks
@@ -139,6 +231,7 @@ def settings_defaults():
         "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
         "uptime_window": 1,         # uptime-bar span in hours (1/3/6/8/12/24); always 60 cells, each = window/60
         "ech_refresh_mins": 15,     # minutes between background ECH re-fetches for ECH links (0 = off; min 1)
+        "tuning": dict(_TUNING_DEFAULTS),  # operational self-heal / pool-health timings (see _TUNING_DEFAULTS)
     }
 
 
@@ -185,6 +278,8 @@ def validate_settings(d):
     if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
         m = round(float(d["ech_refresh_mins"]), 2)
         out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))  # 0 = off; else 1min–24h
+    if "tuning" in d:
+        out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
 
 
@@ -958,6 +1053,17 @@ def _core_rotation_bodies(src, a_body, b_body):
     rs, ab = max(0, min(86400, int(src.get("rotate_secs") or 0))), bool(src.get("auto_burn"))
     _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs, ab)  # A: own=ap, peer=bp
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs, ab)  # B: own=bp, peer=ap
+
+
+def _apply_core_tuning(a_body, b_body):
+    """Stamp the fleet-wide operational-timing overrides (only the knobs that differ from the core's
+    built-in defaults) onto BOTH core node bodies. Called from EVERY core build path — create, edit and
+    rebuild — so a tunnel picks up the current Settings timing on any (re)build, uniformly. Empty diff
+    (all knobs at default) leaves both bodies untouched so the core keeps its own defaults."""
+    tn = _settings_tuning()
+    if tn:
+        a_body["tuning"] = tn
+        b_body["tuning"] = tn
 
 
 def _tunnel_extra(src, refetch_ech=True):
@@ -2917,6 +3023,7 @@ def _create_tunnel_impl(d):
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
         _core_rotation_bodies(extra, a_body, b_body)
+        _apply_core_tuning(a_body, b_body)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
@@ -3401,6 +3508,7 @@ def _edit_link_impl(d):
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
         _core_rotation_bodies(extra, a_body, b_body)
+        _apply_core_tuning(a_body, b_body)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L)
@@ -3499,6 +3607,7 @@ def _rebuild_link_impl(d):
     if ttype == "core":   # role is per-node, replayed from the stored server_side
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
         _core_rotation_bodies(L, a_body, b_body)   # replay the stored IP-rotation pools
+        _apply_core_tuning(a_body, b_body)         # re-stamp current fleet-wide timing on rebuild
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
@@ -5093,6 +5202,9 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .setctl>*{width:100%}
 .setctl .setfield{padding:8px 12px;font-size:13px}
 .setctl input.search{padding:8px 12px}
+.settcat{font-size:11.5px;font-weight:800;color:var(--acc);letter-spacing:.02em;margin:16px 2px 2px;padding-top:12px;border-top:1px dashed var(--bord)}
+.settcat:first-of-type{border-top:none;padding-top:0}
+.setctl input.wtxt{max-width:150px;text-align:left;direction:ltr;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .setfield .val{color:var(--gold)}
 .setfield .cv{margin-inline-start:auto;color:var(--sub)}
 .modal.modesheet{max-width:320px;padding:6px}
@@ -5414,6 +5526,21 @@ var I18N={fa:{
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
  set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۰٫۳ تا ۶۰ — زیرِ ۱ هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"۰٫۳ تا ۶۰ — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"۰ = خاموش، وگرنه ۱ تا ۱۴۴۰ — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
+ set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
+ set_tcat_pool:"۱) سلامتِ استخر (چرخشِ IP — مستقیم و WS CDN)",set_tcat_dead:"۲) تشخیصِ مرگ / self-heal (بر پایهٔ keepalive)",set_tcat_rot:"۳) چرخش",
+ set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"لیستِ پله‌ها با کاما؛ هر شکست یک پله جلو، بعد از آخری → مرده",
+ set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (ثانیه)",set_t_deadretest_d:"IPِ مرده هر این‌قدر یک‌بار دوباره تست می‌شود",
+ set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"پینِ نشسته‌نشده (IPِ خراب) حداکثر این‌قدر نگه‌داشته می‌شود",
+ set_t_datafail:"آستانهٔ سشنِ کوتاه",set_t_datafail_d:"چند سشنِ کوتاهِ پشت‌سرهم تا IP مشکوک شود",
+ set_t_datagood:"پنجرهٔ گاردِ قطعی (ثانیه)",set_t_datagood_d:"فقط وقتی IP مقصر شود که تازگی یک سشنِ سالم بوده",
+ set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"مهلتِ خواندنِ ws/tcp = ضریب × keepalive",
+ set_t_idlemin:"کفِ idle (ثانیه)",set_t_idlemin_d:"مهلتِ idle زیرِ این نرود",
+ set_t_ssmult:"ضریبِ کهنگیِ سشن (×keepalive)",set_t_ssmult_d:"پنجرهٔ کهنگیِ udp/raw/flux = ضریب × keepalive",
+ set_t_ssmin:"کفِ کهنگیِ سشن (ثانیه)",set_t_ssmin_d:"پنجرهٔ کهنگی زیرِ این نرود",
+ set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"این‌قدر keepalive بی‌پاسخ → بستنِ اتصال",
+ set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"سشنِ کوتاه‌تر از این = خرابیِ داده‌ای علیهِ آن IP",
+ set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"سقفِ زمانِ یک پروبِ TCP+TLS",
+ set_t_fluxrot:"چرخشِ پیش‌فرضِ flux (ثانیه)",set_t_fluxrot_d:"طولِ epochِ flux وقتی per-tunnel تنظیم نشده",
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
@@ -5474,6 +5601,21 @@ var I18N={fa:{
  set_on_ipchange:"When a node's IP changes",set_on_ipchange_d:"Alert, or auto-heal",set_rec_int:"Reconcile check interval (seconds)",
  set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"0.3 to 60 — sub-1s allowed (heavier load)",set_ui_int:"UI refresh interval (seconds)",set_ui_range:"0.3 to 60 — rates/gauges refresh at this cadence",set_ech_int:"ECH key refresh interval (minutes)",set_ech_range:"0 = off, else 1 to 1440 — a CDN key rotation self-heals",set_upwin:"Uptime-bar window",
  set_upwin_d:"60 cells; each cell = window ÷ 60",set_mode_auto:"Auto",set_mode_alert:"Alert",set_default:"default",set_agent_update:"Agent update",
+ set_tun_hd:"Advanced self-heal timing",set_tun_note:"These apply fleet-wide and take effect on each tunnel at its next build/rebuild. To apply now, Rebuild the tunnel. Out-of-range values are clamped in the core.",set_tun_reset:"Reset to defaults",set_tun_saved:"Timing saved",set_tun_reset_confirm:"Reset all timings to defaults?",
+ set_tcat_pool:"1) Pool health (IP rotation — direct & WS CDN)",set_tcat_dead:"2) Dead detection / self-heal (keepalive-based)",set_tcat_rot:"3) Rotation",
+ set_t_suspect:"Suspect retest schedule (secs)",set_t_suspect_d:"Comma list of steps; each failure walks one step, past the last → dead",
+ set_t_deadretest:"Dead-entry retest interval (secs)",set_t_deadretest_d:"A dead IP is retested this often",
+ set_t_pinttl:"Manual-pin cap (secs)",set_t_pinttl_d:"An unlanded pin (dead IP) is held at most this long",
+ set_t_datafail:"Short-session threshold",set_t_datafail_d:"Consecutive short sessions before an IP is suspected",
+ set_t_datagood:"Outage-guard window (secs)",set_t_datagood_d:"Only blame an IP if some edge was healthy this recently",
+ set_t_idlemult:"Idle multiplier (×keepalive)",set_t_idlemult_d:"ws/tcp read deadline = mult × keepalive",
+ set_t_idlemin:"Idle floor (secs)",set_t_idlemin_d:"Idle deadline never below this",
+ set_t_ssmult:"Session-stale multiplier (×keepalive)",set_t_ssmult_d:"udp/raw/flux stale window = mult × keepalive",
+ set_t_ssmin:"Session-stale floor (secs)",set_t_ssmin_d:"Stale window never below this",
+ set_t_pingloss:"Ping-loss threshold",set_t_pingloss_d:"This many unanswered keepalives → close the connection",
+ set_t_minlive:"Min healthy session (secs)",set_t_minlive_d:"A session shorter than this is a data-plane fault against the IP",
+ set_t_probeto:"Edge probe timeout (secs)",set_t_probeto_d:"Cap on a single TCP+TLS probe",
+ set_t_fluxrot:"Flux default rotate (secs)",set_t_fluxrot_d:"Flux epoch length when not set per-tunnel",
  h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
  pending_check:"Checking…",off_word:"Off",on_word:"On",
 }});
@@ -7394,8 +7536,49 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
   row(T('set_upwin'),T('set_upwin_d'),ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
   '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
   '</div>'+
+  tuningCard(s)+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  refreshAgent()}
+// Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
+// build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
+var _TUNDEF={suspect_backoff:[30,60,120,300,600],dead_retest_secs:1800,pin_ttl_secs:30,data_fail_threshold:2,data_good_window_secs:120,idle_mult:4,idle_min_secs:60,session_stale_mult:3,session_stale_min_secs:10,ping_loss_threshold:3,min_liveness_secs:20,probe_timeout_secs:5,flux_rotate_default_secs:600};
+function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
+function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
+function tuningCard(s){var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
+ return '<div class="card" style="margin-top:8px">'+
+  '<div class="sec2" style="margin:0 0 4px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
+  '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 6px">'+esc(T('set_tun_note'))+'</div>'+
+  '<div class="settcat">'+esc(T('set_tcat_pool'))+'</div>'+
+  row(T('set_t_suspect'),T('set_t_suspect_d'),'<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').join(', '))+'">')+
+  row(T('set_t_deadretest'),T('set_t_deadretest_d'),tNum('set_t_deadretest',_tv(s,'dead_retest_secs'),5,86400))+
+  row(T('set_t_pinttl'),T('set_t_pinttl_d'),tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600))+
+  row(T('set_t_datafail'),T('set_t_datafail_d'),tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
+  row(T('set_t_datagood'),T('set_t_datagood_d'),tNum('set_t_datagood',_tv(s,'data_good_window_secs'),1,86400))+
+  '<div class="settcat">'+esc(T('set_tcat_dead'))+'</div>'+
+  row(T('set_t_idlemult'),T('set_t_idlemult_d'),tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100))+
+  row(T('set_t_idlemin'),T('set_t_idlemin_d'),tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400))+
+  row(T('set_t_ssmult'),T('set_t_ssmult_d'),tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
+  row(T('set_t_ssmin'),T('set_t_ssmin_d'),tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400))+
+  row(T('set_t_pingloss'),T('set_t_pingloss_d'),tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
+  row(T('set_t_minlive'),T('set_t_minlive_d'),tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
+  row(T('set_t_probeto'),T('set_t_probeto_d'),tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120))+
+  '<div class="settcat">'+esc(T('set_tcat_rot'))+'</div>'+
+  row(T('set_t_fluxrot'),T('set_t_fluxrot_d'),tNum('set_t_fluxrot',_tv(s,'flux_rotate_default_secs'),1,86400))+
+  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'+
+  '</div>'}
+function _collectTuning(){
+ var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
+ var t={dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),flux_rotate_default_secs:parseInt(v('set_t_fluxrot'))};
+ if(sb.length)t.suspect_backoff=sb;
+ return t}
+async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
+ var r=await post('settings-set',{tuning:_collectTuning()});
+ if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
+ else{if(m){m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}}
+async function resetTuning(){if(!await confirmBox(T('set_tun_reset_confirm')))return;
+ var r=await post('settings-set',{tuning:_TUNDEF});
+ if(r.ok&&r.d.ok){toast(T('set_tun_saved'),'ok');refreshSettings()}
+ else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
