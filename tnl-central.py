@@ -2173,11 +2173,27 @@ def api_fleet(d):
         b_ips = [ip for ips in (_cached_ping(L["b_node"]).get("ips") or {}).values() for ip in ips]
         side = "b" if L.get("view_side") == "b" else "a"
         pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the IPsec key to the browser
-        out.append({**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
-                    "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
-                    "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
-                    "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
-                    "drift": link_drift(L["id"]), **tfl.get(L["id"], {})})
+        rec = {**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
+               "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
+               "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
+               "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
+               "drift": link_drift(L["id"]), **tfl.get(L["id"], {})}
+        # Live active pool IP: the CLIENT node writes .peerpool (active destination) / .srcpool (active
+        # source); surface it per side so the card shows the IP the tunnel is really on right now (the
+        # server's box = active destination, the client's box = active source). Present only when that
+        # side actually rotates (>=2 in its pool -> the node wrote the file).
+        if L.get("type") == "core" and L.get("ip_rotate"):
+            srvA = (L.get("server_side") != "b")
+            cl = lb if srvA else la  # the client is the non-server node
+            pd = (cl.get("pools") or {}).get(L["name"]) or {}
+            dact = str(pd.get("dst") or "").split(":")[0]  # active destination (bare IP)
+            sact = str(pd.get("src") or "").split(":")[0]  # active source (bare IP)
+            a_act, b_act = (dact, sact) if srvA else (sact, dact)
+            if a_act:
+                rec["a_ip_active"], rec["a_ip_rot"] = a_act, True
+            if b_act:
+                rec["b_ip_active"], rec["b_ip_rot"] = b_act, True
+        out.append(rec)
     return {"links": out, "total": total, "offset": off, "limit": lim}
 
 
@@ -6188,10 +6204,9 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
 // ===== accordion cards (collapsed row -> click to expand) + on/off toggle =====
 var TOPEN={};   // per-link open state, kept across the periodic re-render
-// per-link+side {ip,rot}: the live active pool IP + whether it rotates, cached so the periodic card
-// re-render shows the SAME value refreshCardPeers set (otherwise they fight -> flicker). Seeded from
-// localStorage so a RELOAD shows the last-known active IP immediately instead of flashing the stored
-// anchor (a_ip) until the first poll lands.
+// per-link+side {ip,rot}: the live active pool IP + whether it rotates. coreCard syncs it from the fleet
+// data's l.*_ip_active and persists here, seeded from localStorage so a RELOAD shows the last-known
+// active IP immediately instead of flashing the stored anchor (a_ip) until the first fleet fetch lands.
 var PEERST=(function(){try{return JSON.parse(localStorage.getItem('tnl_peerst')||'{}')||{}}catch(e){return {}}})();
 function peerStSave(){try{localStorage.setItem('tnl_peerst',JSON.stringify(PEERST))}catch(e){}}
 var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
@@ -6395,10 +6410,17 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
- // Render the LIVE active pool IP + rotation mark from the shared cache, so this periodic re-render shows
- // exactly what refreshCardPeers last set (no fight -> no flicker); falls back to the stored anchor.
+ // Prefer the backend's FRESH active pool IP (api_fleet reads it from the client node); sync it into the
+ // cache so a RELOAD paints the last active instantly from localStorage, then fall back to that cache,
+ // then the stored anchor. No separate per-tunnel poll — the fleet refresh already carries the live IP.
+ var _aA=l.a_ip_active||'',_aB=l.b_ip_active||'';
+ if(_aA||_aB){var ch=false,ka=l.id+'_a',kb=l.id+'_b';
+   if(_aA&&(PEERST[ka]||{}).ip!==_aA){PEERST[ka]={ip:_aA,rot:!!l.a_ip_rot};ch=true}
+   if(_aB&&(PEERST[kb]||{}).ip!==_aB){PEERST[kb]={ip:_aB,rot:!!l.b_ip_rot};ch=true}
+   if(ch)peerStSave();}
  var _pa=PEERST[l.id+'_a']||{},_pb=PEERST[l.id+'_b']||{};
- var _aip=_pa.ip||l.a_ip,_bip=_pb.ip||l.b_ip,_arot=_pa.rot?rotMark():'',_brot=_pb.rot?rotMark():'';
+ var _aip=_aA||_pa.ip||l.a_ip,_bip=_aB||_pb.ip||l.b_ip;
+ var _arot=(l.a_ip_rot||_pa.rot)?rotMark():'',_brot=(l.b_ip_rot||_pb.rot)?rotMark():'';
  var body='<div class="tninfo">'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="cprot" id="cprot_a_'+l.id+'">'+_arot+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(_aip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
@@ -6548,24 +6570,11 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
     if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
 (function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
-// Fleet cards for direct-transport IP-rotation tunnels: show the CURRENTLY-ACTIVE pool IP live in each
-// node box (the server box tracks the active destination, the client box the active source) and a small
-// rotation mark next to the status of any node whose IPs actually rotate (>=2 in its pool). Updates as
-// the pool rotates, so the box always shows the IP the tunnel is really on right now.
+// Fleet cards for direct-transport IP-rotation tunnels show the CURRENTLY-ACTIVE pool IP in each node box
+// (server box = active destination, client box = active source) plus a rotation mark on any node whose
+// IPs rotate. The active IP arrives with the fleet data (api_fleet reads it from the client node), so
+// coreCard just renders l.*_ip_active — no separate poll — and syncs it to localStorage for instant reload.
 function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'}
-function applyCardPeer(id,side,sec){var active=String(sec.active||'').split(':')[0].trim();  // bare ip (drop :port)
- var rot=(sec.addrs||[]).length>=2,cur=PEERST[id+'_'+side]||{},nip=active||cur.ip;   // keep last-known if a poll blanks
- if(cur.ip!==nip||cur.rot!==rot){PEERST[id+'_'+side]={ip:nip,rot:rot};peerStSave()}   // cache + persist ONLY on change
- var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&nip&&ipEl.textContent!==nip)ipEl.textContent=nip;   // update DOM only on change
- var rEl=el('cprot_'+side+'_'+id);if(rEl){var want=rot?rotMark():'';if(rEl.innerHTML!==want)rEl.innerHTML=want}}
-async function refreshCardPeers(){var open=FLEET.filter(function(l){return l.type=='core'&&l.ip_rotate&&TOPEN[l.id]});
- await Promise.all(open.map(function(l){return post('peer-status',{id:l.id}).then(function(r){
-   if(!(r.ok&&r.d&&r.d.ok&&r.d.pool))return;
-   var srvA=(l.server_side!='b'),srvSide=srvA?'a':'b',cliSide=srvA?'b':'a';
-   applyCardPeer(l.id,srvSide,r.d.dst||{});   // the SERVER node shows the active destination IP
-   applyCardPeer(l.id,cliSide,r.d.src||{});   // the CLIENT node shows the active source IP
- },function(){})}))}
-(function peersLoop(){setTimeout(function(){refreshCardPeers().then(peersLoop,peersLoop)},UIV)})();   // live-cadence self-loop
 // ===== live status for a direct-transport IP-rotation pool (udp/tcp/raw/flux) — the ws edge pool's
 // per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes (مقصد + مبدأ). Shown
 // in the core edit modal for a running pooled tunnel; poll -> render rows (فعال / در چرخش / سوختهٔ موقت
