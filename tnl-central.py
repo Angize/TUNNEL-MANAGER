@@ -6825,7 +6825,7 @@ function peerApply(st){
 function peerRemain(next){if(!next||!_peerData.now)return -1;var e=_peerData.now+(Date.now()-(_peerData.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
 function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
-function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip),pin=(d.pin===ip);
+function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
   var rowc,sc,sic,stt;
   if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
   else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
@@ -6843,7 +6843,7 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
   if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
-  else acts+='<button type="button" class="eib aim'+((act||pin)?' on':'')+'" title="'+((act||pin)?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
+  else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
   // No delete button here on purpose: an IP is removed from the pool in the rotation-config section
   // (drop it + Save rebuilds), so a second live-view delete would just be a redundant path.
   return '<div class="erow pcol '+rowc+((h&&h.state=='dead')?' dead':'')+'"><div class="etop"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span><span class="eacts">'+acts+'</span></div>'+cd+'</div>';}
