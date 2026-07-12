@@ -3830,6 +3830,16 @@ _EV_BURN_CODE = {
     "sni_blocked": ("دامنه (SNI) بلاک است (روی آی‌پیِ سالم هم جواب نداد)", "SNI blocked (failed even on a healthy IP)"),
     "throttle": ("آی‌پیِ لبه گلوگاه/کند شد (دست داد ولی دیتا مرد)", "edge IP throttled (handshake OK but data died)"),
 }
+# Intentional IP MOVES on a datagram rotation pool (udp/raw/flux — tcp is connection-oriented and re-dials
+# instead of emitting these). The core reports these as a
+# "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation
+# or an operator pin. Render them as informational (ok) events, not a red "disconnected". (level, fa, en)
+_EV_ROT_CODE = {
+    "peer-rotate": ("ok", "آی‌پیِ مقصد را چرخاند (self-heal/زمان‌بندی‌شده)", "rotated the destination IP"),
+    "src-rotate":  ("ok", "آی‌پیِ مبدأ را چرخاند", "rotated the source IP"),
+    "peer-pin":    ("ok", "روی آی‌پیِ مقصدِ پین‌شده رفت", "moved to the pinned destination IP"),
+    "src-pin":     ("ok", "روی آی‌پیِ مبدأِ پین‌شده رفت", "moved to the pinned source IP"),
+}
 
 
 def _ev_core_text(kind, code, detail, nm):
@@ -3841,6 +3851,10 @@ def _ev_core_text(kind, code, detail, nm):
     elif key.startswith("sni:"):
         key = key[4:]
     if kind == "down":
+        rot = _EV_ROT_CODE.get(code)
+        if rot:   # an intentional rotation/pin, not a fault — informational, not a red "disconnected"
+            lvl, fa, en = rot
+            return (lvl, "rot", f"تونلِ «{nm}»: {fa}", f"Tunnel “{nm}”: {en}", "", "")
         rf, re_ = _EV_DOWN_CODE.get(code, ("اتصال قطع شد", "connection dropped"))
         return ("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
     if kind == "up":
@@ -3850,8 +3864,18 @@ def _ev_core_text(kind, code, detail, nm):
         rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
         return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", f"Edge “{key}” of “{nm}” burned", rf, re_)
     if kind == "heal":
-        # a background retest recovered a previously-sidelined edge/SNI (suspect|dead -> healthy),
-        # so it is back in the rotation pool. Distinct from the active-carrier up/reconnect above.
+        # A previously-sidelined member recovered and is back in the rotation pool. Three flavors:
+        # peer-retest/src-retest are the DIRECT-transport pool's destination/source IP recovering on the
+        # data plane; the default (ws edge pool) is a background probe recovery. Distinct from the
+        # active-carrier up/reconnect above.
+        if code == "peer-retest":
+            return ("ok", "edge", f"آی‌پیِ مقصدِ «{key}» تونلِ «{nm}» دوباره سالم شد و به استخر برگشت",
+                    f"Destination IP “{key}” of “{nm}” is healthy again — back in the pool",
+                    "داده روی این آی‌پی دوباره برقرار شد", "data flowing again on this IP")
+        if code == "src-retest":
+            return ("ok", "edge", f"آی‌پیِ مبدأِ «{key}» تونلِ «{nm}» دوباره سالم شد و به استخر برگشت",
+                    f"Source IP “{key}” of “{nm}” is healthy again — back in the pool",
+                    "داده روی این آی‌پی دوباره برقرار شد", "data flowing again on this IP")
         return ("ok", "edge", f"لبهٔ «{key}» تونلِ «{nm}» با retest ترمیم شد و به استخر برگشت",
                 f"Edge “{key}” of “{nm}” recovered via retest — back in the pool",
                 "بازآزماییِ پس‌زمینه موفق شد", "background retest succeeded")
