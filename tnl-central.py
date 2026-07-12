@@ -3197,44 +3197,6 @@ def api_peer_select(d):
     return {"ok": True}
 
 
-def api_peer_del(d):
-    """Delete one endpoint from a direct-transport rotation pool: drop it from the stored pool (dst =
-    the server's IPs, src = the client's own IPs — see _core_rotation_bodies) and rebuild the tunnel
-    so the core reloads the shrunk pool. Mirrors the WS-CDN pool delete (a config edit applied via
-    rebuild). Guarded so the pool never drops below 2 (below that the core turns rotation off) and the
-    tunnel's own primary endpoint IP — which the rebuild always keeps in the pool — can't be removed."""
-    d = d or {}
-    _require(d, ["id", "key"])
-    side = "src" if str(d.get("side")) == "src" else "dst"
-    key = str(d["key"])
-    a, b = _link_nodes({"id": d["id"]})
-    # Read-modify-write ALL under _PairLock: reading the stored pool and computing `remaining` outside
-    # the lock would let two concurrent deletes both start from the same list and the second rebuild
-    # clobber the first (lost update). Holding the lock across the fresh read + rebuild — the same
-    # pattern api_flux_rotate uses — serializes them so each delete sees the previous one's result.
-    with _PairLock(a, b):
-        L, _node = _peer_pool_client(d)   # fresh read inside the lock; validates it's a running pooled core
-        server_side = L.get("server_side", "a")
-        client_side = "b" if server_side == "a" else "a"
-        pool_side = server_side if side == "dst" else client_side   # dst pool = server's IPs, src pool = client's own
-        pool_key = "a_ip_pool" if pool_side == "a" else "b_ip_pool"
-        cur = [str(x) for x in (L.get(pool_key) or [])]
-        if key not in cur:
-            raise ValueError("این آی‌پی در استخر نیست")
-        if key == str(L.get(pool_side + "_ip") or ""):
-            raise ValueError("این آی‌پیِ اصلیِ تونل است و از استخر حذف نمی‌شود")
-        remaining = [x for x in cur if x != key]
-        if len(remaining) < 2:
-            raise ValueError("استخر باید حداقل ۲ آی‌پی داشته باشد؛ برای کمتر، چرخش را خاموش کن")
-        a_pool = remaining if pool_key == "a_ip_pool" else [str(x) for x in (L.get("a_ip_pool") or [])]
-        b_pool = remaining if pool_key == "b_ip_pool" else [str(x) for x in (L.get("b_ip_pool") or [])]
-        return _edit_link_impl({"id": d["id"], "type": "core", "ip_rotate": True,
-                                "a_ip_pool": a_pool, "b_ip_pool": b_pool,
-                                "rotate_secs": int(L.get("rotate_secs") or 0),
-                                "auto_burn": bool(L.get("auto_burn")),
-                                "server_side": server_side})
-
-
 def api_flux_rotate(d):
     """'Rotate now' for a flux link: bump the manual epoch offset by one and rebuild both
     ends with it. Both ends get the same offset, so the moving target jumps a shape ahead
@@ -4430,7 +4392,6 @@ API = {
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
     "peer-status": api_peer_status, "peer-probe-now": api_peer_probe_now, "peer-select": api_peer_select,
-    "peer-del": api_peer_del,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
@@ -4442,7 +4403,7 @@ API = {
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
-             "peer-status", "peer-probe-now", "peer-select", "peer-del",
+             "peer-status", "peer-probe-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
 
@@ -5557,7 +5518,6 @@ var I18N={fa:{
  peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
- peer_del_confirm:"این آی‌پی از استخر حذف و تونل بازسازی شود؟",peer_del_ok:"آی‌پی از استخر حذف شد — تونل بازسازی شد",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
 },en:{
  fmt_day:"d",fmt_hr:"h",cipher_auto:"Auto",cipher_none:"No cipher",
@@ -5569,7 +5529,6 @@ var I18N={fa:{
  peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_rotating:"This node rotates across several IPs — the IP shown is the currently-active one",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
  peer_live_empty:"The live IP status and pin button appear here once the tunnel is running on an up-to-date node. If you just updated: update the node, then hit \\"Save & rebuild\\" so it's rebuilt with the new core.",
  pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",pa_pinning:"Activating…",
- peer_del_confirm:"Remove this IP from the pool and rebuild the tunnel?",peer_del_ok:"IP removed from the pool — tunnel rebuilt",
  flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
@@ -6743,9 +6702,8 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
   if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
   else acts+='<button type="button" class="eib aim'+((act||pin)?' on':'')+'" title="'+((act||pin)?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
-  // Delete removes the IP from the stored pool and rebuilds (guarded server-side: ≥2 IPs, never the
-  // tunnel's own primary endpoint). Disabled while a pin is in flight so the two rebuilds can't race.
-  acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'"'+(pend?' disabled style="opacity:.45;pointer-events:none"':' data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerDel(this)"')+'>'+ic('trash')+'</button>';
+  // No delete button here on purpose: an IP is removed from the pool in the rotation-config section
+  // (drop it + Save rebuilds), so a second live-view delete would just be a redundant path.
   return '<div class="erow pcol '+rowc+((h&&h.state=='dead')?' dead':'')+'"><div class="etop"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span><span class="eacts">'+acts+'</span></div>'+cd+'</div>';}
 function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '';
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
@@ -6770,12 +6728,6 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   else{_peerData.pinPending=null;peerRender();toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
-  else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
-async function peerDel(btn){var side=btn.getAttribute('data-side'),key=btn.getAttribute('data-ip');
-  if(!_peerLid||_peerData.pinPending||!key)return;
-  if(!await confirmBox(T('peer_del_confirm')))return;
-  var r=await post('peer-del',{id:_peerLid,side:side,key:key});
-  if(r.ok&&r.d&&r.d.ok){toast(T('peer_del_ok'),'ok');[1500,3500,6000,9000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
