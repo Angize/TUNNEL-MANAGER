@@ -3856,9 +3856,13 @@ def _ev_core_text(kind, code, detail, nm):
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
         # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
-        # so the operator can tell the two apart. detail is "<host> <fresh base64 ECHConfigList>".
+        # so the operator can tell the two apart. detail is "<host> <fresh base64 ECHConfigList>" — split
+        # it so the (long) key lands in its OWN labeled box instead of being dumped inline in the message.
+        host, _, k = key.partition(" ")
+        dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
+        den = ("host: %s\n" % host if host else "") + ("fresh ECH key: %s" % k if k else "")
         return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا self-heal شد (واکنشی/in-band)",
-                f"Tunnel “{nm}” ECH self-healed in-band (reactive)", key, key)
+                f"Tunnel “{nm}” ECH self-healed in-band (reactive)", dfa, den)
     return None
 
 
@@ -7242,8 +7246,8 @@ function evParts(e){
 // One detail line. "label: value" -> RTL label + LTR-isolated value (IP:port · domain reads clean in
 // an RTL page). A plain sentence renders with dir=auto so Persian stays RTL.
 function evLine(l){var i=l.indexOf(': ');
- if(i>0)return '<div style="display:flex;gap:6px;align-items:baseline;margin-top:3px"><span style="color:var(--sub);font-size:11px;flex:0 0 auto">'+esc(l.slice(0,i))+':</span>'+
-   '<span class="mono" dir="ltr" style="font-size:12px;color:var(--tx);overflow-wrap:anywhere;text-align:left;flex:1;min-width:0;unicode-bidi:isolate">'+esc(l.slice(i+2))+'</span></div>';
+ if(i>0)return '<div style="display:flex;gap:7px;align-items:flex-start;margin-top:5px"><span style="color:var(--sub);font-size:11px;flex:0 0 auto;padding-top:5px">'+esc(l.slice(0,i))+':</span>'+
+   '<span class="mono" dir="ltr" style="font-size:12px;color:var(--tx);overflow-wrap:anywhere;text-align:left;flex:1;min-width:0;unicode-bidi:isolate;background:var(--field);border:1px solid var(--bord);border-radius:7px;padding:4px 8px">'+esc(l.slice(i+2))+'</span></div>';
  return '<div dir="auto" style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere;margin-top:3px">'+esc(l)+'</div>';}
 // Edge-switch detail on ONE line: «از» + old pill, «به» + accent new pill. Values are LTR-isolated
 // so IP:port · domain reads cleanly in the RTL page. lines are ["از: OLD","به: NEW"] (from evParts).
