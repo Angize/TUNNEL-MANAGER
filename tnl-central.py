@@ -917,9 +917,43 @@ def norm_subnet(ttype, tid, provided, base=None):
 # construction — this keeps the create/edit node bodies consistent with that.
 _PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned")
 
+# IP-rotation config lives in the LINK record and is consumed by _core_rotation_bodies to derive each
+# node's PER-ROLE fields (peer_ips/src_ips on the client, pool_listen on the server). The raw keys must
+# NOT be spread into a node body as-is (the node whitelists only the per-role fields), so drop them.
+_ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
+
 
 def _node_extra(extra):
-    return {k: v for k, v in extra.items() if k not in _PANEL_ONLY_KEYS}
+    skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS
+    return {k: v for k, v in extra.items() if k not in skip}
+
+
+def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto_burn):
+    """Set a core node's per-role IP-rotation fields in place. The CLIENT gets its own node's IPs as the
+    source pool (src_ips) and the peer node's IPs as the destination pool (peer_ips) plus the rotation
+    settings; the SERVER just binds 0.0.0.0 (pool_listen) so it accepts the client's rotated dials."""
+    if is_client:
+        if peer_pool:
+            body["peer_ips"] = list(peer_pool)   # the server's IPs — the client cycles the destination
+        if own_pool:
+            body["src_ips"] = list(own_pool)      # this node's own IPs — the client cycles the source
+        body["peer_rotate_secs"] = rotate_secs
+        body["peer_auto_burn"] = auto_burn
+    else:
+        body["pool_listen"] = True                # accept the client dialing any of this server's IPs
+
+
+def _core_rotation_bodies(src, a_body, b_body):
+    """Apply IP rotation to BOTH core node bodies from a create/edit request or a stored link `src`
+    (which carries ip_rotate + a_ip_pool/b_ip_pool + rotate_secs/auto_burn). a_body is node A, b_body
+    node B; the client/server split comes from each body's already-set role. No-op when rotation is off
+    or the transport isn't direct (peer_ips/src_ips are meaningless on ws)."""
+    if not src.get("ip_rotate") or src.get("transport") not in ("udp", "tcp", "raw", "flux"):
+        return
+    ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
+    rs, ab = max(0, min(86400, int(src.get("rotate_secs") or 0))), bool(src.get("auto_burn"))
+    _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs, ab)  # A: own=ap, peer=bp
+    _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs, ab)  # B: own=bp, peer=ap
 
 
 def _tunnel_extra(src, refetch_ech=True):
@@ -2787,6 +2821,20 @@ def _create_tunnel_impl(d):
         if bool(d.get("gso")):                     # TUN segmentation offload (throughput); any transport
             extra["gso"] = True
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
+        # IP rotation (direct transports): the operator picks a subset of each node's IPs to cycle.
+        # Stored in the link so edit/rebuild replay it; assigned per-role by _core_rotation_bodies.
+        if transport in ("udp", "tcp", "raw", "flux") and bool(d.get("ip_rotate")):
+            ap = [ip for ip in (d.get("a_ip_pool") or []) if str(ip).strip() in a_ips]
+            bp = [ip for ip in (d.get("b_ip_pool") or []) if str(ip).strip() in b_ips]
+            if a_ip not in ap:
+                ap = [a_ip] + ap   # the tunnel's primary IP anchors each side's pool
+            if b_ip not in bp:
+                bp = [b_ip] + bp
+            if len(ap) >= 2 or len(bp) >= 2:   # at least one side actually has enough to rotate
+                extra["ip_rotate"] = True
+                extra["a_ip_pool"], extra["b_ip_pool"] = ap, bp
+                extra["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
+                extra["auto_burn"] = bool(d.get("auto_burn"))
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
     node_extra = _node_extra(extra)
@@ -2795,6 +2843,7 @@ def _create_tunnel_impl(d):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
+        _core_rotation_bodies(extra, a_body, b_body)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
@@ -2864,13 +2913,18 @@ def _restore_link(A, B, L, extra=None):
             extra = _tunnel_extra(L)                     # prefer a fresh ECH key
         except Exception:
             extra = _tunnel_extra(L, refetch_ech=False)  # last resort: stored key verbatim, never raises
-    for N, self_ip, peer_ip in ((A, L["a_ip"], L["b_ip"]), (B, L["b_ip"], L["a_ip"])):
+    _rot = L.get("ip_rotate") and L.get("transport") in ("udp", "tcp", "raw", "flux")
+    _ap, _bp = list(L.get("a_ip_pool") or []), list(L.get("b_ip_pool") or [])
+    _rs, _ab = max(0, min(86400, int(L.get("rotate_secs") or 0))), bool(L.get("auto_burn"))
+    for N, self_ip, peer_ip, own, peer in ((A, L["a_ip"], L["b_ip"], _ap, _bp), (B, L["b_ip"], L["a_ip"], _bp, _ap)):
         if N:
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
                     "subnet": L["subnet"], "id": tid, "name": L["name"], **extra}
             role = _core_role(L, N["id"])
             if role:
                 body["role"] = role
+                if _rot:   # replay the stored IP-rotation pools for this node's role
+                    _apply_core_rotation(body, role == "client", own, peer, _rs, _ab)
             try:
                 node_call(N, "tunnel", "POST", body, timeout=200)
             except Exception:
@@ -3106,6 +3160,25 @@ def _edit_link_impl(d):
             extra["cover_sni"] = cover_sni
         if (bool(d.get("gso")) if "gso" in d else bool(L.get("gso"))):   # TUN segmentation offload; fall back to stored on a partial edit
             extra["gso"] = True
+        # IP rotation: a full form edit sends ip_rotate + pools; a partial edit (e.g. flux "rotate now")
+        # omits them, so preserve the stored rotation config. Assigned per-role by _core_rotation_bodies.
+        if "ip_rotate" in d:
+            if transport in ("udp", "tcp", "raw", "flux") and bool(d.get("ip_rotate")):
+                ap = [ip for ip in (d.get("a_ip_pool") or []) if str(ip).strip() in a_ips]
+                bp = [ip for ip in (d.get("b_ip_pool") or []) if str(ip).strip() in b_ips]
+                if a_ip not in ap:
+                    ap = [a_ip] + ap
+                if b_ip not in bp:
+                    bp = [b_ip] + bp
+                if len(ap) >= 2 or len(bp) >= 2:
+                    extra["ip_rotate"] = True
+                    extra["a_ip_pool"], extra["b_ip_pool"] = ap, bp
+                    extra["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
+                    extra["auto_burn"] = bool(d.get("auto_burn"))
+        elif L.get("ip_rotate"):   # partial edit — carry the stored rotation config forward unchanged
+            for _k in _ROTATION_KEYS:
+                if L.get(_k) is not None:
+                    extra[_k] = L[_k]
         server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
     # Compare against the effective stored port: a record created before the
     # settable-port feature has no "port" key, so fall back to the type's default
@@ -3140,6 +3213,7 @@ def _edit_link_impl(d):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
+        _core_rotation_bodies(extra, a_body, b_body)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L)
@@ -3237,6 +3311,7 @@ def _rebuild_link_impl(d):
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
     if ttype == "core":   # role is per-node, replayed from the stored server_side
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
+        _core_rotation_bodies(L, a_body, b_body)   # replay the stored IP-rotation pools
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
