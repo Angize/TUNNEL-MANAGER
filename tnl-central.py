@@ -3219,7 +3219,12 @@ def _edit_link_impl(d):
         if x.get("id") == L["id"]:
             continue
         same_pair = frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair
-        if x.get("type") == ttype and same_pair:
+        # core is carrier-multiplexed (see _core_l4_conflict): several core tunnels may share an IP pair
+        # as long as their server L4 binds don't clash, so it is NOT blocked here by ip-pair alone — the
+        # precise per-carrier/port check runs below (with exclude_id, so an edit never conflicts with
+        # itself). This mirrors the create path; without the core exemption, EDITING one of two coexisting
+        # core tunnels on the same IP pair would wrongly fail even when they don't technically clash.
+        if x.get("type") == ttype and same_pair and ttype != "core":
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
         if ttype in IPIP_FAMILY and x.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
             raise ValueError(f"تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
@@ -5387,6 +5392,7 @@ var I18N={fa:{
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
  peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
+ peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
 },en:{
@@ -5397,6 +5403,7 @@ var I18N={fa:{
  ph_burned_manual:"Burned (manual)",ph_dead:"Dead (permanent)",ph_suspect:"Suspect (temporary)",ph_active:"Healthy · active edge",ph_healthy:"Healthy",
  pb_healthy:"healthy",pb_temp:"temp",pb_dead:"dead",pb_burned:"burned",pool_empty:"Empty — add an entry",
  peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
+ peer_live_empty:"The live IP status and pin button appear here once the tunnel is running on an up-to-date node. If you just updated: update the node, then hit \\"Save & rebuild\\" so it's rebuilt with the new core.",
  pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",pa_pinning:"Activating…",
  flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
 }});
@@ -6549,7 +6556,10 @@ function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '
   return '<div class="plbox"><div class="plbl">'+esc(lab)+'<span class="plbadges">'+badges+'</span></div><div class="rpool">'+d.addrs.map(function(ip){return peerRow(side,ip)}).join('')+'</div></div>';}
 function peerRender(){var host=el('ee_peerlive');if(!host)return;
   var boxes=peerBox('dst',T('dst_ip'))+peerBox('src',T('src_ip'));
-  if(!boxes){host.innerHTML='';return;}
+  // No live data yet: rather than a blank gap (which reads as "the feature is missing"), show WHY — the
+  // pool status appears only once the tunnel is running on the up-to-date node/core. peerTick only calls
+  // this on a pool:true response, and _peerLid is set only for a rotating tunnel, so the hint is apt.
+  if(!boxes){host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div><div class="muted" style="font-size:11px;line-height:1.7">'+esc(T('peer_live_empty'))+'</div></div>';return;}
   host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'<button type="button" class="ghost plprobe" onclick="peerProbeNow()">'+ic('redo')+esc(T('peer_probe_btn'))+'</button></div>'+boxes+'<div class="muted" style="font-size:10.5px;line-height:1.7;margin-top:2px">'+esc(T('peer_live_note'))+'</div></div>';}
 function peerCdTick(){if(!_peerLid)return;var host=el('ee_peerlive');if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=peerRemain(+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
