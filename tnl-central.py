@@ -5100,6 +5100,9 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
+.cprot{display:inline-flex;align-items:center;flex:0 0 auto}
+.cprot .rotmark{display:inline-flex;color:var(--acc);cursor:help}
+.cprot .rotmark .ic{width:13px;height:13px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
 .sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
 .sdot.warn{background:var(--gold);box-shadow:0 0 0 3px var(--goldw)}
@@ -5393,7 +5396,7 @@ var I18N={fa:{
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
@@ -5404,7 +5407,7 @@ var I18N={fa:{
  le_port_4789:"UDP port (empty = 4789)",le_port_auto:"UDP port (empty = auto from ID)",
  ph_burned_manual:"Burned (manual)",ph_dead:"Dead (permanent)",ph_suspect:"Suspect (temporary)",ph_active:"Healthy · active edge",ph_healthy:"Healthy",
  pb_healthy:"healthy",pb_temp:"temp",pb_dead:"dead",pb_burned:"burned",pool_empty:"Empty — add an entry",
- peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
+ peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_rotating:"This node rotates across several IPs — the IP shown is the currently-active one",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
  peer_live_empty:"The live IP status and pin button appear here once the tunnel is running on an up-to-date node. If you just updated: update the node, then hit \\"Save & rebuild\\" so it's rebuilt with the new core.",
  pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",pa_pinning:"Activating…",
  flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
@@ -6188,7 +6191,7 @@ function accHead(l,isCore){var on=l.enabled!==false;
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
   '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
-   '<span class="hpeers">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
+   '<span class="hpeers" dir="ltr">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
 function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>'+esc(T('tun_off_note'))+'</span></div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
@@ -6372,9 +6375,9 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span><span class="cprot" id="cprot_a_'+l.id+'"></span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span><span class="cprot" id="cprot_b_'+l.id+'"></span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
@@ -6520,6 +6523,21 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
     if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
 (function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
+// Fleet cards for direct-transport IP-rotation tunnels: show the CURRENTLY-ACTIVE pool IP live in each
+// node box (the server box tracks the active destination, the client box the active source) and a small
+// rotation mark next to the status of any node whose IPs actually rotate (>=2 in its pool). Updates as
+// the pool rotates, so the box always shows the IP the tunnel is really on right now.
+function applyCardPeer(id,side,sec){var active=String(sec.active||'').split(':')[0].trim();  // bare ip (drop :port)
+ if(active){var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&ipEl.textContent!==active)ipEl.textContent=active}
+ var rEl=el('cprot_'+side+'_'+id);if(rEl){var rot=(sec.addrs||[]).length>=2;rEl.innerHTML=rot?('<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'):''}}
+async function refreshCardPeers(){var open=FLEET.filter(function(l){return l.type=='core'&&l.ip_rotate&&TOPEN[l.id]});
+ await Promise.all(open.map(function(l){return post('peer-status',{id:l.id}).then(function(r){
+   if(!(r.ok&&r.d&&r.d.ok&&r.d.pool))return;
+   var srvA=(l.server_side!='b'),srvSide=srvA?'a':'b',cliSide=srvA?'b':'a';
+   applyCardPeer(l.id,srvSide,r.d.dst||{});   // the SERVER node shows the active destination IP
+   applyCardPeer(l.id,cliSide,r.d.src||{});   // the CLIENT node shows the active source IP
+ },function(){})}))}
+(function peersLoop(){setTimeout(function(){refreshCardPeers().then(peersLoop,peersLoop)},UIV)})();   // live-cadence self-loop
 // ===== live status for a direct-transport IP-rotation pool (udp/tcp/raw/flux) — the ws edge pool's
 // per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes (مقصد + مبدأ). Shown
 // in the core edit modal for a running pooled tunnel; poll -> render rows (فعال / در چرخش / سوختهٔ موقت
