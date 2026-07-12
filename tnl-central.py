@@ -931,7 +931,9 @@ def _node_extra(extra):
 def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto_burn):
     """Set a core node's per-role IP-rotation fields in place. The CLIENT gets its own node's IPs as the
     source pool (src_ips) and the peer node's IPs as the destination pool (peer_ips) plus the rotation
-    settings; the SERVER just binds 0.0.0.0 (pool_listen) so it accepts the client's rotated dials."""
+    settings; the SERVER binds exactly its OWN selected pool IPs (pool_listen + listen_ips) so the core
+    opens one socket per IP — the reply then egresses from the exact IP the client dialed, and the
+    server accepts only on the pool IPs rather than every host IP."""
     if is_client:
         if peer_pool:
             body["peer_ips"] = list(peer_pool)   # the server's IPs — the client cycles the destination
@@ -941,6 +943,8 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto
         body["peer_auto_burn"] = auto_burn
     else:
         body["pool_listen"] = True                # accept the client dialing any of this server's IPs
+        if own_pool:
+            body["listen_ips"] = list(own_pool)   # bind exactly these (this server's own selected IPs)
 
 
 def _core_rotation_bodies(src, a_body, b_body):
@@ -2246,13 +2250,16 @@ def _default_tunnel_port(ttype, tid):
     return None
 
 
-def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_ip=None):
+def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_ip=None, a_pool=None, b_pool=None):
     """The (node, ip, port, proto) sockets a tunnel will actually LISTEN on — the set whose
     freeness must be verified before building. The core server binds its self_ip:port, so the
     bind IP is carried too: two ws tunnels on one host but different IPs share a port without a
     false conflict. Scope per the tunnel model:
-      core (bip): only the server node binds (on its self_ip); the client dials from a random
-                    ephemeral port, so it is never checked. proto follows transport (udp|tcp).
+      core (bip): only the server node binds; the client dials from a random ephemeral port, so it
+                    is never checked. proto follows transport (udp|tcp). A UNpooled server binds its
+                    single self_ip; a udp/tcp server UNDER a destination pool binds EACH of its
+                    selected pool IPs explicitly (one socket/listener per IP), so every one is a
+                    distinct binding to check — a_pool/b_pool carry that selected set.
       fou/l2tpv3/vxlan: BOTH nodes decap on that UDP port (any-IP, ip=None).
       gre/sit/ipip/ipsec: no listening L4 port -> nothing to check."""
     p = int(port or _default_tunnel_port(ttype, tid) or 0)
@@ -2262,28 +2269,30 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
         server_a = (server_side or "a") == "a"
         srv = A if server_a else B
         srv_ip = a_ip if server_a else b_ip
+        srv_pool = (a_pool if server_a else b_pool) or []
         t = (transport or "udp").lower()
         if t in ("raw", "flux"):
             return []                        # raw-IP / rotating-protocol carrier — no fixed L4 port to portcheck
-        return [(srv, srv_ip, p, "tcp" if t in ("tcp", "ws") else "udp")]  # ws is a TCP/WebSocket carrier
+        proto = "tcp" if t in ("tcp", "ws") else "udp"  # ws is a TCP/WebSocket carrier
+        pool_ips = [ip for ip in srv_pool if ip] if t in ("udp", "tcp") else []
+        if pool_ips:
+            return [(srv, ip, p, proto) for ip in pool_ips]  # pooled server: one bind per selected IP
+        return [(srv, srv_ip, p, proto)]
     if ttype in ("fou", "l2tpv3", "vxlan"):
         return [(A, None, p, "udp"), (B, None, p, "udp")]
     return []
 
 
-def _guard_port_conflicts(bindings, exclude=frozenset(), exclude_np=frozenset()):
+def _guard_port_conflicts(bindings, exclude=frozenset()):
     """Ask each target node whether the port it will bind is already in use (by ANY
     service — Xray/nginx/x-ui/…, not just our tunnels) and raise a clear Persian error
     if so. `exclude` holds (node_id, ip, port, proto) tuples the edited tunnel already owns,
-    so a tunnel never conflicts with itself. `exclude_np` holds (node_id, port, proto) tuples
-    to skip REGARDLESS of IP — used for a pooled core's server, which binds 0.0.0.0 and so
-    occupies the port on EVERY node IP: on a rebuild its own running core would otherwise look
-    like a conflict on whichever pool IP happens to be the current anchor. Nodes too old to know
-    `portcheck` (or briefly unreachable) are skipped rather than hard-blocked."""
+    so a tunnel never conflicts with itself — including, for a pooled server, every one of its
+    selected pool IPs (each is a distinct binding now that the server binds them explicitly rather
+    than 0.0.0.0). Nodes too old to know `portcheck` (or briefly unreachable) are skipped rather
+    than hard-blocked."""
     for node, ip, port, proto in bindings:
         if (node["id"], ip or "", int(port), proto) in exclude:
-            continue
-        if (node["id"], int(port), proto) in exclude_np:  # pooled-core self-bind (0.0.0.0) — own running core
             continue
         r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or ""}, timeout=10)
         if not r.get("ok"):
@@ -2320,7 +2329,8 @@ def _core_l4_conflict(new_binds, exclude_id=None):
         if not LA or not LB:  # orphaned link (a node was deleted) — can't compute its bind
             continue
         eb = _port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
-                            L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"))
+                            L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
+                            L.get("a_ip_pool"), L.get("b_ip_pool"))
         if keys & _core_bind_keys(eb):
             return L
     return None
@@ -2893,11 +2903,11 @@ def _create_tunnel_impl(d):
     # Precise same-server-IP conflict: another core tunnel that binds the SAME (server ip, port, L4
     # proto). Different carrier, different port, or a raw/flux carrier (shared sockets) is allowed.
     if ttype == "core":
-        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
+        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
         if _clash:
             raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن (حامل‌های دیگر/پورت‌های دیگر روی همین آی‌پی مجازند)")
     # Refuse to build if the chosen port is already taken on a node that will bind it.
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **node_extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **node_extra}
@@ -3355,24 +3365,19 @@ def _edit_link_impl(d):
     # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
     # occupies (its current port/proto/server node are excluded so it can't clash with
     # itself). A binding that is unchanged needs no check; a new/changed one must be free.
+    # A pooled server now binds each SELECTED pool IP explicitly (Task B), so _own expands to that exact
+    # per-IP set — a rebuild that keeps the same pool finds every new binding already in _own and skips
+    # it, with no IP-agnostic hack needed (the old 0.0.0.0 monopoly is gone). A newly ADDED pool IP is
+    # not in _own, so it is genuinely checked; a CHANGED port is a different binding and is checked too.
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
-                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip")))
-    # A pooled core's server binds 0.0.0.0, so its OWN running core occupies the port on every node IP;
-    # exclude its server (node,port,proto) regardless of IP, or a rebuild false-conflicts with itself on
-    # whichever pool IP is the current anchor (the exact-IP _own misses it when the anchor drifts). A
-    # CHANGED port is a different (node,port,proto), so it is still checked. Gate on the STORED ip_rotate —
-    # that is the running instance actually holding the 0.0.0.0 bind during this pre-check.
-    _own_np = frozenset()
-    if L.get("type") == "core" and L.get("ip_rotate"):
-        _own_np = frozenset((N["id"], p, pr) for N, ip, p, pr in
-                            _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip")))
+                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
     # Same precise same-server-IP core conflict as create, but skip THIS tunnel (an edit that keeps its
     # own binding must not clash with itself).
     if ttype == "core":
-        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude_id=L.get("id"))
+        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
         if _clash:
             raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن")
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude=_own, exclude_np=_own_np)
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
     # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
     # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running
     # its old crypto session: the freshly restarted server latches onto the stale still-live client and
