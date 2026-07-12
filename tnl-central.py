@@ -3085,18 +3085,36 @@ def _peer_pool_client(d):
     return L, node
 
 
+_PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")  # IPv4/IPv6/ip:port only
+
+
+def _peer_addr_ok(s):
+    """A pool endpoint is always a bare IP or ip:port. Reject anything else BEFORE it reaches the panel
+    UI: these strings originate from the client node's status file (attacker-influenceable if a node is
+    compromised) and are rendered into the live view, so a strict IP charset whitelist here neutralizes
+    any injection at the source, independent of how the JS renders it."""
+    return bool(s) and bool(_PEER_ADDR_RE.match(s))
+
+
 def _peer_sec_norm(sec):
-    """Normalize one pool section (dst/src) from the node into the shape the panel reads."""
+    """Normalize one pool section (dst/src) from the node into the shape the panel reads, dropping any
+    endpoint that isn't a clean IP/ip:port (defense-in-depth against a malicious/malformed node)."""
     sec = sec if isinstance(sec, dict) else {}
     health = []
     for h in (sec.get("health") or []):
         if not isinstance(h, dict):
             continue
-        health.append({"key": str(h.get("key") or ""), "state": str(h.get("state") or "healthy"),
+        key = str(h.get("key") or "")
+        if not _peer_addr_ok(key):
+            continue
+        health.append({"key": key, "state": str(h.get("state") or "healthy"),
                        "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0)})
-    return {"active": str(sec.get("active") or ""), "addrs": [str(x) for x in (sec.get("addrs") or [])][:64],
-            "burned": [str(x) for x in (sec.get("burned") or [])][:64], "health": health,
-            "pin": str(sec.get("pin") or ""), "ts": int(sec.get("ts") or 0)}
+    active = str(sec.get("active") or "")
+    pin = str(sec.get("pin") or "")
+    return {"active": active if _peer_addr_ok(active) else "",
+            "addrs": [x for x in (str(v) for v in (sec.get("addrs") or [])) if _peer_addr_ok(x)][:64],
+            "burned": [x for x in (str(v) for v in (sec.get("burned") or [])) if _peer_addr_ok(x)][:64],
+            "health": health, "pin": pin if _peer_addr_ok(pin) else "", "ts": int(sec.get("ts") or 0)}
 
 
 def api_peer_status(d):
@@ -6519,8 +6537,11 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   else{rowc='ok';sc='ok';sic='okc';stt=T('peer_st_rot');}
   var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+peerCd(h.next)+peerBar(h)+'</span>':'';
   var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
+  // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
+  // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
+  // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
   if(pend)acts='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
-  else acts='<button type="button" class="eib aim'+((act||pin)?' on':'')+'" title="'+((act||pin)?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="peerSelect(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('pin')+'</button>';
+  else acts='<button type="button" class="eib aim'+((act||pin)?' on':'')+'" title="'+((act||pin)?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
   return '<div class="erow '+rowc+((h&&h.state=='dead')?' dead':'')+'"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span>'+rt+'<span class="eacts">'+acts+'</span></div>';}
 function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '';
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
@@ -6534,7 +6555,8 @@ function peerCdTick(){if(!_peerLid)return;var host=el('ee_peerlive');if(!host)re
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=peerRemain(+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=peerRemain(+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
 setInterval(peerCdTick,1000);
-async function peerSelect(side,key){if(!_peerLid||_peerData.pinPending)return;
+async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.getAttribute('data-ip');
+  if(!_peerLid||_peerData.pinPending||!key)return;
   _peerData.pinPending={side:side,key:key,ts:Date.now()};peerRender();
   var r=await post('peer-select',{id:_peerLid,side:side,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
@@ -6671,7 +6693,7 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corSniSplit=false;_corSplitPos=0;_corSniMode='split';_corSplitTtl=0;_corXhttp=false;_corXhMode='packet';_corFec=false;_corFecData=10;_corFecParity=3;_corDesync=false;_corDesyncTtl=4;_corDesyncCount=2;_corDesyncMode='ttl';_eePoolLid='';_rotS['e_']={on:false,burn:true,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corSniSplit=false;_corSplitPos=0;_corSniMode='split';_corSplitTtl=0;_corXhttp=false;_corXhMode='packet';_corFec=false;_corFecData=10;_corFecParity=3;_corDesync=false;_corDesyncTtl=4;_corDesyncCount=2;_corDesyncMode='ttl';_eePoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div><label class="first">'+esc(T('src_node'))+'</label>'+ssHTML('e_a',items,items[0].v,T('src_node'),'onCorNode')+'</div>'+
   '<div><label class="first">'+esc(T('dst_node'))+'</label>'+ssHTML('e_b',items,items[1].v,T('dst_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
