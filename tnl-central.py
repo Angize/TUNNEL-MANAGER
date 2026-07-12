@@ -2255,14 +2255,19 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
     return []
 
 
-def _guard_port_conflicts(bindings, exclude=frozenset()):
+def _guard_port_conflicts(bindings, exclude=frozenset(), exclude_np=frozenset()):
     """Ask each target node whether the port it will bind is already in use (by ANY
     service — Xray/nginx/x-ui/…, not just our tunnels) and raise a clear Persian error
     if so. `exclude` holds (node_id, ip, port, proto) tuples the edited tunnel already owns,
-    so a tunnel never conflicts with itself. Nodes too old to know `portcheck` (or briefly
-    unreachable) are skipped rather than hard-blocked."""
+    so a tunnel never conflicts with itself. `exclude_np` holds (node_id, port, proto) tuples
+    to skip REGARDLESS of IP — used for a pooled core's server, which binds 0.0.0.0 and so
+    occupies the port on EVERY node IP: on a rebuild its own running core would otherwise look
+    like a conflict on whichever pool IP happens to be the current anchor. Nodes too old to know
+    `portcheck` (or briefly unreachable) are skipped rather than hard-blocked."""
     for node, ip, port, proto in bindings:
         if (node["id"], ip or "", int(port), proto) in exclude:
+            continue
+        if (node["id"], int(port), proto) in exclude_np:  # pooled-core self-bind (0.0.0.0) — own running core
             continue
         r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or ""}, timeout=10)
         if not r.get("ok"):
@@ -3336,13 +3341,22 @@ def _edit_link_impl(d):
     # itself). A binding that is unchanged needs no check; a new/changed one must be free.
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
                      _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip")))
+    # A pooled core's server binds 0.0.0.0, so its OWN running core occupies the port on every node IP;
+    # exclude its server (node,port,proto) regardless of IP, or a rebuild false-conflicts with itself on
+    # whichever pool IP is the current anchor (the exact-IP _own misses it when the anchor drifts). A
+    # CHANGED port is a different (node,port,proto), so it is still checked. Gate on the STORED ip_rotate —
+    # that is the running instance actually holding the 0.0.0.0 bind during this pre-check.
+    _own_np = frozenset()
+    if L.get("type") == "core" and L.get("ip_rotate"):
+        _own_np = frozenset((N["id"], p, pr) for N, ip, p, pr in
+                            _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip")))
     # Same precise same-server-IP core conflict as create, but skip THIS tunnel (an edit that keeps its
     # own binding must not clash with itself).
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude_id=L.get("id"))
         if _clash:
             raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن")
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude=_own)
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude=_own, exclude_np=_own_np)
     # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
     # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running
     # its old crypto session: the freshly restarted server latches onto the stale still-live client and
@@ -6174,8 +6188,12 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
 // ===== accordion cards (collapsed row -> click to expand) + on/off toggle =====
 var TOPEN={};   // per-link open state, kept across the periodic re-render
-var PEERST={};  // per-link+side {ip,rot}: the live active pool IP + whether it rotates, cached so the periodic
-                // card re-render shows the SAME value refreshCardPeers set (otherwise they fight -> flicker)
+// per-link+side {ip,rot}: the live active pool IP + whether it rotates, cached so the periodic card
+// re-render shows the SAME value refreshCardPeers set (otherwise they fight -> flicker). Seeded from
+// localStorage so a RELOAD shows the last-known active IP immediately instead of flashing the stored
+// anchor (a_ip) until the first poll lands.
+var PEERST=(function(){try{return JSON.parse(localStorage.getItem('tnl_peerst')||'{}')||{}}catch(e){return {}}})();
+function peerStSave(){try{localStorage.setItem('tnl_peerst',JSON.stringify(PEERST))}catch(e){}}
 var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 function cardTog(id,e){TOPEN[id]=!TOPEN[id];var c=el('c_'+id);if(c)c.classList.toggle('open',TOPEN[id])}
 async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(x){return x.id==id})[0];if(!L)return;
@@ -6537,8 +6555,8 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
 function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'}
 function applyCardPeer(id,side,sec){var active=String(sec.active||'').split(':')[0].trim();  // bare ip (drop :port)
  var rot=(sec.addrs||[]).length>=2,cur=PEERST[id+'_'+side]||{},nip=active||cur.ip;   // keep last-known if a poll blanks
- PEERST[id+'_'+side]={ip:nip,rot:rot};   // cache so the periodic card re-render agrees (no flicker)
- var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&nip&&ipEl.textContent!==nip)ipEl.textContent=nip;   // update only on change
+ if(cur.ip!==nip||cur.rot!==rot){PEERST[id+'_'+side]={ip:nip,rot:rot};peerStSave()}   // cache + persist ONLY on change
+ var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&nip&&ipEl.textContent!==nip)ipEl.textContent=nip;   // update DOM only on change
  var rEl=el('cprot_'+side+'_'+id);if(rEl){var want=rot?rotMark():'';if(rEl.innerHTML!==want)rEl.innerHTML=want}}
 async function refreshCardPeers(){var open=FLEET.filter(function(l){return l.type=='core'&&l.ip_rotate&&TOPEN[l.id]});
  await Promise.all(open.map(function(l){return post('peer-status',{id:l.id}).then(function(r){
@@ -6936,8 +6954,10 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var _rverr2=rotValidate('ee_');if(_rverr2){m.className='msg err';m.textContent=_rverr2;return}
  var _sa2=rotSt('ee_');
- var aip=(_sa2.on&&_sa2.aIps.length>1)?(rotFirstSel('ee_','a')||_sa2.aIps[0]||''):(el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||''));if(aip)body.a_ip=aip;
- var bip=(_sa2.on&&_sa2.bIps.length>1)?(rotFirstSel('ee_','b')||_sa2.bIps[0]||''):(el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||''));if(bip)body.b_ip=bip;
+ // Keep the stored anchor if it is still in the pool, so the anchor (a_ip/b_ip) doesn't drift to another
+ // pool IP each edit (which churns the server bind and used to trip a false self port-conflict).
+ var aip=(_sa2.on&&_sa2.aIps.length>1)?((_sa2.aSel[l.a_ip]&&l.a_ip)||rotFirstSel('ee_','a')||_sa2.aIps[0]||''):(el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||''));if(aip)body.a_ip=aip;
+ var bip=(_sa2.on&&_sa2.bIps.length>1)?((_sa2.bSel[l.b_ip]&&l.b_ip)||rotFirstSel('ee_','b')||_sa2.bIps[0]||''):(el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||''));if(bip)body.b_ip=bip;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs;body.auto_burn=_rc2.auto_burn}
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
