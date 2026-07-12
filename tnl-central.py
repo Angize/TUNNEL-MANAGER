@@ -3070,6 +3070,100 @@ def api_pool_select(d):
     return {"ok": True}
 
 
+def _peer_pool_client(d):
+    """Resolve (link, client node) for a direct-transport IP-rotation link, raising a clear error when
+    the link isn't a pooled core or its client node is gone. Shared by the peer-pool live-status ops."""
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L or L.get("type") != "core" or not L.get("ip_rotate"):
+        raise ValueError("این لینک استخرِ آی‌پی ندارد")
+    server_side = L.get("server_side", "a")
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        raise ValueError("نودِ کلاینت پیدا نشد")
+    return L, node
+
+
+_PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")  # IPv4/IPv6/ip:port only
+
+
+def _peer_addr_ok(s):
+    """A pool endpoint is always a bare IP or ip:port. Reject anything else BEFORE it reaches the panel
+    UI: these strings originate from the client node's status file (attacker-influenceable if a node is
+    compromised) and are rendered into the live view, so a strict IP charset whitelist here neutralizes
+    any injection at the source, independent of how the JS renders it."""
+    return bool(s) and bool(_PEER_ADDR_RE.match(s))
+
+
+def _peer_sec_norm(sec):
+    """Normalize one pool section (dst/src) from the node into the shape the panel reads, dropping any
+    endpoint that isn't a clean IP/ip:port (defense-in-depth against a malicious/malformed node)."""
+    sec = sec if isinstance(sec, dict) else {}
+    health = []
+    for h in (sec.get("health") or []):
+        if not isinstance(h, dict):
+            continue
+        key = str(h.get("key") or "")
+        if not _peer_addr_ok(key):
+            continue
+        health.append({"key": key, "state": str(h.get("state") or "healthy"),
+                       "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0)})
+    active = str(sec.get("active") or "")
+    pin = str(sec.get("pin") or "")
+    return {"active": active if _peer_addr_ok(active) else "",
+            "addrs": [x for x in (str(v) for v in (sec.get("addrs") or [])) if _peer_addr_ok(x)][:64],
+            "burned": [x for x in (str(v) for v in (sec.get("burned") or [])) if _peer_addr_ok(x)][:64],
+            "health": health, "pin": pin if _peer_addr_ok(pin) else "", "ts": int(sec.get("ts") or 0)}
+
+
+def api_peer_status(d):
+    """Live status of a direct-transport IP-rotation link: ask the client node for BOTH pools —
+    destination (the server IPs it dials) and source (this node's own egress IPs) — each with the
+    active endpoint, the per-endpoint health FSM (suspect/dead + retest countdown), and any manual
+    pin. `now` is the client node's clock (which stamped the retest times) so countdowns stay correct."""
+    d = d or {}
+    empty = {"active": "", "addrs": [], "burned": [], "health": [], "pin": "", "ts": 0}
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L or L.get("type") != "core" or not L.get("ip_rotate"):
+        return {"ok": True, "pool": False, "now": int(time.time()), "dst": dict(empty), "src": dict(empty)}
+    server_side = L.get("server_side", "a")
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": "client node not found"}
+    r = node_call(node, "peer-status", "POST", {"name": L.get("name")}, timeout=10)
+    if not r.get("ok"):
+        return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": r.get("error") or r.get("msg")}
+    node_now = int(r.get("now") or 0) or int(time.time())
+    return {"ok": True, "pool": True, "now": node_now, "dst": _peer_sec_norm(r.get("dst")), "src": _peer_sec_norm(r.get("src"))}
+
+
+def api_peer_probe_now(d):
+    """'Probe now' for a direct-transport pool: SIGHUP the client's core to retest every burned
+    endpoint at once (re-admit it to rotation) with no rebuild. Fresh state arrives via the next poll."""
+    L, node = _peer_pool_client(d or {})
+    r = node_call(node, "peer-probe-now", "POST", {"name": L.get("name")}, timeout=10)
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or r.get("msg") or "پروب ناموفق بود"}
+    return {"ok": True}
+
+
+def api_peer_select(d):
+    """'Pin this IP' for a direct-transport pool: tell the client node to write a command file the core
+    polls so it jumps onto THIS endpoint (side 'src' pins the source pool, else the destination) and
+    re-points onto it — no rebuild, TUN stays up. Backs the per-IP pin button."""
+    d = d or {}
+    _require(d, ["id", "key"])
+    side = "src" if str(d.get("side")) == "src" else "dst"
+    L, node = _peer_pool_client(d)
+    r = node_call(node, "peer-select", "POST", {"name": L.get("name"), "side": side, "key": str(d["key"])}, timeout=10)
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
+    return {"ok": True}
+
+
 def api_flux_rotate(d):
     """'Rotate now' for a flux link: bump the manual epoch offset by one and rebuild both
     ends with it. Both ends get the same offset, so the moving target jumps a shape ahead
@@ -4197,6 +4291,7 @@ API = {
     "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
+    "peer-status": api_peer_status, "peer-probe-now": api_peer_probe_now, "peer-select": api_peer_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
@@ -4207,7 +4302,9 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select", "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
+             "peer-status", "peer-probe-now", "peer-select",
+             "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
 
 # ----------------------------------------------------------------------------- HTTP
@@ -4918,8 +5015,6 @@ body.dark .tag.core{color:#a78bfa}
 .rrow.on{box-shadow:inset -3px 0 0 var(--ok)}
 .rrow.on .sic{color:var(--ok);opacity:1}
 .rrow .rip{flex:1;text-align:center;font-family:var(--mono);font-size:12.5px;direction:ltr;letter-spacing:-.02em}
-.rrow.anchor{cursor:default}
-.rrow .rlock{font-size:9px;color:var(--sub);flex:0 0 auto}
 .rhint{font-size:11px;color:var(--sub);text-align:center;margin-top:8px;line-height:1.7}
 .plist{border:1px solid var(--bord);border-radius:10px;overflow:hidden;background:var(--field)}
 .prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;min-height:42px;border-bottom:1px solid var(--bord)}
@@ -4960,6 +5055,16 @@ body.dark .tag.core{color:#a78bfa}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
 .pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
+/* live peer-pool status (direct-transport rotation): مقصد + مبدأ boxes of health rows + per-IP pin */
+.peerlive{margin-top:12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);padding:11px 12px;display:flex;flex-direction:column;gap:10px}
+.peerlive .pllabel{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700}
+.peerlive .plprobe{margin-inline-start:auto;font-size:11px;padding:5px 10px;height:auto;display:inline-flex;align-items:center;gap:5px}
+.peerlive .plprobe .ic{width:13px;height:13px}
+.plbox{display:flex;flex-direction:column;gap:6px}
+.plbox .plbl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);font-weight:700}
+.plbox .plbadges{margin-inline-start:auto;display:inline-flex;gap:5px}
+.plbox .rpool{border:none;background:transparent;display:flex;flex-direction:column;gap:6px;overflow:visible}
+.eib.aim.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
@@ -5281,6 +5386,7 @@ var I18N={fa:{
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
 },en:{
@@ -5290,6 +5396,7 @@ var I18N={fa:{
  le_port_4789:"UDP port (empty = 4789)",le_port_auto:"UDP port (empty = auto from ID)",
  ph_burned_manual:"Burned (manual)",ph_dead:"Dead (permanent)",ph_suspect:"Suspect (temporary)",ph_active:"Healthy · active edge",ph_healthy:"Healthy",
  pb_healthy:"healthy",pb_temp:"temp",pb_dead:"dead",pb_burned:"burned",pool_empty:"Empty — add an entry",
+ peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
  pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",pa_pinning:"Activating…",
  flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
 }});
@@ -6404,6 +6511,59 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
     if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
 (function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
+// ===== live status for a direct-transport IP-rotation pool (udp/tcp/raw/flux) — the ws edge pool's
+// per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes (مقصد + مبدأ). Shown
+// in the core edit modal for a running pooled tunnel; poll -> render rows (فعال / در چرخش / سوختهٔ موقت
+// / سوختهٔ دائمی) with a retest countdown and a per-IP pin button, plus a "test all" (probe-now) button.
+var _peerLid='';
+var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
+async function peerTick(){if(!_peerLid||!el('ee_peerlive'))return;var r=await post('peer-status',{id:_peerLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)peerApply(r.d);}
+(function peerLoop(){setTimeout(function(){Promise.resolve(peerTick()).then(peerLoop,peerLoop)},UIV)})();   // live-cadence self-loop
+function peerApply(st){
+  _peerData.now=+st.now||Math.floor(Date.now()/1000);_peerData.polledMs=Date.now();
+  ['dst','src'].forEach(function(side){var sec=st[side]||{};var live={};
+    (sec.health||[]).forEach(function(h){if(h&&h.key)live[h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
+    _peerData[side]={active:String(sec.active||''),addrs:(sec.addrs||[]).map(String),pin:String(sec.pin||''),live:live};});
+  if(_peerData.pinPending){var pk=_peerData.pinPending,sec=_peerData[pk.side]||{};if(sec.active===pk.key||(Date.now()-pk.ts>12000))_peerData.pinPending=null;}
+  peerRender();}
+function peerRemain(next){if(!next||!_peerData.now)return -1;var e=_peerData.now+(Date.now()-(_peerData.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
+function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
+function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
+function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip),pin=(d.pin===ip);
+  var rowc,sc,sic,stt;
+  if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
+  else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
+  else if(act){rowc='ok';sc='ok';sic='bolt';stt=T('peer_st_active');}
+  else{rowc='ok';sc='ok';sic='okc';stt=T('peer_st_rot');}
+  var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+peerCd(h.next)+peerBar(h)+'</span>':'';
+  var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
+  // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
+  // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
+  // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
+  if(pend)acts='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
+  else acts='<button type="button" class="eib aim'+((act||pin)?' on':'')+'" title="'+((act||pin)?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
+  return '<div class="erow '+rowc+((h&&h.state=='dead')?' dead':'')+'"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span>'+rt+'<span class="eacts">'+acts+'</span></div>';}
+function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '';
+  var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
+  var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
+  return '<div class="plbox"><div class="plbl">'+esc(lab)+'<span class="plbadges">'+badges+'</span></div><div class="rpool">'+d.addrs.map(function(ip){return peerRow(side,ip)}).join('')+'</div></div>';}
+function peerRender(){var host=el('ee_peerlive');if(!host)return;
+  var boxes=peerBox('dst',T('dst_ip'))+peerBox('src',T('src_ip'));
+  if(!boxes){host.innerHTML='';return;}
+  host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'<button type="button" class="ghost plprobe" onclick="peerProbeNow()">'+ic('redo')+esc(T('peer_probe_btn'))+'</button></div>'+boxes+'<div class="muted" style="font-size:10.5px;line-height:1.7;margin-top:2px">'+esc(T('peer_live_note'))+'</div></div>';}
+function peerCdTick(){if(!_peerLid)return;var host=el('ee_peerlive');if(!host)return;
+  Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=peerRemain(+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
+  Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=peerRemain(+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
+setInterval(peerCdTick,1000);
+async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.getAttribute('data-ip');
+  if(!_peerLid||_peerData.pinPending||!key)return;
+  _peerData.pinPending={side:side,key:key,ts:Date.now()};peerRender();
+  var r=await post('peer-select',{id:_peerLid,side:side,key:key});
+  if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
+  else{_peerData.pinPending=null;peerRender();toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
+  if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
+  else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+esc(T('spoof_hd'))+'</div>'
@@ -6533,7 +6693,7 @@ function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=
  if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corSniSplit=false;_corSplitPos=0;_corSniMode='split';_corSplitTtl=0;_corXhttp=false;_corXhMode='packet';_corFec=false;_corFecData=10;_corFecParity=3;_corDesync=false;_corDesyncTtl=4;_corDesyncCount=2;_corDesyncMode='ttl';_eePoolLid='';_rotS['e_']={on:false,burn:true,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corSniSplit=false;_corSplitPos=0;_corSniMode='split';_corSplitTtl=0;_corXhttp=false;_corXhMode='packet';_corFec=false;_corFecData=10;_corFecParity=3;_corDesync=false;_corDesyncTtl=4;_corDesyncCount=2;_corDesyncMode='ttl';_eePoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div><label class="first">'+esc(T('src_node'))+'</label>'+ssHTML('e_a',items,items[0].v,T('src_node'),'onCorNode')+'</div>'+
   '<div><label class="first">'+esc(T('dst_node'))+'</label>'+ssHTML('e_b',items,items[1].v,T('dst_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -6563,44 +6723,45 @@ function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corTr==
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
 var _rotS={};
-function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,burn:true,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
+function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
 function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+'آی‌پی‌ها</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+'تنظیمات</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0}
 function rotSetHTML(px){var st=rotSt(px),cur=String(st.secs||0);
  function opt(vv,lab){return '<option value="'+vv+'"'+(cur==vv?' selected':'')+'>'+esc(lab)+'</option>'}
  return '<div id="'+px+'rotset" style="display:none;margin-top:2px"><label class="first">'+esc(T('rot_interval'))+'</label>'+
- '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select>'+
- '<div class="tglbox"><div class="tglsw'+(st.burn?' on':'')+'" id="'+px+'autoburn" onclick="corToggleAutoburn(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_autoburn_t'))+'</b><small>'+esc(T('rot_autoburn_d'))+'</small></div></div></div>'}
+ '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select></div>'}
 function rotTr(px){return px=='e_'?_corTr:_eeTr}
 function rotIsDirect(px){return ['udp','tcp','raw','flux'].indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
-function rotAnchor(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps;
- if(px=='e_'){var id='e_'+side+'ip_sel';if(el('ssb_'+id))return ssVal(id)}
- var anc=(side=='a')?st.aAnchor:st.bAnchor;if(anc)return anc;   // edit: the tunnel's current primary IP
- return ips[0]||''}
+// rotFirstSel is the first SELECTED pool IP in display order (or ''): all IPs are equal now (no
+// primary/secondary), so this is just the endpoint we hand the backend as the config anchor (a_ip/
+// b_ip) — the pool seed. Any selected IP works; first-in-order keeps it stable.
+function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
+ for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
 function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(px+'rotrow');if(!w)return;
  var multi=(st.aIps.length>1||st.bIps.length>1)&&rotIsDirect(px);
  if(!multi){st.on=false;w.innerHTML='';var r0=el(px+'rotset');if(r0)r0.style.display='none';renderRotIps(px);return}
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
-function corToggleAutoburn(px){var st=rotSt(px);st.burn=!st.burn;var s=el(px+'autoburn');if(s)s.classList.toggle('on',st.burn)}
 function renderRotIps(px){['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
  var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,lab=(side=='a')?T('src_ip'):T('dst_ip');
  if(st.on&&ips.length>1)w.innerHTML=rotPoolHTML(px,side,ips,lab);else w.innerHTML=ipField(px+side+'ip_sel',ips,lab)})}
-function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,anchor=rotAnchor(px,side);
+function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel;
  var CKI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M8.3 12.4l2.6 2.6 4.8-5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
  var OFI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>';
- var rows=ips.map(function(ip){var isA=(ip==anchor),on=isA||!!sel[ip];
-  return '<div class="rrow'+(on?' on':'')+(isA?' anchor':'')+'"'+(isA?'':' onclick="rotToggleIp(\\''+px+'\\',\\''+side+'\\',this)"')+' data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span>'+(isA?'<span class="rlock">'+esc(T('rot_primary'))+'</span>':'')+'</div>'}).join('');
+ var rows=ips.map(function(ip){var on=!!sel[ip];
+  return '<div class="rrow'+(on?' on':'')+'" onclick="rotToggleIp(\\''+px+'\\',\\''+side+'\\',this)" data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span></div>'}).join('');
  return '<label class="first">'+lab+' <span style="color:var(--acc)">('+rotCount(px,side)+')</span></label><div class="rpool">'+rows+'</div>'}
-function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,anchor=rotAnchor(px,side),n=0;ips.forEach(function(ip){if(ip==anchor||sel[ip])n++});return n}
+function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,n=0;ips.forEach(function(ip){if(sel[ip])n++});return n}
 function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ip=row.getAttribute('data-ip');if(sel[ip])delete sel[ip];else sel[ip]=true;renderRotIps(px)}
 function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
- function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,anchor=rotAnchor(px,side),out=[];ips.forEach(function(ip){if(ip==anchor||sel[ip])out.push(ip)});return out}
+ function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,out=[];ips.forEach(function(ip){if(sel[ip])out.push(ip)});return out}
  var ap=pool('a'),bp=pool('b');if(ap.length<2&&bp.length<2)return null;
  var secs=parseInt((el(px+'rotsecs')||{}).value)||0;
- return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:st.burn}}
+ // auto-burn is always on now (like the ws edge pool): a blocked IP is sidelined and retested on
+ // backoff, returning to rotation when healthy — no operator toggle.
+ return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:true,a_ip:ap[0]||'',b_ip:bp[0]||''}}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>'+esc(T('custom_subnet'))+'</label><input id="e_subnet" placeholder="'+esc(T('ph_subnet'))+'">':''}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
@@ -6618,8 +6779,9 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
   if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
- var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
- var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
+ var _sa=rotSt('e_');
+ var aip=(_sa.on&&_sa.aIps.length>1)?(rotFirstSel('e_','a')||_sa.aIps[0]||''):(el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'');if(aip)body.a_ip=aip;
+ var bip=(_sa.on&&_sa.bIps.length>1)?(rotFirstSel('e_','b')||_sa.bIps[0]||''):(el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'');if(bip)body.b_ip=bip;
  var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs;body.auto_burn=_rc.auto_burn}
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
  var port=v('e_port');if(port)body.port=port;
@@ -6668,13 +6830,14 @@ function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
  if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeSniSplit=!!l.sni_split;_eeSplitPos=l.split_pos||0;_eeSniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeSplitTtl=l.split_ttl||0;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eeDesync=!!l.fake_desync;_eeDesyncTtl=l.fake_ttl||4;_eeDesyncCount=l.fake_count||2;_eeDesyncMode=l.fake_mode||'ttl';_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
+ editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeSniSplit=!!l.sni_split;_eeSplitPos=l.split_pos||0;_eeSniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeSplitTtl=l.split_ttl||0;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eeDesync=!!l.fake_desync;_eeDesyncTtl=l.fake_ttl||4;_eeDesyncCount=l.fake_count||2;_eeDesyncMode=l.fake_mode||'ttl';_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
  var aips=l.a_ips||[],bips=l.b_ips||[];
- _rotS['ee_']={on:!!l.ip_rotate,burn:(l.auto_burn!==false),secs:(l.rotate_secs||600),aIps:aips,bIps:bips,aAnchor:l.a_ip,bAnchor:l.b_ip,aSel:{},bSel:{}};
+ _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs||600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
+ if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
  var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
   '<div class="grid2"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
-  '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+
+  '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+'<div id="ee_peerlive"></div>'+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div>'+
   '<div class="autonote">'+ic('warn')+'<span>'+T('srv_advice')+'</span></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
@@ -6694,7 +6857,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis();ceWsVis();if(_eePoolLid)setTimeout(poolTick,200)}
+ ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();ceFluxVis();ceWsVis();if(_eePoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.b_name)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.a_name)+' '+esc(T('role_client_word'))+'</span>'}
@@ -6718,8 +6881,9 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
   if(_eeDecoy&&!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}
   body.spoof_dst=dip;body.spoof_src=sip}
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
- var aip=el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||'');if(aip)body.a_ip=aip;
- var bip=el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||'');if(bip)body.b_ip=bip;
+ var _sa2=rotSt('ee_');
+ var aip=(_sa2.on&&_sa2.aIps.length>1)?(rotFirstSel('ee_','a')||_sa2.aIps[0]||''):(el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||''));if(aip)body.a_ip=aip;
+ var bip=(_sa2.on&&_sa2.bIps.length>1)?(rotFirstSel('ee_','b')||_sa2.bIps[0]||''):(el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||''));if(bip)body.b_ip=bip;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs;body.auto_burn=_rc2.auto_burn}
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
