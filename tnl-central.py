@@ -3746,11 +3746,13 @@ def _ech_refresh_once():
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
-            detail = "\n".join("%s: %s" % (h, k) for h, k in chmap.items())   # host: fresh base64 ECHConfigList
+            # Two boxes per host (like the reactive event): the domain and its fresh base64 ECHConfigList.
+            dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
+            den = "\n".join("host: %s\nECH key: %s" % (h, k) for h, k in chmap.items())
             log_event("ok", "ech",
                       "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label),
                       "Tunnel “%s” ECH key refreshed by the scheduled timer (every %s min)" % (nm, _mins_label),
-                      detail, detail)
+                      dfa, den)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to
         # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
         # SEE is down — LEVEL-triggered on the down state, NOT gated on the key changing THIS cycle (that
