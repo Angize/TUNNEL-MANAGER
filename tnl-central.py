@@ -3700,10 +3700,14 @@ def _ech_write(lid, kind, updates, degrade):
 
 
 def _ech_safe_rebuild(lid):
+    """Rebuild the link (re-fetches ECH itself; applies the fresh/now-off key to both ends). Returns True
+    on success, False on ANY failure — never raises, so the caller can log the ACTUAL outcome instead of
+    an optimistic guess (a failed rebuild leaves the tunnel down and must not read as success)."""
     try:
-        api_rebuild_link({"id": lid})   # re-fetches ECH itself; applies the fresh (or now-off) key to both ends
+        api_rebuild_link({"id": lid})
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _ech_refresh_once():
@@ -3733,9 +3737,12 @@ def _ech_refresh_once():
         removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)  # every host gone, persistently
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
-                log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت",
-                          f"Tunnel “{nm}” ECH record vanished; degraded to plain wss")
-                _ech_safe_rebuild(lid)
+                if _ech_safe_rebuild(lid):   # log the ACTUAL outcome, not an optimistic guess
+                    log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت و بازسازی شد",
+                              f"Tunnel “{nm}” ECH record vanished; degraded to plain wss and rebuilt")
+                else:
+                    log_event("bad", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ تنزل به wss ساده شد ولی بازسازی شکست خورد — هنوز قطع",
+                              f"Tunnel “{nm}” ECH record vanished; degraded to plain wss but the rebuild FAILED — still down")
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
@@ -3753,9 +3760,13 @@ def _ech_refresh_once():
         if kind == "pool" and _link_is_down(lid):
             if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
                 _ech_down_rebuilt.add(lid)
-                log_event("warn", "ech", f"تونلِ «{nm}» قطع بود و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد",
-                          f"Tunnel “{nm}” was down with a rotated ECH key; rebuilt with the fresh key")
-                _ech_safe_rebuild(lid)
+                if _ech_safe_rebuild(lid):   # log the ACTUAL outcome; a failed rebuild must not read as success
+                    log_event("ok", "ech", f"تونلِ «{nm}» قطع بود و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد",
+                              f"Tunnel “{nm}” was down with a rotated ECH key; rebuilt with the fresh key")
+                else:
+                    log_event("bad", "ech", f"تونلِ «{nm}» قطع است و بازسازی با کلیدِ تازهٔ ECH شکست خورد — هنوز قطع",
+                              f"Tunnel “{nm}” is down and the ECH rebuild FAILED — still down")
+                    _ech_down_rebuilt.discard(lid)   # let the NEXT cycle retry (don't burn the episode on a failed rebuild)
         else:
             _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
 
@@ -3836,6 +3847,12 @@ def _ev_core_text(kind, code, detail, nm):
     if kind == "burn":
         rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
         return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", f"Edge “{key}” of “{nm}” burned", rf, re_)
+    if kind == "heal":
+        # a background retest recovered a previously-sidelined edge/SNI (suspect|dead -> healthy),
+        # so it is back in the rotation pool. Distinct from the active-carrier up/reconnect above.
+        return ("ok", "edge", f"لبهٔ «{key}» تونلِ «{nm}» با retest ترمیم شد و به استخر برگشت",
+                f"Edge “{key}” of “{nm}” recovered via retest — back in the pool",
+                "بازآزماییِ پس‌زمینه موفق شد", "background retest succeeded")
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
         # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
