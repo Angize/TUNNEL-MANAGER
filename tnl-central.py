@@ -2274,6 +2274,37 @@ def _guard_port_conflicts(bindings, exclude=frozenset()):
             raise ValueError(f"پورتِ {port}/{proto.upper()} روی نودِ «{node['name']}»{onip} اشغال است{tail}؛ یک پورتِ دیگر انتخاب کن")
 
 
+def _core_bind_keys(bindings):
+    """Normalize _port_bindings output to a comparable key set {(node_id, ip, port, proto)}."""
+    return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
+
+
+def _core_l4_conflict(new_binds, exclude_id=None):
+    """Registry-level conflict check for a core tunnel. Core is CARRIER-MULTIPLEXED on its server IP:
+    only udp/tcp/ws bind an EXCLUSIVE kernel port (returned by _port_bindings), so two core tunnels
+    truly clash ONLY when their server (node, ip, port, L4-proto) coincide. raw/flux return no bindings
+    — they use shared raw/AF_PACKET sockets and every frame is AEAD-authenticated, so any number
+    coexist on one server IP (each drops the others' frames). So a raw-vs-udp, a udp:9000-vs-udp:9001,
+    or a udp-vs-tcp-on-the-same-port pair on the same IPs is fine; only a same (ip,port,proto) L4 bind
+    is a real conflict. This catches a conflict even when the other tunnel is currently DOWN (the live
+    _guard_port_conflicts only sees running binds); the two together also catch non-tunnel services on
+    the port. Returns the first conflicting stored core link (or None); exclude_id skips self on edit."""
+    keys = _core_bind_keys(new_binds)
+    if not keys:  # raw/flux (or no port) — nothing exclusive to clash on
+        return None
+    for L in load_links():
+        if L.get("type") != "core" or L.get("id") == exclude_id:
+            continue
+        LA, LB = get_node(L.get("a_node")), get_node(L.get("b_node"))
+        if not LA or not LB:  # orphaned link (a node was deleted) — can't compute its bind
+            continue
+        eb = _port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
+                            L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"))
+        if keys & _core_bind_keys(eb):
+            return L
+    return None
+
+
 def _spoof_fields(d, transport, profile, cipher, cur=None):
     """Validate and return the raw-bip IP-spoofing fields to store on a core link. Spoofing forges the
     outer IPv4 addresses so an on-path censor sees a decoy instead of the real server; it only applies
@@ -2736,7 +2767,10 @@ def _create_tunnel_impl(d):
     new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
     for L in load_links():  # (a multi-ip pair may legitimately have several tunnels on different ips)
         same_pair = frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair
-        if L.get("type") == ttype and same_pair:
+        # core is carrier-multiplexed (see _core_l4_conflict): several core tunnels may share an IP pair
+        # as long as their server L4 binds don't clash, so it is NOT blocked here by ip-pair alone —
+        # the precise per-carrier/port check runs after the carrier is known.
+        if L.get("type") == ttype and same_pair and ttype != "core":
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
         if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
             raise ValueError(f"تونلِ «{L.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
@@ -2835,6 +2869,12 @@ def _create_tunnel_impl(d):
                 extra["a_ip_pool"], extra["b_ip_pool"] = ap, bp
                 extra["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
                 extra["auto_burn"] = bool(d.get("auto_burn"))
+    # Precise same-server-IP conflict: another core tunnel that binds the SAME (server ip, port, L4
+    # proto). Different carrier, different port, or a raw/flux carrier (shared sockets) is allowed.
+    if ttype == "core":
+        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
+        if _clash:
+            raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن (حامل‌های دیگر/پورت‌های دیگر روی همین آی‌پی مجازند)")
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip))
     node_extra = _node_extra(extra)
@@ -3197,6 +3237,12 @@ def _edit_link_impl(d):
     # itself). A binding that is unchanged needs no check; a new/changed one must be free.
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
                      _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip")))
+    # Same precise same-server-IP core conflict as create, but skip THIS tunnel (an edit that keeps its
+    # own binding must not clash with itself).
+    if ttype == "core":
+        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude_id=L.get("id"))
+        if _clash:
+            raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن")
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip), exclude=_own)
     # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
     # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running
