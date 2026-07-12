@@ -975,6 +975,8 @@ def _tunnel_extra(src, refetch_ech=True):
         e["cipher"] = src["cipher"]
     if src.get("transport"):
         e["transport"] = src["transport"]
+    if src.get("dead_after_secs"):        # per-tunnel self-heal deadline (client uses it; 0/unset = default)
+        e["dead_after_secs"] = max(10, min(300, int(src["dead_after_secs"])))
     if src.get("obfs"):
         e["obfs"] = True
     if src.get("cover"):                 # TLS camouflage (HTTPS cover); core TCP-only
@@ -3330,6 +3332,11 @@ def _edit_link_impl(d):
             extra["cover_sni"] = cover_sni
         if (bool(d.get("gso")) if "gso" in d else bool(L.get("gso"))):   # TUN segmentation offload; fall back to stored on a partial edit
             extra["gso"] = True
+        # dead_after_secs (per-tunnel self-heal deadline): honor a set value, fall back to stored on a
+        # partial edit (key absent), and allow clearing back to default by sending 0/empty (falsy → omit).
+        _da_src = d.get("dead_after_secs") if "dead_after_secs" in d else L.get("dead_after_secs")
+        if _da_src:
+            extra["dead_after_secs"] = max(10, min(300, int(_da_src)))
         # IP rotation: a full form edit sends ip_rotate + pools; a partial edit (e.g. flux "rotate now")
         # omits them, so preserve the stored rotation config. Assigned per-role by _core_rotation_bodies.
         if "ip_rotate" in d:
@@ -3410,7 +3417,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -3700,6 +3707,10 @@ def _ech_safe_rebuild(lid):
 
 
 def _ech_refresh_once():
+    try:
+        _mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)   # the interval, for the log tag
+    except Exception:
+        _mins_label = "15"
     for L in load_links():
         hk = _ech_link_hosts(L)
         if not hk:
@@ -3730,8 +3741,8 @@ def _ech_refresh_once():
         if changed and chmap:
             detail = "\n".join("%s: %s" % (h, k) for h, k in chmap.items())   # host: fresh base64 ECHConfigList
             log_event("ok", "ech",
-                      "کلیدِ ECHِ تونلِ «%s» تازه شد" % nm,
-                      "Tunnel “%s” ECH key refreshed" % nm,
+                      "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label),
+                      "Tunnel “%s” ECH key refreshed by the scheduled timer (every %s min)" % (nm, _mins_label),
                       detail, detail)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to
         # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
@@ -3826,9 +3837,11 @@ def _ev_core_text(kind, code, detail, nm):
         rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
         return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", f"Edge “{key}” of “{nm}” burned", rf, re_)
     if kind == "ech":
-        # in-band self-heal reported by the core (Layer 1): detail is "<host> <fresh base64 ECHConfigList>"
-        return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا ترمیم شد",
-                f"Tunnel “{nm}” ECH self-healed in-band", key, key)
+        # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
+        # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
+        # so the operator can tell the two apart. detail is "<host> <fresh base64 ECHConfigList>".
+        return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا self-heal شد (واکنشی/in-band)",
+                f"Tunnel “{nm}” ECH self-healed in-band (reactive)", key, key)
     return None
 
 
@@ -5503,6 +5516,7 @@ var I18N={fa:{
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO/GRO",gso_d:"عبورِ حجیم را سریع‌تر می‌کند (پکت‌های بزرگ، syscallِ کمتر). فقط لینوکس؛ اگر پشتیبانی نشود بی‌اثر است.",
+ dead_after_lbl:"مهلتِ تشخیصِ قطعی / self-heal (ثانیه)",dead_after_ph:"خالی=خودکار (~۳×keepalive)",dead_after_note:"اگر این‌قدر ثانیه هیچ فریمِ معتبری نیاید، حامل «مرده» فرض و تونل دوباره برقرار/failover می‌شود. کوچک‌تر=heal سریع‌تر. خالی=پیش‌فرض. بازهٔ ۱۰ تا ۳۰۰؛ داخلی حداقل ۲×keepalive می‌شود (برای مهلتِ خیلی کوتاه، keepalive را هم کم کن).",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",ip_multi_hint:"(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)",
@@ -5549,6 +5563,7 @@ var I18N={fa:{
  cover_sni_note1:"For any anonymous connection (probe/censor) the server <b>actually connects to this site</b> and proxies traffic to it, so a probe sees that site\\'s real certificate (active-probe resistant). So it must be a <b>real, reachable, unblocked, popular HTTPS site</b> — preferably on a large CDN.",
  cover_sni_note2:"The server <b>actually connects and proxies</b> anonymous probes to this site, so it must be a <b>real, reachable, unblocked, popular HTTPS site</b> (preferably on a large CDN).",
  gso_t:"GSO/GRO acceleration",gso_d:"Speeds up bulk transfer (large packets, fewer syscalls). Linux only; no effect if unsupported.",
+ dead_after_lbl:"Dead-detection / self-heal deadline (seconds)",dead_after_ph:"empty = auto (~3×keepalive)",dead_after_note:"If no authenticated frame arrives for this many seconds, the carrier is declared dead and the tunnel re-establishes / fails over. Smaller = faster heal. Empty = default. Range 10–300; internally raised to at least 2×keepalive (for a very short deadline, lower keepalive too).",
  core_range_lbl:"Local subnet (private range — auto by ID)",core_port_lbl:"Port (empty = auto · you can set 443)",core_port_lbl2:"Port (you can use 443)",core_subnet_lbl:"Internal subnet",
  core_edit_note:"Saving rebuilds the tunnel on both nodes (brief drop).",ph_subnet:"e.g. 192.168.99.0/24",
  role_server_word:"server",role_client_word:"client",ip_multi_hint:"(has several IPs — pick one for the tunnel)",
@@ -6784,6 +6799,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   wsToggleRows('e_','cor',false,false,false,0,'split',0,false)+
   '<div id="e_snirow" style="display:none"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="e_sni" placeholder="'+esc(T('cover_sni_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note1')+'</div></div>'+
   '<div class="tglbox" id="e_gsorow"><div class="tglsw" id="e_gso" onclick="corToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
+  '<label>'+esc(T('dead_after_lbl'))+'</label><input id="e_deadafter" inputmode="numeric" placeholder="'+esc(T('dead_after_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+esc(T('dead_after_note'))+'</div>'+
   fecSection('e_','cor',false,10,3,true)+
   desyncSection('e_','cor',false,4,2,'ttl',false)+
   '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('e_snr',SUBNETRANGES(),'192.168',T('range'),'onCorSubRange')+'<div id="e_snc"></div>'+
@@ -6854,6 +6870,7 @@ function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.class
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
+ var _dae=parseInt(v('e_deadafter'))||0;if(_dae)body.dead_after_secs=_dae;
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_corRawProfile}
  if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
  if(corFecDatagram()){body.fec=_corFec;if(_corFec){body.fec_data=_corFecData;body.fec_parity=_corFecParity}}
@@ -6936,6 +6953,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   wsToggleRows('ee_','ce',_eeWsTls,_eeEch,_eeSniSplit,_eeSplitPos,_eeSniMode,_eeSplitTtl,_eeTr=='ws')+
   '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="ee_sni" placeholder="'+esc(T('cover_sni_ph'))+'" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note2')+'</div></div>'+
   '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeGso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
+  '<label>'+esc(T('dead_after_lbl'))+'</label><input id="ee_deadafter" inputmode="numeric" value="'+esc(l.dead_after_secs||'')+'" placeholder="'+esc(T('dead_after_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+esc(T('dead_after_note'))+'</div>'+
   fecSection('ee_','ce',_eeFec,_eeFecData,_eeFecParity,(_eeTr=='udp'||_eeTr=='raw'||_eeTr=='flux'))+
   desyncSection('ee_','ce',_eeDesync,_eeDesyncTtl,_eeDesyncCount,_eeDesyncMode,(_eeTr=='raw'||_eeTr=='flux'||_eeTr=='tcp'||_eeTr=='ws'))+
   '<div class="grid2"><div><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>'+esc(T('core_subnet_lbl'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
@@ -6950,6 +6968,7 @@ function ceSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.class
 async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent=T('saving_rebuild_both');
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
+ body.dead_after_secs=parseInt(v('ee_deadafter'))||0;
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_eeRawProfile}
  if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
  if(ceFecDatagram()){body.fec=_eeFec;if(_eeFec){body.fec_data=_eeFecData;body.fec_parity=_eeFecParity}}
