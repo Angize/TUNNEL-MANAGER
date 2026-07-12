@@ -7354,7 +7354,9 @@ function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
  if(!LOGEVS.length){if(ch)ch.innerHTML='';setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
- if(ch)ch.innerHTML=logChipsHTML();
+ // Preserve the row's horizontal scroll across the rebuild — the periodic poll calls refreshLogs, and a
+ // bare innerHTML swap would reset scrollLeft to 0 and snap the tabs back to the start every few seconds.
+ if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML();var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl;}
  setHTML(box,logListHTML());}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
