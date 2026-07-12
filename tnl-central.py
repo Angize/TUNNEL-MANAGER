@@ -7298,7 +7298,7 @@ function logChipsHTML(){
  LOGEVS.forEach(function(e){c[logCat(e)]++;if(e.level=='bad')c.err++;});
  var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||o[0]=='err'||c[o[0]]>0||LOGFILTER==o[0]}).map(function(o){var k=o[0];
-   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
+   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 // The filtered list. Each card carries a colored category badge before the title.
 function logListHTML(){
  var evs=LOGEVS.filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':logCat(e)==LOGFILTER;});
@@ -7314,7 +7314,12 @@ function logListHTML(){
        '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="lcat lcat-'+cat+'">'+esc(T('logc_'+cat))+'</span><span dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</span></div>'+((e.kind=='edge'&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
        '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';}).join('');}
-function logFilter(k){LOGFILTER=k;var ch=el('logChips');if(ch)ch.innerHTML=logChipsHTML();var box=el('logList');if(box)setHTML(box,logListHTML());}
+// Only toggle the active class on the existing chips (do NOT rebuild the row) — rebuilding resets the
+// horizontal scrollLeft, which snapped the row back to the start when picking a scrolled-to tab. Counts
+// don't change on a filter pick, so an in-place highlight is enough; a full refreshLogs still rebuilds.
+function logFilter(k){LOGFILTER=k;var ch=el('logChips');
+ if(ch){var cs=ch.querySelectorAll('.fchip');for(var i=0;i<cs.length;i++)cs[i].classList.toggle('on',cs[i].getAttribute('data-f')===k);}
+ var box=el('logList');if(box)setHTML(box,logListHTML());}
 // Split an event into a clean title + detail lines. New events carry dfa/den (detail, possibly
 // multi-line). OLD events only have the combined string, so parse the legacy "…: A ⟵ B" (edge
 // switch) and "… — reason" forms too, so both render readably.
