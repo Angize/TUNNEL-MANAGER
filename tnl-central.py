@@ -5100,6 +5100,9 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
+.cprot{display:inline-flex;align-items:center;flex:0 0 auto}
+.cprot .rotmark{display:inline-flex;color:var(--acc);cursor:help}
+.cprot .rotmark .ic{width:13px;height:13px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
 .sdot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
 .sdot.warn{background:var(--gold);box-shadow:0 0 0 3px var(--goldw)}
@@ -5266,6 +5269,7 @@ var I18N={fa:{
  src_ip:"آی‌پیِ نودِ مبدأ",dst_ip:"آی‌پیِ نودِ مقصد",
  rot_t:"چرخشِ آی‌پی",rot_d:"بینِ آی‌پی‌های هر نود می‌چرخد و آی‌پیِ بلاک‌شده را کنار می‌گذارد (مسیرِ مستقیم، بدونِ CDN)",
  rot_interval:"بازهٔ چرخش",rot_onfail:"فقط هنگامِ قطع",rot_1m:"هر ۱ دقیقه",rot_5m:"هر ۵ دقیقه",rot_10m:"هر ۱۰ دقیقه",
+ rot_min2:"برای چرخش باید حداقل ۲ آی‌پی در هر استخر انتخاب شود",
  rot_autoburn_t:"حذفِ خودکارِ آی‌پیِ بلاک‌شده",rot_autoburn_d:"آی‌پیی که وصل نشد کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب که شد، خودش برمی‌گردد",
  rot_primary:"اصلی",
  // rebuild picker
@@ -5329,6 +5333,7 @@ var I18N={fa:{
  src_ip:"Source node IP",dst_ip:"Destination node IP",
  rot_t:"IP rotation",rot_d:"Cycles among each node's IPs and sidelines a blocked one (direct path, no CDN)",
  rot_interval:"Rotation interval",rot_onfail:"Only on failure",rot_1m:"Every 1 min",rot_5m:"Every 5 min",rot_10m:"Every 10 min",
+ rot_min2:"Pick at least 2 IPs per pool to rotate",
  rot_autoburn_t:"Auto-drop a blocked IP",rot_autoburn_d:"An IP that won't connect is sidelined and retested on backoff; it returns when healthy",
  rot_primary:"primary",
  rb_title:"Rebuild tunnel",rb_newip:"new IP",rb_no_ip:"No selectable IP",rb_info:"The old IP is no longer on the node. Pick this tunnel's new IP — the tags show where each IP is attached.",
@@ -5391,7 +5396,7 @@ var I18N={fa:{
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
@@ -5402,7 +5407,7 @@ var I18N={fa:{
  le_port_4789:"UDP port (empty = 4789)",le_port_auto:"UDP port (empty = auto from ID)",
  ph_burned_manual:"Burned (manual)",ph_dead:"Dead (permanent)",ph_suspect:"Suspect (temporary)",ph_active:"Healthy · active edge",ph_healthy:"Healthy",
  pb_healthy:"healthy",pb_temp:"temp",pb_dead:"dead",pb_burned:"burned",pool_empty:"Empty — add an entry",
- peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
+ peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_rotating:"This node rotates across several IPs — the IP shown is the currently-active one",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
  peer_live_empty:"The live IP status and pin button appear here once the tunnel is running on an up-to-date node. If you just updated: update the node, then hit \\"Save & rebuild\\" so it's rebuilt with the new core.",
  pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",pa_pinning:"Activating…",
  flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
@@ -6186,7 +6191,7 @@ function accHead(l,isCore){var on=l.enabled!==false;
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
   '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
-   '<span class="hpeers">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
+   '<span class="hpeers" dir="ltr">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
 function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>'+esc(T('tun_off_note'))+'</span></div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
@@ -6370,9 +6375,9 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span><span class="cprot" id="cprot_a_'+l.id+'"></span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span><span class="cprot" id="cprot_b_'+l.id+'"></span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
@@ -6518,6 +6523,21 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
     if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
 (function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
+// Fleet cards for direct-transport IP-rotation tunnels: show the CURRENTLY-ACTIVE pool IP live in each
+// node box (the server box tracks the active destination, the client box the active source) and a small
+// rotation mark next to the status of any node whose IPs actually rotate (>=2 in its pool). Updates as
+// the pool rotates, so the box always shows the IP the tunnel is really on right now.
+function applyCardPeer(id,side,sec){var active=String(sec.active||'').split(':')[0].trim();  // bare ip (drop :port)
+ if(active){var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&ipEl.textContent!==active)ipEl.textContent=active}
+ var rEl=el('cprot_'+side+'_'+id);if(rEl){var rot=(sec.addrs||[]).length>=2;rEl.innerHTML=rot?('<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'):''}}
+async function refreshCardPeers(){var open=FLEET.filter(function(l){return l.type=='core'&&l.ip_rotate&&TOPEN[l.id]});
+ await Promise.all(open.map(function(l){return post('peer-status',{id:l.id}).then(function(r){
+   if(!(r.ok&&r.d&&r.d.ok&&r.d.pool))return;
+   var srvA=(l.server_side!='b'),srvSide=srvA?'a':'b',cliSide=srvA?'b':'a';
+   applyCardPeer(l.id,srvSide,r.d.dst||{});   // the SERVER node shows the active destination IP
+   applyCardPeer(l.id,cliSide,r.d.src||{});   // the CLIENT node shows the active source IP
+ },function(){})}))}
+(function peersLoop(){setTimeout(function(){refreshCardPeers().then(peersLoop,peersLoop)},UIV)})();   // live-cadence self-loop
 // ===== live status for a direct-transport IP-rotation pool (udp/tcp/raw/flux) — the ws edge pool's
 // per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes (مقصد + مبدأ). Shown
 // in the core edit modal for a running pooled tunnel; poll -> render rows (فعال / در چرخش / سوختهٔ موقت
@@ -6754,8 +6774,11 @@ function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(p
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
-function renderRotIps(px){['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
- var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,lab=(side=='a')?T('src_ip'):T('dst_ip');
+function renderRotIps(px){var srv=(px=='e_')?_corSrv:_eeSrv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
+ // Role-based label: a node's IPs are the DESTINATION pool when that node is the SERVER (the client dials
+ // it) and the SOURCE pool when it's the client. A fixed a=src/b=dst was wrong whenever node A is the
+ // server — it then mislabels the server's (destination) IPs as "source", contradicting the live view.
+ var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,isDst=(side=='a')?(srv=='a'):(srv!='a'),lab=isDst?T('dst_ip'):T('src_ip');
  if(st.on&&ips.length>1)w.innerHTML=rotPoolHTML(px,side,ips,lab);else w.innerHTML=ipField(px+side+'ip_sel',ips,lab)})}
 function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel;
  var CKI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M8.3 12.4l2.6 2.6 4.8-5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -6764,7 +6787,9 @@ function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:s
   return '<div class="rrow'+(on?' on':'')+'" onclick="rotToggleIp(\\''+px+'\\',\\''+side+'\\',this)" data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span></div>'}).join('');
  return '<label class="first">'+lab+' <span style="color:var(--acc)">('+rotCount(px,side)+')</span></label><div class="rpool">'+rows+'</div>'}
 function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,n=0;ips.forEach(function(ip){if(sel[ip])n++});return n}
-function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ip=row.getAttribute('data-ip');if(sel[ip])delete sel[ip];else sel[ip]=true;renderRotIps(px)}
+function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ip=row.getAttribute('data-ip');
+ if(sel[ip]){if(rotCount(px,side)<=2){toast(T('rot_min2'),'err');return}delete sel[ip]}else sel[ip]=true;  // keep >=2 in an active rotation pool
+ renderRotIps(px)}
 function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
  function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,out=[];ips.forEach(function(ip){if(sel[ip])out.push(ip)});return out}
  var ap=pool('a'),bp=pool('b');if(ap.length<2&&bp.length<2)return null;
@@ -6772,11 +6797,18 @@ function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
  // auto-burn is always on now (like the ws edge pool): a blocked IP is sidelined and retested on
  // backoff, returning to rotation when healthy — no operator toggle.
  return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:true,a_ip:ap[0]||'',b_ip:bp[0]||''}}
+// Save-time guard: a rotation pool needs >=2 IPs to actually rotate. When the toggle is on, every side
+// whose multi-select pool is shown must have >=2 selected (a 0/1-IP "pool" silently doesn't rotate).
+function rotValidate(px){var st=rotSt(px);if(!st.on)return null;
+ var err=null;['a','b'].forEach(function(side){var ips=(side=='a')?st.aIps:st.bIps;if(ips.length>1&&rotCount(px,side)<2)err=T('rot_min2')});
+ if(err)return err;
+ if(rotCount(px,'a')<2&&rotCount(px,'b')<2)return T('rot_min2');   // rotation on but no side has a pool
+ return null}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>'+esc(T('custom_subnet'))+'</label><input id="e_subnet" placeholder="'+esc(T('ph_subnet'))+'">':''}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' '+esc(T('role_server_word'))+'</b><span>'+esc(an)+' '+esc(T('role_client_word'))+'</span>'}
-function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
+function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('e_')}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
@@ -6789,6 +6821,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
   if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
+ var _rverr=rotValidate('e_');if(_rverr){m.className='msg err';m.textContent=_rverr;return}
  var _sa=rotSt('e_');
  var aip=(_sa.on&&_sa.aIps.length>1)?(rotFirstSel('e_','a')||_sa.aIps[0]||''):(el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'');if(aip)body.a_ip=aip;
  var bip=(_sa.on&&_sa.bIps.length>1)?(rotFirstSel('e_','b')||_sa.bIps[0]||''):(el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'');if(bip)body.b_ip=bip;
@@ -6871,7 +6904,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.b_name)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.a_name)+' '+esc(T('role_client_word'))+'</span>'}
-function ceSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b')}
+function ceSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('ee_')}
 async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent=T('saving_rebuild_both');
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
@@ -6891,6 +6924,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
   if(_eeDecoy&&!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}
   body.spoof_dst=dip;body.spoof_src=sip}
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
+ var _rverr2=rotValidate('ee_');if(_rverr2){m.className='msg err';m.textContent=_rverr2;return}
  var _sa2=rotSt('ee_');
  var aip=(_sa2.on&&_sa2.aIps.length>1)?(rotFirstSel('ee_','a')||_sa2.aIps[0]||''):(el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||''));if(aip)body.a_ip=aip;
  var bip=(_sa2.on&&_sa2.bIps.length>1)?(rotFirstSel('ee_','b')||_sa2.bIps[0]||''):(el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||''));if(bip)body.b_ip=bip;
