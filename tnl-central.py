@@ -5100,7 +5100,8 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
-.cprot{display:inline-flex;align-items:center;flex:0 0 auto}
+.cprot{display:inline-flex;align-items:center;flex:0 0 auto;margin-inline-start:auto}
+.cprot + .stat{margin-inline-start:0}
 .cprot .rotmark{display:inline-flex;color:var(--acc);cursor:help}
 .cprot .rotmark .ic{width:13px;height:13px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
@@ -6173,6 +6174,8 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
 // ===== accordion cards (collapsed row -> click to expand) + on/off toggle =====
 var TOPEN={};   // per-link open state, kept across the periodic re-render
+var PEERST={};  // per-link+side {ip,rot}: the live active pool IP + whether it rotates, cached so the periodic
+                // card re-render shows the SAME value refreshCardPeers set (otherwise they fight -> flicker)
 var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 function cardTog(id,e){TOPEN[id]=!TOPEN[id];var c=el('c_'+id);if(c)c.classList.toggle('open',TOPEN[id])}
 async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(x){return x.id==id})[0];if(!L)return;
@@ -6374,10 +6377,14 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
+ // Render the LIVE active pool IP + rotation mark from the shared cache, so this periodic re-render shows
+ // exactly what refreshCardPeers last set (no fight -> no flicker); falls back to the stored anchor.
+ var _pa=PEERST[l.id+'_a']||{},_pb=PEERST[l.id+'_b']||{};
+ var _aip=_pa.ip||l.a_ip,_bip=_pb.ip||l.b_ip,_arot=_pa.rot?rotMark():'',_brot=_pb.rot?rotMark():'';
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span><span class="cprot" id="cprot_a_'+l.id+'"></span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="cprot" id="cprot_a_'+l.id+'">'+_arot+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(_aip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span><span class="cprot" id="cprot_b_'+l.id+'"></span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="cprot" id="cprot_b_'+l.id+'">'+_brot+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(_bip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
@@ -6527,9 +6534,12 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
 // node box (the server box tracks the active destination, the client box the active source) and a small
 // rotation mark next to the status of any node whose IPs actually rotate (>=2 in its pool). Updates as
 // the pool rotates, so the box always shows the IP the tunnel is really on right now.
+function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'}
 function applyCardPeer(id,side,sec){var active=String(sec.active||'').split(':')[0].trim();  // bare ip (drop :port)
- if(active){var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&ipEl.textContent!==active)ipEl.textContent=active}
- var rEl=el('cprot_'+side+'_'+id);if(rEl){var rot=(sec.addrs||[]).length>=2;rEl.innerHTML=rot?('<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'):''}}
+ var rot=(sec.addrs||[]).length>=2,cur=PEERST[id+'_'+side]||{},nip=active||cur.ip;   // keep last-known if a poll blanks
+ PEERST[id+'_'+side]={ip:nip,rot:rot};   // cache so the periodic card re-render agrees (no flicker)
+ var ipEl=el('cpip_'+side+'_'+id);if(ipEl&&nip&&ipEl.textContent!==nip)ipEl.textContent=nip;   // update only on change
+ var rEl=el('cprot_'+side+'_'+id);if(rEl){var want=rot?rotMark():'';if(rEl.innerHTML!==want)rEl.innerHTML=want}}
 async function refreshCardPeers(){var open=FLEET.filter(function(l){return l.type=='core'&&l.ip_rotate&&TOPEN[l.id]});
  await Promise.all(open.map(function(l){return post('peer-status',{id:l.id}).then(function(r){
    if(!(r.ok&&r.d&&r.d.ok&&r.d.pool))return;
