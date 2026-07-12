@@ -4918,8 +4918,6 @@ body.dark .tag.core{color:#a78bfa}
 .rrow.on{box-shadow:inset -3px 0 0 var(--ok)}
 .rrow.on .sic{color:var(--ok);opacity:1}
 .rrow .rip{flex:1;text-align:center;font-family:var(--mono);font-size:12.5px;direction:ltr;letter-spacing:-.02em}
-.rrow.anchor{cursor:default}
-.rrow .rlock{font-size:9px;color:var(--sub);flex:0 0 auto}
 .rhint{font-size:11px;color:var(--sub);text-align:center;margin-top:8px;line-height:1.7}
 .plist{border:1px solid var(--bord);border-radius:10px;overflow:hidden;background:var(--field)}
 .prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;min-height:42px;border-bottom:1px solid var(--bord)}
@@ -6563,44 +6561,45 @@ function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corTr==
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
 var _rotS={};
-function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,burn:true,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
+function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
 function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+'آی‌پی‌ها</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+'تنظیمات</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0}
 function rotSetHTML(px){var st=rotSt(px),cur=String(st.secs||0);
  function opt(vv,lab){return '<option value="'+vv+'"'+(cur==vv?' selected':'')+'>'+esc(lab)+'</option>'}
  return '<div id="'+px+'rotset" style="display:none;margin-top:2px"><label class="first">'+esc(T('rot_interval'))+'</label>'+
- '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select>'+
- '<div class="tglbox"><div class="tglsw'+(st.burn?' on':'')+'" id="'+px+'autoburn" onclick="corToggleAutoburn(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_autoburn_t'))+'</b><small>'+esc(T('rot_autoburn_d'))+'</small></div></div></div>'}
+ '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select></div>'}
 function rotTr(px){return px=='e_'?_corTr:_eeTr}
 function rotIsDirect(px){return ['udp','tcp','raw','flux'].indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
-function rotAnchor(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps;
- if(px=='e_'){var id='e_'+side+'ip_sel';if(el('ssb_'+id))return ssVal(id)}
- var anc=(side=='a')?st.aAnchor:st.bAnchor;if(anc)return anc;   // edit: the tunnel's current primary IP
- return ips[0]||''}
+// rotFirstSel is the first SELECTED pool IP in display order (or ''): all IPs are equal now (no
+// primary/secondary), so this is just the endpoint we hand the backend as the config anchor (a_ip/
+// b_ip) — the pool seed. Any selected IP works; first-in-order keeps it stable.
+function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
+ for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
 function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(px+'rotrow');if(!w)return;
  var multi=(st.aIps.length>1||st.bIps.length>1)&&rotIsDirect(px);
  if(!multi){st.on=false;w.innerHTML='';var r0=el(px+'rotset');if(r0)r0.style.display='none';renderRotIps(px);return}
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
-function corToggleAutoburn(px){var st=rotSt(px);st.burn=!st.burn;var s=el(px+'autoburn');if(s)s.classList.toggle('on',st.burn)}
 function renderRotIps(px){['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
  var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,lab=(side=='a')?T('src_ip'):T('dst_ip');
  if(st.on&&ips.length>1)w.innerHTML=rotPoolHTML(px,side,ips,lab);else w.innerHTML=ipField(px+side+'ip_sel',ips,lab)})}
-function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,anchor=rotAnchor(px,side);
+function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel;
  var CKI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M8.3 12.4l2.6 2.6 4.8-5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
  var OFI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>';
- var rows=ips.map(function(ip){var isA=(ip==anchor),on=isA||!!sel[ip];
-  return '<div class="rrow'+(on?' on':'')+(isA?' anchor':'')+'"'+(isA?'':' onclick="rotToggleIp(\\''+px+'\\',\\''+side+'\\',this)"')+' data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span>'+(isA?'<span class="rlock">'+esc(T('rot_primary'))+'</span>':'')+'</div>'}).join('');
+ var rows=ips.map(function(ip){var on=!!sel[ip];
+  return '<div class="rrow'+(on?' on':'')+'" onclick="rotToggleIp(\\''+px+'\\',\\''+side+'\\',this)" data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span></div>'}).join('');
  return '<label class="first">'+lab+' <span style="color:var(--acc)">('+rotCount(px,side)+')</span></label><div class="rpool">'+rows+'</div>'}
-function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,anchor=rotAnchor(px,side),n=0;ips.forEach(function(ip){if(ip==anchor||sel[ip])n++});return n}
+function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,n=0;ips.forEach(function(ip){if(sel[ip])n++});return n}
 function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ip=row.getAttribute('data-ip');if(sel[ip])delete sel[ip];else sel[ip]=true;renderRotIps(px)}
 function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
- function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,anchor=rotAnchor(px,side),out=[];ips.forEach(function(ip){if(ip==anchor||sel[ip])out.push(ip)});return out}
+ function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,out=[];ips.forEach(function(ip){if(sel[ip])out.push(ip)});return out}
  var ap=pool('a'),bp=pool('b');if(ap.length<2&&bp.length<2)return null;
  var secs=parseInt((el(px+'rotsecs')||{}).value)||0;
- return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:st.burn}}
+ // auto-burn is always on now (like the ws edge pool): a blocked IP is sidelined and retested on
+ // backoff, returning to rotation when healthy — no operator toggle.
+ return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:true,a_ip:ap[0]||'',b_ip:bp[0]||''}}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>'+esc(T('custom_subnet'))+'</label><input id="e_subnet" placeholder="'+esc(T('ph_subnet'))+'">':''}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
@@ -6618,8 +6617,9 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
   if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
   if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
- var aip=el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'';if(aip)body.a_ip=aip;
- var bip=el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'';if(bip)body.b_ip=bip;
+ var _sa=rotSt('e_');
+ var aip=(_sa.on&&_sa.aIps.length>1)?(rotFirstSel('e_','a')||_sa.aIps[0]||''):(el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'');if(aip)body.a_ip=aip;
+ var bip=(_sa.on&&_sa.bIps.length>1)?(rotFirstSel('e_','b')||_sa.bIps[0]||''):(el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'');if(bip)body.b_ip=bip;
  var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs;body.auto_burn=_rc.auto_burn}
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
  var port=v('e_port');if(port)body.port=port;
@@ -6670,8 +6670,9 @@ function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
  editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeSniSplit=!!l.sni_split;_eeSplitPos=l.split_pos||0;_eeSniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeSplitTtl=l.split_ttl||0;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eeDesync=!!l.fake_desync;_eeDesyncTtl=l.fake_ttl||4;_eeDesyncCount=l.fake_count||2;_eeDesyncMode=l.fake_mode||'ttl';_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);
  var aips=l.a_ips||[],bips=l.b_ips||[];
- _rotS['ee_']={on:!!l.ip_rotate,burn:(l.auto_burn!==false),secs:(l.rotate_secs||600),aIps:aips,bIps:bips,aAnchor:l.a_ip,bAnchor:l.b_ip,aSel:{},bSel:{}};
+ _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs||600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
+ if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
  var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
   '<div class="grid2"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
   '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+
@@ -6718,8 +6719,9 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
   if(_eeDecoy&&!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}
   body.spoof_dst=dip;body.spoof_src=sip}
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
- var aip=el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||'');if(aip)body.a_ip=aip;
- var bip=el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||'');if(bip)body.b_ip=bip;
+ var _sa2=rotSt('ee_');
+ var aip=(_sa2.on&&_sa2.aIps.length>1)?(rotFirstSel('ee_','a')||_sa2.aIps[0]||''):(el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||''));if(aip)body.a_ip=aip;
+ var bip=(_sa2.on&&_sa2.bIps.length>1)?(rotFirstSel('ee_','b')||_sa2.bIps[0]||''):(el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||''));if(bip)body.b_ip=bip;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs;body.auto_burn=_rc2.auto_burn}
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
