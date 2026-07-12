@@ -2824,8 +2824,8 @@ def _create_tunnel_impl(d):
         # IP rotation (direct transports): the operator picks a subset of each node's IPs to cycle.
         # Stored in the link so edit/rebuild replay it; assigned per-role by _core_rotation_bodies.
         if transport in ("udp", "tcp", "raw", "flux") and bool(d.get("ip_rotate")):
-            ap = [ip for ip in (d.get("a_ip_pool") or []) if str(ip).strip() in a_ips]
-            bp = [ip for ip in (d.get("b_ip_pool") or []) if str(ip).strip() in b_ips]
+            ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
+            bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
             if a_ip not in ap:
                 ap = [a_ip] + ap   # the tunnel's primary IP anchors each side's pool
             if b_ip not in bp:
@@ -3164,8 +3164,8 @@ def _edit_link_impl(d):
         # omits them, so preserve the stored rotation config. Assigned per-role by _core_rotation_bodies.
         if "ip_rotate" in d:
             if transport in ("udp", "tcp", "raw", "flux") and bool(d.get("ip_rotate")):
-                ap = [ip for ip in (d.get("a_ip_pool") or []) if str(ip).strip() in a_ips]
-                bp = [ip for ip in (d.get("b_ip_pool") or []) if str(ip).strip() in b_ips]
+                ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
+                bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
                 if a_ip not in ap:
                     ap = [a_ip] + ap
                 if b_ip not in bp:
@@ -3230,7 +3230,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode"):   # keep only the extras this type uses; drop the rest
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "ws_xhttp", "ws_xhttp_mode", "ech", "ws_ech", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
                     if k in extra:
                         x[k] = extra[k]
                     else:
