@@ -6838,10 +6838,10 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
   // Per-IP probe (↻) on a burned endpoint pulls its retest forward — same pool-wide SIGHUP the WS-CDN
   // per-row probe uses (the core retests every burned edge at once; there is no single-IP probe op).
-  // Per-IP test button on EVERY row (not just burned): it triggers the pool's immediate retest of any
-  // burned endpoint (the direct pool has no single-IP out-of-band prober — retest = data-plane re-
-  // admission), replacing the old pool-wide "test all" with a per-row control the operator asked for.
-  if(_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow()">'+ic('redo')+'</button>';
+  // Per-IP test button, only on a BURNED (suspect/dead) row — that is where it means something: it pulls
+  // the pool's retest forward so the edge can rejoin rotation sooner. A healthy IP has nothing to test
+  // (the direct pool has no single-IP out-of-band prober; retest = data-plane re-admission).
+  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow()">'+ic('redo')+'</button>';
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
