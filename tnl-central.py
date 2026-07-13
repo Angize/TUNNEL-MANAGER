@@ -3996,6 +3996,17 @@ def _ev_core_text(kind, code, detail, nm):
         return ("ok", "edge", f"لبهٔ «{key}» تونلِ «{nm}» با retest ترمیم شد و به استخر برگشت",
                 f"Edge “{key}” of “{nm}” recovered via retest — back in the pool",
                 "بازآزماییِ پس‌زمینه موفق شد", "background retest succeeded")
+    if kind == "pool":
+        # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 healthy
+        # IPs, so when only one is left the tunnel keeps working but STOPS switching edges (which is why
+        # the rotation log goes quiet). detail is "healthy/total". Surface the pause and its recovery.
+        if code == "degraded":
+            return ("warn", "edge", f"استخرِ «{nm}» به یک لبهٔ سالم رسید — چرخش متوقف شد ({key})",
+                    f"Pool of “{nm}” is down to one healthy edge — rotation paused ({key})",
+                    "تا وقتی لبهٔ دیگری سالم نشود، روی همان یک لبه می‌ماند", "stays on the single edge until another recovers")
+        return ("ok", "edge", f"استخرِ «{nm}» ترمیم شد — چرخش از سر گرفته شد ({key})",
+                f"Pool of “{nm}” recovered — rotation resumed ({key})",
+                "لبهٔ دیگری سالم شد و به استخر برگشت", "another edge became healthy and rejoined the pool")
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
         # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
