@@ -1040,6 +1040,14 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto
         body["pool_listen"] = True                # accept the client dialing any of this server's IPs
         if own_pool:
             body["listen_ips"] = list(own_pool)   # bind exactly these (this server's own selected IPs)
+        if peer_pool:
+            # The CLIENT's source pool (the IPs it sends FROM as it rotates its source). raw/flux servers
+            # receive via a raw/AF_PACKET socket that sees every host and pre-filter by the learned peer
+            # source, so a rotated client source would be dropped pre-crypto and never re-learned — the
+            # tunnel dies on a source rotation until a rebuild. Handing the server the client's known
+            # sources lets a rotated-but-expected source reach crypto and re-bind. udp/tcp re-learn on
+            # their own (bound socket per source); the node only forwards this for raw/flux.
+            body["peer_src_ips"] = list(peer_pool)
 
 
 def _core_rotation_bodies(src, a_body, b_body):
