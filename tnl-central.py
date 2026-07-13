@@ -4004,6 +4004,14 @@ def _ev_core_text(kind, code, detail, nm):
             return ("warn", "edge", f"استخرِ «{nm}» به یک لبهٔ سالم رسید — چرخش متوقف شد ({key})",
                     f"Pool of “{nm}” is down to one healthy edge — rotation paused ({key})",
                     "تا وقتی لبهٔ دیگری سالم نشود، روی همان یک لبه می‌ماند", "stays on the single edge until another recovers")
+        if code == "pin_dropped":
+            # The operator pinned an edge that turned out to be genuinely blocked. Rather than hold the
+            # tunnel down for the whole pin window, the pin self-released and rotation moved to a healthy
+            # edge. Explains "I pinned it, the tunnel dropped, and it jumped back to the old edge".
+            return ("warn", "edge", f"پینِ لبهٔ «{key}» تونلِ «{nm}» آزاد شد — آن لبه مسدود بود",
+                    f"Pin on edge “{key}” of “{nm}” was released — that edge is blocked",
+                    "لبهٔ پین‌شده واقعاً مسدود بود؛ برای جلوگیری از قطعی، چرخش به لبهٔ سالم برگشت",
+                    "the pinned edge was proven blocked; rotation returned to a healthy edge to avoid downtime")
         return ("ok", "edge", f"استخرِ «{nm}» ترمیم شد — چرخش از سر گرفته شد ({key})",
                 f"Pool of “{nm}” recovered — rotation resumed ({key})",
                 "لبهٔ دیگری سالم شد و به استخر برگشت", "another edge became healthy and rejoined the pool")
