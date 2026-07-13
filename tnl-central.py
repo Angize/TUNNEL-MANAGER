@@ -6838,7 +6838,10 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
   // Per-IP probe (↻) on a burned endpoint pulls its retest forward — same pool-wide SIGHUP the WS-CDN
   // per-row probe uses (the core retests every burned edge at once; there is no single-IP probe op).
-  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow()">'+ic('redo')+'</button>';
+  // Per-IP test button on EVERY row (not just burned): it triggers the pool's immediate retest of any
+  // burned endpoint (the direct pool has no single-IP out-of-band prober — retest = data-plane re-
+  // admission), replacing the old pool-wide "test all" with a per-row control the operator asked for.
+  if(_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow()">'+ic('redo')+'</button>';
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
@@ -6857,7 +6860,7 @@ function peerRender(){var host=el('ee_peerlive');if(!host)return;
   // pool status appears only once the tunnel is running on the up-to-date node/core. peerTick only calls
   // this on a pool:true response, and _peerLid is set only for a rotating tunnel, so the hint is apt.
   if(!boxes){host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div><div class="muted" style="font-size:11px;line-height:1.7">'+esc(T('peer_live_empty'))+'</div></div>';return;}
-  host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'<button type="button" class="ghost plprobe" onclick="peerProbeNow()">'+ic('redo')+esc(T('peer_probe_btn'))+'</button></div>'+boxes+'<div class="muted" style="font-size:10.5px;line-height:1.7;margin-top:2px">'+esc(T('peer_live_note'))+'</div></div>';}
+  host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div>'+boxes+'<div class="muted" style="font-size:10.5px;line-height:1.7;margin-top:2px">'+esc(T('peer_live_note'))+'</div></div>';}
 function peerCdTick(){if(!_peerLid)return;var host=el('ee_peerlive');if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=peerRemain(+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=peerRemain(+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
