@@ -4200,34 +4200,46 @@ def _events_once():
         if not r:
             continue
 
-        # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass
-        evs = r.get("events") or []
-        mx = max([0] + [int(e.get("seq") or 0) for e in evs])
-        if first:
-            _ev_state["evseq"][lid] = mx
-        else:
-            last = _ev_state["evseq"].get(lid, 0)
-            for e in sorted(evs, key=lambda x: int(x.get("seq") or 0)):
-                if int(e.get("seq") or 0) <= last:
-                    continue
-                txt = _ev_core_text(str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or ""), nm)
-                if txt:
-                    log_event(*txt)
-            _ev_state["evseq"][lid] = max(last, mx)
+        # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass.
+        # A single MALFORMED event from one node (a non-dict entry, or a non-numeric seq) must never throw
+        # out of this loop: that would kill _events_once and stop event logging for the WHOLE fleet (and,
+        # on the first pass, prevent init from ever being set). So coerce seq defensively, and wrap the
+        # whole per-link body so one bad link is isolated and skipped, not fatal for every other link.
+        try:
+            raw_evs = r.get("events")
+            clean = []
+            if isinstance(raw_evs, list):
+                for e in raw_evs:
+                    if not isinstance(e, dict):
+                        continue
+                    try:
+                        sq = int(e.get("seq") or 0)
+                    except (TypeError, ValueError):
+                        continue  # a node that emits a non-numeric seq must not break ingestion
+                    clean.append((sq, e))
+            mx = max([0] + [sq for sq, _ in clean])
+            if first:
+                _ev_state["evseq"][lid] = mx
+            else:
+                last = _ev_state["evseq"].get(lid, 0)
+                for sq, e in sorted(clean, key=lambda x: x[0]):
+                    if sq <= last:
+                        continue
+                    txt = _ev_core_text(str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or ""), nm)
+                    if txt:
+                        log_event(*txt)
+                _ev_state["evseq"][lid] = max(last, mx)
 
-        if not is_pool:
-            continue  # datagram: event ring only — no active-edge concept to diff
-
-        # automatic active-edge switch (suppressed briefly after an operator pin)
-        active = str(r.get("active") or "")
-        prev = _ev_state["edge"].get(lid)
-        _ev_state["edge"][lid] = active
-        if first or prev is None or prev == active or not active:
-            continue
-        if _ev_suppress.get(lid, 0) > now:  # operator pinned this edge -> not a system event
-            continue
-        log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد", f"Tunnel “{nm}” edge auto-switched",
-                  f"از: {prev}\nبه: {active}", f"from: {prev}\nto: {active}")
+            if is_pool:
+                # automatic active-edge switch (suppressed briefly after an operator pin)
+                active = str(r.get("active") or "")
+                prev = _ev_state["edge"].get(lid)
+                _ev_state["edge"][lid] = active
+                if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
+                    log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد", f"Tunnel “{nm}” edge auto-switched",
+                              f"از: {prev}\nبه: {active}", f"from: {prev}\nto: {active}")
+        except Exception:
+            continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
         _ev_state["edge"].pop(lid, None)
     for lid in [k for k in _ev_state["evseq"] if k not in seen]:
