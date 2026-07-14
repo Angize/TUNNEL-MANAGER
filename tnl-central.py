@@ -1844,7 +1844,14 @@ def api_node_test(d):
     n = get_node(d["id"])
     if not n:
         raise ValueError("not found")
+    # Measure the REAL panel->node control-plane RTT server-side (around the ping HTTP call itself), not
+    # browser-side where it would also include the browser<->panel hop and the panel's own processing.
+    t0 = time.perf_counter()
     p = node_call(n, "ping", "GET")
+    if p.get("ok"):
+        p = {**p, "rtt_ms": int((time.perf_counter() - t0) * 1000)}  # true node ping (only when reachable)
+    # OFFLINE: intentionally no rtt — the time spent waiting for the request to TIME OUT is not a latency,
+    # so we don't report it as a "ping" (that was the misleading multi-second number on dead nodes).
     return {"ok": bool(p.get("ok")), "info": p}
 
 
@@ -6483,10 +6490,12 @@ async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host')
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+terr(r.d.error||'')),r.d.online?'ok':'err')}
  else{m.className='msg err';m.textContent=terr(r.d.error||T('failed'))}}
 async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
- var t0=performance.now();var r=await post('node-test',{id:id});var ms=Math.round(performance.now()-t0);
+ var r=await post('node-test',{id:id});
  var info=(r.d&&r.d.info)||{};if(!m)return;
- if(r.d&&r.d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+' · '+ms+'ms')}
- else{m.className='msg err';m.textContent=T('offline')+': '+(terr(info.error)||T('not_available'))+' · '+ms+'ms'}}
+ // Online: show the SERVER-measured panel->node RTT (the real control-plane ping). Offline: show only the
+ // reason — a timed-out request has no latency to report, so no misleading "· 8164ms" on a dead node.
+ if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
+ else{m.className='msg err';m.textContent=T('offline')+': '+(terr(info.error)||T('not_available'))}}
 function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');
  var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">'+esc(T('del_how'))+'</div>'+
   '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+esc(T('del_detach_t'))+'</div><div class="do-s">'+esc(T('del_detach_s'))+'</div></button>'+
