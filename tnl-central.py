@@ -75,18 +75,32 @@ _CENTRAL_PORT = 0                # panel port, advertised to nodes (X-Central-Po
 class _PairLock:
     """Acquire the per-node build locks for the given node ids in a stable (sorted) order — deadlock-free."""
     def __init__(self, *node_ids):
-        ids = sorted({str(i) for i in node_ids if i})
-        with _node_locks_guard:
-            self._locks = [_node_locks.setdefault(i, threading.Lock()) for i in ids]
+        self._ids = sorted({str(i) for i in node_ids if i})  # sorted -> stable lock order, no deadlock
+        self._held = []
 
     def __enter__(self):
-        for lk in self._locks:
-            lk.acquire()
+        # Acquire the canonical per-node lock for each id. The poller can pop an IDLE lock (and another
+        # thread recreate it) in the window between our setdefault and our acquire, which would leave two
+        # threads holding DIFFERENT lock objects for the same node — lost mutual exclusion. Guard against
+        # it: after acquiring, re-check the lock is still the one registered for this id; if it was
+        # swapped, release and retry with the new canonical lock. The poller only pops a lock when it is
+        # NOT held, so a lock we already hold is never popped — the two rules together are race-free.
+        for i in self._ids:
+            while True:
+                with _node_locks_guard:
+                    lk = _node_locks.setdefault(i, threading.Lock())
+                lk.acquire()
+                with _node_locks_guard:
+                    if _node_locks.get(i) is lk:
+                        break
+                lk.release()  # popped + recreated under us -> retry with the current canonical lock
+            self._held.append(lk)
         return self
 
     def __exit__(self, *a):
-        for lk in reversed(self._locks):
+        for lk in reversed(self._held):
             lk.release()
+        self._held = []
 
 
 def _sint(v):
@@ -530,7 +544,7 @@ def _signing_keys():
 
 def _sign_sha(sha_hex):
     """RSA-SHA256 signature (base64) over the sha256 hex string a code push carries; '' if unavailable
-    (an unprovisioned node ignores it; a provisioned node then rejects the unsigned push, fail-closed)."""
+    (a node with no key provisioned rejects the unsigned push -> the push fails loudly, fail-closed)."""
     try:
         priv, _ = _signing_keys()
         sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", priv],
@@ -538,6 +552,19 @@ def _sign_sha(sha_hex):
         return base64.b64encode(sig).decode()
     except Exception:
         return ""
+
+
+def _ensure_update_key(node):
+    """Provision the panel's update-signing PUBLIC key onto a node right before a code/binary push, so the
+    node always holds the key it needs to verify the signature. First-set-only + idempotent on the node,
+    so calling it before every push is cheap and safe; it only actually writes on the very first contact.
+    This is what makes the node's fail-closed verification non-bricking: any push path self-provisions the
+    key, so a node reached for the first time (or one whose add-time provisioning blipped) still verifies."""
+    try:
+        _, pub = _signing_keys()
+        node_call(node, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
+    except Exception:
+        pass
 
 
 def node_call(node, endpoint, method="POST", body=None, timeout=8):
@@ -721,7 +748,11 @@ def poller_loop():
                     ex.submit(_run, n)
         except Exception:
             pass
-        time.sleep(max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP)))  # fractional/sub-second OK
+        try:
+            gap = max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP))  # fractional/sub-second OK
+        except Exception:
+            gap = POLL_GAP   # a hand-edited settings.json with a non-numeric poll_interval must not kill the poller thread
+        time.sleep(gap)
 
 
 def _cached_ping(nid):
@@ -1940,6 +1971,7 @@ def api_agent_push(d):
         n = get_node(nid)
         if not n:                                        # deleted between the filter and here -> report it, don't crash the whole push
             return {"id": nid, "ok": False, "offline": True, "restarting": False, "already": False, "error": "node removed"}
+        _ensure_update_key(n)   # provision the verify key before the signed agent-code push (node verifies fail-closed)
         r = node_call(n, "update", "POST", {"code": src, "sha256": meta["sha256"], "sig": _sign_sha(meta["sha256"])}, timeout=30)
         return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
                 "restarting": bool(r.get("restarting")), "already": bool(r.get("already")), "error": r.get("error") or r.get("msg") or ""}
@@ -2165,6 +2197,7 @@ def _push_staged(node):
     if not b:
         return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
     raw, sha, ver = b
+    _ensure_update_key(node)   # guarantee the node holds the verify key before a signed root-binary push (fail-closed on the node side)
     return node_call(node, "core-install", "POST",
                      {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver, "sig": _sign_sha(sha)}, timeout=200)
 
@@ -2224,6 +2257,7 @@ def api_core_update(d):
             n = get_node(nid)
             if not n:
                 return {"id": nid, "ok": False, "error": "node removed"}
+            _ensure_update_key(n)   # provision the verify key before the signed push (node verifies fail-closed)
             r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom", "sig": _sign_sha(sha)}, timeout=200)
             err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
             return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
@@ -3735,7 +3769,11 @@ def _reconcile_once():
 
 def reconcile_loop():
     while True:
-        time.sleep(max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP)))
+        try:
+            gap = max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP))
+        except Exception:
+            gap = RECONCILE_GAP   # a hand-edited non-numeric reconcile_interval must not kill the reconcile thread
+        time.sleep(gap)
         try:
             _reconcile_once()
         except Exception:
@@ -4161,28 +4199,33 @@ def _events_once():
         if first or prev is None or prev == up:
             continue
         nm = L.get("name", "")
-        pool_core = L.get("type") == "core" and L.get("ws_pool")
+        # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram
+        # transport (udp/raw/flux), or a single-edge ws/xhttp. For ALL of those, don't ALSO emit a
+        # coarse event here or every drop is double-counted (the datagram core's "stale"/"keepalive"
+        # down renders as a red "disconnected" in the precise section too). Only a plain-tcp core, which
+        # writes no status ring, relies on the coarse classification below.
+        precise_core = L.get("type") == "core" and (
+            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in ("udp", "raw", "flux", "ws"))
         if up:
-            # A ws-pool core records its own precise reconnect ("up") in the event ring, so don't
-            # ALSO emit a coarse one — UNLESS this link's down was itself coarse (a client node was
-            # offline, so the core was dead and logged nothing); then pair it coarsely too.
-            if pool_core and lid not in _ev_state["links_coarse_down"]:
+            # The precise reconnect ("up") comes from the core event ring — UNLESS this link's down was
+            # itself coarse (a client node was offline, so the core was dead and logged nothing); then
+            # pair it coarsely too.
+            if precise_core and lid not in _ev_state["links_coarse_down"]:
                 pass  # the paired "up" comes from the core event ring
             else:
                 log_event("ok", "link", f"تونلِ «{nm}» وصل شد", f"Tunnel “{nm}” connected")
             _ev_state["links_coarse_down"].discard(lid)
         else:
-            # A ws-pool tunnel's core records the PRECISE down reason itself (see the edge section) —
-            # don't also emit a coarse one here, unless a client node is offline (the core is dead
-            # then and can't report). Non-pool tunnels always use the coarse classification.
+            # The core records the PRECISE down reason itself (see the edge section) — don't also emit a
+            # coarse one, unless a client node is offline (the core is dead then and can't report).
             a_off = _cache_get(L.get("a_node")) and not _node_online(L.get("a_node"))
             b_off = _cache_get(L.get("b_node")) and not _node_online(L.get("b_node"))
-            if pool_core and not (a_off or b_off):
+            if precise_core and not (a_off or b_off):
                 pass  # core-sourced precise "down" (and its paired "up") come from the event ring
             else:
                 rf, re_ = _link_down_reason(L, nmap)
                 log_event("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
-                if pool_core:
+                if precise_core:
                     _ev_state["links_coarse_down"].add(lid)  # coarse (node-offline) down -> pair with a coarse up
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
