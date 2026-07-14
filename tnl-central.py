@@ -126,6 +126,21 @@ def save_text(path, txt):
     os.chmod(tmp, 0o644)
     os.replace(tmp, path)
 
+
+def save_bytes(path, data, mode=0o644):
+    """Write a binary blob ATOMICALLY (tmp in the same dir + fsync + os.replace). A plain open(wb)
+    truncates then fills, so a concurrent reader (e.g. a node push computing the sha) could read
+    half-written bytes and push a corrupt-but-self-consistent binary. os.replace is atomic on POSIX,
+    so a reader sees either the whole old file or the whole new one — never a partial."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())   # durable before the rename: a crash mid-write can't leave a truncated staged binary
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
 # ----------------------------------------------------------------------------- settings
 # Operator-tunable knobs, persisted to settings.json and cached in memory. Kept deliberately open so
 # new keys can be added later: unknown stored keys are preserved and unset keys fall back to defaults.
@@ -2113,8 +2128,7 @@ def _stage_core(version):
                 if arch == "amd64":
                     raise
                 continue           # arm64 is optional; fetched on demand at push time if a node needs it
-            with open(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), "wb") as f:
-                f.write(raw)
+            save_bytes(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), raw)   # atomic: a concurrent push must not read a half-written binary
             got.append(arch)
             shas[arch] = sha       # per-arch sha lets the panel tell which nodes are out of date
             sizes[arch] = len(raw)
@@ -2138,9 +2152,7 @@ def _staged_bytes(arch):
             raw, sha = _fetch_release(ver, arch)
         except Exception:
             return None
-        os.makedirs(CORE_STAGE_DIR, exist_ok=True)
-        with open(p, "wb") as f:
-            f.write(raw)
+        save_bytes(p, raw)   # atomic on-demand persist so a racing reader/push never sees partial bytes
         return raw, sha, ver
     with open(p, "rb") as f:
         raw = f.read()
