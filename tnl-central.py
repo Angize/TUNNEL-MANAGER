@@ -2879,8 +2879,10 @@ def _ws_pool_fields(d, cur=None):
 
     clean_ips, burned_ips = _ips("ws_edge_ips"), _ips("ws_edge_ips_burned")
     clean_hosts, burned_hosts = _hosts("ws_edge_snis"), _hosts("ws_edge_snis_burned")
-    if not clean_ips or not clean_hosts:
-        raise ValueError("استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد (سوخته‌ها کافی نیستند)")
+    if len(clean_ips) < 2:
+        raise ValueError("استخرِ لبه به حداقل ۲ آی‌پیِ فعال (تمیز) نیاز دارد تا بچرخد — سوخته‌ها حساب نمی‌شوند")
+    if not clean_hosts:
+        raise ValueError("استخر به حداقل یک دامنهٔ (SNI) تمیز نیاز دارد (سوخته‌ها کافی نیستند)")
     if len(clean_ips) + len(burned_ips) > 64 or len(clean_hosts) + len(burned_hosts) > 64:
         raise ValueError("استخر خیلی بزرگ است (حداکثر ۶۴)")
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
@@ -5318,7 +5320,7 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .toast .ic{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-inline-end:4px}
 .tag.core{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 40%,transparent);background:color-mix(in srgb,#8b5cf6 12%,transparent)}
 body.dark .tag.core{color:#a78bfa}
-.tag.obfs{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent);text-transform:none;letter-spacing:0}
+.tag.obfs{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent);text-transform:none;letter-spacing:0;padding:1px 6px;border-radius:7px;font-size:10px}
 .tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
 .tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
 .tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
@@ -5405,7 +5407,7 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.wrap{white-space:normal;overflow:visible}
 .enmeta .emcol b{color:var(--tx);font-weight:700}
 .enmeta .earrow{visibility:hidden}
-.enmeta .emcol>div.feat{display:flex;align-items:center;gap:5px;flex-wrap:wrap;white-space:normal;overflow:visible}
+.enmeta .emcol>div.feat{display:flex;align-items:center;gap:4px;flex-wrap:wrap;white-space:normal;overflow:visible}
 .enmeta .emcol>div.tagrow{overflow:visible;white-space:nowrap}
 .enmeta .feat .nofeat{opacity:.55}
 .cedge{margin-top:10px;background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 12px}
@@ -5508,7 +5510,7 @@ var I18N={fa:{
  // core view
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
  core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
- server:"سرور",client:"کلاینت",carrier:"حامل",port:"پورت",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",
+ server:"سرور",client:"کلاینت",carrier:"حامل",port:"پورت",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
  // portfw
  pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
  pf_empty:"پورت‌فورواردی نیست.",pf_no_online:"هیچ نودِ آنلاینی نیست",
@@ -5548,7 +5550,7 @@ var I18N={fa:{
  turned_on:"Turned on",turned_off:"Turned off",
  core_sub:"Custom-core (Go) tunnels — packet/core mode with built-in encryption, separate from system tunnels",core_add:"Core tunnel",
  core_search:"Search node name / ID…",core_empty:"No core tunnels yet — use the \\"Core tunnel\\" button above.",
- server:"Server",client:"Client",carrier:"Carrier",port:"Port",caps:"Features",no_cipher:"No cipher",cdn_edge:"CDN edge",active_edge:"Current active edge (live)",
+ server:"Server",client:"Client",carrier:"Carrier",port:"Port",caps:"Features",no_cipher:"No cipher",cdn_edge:"CDN edge",active_edge:"Current active edge (live)",cor_tab_ips:"IPs",cor_tab_set:"Settings",
  pf_sub:"Forward a port on a node (with multi-target rotation)",pf_add:"Add port-forward",pf_active:"Active port-forwards",pf_search:"Search node / name…",
  pf_empty:"No port-forwards.",pf_no_online:"No node is online",
  set_sub:"Panel automation and check intervals",set_saved:"Settings saved",
@@ -5807,7 +5809,7 @@ var I18N={fa:{
  ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ ۸۰. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
  // ws pool inner
  rot_3m:"هر ۳ دقیقه",rot_5m:"هر ۵ دقیقه",rot_10m:"هر ۱۰ دقیقه",rot_15m:"هر ۱۵ دقیقه",rot_30m:"هر ۳۰ دقیقه",rot_1h:"هر ۱ ساعت",rot_4h:"هر ۴ ساعت",rot_8h:"هر ۸ ساعت",rot_off_fo:"خاموش (فقط failover)",
- pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ab_t:"سوختهٔ خودکار",pool_ab_d:"لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.",
+ pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل ۲ آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",pool_ab_t:"سوختهٔ خودکار",pool_ab_d:"لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.",
  pool_warm_t:"لبهٔ یدکیِ گرم",pool_warm_d:"یک لبهٔ دومِ آماده در پس‌زمینه نگه می‌دارد؛ لبهٔ فعال که بمیرد، آنی و بدونِ قطعیِ محسوس سوییچ می‌شود. کمی ترافیکِ اضافهٔ ناچیز (فقط keepalive).",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
@@ -5855,7 +5857,7 @@ var I18N={fa:{
  ws_host_lbl:"Fronting domain (Host / SNI)",ph_cdn_domain:"e.g. cdn.example.com",ws_edge_lbl:"CDN edge IP (optional) — the client connects to this instead of the origin",ph_edge_ip:"e.g. 104.16.0.1 or 104.16.0.1:443",ws_path_lbl:"Path",
  ws_note:"Traffic looks like HTTPS over the CDN (collateral freedom). Put the server behind a CDN (e.g. Cloudflare), SSL on Flexible, origin port 80. With a <b>pool</b>, give several IPs/domains to rotate and drop burned ones.",
  rot_3m:"Every 3 min",rot_5m:"Every 5 min",rot_10m:"Every 10 min",rot_15m:"Every 15 min",rot_30m:"Every 30 min",rot_1h:"Every 1 hour",rot_4h:"Every 4 hours",rot_8h:"Every 8 hours",rot_off_fo:"Off (failover only)",
- pool_ip_lbl:"CDN edge IPs",pool_sni_lbl:"Domains (SNI)",pool_ab_t:"Auto-burn",pool_ab_d:"A blocked edge is dropped automatically and retested on a backoff; when it recovers it comes back on its own.",
+ pool_ip_lbl:"CDN edge IPs",pool_sni_lbl:"Domains (SNI)",pool_ip_min2:"The pool needs at least 2 active IPs — you can't go below that",pool_ab_t:"Auto-burn",pool_ab_d:"A blocked edge is dropped automatically and retested on a backoff; when it recovers it comes back on its own.",
  pool_warm_t:"Warm standby edge",pool_warm_d:"Keeps a second edge ready in the background; when the active edge dies it switches instantly with no noticeable drop. Slight extra traffic (keepalive only).",
  pool_bad_ip:"Invalid IP (e.g. 104.16.0.1 or 104.16.0.1:443)",pool_bad_dom:"Invalid domain (e.g. cdn.example.com)",pool_need_clean:"The pool needs at least one clean IP and one clean domain",
  ech_need_wss_alert:"Turn on wss (TLS to CDN) first — ECH works inside that same TLS.",
@@ -6837,13 +6839,13 @@ function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(p
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
 function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var d=poolGet(pfx);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);var w=el(pfx+'poolwarm');if(w)w.classList.toggle('on',d.warm);}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?T('pool_bad_ip'):T('pool_bad_dom'));return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
-function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
-function poolDel(pfx,kind,from,val){var d=poolGet(pfx);d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
+function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
+function poolDel(pfx,kind,from,val){var d=poolGet(pfx);if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
 function poolToggleWarm(pfx){var d=poolGet(pfx);d.warm=!d.warm;var w=el(pfx+'poolwarm');if(w)w.classList.toggle('on',d.warm);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(!d.ip.clean.length||!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;body.ws_warm_standby=d.warm;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;body.ws_warm_standby=d.warm;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
@@ -7129,7 +7131,7 @@ function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
 var _rotS={};
 function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
-function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+'آی‌پی‌ها</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+'تنظیمات</button></div>'}
+function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+esc(T('cor_tab_ips'))+'</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+esc(T('cor_tab_set'))+'</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0}
 function rotSetHTML(px){var st=rotSt(px),cur=String(st.secs||0);
  function opt(vv,lab){return '<option value="'+vv+'"'+(cur==vv?' selected':'')+'>'+esc(lab)+'</option>'}
@@ -7595,7 +7597,7 @@ function evLine(l){var i=l.indexOf(': ');
  return '<div dir="auto" style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere;margin-top:3px">'+esc(l)+'</div>';}
 // Edge-switch detail on ONE line: «از» + old pill, «به» + accent new pill. Values are LTR-isolated
 // so IP:port · domain reads cleanly in the RTL page. lines are ["از: OLD","به: NEW"] (from evParts).
-var EPILL='display:inline-block;direction:ltr;unicode-bidi:isolate;font-size:11px;padding:3px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle';
+var EPILL='display:inline-block;direction:ltr;unicode-bidi:isolate;font-size:11px;padding:3px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);color:var(--tx);white-space:normal;overflow-wrap:anywhere;max-width:100%;vertical-align:middle';
 function evVal(l){var i=l.indexOf(': ');return i>0?l.slice(i+2):l;}
 function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]||''));
  return '<div style="margin-top:7px;line-height:2.2">'+
