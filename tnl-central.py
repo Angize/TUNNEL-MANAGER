@@ -3833,15 +3833,36 @@ def _ech_link_hosts(L):
     return None
 
 
-def _link_is_down(lid):
-    """True only when the client core is REACHABLE but not carrying data (active edge empty) — the
-    'ECH rotation broke the live tunnel' signal. A merely-offline node returns an error and is treated
-    as not-actionable (a rebuild can't help it)."""
+def _ech_pool_state(lid):
+    """Read the client core's live edge health once and classify it for the ECH auto-heal. Returns
+    (reachable, down, stalled):
+      reachable — the client node answered (a merely-offline node is not actionable; a rebuild can't help).
+      down      — reachable but NO active edge: the 'ECH rotation broke the live tunnel' signal.
+      stalled   — reachable WITH an active edge still coasting on an already-open connection, YET the pool
+                  can no longer build a fresh edge because new establishes fail on TLS/ECH: at least one IP
+                  edge is suspect/dead AND the event ring carries a recent tls-coded failure (the stale-ECH
+                  cert-verify signature — cloudflare-ech.com). This is the stale-ECH-but-active-still-up
+                  window: failover/rotation/reconnect are broken but the live edge hasn't died, so `down`
+                  is False and nothing used to rebuild until the tunnel finally went fully down (minutes).
+                  Requiring BOTH a dead edge AND a tls event keeps a normal single-edge blip from rebuilding."""
     try:
         st = api_edge_status({"id": lid})
     except Exception:
-        return False
-    return bool(st.get("ok")) and not st.get("error") and not str(st.get("active") or "")
+        return (False, False, False)
+    reachable = bool(st.get("ok")) and not st.get("error")
+    if not reachable:
+        return (False, False, False)
+    active = str(st.get("active") or "")
+    ips = [h for h in (st.get("health") or []) if isinstance(h, dict) and h.get("kind") == "ip"]
+    any_bad = any(str(h.get("state")) in ("suspect", "dead") for h in ips)
+    now = int(st.get("now") or 0) or int(time.time())
+    tls_recent = any(
+        str(e.get("code")) == "tls" and str(e.get("kind")) in ("down", "burn")
+        and (now - int(e.get("ts") or 0)) <= 900          # within the last 15 min (one refresh window)
+        for e in (st.get("events") or []) if isinstance(e, dict)
+    )
+    stalled = bool(active) and any_bad and tls_recent
+    return (True, not active, stalled)
 
 
 def _ech_write(lid, kind, updates, degrade):
@@ -3955,33 +3976,83 @@ def _ech_refresh_once():
         # gating is what let a persistently-down pool sit dark: the record is freshened once, then never
         # changes again). Rebuild once per down-episode, and again if the key rotates while still down;
         # reset the episode when the pool recovers.
-        if kind == "pool" and _link_is_down(lid):
+        # Rebuild when the pool is DOWN (no active edge) OR STALLED: an active edge is still coasting
+        # on an already-open connection while every IP edge is suspect/dead, so new establishes all fail
+        # on the stale ECH key (cloudflare-ech.com cert) and failover/rotation/reconnect are broken —
+        # but the live edge hasn't died yet, so the old `_link_is_down` check never fired and the tunnel
+        # sat un-rotatable for minutes until it finally went fully down. Catching `stalled` heals it as
+        # soon as the pool can no longer build a fresh edge, not minutes later.
+        reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
+        if kind == "pool" and (down or stalled):
             if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
                 _ech_down_rebuilt.add(lid)
+                why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
+                why_en = "was down" if down else "had every edge failing to establish on ECH"
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome; a failed rebuild must not read as success
-                    log_event("ok", "ech", f"تونلِ «{nm}» قطع بود و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد",
-                              f"Tunnel “{nm}” was down with a rotated ECH key; rebuilt with the fresh key")
+                    log_event("ok", "ech", f"تونلِ «{nm}» {why_fa} و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد",
+                              f"Tunnel “{nm}” {why_en} with a rotated ECH key; rebuilt with the fresh key")
                 else:
-                    log_event("bad", "ech", f"تونلِ «{nm}» قطع است و بازسازی با کلیدِ تازهٔ ECH شکست خورد — هنوز قطع",
-                              f"Tunnel “{nm}” is down and the ECH rebuild FAILED — still down")
+                    log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازی با کلیدِ تازهٔ ECH شکست خورد — هنوز قطع",
+                              f"Tunnel “{nm}” {why_en} and the ECH rebuild FAILED — still down")
                     _ech_down_rebuilt.discard(lid)   # let the NEXT cycle retry (don't burn the episode on a failed rebuild)
         else:
             _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
 
 
+def _ech_heal_once():
+    """Fast lane: rebuild any ECH POOL that is DOWN or STALLED, on a ~1-minute cadence, so a
+    stale-ECH tunnel heals in ~1 min instead of waiting up to a full ech_refresh interval (the delay
+    the operator hit: the tunnel sat un-rotatable for minutes while the slow timer had not ticked).
+    Only a BROKEN pool does a (targeted) DoH fetch + rebuild — healthy pools cost nothing and DoH load
+    stays negligible. Shares _ech_down_rebuilt with _ech_refresh_once; both run on the SAME thread
+    (ech_refresh_loop), so the episode set stays single-threaded — no lock needed."""
+    for L in load_links():
+        hk = _ech_link_hosts(L)
+        if not hk or hk[0] != "pool":   # pools only — single-edge ECH has no failover to auto-rebuild
+            continue
+        kind, hosts = hk
+        lid, nm = L.get("id"), L.get("name")
+        _reachable, down, stalled = _ech_pool_state(lid)
+        if not (down or stalled):
+            _ech_down_rebuilt.discard(lid)   # healthy / recovered -> clear the episode (a future drop rebuilds again)
+            continue
+        if lid in _ech_down_rebuilt:
+            continue   # already rebuilt this episode; the slow loop re-arms on a genuine key rotation
+        updates = {h: k for h, k in _fetch_ech_map(hosts).items() if k}   # targeted DoH for THIS broken pool only
+        _ech_write(lid, kind, updates, degrade=False)                     # freshen the stored key (no-op if DoH empty)
+        _ech_down_rebuilt.add(lid)
+        why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
+        why_en = "was down" if down else "had edges failing on ECH"
+        if _ech_safe_rebuild(lid):
+            log_event("ok", "ech", f"تونلِ «{nm}» {why_fa}؛ سریع با کلیدِ تازهٔ ECH بازسازی شد",
+                      f"Tunnel “{nm}” {why_en}; fast-healed by rebuilding with the fresh ECH key")
+        else:
+            log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازیِ سریعِ ECH شکست خورد — هنوز قطع",
+                      f"Tunnel “{nm}” {why_en} and the fast ECH rebuild FAILED — still down")
+            _ech_down_rebuilt.discard(lid)   # let the next tick retry (don't burn the episode on a failed rebuild)
+
+
 def ech_refresh_loop():
+    last_full = 0.0
     while True:
+        time.sleep(60.0)   # wake every minute: the fast heal lane runs each tick, the DoH sweep every `mins`
         try:
             mins = float(get_settings().get("ech_refresh_mins", 15) or 0)
         except Exception:
             mins = 15.0
-        time.sleep(60.0 if mins <= 0 else max(60.0, mins * 60.0))  # min 1 real minute; re-check the knob when off
         if mins <= 0:
-            continue   # disabled from Settings — keep re-reading the knob every minute
+            continue   # ECH auto-refresh disabled from Settings -> also no auto-heal
         try:
-            _ech_refresh_once()
+            _ech_heal_once()   # fast: rebuild a down/stalled pool with a fresh key (~1 min latency)
         except Exception:
             pass
+        now = time.time()
+        if (now - last_full) >= max(60.0, mins * 60.0):
+            last_full = now
+            try:
+                _ech_refresh_once()   # slow: DoH-refresh every host's key on the scheduled interval
+            except Exception:
+                pass
 
 
 # --------------------------------------------------------------------------- system event log
