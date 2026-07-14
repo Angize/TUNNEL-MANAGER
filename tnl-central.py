@@ -1828,14 +1828,19 @@ def api_node_del(d):
         out["links_removed"] = len(mine)
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
+    # Set the tombstone BEFORE popping the caches. _poll_node checks _tombed() right before each cache
+    # write, so a poll already mid-flight must see the tomb by the time it writes — otherwise it writes
+    # _pc/_tf/_uh back AFTER we popped them and the deleted node is resurrected (phantom throughput in
+    # api_summary) until the next poller sweep. Setting it first is what makes the tomb actually do what
+    # its comment promises; popping after closes the window.
+    with _tomb_lock:  # block an in-flight poll (submitted before this delete) from re-inserting the popped cache
+        _tomb[nid] = time.time() + 20
     with _pc_lock:
         _pc.pop(nid, None)
     with _tf_lock:
         _tf.pop(nid, None)
     with _uh_lock:
         _uh.pop(nid, None)
-    with _tomb_lock:  # block an in-flight poll (submitted before this delete) from re-inserting the popped cache
-        _tomb[nid] = time.time() + 20
     return out
 
 
@@ -3896,7 +3901,17 @@ def _ech_refresh_once():
         _mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)   # the interval, for the log tag
     except Exception:
         _mins_label = "15"
-    for L in load_links():
+    links = load_links()
+    # Prune ECH bookkeeping for links that no longer exist. A deleted link is never iterated again, so
+    # its residue in _ech_empty (keyed by (lid,host)) and _ech_down_rebuilt (lids) would otherwise stay
+    # forever and grow without bound under create/delete churn. Sweep against the live id set, exactly
+    # like every other churned map in this file (_reconcile_last, _tomb, _uh, _install_jobs, ...).
+    live_ids = {L.get("id") for L in links}
+    with _ech_empty_lock:
+        for k in [k for k in _ech_empty if k[0] not in live_ids]:
+            _ech_empty.pop(k, None)
+    _ech_down_rebuilt.intersection_update(live_ids)   # single-threaded (ech_refresh_loop only) — no lock needed
+    for L in links:
         hk = _ech_link_hosts(L)
         if not hk:
             continue
