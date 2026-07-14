@@ -953,7 +953,12 @@ def _uh_pct(nid, window_hours):
     ring = ring[-(wh * 60):]
     if not ring:
         return 100.0
-    return round(sum(ring) / len(ring) * 100, 2)
+    total, n = sum(ring), len(ring)
+    if total >= n:            # genuinely zero downtime in the window -> a clean 100%
+        return 100.0
+    # Any downtime at all (even a few seconds -> at least one red bar): FLOOR to 2 decimals instead of
+    # rounding, so it reads as 99.99% and never rounds UP to 100% while the bars show red. Truncation.
+    return int(total / n * 10000) / 100
 
 
 def _uh_snapshot():
@@ -1494,7 +1499,7 @@ def api_summary(d):
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
             "link_types": types, "worst_tunnel": worst_tun,
             "fleet_avg_ping": round(sum(rtts) / len(rtts)) if rtts else None,
-            "uptime_avg": round(sum(ups) / len(ups), 1) if ups else 100, "uptime_down_nodes": downcnt, "uptime_window": win,
+            "uptime_avg": (int(sum(ups) / len(ups) * 10) / 10 if ups else 100), "uptime_down_nodes": downcnt, "uptime_window": win,  # FLOOR to 1 decimal so the fleet avg never rounds up to 100 when a node had downtime
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
