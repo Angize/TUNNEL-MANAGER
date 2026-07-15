@@ -3833,6 +3833,27 @@ def _ech_link_hosts(L):
     return None
 
 
+def _ech_live_push(lid, chmap):
+    """Push a freshly-rotated ECH key to the RUNNING client-side pool core so it hot-swaps it with NO
+    rebuild (op ech-update -> the core's <status>.echcmd poll). Best-effort: on any failure the core
+    just keeps its old key until it self-heals in-band or the next rebuild. chmap is {host: base64_ech}.
+    Only meaningful for a ws edge-pool core (the only one that polls the .echcmd file)."""
+    if not chmap:
+        return
+    L = next((x for x in load_links() if x.get("id") == lid), None)
+    if not L or L.get("type") != "core" or not L.get("ws_pool"):
+        return
+    server_side = L.get("server_side", "a")   # the CLIENT is the non-server side (it dials the CDN with ECH)
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        return
+    try:
+        node_call(node, "ech-update", "POST", {"name": L.get("name"), "snis": chmap}, timeout=8)
+    except Exception:
+        pass
+
+
 def _ech_pool_state(lid):
     """Read the client core's live edge health once and classify it for the ECH auto-heal. Returns
     (reachable, down, stalled):
@@ -3963,12 +3984,17 @@ def _ech_refresh_once():
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
+            # LIVE-push the fresh key to the RUNNING pool core so it hot-swaps it with NO rebuild — the
+            # core then stays a step ahead of Cloudflare's key rotation and never hits a stale-key
+            # rejection at all (the freshen alone only helped the NEXT rebuild/restart, not the live core).
+            if kind == "pool":
+                _ech_live_push(lid, chmap)
             # Two boxes per host (like the reactive event): the domain and its fresh base64 ECHConfigList.
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             den = "\n".join("host: %s\nECH key: %s" % (h, k) for h, k in chmap.items())
             log_event("ok", "ech",
-                      "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label),
-                      "Tunnel “%s” ECH key refreshed by the scheduled timer (every %s min)" % (nm, _mins_label),
+                      "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label),
+                      "Tunnel “%s” ECH key refreshed by the scheduled timer and live-pushed to the core (every %s min)" % (nm, _mins_label),
                       dfa, den)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to
         # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
