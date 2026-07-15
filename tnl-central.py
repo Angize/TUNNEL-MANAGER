@@ -4142,16 +4142,19 @@ def ech_refresh_loop():
             mins = float(get_settings().get("ech_refresh_mins", 15) or 0)
         except Exception:
             mins = 15.0
-        if mins <= 0:
-            continue   # ECH auto-refresh disabled from Settings -> also no auto-heal
+        # Resilience lanes run EVERY tick regardless of ech_refresh_mins — they are recovery, not the
+        # proactive refresh cadence, so disabling the timer must not silently disable them (else a
+        # self-heal never persists and a rebuild regresses to the stale key; a down pool never recovers).
         try:
-            _ech_heal_once()   # fast: rebuild a down/stalled pool with a fresh key (~1 min latency)
+            _ech_heal_once()   # backstop: rebuild a down/stalled pool with a fresh key (~1 min latency)
         except Exception:
             pass
         try:
             _ech_ingest_selfheal()   # G2: persist the core's in-band self-heal back to the stored config
         except Exception:
             pass
+        if mins <= 0:
+            continue   # only the PROACTIVE DoH refresh (below) honors the timer; 0 disables just that
         now = time.time()
         if (now - last_full) >= max(60.0, mins * 60.0):
             last_full = now
