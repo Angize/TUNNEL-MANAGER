@@ -3818,6 +3818,7 @@ _ECH_EMPTY_CYCLES = 3   # consecutive empty fetches before an ECH record counts 
 _ech_empty = {}         # (link_id, host) -> consecutive-empty count
 _ech_empty_lock = threading.Lock()
 _ech_down_rebuilt = set()  # link_ids already rebuilt during their CURRENT down-episode (touched only by the single ech_refresh_loop thread)
+_ech_healed_seq = {}       # G2: lid -> highest core self_heal event seq already persisted (ech_refresh_loop thread only)
 
 
 def _ech_link_hosts(L):
@@ -4058,6 +4059,69 @@ def _ech_heal_once():
             _ech_down_rebuilt.discard(lid)   # let the next tick retry (don't burn the episode on a failed rebuild)
 
 
+def _ech_ingest_selfheal():
+    """G2 — persist the core's IN-BAND ECH self-heal (G1) back into the panel's stored config. When the
+    core harvests a fresh key from a handshake reject it hot-swaps the key AND emits an
+    ("ech","self_heal","<host> <base64>") event. Here we read that event ring and write the fresh key
+    into the stored record, so a later rebuild/restart no longer regresses to the panel's stale key
+    (the exact gap: G1 fixes the live core, but the panel's stored key stayed old and every rebuild
+    re-injected it). Direction is the mirror of _ech_live_push: core -> panel, not panel -> core.
+
+    Each self_heal is ingested exactly once, keyed by its monotonic event seq, so a heal that already
+    landed can never be re-applied over a newer key sitting in the ring; the write itself is
+    transition-gated by _ech_write. Runs on the ech_refresh_loop thread (~1 min), so _ech_healed_seq
+    needs no lock. Applies to pools and single edges alike (both self-heal via the core's uEdgeHandshake)."""
+    live_ids = set()
+    for L in load_links():
+        hk = _ech_link_hosts(L)
+        if not hk:
+            continue
+        kind, hosts = hk
+        lid, nm = L.get("id"), L.get("name")
+        live_ids.add(lid)
+        try:
+            st = api_edge_status({"id": lid})
+        except Exception:
+            continue
+        if not st.get("ok") or st.get("error"):
+            continue
+        hostset = set(hosts)
+        seen_max = _ech_healed_seq.get(lid, 0)
+        new_max = seen_max
+        latest = {}   # host -> (seq, base64): newest not-yet-persisted self-heal per host (robust to ring order)
+        for e in (st.get("events") or []):
+            if not isinstance(e, dict) or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
+                continue
+            try:
+                seq = int(e.get("seq") or 0)
+            except (TypeError, ValueError):
+                continue
+            if seq <= seen_max:
+                continue   # already persisted this heal (or older) — never regress on a stale ring entry
+            if seq > new_max:
+                new_max = seq
+            parts = str(e.get("detail") or "").split(" ", 1)
+            if len(parts) != 2:
+                continue
+            host, b64 = parts[0], parts[1].strip()
+            if host in hostset and b64 and len(b64) <= 4096 and re.match(r"^[A-Za-z0-9+/=]+$", b64):
+                if host not in latest or seq >= latest[host][0]:
+                    latest[host] = (seq, b64)
+        _ech_healed_seq[lid] = new_max
+        if not latest:
+            continue
+        changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
+        if changed and chmap:
+            dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
+            den = "\n".join("host: %s\nECH key: %s" % (h, k) for h, k in chmap.items())
+            log_event("ok", "ech",
+                      "کلیدِ ECHِ خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
+                      "Tunnel “%s” core self-healed its ECH key; persisted to the panel so rebuilds no longer regress" % nm,
+                      dfa, den)
+    for dead in [k for k in _ech_healed_seq if k not in live_ids]:
+        _ech_healed_seq.pop(dead, None)   # drop bookkeeping for deleted/disabled links
+
+
 def ech_refresh_loop():
     last_full = 0.0
     while True:
@@ -4070,6 +4134,10 @@ def ech_refresh_loop():
             continue   # ECH auto-refresh disabled from Settings -> also no auto-heal
         try:
             _ech_heal_once()   # fast: rebuild a down/stalled pool with a fresh key (~1 min latency)
+        except Exception:
+            pass
+        try:
+            _ech_ingest_selfheal()   # G2: persist the core's in-band self-heal back to the stored config
         except Exception:
             pass
         now = time.time()
