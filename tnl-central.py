@@ -5506,6 +5506,24 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .setctl .setfield{padding:8px 12px;font-size:13px}
 .setctl input.search{padding:8px 12px}
 .settcat{font-size:11.5px;font-weight:800;color:var(--acc);letter-spacing:.02em;margin:16px 2px 2px;padding-top:12px;border-top:1px dashed var(--bord)}
+.setgrp{margin-top:8px}
+.sc-panel{--sc:#4f6ef7;--scbg:#4f6ef722}.sc-both{--sc:#0891b2;--scbg:#0891b222}.sc-ws{--sc:#c2410c;--scbg:#c2410c22}.sc-dgram{--sc:#8b5cf6;--scbg:#8b5cf622}
+.grphd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 2px 8px;font-weight:800;font-size:14px;color:var(--tx)}
+.grphd .gdot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--sc)}
+.grphd .schip{font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:20px;background:var(--scbg);color:var(--sc)}
+.grphd small{width:100%;font-weight:600;color:var(--sub);font-size:11px;margin-top:-2px;padding-inline-start:17px}
+.setrow2{padding:10px 0;border-bottom:1px solid var(--bord)}
+.setrow2:last-of-type{border-bottom:0}
+.setrow2-top{display:flex;align-items:center;gap:10px}
+.setlbl2{flex:1;font-size:13px;font-weight:700;color:var(--tx)}
+.qbtn{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--bord);background:var(--field);color:var(--sub);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;line-height:1;padding:0}
+.qbtn:hover{border-color:var(--acc);color:var(--acc)}
+.setrow2.exp-open .qbtn{background:var(--acc);border-color:var(--acc);color:#fff}
+.setexp{max-height:0;overflow:hidden;opacity:0;transition:max-height .28s ease,opacity .2s,margin .2s;background:var(--field);border-radius:11px;margin-top:0}
+.setrow2.exp-open .setexp{max-height:280px;opacity:1;margin-top:9px;padding:10px 12px}
+.setexp p{margin:0;font-size:12.5px;line-height:1.75;color:var(--tx)}
+.setexp .setex{margin-top:5px;color:var(--sub)}
+.setexp .setex b{color:var(--acc);font-weight:700}
 .settcat:first-of-type{border-top:none;padding-top:0}
 .setctl input.wtxt{max-width:150px;text-align:left;direction:ltr;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .setfield .val{color:var(--gold)}
@@ -5844,6 +5862,31 @@ var I18N={fa:{
  set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"سشنِ کوتاه‌تر از این = خرابیِ داده‌ای علیهِ آن IP",
  set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"سقفِ زمانِ یک پروبِ TCP+TLS",
  set_t_fluxrot:"چرخشِ پیش‌فرضِ flux (ثانیه)",set_t_fluxrot_d:"طولِ epochِ flux وقتی per-tunnel تنظیم نشده",
+ set_g1:"۱) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
+ set_g2:"۲) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
+ set_g3:"۳) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
+ set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
+ set_g5:"۵) تشخیصِ مرگِ دیتاگرام",set_g5h:"بی‌هندشیک",set_g5c:"udp / raw / flux",
+ set_g6:"۶) چرخش",set_g6h:"الگوی حامل",set_g6c:"flux",
+ set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
+ set_x_rec:"<b>۱۵</b> = هر ۱۵ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
+ set_x_poll:"<b>۰٫۹</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
+ set_x_ui:"<b>۱</b> = اعداد و نمودارها هر ثانیه به‌روز می‌شوند (فقط مرورگر، نه بارِ شبکه).",
+ set_x_ech:"<b>۱۵</b> = هر ۱۵ دقیقه کلید تازه؛ <b>۰</b> = خاموش (توصیه نمی‌شود).",
+ set_x_upwin:"<b>۲۴ ساعت</b> = هر خانه ۲۴ دقیقه؛ <b>۱ ساعت</b> = هر خانه ۱ دقیقه (ریزتر).",
+ set_x_suspect:"IP مشکوک شد → ۳۰ث بعد امتحان، باز مرد → ۶۰ث، بعد ۱۲۰… بعد از <b>۶۰۰</b> → مرده.",
+ set_x_deadretest:"<b>۱۸۰۰</b> = IPِ مرده هر ۳۰ دقیقه یک شانسِ دوباره می‌گیرد.",
+ set_x_pinttl:"<b>۵</b> = پین کردی؛ اگر ۵ثانیه وصل نشد، پین آزاد و چرخشِ عادی برمی‌گردد.",
+ set_x_datafail:"<b>۳</b> = سه بارِ پیاپی اتصال زود قطع شد → لبه مشکوک می‌شود.",
+ set_x_datagood:"<b>۱۲۰</b> = اگر در ۱۲۰ثانیهٔ اخیر هیچ لبه‌ای سالم نبوده، مشکل عمومی است نه این لبه → نمی‌سوزد.",
+ set_x_idlemult:"keepalive=۱۰ث و ضریب=<b>۴</b> ← ۴۰ثانیه سکوت = اتصال مرده.",
+ set_x_idlemin:"ضریب×keepalive شد ۴۰ث، ولی کف=<b>۶۰</b> ← مهلت ۶۰ثانیه می‌شود.",
+ set_x_ssmult:"keepalive=۱۰ و ضریب=<b>۳</b> ← ۳۰ثانیه سکوت ← سشنِ نو ساخته می‌شود.",
+ set_x_ssmin:"<b>۱۰</b> = کمتر از ۱۰ثانیه سکوت، سشن را کهنه حساب نکن.",
+ set_x_pingloss:"<b>۳</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
+ set_x_minlive:"<b>۲۰</b> = اتصال بعد از ۵ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
+ set_x_probeto:"<b>۵</b> = لبه در ۵ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
+ set_x_fluxrot:"<b>۶۰۰</b> = هر ۱۰ دقیقه یک epochِ جدید (شکلِ ترافیک عوض می‌شود).",
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
@@ -5919,6 +5962,31 @@ var I18N={fa:{
  set_t_minlive:"Min healthy session (secs)",set_t_minlive_d:"A session shorter than this is a data-plane fault against the IP",
  set_t_probeto:"Edge probe timeout (secs)",set_t_probeto_d:"Cap on a single TCP+TLS probe",
  set_t_fluxrot:"Flux default rotate (secs)",set_t_fluxrot_d:"Flux epoch length when not set per-tunnel",
+ set_g1:"1) Panel timing",set_g1h:"runs on the central",set_g1c:"panel",
+ set_g2:"2) Pool health & IP rotation",set_g2h:"client core",set_g2c:"both pools",
+ set_g3:"3) WS-CDN edge burn",set_g3h:"ws/xhttp tunnels",set_g3c:"WS-CDN only",
+ set_g4:"4) Stream dead-detection",set_g4h:"keepalive-based",set_g4c:"ws / tcp",
+ set_g5:"5) Datagram dead-detection",set_g5h:"handshake-less",set_g5c:"udp / raw / flux",
+ set_g6:"6) Rotation",set_g6h:"carrier shape",set_g6c:"flux",
+ set_x_ipchange:"Germany node IP changed → “Alert” only flags it (you rebuild); “Auto” rebuilds it with the new IP.",
+ set_x_rec:"<b>15</b> = a check every 15s; smaller = faster reaction, slightly more load.",
+ set_x_poll:"<b>0.9</b> = node cards refresh ~every second; smaller = livelier but more polling.",
+ set_x_ui:"<b>1</b> = numbers/charts refresh every second (browser only, no network load).",
+ set_x_ech:"<b>15</b> = a fresh key every 15 min; <b>0</b> = off (not recommended).",
+ set_x_upwin:"<b>24h</b> = each cell 24 min; <b>1h</b> = each cell 1 min (finer).",
+ set_x_suspect:"IP suspected → retry after 30s, dies again → 60s, then 120… past <b>600</b> → dead.",
+ set_x_deadretest:"<b>1800</b> = a dead IP gets one retry every 30 min.",
+ set_x_pinttl:"<b>5</b> = you pin; if not up in 5s the pin releases and normal rotation resumes.",
+ set_x_datafail:"<b>3</b> = three back-to-back early drops → edge suspected.",
+ set_x_datagood:"<b>120</b> = if no edge was healthy in the last 120s it's a global outage, not this edge.",
+ set_x_idlemult:"keepalive=10s, mult=<b>4</b> → 40s of silence = connection dead.",
+ set_x_idlemin:"mult×keepalive = 40s but floor=<b>60</b> → deadline becomes 60s.",
+ set_x_ssmult:"keepalive=10, mult=<b>3</b> → 30s of silence → a new session is built.",
+ set_x_ssmin:"<b>10</b> = under 10s of silence, don't treat the session as stale.",
+ set_x_pingloss:"<b>3</b> = three unanswered pings in a row → close & reconnect.",
+ set_x_minlive:"<b>20</b> = a connection dying after 5s = IP fault, not a normal drop.",
+ set_x_probeto:"<b>5</b> = edge didn't handshake within 5s → fail. (Direct carriers have no prober.)",
+ set_x_fluxrot:"<b>600</b> = a new epoch every 10 min (traffic shape changes).",
  h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
  pending_check:"Checking…",off_word:"Off",on_word:"On",
 }});
@@ -7838,46 +7906,49 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
  var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
  var langseg='<div class="seg2" style="max-width:240px"><button type="button" class="segopt'+(LANG=='fa'?' on':'')+'" onclick="applyLang(\\'fa\\')"><b>فارسی</b></button><button type="button" class="segopt'+(LANG=='en'?' on':'')+'" onclick="applyLang(\\'en\\')"><b>English</b></button></div>';
- box.innerHTML='<div class="card">'+
+ box.innerHTML=grp('set_g1','set_g1h','set_g1c','sc-panel',
   row(T('lang_label'),'فارسی / English',langseg)+
-  row(T('set_on_ipchange'),T('set_on_ipchange_d'),'<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
-  row(T('set_rec_int'),T('set_rec_range'),'<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
-  row(T('set_poll_int'),T('set_poll_range'),'<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.poll_interval)||2)+'">')+
-  row(T('set_ui_int'),T('set_ui_range'),'<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.ui_interval)||2)+'">')+
-  row(T('set_ech_int'),T('set_ech_range'),'<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+(s.ech_refresh_mins!=null?num(s.ech_refresh_mins):15)+'">')+
-  row(T('set_upwin'),T('set_upwin_d'),ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
-  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
-  '</div>'+
+  qr(T('set_on_ipchange'),'set_on_ipchange_d','set_x_ipchange','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
+  qr(T('set_rec_int'),'set_rec_range','set_x_rec','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
+  qr(T('set_poll_int'),'set_poll_range','set_x_poll','<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.poll_interval)||2)+'">')+
+  qr(T('set_ui_int'),'set_ui_range','set_x_ui','<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.ui_interval)||2)+'">')+
+  qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+(s.ech_refresh_mins!=null?num(s.ech_refresh_mins):15)+'">')+
+  qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
+  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>')+
   tuningCard(s)+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  refreshAgent()}
+// A settings row with a "?" that expands a concept + example; grp() wraps a scope-tagged group card.
+function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
+function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
+function grp(tk,hk,ck,cls,rows){return '<div class="card setgrp '+cls+'"><div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span><small>'+T(hk)+'</small></div>'+rows+'</div>'}
 // Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
 // build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
 var _TUNDEF={suspect_backoff:[30,60,120,300,600],dead_retest_secs:1800,pin_ttl_secs:30,data_fail_threshold:2,data_good_window_secs:120,idle_mult:4,idle_min_secs:60,session_stale_mult:3,session_stale_min_secs:10,ping_loss_threshold:3,min_liveness_secs:20,probe_timeout_secs:5,flux_rotate_default_secs:600};
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
-function tuningCard(s){var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
- return '<div class="card" style="margin-top:8px">'+
-  '<div class="sec2" style="margin:0 0 4px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
-  '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 6px">'+esc(T('set_tun_note'))+'</div>'+
-  '<div class="settcat">'+esc(T('set_tcat_pool'))+'</div>'+
-  row(T('set_t_suspect'),T('set_t_suspect_d'),'<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').join(', '))+'">')+
-  row(T('set_t_deadretest'),T('set_t_deadretest_d'),tNum('set_t_deadretest',_tv(s,'dead_retest_secs'),5,86400))+
-  row(T('set_t_pinttl'),T('set_t_pinttl_d'),tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600))+
-  row(T('set_t_datafail'),T('set_t_datafail_d'),tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
-  row(T('set_t_datagood'),T('set_t_datagood_d'),tNum('set_t_datagood',_tv(s,'data_good_window_secs'),1,86400))+
-  '<div class="settcat">'+esc(T('set_tcat_dead'))+'</div>'+
-  row(T('set_t_idlemult'),T('set_t_idlemult_d'),tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100))+
-  row(T('set_t_idlemin'),T('set_t_idlemin_d'),tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400))+
-  row(T('set_t_ssmult'),T('set_t_ssmult_d'),tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
-  row(T('set_t_ssmin'),T('set_t_ssmin_d'),tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400))+
-  row(T('set_t_pingloss'),T('set_t_pingloss_d'),tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
-  row(T('set_t_minlive'),T('set_t_minlive_d'),tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
-  row(T('set_t_probeto'),T('set_t_probeto_d'),tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120))+
-  '<div class="settcat">'+esc(T('set_tcat_rot'))+'</div>'+
-  row(T('set_t_fluxrot'),T('set_t_fluxrot_d'),tNum('set_t_fluxrot',_tv(s,'flux_rotate_default_secs'),1,86400))+
-  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'+
-  '</div>'}
+function tuningCard(s){
+ return '<div class="sec2" style="margin:14px 2px 2px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
+  '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
+  grp('set_g2','set_g2h','set_g2c','sc-both',
+    qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').join(', '))+'">')+
+    qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tv(s,'dead_retest_secs'),5,86400))+
+    qr(T('set_t_pinttl'),'set_t_pinttl_d','set_x_pinttl',tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600)))+
+  grp('set_g3','set_g3h','set_g3c','sc-ws',
+    qr(T('set_t_datafail'),'set_t_datafail_d','set_x_datafail',tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
+    qr(T('set_t_datagood'),'set_t_datagood_d','set_x_datagood',tNum('set_t_datagood',_tv(s,'data_good_window_secs'),1,86400))+
+    qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)))+
+  grp('set_g4','set_g4h','set_g4c','sc-both',
+    qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100))+
+    qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400))+
+    qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
+    qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600)))+
+  grp('set_g5','set_g5h','set_g5c','sc-dgram',
+    qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
+    qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400)))+
+  grp('set_g6','set_g6h','set_g6c','sc-dgram',
+    qr(T('set_t_fluxrot'),'set_t_fluxrot_d','set_x_fluxrot',tNum('set_t_fluxrot',_tv(s,'flux_rotate_default_secs'),1,86400)))+
+  '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
  var t={dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),flux_rotate_default_secs:parseInt(v('set_t_fluxrot'))};
