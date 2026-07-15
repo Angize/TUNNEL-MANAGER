@@ -3835,24 +3835,32 @@ def _ech_link_hosts(L):
 
 
 def _ech_live_push(lid, chmap):
-    """Push a freshly-rotated ECH key to the RUNNING client-side pool core so it hot-swaps it with NO
-    rebuild (op ech-update -> the core's <status>.echcmd poll). Best-effort: on any failure the core
-    just keeps its old key until it self-heals in-band or the next rebuild. chmap is {host: base64_ech}.
-    Only meaningful for a ws edge-pool core (the only one that polls the .echcmd file)."""
+    """Push a freshly-rotated ECH key to the RUNNING client-side ws core so it hot-swaps it with NO
+    rebuild (op ech-update -> the core's <status>.echcmd poll). Works for a ws edge-POOL (retestLoop
+    reads it) and a SINGLE ws edge (dialLoop reads it into b.wsECH) — same sidecar. Best-effort: on any
+    failure the core just keeps its old key until it self-heals in-band or the next rebuild. chmap is
+    {host: base64_ech}. Returns a short label of the client node the key actually landed on (name +
+    host) on a SUCCESSFUL push, else "" (skipped / node offline / core rejected) — the caller shows it
+    in the refresh log so an operator sees which node got the live key."""
     if not chmap:
-        return
+        return ""
     L = next((x for x in load_links() if x.get("id") == lid), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        return
+    if not L or L.get("type") != "core" or not (L.get("ws_pool") or L.get("ws_host")):
+        return ""
     server_side = L.get("server_side", "a")   # the CLIENT is the non-server side (it dials the CDN with ECH)
     client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
     node = get_node(client_id)
     if not node:
-        return
+        return ""
     try:
-        node_call(node, "ech-update", "POST", {"name": L.get("name"), "snis": chmap}, timeout=8)
+        r = node_call(node, "ech-update", "POST", {"name": L.get("name"), "snis": chmap}, timeout=8)
     except Exception:
-        pass
+        return ""
+    if not isinstance(r, dict) or not r.get("ok"):
+        return ""   # node offline or core rejected -> don't claim a push that didn't land
+    nm = str(node.get("name") or "").strip()
+    host = str(node.get("host") or "").strip()
+    return "%s (%s)" % (nm, host) if nm and host else (nm or host or str(client_id))
 
 
 def _ech_pool_state(lid):
@@ -3985,18 +3993,22 @@ def _ech_refresh_once():
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
-            # LIVE-push the fresh key to the RUNNING pool core so it hot-swaps it with NO rebuild — the
-            # core then stays a step ahead of Cloudflare's key rotation and never hits a stale-key
-            # rejection at all (the freshen alone only helped the NEXT rebuild/restart, not the live core).
-            if kind == "pool":
-                _ech_live_push(lid, chmap)
-            # Two boxes per host (like the reactive event): the domain and its fresh base64 ECHConfigList.
+            # LIVE-push the fresh key to the RUNNING ws core (pool OR single edge) so it hot-swaps it with
+            # NO rebuild — the core then stays a step ahead of Cloudflare's key rotation and never hits a
+            # stale-key rejection (the freshen alone only helped the NEXT rebuild/restart, not the live core).
+            pushed = _ech_live_push(lid, chmap) if kind in ("pool", "single") else ""
+            # Boxes per host (domain + fresh base64 key), then — when the push actually landed — the node.
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             den = "\n".join("host: %s\nECH key: %s" % (h, k) for h, k in chmap.items())
-            log_event("ok", "ech",
-                      "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label),
-                      "Tunnel “%s” ECH key refreshed by the scheduled timer and live-pushed to the core (every %s min)" % (nm, _mins_label),
-                      dfa, den)
+            if pushed:
+                dfa += "\nنودِ مقصد: %s" % pushed
+                den += "\ntarget node: %s" % pushed
+                fa = "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label)
+                en = "Tunnel “%s” ECH key refreshed and live-pushed to the core (every %s min)" % (nm, _mins_label)
+            else:
+                fa = "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label)
+                en = "Tunnel “%s” ECH key refreshed by the scheduled timer (every %s min)" % (nm, _mins_label)
+            log_event("ok", "ech", fa, en, dfa, den)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to
         # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
         # SEE is down — LEVEL-triggered on the down state, NOT gated on the key changing THIS cycle (that
