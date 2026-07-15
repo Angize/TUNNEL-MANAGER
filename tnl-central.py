@@ -5954,7 +5954,7 @@ var I18N={fa:{
  ag_installing_core:"Installing core…",ag_core_already:"Core already up to date",ag_core_updated:"Core updated",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
- fmt_day:"روز",fmt_hr:"س",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
+ fmt_day:"روز",fmt_hr:"ساعت",fmt_min:"دقیقه",fmt_sec:"ثانیه",fmt_and:"و",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
  edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
  link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
@@ -5965,7 +5965,7 @@ var I18N={fa:{
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
 },en:{
- fmt_day:"d",fmt_hr:"h",cipher_auto:"Auto",cipher_none:"No cipher",
+ fmt_day:"day",fmt_hr:"hr",fmt_min:"min",fmt_sec:"sec",fmt_and:"and",cipher_auto:"Auto",cipher_none:"No cipher",
  edit_tun_t:"Edit tunnel",ip_of:"IP of ",multi_ip:"multi-IP",ip_each_end:"IP of each tunnel end",
  link_ip_note1:"If a node has several IPs, choose which one the tunnel binds to. Changing type, subnet or IP rebuilds the tunnel on both nodes (ID ",link_ip_note2:" is kept).",
  le_port_4789:"UDP port (empty = 4789)",le_port_auto:"UDP port (empty = auto from ID)",
@@ -6231,7 +6231,11 @@ function v(id){var e=el(id);return e?e.value.trim():''}
 function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t}
 function setHTML(box,html){if(!box)return;if(box._html===html)return;box._html=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
 function num(x){x=+x;return isFinite(x)?x:0}
-function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600);return d+T('fmt_day')+' '+h+T('fmt_hr')}
+function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),c=Math.floor(s%60);
+ if(d>0)return d+' '+T('fmt_day')+' '+T('fmt_and')+' '+h+' '+T('fmt_hr');   // >=1 روز: روز و ساعت
+ if(h>0)return h+' '+T('fmt_hr')+' '+T('fmt_and')+' '+m+' '+T('fmt_min');   // >=1 ساعت: ساعت و دقیقه
+ if(m>0)return m+' '+T('fmt_min');                                          // >=1 دقیقه: فقط دقیقه
+ return c+' '+T('fmt_sec')}                                                 // <1 دقیقه: فقط ثانیه
 function fmtBytes(n){n=num(n);var u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<4){n/=1024;i++}return (i?(n<10?n.toFixed(2):n<100?n.toFixed(1):Math.round(n)):Math.round(n))+' '+u[i]}
 function fmtRate(b){b=num(b);var u=['bps','Kbps','Mbps','Gbps'],i=0;while(b>=1000&&i<3){b/=1000;i++}return (i?(b<10?b.toFixed(1):Math.round(b)):Math.round(b))+' '+u[i]}
 function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span><span class="tag '+esc(t.type)+'">'+esc(t.type)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso">'+fmtBytes(num(t.rx_total)+num(t.tx_total))+'</span></div></div>'}
