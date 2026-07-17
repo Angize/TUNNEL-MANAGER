@@ -7332,12 +7332,14 @@ function coreCard(l){
  // Prefer the backend's FRESH active pool IP (api_fleet reads it from the client node); sync it into the
  // cache so a RELOAD paints the last active instantly from localStorage, then fall back to that cache,
  // then the stored anchor. No separate per-tunnel poll — the fleet refresh already carries the live IP.
- var _aA=l.a_ip_active||'',_aB=l.b_ip_active||'';
- if(_aA||_aB){var ch=false,ka=l.id+'_a',kb=l.id+'_b';
+ var _aA=l.a_ip_active||'',_aB=l.b_ip_active||'',ka=l.id+'_a',kb=l.id+'_b';
+ if(!l.ip_rotate){   // rotation OFF: evict any stale cached rotating IP so the icon + active-IP don't linger from a prior rotation
+   var ce=false;if(PEERST[ka]){delete PEERST[ka];ce=true}if(PEERST[kb]){delete PEERST[kb];ce=true}if(ce)peerStSave();
+ }else if(_aA||_aB){var ch=false;
    if(_aA&&(PEERST[ka]||{}).ip!==_aA){PEERST[ka]={ip:_aA,rot:!!l.a_ip_rot};ch=true}
    if(_aB&&(PEERST[kb]||{}).ip!==_aB){PEERST[kb]={ip:_aB,rot:!!l.b_ip_rot};ch=true}
    if(ch)peerStSave();}
- var _pa=PEERST[l.id+'_a']||{},_pb=PEERST[l.id+'_b']||{};
+ var _pa=PEERST[ka]||{},_pb=PEERST[kb]||{};
  var _aip=_aA||_pa.ip||l.a_ip,_bip=_aB||_pb.ip||l.b_ip;
  var _arot=(l.a_ip_rot||_pa.rot)?rotMark():'',_brot=(l.b_ip_rot||_pb.rot)?rotMark():'';
  var body='<div class="tninfo">'+
