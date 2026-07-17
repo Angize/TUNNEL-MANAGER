@@ -1613,6 +1613,138 @@ def _install_finish(jid, ok, banner):
 
 SSH_KNOWN_HOSTS = os.path.join(CENTRAL_DIR, "known_hosts")
 
+# ProxyCommand relay: OpenSSH has no built-in SOCKS client, so when a node's control proxy is set we
+# tunnel the SSH TCP connection through it by pointing `-o ProxyCommand=` at this tiny relay. It does
+# the SAME SOCKS5 / HTTP-CONNECT handshake as the agent-HTTP path (_socks5_socket/_http_connect_socket)
+# then splices ssh's stdin/stdout to the tunneled socket. Proxy details arrive via TNL_PXY_* env vars
+# (so credentials never sit in argv). Self-contained stdlib — no nc/ncat/PySocks dependency on the panel.
+_PROXY_RELAY_SRC = r'''#!/usr/bin/env python3
+import os, sys, socket, base64, select
+
+def _recvn(s, n):
+    b = b""
+    while len(b) < n:
+        c = s.recv(n - len(b))
+        if not c:
+            raise OSError("proxy closed the connection")
+        b += c
+    return b
+
+def _socks5(s, pu, pw, dh, dp):
+    s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")
+    method = _recvn(s, 2)[1]
+    if method == 2:
+        if not pu:
+            raise OSError("socks5 proxy requires auth")
+        u, w = pu.encode(), (pw or "").encode()
+        s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
+        if _recvn(s, 2)[1] != 0:
+            raise OSError("socks5 auth rejected")
+    elif method != 0:
+        raise OSError("socks5 no supported auth method")
+    try:
+        addr = b"\x01" + socket.inet_aton(dh)
+    except OSError:
+        hb = dh.encode()
+        addr = b"\x03" + bytes([len(hb)]) + hb
+    s.sendall(b"\x05\x01\x00" + addr + int(dp).to_bytes(2, "big"))
+    rep = _recvn(s, 4)
+    if rep[1] != 0:
+        raise OSError("socks5 connect failed (code %d)" % rep[1])
+    atyp = rep[3]
+    _recvn(s, 4 if atyp == 1 else 16 if atyp == 4 else _recvn(s, 1)[0])
+    _recvn(s, 2)
+
+def _http(s, pu, pw, dh, dp):
+    req = "CONNECT %s:%s HTTP/1.1\r\nHost: %s:%s\r\n" % (dh, dp, dh, dp)
+    if pu:
+        req += "Proxy-Authorization: Basic " + base64.b64encode(("%s:%s" % (pu, pw or "")).encode()).decode() + "\r\n"
+    s.sendall((req + "\r\n").encode())
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        c = s.recv(4096)
+        if not c:
+            raise OSError("proxy closed the connection")
+        buf += c
+        if len(buf) > 65536:
+            raise OSError("proxy response too large")
+    line = buf.split(b"\r\n", 1)[0].decode("latin1")
+    if " 200" not in line:
+        raise OSError("proxy CONNECT refused: " + line[:80])
+    return buf.split(b"\r\n\r\n", 1)[1]  # bytes past the header are tunnel data (e.g. the SSH banner)
+
+def main():
+    dh, dp = sys.argv[1], int(sys.argv[2])
+    scheme = (os.environ.get("TNL_PXY_SCHEME") or "socks5").lower()
+    ph = os.environ.get("TNL_PXY_HOST") or ""
+    pp = int(os.environ.get("TNL_PXY_PORT") or 0)
+    pu = os.environ.get("TNL_PXY_USER") or None
+    pw = os.environ.get("TNL_PXY_PASS") or None
+    if not ph or not pp:
+        raise OSError("proxy host/port missing")
+    s = socket.create_connection((ph, pp), 20)
+    s.settimeout(20)
+    if scheme.startswith("socks"):
+        _socks5(s, pu, pw, dh, dp)
+        leftover = b""
+    else:
+        leftover = _http(s, pu, pw, dh, dp)
+    s.settimeout(None)
+    fin = sys.stdin.buffer.fileno()
+    fout = sys.stdout.buffer
+    if leftover:
+        fout.write(leftover)
+        fout.flush()
+    fds = [s, fin]
+    while fds:
+        r = select.select(fds, [], [])[0]
+        if s in r:
+            data = s.recv(65536)
+            if not data:
+                break
+            fout.write(data)
+            fout.flush()
+        if fin in r:
+            data = os.read(fin, 65536)
+            if not data:
+                fds.remove(fin)
+                try:
+                    s.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+            else:
+                s.sendall(data)
+    try:
+        s.close()
+    except OSError:
+        pass
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        sys.stderr.write("tnl-proxy: %s\n" % e)
+        sys.exit(1)
+'''
+
+_proxy_relay_path = None
+_proxy_relay_lock = threading.Lock()
+
+
+def _ensure_proxy_relay():
+    """Write the ProxyCommand relay to CENTRAL_DIR once (atomically) and return its path."""
+    global _proxy_relay_path
+    with _proxy_relay_lock:
+        if _proxy_relay_path and os.path.exists(_proxy_relay_path):
+            return _proxy_relay_path
+        p = os.path.join(CENTRAL_DIR, "proxy_relay.py")
+        tmp = p + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(_PROXY_RELAY_SRC)
+        os.replace(tmp, p)
+        _proxy_relay_path = p
+        return p
+
 
 def _ssh_argv(cfg, remote_cmd):
     # TOFU: accept a host key the first time we see a node (needed for unattended
@@ -1622,10 +1754,23 @@ def _ssh_argv(cfg, remote_cmd):
     # session and capture the SSH password / inject a malicious agent as root.
     opts = ["-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={SSH_KNOWN_HOSTS}",
             "-o", "ConnectTimeout=15", "-p", str(cfg["port"])]
+    env = dict(os.environ)
+    proxy = (cfg.get("proxy") or "").strip()
+    if proxy:
+        # route the SSH TCP connection through the SAME control proxy as the agent HTTP, so a node
+        # whose IP is filtered from the panel is reachable at install time — not only after register.
+        pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
+        env["TNL_PXY_SCHEME"] = (pu.scheme or "socks5").lower()
+        env["TNL_PXY_HOST"] = pu.hostname or ""
+        env["TNL_PXY_PORT"] = str(pu.port or "")
+        env["TNL_PXY_USER"] = pu.username or ""
+        env["TNL_PXY_PASS"] = pu.password or ""
+        opts += ["-o", f"ProxyCommand={sys.executable} {_ensure_proxy_relay()} %h %p"]
     target = f"{cfg['user']}@{cfg['host']}"
     if cfg.get("keyfile"):
-        return ["ssh", "-i", cfg["keyfile"], "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"] + opts + [target, remote_cmd], None
-    return ["sshpass", "-e", "ssh"] + opts + [target, remote_cmd], dict(os.environ, SSHPASS=cfg.get("password", ""))
+        return ["ssh", "-i", cfg["keyfile"], "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"] + opts + [target, remote_cmd], env
+    env["SSHPASS"] = cfg.get("password", "")
+    return ["sshpass", "-e", "ssh"] + opts + [target, remote_cmd], env
 
 
 def _ssh_run(cfg, remote_cmd, timeout):
@@ -1736,7 +1881,7 @@ def api_node_install(d):
     key = str(d.get("ssh_key") or "").strip()
     if not password and not key:
         raise ValueError("رمزِ SSH یا کلیدِ خصوصی لازم است")
-    cfg = {"host": host, "port": ssh_port, "user": user, "password": password}
+    cfg = {"host": host, "port": ssh_port, "user": user, "password": password, "proxy": proxy}
     if key:
         fd, kp = tempfile.mkstemp(prefix="tnlkey_")
         with os.fdopen(fd, "w") as f:
@@ -6283,7 +6428,7 @@ var I18N={fa:{
  nadd_auto:"خودکار",nadd_manual:"دستی",nadd_title:"افزودنِ نود",
  nadd_autonote:"مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.",
  nadd_node_name:"نامِ نود",nadd_srv_ip:"آی‌پیِ سرور",nadd_ssh_port:"پورتِ SSH",nadd_ssh_user:"کاربرِ SSH",
- nadd_agent_port:"پورتِ ایجنت",nadd_ctrl_proxy:"پروکسیِ کنترل (اختیاری)",nadd_ssh_auth:"احرازِ هویتِ SSH",
+ nadd_agent_port:"پورتِ ایجنت",nadd_ctrl_proxy:"پروکسیِ کنترل (اختیاری)",px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پنل از این پروکسی هم برای SSHِ نصب و هم برای کنترلِ نود استفاده می‌کند.",px_need_ipport:"آی‌پی و پورتِ پروکسی لازم است",px_bad_port:"پورتِ پروکسی نامعتبر است (۱ تا ۶۵۵۳۵)",px_bad_cred:"یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد",nadd_ssh_auth:"احرازِ هویتِ SSH",
  nadd_pass:"رمز",nadd_privkey:"کلیدِ خصوصی",nadd_pass_ph:"رمزِ SSH سرور",
  nadd_pass_hint:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",
  nadd_key_hint:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
@@ -6317,7 +6462,7 @@ var I18N={fa:{
  nadd_auto:"Automatic",nadd_manual:"Manual",nadd_title:"Add node",
  nadd_autonote:"Enter the node server's SSH details; the panel logs in itself, installs the agent, creates a token and connects the node.",
  nadd_node_name:"Node name",nadd_srv_ip:"Server IP",nadd_ssh_port:"SSH port",nadd_ssh_user:"SSH user",
- nadd_agent_port:"Agent port",nadd_ctrl_proxy:"Control proxy (optional)",nadd_ssh_auth:"SSH authentication",
+ nadd_agent_port:"Agent port",nadd_ctrl_proxy:"Control proxy (optional)",px_type:"Proxy type",px_ip:"IP",px_port:"Port",px_user:"Username",px_pass:"Password",px_opt:"optional",px_hint:"Empty username & password = no auth. The panel uses this proxy for BOTH the install SSH and node control.",px_need_ipport:"Proxy IP and port are required",px_bad_port:"Invalid proxy port (1–65535)",px_bad_cred:"Proxy user/pass cannot contain @ : / or spaces",nadd_ssh_auth:"SSH authentication",
  nadd_pass:"Password",nadd_privkey:"Private key",nadd_pass_ph:"Server SSH password",
  nadd_pass_hint:"Server SSH password — not stored, used only during installation.",
  nadd_key_hint:"SSH private key — safer than a password; sshpass is not needed either.",
@@ -6701,14 +6846,15 @@ function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;
    '<div class="autonote">'+ic('bolt')+'<span>'+esc(T('nadd_autonote'))+'</span></div>'+
    '<div class="grid2"><div><label class="first">'+esc(T('nadd_node_name'))+'</label><input id="a_name" placeholder="DE02"></div><div><label class="first">'+esc(T('nadd_srv_ip'))+'</label><input id="a_host" placeholder="5.75.197.55"></div></div>'+
    '<div class="grid2"><div><label>'+esc(T('nadd_ssh_port'))+'</label><input id="a_sshport" placeholder="22"></div><div><label>'+esc(T('nadd_ssh_user'))+'</label><input id="a_user" placeholder="root"></div></div>'+
-   '<div class="grid2"><div><label>'+esc(T('nadd_agent_port'))+'</label><input id="a_aport" placeholder="8099"></div><div><label>'+esc(T('nadd_ctrl_proxy'))+'</label><input id="a_proxy" placeholder="socks5://host:1080"></div></div>'+
+   '<div class="grid2"><div><label>'+esc(T('nadd_agent_port'))+'</label><input id="a_aport" placeholder="8099"></div><div></div></div>'+
+   proxyBlock('a_')+
    '<div class="authbox"><div class="authhd"><span class="t">'+esc(T('nadd_ssh_auth'))+'</span><span class="authseg" id="a_authseg"><button type="button" data-am="pass" class="on" onclick="authMode(\\'pass\\')">'+esc(T('nadd_pass'))+'</button><button type="button" data-am="key" onclick="authMode(\\'key\\')">'+esc(T('nadd_privkey'))+'</button></span></div>'+
     '<input id="a_pass" class="fld2" type="password" placeholder="'+esc(T('nadd_pass_ph'))+'" autocomplete="new-password">'+
     '<textarea id="a_key" class="fld2" rows="3" style="display:none" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>'+
     '<div class="muted" id="a_authhint" style="font-size:11px;margin-top:7px">'+esc(T('nadd_pass_hint'))+'</div></div>'+
    '<div id="nadd_prog"></div></div>';
- var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(T('nadd_agent_port2'))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div><label>'+esc(T('nadd_manual_proxy'))+'</label><input id="n_proxy" placeholder="socks5://host:1080 / http://user:pass@host:8080"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+ var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(T('nadd_agent_port2'))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div>'+proxyBlock('n_')+'</div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');pxReset('a_',false,'socks5');pxReset('n_',false,'socks5')}
 function naddSwitch(m){_naddMode=m;_installDone=null;_instStop();
  var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
  document.querySelectorAll('#nadd_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.m==m)});
@@ -6757,6 +6903,34 @@ function _instTick(){var c=_inst;if(!c)return;
  if(c.revealIdx<started&&now-c.lastReveal>=_MINSPIN&&curTerm){c.revealIdx++;c.lastReveal=now}  // advance one step per beat, never past the backend
  if(!c.finished&&c.bDone&&c.revealIdx>=started&&now-c.lastReveal>=_MINSPIN&&(started>0||c.err)){_instFinish(c);return}
  _instRender(c);c.timer=setTimeout(_instTick,150)}
+// ---- control-proxy toggle (add/manual/edit share this). Stored as a scheme://[user:pass@]host:port
+// URL (so the backend parser, redaction and SSH-ProxyCommand relay stay unchanged); the fields are UI.
+var _pxOn={},_pxSch={};
+function proxyBlock(pfx){return '<div class="authbox" style="margin-top:14px"><div class="authhd"><span class="t">'+esc(T('nadd_ctrl_proxy'))+'</span><span class="tglsw" id="'+pfx+'pxsw" style="margin-inline-start:auto" onclick="pxTgl(\\''+pfx+'\\')"></span></div>'
+ +'<div id="'+pfx+'pxbody" style="display:none">'
+ +'<div class="authhd" style="margin-bottom:11px"><span class="t" style="font-size:11.5px;font-weight:700;color:var(--sub)">'+esc(T('px_type'))+'</span><span class="authseg" id="'+pfx+'pxseg"><button type="button" data-ps="socks5" class="on" onclick="pxSch(\\''+pfx+'\\',\\'socks5\\')">SOCKS5</button><button type="button" data-ps="http" onclick="pxSch(\\''+pfx+'\\',\\'http\\')">HTTP</button></span></div>'
+ +'<div class="grid2"><div><label>'+esc(T('px_ip'))+'</label><input id="'+pfx+'pxip" dir="ltr" placeholder="10.202.10.202"></div><div><label>'+esc(T('px_port'))+'</label><input id="'+pfx+'pxport" dir="ltr" placeholder="1080"></div></div>'
+ +'<div class="grid2" style="margin-top:11px"><div><label>'+esc(T('px_user'))+'</label><input id="'+pfx+'pxuser" dir="ltr" placeholder="'+esc(T('px_opt'))+'" autocomplete="off"></div><div><label>'+esc(T('px_pass'))+'</label><input id="'+pfx+'pxpass" dir="ltr" type="password" placeholder="'+esc(T('px_opt'))+'" autocomplete="new-password"></div></div>'
+ +'<div class="muted" style="font-size:11px;margin-top:8px">'+esc(T('px_hint'))+'</div></div></div>';}
+function pxTgl(pfx){var on=!_pxOn[pfx];_pxOn[pfx]=on;var s=el(pfx+'pxsw');if(s)s.classList.toggle('on',on);var b=el(pfx+'pxbody');if(b)b.style.display=on?'':'none';}
+function pxSch(pfx,val){_pxSch[pfx]=val;var seg=el(pfx+'pxseg');if(seg)Array.prototype.forEach.call(seg.querySelectorAll('button'),function(x){x.classList.toggle('on',x.getAttribute('data-ps')==val);});}
+function pxReset(pfx,on,scheme){_pxOn[pfx]=!!on;var s=el(pfx+'pxsw');if(s)s.classList.toggle('on',!!on);var b=el(pfx+'pxbody');if(b)b.style.display=on?'':'none';pxSch(pfx,scheme||'socks5');}
+// returns '' (off), a scheme://[user:pass@]ip:port URL, or {err} on bad input
+function pxCollect(pfx){if(!_pxOn[pfx])return '';var ip=(v(pfx+'pxip')||'').trim(),port=(v(pfx+'pxport')||'').trim();
+ if(!ip||!port)return {err:T('px_need_ipport')};
+ if(!/^[0-9]{1,5}$/.test(port)||+port<1||+port>65535)return {err:T('px_bad_port')};
+ var u=(v(pfx+'pxuser')||'').trim(),w=(v(pfx+'pxpass')||'');
+ if(/[@:\\/\\s]/.test(u)||/[@\\/\\s]/.test(w))return {err:T('px_bad_cred')};
+ var auth=u?(u+(w?':'+w:'')+'@'):'';var h=ip.indexOf(':')>=0?('['+ip.replace(/^\\[|\\]$/g,'')+']'):ip;return (_pxSch[pfx]||'socks5')+'://'+auth+h+':'+port;}
+// prefill fields from a stored (possibly credential-redacted) URL
+function pxPrefill(pfx,url){url=(url||'').trim();if(!url){pxReset(pfx,false,'socks5');return;}
+ var m=url.match(/^(socks5h?|http|https|connect):\\/\\/(?:([^:@\\/]*)(?::([^@\\/]*))?@)?(\\[[^\\]]+\\]|[^:\\/]+):([0-9]+)/i);
+ if(!m){pxReset(pfx,true,'socks5');if(el(pfx+'pxip'))el(pfx+'pxip').value=url;return;}
+ pxReset(pfx,true,/^socks/i.test(m[1])?'socks5':'http');
+ if(el(pfx+'pxip'))el(pfx+'pxip').value=(m[4]||'').replace(/^\\[|\\]$/g,'');
+ if(el(pfx+'pxport'))el(pfx+'pxport').value=m[5]||'';
+ if(el(pfx+'pxuser'))el(pfx+'pxuser').value=m[2]||'';
+ if(el(pfx+'pxpass'))el(pfx+'pxpass').value=m[3]||'';}
 var _authMode='pass';
 function authMode(m){_authMode=m;
  var pf=el('a_pass'),kf=el('a_key'),h=el('a_authhint');
@@ -6771,11 +6945,12 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){m.className='msg err';m.textContent=T('nadd_need_name_ip');return}
  if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?T('nadd_privkey'):T('nadd_pass_word'))+T('nadd_is_required');return}
+ var _px=pxCollect('a_');if(_px&&_px.err){m.className='msg err';m.textContent=_px.err;return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
  // show the FIRST step (SSH), spinning, the instant install is clicked — no "در حالِ نصب…" placeholder gap
  var _st0=_insteps()[0];
  var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>'+esc(T('inst_installing'))+'</span></div><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">'+esc(_st0.label)+'</div><div class="istep-s">'+esc(_st0.detail)+'</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
- var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:v('a_proxy')}).catch(function(){return{ok:false,d:{}}});
+ var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:_px}).catch(function(){return{ok:false,d:{}}});
  if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=terr((r.d&&r.d.error))||T('failed');if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+esc(T('nadd_install_connect')));return}
  // seed step 0 as revealed+running so the reveal continues seamlessly from the skeleton (no flicker back to the banner)
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
@@ -6839,8 +7014,8 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
   poll();ov._iv=setInterval(poll,UIV)}}   // live CPU/RAM/disk + traffic, at the settings-driven cadence
 function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast(T('online'),'ok')}else{toast(T('offline')+': '+((r&&r.error)||T('not_available')),'err')}}).catch(function(){toast(T('err_check'),'err')})}
 function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
- var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div><label>'+esc(T('f_ctrlproxy_empty'))+'</label><input id="e_proxy_'+id+'" value="'+esc(n.proxy||'')+'" placeholder="socks5://host:1080 / http://user:pass@host:8080"><div class="msg" id="em_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+ var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div>'+proxyBlock('ne_')+'<div class="msg" id="em_'+id+'"></div>';
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');pxPrefill('ne_',n.proxy||'')}
 function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">'+esc(T('ip_of'))+esc(nm)+'</label>';
  ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
  if(ips.length>1)return '<div>'+lab+ssHTML('lip'+side+'_'+id,ips.map(function(x){return{v:x,label:x}}),(cur&&ips.indexOf(cur)>=0)?cur:ips[0],T('ip'),'')+'</div>';
@@ -6871,13 +7046,15 @@ function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), nu
  return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+T('pct')+'</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
  if(!name||!host||!port){m.className='msg err';m.textContent=T('need_nhp');return}
+ var _px=pxCollect('ne_');if(_px&&_px.err){m.className='msg err';m.textContent=_px.err;return}
  m.className='msg';m.textContent=T('saving');
- var r=await post('node-edit',{id:id,name:name,host:host,port:port,token:tok,proxy:v('e_proxy_'+id)});
+ var r=await post('node-edit',{id:id,name:name,host:host,port:port,token:tok,proxy:_px});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=terr(r.d.error||T('failed'))}}
 async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host'),port=v('n_port'),tok=v('n_tok');
  if(!name||!host||!port||!tok){m.className='msg err';m.textContent=T('need_all_nhpt');return}
+ var _px=pxCollect('n_');if(_px&&_px.err){m.className='msg err';m.textContent=_px.err;return}
  m.className='msg';m.textContent=T('connecting_dots');
- var r=await post('node-add',{name:name,host:host,port:port,token:tok,proxy:v('n_proxy')});
+ var r=await post('node-add',{name:name,host:host,port:port,token:tok,proxy:_px});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+terr(r.d.error||'')),r.d.online?'ok':'err')}
  else{m.className='msg err';m.textContent=terr(r.d.error||T('failed'))}}
 async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
