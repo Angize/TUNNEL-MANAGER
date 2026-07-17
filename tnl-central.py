@@ -609,16 +609,16 @@ def parallel_map(fn, items, workers=32):
 
 POLL_WORKERS = 64          # concurrent node probes per sweep
 POLL_GAP = 2               # seconds to rest between full sweeps
-SWEEP_DEADLINE = 30        # a single hung node must never wedge the whole sweep past this
+SWEEP_DEADLINE = 30        # legacy per-sweep deadline — no longer enforced; the poller fires-and-forgets, bounded by `inflight`
 _pc = {}                   # node_id -> {"ping":..., "list":..., "ping_ts":t, "list_ts":t}
 _pc_lock = threading.Lock()
 _tf = {}                   # node_id -> {prev_ts, prev_up, if:{key:{prx,ptx,rx_bps,tx_bps,crx,ctx}}, seed:{}}
 _tf_lock = threading.Lock()
 TF_MAX_GAP = 120.0         # a poll gap bigger than this: keep the byte delta but suppress the smeared rate
 TF_BPS_CEIL = 100e9        # 100 Gbit/s sanity ceiling — a larger computed rate is a garbage read -> treat as reset
-_uh = {}                   # node_id -> {"ring":[1/0,...], "bts":ts, "dn":bool} — rolling per-minute up/down history
+_uh = {}                   # node_id -> {"ring":[float 0..1,...], "bts":ts, "up":int, "tot":int} — rolling per-minute up-fraction history
 _uh_lock = threading.Lock()
-UPTIME_BUCKET = 60         # seconds per uptime sample (one minute; a bucket is DOWN if unreachable any time in it)
+UPTIME_BUCKET = 60         # seconds per uptime sample (one minute; a bucket stores the up-FRACTION = up polls / total polls in it)
 UPTIME_KEEP = 1440         # ring length -> 24h of per-minute history (aggregated to 60 cells for display)
 _tomb = {}                 # node_id -> expiry ts: a node deleted mid-poll must not have its cache resurrected
 _tomb_lock = threading.Lock()
@@ -2356,7 +2356,7 @@ def api_fleet(d):
         a_ips = [ip for ips in (_cached_ping(L["a_node"]).get("ips") or {}).values() for ip in ips]
         b_ips = [ip for ips in (_cached_ping(L["b_node"]).get("ips") or {}).values() for ip in ips]
         side = "b" if L.get("view_side") == "b" else "a"
-        pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the IPsec key to the browser
+        pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the shared crypto key (IPsec / core AEAD psk) to the browser
         rec = {**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
@@ -2879,7 +2879,8 @@ def _ws_fields(d, transport, cur=None):
     # xhttp: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a
     # WebSocket upgrade, so it passes a CDN/account that blocks WebSocket. Independent of
     # wss (works over plain http too, though wss is the usual fronting choice). Single-edge
-    # only — the pool branch above returns before here, so xhttp never combines with a pool.
+    # path only — the pool branch above returns first and builds its OWN xhttp fields, so a
+    # pool's xhttp is handled there (the pool supports xhttp too, via _ws_pool_fields).
     xh = d.get("ws_xhttp") if ("ws_xhttp" in d) else cur.get("ws_xhttp")
     if bool(xh):
         out["ws_xhttp"] = True
@@ -7109,7 +7110,7 @@ function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'xhttp',m:T('wsp_xhtt
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function corSetWsProf(p){_corXhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corXhttp?'':'none';corWssGate()}
 function ceSetWsProf(p){_eeXhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeXhttp?'':'none';ceWssGate()}
-// xhttp upstream style: packet-up (default) | stream-one. Shown only when the XHTTP profile is picked.
+// xhttp upstream style: packet-up (default) | gRPC. Shown only when the XHTTP profile is picked.
 function XHTTP_MODES(){return [{v:'packet',n:'packet-up',m:T('xhm_packet_m')},{v:'grpc',n:'gRPC',m:T('xhm_grpc_m')}]}
 function xhModeTiles(px,cur){return XHTTP_MODES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
@@ -7356,7 +7357,7 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
 // active only on the datagram carriers (udp/raw/flux); greyed on tcp/ws (TCP is already reliable).
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
  +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||10)&&r.p==(fp||3));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--warn)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
-// fake-packet desync (anti-DPI) — a gated feature box shown ONLY on the raw/flux carriers (the ones
+// fake-packet desync (anti-DPI) — a gated feature box shown on the raw/flux/tcp/ws carriers (raw/flux are the ones
 // the core builds the IPv4 header for). Shared create/edit markup; toggle reveals mode + ttl/count.
 function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
 function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
