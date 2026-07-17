@@ -60,7 +60,7 @@ IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (lo
 # Ciphers the custom core accepts (see TUNNEL-MANAGER-CORE). "auto" resolves core-side to a fixed
 # choice so both ends match; "none" disables encryption. Kept in sync with the core's crypto factory.
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
-CORE_RAW_PROFILES = ("bip", "ipip", "gre", "icmp", "udp", "tcp")   # raw-transport encapsulation profiles
+CORE_RAW_PROFILES = ("bip", "ipip", "gre", "icmp", "udp", "tcp", "esp")   # raw-transport encapsulation profiles
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _core_blob_lock = threading.Lock()   # serialize the custom core binary + its meta writes
@@ -6123,7 +6123,7 @@ var I18N={fa:{
  // subnet ranges
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
- rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",
+ rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
  // ws / xhttp profiles
  wsp_ws_m:"وب‌سوکتِ استاندارد",wsp_xhttp_m:"GET/POST · دور زدنِ بلاکِ WS",xhm_packet_m:"چند POSTِ کوتاه · سازگارترین",xhm_grpc_m:"یک درخواستِ دوطرفه · رویِ CDN استریم",
  // flux rotation presets + shapes
@@ -6181,7 +6181,7 @@ var I18N={fa:{
  port_flux_ph:"flux پورت ثابت ندارد",port_raw_ph:"raw پورت ندارد",port_ws_ph:"۸۰ (کلادفلر Flexible)",
 },en:{
  snr_192:"Auto · 192.168.x (recommended)",snr_10:"Auto · 10.x",snr_172:"Auto · 172.16.x",snr_custom:"Custom (enter manually)",
- rawp_best:"best",rawp_warn:"may not pass through NAT",rawp_bip_m:"custom proto · default 58",rawp_icmp_m:"proto 1 · ping-like",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · fake TCP",
+ rawp_best:"best",rawp_warn:"may not pass through NAT",rawp_bip_m:"custom proto · default 58",rawp_icmp_m:"proto 1 · ping-like",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · fake TCP",rawp_esp_m:"proto 50 · IPsec ESP",
  wsp_ws_m:"standard WebSocket",wsp_xhttp_m:"GET/POST · bypasses WS blocks",xhm_packet_m:"short POSTs · most compatible",xhm_grpc_m:"one bidi request · streams over CDN",
  frot_600:"Every 10 min (default)",frot_300:"Every 5 min",frot_1800:"Every 30 min",frot_3600:"Every 1 hour",
  fsh_random_n:"Random",fsh_random_m:"no mimicry",fsh_quic_m:"HTTP/3-like",fsh_video_n:"Video call",fsh_video_m:"large packets",fsh_webrtc_m:"small RTP",
@@ -7118,7 +7118,7 @@ function coreCard(l){
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
 var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corEch=false,_corEchProxy=false,_corXhttp=false,_corXhMode='packet',_corFec=false,_corFecData=10,_corFecParity=3,_corDesync=false,_corDesyncTtl=4,_corDesyncCount=2,_corDesyncMode='ttl',_corSniSplit=false,_corSplitPos=0,_corSniMode='split',_corSplitTtl=0;
-function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')}]}
+function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'xhttp',m:T('wsp_xhttp_m')}]}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
