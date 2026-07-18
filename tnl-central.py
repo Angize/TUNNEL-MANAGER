@@ -4473,7 +4473,14 @@ EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-eve
 EVENTS_CAP = 500
 _events_lock = threading.Lock()
 _ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
-_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "links_coarse_down": set()}  # last-seen state (in-memory)
+_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}  # last-seen state (in-memory); rotip[lid:axis]=last source/dest IP, for from→to on a rotation
+
+
+def _ev_ip(detail):
+    """Pull an IPv4[:port] out of a core event's free-form detail (e.g. 'ip:1.2.3.4:443'). Empty if none —
+    then the rotation event renders exactly as before (no box), so a non-IP detail can never mislabel."""
+    m = re.search(r"\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?", str(detail or ""))
+    return m.group(0) if m else ""
 _ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
 
 # Map the CORE's stable reason codes (it saw the real error) to bilingual text for the log. This is
@@ -4785,7 +4792,26 @@ def _events_once():
                 for sq, e in sorted(clean, key=lambda x: x[0]):
                     if sq <= last:
                         continue
-                    txt = _ev_core_text(str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or ""), nm)
+                    ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
+                    if ekind == "down" and ecode in _EV_ROT_CODE:
+                        # source/dest IP rotation: show old→new IPs in boxes (like the edge switch), tracking
+                        # the previous IP per link+axis. Falls back to no-detail when the core sends no IP.
+                        ip = _ev_ip(edet)
+                        axis = "src" if "src" in ecode else "dst"
+                        rk = lid + ":" + axis
+                        prev = _ev_state["rotip"].get(rk)
+                        if ip:
+                            _ev_state["rotip"][rk] = ip
+                        lvl, fa, en = _EV_ROT_CODE[ecode]
+                        if ip and prev and prev != ip:
+                            dfa, den = f"از: {prev}\nبه: {ip}", f"from: {prev}\nto: {ip}"
+                        elif ip:
+                            dfa, den = f"به: {ip}", f"to: {ip}"
+                        else:
+                            dfa, den = "", ""
+                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", f"Tunnel “{nm}”: {en}", dfa, den)
+                        continue
+                    txt = _ev_core_text(ekind, ecode, edet, nm)
                     if txt:
                         log_event(*txt)
                 _ev_state["evseq"][lid] = max(last, mx)
@@ -4804,6 +4830,8 @@ def _events_once():
         _ev_state["edge"].pop(lid, None)
     for lid in [k for k in _ev_state["evseq"] if k not in seen]:
         _ev_state["evseq"].pop(lid, None)
+    for rk in [k for k in _ev_state["rotip"] if k.rsplit(":", 1)[0] not in seen]:
+        _ev_state["rotip"].pop(rk, None)
 
     _ev_state["init"] = True
 
@@ -5423,11 +5451,18 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .sub{color:var(--sub);font-size:12.5px;margin:0 2px 16px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .card{position:relative;overflow:hidden;border-radius:15px;padding:14px;margin-bottom:11px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
-.card[data-rid]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}  /* draggable surface: a long-press means "grab", never native text-selection (which would fire pointercancel and kill the drag) */
-.card.rpress{transform:scale(.976);transition:transform .12s ease}  /* "holding…" cue while the long-press arms */
 .card.rdrag{z-index:60;overflow:visible;cursor:grabbing;box-shadow:0 20px 44px -14px rgba(20,40,90,.5);border-color:color-mix(in srgb,var(--acc) 45%,transparent);opacity:.98;transition:none}
-body.rdragging{cursor:grabbing;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+body.rdragging{cursor:grabbing;-webkit-user-select:none;user-select:none}
 body.rdragging .card:not(.rdrag){transition:transform .12s ease}
+/* explicit reorder mode: a grip appears on each card and ONLY the grip drags (touch-action:none), so
+   normal tap / scroll / text-copy keep working everywhere else. Toggled from the toolbar button. */
+.rgrip{display:none}
+body.reord-on .rgrip{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:27px;height:27px;border-radius:8px;color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent);cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;margin-inline-end:2px}
+body.reord-on.rdragging .rgrip{cursor:grabbing}
+body.reord-on .card[data-rid]{border-color:color-mix(in srgb,var(--acc) 32%,transparent)}
+.reordbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--sub);cursor:pointer;padding:0}
+.reordbtn svg{width:19px;height:19px}
+body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparent}
 .grid .card{margin-bottom:0}
 /* accordion tunnel/core cards */
 .card.acc{padding:0}
@@ -5755,7 +5790,8 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 #nodeList>.card.node>.msg,#linkList>.card>.msg{margin-top:0;min-height:0}   /* collapse the trailing status line when empty so cards aren't padded out below the buttons */
 #nodeList>.card.node>.msg:not(:empty),#linkList>.card>.msg:not(:empty){margin-top:10px}  /* breathe only when a result actually shows */
 /* tunnel card: two node tiles (name + status pill + address) with ↔ between them, then a 2-col meta grid */
-.tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px}
+.tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px;direction:ltr}
+.tninfo>*{direction:rtl}   /* columns flow LTR so box B (b_name) sits on the RIGHT — same side as the header's a↔b; each box keeps its own RTL content */
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -5979,6 +6015,8 @@ body.dark .tag.core{color:#a78bfa}
 .enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
 /* two meta columns aligned EXACTLY under the two node boxes (same grid + hidden arrow as .tninfo) */
 .enmeta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:start;margin-top:11px;font-size:11.5px;color:var(--sub)}
+.tninfo + .enmeta{direction:ltr}
+.tninfo + .enmeta>*{direction:rtl}   /* meta columns follow the boxes' new LTR order (only the core/tunnel enmeta that directly follows a .tninfo; portfw's enmeta is left as-is) */
 .enmeta .emcol{min-width:0;display:flex;flex-direction:column;gap:4px}
 .enmeta .emcol>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .enmeta .emcol>div.wrap{white-space:normal;overflow:visible}
@@ -6092,7 +6130,7 @@ var I18N={fa:{
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -6133,7 +6171,7 @@ var I18N={fa:{
  uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
  tun_sub:"Every node-to-node link is separate — check, edit and delete each independently",add_tunnel:"Add tunnel",check_all:"Check all links",
  tun_search:"Search node name / type / ID…",tun_empty:"No links yet — use the \\"Add tunnel\\" button above.",
- st_off:"Off",st_half:"Partial",st_disc:"Down",reorder_err:"Failed to save order",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
+ st_off:"Off",st_half:"Partial",st_disc:"Down",reorder_err:"Failed to save order",reord_t:"Reorder cards",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
  subnet:"Subnet",tid:"ID",iface:"Interface",ttype:"Type",udp_port:"UDP port",enc:"Encryption",encrypted:"Encrypted",total:"Total",
  no_live_side:"No live data from this end",tun_off_note:"This tunnel is off — the interface is down. Toggle it above to bring it back up.",
  turned_on:"Turned on",turned_off:"Turned off",
@@ -6814,7 +6852,8 @@ function toast(msg,kind){var t=document.createElement('div');t.className='toast 
  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove()},320)},3400)}
 
 // ===== pagination + search =====
-function toolbar(kind,ph){return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')"></div>'}
+function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
+ return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')">'+rb+'</div>'}
 function pagerBottom(kind){return '<div class="pager" id="pgb_'+kind+'"></div>'}
 function renderPager(kind){var total=TOT[kind]||0,pages=Math.max(1,Math.ceil(total/LIM)),cur=Math.min(PG[kind]+1,pages);
  var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">'+esc(T('prev'))+'</button><span class="pinfo">'+esc(T('page'))+' '+cur+' '+esc(T('of'))+' '+pages+' · '+total+' '+esc(T('items'))+'</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">'+esc(T('next'))+'</button>';
@@ -7134,7 +7173,7 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">'+esc(T('online'))+'</span>':(n.pending?'<span class="badge na">'+esc(T('pending_check'))+'</span>':'<span class="badge bad">'+esc(T('offline'))+'</span>');
- var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
+ var head='<div class="nrow">'+grip()+'<span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node" data-rid="'+esc(n.id)+'" data-rk="nodes">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
@@ -7233,7 +7272,7 @@ function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc
 function accHead(l,isCore){var on=l.enabled!==false;
  var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
- return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+
+ return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+grip()+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
   '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
    '<span class="hpeers" dir="ltr">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
@@ -7391,39 +7430,30 @@ function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' 
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
-// ===== drag-to-reorder cards (long-press -> live swap with neighbour -> persist server-side) =====
-// A card carries data-rid (its id) + data-rk (nodes|core|tunnels). Long-press arms; a real move before the
-// hold fires is a scroll, so we disarm. Once dragging, the live refresh is paused (RORD/RSAVE guards) so
-// innerHTML never rebuilds under the finger, and each neighbour the card passes is swapped in the DOM and
-// recorded; on release the recorded pairwise swaps are POSTed in order (backend swaps them in the array).
-var RARM=null;   // armed long-press, before it becomes a drag
-var RHOLD=400;   // ms to hold before a card lifts for dragging (deliberate, but snappy enough to feel reliable)
-var RSLOP=18;    // px of finger travel allowed during the hold: below this is jitter (keep armed), above is a scroll (cancel).
-                 // 9px was too tight — natural touch tremor over the hold window would silently cancel the arm ("won't catch").
-function reordInteractive(t){return t.closest&&t.closest('button,a,input,select,textarea,label,.tsw,.tglsw,.act,.ss,.pill,.stepper')}
+// ===== reorder cards: explicit "reorder mode" (toolbar toggle) + drag by the grip handle =====
+// Long-press was dropped — it fought text-select/copy and scroll ("hold to copy" kept triggering a drag).
+// Now the user taps the reorder toggle in the toolbar; each card shows a grip (touch-action:none) and
+// dragging THAT live-swaps with the neighbour and persists server-side. Outside reorder mode nothing here
+// fires, so tap / scroll / copy behave normally. touch-action:none on the grip = no scroll-race, reliable drag.
+var REORDMODE=false;
+function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);}
+function gripSvg(){return '<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="7" cy="4.5" r="1.5"/><circle cx="13" cy="4.5" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="7" cy="15.5" r="1.5"/><circle cx="13" cy="15.5" r="1.5"/></svg>'}
+function grip(){return '<span class="rgrip" onclick="event.stopPropagation()" title="'+esc(T('reord_t'))+'">'+gripSvg()+'</span>'}
 function reordDown(e){
- if(RORD||RSAVE||editingId)return;
+ if(RORD||RSAVE||!REORDMODE)return;
  if(e.isPrimary===false)return;
  if(e.pointerType==='mouse'&&e.button!==0)return;
- var t=e.target;var card=t.closest?t.closest('.card[data-rid]'):null;
- if(!card||reordInteractive(t))return;
+ var g=e.target.closest?e.target.closest('.rgrip'):null;if(!g)return;   // drag ONLY from the grip handle
+ var card=g.closest('.card[data-rid]');if(!card)return;
  var box=card.parentNode;if(!box)return;
- reordDisarm();
- RARM={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),
-       x:e.clientX,y:e.clientY,pid:e.pointerId,timer:setTimeout(reordStart,RHOLD)};
- card.classList.add('rpress');   // instant "holding…" cue so the user knows the press registered
-}
-function reordDisarm(){if(RARM){clearTimeout(RARM.timer);if(RARM.card)RARM.card.classList.remove('rpress');RARM=null}}
-function reordStart(){
- if(!RARM)return;var a=RARM;RARM=null;
- a.card.classList.remove('rpress');
- RORD={card:a.card,box:a.box,id:a.id,kind:a.kind,pid:a.pid,grabY:a.y,lastY:a.y,swaps:[]};
- try{a.card.setPointerCapture(a.pid)}catch(_){}
- a.card.classList.add('rdrag');document.body.classList.add('rdragging');
- if(navigator.vibrate){try{navigator.vibrate(15)}catch(_){}}
+ if(e.cancelable)e.preventDefault();
+ RORD={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),pid:e.pointerId,grabY:e.clientY,lastY:e.clientY,swaps:[]};
+ try{card.setPointerCapture(e.pointerId)}catch(_){}
+ card.classList.add('rdrag');document.body.classList.add('rdragging');
+ if(navigator.vibrate){try{navigator.vibrate(10)}catch(_){}}
 }
 function reordMove(e){
- if(!RORD){if(RARM&&(Math.abs(e.clientY-RARM.y)>RSLOP||Math.abs(e.clientX-RARM.x)>RSLOP))reordDisarm();return}
+ if(!RORD)return;
  if(e.cancelable)e.preventDefault();
  RORD.lastY=e.clientY;var c=RORD.card;
  c.style.transform='translateY('+(e.clientY-RORD.grabY)+'px)';
@@ -7443,13 +7473,10 @@ function reordShift(nb,up){
  if(dy){nb.style.transition='none';nb.style.transform='translateY('+dy+'px)';void nb.offsetHeight;nb.style.transition='';nb.style.transform=''}
  RORD.swaps.push(nb.getAttribute('data-rid'));
 }
-function reordEatClick(ev){ev.stopPropagation();ev.preventDefault();document.removeEventListener('click',reordEatClick,true)}
 function reordEnd(){
- reordDisarm();if(!RORD)return;var d=RORD;RORD=null;
+ if(!RORD)return;var d=RORD;RORD=null;
  try{d.card.releasePointerCapture(d.pid)}catch(_){}
  d.card.classList.remove('rdrag');d.card.style.transform='';document.body.classList.remove('rdragging');
- document.addEventListener('click',reordEatClick,true);        // swallow the tap-release click (accordion expand)
- setTimeout(function(){document.removeEventListener('click',reordEatClick,true)},350);
  if(d.swaps.length)reordPersist(d.kind,d.id,d.swaps);
 }
 async function reordPersist(kind,id,swaps){
@@ -8141,8 +8168,8 @@ function pfCard(p,i){var h=p.health||{};
  var lip=p.listen_ip||p.node_ip||'';   // effective listen IP: the pin (multi-IP) or the node's sole IP (single-IP)
  var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
  var key=p.node_id+p.name,open=!!TOPEN[key];
- var route='<b class="mono" style="color:var(--sub)">'+esc(p.listen_port)+' ↔ '+esc(p.dst_port)+'</b>';   // collapsed-row hint: distinguishes several forwards on the same node
- var head='<div class="chead" onclick="cardTogFromEl(this)"><div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span><span class="hpeers" dir="ltr">'+rotchip+route+st+'</span></div></div>'+CHEVI+'</div>';
+ var route='<b class="mono" dir="ltr" style="color:var(--sub);font-size:12px">'+esc(p.listen_port)+' ↔ '+esc(p.dst_port)+'</b>';   // ports, right after the portfw tag (distinguishes several forwards on one node)
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span>'+route+'<span class="hpeers" dir="ltr">'+rotchip+st+'</span></div></div>'+CHEVI+'</div>';
  var live=(multi&&h.active)?'<div class="wrap">'+esc(T('pf_active_now'))+'<b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="enmeta"><div class="emcol">'+
    '<div>'+esc(T('pf_iface'))+'<b class="mono">'+esc(p.iface)+'</b></div>'+
@@ -8355,8 +8382,9 @@ var LOGEVS=[],LOGFILTER='all';
 function logChipsHTML(){
  var c={all:LOGEVS.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
  LOGEVS.forEach(function(e){c[logCat(e)]++;if(e.level=='bad')c.err++;});
+ if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';   // an emptied category (e.g. «فقط خطاها» at 0) can't stay active — fall back to «همه»
  var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
- return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||o[0]=='err'||c[o[0]]>0||LOGFILTER==o[0]}).map(function(o){var k=o[0];
+ return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   // «فقط خطاها» now hides at 0 just like every other category
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 // The filtered list. Each card carries a colored category badge before the title.
 function logListHTML(){
@@ -8370,7 +8398,7 @@ function logListHTML(){
      '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
      '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
        '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
-       '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="lcat lcat-'+cat+'">'+esc(T('logc_'+cat))+'</span><span dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</span></div>'+((e.kind=='edge'&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
+       '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="lcat lcat-'+cat+'">'+esc(T('logc_'+cat))+'</span><span dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</span></div>'+(((e.kind=='edge'||e.kind=='rot')&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
        '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';}).join('');}
 // Only toggle the active class on the existing chips (do NOT rebuild the row) — rebuilding resets the
