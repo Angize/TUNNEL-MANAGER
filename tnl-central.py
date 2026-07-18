@@ -1283,6 +1283,7 @@ def _redact_proxy(proxy):
 def _node_view(n):
     _uw = get_settings().get("uptime_window", 1)
     base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": _redact_proxy(n.get("proxy")),
+            "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
             "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -1309,6 +1310,8 @@ def api_node_names(d):
     q = str(d.get("q") or "").strip().lower()
     out = []
     for n in load_nodes():
+        if n.get("disabled"):   # operator hid this node from the create-tunnel/portfw pickers
+            continue
         if q and q not in n["name"].lower() and q not in n["host"].lower():
             continue
         p = _cached_ping(n["id"])
@@ -1950,6 +1953,25 @@ def api_node_edit(d):
     p = node_call(n, "ping", "GET")
     _refresh_cache([d["id"]])
     return {"ok": True, "online": bool(p.get("ok")), "error": "" if p.get("ok") else p.get("error", "unreachable")}
+
+
+def api_node_toggle(d):
+    # Hide/show a node in the create-tunnel & port-forward pickers. This is ONLY a display flag — it never
+    # touches the node, its tunnels or its connection (api_node_names filters on it; the node stays polled
+    # and listed on the Nodes page). Clean toggle: the key is dropped entirely when re-enabled.
+    _require(d, ["id"])
+    want = bool(d.get("disabled"))
+    with _reg_lock:
+        nodes = load_nodes()
+        n = next((x for x in nodes if x["id"] == d["id"]), None)
+        if not n:
+            raise ValueError("node not found")
+        if want:
+            n["disabled"] = True
+        else:
+            n.pop("disabled", None)
+        save_json(NODES_FILE, nodes)
+    return {"ok": True, "disabled": want}
 
 
 def api_node_del(d):
@@ -5167,7 +5189,7 @@ API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
     "spoof-probe": api_spoof_probe,
     "settings": api_settings, "settings-set": api_settings_set,
-    "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del,
+    "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-stats": api_node_stats,
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
@@ -5187,7 +5209,7 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
     "reorder": api_reorder,
 }
-MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
+MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -6126,7 +6148,7 @@ var I18N={fa:{
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
  nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
  tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",
- nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",
+ nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
  uptime_bar:"آپتایم",node_min2:"حداقل ۲ نودِ آنلاین لازم است",
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
@@ -6168,7 +6190,7 @@ var I18N={fa:{
  nodes_sub:"Add nodes and watch them live",add_node:"Add node",nodes_fleet:"Fleet nodes",nodes_search:"Search name or IP…",
  nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",
  tip_test:"Test",tip_details:"Details",tip_edit:"Edit",tip_delete:"Delete",
- nd_tunnels:"Tunnels",nd_portfw:"Port-forward",nd_agent:"agent",nd_core:"core",nd_core_missing:"not installed",nd_ctrlproxy:"Control proxy",
+ nd_tunnels:"Tunnels",nd_portfw:"Port-forward",nd_agent:"agent",nd_core:"core",nd_core_missing:"not installed",nd_ctrlproxy:"Control proxy",nd_toggle:"Show/hide in the create-tunnel & port-forward pickers (does not disconnect)",nd_hidden:"Hidden from creation lists",nd_shown:"Back in creation lists",
  uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
  tun_sub:"Every node-to-node link is separate — check, edit and delete each independently",add_tunnel:"Add tunnel",check_all:"Check all links",
  tun_search:"Search node name / type / ID…",tun_empty:"No links yet — use the \\"Add tunnel\\" button above.",
@@ -6889,9 +6911,9 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
 function skb(w,h,r){return '<span class="sk" style="width:'+w+';height:'+(h||12)+'px'+(r!=null?';border-radius:'+r+'px':'')+'"></span>'}
 function skAct(){return '<span class="sk" style="width:37px;height:33px;border-radius:11px"></span>'}
 function skNodeCard(){return '<div class="card node acc"><div class="chead">'+   // collapsed node accordion header
+  '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
+  '<span class="grow"></span><div class="hmain" style="gap:6px;min-width:0;flex:0 0 auto">'+skb('90px',14)+skb('150px',11)+'</div>'+
   '<span class="sk" style="width:10px;height:10px;border-radius:50%;flex:0 0 auto"></span>'+
-  '<div class="hmain" style="gap:6px;min-width:0">'+skb('46%',14)+skb('64%',11)+'</div>'+
-  skb('56px',21,10)+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
 function skAccCard(core){return '<div class="card acc"><div class="chead">'+   // exact collapsed accordion header
   '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
@@ -7171,12 +7193,19 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
  var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(T('pf_listen_port'))+'</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(T('pf_dst_port'))+'</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem_'+i+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function nodeCard(n){var i=n.info||{};
- var badge=n.online?'<span class="badge ok">'+esc(T('online'))+'</span>':(n.pending?'<span class="badge na">'+esc(T('pending_check'))+'</span>':'<span class="badge bad">'+esc(T('offline'))+'</span>');
  var key=n.id,open=!!TOPEN[key];
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<span class="ndot '+(n.online?'on':'off')+'"></span><div class="hmain" style="gap:2px;min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+badge+CHEVI+'</div>';
+ var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
+ var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — replaces the old آنلاین text badge
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node acc'+(open?' open':'')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+ return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
+ var dis=!(n.disabled===true);n.disabled=dis;
+ var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
+ var r=await post('node-toggle',{id:id,disabled:dis});
+ if(!(r.ok&&r.d.ok)){n.disabled=!dis;if(c){var s2=c.querySelector('.tsw');if(s2)s2.classList.toggle('on',dis);c.classList.toggle('off',!dis)}toast(T('failed'),'err')}
+ else{toast(dis?T('nd_hidden'):T('nd_shown'),'ok')}}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
  var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  // TIME-WEIGHTED % from the server (a 5s blip != a whole red cell)
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
