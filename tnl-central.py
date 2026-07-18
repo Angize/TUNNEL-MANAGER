@@ -3417,6 +3417,33 @@ def api_delete_link(d):
         return {"ok": True}
 
 
+def api_reorder(d):
+    # Manual card ordering: swap two items' positions in the persisted array. api_fleet/api_nodes
+    # iterate the array in-order and paginate over it, so a raw array swap moves the two cards in
+    # every browser, permanently — no extra "ord" field, no migration. The client sends a card id
+    # and its visible neighbour (up/down), which are adjacent in the shown list, so the swap is exact.
+    _require(d, ["kind", "id", "target"])
+    kind = d["kind"]
+    if kind == "nodes":
+        path, loader = NODES_FILE, load_nodes
+    elif kind in ("core", "tunnels"):
+        path, loader = LINKS_FILE, load_links
+    else:
+        raise ValueError("bad kind")
+    aid, bid = str(d["id"]), str(d["target"])
+    if aid == bid:
+        return {"ok": True}
+    with _reg_lock:  # same RMW lock as every other nodes.json / links.json write
+        items = loader()
+        pos = {str(it.get("id")): i for i, it in enumerate(items)}
+        if aid not in pos or bid not in pos:
+            raise ValueError("item not found")
+        i, jx = pos[aid], pos[bid]
+        items[i], items[jx] = items[jx], items[i]
+        save_json(path, items)
+    return {"ok": True}
+
+
 def _restore_link(A, B, L, extra=None):
     """Best-effort rebuild of the OLD tunnel on both sides (roll back a failed edit/rebuild). NEVER
     raises — a restore failure must not mask the real error or leave the tunnel down. `extra` may be
@@ -5077,12 +5104,14 @@ API = {
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-update": api_core_update,
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
+    "reorder": api_reorder,
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push"}
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
+             "reorder"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -5341,6 +5370,10 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .sub{color:var(--sub);font-size:12.5px;margin:0 2px 16px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .card{position:relative;overflow:hidden;border-radius:15px;padding:14px;margin-bottom:11px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
+.card[data-rid]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}  /* draggable surface: a long-press means "grab", never native text-selection (which would fire pointercancel and kill the drag) */
+.card.rdrag{z-index:60;overflow:visible;cursor:grabbing;box-shadow:0 20px 44px -14px rgba(20,40,90,.5);border-color:color-mix(in srgb,var(--acc) 45%,transparent);opacity:.98;transition:none}
+body.rdragging{cursor:grabbing;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+body.rdragging .card:not(.rdrag){transition:transform .12s ease}
 .grid .card{margin-bottom:0}
 /* accordion tunnel/core cards */
 .card.acc{padding:0}
@@ -5886,7 +5919,7 @@ body.dark .tag.core{color:#a78bfa}
 .eib.aim.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
 .tglbox.dis{opacity:.45;pointer-events:none}
-.rl{font-size:9px;font-weight:800;border-radius:5px;padding:1px 5px;letter-spacing:.2px;flex:0 0 auto}
+.rl{font-size:8px;font-weight:800;border-radius:5px;padding:1px 4px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:var(--accw)}
 .rl.cli{color:var(--gold);background:var(--goldw)}
 .enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
@@ -5916,6 +5949,9 @@ body.dark .tag.core{color:#a78bfa}
 .stat{margin-inline-start:auto;display:inline-flex;align-items:center;gap:5px}
 .cprot{display:inline-flex;align-items:center;flex:0 0 auto;margin-inline-start:auto}
 .cprot + .stat{margin-inline-start:0}
+.cprot:empty{display:none}
+.tnend{margin-inline-start:auto;display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
+.tnend .stat,.tnend .cprot{margin-inline-start:0}
 .cprot .rotmark{display:inline-flex;color:var(--acc);cursor:help}
 .cprot .rotmark .ic{width:13px;height:13px}
 .sdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
@@ -6002,7 +6038,7 @@ var I18N={fa:{
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -6043,7 +6079,7 @@ var I18N={fa:{
  uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
  tun_sub:"Every node-to-node link is separate — check, edit and delete each independently",add_tunnel:"Add tunnel",check_all:"Check all links",
  tun_search:"Search node name / type / ID…",tun_empty:"No links yet — use the \\"Add tunnel\\" button above.",
- st_off:"Off",st_half:"Partial",st_disc:"Down",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
+ st_off:"Off",st_half:"Partial",st_disc:"Down",reorder_err:"Failed to save order",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
  subnet:"Subnet",tid:"ID",iface:"Interface",ttype:"Type",udp_port:"UDP port",enc:"Encryption",encrypted:"Encrypted",total:"Total",
  no_live_side:"No live data from this end",tun_off_note:"This tunnel is off — the interface is down. Toggle it above to bring it back up.",
  turned_on:"Turned on",turned_off:"Turned off",
@@ -6658,7 +6694,7 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={};   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker)
+var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 function CORE_CIPHERS(){return [{v:'auto',label:T('cipher_auto')},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:T('cipher_none')}]}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
@@ -6964,7 +7000,7 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  // seed step 0 as revealed+running so the reveal continues seamlessly from the skeleton (no flicker back to the banner)
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
-async function refreshNodes(){if(editingId)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
+async function refreshNodes(){if(editingId||RORD||RSAVE)return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box)return;
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
 function proxyScheme(p){if(!p)return '';var i=p.indexOf('://');return (i>0?p.slice(0,i):'socks5').toLowerCase()}
@@ -7046,9 +7082,9 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
 function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">'+esc(T('online'))+'</span>':(n.pending?'<span class="badge na">'+esc(T('pending_check'))+'</span>':'<span class="badge bad">'+esc(T('offline'))+'</span>');
  var head='<div class="nrow"><span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
- var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+(n.proxy?'<span class="nchip">'+ic('shield')+'<b>'+esc(proxyScheme(n.proxy))+'</b></span>':'')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
+ var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
+ return '<div class="card node" data-rid="'+esc(n.id)+'" data-rk="nodes">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
  var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  // TIME-WEIGHTED % from the server (a 5s blip != a whole red cell)
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
@@ -7107,7 +7143,7 @@ function sideState(online,h){  // k: dot color class, w: the word to show ONLY w
  if(!online||!h)return {k:'bad',w:T('st_disc')};
  if(h.up==null)return {k:'na',w:'…'};
  if(!h.up)return {k:'bad',w:T('st_disc')};
- if(h.peer_ping===false)return {k:'warn',w:T('st_half')};
+ if(h.peer_ping===false)return {k:'warn',w:''};   // half-open -> the gold dot alone says it; no word
  return {k:'ok',w:''}}   // connected -> clean, just the green dot
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
  return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="'+esc(T('tst_connected'))+'"')+'></span>'}
@@ -7153,7 +7189,7 @@ function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic(
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">'+esc(T('no_live_side'))+'</span>';
  return '<div class="ltraf">'+rates+'<span class="tot">'+esc(T('total'))+' '+tot+'</span></div>'}
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
- return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+'" id="c_'+l.id+'">'+accHead(l,isCore)+
+ return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkCard(l){
  var body='<div class="tninfo">'+
@@ -7167,7 +7203,7 @@ function linkCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,false,drift+body+accBodyTraf(l)+acts+msg)}
-async function refreshTunnels(){if(editingId||CHECKING)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
+async function refreshTunnels(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
  if(!type){m.className='msg err';m.textContent=T('tun_type');return}
@@ -7299,8 +7335,77 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
 function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('nav_core'))+'</h1><p class="sub">'+esc(T('core_sub'))+'</p>'+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
-async function refreshCore(){if(editingId||CHECKING)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
+async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
+// ===== drag-to-reorder cards (long-press -> live swap with neighbour -> persist server-side) =====
+// A card carries data-rid (its id) + data-rk (nodes|core|tunnels). Long-press arms; a real move before the
+// hold fires is a scroll, so we disarm. Once dragging, the live refresh is paused (RORD/RSAVE guards) so
+// innerHTML never rebuilds under the finger, and each neighbour the card passes is swapped in the DOM and
+// recorded; on release the recorded pairwise swaps are POSTed in order (backend swaps them in the array).
+var RARM=null;   // armed long-press, before it becomes a drag
+var RHOLD=600;   // ms to hold before a card lifts for dragging
+function reordInteractive(t){return t.closest&&t.closest('button,a,input,select,textarea,label,.tsw,.tglsw,.act,.ss,.pill,.stepper')}
+function reordDown(e){
+ if(RORD||RSAVE||editingId)return;
+ if(e.isPrimary===false)return;
+ if(e.pointerType==='mouse'&&e.button!==0)return;
+ var t=e.target;var card=t.closest?t.closest('.card[data-rid]'):null;
+ if(!card||reordInteractive(t))return;
+ var box=card.parentNode;if(!box)return;
+ reordDisarm();
+ RARM={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),
+       x:e.clientX,y:e.clientY,pid:e.pointerId,timer:setTimeout(reordStart,RHOLD)};
+}
+function reordDisarm(){if(RARM){clearTimeout(RARM.timer);RARM=null}}
+function reordStart(){
+ if(!RARM)return;var a=RARM;RARM=null;
+ RORD={card:a.card,box:a.box,id:a.id,kind:a.kind,pid:a.pid,grabY:a.y,lastY:a.y,swaps:[]};
+ try{a.card.setPointerCapture(a.pid)}catch(_){}
+ a.card.classList.add('rdrag');document.body.classList.add('rdragging');
+ if(navigator.vibrate){try{navigator.vibrate(15)}catch(_){}}
+}
+function reordMove(e){
+ if(!RORD){if(RARM&&(Math.abs(e.clientY-RARM.y)>9||Math.abs(e.clientX-RARM.x)>9))reordDisarm();return}
+ if(e.cancelable)e.preventDefault();
+ RORD.lastY=e.clientY;var c=RORD.card;
+ c.style.transform='translateY('+(e.clientY-RORD.grabY)+'px)';
+ var cr=c.getBoundingClientRect(),cy=cr.top+cr.height/2;
+ var p=c.previousElementSibling;
+ if(p&&p.getAttribute&&p.getAttribute('data-rid')&&p.getAttribute('data-rk')===RORD.kind&&cy<p.getBoundingClientRect().top+p.getBoundingClientRect().height/2){reordShift(p,true);return}
+ var n=c.nextElementSibling;
+ if(n&&n.getAttribute&&n.getAttribute('data-rid')&&n.getAttribute('data-rk')===RORD.kind&&cy>n.getBoundingClientRect().top+n.getBoundingClientRect().height/2){reordShift(n,false);return}
+}
+function reordShift(nb,up){
+ var c=RORD.card;
+ var cBefore=c.getBoundingClientRect().top,nBefore=nb.getBoundingClientRect().top;
+ if(up)RORD.box.insertBefore(c,nb);else RORD.box.insertBefore(nb,c);
+ RORD.grabY+=(c.getBoundingClientRect().top-cBefore);          // keep the card pinned under the finger
+ c.style.transform='translateY('+(RORD.lastY-RORD.grabY)+'px)';
+ var dy=nBefore-nb.getBoundingClientRect().top;                 // FLIP the neighbour so it glides, not jumps
+ if(dy){nb.style.transition='none';nb.style.transform='translateY('+dy+'px)';void nb.offsetHeight;nb.style.transition='';nb.style.transform=''}
+ RORD.swaps.push(nb.getAttribute('data-rid'));
+}
+function reordEatClick(ev){ev.stopPropagation();ev.preventDefault();document.removeEventListener('click',reordEatClick,true)}
+function reordEnd(){
+ reordDisarm();if(!RORD)return;var d=RORD;RORD=null;
+ try{d.card.releasePointerCapture(d.pid)}catch(_){}
+ d.card.classList.remove('rdrag');d.card.style.transform='';document.body.classList.remove('rdragging');
+ document.addEventListener('click',reordEatClick,true);        // swallow the tap-release click (accordion expand)
+ setTimeout(function(){document.removeEventListener('click',reordEatClick,true)},350);
+ if(d.swaps.length)reordPersist(d.kind,d.id,d.swaps);
+}
+async function reordPersist(kind,id,swaps){
+ RSAVE=true;
+ try{for(var i=0;i<swaps.length;i++){var r=await post('reorder',{kind:kind,id:id,target:swaps[i]});if(!r.ok||!r.d.ok){toast((r.d&&r.d.error)||T('reorder_err'),'err');break}}}
+ catch(_){toast(T('reorder_err'),'err')}
+ RSAVE=false;
+ if(kind==='nodes')refreshNodes();else if(kind==='core')refreshCore();else refreshTunnels();
+}
+document.addEventListener('pointerdown',reordDown,true);
+document.addEventListener('pointermove',reordMove,true);
+document.addEventListener('pointerup',reordEnd,true);
+document.addEventListener('pointercancel',reordEnd,true);
+document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
  var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?('xHTTP·'+((l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet')):(l.ws_tls?'WSS':'WS')):'UDP';
@@ -7343,9 +7448,9 @@ function coreCard(l){
  var _aip=_aA||_pa.ip||l.a_ip,_bip=_aB||_pb.ip||l.b_ip;
  var _arot=(l.a_ip_rot||_pa.rot)?rotMark():'',_brot=(l.b_ip_rot||_pb.rot)?rotMark():'';
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="cprot" id="cprot_a_'+l.id+'">'+_arot+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(_aip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="tnend"><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="cprot" id="cprot_a_'+l.id+'">'+_arot+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(_aip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="cprot" id="cprot_b_'+l.id+'">'+_brot+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(_bip)+'</div></div>'+
+  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="tnend"><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="cprot" id="cprot_b_'+l.id+'">'+_brot+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(_bip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
