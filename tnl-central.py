@@ -181,8 +181,6 @@ _TUNING_DEFAULTS = {
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
-    # دستهٔ ۳ — چرخش (Rotation)
-    "flux_rotate_default_secs": 600,
 }
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400), "pin_ttl_secs": (1, 3600),
@@ -190,7 +188,7 @@ _TUNING_RANGES = {
     "idle_mult": (1, 100), "idle_min_secs": (1, 86400),
     "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
-    "probe_timeout_secs": (1, 120), "flux_rotate_default_secs": (1, 86400),
+    "probe_timeout_secs": (1, 120),
 }
 
 
@@ -6286,13 +6284,11 @@ var I18N={fa:{
  set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"این‌قدر keepalive بی‌پاسخ → بستنِ اتصال",
  set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"سشنِ کوتاه‌تر از این = خرابیِ داده‌ای علیهِ آن IP",
  set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"سقفِ زمانِ یک پروبِ TCP+TLS",
- set_t_fluxrot:"چرخشِ پیش‌فرضِ flux (ثانیه)",set_t_fluxrot_d:"طولِ epochِ flux وقتی per-tunnel تنظیم نشده",
  set_g1:"۱) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
  set_g2:"۲) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
  set_g3:"۳) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
  set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
  set_g5:"۵) تشخیصِ مرگِ دیتاگرام",set_g5h:"بی‌هندشیک",set_g5c:"udp / raw / flux",
- set_g6:"۶) چرخش",set_g6h:"الگوی حامل",set_g6c:"flux",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
  set_x_rec:"<b>۱۵</b> = هر ۱۵ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
  set_x_poll:"<b>۰٫۹</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
@@ -6311,7 +6307,6 @@ var I18N={fa:{
  set_x_pingloss:"<b>۳</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
  set_x_minlive:"<b>۲۰</b> = اتصال بعد از ۵ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
  set_x_probeto:"<b>۵</b> = لبه در ۵ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
- set_x_fluxrot:"<b>۶۰۰</b> = هر ۱۰ دقیقه یک epochِ جدید (شکلِ ترافیک عوض می‌شود).",
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
@@ -6386,13 +6381,11 @@ var I18N={fa:{
  set_t_pingloss:"Ping-loss threshold",set_t_pingloss_d:"This many unanswered keepalives → close the connection",
  set_t_minlive:"Min healthy session (secs)",set_t_minlive_d:"A session shorter than this is a data-plane fault against the IP",
  set_t_probeto:"Edge probe timeout (secs)",set_t_probeto_d:"Cap on a single TCP+TLS probe",
- set_t_fluxrot:"Flux default rotate (secs)",set_t_fluxrot_d:"Flux epoch length when not set per-tunnel",
  set_g1:"1) Panel timing",set_g1h:"runs on the central",set_g1c:"panel",
  set_g2:"2) Pool health & IP rotation",set_g2h:"client core",set_g2c:"both pools",
  set_g3:"3) WS-CDN edge burn",set_g3h:"ws/xhttp tunnels",set_g3c:"WS-CDN only",
  set_g4:"4) Stream dead-detection",set_g4h:"keepalive-based",set_g4c:"ws / tcp",
  set_g5:"5) Datagram dead-detection",set_g5h:"handshake-less",set_g5c:"udp / raw / flux",
- set_g6:"6) Rotation",set_g6h:"carrier shape",set_g6c:"flux",
  set_x_ipchange:"Germany node IP changed → “Alert” only flags it (you rebuild); “Auto” rebuilds it with the new IP.",
  set_x_rec:"<b>15</b> = a check every 15s; smaller = faster reaction, slightly more load.",
  set_x_poll:"<b>0.9</b> = node cards refresh ~every second; smaller = livelier but more polling.",
@@ -6411,7 +6404,6 @@ var I18N={fa:{
  set_x_pingloss:"<b>3</b> = three unanswered pings in a row → close & reconnect.",
  set_x_minlive:"<b>20</b> = a connection dying after 5s = IP fault, not a normal drop.",
  set_x_probeto:"<b>5</b> = edge didn't handshake within 5s → fail. (Direct carriers have no prober.)",
- set_x_fluxrot:"<b>600</b> = a new epoch every 10 min (traffic shape changes).",
  h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
  pending_check:"Checking…",off_word:"Off",on_word:"On",
 }});
@@ -6478,7 +6470,7 @@ var I18N={fa:{
  // ws / xhttp profiles
  wsp_ws_m:"وب‌سوکتِ استاندارد",wsp_xhttp_m:"GET/POST · دور زدنِ بلاکِ WS",xhm_packet_m:"چند POSTِ کوتاه · سازگارترین",xhm_grpc_m:"یک درخواستِ دوطرفه · رویِ CDN استریم",
  // flux rotation presets + shapes
- frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_300:"هر ۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
+ frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
  fsh_random_n:"تصادفی",fsh_random_m:"بدونِ تقلید",fsh_quic_m:"شبیهِ HTTP/3",fsh_video_n:"ویدیوکال",fsh_video_m:"بسته‌های بزرگ",fsh_webrtc_m:"RTPِ کوچک",
  // fec presets
  fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"۲۰٪ سربار",fec_ov30:"۳۰٪ سربار",fec_ov50:"۵۰٪ سربار",
@@ -6535,7 +6527,7 @@ var I18N={fa:{
  snr_192:"Auto · 192.168.x (recommended)",snr_10:"Auto · 10.x",snr_172:"Auto · 172.16.x",snr_custom:"Custom (enter manually)",
  rawp_best:"best",rawp_warn:"may not pass through NAT",rawp_bip_m:"custom proto · default 58",rawp_icmp_m:"proto 1 · ping-like",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · fake TCP",rawp_esp_m:"proto 50 · IPsec ESP",
  wsp_ws_m:"standard WebSocket",wsp_xhttp_m:"GET/POST · bypasses WS blocks",xhm_packet_m:"short POSTs · most compatible",xhm_grpc_m:"one bidi request · streams over CDN",
- frot_600:"Every 10 min (default)",frot_300:"Every 5 min",frot_1800:"Every 30 min",frot_3600:"Every 1 hour",
+ frot_180:"Every 3 min",frot_300:"Every 5 min",frot_600:"Every 10 min (default)",frot_900:"Every 15 min",frot_1800:"Every 30 min",frot_3600:"Every 1 hour",
  fsh_random_n:"Random",fsh_random_m:"no mimicry",fsh_quic_m:"HTTP/3-like",fsh_video_n:"Video call",fsh_video_m:"large packets",fsh_webrtc_m:"small RTP",
  fec_light:"Light",fec_balanced:"Balanced",fec_strong:"Strong",fec_ov20:"20% overhead",fec_ov30:"30% overhead",fec_ov50:"50% overhead",
  flux_carrier_lbl:"Flux carrier",flux_udp_best:"internet",flux_udp_m:"real UDP · rotating port",flux_stun_m:"STUN header · looks like a video call",flux_raw_warn:"same-segment / L2 only",flux_raw_m:"raw IP proto · L2 only",
@@ -7833,7 +7825,7 @@ function spoofApplyCap(idp,ok,html,offFn){var cap=el(idp+'cap');if(cap){cap.clas
  if(dr)dr.classList.toggle('dis',!ok);if(sr)sr.classList.toggle('dis',!ok);
  if(!ok&&offFn)offFn()}
 // ---- flux (polymorphic moving-target carrier) — shared markup + live epoch status.
-function FLUX_ROTS(){return [{v:'600',label:T('frot_600')},{v:'300',label:T('frot_300')},{v:'1800',label:T('frot_1800')},{v:'3600',label:T('frot_3600')}]}
+function FLUX_ROTS(){return [{v:'180',label:T('frot_180')},{v:'300',label:T('frot_300')},{v:'600',label:T('frot_600')},{v:'900',label:T('frot_900')},{v:'1800',label:T('frot_1800')},{v:'3600',label:T('frot_3600')}]}
 function FLUX_SHAPES(){return [{v:'random',n:T('fsh_random_n'),m:T('fsh_random_m')},{v:'quic',n:'QUIC',m:T('fsh_quic_m')},{v:'video',n:T('fsh_video_n'),m:T('fsh_video_m')},{v:'webrtc',n:'WebRTC',m:T('fsh_webrtc_m')}]}
 // FEC redundancy presets: data+parity, overhead label, and the max burst loss they repair.
 function FEC_RATES(){return [{d:10,p:2,n:T('fec_light'),ov:T('fec_ov20')},{d:10,p:3,n:T('fec_balanced'),ov:T('fec_ov30')},{d:8,p:4,n:T('fec_strong'),ov:T('fec_ov50')}]}
@@ -8519,7 +8511,7 @@ function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"
 function grp(tk,hk,ck,cls,rows){return '<div class="card setgrp '+cls+'"><div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span><small>'+T(hk)+'</small></div>'+rows+'</div>'}
 // Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
 // build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
-var _TUNDEF={suspect_backoff:[30,60,120,300,600],dead_retest_secs:1800,pin_ttl_secs:30,data_fail_threshold:2,data_good_window_secs:120,idle_mult:4,idle_min_secs:60,session_stale_mult:3,session_stale_min_secs:10,ping_loss_threshold:3,min_liveness_secs:20,probe_timeout_secs:5,flux_rotate_default_secs:600};
+var _TUNDEF={suspect_backoff:[30,60,120,300,600],dead_retest_secs:1800,pin_ttl_secs:30,data_fail_threshold:2,data_good_window_secs:120,idle_mult:4,idle_min_secs:60,session_stale_mult:3,session_stale_min_secs:10,ping_loss_threshold:3,min_liveness_secs:20,probe_timeout_secs:5};
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
 function tuningCard(s){
@@ -8541,12 +8533,10 @@ function tuningCard(s){
   grp('set_g5','set_g5h','set_g5c','sc-dgram',
     qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
     qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400)))+
-  grp('set_g6','set_g6h','set_g6c','sc-dgram',
-    qr(T('set_t_fluxrot'),'set_t_fluxrot_d','set_x_fluxrot',tNum('set_t_fluxrot',_tv(s,'flux_rotate_default_secs'),1,86400)))+
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
- var t={dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),flux_rotate_default_secs:parseInt(v('set_t_fluxrot'))};
+ var t={dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
