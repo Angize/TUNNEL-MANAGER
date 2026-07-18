@@ -5474,6 +5474,13 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
 .ctag.core{background:var(--accw);color:var(--acc)}
+.ctag.vxlan{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}
+.ctag.gre{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.ctag.sit{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}
+.ctag.ipip{color:#14b8a6;background:color-mix(in srgb,#14b8a6 14%,transparent)}
+.ctag.l2tpv3{color:#8b5cf6;background:color-mix(in srgb,#8b5cf6 14%,transparent)}
+.ctag.fou{color:#ec4899;background:color-mix(in srgb,#ec4899 14%,transparent)}
+.ctag.ipsec{color:#f43f5e;background:color-mix(in srgb,#f43f5e 13%,transparent)}
 .hpeers{margin-inline-start:auto;display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;white-space:nowrap;color:var(--tx)}
 .chev{width:16px;height:16px;color:var(--sub);transition:transform .2s;flex:0 0 auto}
 .card.open .chev{transform:rotate(180deg)}
@@ -5525,7 +5532,6 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--bord);border-ra
 input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
 .edit{margin-top:13px;padding:13px;border-radius:13px;background:var(--field);border:1px solid var(--bord)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
-.ipsec{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--tx);font-size:13px;margin:16px 2px 8px}
 .primary{margin-top:18px;background:var(--acc);color:#fff;border:0;font-weight:800;padding:12px 18px;border-radius:12px;cursor:pointer;font-family:inherit;box-shadow:0 9px 20px -11px color-mix(in srgb,var(--acc) 70%,transparent)}
 .primary:active{transform:scale(.98)}
 .ghost{margin-top:18px;margin-inline-start:8px;background:var(--glass);border:1px solid var(--bord);color:var(--sub);padding:12px 16px;border-radius:14px;cursor:pointer;font-family:inherit}
@@ -7264,7 +7270,7 @@ function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
 function accHead(l,isCore){var on=l.enabled!==false;
- var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag">'+esc((l.type||'').toUpperCase())+'</span>';
+ var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+grip()+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
