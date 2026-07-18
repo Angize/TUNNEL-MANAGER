@@ -4811,6 +4811,12 @@ def _events_once():
                 _ev_state["evseq"][lid] = mx
             else:
                 last = _ev_state["evseq"].get(lid, 0)
+                # The core's event seq restarts at 0 on every (re)start (rebuild / auto-reconcile / core
+                # update / crash). Once mx has fallen BELOW our high-water, the core restarted: the stale
+                # high-water would then skip every post-restart event forever (rotations stop logging). Re-
+                # baseline from 0 so the fresh ring's events are logged again.
+                if mx < last:
+                    last = 0
                 for sq, e in sorted(clean, key=lambda x: x[0]):
                     if sq <= last:
                         continue
