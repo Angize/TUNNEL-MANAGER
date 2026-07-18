@@ -45,6 +45,7 @@ LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
 TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
 SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable panel settings (reconcile mode, intervals, …)
 UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")     # persisted per-minute up/down history so the bar survives restarts
+PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")  # operator's manual card order for port-forwards (list of node_id+name keys)
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")          # the node-agent source the operator uploaded, pushed to nodes
 AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")   # {version, sha256, size, uploaded_ts}
 CORE_BLOB = os.path.join(CENTRAL_DIR, "core.bin")        # a custom core binary the operator uploaded, pushed to nodes
@@ -3418,21 +3419,24 @@ def api_delete_link(d):
 
 
 def api_reorder(d):
-    # Manual card ordering: swap two items' positions in the persisted array. api_fleet/api_nodes
-    # iterate the array in-order and paginate over it, so a raw array swap moves the two cards in
-    # every browser, permanently — no extra "ord" field, no migration. The client sends a card id
-    # and its visible neighbour (up/down), which are adjacent in the shown list, so the swap is exact.
+    # Manual card ordering. For nodes/core/tunnels we swap the two items' positions in the persisted
+    # array (api_fleet/api_nodes iterate it in-order and paginate, so a raw swap moves the cards in every
+    # browser, permanently — no extra "ord" field, no migration). Port-forwards have no central array, so
+    # they use a key-order overlay instead (see _reorder_portfw). The client sends a card id and its visible
+    # neighbour (up/down), which are adjacent in the shown list, so the swap is exact.
     _require(d, ["kind", "id", "target"])
     kind = d["kind"]
+    aid, bid = str(d["id"]), str(d["target"])
+    if aid == bid:
+        return {"ok": True}
+    if kind == "portfw":                   # no central array -> reorder via the key overlay (see _reorder_portfw)
+        return _reorder_portfw(aid, bid)
     if kind == "nodes":
         path, loader = NODES_FILE, load_nodes
     elif kind in ("core", "tunnels"):
         path, loader = LINKS_FILE, load_links
     else:
         raise ValueError("bad kind")
-    aid, bid = str(d["id"]), str(d["target"])
-    if aid == bid:
-        return {"ok": True}
     with _reg_lock:  # same RMW lock as every other nodes.json / links.json write
         items = loader()
         pos = {str(it.get("id")): i for i, it in enumerate(items)}
@@ -4899,6 +4903,54 @@ def api_portfw(d):
     return {"ok": True, "name": r.get("name")}
 
 
+# Port-forwards have no central array — they live in each node's core configs and are aggregated from the
+# RAM cache, so their order is node-order × config-order. To let the operator reorder the cards persistently
+# we keep a thin overlay: an ordered list of stable keys (node_id + name; node_id is a fixed-width token_hex
+# so the concatenation is collision-free). Empty overlay = natural order = unchanged behaviour, so no migration.
+def _pf_key(node_id, name):
+    return str(node_id) + str(name)
+
+
+def _pf_load_order():
+    try:
+        o = json.load(open(PORTFW_ORDER_FILE))
+        return o if isinstance(o, list) else []
+    except Exception:
+        return []
+
+
+def _pf_sorted(seq, key_of):
+    # stable: overlay-ranked items first in overlay order, everything else keeps its natural order
+    order = _pf_load_order()
+    rank = {k: i for i, k in enumerate(order)}
+    big = len(order)
+    return [x for _, x in sorted(enumerate(seq), key=lambda p: (rank.get(key_of(p[1]), big), p[0]))]
+
+
+def _pf_natural_keys():
+    keys = []
+    for n in load_nodes():
+        r = _cached_list(n["id"])
+        if r.get("configs") is None:
+            continue
+        for c in r["configs"]:
+            if c.get("type") == "portfw" and c.get("name"):
+                keys.append(_pf_key(n["id"], c.get("name")))
+    return keys
+
+
+def _reorder_portfw(a, b):
+    natural = _pf_natural_keys()          # RAM-cache read; do it BEFORE taking _reg_lock (no lock nesting)
+    with _reg_lock:
+        cur = _pf_sorted(natural, lambda k: k)   # current full order = natural set under the existing overlay
+        if a not in cur or b not in cur:
+            raise ValueError("item not found")
+        ia, ib = cur.index(a), cur.index(b)
+        cur[ia], cur[ib] = cur[ib], cur[ia]
+        save_json(PORTFW_ORDER_FILE, cur)         # persist the whole order so later swaps are always well-defined
+    return {"ok": True}
+
+
 def api_portfw_list(d):
     off, lim, q = _paginate(d)
     all_pf = []
@@ -4924,6 +4976,7 @@ def api_portfw_list(d):
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
                            "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name")),
                            **bw})
+    all_pf = _pf_sorted(all_pf, lambda it: _pf_key(it["node_id"], it["name"]))  # apply the operator's manual order
     return {"portfw": all_pf[off:off + lim], "total": len(all_pf), "offset": off, "limit": lim}
 
 
@@ -5920,7 +5973,7 @@ body.dark .tag.core{color:#a78bfa}
 .prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:8px;font-weight:800;border-radius:5px;padding:1px 4px;letter-spacing:.2px;flex:0 0 auto}
-.rl.srv{color:var(--acc);background:var(--accw)}
+.rl.srv{color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent)}  /* stronger than the near-white --accw so the tint reads as clearly as the client's gold */
 .rl.cli{color:var(--gold);background:var(--goldw)}
 .enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
 /* two meta columns aligned EXACTLY under the two node boxes (same grid + hidden arrow as .tninfo) */
@@ -7399,7 +7452,7 @@ async function reordPersist(kind,id,swaps){
  try{for(var i=0;i<swaps.length;i++){var r=await post('reorder',{kind:kind,id:id,target:swaps[i]});if(!r.ok||!r.d.ok){toast((r.d&&r.d.error)||T('reorder_err'),'err');break}}}
  catch(_){toast(T('reorder_err'),'err')}
  RSAVE=false;
- if(kind==='nodes')refreshNodes();else if(kind==='core')refreshCore();else refreshTunnels();
+ if(kind==='nodes')refreshNodes();else if(kind==='core')refreshCore();else if(kind==='portfw')refreshPortfw();else refreshTunnels();
 }
 document.addEventListener('pointerdown',reordDown,true);
 document.addEventListener('pointermove',reordMove,true);
@@ -8075,7 +8128,7 @@ async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];va
 function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal('pf_node'));
  if(ips.length>1){w.innerHTML='<label>'+esc(T('pf_lip_full'))+'</label>'+ssHTML('pf_lip',ipItems(ips),(SEL['pf_lip']&&ips.indexOf(SEL['pf_lip'])>=0?SEL['pf_lip']:ips[0]),T('ip'),'')}
  else{w.innerHTML='';delete SEL['pf_lip']}}   // single-IP node: no picker, and no stale pick
-async function refreshPortfw(){if(editingId)return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
+async function refreshPortfw(){if(editingId||RORD||RSAVE)return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
  setHTML(box,PF.length?PF.map(pfCard).join(''):'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>');renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
  var st=h.rule?(h.reachable?'<span class="badge ok">'+esc(T('pf_active_badge'))+CK+'</span>':'<span class="badge bad">'+esc(T('pf_rule'))+CK+' · '+esc(T('pf_dest'))+XK+'</span>'):'<span class="badge bad">'+esc(T('pf_disabled'))+'</span>';
@@ -8095,7 +8148,7 @@ function pfCard(p,i){var h=p.health||{};
   '</div></div>';
  var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
  var acts='<div class="nact iconly"><button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="'+esc(T('pf_rotate_now'))+'" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
- return '<div class="card">'+head+body+traf+acts+'</div>'}
+ return '<div class="card" data-rid="'+esc(p.node_id+p.name)+'" data-rk="portfw">'+head+body+traf+acts+'</div>'}
 function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
  setT('pe_tgllbl_'+i,on?T('on_word'):T('off_word'));var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
 async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=v('pe_lp_'+i),dp=v('pe_dp_'+i),ips=v('pe_ips_'+i);
