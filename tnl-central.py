@@ -5424,6 +5424,7 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .card{position:relative;overflow:hidden;border-radius:15px;padding:14px;margin-bottom:11px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
 .card[data-rid]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}  /* draggable surface: a long-press means "grab", never native text-selection (which would fire pointercancel and kill the drag) */
+.card.rpress{transform:scale(.976);transition:transform .12s ease}  /* "holding…" cue while the long-press arms */
 .card.rdrag{z-index:60;overflow:visible;cursor:grabbing;box-shadow:0 20px 44px -14px rgba(20,40,90,.5);border-color:color-mix(in srgb,var(--acc) 45%,transparent);opacity:.98;transition:none}
 body.rdragging{cursor:grabbing;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 body.rdragging .card:not(.rdrag){transition:transform .12s ease}
@@ -6859,11 +6860,10 @@ function skAccCard(core){return '<div class="card acc"><div class="chead">'+   /
   '<div class="hmain"><div class="hrow1">'+skb('96px',13)+skb('40px',15,20)+
     '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('58px',11)+'<span class="sk" style="width:14px;height:8px"></span>'+skb('58px',11)+'</span></div></div>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
-function skPfCard(){return '<div class="card">'+                // exact port-forward card
-  '<div class="link">'+skb('90px',15)+'<span class="grow"></span>'+skb('50px',18,20)+skb('60px',20,10)+'</div>'+
-  '<div class="enmeta"><div class="emcol">'+skb('80%',12)+skb('70%',12)+skb('58%',12)+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+skb('52%',12)+skb('86%',12)+'</div></div>'+
-  '<div class="ltraf">'+skb('58px',12)+skb('58px',12)+'<span class="tot" style="margin-inline-start:auto">'+skb('92px',12)+'</span></div>'+
-  '<div class="nact iconly">'+skAct()+skAct()+skAct()+'</div></div>'}
+function skPfCard(){return '<div class="card acc"><div class="chead">'+     // collapsed port-forward accordion header (no on/off toggle)
+  '<div class="hmain"><div class="hrow1">'+skb('90px',13)+skb('40px',15,20)+
+    '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('54px',12)+skb('60px',18,20)+'</span></div></div>'+
+  '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
 function skAgRow(){return '<div class="agx-row">'+             // exact agent/update row
   '<div class="agx-right"><div class="agx-l1"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+skb('42px',16,6)+'</div>'+
   '<div class="agx-l2">'+skb('118px',15,7)+skb('118px',15,7)+'</div></div>'+
@@ -7219,6 +7219,7 @@ var PEERST=(function(){try{return JSON.parse(localStorage.getItem('tnl_peerst')|
 function peerStSave(){try{localStorage.setItem('tnl_peerst',JSON.stringify(PEERST))}catch(e){}}
 var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 function cardTog(id,e){TOPEN[id]=!TOPEN[id];var c=el('c_'+id);if(c)c.classList.toggle('open',TOPEN[id])}
+function cardTogFromEl(elm){var c=elm.closest&&elm.closest('.card[data-rid]');if(!c)return;var id=c.getAttribute('data-rid');TOPEN[id]=!TOPEN[id];c.classList.toggle('open',TOPEN[id])}  // portfw head: derive the key from data-rid (no fragile onclick string)
 async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(x){return x.id==id})[0];if(!L)return;
  var next=(L.enabled===false);L.enabled=next;   // optimistic flip
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',next);c.classList.toggle('off',!next)}
@@ -7396,7 +7397,9 @@ async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=aw
 // innerHTML never rebuilds under the finger, and each neighbour the card passes is swapped in the DOM and
 // recorded; on release the recorded pairwise swaps are POSTed in order (backend swaps them in the array).
 var RARM=null;   // armed long-press, before it becomes a drag
-var RHOLD=600;   // ms to hold before a card lifts for dragging
+var RHOLD=400;   // ms to hold before a card lifts for dragging (deliberate, but snappy enough to feel reliable)
+var RSLOP=18;    // px of finger travel allowed during the hold: below this is jitter (keep armed), above is a scroll (cancel).
+                 // 9px was too tight — natural touch tremor over the hold window would silently cancel the arm ("won't catch").
 function reordInteractive(t){return t.closest&&t.closest('button,a,input,select,textarea,label,.tsw,.tglsw,.act,.ss,.pill,.stepper')}
 function reordDown(e){
  if(RORD||RSAVE||editingId)return;
@@ -7408,17 +7411,19 @@ function reordDown(e){
  reordDisarm();
  RARM={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),
        x:e.clientX,y:e.clientY,pid:e.pointerId,timer:setTimeout(reordStart,RHOLD)};
+ card.classList.add('rpress');   // instant "holding…" cue so the user knows the press registered
 }
-function reordDisarm(){if(RARM){clearTimeout(RARM.timer);RARM=null}}
+function reordDisarm(){if(RARM){clearTimeout(RARM.timer);if(RARM.card)RARM.card.classList.remove('rpress');RARM=null}}
 function reordStart(){
  if(!RARM)return;var a=RARM;RARM=null;
+ a.card.classList.remove('rpress');
  RORD={card:a.card,box:a.box,id:a.id,kind:a.kind,pid:a.pid,grabY:a.y,lastY:a.y,swaps:[]};
  try{a.card.setPointerCapture(a.pid)}catch(_){}
  a.card.classList.add('rdrag');document.body.classList.add('rdragging');
  if(navigator.vibrate){try{navigator.vibrate(15)}catch(_){}}
 }
 function reordMove(e){
- if(!RORD){if(RARM&&(Math.abs(e.clientY-RARM.y)>9||Math.abs(e.clientX-RARM.x)>9))reordDisarm();return}
+ if(!RORD){if(RARM&&(Math.abs(e.clientY-RARM.y)>RSLOP||Math.abs(e.clientX-RARM.x)>RSLOP))reordDisarm();return}
  if(e.cancelable)e.preventDefault();
  RORD.lastY=e.clientY;var c=RORD.card;
  c.style.transform='translateY('+(e.clientY-RORD.grabY)+'px)';
@@ -8135,7 +8140,9 @@ function pfCard(p,i){var h=p.health||{};
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
  var lip=p.listen_ip||p.node_ip||'';   // effective listen IP: the pin (multi-IP) or the node's sole IP (single-IP)
  var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
- var head='<div class="link"><span class="name">'+esc(p.node)+'</span><span class="grow"></span>'+rotchip+'<span class="tag" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)">portfw</span>'+st+'</div>';
+ var key=p.node_id+p.name,open=!!TOPEN[key];
+ var route='<b class="mono" style="color:var(--sub)">'+esc(p.listen_port)+' ↔ '+esc(p.dst_port)+'</b>';   // collapsed-row hint: distinguishes several forwards on the same node
+ var head='<div class="chead" onclick="cardTogFromEl(this)"><div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span><span class="hpeers" dir="ltr">'+rotchip+route+st+'</span></div></div>'+CHEVI+'</div>';
  var live=(multi&&h.active)?'<div class="wrap">'+esc(T('pf_active_now'))+'<b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="enmeta"><div class="emcol">'+
    '<div>'+esc(T('pf_iface'))+'<b class="mono">'+esc(p.iface)+'</b></div>'+
@@ -8148,7 +8155,7 @@ function pfCard(p,i){var h=p.health||{};
   '</div></div>';
  var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
  var acts='<div class="nact iconly"><button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="'+esc(T('pf_rotate_now'))+'" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
- return '<div class="card" data-rid="'+esc(p.node_id+p.name)+'" data-rk="portfw">'+head+body+traf+acts+'</div>'}
+ return '<div class="card acc'+(open?' open':'')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="portfw">'+head+'<div class="cbody"><div class="cbody-in">'+body+traf+acts+'</div></div></div>'}
 function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
  setT('pe_tgllbl_'+i,on?T('on_word'):T('off_word'));var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
 async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=v('pe_lp_'+i),dp=v('pe_dp_'+i),ips=v('pe_ips_'+i);
