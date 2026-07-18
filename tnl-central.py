@@ -5568,7 +5568,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 /* desktop: node/tunnel/portfw cards in two columns */
 @media(min-width:900px){
  #nodeList,#linkList,#pfList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
- #nodeList{align-items:stretch}   /* node cards in a row match height so an offline node can't leave a ragged gap */
  #nodeList>.card,#linkList>.card,#pfList>.card{margin-bottom:0}
  #nodeList>.card.muted,#linkList>.card.muted,#pfList>.card.muted{grid-column:1/-1}
 }
@@ -5784,11 +5783,7 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .palrow .gi{width:26px;height:26px;border-radius:8px;background:var(--field);display:grid;place-items:center;color:var(--acc);flex:0 0 auto}.palrow .gi .ic{width:14px;height:14px}
 .palrow .sub{color:var(--sub);font-size:11.5px;margin-inline-start:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .palfoot{display:flex;gap:14px;padding:9px 15px;border-top:1px solid var(--bord);font-size:10.5px;color:var(--sub);flex:0 0 auto}
-/* equal-height node cards + compact offline state */
-#nodeList>.card.node{display:flex;flex-direction:column}
-#nodeList>.card.node .nact{margin-top:auto;padding-top:16px}
-#nodeList>.card.node>.msg,#linkList>.card>.msg{margin-top:0;min-height:0}   /* collapse the trailing status line when empty so cards aren't padded out below the buttons */
-#nodeList>.card.node>.msg:not(:empty),#linkList>.card>.msg:not(:empty){margin-top:10px}  /* breathe only when a result actually shows */
+/* node cards are accordion (chead + collapsing cbody) — no forced flex-column/equal-height (that would block the collapse) */
 /* tunnel card: two node tiles (name + status pill + address) with ↔ between them, then a 2-col meta grid */
 .tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px;direction:ltr}
 .tninfo>*{direction:rtl}   /* columns flow LTR so box B (b_name) sits on the RIGHT — same side as the header's a↔b; each box keeps its own RTL content */
@@ -6887,13 +6882,11 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
 // the same grid/shadow/padding and the swap to live data is seamless). skb() = one shimmer bar.
 function skb(w,h,r){return '<span class="sk" style="width:'+w+';height:'+(h||12)+'px'+(r!=null?';border-radius:'+r+'px':'')+'"></span>'}
 function skAct(){return '<span class="sk" style="width:37px;height:33px;border-radius:11px"></span>'}
-function skNodeCard(){return '<div class="card node">'+       // exact .card.node
-  '<div class="nrow"><span class="sk" style="width:10px;height:10px;border-radius:50%;flex:0 0 auto"></span>'+
-    '<div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:7px">'+skb('46%',14)+skb('64%',11)+'</div>'+
-    '<span class="grow"></span>'+skb('56px',21,10)+'</div>'+
-  '<div class="nchips">'+skb('74px',13)+skb('66px',13)+skb('82px',13)+skb('58px',13)+'</div>'+
-  '<div class="upwrap"><div class="uptop">'+skb('70px',11)+'<span class="grow"></span>'+skb('42px',11)+'</div><span class="sk" style="height:22px;border-radius:2px"></span></div>'+
-  '<div class="nact iconly">'+skAct()+skAct()+skAct()+skAct()+'</div></div>'}
+function skNodeCard(){return '<div class="card node acc"><div class="chead">'+   // collapsed node accordion header
+  '<span class="sk" style="width:10px;height:10px;border-radius:50%;flex:0 0 auto"></span>'+
+  '<div class="hmain" style="gap:6px;min-width:0">'+skb('46%',14)+skb('64%',11)+'</div>'+
+  skb('56px',21,10)+
+  '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
 function skAccCard(core){return '<div class="card acc"><div class="chead">'+   // exact collapsed accordion header
   '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
   '<div class="hmain"><div class="hrow1">'+skb('96px',13)+skb('40px',15,20)+
@@ -7173,10 +7166,11 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function nodeCard(n){var i=n.info||{};
  var badge=n.online?'<span class="badge ok">'+esc(T('online'))+'</span>':(n.pending?'<span class="badge na">'+esc(T('pending_check'))+'</span>':'<span class="badge bad">'+esc(T('offline'))+'</span>');
- var head='<div class="nrow">'+grip()+'<span class="ndot '+(n.online?'on':'off')+'"></span><div style="min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="grow"></span>'+badge+'</div>';
+ var key=n.id,open=!!TOPEN[key];
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<span class="ndot '+(n.online?'on':'off')+'"></span><div class="hmain" style="gap:2px;min-width:0"><div class="name">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+badge+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node" data-rid="'+esc(n.id)+'" data-rk="nodes">'+head+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div>'}
+ return '<div class="card node acc'+(open?' open':'')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
  var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  // TIME-WEIGHTED % from the server (a 5s blip != a whole red cell)
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
@@ -7435,7 +7429,7 @@ async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=aw
 // Now the user taps the reorder toggle in the toolbar; each card shows a grip (touch-action:none) and
 // dragging THAT live-swaps with the neighbour and persists server-side. Outside reorder mode nothing here
 // fires, so tap / scroll / copy behave normally. touch-action:none on the grip = no scroll-race, reliable drag.
-var REORDMODE=false;
+var REORDMODE=false,RORD_AS=0;   // RORD_AS = rAF id for edge auto-scroll during a drag
 function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);}
 function gripSvg(){return '<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="7" cy="4.5" r="1.5"/><circle cx="13" cy="4.5" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="7" cy="15.5" r="1.5"/><circle cx="13" cy="15.5" r="1.5"/></svg>'}
 function grip(){return '<span class="rgrip" onclick="event.stopPropagation()" title="'+esc(T('reord_t'))+'">'+gripSvg()+'</span>'}
@@ -7451,17 +7445,30 @@ function reordDown(e){
  try{card.setPointerCapture(e.pointerId)}catch(_){}
  card.classList.add('rdrag');document.body.classList.add('rdragging');
  if(navigator.vibrate){try{navigator.vibrate(10)}catch(_){}}
+ RORD_AS=requestAnimationFrame(reordAutoScroll);   // keep the page scrolling while a dragged card sits at an edge
 }
-function reordMove(e){
- if(!RORD)return;
- if(e.cancelable)e.preventDefault();
- RORD.lastY=e.clientY;var c=RORD.card;
- c.style.transform='translateY('+(e.clientY-RORD.grabY)+'px)';
+function reordApply(){   // re-place the dragged card at RORD.lastY and swap with the neighbour it has crossed
+ var c=RORD.card;
+ c.style.transform='translateY('+(RORD.lastY-RORD.grabY)+'px)';
  var cr=c.getBoundingClientRect(),cy=cr.top+cr.height/2;
  var p=c.previousElementSibling;
  if(p&&p.getAttribute&&p.getAttribute('data-rid')&&p.getAttribute('data-rk')===RORD.kind&&cy<p.getBoundingClientRect().top+p.getBoundingClientRect().height/2){reordShift(p,true);return}
  var n=c.nextElementSibling;
  if(n&&n.getAttribute&&n.getAttribute('data-rid')&&n.getAttribute('data-rk')===RORD.kind&&cy>n.getBoundingClientRect().top+n.getBoundingClientRect().height/2){reordShift(n,false);return}
+}
+function reordMove(e){
+ if(!RORD)return;
+ if(e.cancelable)e.preventDefault();
+ RORD.lastY=e.clientY;
+ reordApply();
+}
+function reordAutoScroll(){   // touch-action:none means the browser won't scroll during a drag, so do it ourselves near the edges
+ if(!RORD){RORD_AS=0;return}
+ var y=RORD.lastY,vh=window.innerHeight||document.documentElement.clientHeight,edge=76,ds=0;
+ if(y<edge)ds=-Math.min(24,((edge-y)/3|0)+3);
+ else if(y>vh-edge)ds=Math.min(24,((y-(vh-edge))/3|0)+3);
+ if(ds){var b=window.pageYOffset;window.scrollBy(0,ds);var a=window.pageYOffset-b;if(a){RORD.grabY-=a;reordApply();}}   // grabY-=scrolled keeps the card pinned under the finger
+ RORD_AS=requestAnimationFrame(reordAutoScroll);
 }
 function reordShift(nb,up){
  var c=RORD.card;
@@ -7475,6 +7482,7 @@ function reordShift(nb,up){
 }
 function reordEnd(){
  if(!RORD)return;var d=RORD;RORD=null;
+ if(RORD_AS){cancelAnimationFrame(RORD_AS);RORD_AS=0;}
  try{d.card.releasePointerCapture(d.pid)}catch(_){}
  d.card.classList.remove('rdrag');d.card.style.transform='';document.body.classList.remove('rdragging');
  if(d.swaps.length)reordPersist(d.kind,d.id,d.swaps);
@@ -8169,7 +8177,7 @@ function pfCard(p,i){var h=p.health||{};
  var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
  var key=p.node_id+p.name,open=!!TOPEN[key];
  var route='<b class="mono" dir="ltr" style="color:var(--sub);font-size:12px">'+esc(p.listen_port)+' ↔ '+esc(p.dst_port)+'</b>';   // ports, right after the portfw tag (distinguishes several forwards on one node)
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span>'+route+'<span class="hpeers" dir="ltr">'+rotchip+st+'</span></div></div>'+CHEVI+'</div>';
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span>'+route+'<span class="hpeers">'+rotchip+st+'</span></div></div>'+CHEVI+'</div>';   // no dir=ltr: margin-inline-start:auto then resolves to the RIGHT (RTL) and pushes the status badge fully LEFT
  var live=(multi&&h.active)?'<div class="wrap">'+esc(T('pf_active_now'))+'<b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="enmeta"><div class="emcol">'+
    '<div>'+esc(T('pf_iface'))+'<b class="mono">'+esc(p.iface)+'</b></div>'+
