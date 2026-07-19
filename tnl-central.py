@@ -1483,6 +1483,7 @@ def api_summary(d):
         alerts.append({"level": "warn", "kind": "agent", "msg": f"{outdated} نود ایجنتِ قدیمی دارد"})
 
     _sset = get_settings()
+    _tun = _sset.get("tuning") if isinstance(_sset.get("tuning"), dict) else {}
     win = _sset.get("uptime_window", 1)
     ups, downcnt = [], 0
     for n in nodes:
@@ -1518,7 +1519,9 @@ def api_summary(d):
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
             "ev_seq": _ev_seq_get(), "log_count": len(load_events()),
-            "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2)}
+            "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2),
+            "suspect_backoff": _tun.get("suspect_backoff", _TUNING_DEFAULTS["suspect_backoff"]),
+            "dead_retest_secs": _tun.get("dead_retest_secs", _TUNING_DEFAULTS["dead_retest_secs"])}
 
 
 def _name_taken(nodes, name, exclude_id=None):
@@ -3171,14 +3174,21 @@ def _ws_pool_fields(d, cur=None):
         seen, res = set(), []
         for x in _list(key):
             x = str(x).strip()
-            if not x or x in seen:
+            if not x:
                 continue
-            h = x.rpartition(":")[0] or x
-            p = x.rpartition(":")[2] if ":" in x else ""
-            if not (re.match(_IP4_RE, h) or re.match(_DOMAIN_RE, h)) or (p and not (p.isdigit() and 1 <= int(p) <= 65535)):
-                raise ValueError("آی‌پیِ لبهٔ نامعتبر (باید IPv4 یا دامنهٔ معتبر باشد): %s" % x)
-            seen.add(x)
-            res.append(x)
+            # The core dials each edge as a literal ip:port with no DNS step (config.go
+            # validatePoolEndpoint, needPort=true): the host MUST be an IPv4 and a port is REQUIRED.
+            # Reject domains/IPv6 and default a port-less IPv4 to :443 so the ip:port we store always
+            # loads in the core (a domain or a bare IP passes here but fails the core config load).
+            h = x.rpartition(":")[0] if ":" in x else x
+            p = x.rpartition(":")[2] if ":" in x else "443"
+            if not re.match(_IP4_RE, h) or not (p.isdigit() and 1 <= int(p) <= 65535):
+                raise ValueError("آی‌پیِ لبهٔ نامعتبر (باید IPv4:port باشد؛ دامنه مجاز نیست — استخر مستقیم به آی‌پی وصل می‌شود): %s" % x)
+            v = "%s:%s" % (h, p)
+            if v in seen:
+                continue
+            seen.add(v)
+            res.append(v)
         return res
 
     def _hosts(key):
@@ -6852,6 +6862,10 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
  setT('ct_nodes',num(s.nodes_total));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
  setT('ct_logs',num(s.log_count));   // ALWAYS the total number of logs (like the other nav counts)
  if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   // live-refresh cadence, from settings
+ // Pool/peer retest-bar denominator must mirror the core's TUNED schedule, not the literals: the summary
+ // surfaces the live suspect_backoff / dead_retest_secs (same path as ui_interval above); fall back to defaults.
+ if(Array.isArray(s.suspect_backoff)&&s.suspect_backoff.length)_poolBackoff=s.suspect_backoff.map(Number);
+ if(s.dead_retest_secs)_poolDeadStep=num(s.dead_retest_secs);
  // separate UNREAD badge (accent color): events logged since the operator last opened the log page.
  EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
  if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
@@ -7657,7 +7671,7 @@ function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx
 // "876889767" (no dots) AND "543.45534.453453" (dotted but not a valid IP or domain).
 var _ip4Re=/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
-function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h)||_domRe.test(h);}return _domRe.test(val);}
+function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
 // poolRemain: seconds left until an entry's next retest, using the server clock sampled at the
 // last poll plus the client-side elapsed time since — so the countdown ticks smoothly between polls.
 function poolRemain(d,next){if(!next||!d.srvNow)return -1;var el=d.srvNow+(Date.now()-(d.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-el));}
@@ -7666,7 +7680,7 @@ function poolCd(d,next){var r=poolRemain(d,next);if(r<0)return '';return '<span 
 // Backoff schedule (must mirror the core): a suspect entry's current step length by fail count;
 // a dead entry retests slowly. Used to draw the fill bar (elapsed / step) like the mockup.
 var _poolBackoff=[30,60,120,300,600],_poolDeadStep=1800;
-function poolStepTotal(h){return h.state=='dead'?_poolDeadStep:(_poolBackoff[Math.min(h.fails||0,4)]||600);}
+function poolStepTotal(h){return h.state=='dead'?_poolDeadStep:(_poolBackoff[Math.min(h.fails||0,_poolBackoff.length-1)]||600);}
 function poolBarPct(d,h){var tot=poolStepTotal(h),rem=poolRemain(d,h.next);if(rem<0)return -1;return Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));}
 function poolBar(d,h){var p=poolBarPct(d,h);if(p<0)return '';return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+poolStepTotal(h)+'"><i style="width:'+p+'%"></i></span>';}
 function poolRenderKind(pfx,kind){var d=poolGet(pfx);
