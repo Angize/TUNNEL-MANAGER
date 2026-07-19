@@ -1448,7 +1448,10 @@ def api_summary(d):
         bh, _b = _link_side_health(L, "b_node")
         both_up = isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
         if both_up:
-            pinged = (ah.get("peer_ping") is True) or (bh.get("peer_ping") is True)
+            # a busy tunnel is proven live by traffic-flow (alive) even when the node skipped the ICMP
+            # probe (peer_ping absent); fall back to peer_ping for an idle tunnel / pre-upgrade node.
+            pinged = (ah.get("alive") is True) or (bh.get("alive") is True) \
+                or (ah.get("peer_ping") is True) or (bh.get("peer_ping") is True)
             if pinged:
                 up += 1
             else:
@@ -7256,13 +7259,16 @@ function sideTxt(online,h){
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
  if(h.peer_ping===true){var e=pingInfo(h);return T('t_side_conn')+(e?' · '+e:'')}
- if(h.peer_ping===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
+ if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via traffic-flow (ICMP maybe unrun/filtered)
+ if(h.peer_ping===false||h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
 function sideState(online,h){  // k: dot color class, w: the word to show ONLY when there's a problem
  if(!online||!h)return {k:'bad',w:T('st_disc')};
  if(h.up==null)return {k:'na',w:'…'};
  if(!h.up)return {k:'bad',w:T('st_disc')};
- if(h.peer_ping===false)return {k:'warn',w:''};   // half-open -> the gold dot alone says it; no word
+ if(h.alive===true)return {k:'ok',w:''};          // real-state: tunnel traffic flowing OR probe answered
+ if(h.alive===false)return {k:'warn',w:''};       // iface up but nothing proves it live (no traffic + probe failed)
+ if(h.peer_ping===false)return {k:'warn',w:''};   // fallback for a pre-upgrade node that reports no `alive`
  return {k:'ok',w:''}}   // connected -> clean, just the green dot
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
  return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="'+esc(T('tst_connected'))+'"')+'></span>'}
@@ -7344,7 +7350,7 @@ async function checkLink(id){CHECKING++;
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
-  var pinged=(d.a_health&&d.a_health.peer_ping===true)||(d.b_health&&d.b_health.peer_ping===true);
+  var pinged=(d.a_health&&(d.a_health.alive===true||d.a_health.peer_ping===true))||(d.b_health&&(d.b_health.alive===true||d.b_health.peer_ping===true));
   var okAll=aup&&bup&&pinged;
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health)));
