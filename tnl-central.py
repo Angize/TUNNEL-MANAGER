@@ -174,6 +174,8 @@ _TUNING_DEFAULTS = {
     "data_fail_threshold": 2,
     "data_good_window_secs": 120,
     # دستهٔ ۲ — تشخیصِ مرگ / self-heal
+    "keepalive": 15,          # fleet-wide keepalive (the base clock every dead-window scales off); was per-tunnel
+    "dead_after_secs": 0,     # fleet-wide fixed dead-window (seconds); 0 = auto (derive from the multipliers below)
     "idle_mult": 4,
     "idle_min_secs": 60,
     "session_stale_mult": 3,
@@ -189,6 +191,7 @@ _TUNING_RANGES = {
     "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
     "probe_timeout_secs": (1, 120),
+    "keepalive": (5, 120), "dead_after_secs": (0, 300),   # dead_after 0 = auto; a positive value is floored to 10 on build
 }
 
 
@@ -1120,9 +1123,20 @@ def _apply_core_tuning(a_body, b_body):
     rebuild — so a tunnel picks up the current Settings timing on any (re)build, uniformly. Empty diff
     (all knobs at default) leaves both bodies untouched so the core keeps its own defaults."""
     tn = _settings_tuning()
-    if tn:
-        a_body["tuning"] = tn
-        b_body["tuning"] = tn
+    # keepalive + dead_after_secs are fleet-wide too, but the core reads them as TOP-LEVEL config fields
+    # (not from the `tuning` object), so inject them there. Only when the operator moved them off the
+    # core's own default, so an all-default fleet still hands the core a body it would build identically.
+    if tn.get("keepalive"):
+        a_body["keepalive"] = b_body["keepalive"] = max(5, min(120, int(tn["keepalive"])))
+    if tn.get("dead_after_secs"):
+        _da = max(10, min(300, int(tn["dead_after_secs"])))
+        a_body["dead_after_secs"] = b_body["dead_after_secs"] = _da
+    # everything else rides in the `tuning` object (the core clamps it); strip the two top-level knobs so
+    # they never appear twice on the wire.
+    _tn = {k: v for k, v in tn.items() if k not in ("keepalive", "dead_after_secs")}
+    if _tn:
+        a_body["tuning"] = _tn
+        b_body["tuning"] = _tn
 
 
 def _tunnel_extra(src, refetch_ech=True):
@@ -1140,10 +1154,6 @@ def _tunnel_extra(src, refetch_ech=True):
         e["cipher"] = src["cipher"]
     if src.get("transport"):
         e["transport"] = src["transport"]
-    if src.get("dead_after_secs"):        # per-tunnel self-heal deadline (client uses it; 0/unset = default)
-        e["dead_after_secs"] = max(10, min(300, int(src["dead_after_secs"])))
-    if src.get("keepalive"):              # per-tunnel keepalive (client uses it; 0/unset = 15s default). smaller = faster death detection
-        e["keepalive"] = max(5, min(120, int(src["keepalive"])))
     if src.get("obfs"):
         e["obfs"] = True
     if src.get("cover"):                 # TLS camouflage (HTTPS cover); core TCP-only
@@ -3380,10 +3390,6 @@ def _create_tunnel_impl(d):
             extra["cover_sni"] = cover_sni
         if bool(d.get("gso")):                     # TUN segmentation offload (throughput); any transport
             extra["gso"] = True
-        if d.get("dead_after_secs"):               # per-tunnel self-heal deadline set at creation (empty/0 = default)
-            extra["dead_after_secs"] = max(10, min(300, int(d["dead_after_secs"])))
-        if d.get("keepalive"):                     # per-tunnel keepalive set at creation (empty/0 = 15s default); smaller = faster dead-detection + faster red
-            extra["keepalive"] = max(5, min(120, int(d["keepalive"])))
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
         # IP rotation (direct transports): the operator picks a subset of each node's IPs to cycle.
         # Stored in the link so edit/rebuild replay it; assigned per-role by _core_rotation_bodies.
@@ -3862,16 +3868,6 @@ def _edit_link_impl(d):
             extra["cover_sni"] = cover_sni
         if (bool(d.get("gso")) if "gso" in d else bool(L.get("gso"))):   # TUN segmentation offload; fall back to stored on a partial edit
             extra["gso"] = True
-        # dead_after_secs (per-tunnel self-heal deadline): honor a set value, fall back to stored on a
-        # partial edit (key absent), and allow clearing back to default by sending 0/empty (falsy → omit).
-        _da_src = d.get("dead_after_secs") if "dead_after_secs" in d else L.get("dead_after_secs")
-        if _da_src:
-            extra["dead_after_secs"] = max(10, min(300, int(_da_src)))
-        # keepalive (per-tunnel, core only): smaller = faster dead-detection (both the core self-heal and
-        # the panel's heartbeat freshness scale off it). Same partial-edit/clear-to-default handling.
-        _ka_src = d.get("keepalive") if "keepalive" in d else L.get("keepalive")
-        if _ka_src:
-            extra["keepalive"] = max(5, min(120, int(_ka_src)))
         # IP rotation: a full form edit sends ip_rotate + pools; a partial edit (e.g. flux "rotate now")
         # omits them, so preserve the stored rotation config. Assigned per-role by _core_rotation_bodies.
         if "ip_rotate" in d:
@@ -6566,7 +6562,7 @@ var I18N={fa:{
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO/GRO",gso_d:"عبورِ حجیم را سریع‌تر می‌کند (پکت‌های بزرگ، syscallِ کمتر). فقط لینوکس؛ اگر پشتیبانی نشود بی‌اثر است.",
- dead_after_lbl:"مهلتِ تشخیصِ قطعی / self-heal (ثانیه)",dead_after_ph:"خالی=خودکار (~۳×keepalive)",dead_after_note:"اگر این‌قدر ثانیه هیچ فریمِ معتبری نیاید، حامل «مرده» فرض و تونل دوباره برقرار/failover می‌شود. کوچک‌تر=heal سریع‌تر. خالی=پیش‌فرض. بازهٔ ۱۰ تا ۳۰۰؛ داخلی حداقل ۲×keepalive می‌شود (برای مهلتِ خیلی کوتاه، keepalive را هم کم کن).",keepalive_lbl:"keepalive (ثانیه)",keepalive_ph:"خالی = ۱۵",keepalive_note:"هر این‌قدر ثانیه یک بسته‌ی زنده‌نگه‌دار رد و بدل می‌شود. کوچک‌تر = مرگِ تونل سریع‌تر قرمز می‌شود (و مهلتِ تشخیصِ قطعی هم می‌تواند کمتر شود)، با کمی ترافیکِ اضافهٔ ناچیز. بازهٔ ۵ تا ۱۲۰. خالی = ۱۵.",
+ set_gkd:"پایهٔ تشخیصِ مرگ — سراسری",set_gkdh:"keepalive و مهلتِ ثابت، روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ زنده‌نگه‌دار رد و بدل می‌شود؛ پایهٔ همهٔ پنجره‌های تشخیصِ مرگ. کوچک‌تر = مرگِ تونل سریع‌تر قرمز می‌شود، با ترافیکِ اضافهٔ ناچیز. بازهٔ ۵ تا ۱۲۰.",set_x_keepalive:"keepalive=<b>۱۰</b> ← هر ۱۰ث یک پینگ؛ پنجرهٔ خودکار ~۳۰ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ فریمِ معتبری نیاید، حامل «مرده» فرض می‌شود. <b>۰ = خودکار</b> (از روی ضریب‌های پایین). عددِ مثبت = پنجرهٔ ثابتِ یکسان برای همهٔ تونل‌ها. بازهٔ ۱۰ تا ۳۰۰.",set_x_deadafter:"۰ ← خودکار (~۳×keepalive). ۲۰ ← همهٔ تونل‌ها پس از ۲۰ث سکوت مرده.",set_da_auto:"۰ = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های ۴ و ۵ حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ ۲×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = ۰ باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",ip_multi_hint:"(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)",
@@ -6615,7 +6611,7 @@ var I18N={fa:{
  cover_sni_note1:"For any anonymous connection (probe/censor) the server <b>actually connects to this site</b> and proxies traffic to it, so a probe sees that site\\'s real certificate (active-probe resistant). So it must be a <b>real, reachable, unblocked, popular HTTPS site</b> — preferably on a large CDN.",
  cover_sni_note2:"The server <b>actually connects and proxies</b> anonymous probes to this site, so it must be a <b>real, reachable, unblocked, popular HTTPS site</b> (preferably on a large CDN).",
  gso_t:"GSO/GRO acceleration",gso_d:"Speeds up bulk transfer (large packets, fewer syscalls). Linux only; no effect if unsupported.",
- dead_after_lbl:"Dead-detection / self-heal deadline (seconds)",dead_after_ph:"empty = auto (~3×keepalive)",dead_after_note:"If no authenticated frame arrives for this many seconds, the carrier is declared dead and the tunnel re-establishes / fails over. Smaller = faster heal. Empty = default. Range 10–300; internally raised to at least 2×keepalive (for a very short deadline, lower keepalive too).",keepalive_lbl:"keepalive (seconds)",keepalive_ph:"empty = 15",keepalive_note:"A keep-alive frame is exchanged every this-many seconds. Smaller = a dead tunnel turns red faster (and the dead-detection deadline can go lower too), at a little extra traffic. Range 5–120. Empty = 15.",
+ set_gkd:"Dead-detection base — fleet-wide",set_gkdh:"keepalive & fixed deadline, every tunnel",set_gkdc:"all",set_t_keepalive:"keepalive (seconds)",set_t_keepalive_d:"A keep-alive frame is exchanged every this-many seconds; the base every dead-window scales off. Smaller = a dead tunnel turns red faster, at a little extra traffic. Range 5–120.",set_x_keepalive:"keepalive=<b>10</b> → a ping every 10s; the auto window is ~30s of silence = dead.",set_t_deadafter:"Fixed dead deadline (seconds)",set_t_deadafter_d:"If no authenticated frame arrives for this many seconds, the carrier is declared dead. <b>0 = auto</b> (derive from the multipliers below). A positive value = one fixed window for every tunnel. Range 10–300.",set_x_deadafter:"0 → auto (~3×keepalive). 20 → every tunnel dead after 20s of silence.",set_da_auto:"0 = auto: the dead window is derived from keepalive × the multipliers in groups 4 and 5.",set_da_fixed:"One number for every carrier: a tunnel is dead after {n}s of silence.",set_da_floored:"(you set {v}, but the 2×keepalive floor raised it to {n}.)",set_auto_only:"Auto mode only — applies while the fixed deadline is 0",set_auto_off:"No effect — the fixed deadline is on",
  core_range_lbl:"Local subnet (private range — auto by ID)",core_port_lbl:"Port (empty = auto · you can set 443)",core_port_lbl2:"Port (you can use 443)",core_subnet_lbl:"Internal subnet",
  core_edit_note:"Saving rebuilds the tunnel on both nodes (brief drop).",ph_subnet:"e.g. 192.168.99.0/24",
  role_server_word:"server",role_client_word:"client",ip_multi_hint:"(has several IPs — pick one for the tunnel)",
@@ -8031,8 +8027,6 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   wsToggleRows('e_','cor',false,false,false,'',false,0,'split',0,false)+
   '<div id="e_snirow" style="display:none"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="e_sni" placeholder="'+esc(T('cover_sni_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note1')+'</div></div>'+
   '<div class="tglbox" id="e_gsorow"><div class="tglsw" id="e_gso" onclick="corToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
-  '<label>'+esc(T('dead_after_lbl'))+'</label><input id="e_deadafter" inputmode="numeric" placeholder="'+esc(T('dead_after_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+esc(T('dead_after_note'))+'</div>'+
-  '<label>'+esc(T('keepalive_lbl'))+'</label><input id="e_keepalive" inputmode="numeric" placeholder="'+esc(T('keepalive_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+esc(T('keepalive_note'))+'</div>'+
   fecSection('e_','cor',false,10,3,true)+
   desyncSection('e_','cor',false,4,2,'ttl',false)+
   '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('e_snr',SUBNETRANGES(),'192.168',T('range'),'onCorSubRange')+'<div id="e_snc"></div>'+
@@ -8103,8 +8097,6 @@ function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.class
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
- var _dae=parseInt(v('e_deadafter'))||0;if(_dae)body.dead_after_secs=_dae;
- var _ka=parseInt(v('e_keepalive'))||0;if(_ka)body.keepalive=_ka;
  if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_corRawProfile;if(_corRawProfile=='bip'){var _rp=parseInt(v('e_rawproto')||'58',10);if(!(_rp>=1&&_rp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return}body.raw_proto=_rp}}
  if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
  if(_corTr=='dns'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return}var _dz=(v('e_dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return}var _dr=(v('e_dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return}body.dns_zone=_dz;body.dns_resolvers=_dr}
@@ -8195,8 +8187,6 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   wsToggleRows('ee_','ce',_eeWsTls,_eeEch,_eeEchProxy,(l.ech_proxy_url||''),_eeSniSplit,_eeSplitPos,_eeSniMode,_eeSplitTtl,_eeTr=='ws')+
   '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="ee_sni" placeholder="'+esc(T('cover_sni_ph'))+'" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note2')+'</div></div>'+
   '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeGso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
-  '<label>'+esc(T('dead_after_lbl'))+'</label><input id="ee_deadafter" inputmode="numeric" value="'+esc(l.dead_after_secs||'')+'" placeholder="'+esc(T('dead_after_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+esc(T('dead_after_note'))+'</div>'+
-  '<label>'+esc(T('keepalive_lbl'))+'</label><input id="ee_keepalive" inputmode="numeric" value="'+esc(l.keepalive||'')+'" placeholder="'+esc(T('keepalive_ph'))+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+esc(T('keepalive_note'))+'</div>'+
   fecSection('ee_','ce',_eeFec,_eeFecData,_eeFecParity,(_eeTr=='udp'||_eeTr=='raw'||_eeTr=='flux'))+
   desyncSection('ee_','ce',_eeDesync,_eeDesyncTtl,_eeDesyncCount,_eeDesyncMode,(_eeTr=='raw'||_eeTr=='flux'||_eeTr=='tcp'||_eeTr=='ws'))+
   '<div class="grid2"><div><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>'+esc(T('core_subnet_lbl'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
@@ -8211,8 +8201,6 @@ function ceSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.class
 async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent=T('saving_rebuild_both');
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
- body.dead_after_secs=parseInt(v('ee_deadafter'))||0;
- body.keepalive=parseInt(v('ee_keepalive'))||0;
  if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_eeRawProfile;if(_eeRawProfile=='bip'){var _erp=parseInt(v('ee_rawproto')||'58',10);if(!(_erp>=1&&_erp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return}body.raw_proto=_erp}}
  if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
  if(_eeTr=='dns'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return}var _edz=(v('ee_dnszone')||'').trim().toLowerCase();if(!_edz){m.className='msg err';m.textContent=T('dns_need_zone');return}var _edr=(v('ee_dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_edr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return}body.dns_zone=_edz;body.dns_resolvers=_edr}
@@ -8565,14 +8553,14 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
   '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>')+
   tuningCard(s)+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
- refreshAgent()}
+ tunDaBind();refreshAgent()}
 // A settings row with a "?" that expands a concept + example; grp() wraps a scope-tagged group card.
 function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
 function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
 function grp(tk,hk,ck,cls,rows){return '<div class="card setgrp '+cls+'"><div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span><small>'+T(hk)+'</small></div>'+rows+'</div>'}
 // Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
 // build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
-var _TUNDEF={suspect_backoff:[30,60,120,300,600],dead_retest_secs:1800,pin_ttl_secs:30,data_fail_threshold:2,data_good_window_secs:120,idle_mult:4,idle_min_secs:60,session_stale_mult:3,session_stale_min_secs:10,ping_loss_threshold:3,min_liveness_secs:20,probe_timeout_secs:5};
+var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
 function tuningCard(s){
@@ -8586,20 +8574,42 @@ function tuningCard(s){
     qr(T('set_t_datafail'),'set_t_datafail_d','set_x_datafail',tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
     qr(T('set_t_datagood'),'set_t_datagood_d','set_x_datagood',tNum('set_t_datagood',_tv(s,'data_good_window_secs'),1,86400))+
     qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)))+
-  grp('set_g4','set_g4h','set_g4c','sc-both',
+  grp('set_gkd','set_gkdh','set_gkdc','sc-both',
+    qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
+    qr(T('set_t_deadafter'),'set_t_deadafter_d','set_x_deadafter',tNum('set_t_deadafter',_tv(s,'dead_after_secs'),0,300))+
+    '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 2px"></div>')+
+  grp('set_g4','set_g4h','set_g4c','sc-both tun-auto',
     qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100))+
     qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400))+
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
     qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600)))+
-  grp('set_g5','set_g5h','set_g5c','sc-dgram',
+  grp('set_g5','set_g5h','set_g5c','sc-dgram tun-auto',
     qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
     qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400)))+
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
- var t={dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto'))};
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
+// The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a
+// positive dead_after_secs overrides BOTH families (core deadWindow()), so grey them out and say so
+// instead of leaving the operator tuning knobs that currently have no effect. Disabled inputs keep
+// their .value, so _collectTuning still round-trips them untouched.
+function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
+ var v=Math.max(0,parseInt(d.value)||0),k=el('set_t_keepalive'),ka=Math.max(5,parseInt(k&&k.value)||15);
+ var on=v>0,eff=Math.max(v,2*ka),h=el('tun_dahint');
+ if(h)h.textContent=on?(T('set_da_fixed').replace('{n}',eff)+(eff>v?' '+T('set_da_floored').replace('{v}',v).replace('{n}',eff):'')):T('set_da_auto');
+ var gs=document.querySelectorAll('.setgrp.tun-auto');
+ for(var i=0;i<gs.length;i++){var g=gs[i],n=g.querySelector('.tun-state');
+  if(!n){n=document.createElement('div');n.className='tun-state';n.style.cssText='font-size:11px;line-height:1.7;margin:-2px 4px 8px';
+   var hd=g.querySelector('.grphd');if(hd)hd.insertAdjacentElement('afterend',n);else g.insertBefore(n,g.firstChild)}
+  n.textContent=on?T('set_auto_off'):T('set_auto_only');
+  n.style.color=on?'var(--gold)':'var(--sub)';
+  var ins=g.querySelectorAll('input');for(var q=0;q<ins.length;q++)ins[q].disabled=on}}
+function tunDaBind(){var ids=['set_t_deadafter','set_t_keepalive'];
+ for(var i=0;i<ids.length;i++){var e=el(ids[i]);if(e)e.addEventListener('input',tunDaSync)}
+ tunDaSync()}
 async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
@@ -8663,6 +8673,11 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
  if(['overview','nodes','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;})();
 render();updateSidebar();TT=setTimeout(tick,6000);
 </script></body></html>"""
+
+# Keep the browser's tuning defaults in lock-step with the Python source of truth: inject _TUNING_DEFAULTS
+# as JSON at import time, so there is NO hand-copied JS literal to drift (consolidation Track B). The
+# tools/tuning_consistency.py guard enforces the remaining panel<->core<->node agreement.
+INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 
 # ----------------------------------------------------------------------------- install / main
 
