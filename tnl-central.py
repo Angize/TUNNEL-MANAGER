@@ -2551,13 +2551,18 @@ def api_fleet(d):
         ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
         # A point-to-point core tunnel is alive/dead as a whole, but only the CLIENT side writes the core
-        # heartbeat status file (live_src "beat"). Mirror that authoritative verdict onto the other
-        # (heartbeat-less) endpoint so BOTH dots agree. Copy first — ah/bh are references into the cache.
-        _beat = ah if isinstance(ah, dict) and ah.get("live_src") == "beat" else (
-            bh if isinstance(bh, dict) and bh.get("live_src") == "beat" else None)
+        # heartbeat status file. Its hb-derived verdict — live_src "beat" (fresh/stale hb) OR "nohb" (never
+        # connected, dw published but no hb yet) — is authoritative for the WHOLE tunnel, because only the
+        # client sees whether RETURN traffic arrives. Mirror it onto the heartbeat-less server endpoint,
+        # whose one-directional flow/ping would otherwise false-green a HALF-OPEN tunnel (the server still
+        # receives the client's upload → flow-"alive"). "nohb" was previously omitted here, so a
+        # never-connected tunnel showed the server green while the client correctly went red. Copy first —
+        # ah/bh are references into the cache.
+        _beat = ah if isinstance(ah, dict) and ah.get("live_src") in ("beat", "nohb") else (
+            bh if isinstance(bh, dict) and bh.get("live_src") in ("beat", "nohb") else None)
         if _beat is not None:
             _other = bh if _beat is ah else ah
-            if isinstance(_other, dict) and _other.get("up") and _other.get("live_src") != "beat":
+            if isinstance(_other, dict) and _other.get("up") and _other.get("live_src") not in ("beat", "nohb"):
                 _other = dict(_other)
                 _other["alive"] = _beat.get("alive")
                 _other["dead"] = bool(_beat.get("dead"))
