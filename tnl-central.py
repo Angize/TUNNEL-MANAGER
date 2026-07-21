@@ -7320,10 +7320,11 @@ function sideState(online,h){  // k: dot color class, w: the word to show ONLY w
  if(h.up==null)return {k:'na',w:'…'};
  if(!h.up)return {k:'bad',w:T('st_disc')};
  if(h.dead)return {k:'bad',w:T('st_disc')};       // confirmed dead (frozen core heartbeat) -> red at once
- if(h.alive===true)return {k:'ok',w:''};          // real-state: tunnel traffic flowing OR probe answered
- if(h.alive===false)return {k:'warn',w:''};       // iface up but nothing proves it live (no traffic + probe failed)
- if(h.peer_ping===false)return {k:'warn',w:''};   // fallback for a pre-upgrade node that reports no `alive`
- return {k:'ok',w:''}}   // connected -> clean, just the green dot
+ if(h.alive===true)return {k:'ok',w:''};          // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
+ if(h.alive===false)return {k:'warn',w:''};       // up but not proven live yet (connecting, or no traffic + probe failed) -> yellow
+ if(h.peer_ping===true)return {k:'ok',w:''};      // pre-upgrade node (no `alive`): a passed ICMP probe IS its proof of life -> green
+ if(h.peer_ping===false)return {k:'warn',w:''};   // pre-upgrade node: failed probe -> yellow
+ return {k:'warn',w:''}}   // no positive proof of life (unknown / still connecting) -> yellow, never green by default
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
  return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="'+esc(T('tst_connected'))+'"')+'></span>'}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
