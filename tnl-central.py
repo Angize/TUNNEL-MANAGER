@@ -62,6 +62,13 @@ IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (lo
 # choice so both ends match; "none" disables encryption. Kept in sync with the core's crypto factory.
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
 CORE_RAW_PROFILES = ("bip", "ipip", "gre", "icmp", "udp", "tcp", "esp")   # raw-transport encapsulation profiles
+# Core transport carriers + the capability sub-families used across validation AND the browser UI
+# (injected into the page below). Single source of truth so a new carrier lands in ONE place.
+CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "ws", "dns")  # every core carrier
+DIRECT_TRANSPORTS     = ("udp", "tcp", "raw", "flux")               # direct carriers (support IP rotation)
+DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux")                      # handshake-less carriers (fec / ip-spoof)
+DESYNC_TRANSPORTS     = ("raw", "flux", "tcp", "ws")                # carriers that support fake-desync
+STATUSRING_TRANSPORTS = ("udp", "raw", "flux", "ws")               # carriers that write a precise status ring
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _core_blob_lock = threading.Lock()   # serialize the custom core binary + its meta writes
@@ -1109,7 +1116,7 @@ def _core_rotation_bodies(src, a_body, b_body):
     (which carries ip_rotate + a_ip_pool/b_ip_pool + rotate_secs/auto_burn). a_body is node A, b_body
     node B; the client/server split comes from each body's already-set role. No-op when rotation is off
     or the transport isn't direct (peer_ips/src_ips are meaningless on ws)."""
-    if not src.get("ip_rotate") or src.get("transport") not in ("udp", "tcp", "raw", "flux"):
+    if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
         return
     ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
     rs, ab = max(0, min(86400, int(src.get("rotate_secs") or 0))), bool(src.get("auto_burn"))
@@ -2828,7 +2835,7 @@ def _fec_fields(d, transport, cur=None):
     ignored on tcp/ws (TCP is already reliable). Both ends get the same setting (this link).
     cur (the existing link) supplies edit defaults. Returns {} when off / not applicable."""
     out = {}
-    if transport not in ("udp", "raw", "flux"):
+    if transport not in DATAGRAM_TRANSPORTS:
         return out
     cur = cur or {}
     fec = bool(d.get("fec")) if ("fec" in d) else bool(cur.get("fec"))
@@ -2852,7 +2859,7 @@ def _desync_fields(d, transport, cur=None):
     keeps the stored config. Returns {} when off / not applicable — so switching to udp cleanly
     drops the fields."""
     out = {}
-    if transport not in ("raw", "flux", "tcp", "ws"):
+    if transport not in DESYNC_TRANSPORTS:
         return out
     cur = cur or {}
     on = bool(d.get("fake_desync")) if ("fake_desync" in d) else bool(cur.get("fake_desync"))
@@ -3354,7 +3361,7 @@ def _create_tunnel_impl(d):
         if cipher != "none":
             extra["psk"] = secrets.token_hex(32)   # shared AEAD key, never sent to the browser
         transport = str(d.get("transport") or "udp").strip().lower()
-        if transport not in ("udp", "tcp", "raw", "flux", "ws", "dns"):
+        if transport not in CORE_TRANSPORTS:
             raise ValueError("حاملِ اتصال نامعتبر است")
         extra["transport"] = transport
         if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
@@ -3393,7 +3400,7 @@ def _create_tunnel_impl(d):
         server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
         # IP rotation (direct transports): the operator picks a subset of each node's IPs to cycle.
         # Stored in the link so edit/rebuild replay it; assigned per-role by _core_rotation_bodies.
-        if transport in ("udp", "tcp", "raw", "flux") and bool(d.get("ip_rotate")):
+        if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
             ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
             bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
             if a_ip not in ap:
@@ -3520,7 +3527,7 @@ def _restore_link(A, B, L, extra=None):
             extra = _tunnel_extra(L)                     # prefer a fresh ECH key
         except Exception:
             extra = _tunnel_extra(L, refetch_ech=False)  # last resort: stored key verbatim, never raises
-    _rot = L.get("ip_rotate") and L.get("transport") in ("udp", "tcp", "raw", "flux")
+    _rot = L.get("ip_rotate") and L.get("transport") in DIRECT_TRANSPORTS
     _ap, _bp = list(L.get("a_ip_pool") or []), list(L.get("b_ip_pool") or [])
     _rs, _ab = max(0, min(86400, int(L.get("rotate_secs") or 0))), bool(L.get("auto_burn"))
     for N, self_ip, peer_ip, own, peer in ((A, L["a_ip"], L["b_ip"], _ap, _bp), (B, L["b_ip"], L["a_ip"], _bp, _ap)):
@@ -3827,7 +3834,7 @@ def _edit_link_impl(d):
         if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
             extra["psk"] = L.get("psk") or secrets.token_hex(32)
         transport = str(d.get("transport") or L.get("transport") or "udp").strip().lower()
-        if transport not in ("udp", "tcp", "raw", "flux", "ws", "dns"):
+        if transport not in CORE_TRANSPORTS:
             raise ValueError("حاملِ اتصال نامعتبر است")
         extra["transport"] = transport
         if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
@@ -3871,7 +3878,7 @@ def _edit_link_impl(d):
         # IP rotation: a full form edit sends ip_rotate + pools; a partial edit (e.g. flux "rotate now")
         # omits them, so preserve the stored rotation config. Assigned per-role by _core_rotation_bodies.
         if "ip_rotate" in d:
-            if transport in ("udp", "tcp", "raw", "flux") and bool(d.get("ip_rotate")):
+            if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
                 ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
                 bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
                 if a_ip not in ap:
@@ -4775,7 +4782,7 @@ def _events_once():
         # down renders as a red "disconnected" in the precise section too). Only a plain-tcp core, which
         # writes no status ring, relies on the coarse classification below.
         precise_core = L.get("type") == "core" and (
-            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in ("udp", "raw", "flux", "ws"))
+            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)
         if up:
             # The precise reconnect ("up") comes from the core event ring — UNLESS this link's down was
             # itself coarse (a client node was offline, so the core was dead and logged nothing); then
@@ -4813,7 +4820,7 @@ def _events_once():
             continue
         is_pool = bool(L.get("ws_pool"))
         tr = str(L.get("transport") or "").lower()
-        if not is_pool and tr not in ("udp", "raw", "flux", "ws"):
+        if not is_pool and tr not in STATUSRING_TRANSPORTS:
             continue  # no core status file -> nothing precise to read (single-edge ws writes one; plain tcp doesn't)
         lid = L["id"]
         seen.add(lid)
@@ -6847,7 +6854,8 @@ function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
 var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
-function CORE_CIPHERS(){return [{v:'auto',label:T('cipher_auto')},{v:'aes-256-gcm',label:'aes-256-gcm'},{v:'aes-128-gcm',label:'aes-128-gcm'},{v:'chacha20-poly1305',label:'chacha20-poly1305'},{v:'xchacha20-poly1305',label:'xchacha20-poly1305'},{v:'none',label:T('cipher_none')}]}
+var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
+function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){return [{v:'192.168',label:T('snr_192')},{v:'10',label:T('snr_10')},{v:'172.16',label:T('snr_172')},{v:'custom',label:T('snr_custom')}]}
 var SUBNETRANGES2=[{v:'192.168',label:'192.168.x'},{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'}];
@@ -7643,7 +7651,7 @@ function XHTTP_MODES(){return [{v:'packet',n:'packet-up',m:T('xhm_packet_m')},{v
 function xhModeTiles(px,cur){return XHTTP_MODES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
 function ceSetXhMode(m){_eeXhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});ceWssGate()}
-function corSetTr(t){_corTr=t;['udp','tcp','raw','flux','ws','dns'].forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':(t=='dns'?'DNS':'UDP')))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corRotVis('e_')}
+function corSetTr(t){_corTr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':(t=='dns'?'DNS':'UDP')))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corRotVis('e_')}
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corTr=='flux')?'':'none';fluxTick()}
 function corWsVis(){var ws=_corTr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corSniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corWsTls);if(!_corWsTls){if(_corEch){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corSniSplit){_corSniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
@@ -8046,7 +8054,7 @@ function rotSetHTML(px){var st=rotSt(px),cur=String(st.secs||0);
  return '<div id="'+px+'rotset" style="display:none;margin-top:2px"><label class="first">'+esc(T('rot_interval'))+'</label>'+
  '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select></div>'}
 function rotTr(px){return px=='e_'?_corTr:_eeTr}
-function rotIsDirect(px){return ['udp','tcp','raw','flux'].indexOf(rotTr(px))>=0}
+function rotIsDirect(px){return _ENUMS.tr_direct.indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
 // rotFirstSel is the first SELECTED pool IP in display order (or ''): all IPs are equal now (no
 // primary/secondary), so this is just the endpoint we hand the backend as the config anchor (a_ip/
@@ -8120,7 +8128,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  else{m.className='msg err';m.textContent=terr(r.d.error||r.d.msg||T('failed'))}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeEch=false,_eeEchProxy=false,_eeXhttp=false,_eeXhMode='packet',_eeFec=false,_eeFecData=10,_eeFecParity=3,_eeDesync=false,_eeDesyncTtl=4,_eeDesyncCount=2,_eeDesyncMode='ttl',_eeSniSplit=false,_eeSplitPos=0,_eeSniMode='split',_eeSplitTtl=0;
-function ceSetTr(t){_eeTr=t;['udp','tcp','raw','flux','ws','dns'].forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();corRotVis('ee_')}
+function ceSetTr(t){_eeTr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();corRotVis('ee_')}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeTr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeTr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeSniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeWsTls=!_eeWsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeWsTls);if(!_eeWsTls){if(_eeEch){_eeEch=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeSniSplit){_eeSniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
@@ -8678,6 +8686,10 @@ render();updateSidebar();TT=setTimeout(tick,6000);
 # as JSON at import time, so there is NO hand-copied JS literal to drift (consolidation Track B). The
 # tools/tuning_consistency.py guard enforces the remaining panel<->core<->node agreement.
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
+# transport families + ciphers -> browser, so the enum lives only in the Python consts above (Track B).
+INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
+    {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS)},
+    separators=(",", ":")))
 
 # ----------------------------------------------------------------------------- install / main
 
