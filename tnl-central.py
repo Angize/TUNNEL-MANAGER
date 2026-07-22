@@ -6181,7 +6181,7 @@ var LANG='fa';
 try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}catch(e){}
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",logs_refresh:"تازه‌سازی",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
  brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
@@ -6225,7 +6225,7 @@ var I18N={fa:{
  t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",
 },en:{
  nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_logs:"Logs",nav_settings:"Settings",nav_logout:"Log out",
- logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",logs_refresh:"Refresh",
+ logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",
  logc_all:"All",logc_tunnel:"Tunnel",logc_rot:"Rotation",logc_ech:"ECH",logc_node:"Node",logc_sys:"System",logc_err:"Errors only",logc_none:"No events in this category",
  brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
  save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",add:"Add",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
@@ -8455,7 +8455,7 @@ function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='no
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString(LANG=='fa'?'fa-IR':'en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
- '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="refreshLogs()">'+ic('redo')+esc(T('logs_refresh'))+'</button><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
+ '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';markLogsSeen();refreshLogs();}
 // One skeleton log card — same geometry as the real logcard (stripe + icon chip + two text bars + time),
