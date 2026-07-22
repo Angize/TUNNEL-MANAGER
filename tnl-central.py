@@ -2448,6 +2448,21 @@ def api_core_stage(d):
     return {"ok": True, **info}
 
 
+def _core_result(nid, r):
+    """Normalize a node core-push/install reply into the per-node result dict the UI renders."""
+    err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
+    return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
+            "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
+
+def _core_push_result(nid):
+    """Push the panel's staged core to one node and return its normalized result. Shared by
+    api_core_update (stock version) and api_core_push."""
+    n = get_node(nid)
+    if not n:
+        return {"id": nid, "ok": False, "error": "node removed"}
+    return _core_result(nid, _push_staged(n))
+
+
 def api_core_update(d):
     """Install a core version on the given node ids and restart their core tunnels. The panel stages the
     version (downloads it once) and PUSHES the bytes to each node — nodes never download. `version` is a
@@ -2473,24 +2488,13 @@ def api_core_update(d):
                 return {"id": nid, "ok": False, "error": "node removed"}
             _ensure_update_key(n)   # provision the verify key before the signed push (node verifies fail-closed)
             r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom", "sig": _sign_sha(sha)}, timeout=200)
-            err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-            return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
-                    "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
+            return _core_result(nid, r)
 
         return {"results": parallel_map(one_custom, ids)}
 
     _stage_core(version)   # download the chosen version onto the panel first (raises if the panel is offline)
 
-    def one(nid):
-        n = get_node(nid)
-        if not n:
-            return {"id": nid, "ok": False, "error": "node removed"}
-        r = _push_staged(n)
-        err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
-                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
-
-    return {"results": parallel_map(one, ids)}
+    return {"results": parallel_map(_core_push_result, ids)}
 
 
 def api_core_push(d):
@@ -2503,16 +2507,7 @@ def api_core_push(d):
         raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
-    def one(nid):
-        n = get_node(nid)
-        if not n:
-            return {"id": nid, "ok": False, "error": "node removed"}
-        r = _push_staged(n)
-        err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
-                "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
-
-    return {"results": parallel_map(one, ids)}
+    return {"results": parallel_map(_core_push_result, ids)}
 
 
 def api_fleet(d):
@@ -2569,8 +2564,8 @@ def api_fleet(d):
                     bh = _other
                 else:
                     ah = _other
-        a_ips = [ip for ips in (_cached_ping(L["a_node"]).get("ips") or {}).values() for ip in ips]
-        b_ips = [ip for ips in (_cached_ping(L["b_node"]).get("ips") or {}).values() for ip in ips]
+        a_ips = _flat_ips(_cached_ping(L["a_node"]))
+        b_ips = _flat_ips(_cached_ping(L["b_node"]))
         side = "b" if L.get("view_side") == "b" else "a"
         pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the shared crypto key (IPsec / core AEAD psk) to the browser
         rec = {**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
@@ -3298,8 +3293,8 @@ def _create_tunnel_impl(d):
         raise ValueError(f"نودِ «{A['name']}» آفلاین است")
     if not pb.get("ok"):
         raise ValueError(f"نودِ «{B['name']}» آفلاین است")
-    a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
-    b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
+    a_ips = _flat_ips(pa)
+    b_ips = _flat_ips(pb)
     want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
     if want_a and want_a not in a_ips:
         raise ValueError(f"آی‌پیِ «{want_a}» روی نودِ «{A['name']}» نیست")
@@ -3779,8 +3774,8 @@ def _edit_link_impl(d):
     if not pb.get("ok"):
         raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     tid = int(L["tunnel_id"])
-    a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
-    b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
+    a_ips = _flat_ips(pa)
+    b_ips = _flat_ips(pb)
     want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
     if want_a and want_a not in a_ips:
         raise ValueError(f"آی‌پیِ «{want_a}» روی نودِ «{A['name']}» نیست")
@@ -4020,8 +4015,8 @@ def _rebuild_link_impl(d):
     if not pb.get("ok"):
         raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
-    a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
-    b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
+    a_ips = _flat_ips(pa)
+    b_ips = _flat_ips(pb)
     want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
     a_ip = (want_a if want_a in a_ips else
             (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
@@ -4121,8 +4116,8 @@ def _reconcile_once():
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         if not pa.get("ok") or not pb.get("ok"):
             continue  # only reconcile when BOTH ends are up — a rebuild needs both reachable
-        a_ips = [ip for ips in pa.get("ips", {}).values() for ip in ips]
-        b_ips = [ip for ips in pb.get("ips", {}).values() for ip in ips]
+        a_ips = _flat_ips(pa)
+        b_ips = _flat_ips(pb)
         if not a_ips or not b_ips:
             continue
         a_ok, b_ok = L.get("a_ip") in a_ips, L.get("b_ip") in b_ips
