@@ -4348,11 +4348,9 @@ def _ech_refresh_once():
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome, not an optimistic guess
-                    log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت و بازسازی شد",
-                              f"Tunnel “{nm}” ECH record vanished; degraded to plain wss and rebuilt")
+                    log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت و بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ تنزل به wss ساده شد ولی بازسازی شکست خورد — هنوز قطع",
-                              f"Tunnel “{nm}” ECH record vanished; degraded to plain wss but the rebuild FAILED — still down")
+                    log_event("bad", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ تنزل به wss ساده شد ولی بازسازی شکست خورد — هنوز قطع")
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
@@ -4362,16 +4360,12 @@ def _ech_refresh_once():
             pushed = _ech_live_push(lid, chmap) if kind in ("pool", "single") else ""
             # Boxes per host (domain + fresh base64 key), then — when the push actually landed — the node.
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
-            den = "\n".join("host: %s\nECH key: %s" % (h, k) for h, k in chmap.items())
             if pushed:
                 dfa += "\nنودِ مقصد: %s" % pushed
-                den += "\ntarget node: %s" % pushed
                 fa = "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label)
-                en = "Tunnel “%s” ECH key refreshed and live-pushed to the core (every %s min)" % (nm, _mins_label)
             else:
                 fa = "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label)
-                en = "Tunnel “%s” ECH key refreshed by the scheduled timer (every %s min)" % (nm, _mins_label)
-            log_event("ok", "ech", fa, en, dfa, den)
+            log_event("ok", "ech", fa, dfa)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to
         # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
         # SEE is down — LEVEL-triggered on the down state, NOT gated on the key changing THIS cycle (that
@@ -4389,13 +4383,10 @@ def _ech_refresh_once():
             if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
                 _ech_down_rebuilt.add(lid)
                 why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
-                why_en = "was down" if down else "had every edge failing to establish on ECH"
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome; a failed rebuild must not read as success
-                    log_event("ok", "ech", f"تونلِ «{nm}» {why_fa} و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد",
-                              f"Tunnel “{nm}” {why_en} with a rotated ECH key; rebuilt with the fresh key")
+                    log_event("ok", "ech", f"تونلِ «{nm}» {why_fa} و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازی با کلیدِ تازهٔ ECH شکست خورد — هنوز قطع",
-                              f"Tunnel “{nm}” {why_en} and the ECH rebuild FAILED — still down")
+                    log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازی با کلیدِ تازهٔ ECH شکست خورد — هنوز قطع")
                     _ech_down_rebuilt.discard(lid)   # let the NEXT cycle retry (don't burn the episode on a failed rebuild)
         else:
             _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
@@ -4424,13 +4415,10 @@ def _ech_heal_once():
         _ech_write(lid, kind, updates, degrade=False)                     # freshen the stored key (no-op if DoH empty)
         _ech_down_rebuilt.add(lid)
         why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
-        why_en = "was down" if down else "had edges failing on ECH"
         if _ech_safe_rebuild(lid):
-            log_event("ok", "ech", f"تونلِ «{nm}» {why_fa}؛ سریع با کلیدِ تازهٔ ECH بازسازی شد",
-                      f"Tunnel “{nm}” {why_en}; fast-healed by rebuilding with the fresh ECH key")
+            log_event("ok", "ech", f"تونلِ «{nm}» {why_fa}؛ سریع با کلیدِ تازهٔ ECH بازسازی شد")
         else:
-            log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازیِ سریعِ ECH شکست خورد — هنوز قطع",
-                      f"Tunnel “{nm}” {why_en} and the fast ECH rebuild FAILED — still down")
+            log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازیِ سریعِ ECH شکست خورد — هنوز قطع")
             _ech_down_rebuilt.discard(lid)   # let the next tick retry (don't burn the episode on a failed rebuild)
 
 
@@ -4488,11 +4476,9 @@ def _ech_ingest_selfheal():
         changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
         if changed and chmap:
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
-            den = "\n".join("host: %s\nECH key: %s" % (h, k) for h, k in chmap.items())
             log_event("ok", "ech",
                       "کلیدِ ECHِ خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
-                      "Tunnel “%s” core self-healed its ECH key; persisted to the panel so rebuilds no longer regress" % nm,
-                      dfa, den)
+                      dfa)
     for dead in [k for k in _ech_healed_seq if k not in live_ids]:
         _ech_healed_seq.pop(dead, None)   # drop bookkeeping for deleted/disabled links
 
@@ -4553,44 +4539,44 @@ _ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppr
 # Map the CORE's stable reason codes (it saw the real error) to bilingual text for the log. This is
 # the precise, core-level "why" the operator asked for — not the panel's coarse guess.
 _EV_DOWN_CODE = {
-    "ping_timeout": ("بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش", "no keepalive response — throttled/blackholed or peer down"),
-    "reset": ("اتصال ریست شد (RST — احتمالاً کشتنِ DPI)", "connection reset (RST — likely DPI)"),
-    "refused": ("اتصال رد شد (connection refused)", "connection refused"),
-    "timeout": ("مهلتِ اتصال تمام شد / بی‌مسیر", "timeout / unreachable"),
-    "eof": ("اتصال بسته شد (EOF)", "connection closed (EOF)"),
-    "tls": ("دستِ TLS شکست خورد (احتمالاً SNI بلاک شده)", "TLS handshake failed (SNI blocked?)"),
-    "ws_upgrade": ("ارتقاءِ WebSocket رد شد (Origin/CDN)", "WebSocket upgrade refused (origin/CDN)"),
-    "closed": ("اتصال قطع شد", "connection dropped"),
-    "dropped": ("اتصال قطع شد", "connection dropped"),
+    "ping_timeout": "بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش",
+    "reset": "اتصال ریست شد (RST — احتمالاً کشتنِ DPI)",
+    "refused": "اتصال رد شد (connection refused)",
+    "timeout": "مهلتِ اتصال تمام شد / بی‌مسیر",
+    "eof": "اتصال بسته شد (EOF)",
+    "tls": "دستِ TLS شکست خورد (احتمالاً SNI بلاک شده)",
+    "ws_upgrade": "ارتقاءِ WebSocket رد شد (Origin/CDN)",
+    "closed": "اتصال قطع شد",
+    "dropped": "اتصال قطع شد",
     # datagram transports (udp/raw/flux) — connectionless self-heal reasons
-    "stale": ("سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد", "session went stale (peer down/restarted?) — re-handshaking"),
-    "keepalive": ("keepalive بی‌پاسخ ماند — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش", "no keepalive — throttled/blackholed or peer down"),
-    "handshake": ("دست‌دادن شکست خورد (سرِ مقابل نبود/فیلتر شد)", "handshake failed (peer down/filtered)"),
+    "stale": "سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد",
+    "keepalive": "keepalive بی‌پاسخ ماند — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش",
+    "handshake": "دست‌دادن شکست خورد (سرِ مقابل نبود/فیلتر شد)",
 }
 _EV_UP_CODE = {
-    "reconnect": ("پس از افتِ سشن، خودکار وصل شد (self-heal)", "auto-recovered after a session drop (self-heal)"),
-    "connect": ("تونل وصل شد", "tunnel connected"),
+    "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
+    "connect": "تونل وصل شد",
 }
 _EV_BURN_CODE = {
-    "ip_blocked": ("آی‌پیِ لبه بلاک است (روی SNIِ سالم هم جواب نداد)", "edge IP blocked (failed even with a healthy SNI)"),
-    "sni_blocked": ("دامنه (SNI) بلاک است (روی آی‌پیِ سالم هم جواب نداد)", "SNI blocked (failed even on a healthy IP)"),
-    "throttle": ("آی‌پیِ لبه گلوگاه/کند شد (دست داد ولی دیتا مرد)", "edge IP throttled (handshake OK but data died)"),
+    "ip_blocked": "آی‌پیِ لبه بلاک است (روی SNIِ سالم هم جواب نداد)",
+    "sni_blocked": "دامنه (SNI) بلاک است (روی آی‌پیِ سالم هم جواب نداد)",
+    "throttle": "آی‌پیِ لبه گلوگاه/کند شد (دست داد ولی دیتا مرد)",
 }
 # Intentional IP MOVES on a datagram rotation pool (udp/raw/flux — tcp is connection-oriented and re-dials
 # instead of emitting these). The core reports these as a
 # "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation
-# or an operator pin. Render them as informational (ok) events, not a red "disconnected". (level, fa, en)
+# or an operator pin. Render them as informational (ok) events, not a red "disconnected". (level, fa)
 _EV_ROT_CODE = {
-    "peer-rotate": ("ok", "آی‌پیِ مقصد را چرخاند (self-heal/زمان‌بندی‌شده)", "rotated the destination IP"),
-    "src-rotate":  ("ok", "آی‌پیِ مبدأ را چرخاند", "rotated the source IP"),
-    "peer-pin":    ("ok", "روی آی‌پیِ مقصدِ پین‌شده رفت", "moved to the pinned destination IP"),
-    "src-pin":     ("ok", "روی آی‌پیِ مبدأِ پین‌شده رفت", "moved to the pinned source IP"),
+    "peer-rotate": ("ok", "آی‌پیِ مقصد را چرخاند (self-heal/زمان‌بندی‌شده)"),
+    "src-rotate":  ("ok", "آی‌پیِ مبدأ را چرخاند"),
+    "peer-pin":    ("ok", "روی آی‌پیِ مقصدِ پین‌شده رفت"),
+    "src-pin":     ("ok", "روی آی‌پیِ مبدأِ پین‌شده رفت"),
 }
 
 
 def _ev_core_text(kind, code, detail, nm):
-    """Render a core event into (level, kind, title_fa, title_en, detail_fa, detail_en) for
-    log_event(*...). Splitting title from detail lets the UI show the reason on its own line."""
+    """Render a core event into (level, kind, title, detail) for log_event(*...).
+    Splitting title from detail lets the UI show the reason on its own line."""
     key = str(detail or "")
     if key.startswith("ip:"):
         key = key[3:]
@@ -4599,16 +4585,16 @@ def _ev_core_text(kind, code, detail, nm):
     if kind == "down":
         rot = _EV_ROT_CODE.get(code)
         if rot:   # an intentional rotation/pin, not a fault — informational, not a red "disconnected"
-            lvl, fa, en = rot
-            return (lvl, "rot", f"تونلِ «{nm}»: {fa}", f"Tunnel “{nm}”: {en}", "", "")
-        rf, re_ = _EV_DOWN_CODE.get(code, ("اتصال قطع شد", "connection dropped"))
-        return ("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
+            lvl, fa = rot
+            return (lvl, "rot", f"تونلِ «{nm}»: {fa}", "")
+        rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
+        return ("bad", "link", f"تونلِ «{nm}» قطع شد", rf)
     if kind == "up":
-        rf, re_ = _EV_UP_CODE.get(code, ("تونل وصل شد", "tunnel connected"))
-        return ("ok", "link", f"تونلِ «{nm}» دوباره وصل شد", f"Tunnel “{nm}” reconnected", rf, re_)
+        rf = _EV_UP_CODE.get(code, "تونل وصل شد")
+        return ("ok", "link", f"تونلِ «{nm}» دوباره وصل شد", rf)
     if kind == "burn":
-        rf, re_ = _EV_BURN_CODE.get(code, ("سوخته شد", "sidelined"))
-        return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", f"Edge “{key}” of “{nm}” burned", rf, re_)
+        rf = _EV_BURN_CODE.get(code, "سوخته شد")
+        return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", rf)
     if kind == "heal":
         # A previously-sidelined member recovered and is back in the rotation pool. Three flavors:
         # peer-retest/src-retest are the DIRECT-transport pool's destination/source IP recovering on the
@@ -4616,34 +4602,27 @@ def _ev_core_text(kind, code, detail, nm):
         # active-carrier up/reconnect above.
         if code == "peer-retest":
             return ("ok", "edge", f"آی‌پیِ مقصدِ «{key}» تونلِ «{nm}» دوباره سالم شد و به استخر برگشت",
-                    f"Destination IP “{key}” of “{nm}” is healthy again — back in the pool",
-                    "داده روی این آی‌پی دوباره برقرار شد", "data flowing again on this IP")
+                    "داده روی این آی‌پی دوباره برقرار شد")
         if code == "src-retest":
             return ("ok", "edge", f"آی‌پیِ مبدأِ «{key}» تونلِ «{nm}» دوباره سالم شد و به استخر برگشت",
-                    f"Source IP “{key}” of “{nm}” is healthy again — back in the pool",
-                    "داده روی این آی‌پی دوباره برقرار شد", "data flowing again on this IP")
+                    "داده روی این آی‌پی دوباره برقرار شد")
         return ("ok", "edge", f"لبهٔ «{key}» تونلِ «{nm}» با retest ترمیم شد و به استخر برگشت",
-                f"Edge “{key}” of “{nm}” recovered via retest — back in the pool",
-                "بازآزماییِ پس‌زمینه موفق شد", "background retest succeeded")
+                "بازآزماییِ پس‌زمینه موفق شد")
     if kind == "pool":
         # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 healthy
         # IPs, so when only one is left the tunnel keeps working but STOPS switching edges (which is why
         # the rotation log goes quiet). detail is "healthy/total". Surface the pause and its recovery.
         if code == "degraded":
             return ("warn", "edge", f"استخرِ «{nm}» به یک لبهٔ سالم رسید — چرخش متوقف شد ({key})",
-                    f"Pool of “{nm}” is down to one healthy edge — rotation paused ({key})",
-                    "تا وقتی لبهٔ دیگری سالم نشود، روی همان یک لبه می‌ماند", "stays on the single edge until another recovers")
+                    "تا وقتی لبهٔ دیگری سالم نشود، روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
             # The operator pinned an edge that turned out to be genuinely blocked. Rather than hold the
             # tunnel down for the whole pin window, the pin self-released and rotation moved to a healthy
             # edge. Explains "I pinned it, the tunnel dropped, and it jumped back to the old edge".
             return ("warn", "edge", f"پینِ لبهٔ «{key}» تونلِ «{nm}» آزاد شد — آن لبه مسدود بود",
-                    f"Pin on edge “{key}” of “{nm}” was released — that edge is blocked",
-                    "لبهٔ پین‌شده واقعاً مسدود بود؛ برای جلوگیری از قطعی، چرخش به لبهٔ سالم برگشت",
-                    "the pinned edge was proven blocked; rotation returned to a healthy edge to avoid downtime")
+                    "لبهٔ پین‌شده واقعاً مسدود بود؛ برای جلوگیری از قطعی، چرخش به لبهٔ سالم برگشت")
         return ("ok", "edge", f"استخرِ «{nm}» ترمیم شد — چرخش از سر گرفته شد ({key})",
-                f"Pool of “{nm}” recovered — rotation resumed ({key})",
-                "لبهٔ دیگری سالم شد و به استخر برگشت", "another edge became healthy and rejoined the pool")
+                "لبهٔ دیگری سالم شد و به استخر برگشت")
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
         # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
@@ -4651,9 +4630,7 @@ def _ev_core_text(kind, code, detail, nm):
         # it so the (long) key lands in its OWN labeled box instead of being dumped inline in the message.
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
-        den = ("host: %s\n" % host if host else "") + ("fresh ECH key: %s" % k if k else "")
-        return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا self-heal شد (واکنشی/in-band)",
-                f"Tunnel “{nm}” ECH self-healed in-band (reactive)", dfa, den)
+        return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا self-heal شد (واکنشی/in-band)", dfa)
     return None
 
 
@@ -4680,15 +4657,15 @@ def _ev_seq_get():
     return _ev_seq_total
 
 
-def log_event(level, kind, fa, en, dfa="", den=""):
+def log_event(level, kind, fa, dfa=""):
     """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad.
-    fa/en are the one-line TITLE; dfa/den are an optional detail/reason that may contain "\\n" for
+    fa is the one-line TITLE; dfa is an optional detail/reason that may contain "\\n" for
     multiple lines (e.g. an edge switch's from/to) — the UI renders each line separately."""
     global _ev_seq_total
     with _events_lock:
         evs = load_events()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
-                       "fa": fa, "en": en, "dfa": dfa, "den": den})
+                       "fa": fa, "dfa": dfa})
         if len(evs) > EVENTS_CAP:
             evs = evs[:EVENTS_CAP]
         try:
@@ -4721,18 +4698,18 @@ def _link_down_reason(L, nmap):
         nid = L.get(key)
         if _cache_get(nid) and not _node_online(nid):
             nm = nmap.get(nid, nid)
-            return (f"نودِ «{nm}» آفلاین است", f"node “{nm}” is offline")
+            return f"نودِ «{nm}» آفلاین است"
     if link_drift(L["id"]):
-        return ("IP عوض شده — نیازمندِ بازسازی", "IP changed — needs rebuild")
+        return "IP عوض شده — نیازمندِ بازسازی"
     if L.get("type") == "core" and L.get("ws_pool"):
         try:
             r = api_edge_status({"id": L["id"]})
             h = (r or {}).get("health") or []
             if r and r.get("pool") and h and not any(e.get("state") == "healthy" for e in h):
-                return ("همهٔ لبه‌های استخر بلاک/سوخته‌اند", "all pool edges are blocked/burned")
+                return "همهٔ لبه‌های استخر بلاک/سوخته‌اند"
         except Exception:
             pass
-    return ("قابلِ دسترسی نیست (کریر/سرِ مقابل)", "unreachable (carrier/peer)")
+    return "قابلِ دسترسی نیست (کریر/سرِ مقابل)"
 
 
 def _events_once():
@@ -4755,9 +4732,9 @@ def _events_once():
             continue
         nm = n.get("name", "")
         if online:
-            log_event("ok", "node", f"نودِ «{nm}» آنلاین شد", f"Node “{nm}” came online")
+            log_event("ok", "node", f"نودِ «{nm}» آنلاین شد")
         else:
-            log_event("bad", "node", f"نودِ «{nm}» آفلاین شد", f"Node “{nm}” went offline")
+            log_event("bad", "node", f"نودِ «{nm}» آفلاین شد")
     for nid in [k for k in _ev_state["nodes"] if k not in seen]:
         _ev_state["nodes"].pop(nid, None)
 
@@ -4796,7 +4773,7 @@ def _events_once():
             if precise_core and lid not in _ev_state["links_coarse_down"]:
                 pass  # the paired "up" comes from the core event ring
             else:
-                log_event("ok", "link", f"تونلِ «{nm}» وصل شد", f"Tunnel “{nm}” connected")
+                log_event("ok", "link", f"تونلِ «{nm}» وصل شد")
             _ev_state["links_coarse_down"].discard(lid)
         else:
             # The core records the PRECISE down reason itself (see the edge section) — don't also emit a
@@ -4806,8 +4783,8 @@ def _events_once():
             if precise_core and not (a_off or b_off):
                 pass  # core-sourced precise "down" (and its paired "up") come from the event ring
             else:
-                rf, re_ = _link_down_reason(L, nmap)
-                log_event("bad", "link", f"تونلِ «{nm}» قطع شد", f"Tunnel “{nm}” disconnected", rf, re_)
+                rf = _link_down_reason(L, nmap)
+                log_event("bad", "link", f"تونلِ «{nm}» قطع شد", rf)
                 if precise_core:
                     _ev_state["links_coarse_down"].add(lid)  # coarse (node-offline) down -> pair with a coarse up
     for lid in [k for k in _ev_state["links"] if k not in seen]:
@@ -4879,14 +4856,14 @@ def _events_once():
                         prev = _ev_state["rotip"].get(rk)
                         if ip:
                             _ev_state["rotip"][rk] = ip
-                        lvl, fa, en = _EV_ROT_CODE[ecode]
+                        lvl, fa = _EV_ROT_CODE[ecode]
                         if ip and prev and prev != ip:
-                            dfa, den = f"از: {prev}\nبه: {ip}", f"from: {prev}\nto: {ip}"
+                            dfa = f"از: {prev}\nبه: {ip}"
                         elif ip:
-                            dfa, den = f"به: {ip}", f"to: {ip}"
+                            dfa = f"به: {ip}"
                         else:
-                            dfa, den = "", ""
-                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", f"Tunnel “{nm}”: {en}", dfa, den)
+                            dfa = ""
+                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", dfa)
                         continue
                     txt = _ev_core_text(ekind, ecode, edet, nm)
                     if txt:
@@ -4899,8 +4876,7 @@ def _events_once():
                 prev = _ev_state["edge"].get(lid)
                 _ev_state["edge"][lid] = active
                 if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
-                    log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد", f"Tunnel “{nm}” edge auto-switched",
-                              f"از: {prev}\nبه: {active}", f"from: {prev}\nto: {active}")
+                    log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد", f"از: {prev}\nبه: {active}")
         except Exception:
             continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
@@ -5460,9 +5436,8 @@ button:active{transform:scale(.98)}
 <label id="lg_lpass">رمز عبور</label><input id="p" type="password" autocomplete="current-password">
 <button id="lg_btn">ورود</button><div class="e" id="e"></div></form>
 <script>
-var L2={fa:{brand:"کنترل فلیت",sub:"برای ورود، نام کاربری و رمز را وارد کنید",user:"نام کاربری",pass:"رمز عبور",go:"ورود",fail:"ورود ناموفق",title:"ورود · tnl"},
- en:{brand:"Fleet control",sub:"Enter your username and password to sign in",user:"Username",pass:"Password",go:"Sign in",fail:"Login failed",title:"Sign in · tnl"}};
-var LG='fa';try{var _l=localStorage.getItem('tnl_lang');if(_l=='en')LG='en'}catch(e){}
+var L2={fa:{brand:"کنترل فلیت",sub:"برای ورود، نام کاربری و رمز را وارد کنید",user:"نام کاربری",pass:"رمز عبور",go:"ورود",fail:"ورود ناموفق",title:"ورود · tnl"}};
+var LG='fa';
 (function(){var d=L2[LG],dir=(LG=='fa')?'rtl':'ltr';document.documentElement.lang=LG;document.documentElement.dir=dir;
  function set(id,t){var e=document.getElementById(id);if(e)e.textContent=t}
  set('lg_brand',d.brand);set('lg_sub',d.sub);set('lg_luser',d.user);set('lg_lpass',d.pass);set('lg_btn',d.go);try{document.title=d.title}catch(e){}})();
@@ -6178,7 +6153,6 @@ body.dark .tag.core{color:#a78bfa}
 <script>
 // ===== i18n — Persian (default) + English. localStorage 'tnl_lang' is the source of truth. =====
 var LANG='fa';
-try{var _sl=localStorage.getItem('tnl_lang');if(_sl=='fa'||_sl=='en')LANG=_sl}catch(e){}
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
@@ -6223,45 +6197,8 @@ var I18N={fa:{
  set_sub:"رفتار خودکارِ پنل و بازه‌های بررسی",set_saved:"تنظیمات ذخیره شد",
  // toasts common
  t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",
-},en:{
- nav_overview:"Overview",nav_nodes:"Nodes",nav_tunnels:"Tunnels",nav_portfw:"Port-forward",nav_core:"Core",nav_logs:"Logs",nav_settings:"Settings",nav_logout:"Log out",
- logs_title:"System log",logs_sub:"Automatic system events — node/tunnel up-down and automatic edge switches (your manual actions are not shown here)",logs_empty:"No events recorded yet",logs_clear:"Clear log",logs_cleared:"Log cleared",logs_clear_confirm:"Clear all logs?",
- logc_all:"All",logc_tunnel:"Tunnel",logc_rot:"Rotation",logc_ech:"ECH",logc_node:"Node",logc_sys:"System",logc_err:"Errors only",logc_none:"No events in this category",
- brand_sub:"Fleet control",theme:"Theme",lang_label:"Language",
- save:"Save",save_rebuild:"Save & rebuild",cancel:"Cancel",add:"Add",close:"Close",confirm_del:"Confirm & delete",yes_all:"Yes, all",
- online:"Online",offline:"Offline",failed:"Failed",saving:"Saving…",checking:"Checking…",sending:"Sending…",loading:"Loading…",
- no_results:"No results.",live:"Live",select:"Select",ip:"IP",err_check:"Check failed",not_available:"Unreachable",
- prev:"Previous",next:"Next",page:"Page",of:"of",items:"items",search:"Search…",
- disk:"Disk",cpu_cores:"Cores",os:"OS",uptime:"Uptime",host:"Host",proxy:"Proxy",
- ov_sub:"Precise fleet stats — no misleading averages",ov_health:"Fleet health",ov_attention:"Needs attention",ov_allnodes:"All nodes at a glance",
- st_healthy:"Healthy",st_warn:"Warning (>60%)",st_crit:"Critical (>85%)",ov_central:"Central server (this panel)",ov_worst:"Busiest nodes",
- ov_tunbreak:"Tunnel status breakdown",ov_traffic:"Fleet traffic",ov_uptime:"Uptime",ov_rxtot:"↓ Total in",ov_txtot:"↑ Total out",
- ov_uptime_avg:"Average uptime",ov_down_nodes:"nodes had downtime",ov_chip_node:"Nodes",ov_chip_uplink:"Links up",ov_chip_tunnel:"Tunnels",ov_chip_alert:"Alerts",ov_chip_noalert:"No alerts",
- ov_noalert:"All good — no alerts",ov_no_nodes:"No nodes",ov_no_online:"No node online",ov_no_tunnel:"No tunnels",
- ov_heat_note:"nodes · each bar = that node's worst metric (disk/RAM/CPU) · gray = offline",
- tst_connected:"Connected",tst_noping:"No ping",tst_down:"Down",tst_rebuild:"Needs rebuild",
- ov_worst_q:"Worst quality: tunnel",ov_loss:"loss",ov_ping:"ping",ov_all_good:"All tunnels are in good shape",ov_fleet_ping:"fleet avg ping",
- ov_uptime_lbl:"Average uptime over the last",ov_hours_recent:"hours",load:"load",
- nodes_sub:"Add nodes and watch them live",add_node:"Add node",nodes_fleet:"Fleet nodes",nodes_search:"Search name or IP…",
- nodes_empty:"No nodes yet — use the \\"Add node\\" button above.",
- tip_test:"Test",tip_details:"Details",tip_edit:"Edit",tip_delete:"Delete",
- nd_tunnels:"Tunnels",nd_portfw:"Port-forward",nd_agent:"agent",nd_core:"core",nd_core_missing:"not installed",nd_ctrlproxy:"Control proxy",nd_toggle:"Show/hide in the create-tunnel & port-forward pickers (does not disconnect)",nd_hidden:"Hidden from creation lists",nd_shown:"Back in creation lists",
- uptime_bar:"Uptime",node_min2:"At least 2 online nodes required",
- tun_sub:"Every node-to-node link is separate — check, edit and delete each independently",add_tunnel:"Add tunnel",check_all:"Check all links",
- tun_search:"Search node name / type / ID…",tun_empty:"No links yet — use the \\"Add tunnel\\" button above.",
- st_off:"Off",st_half:"Partial",st_disc:"Down",reorder_err:"Failed to save order",reord_t:"Reorder cards",tip_ping:"Ping test",tip_reset:"Reset total",tip_rebuild:"Rebuild",tip_toggle:"Tunnel on/off",
- subnet:"Subnet",tid:"ID",iface:"Interface",ttype:"Type",udp_port:"UDP port",enc:"Encryption",encrypted:"Encrypted",total:"Total",
- no_live_side:"No live data from this end",tun_off_note:"This tunnel is off — the interface is down. Toggle it above to bring it back up.",
- turned_on:"Turned on",turned_off:"Turned off",
- core_sub:"Custom-core (Go) tunnels — packet/core mode with built-in encryption, separate from system tunnels",core_add:"Core tunnel",
- core_search:"Search node name / ID…",core_empty:"No core tunnels yet — use the \\"Core tunnel\\" button above.",
- server:"Server",client:"Client",carrier:"Carrier",port:"Port",caps:"Features",no_cipher:"No cipher",cdn_edge:"CDN edge",active_edge:"Current active edge (live)",cor_tab_ips:"IPs",cor_tab_set:"Settings",
- pf_sub:"Forward a port on a node (with multi-target rotation)",pf_add:"Add port-forward",pf_active:"Active port-forwards",pf_search:"Search node / name…",
- pf_empty:"No port-forwards.",pf_no_online:"No node is online",
- set_sub:"Panel automation and check intervals",set_saved:"Settings saved",
- t_rebuilt:"Rebuilt",t_reset_done:"Total reset to zero",
 }};
-(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  ram:"رم",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
  // node details
  nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
@@ -6367,104 +6304,8 @@ var I18N={fa:{
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
-},en:{
- ram:"RAM",cores_word:"cores",unit_mb:"MB",unit_gb:"GB",refresh2s:"live refresh",
- nd_title:"Node details",nd_status:"Node status",nd_off_last:"Offline — last values",nd_conn_test:"Connection test",nd_traffic:"Traffic",nd_ips:"IPs",
- ip_leg:"tunneled / port-forward / free",ip_none:"no IPs reported",free:"Free",nd_no_tp:"No tunnels or port-forwards on this node",nd_ctrlproxy:"Control proxy",
- nd_edit:"Edit node",f_name:"Name",f_host_ip:"Host / IP",f_port:"Port",f_token:"Token",tok_keep:"empty = keep current token",
- f_ctrlproxy_empty:"Control proxy (empty = none)",need_nhp:"Name, host and port are required",
- 
- 
- 
- 
- connecting_dots:"Connecting…",
- need_all_nhpt:"Please fill in name, host, port and token",node_added:"Node added",
- 
- inst_done:"Done",
- nd_del:"Delete node",del_how:"How should the node be removed? Pick one:",del_detach_t:"Detach from panel only",
- del_detach_s:"The node and its tunnels stay intact and keep working; it is only removed from this panel's registry. You can add it back later.",
- del_wipe_t:"Full node wipe",del_wipe_s:"Everything is wiped on the node server: all tunnels, the agent, the systemd service, the token and JSON files. Tunnels are also torn down on the peer nodes. Irreversible!",
- del_wipe_confirm:"Are you sure? The entire node on the server — tunnels, agent and token — is wiped and cannot be recovered.",del_wipe_yes:"Yes, wipe it",
- del_wiping:"Wiping node…",del_detaching:"Detaching…",node_wiped:"Node fully wiped",node_detached:"Node detached from panel",
- test_testing:"Testing…",node_added_online:" · online",node_added_offline:" · offline: ",
- t_side_off:"Node offline (agent unreachable — port/token may have changed)",t_side_notun:"Down (tunnel not on node)",t_side_ifdown:"Down (interface down)",
- t_side_conn:"Connected",t_side_nopingr:"No ping reply",t_side_up_unk:"Up (ping unknown)",t_ping:"ping",t_loss:"loss",t_noloss:"no loss",
- no_tunnel_check:"No tunnels to check",checkall_done:"Finished checking all tunnels",
- rebuild_confirm:"Rebuild this tunnel on both nodes? (delete and recreate with the same settings)",rebuilding_both:"Rebuilding the tunnel on both nodes…",
- rebuilt_test:"Tunnel rebuilt — test it with \\"Check\\"",rebuild_failed:"Rebuild failed",checking_conn:"Checking connection (live ping on both ends)…",
- conn_ok:"Connected",conn_bad:"Connection problem",reset_confirm:"Reset this tunnel's total to zero? (live rate is untouched)",
- pf_reset_confirm:"Reset this port-forward's total to zero?",del_tun_confirm:"Delete this tunnel on both nodes?",del_partial:"Partial delete: ",
- view_switched:"Traffic view switched to node \\"",view_switched2:"\\".",drift_note:"One node's IP changed — this tunnel needs a rebuild. Click \\"Rebuild\\".",
- tip_flip:"Switch traffic view — currently: ",
- add_tunnel_t:"Add tunnel",create_sub:"System · one source ↔ one destination",src_node:"Source node",dst_node:"Destination node",
- tun_type:"Tunnel type",local_range:"Local subnet (private range — auto by ID, no overlap)",custom_subnet:"Custom subnet",range:"Range",
- create_tun_btn:"Create tunnel",two_diff_nodes:"Pick two different nodes",creating_tun:"Creating tunnel…",tun_created:"Tunnel created",
- src_ip:"Source node IP",dst_ip:"Destination node IP",
- rot_t:"IP rotation",rot_d:"Cycles among each node's IPs and sidelines a blocked one (direct path, no CDN)",
- rot_interval:"Rotation interval",rot_onfail:"Only on failure",rot_1m:"Every 1 min",rot_5m:"Every 5 min",rot_10m:"Every 10 min",
- rot_min2:"Pick at least 2 IPs per pool to rotate",
- rot_autoburn_t:"Auto-drop a blocked IP",rot_autoburn_d:"An IP that won't connect is sidelined and retested on backoff; it returns when healthy",
- rot_primary:"primary",
- rb_title:"Rebuild tunnel",rb_newip:"new IP",rb_no_ip:"No selectable IP",rb_info:"The old IP is no longer on the node. Pick this tunnel's new IP — the tags show where each IP is attached.",
- rb_no_link:"Link info unavailable",rb_no_drift:"This tunnel has no drift",rebuilding:"Rebuilding…",rb_fetch_err:"Error fetching info",
- core_edit_t:"Edit core tunnel",not_found:"Not found",no_change:"No changes",saved_rebuilt:"Saved & rebuilt",core_tun_t:"Core tunnel",core_tun_sub:"Custom core · packet/core",
- core_created:"Core tunnel created",raw_need_enc:"The raw carrier requires encryption",flux_need_enc:"The flux carrier requires encryption",
- wss_need_host:"For wss you must enter the domain (Host)",ech_need_wss:"ECH requires wss — turn on wss first",sni_need_wss:"SNI fragmentation requires wss — turn on wss first",
- xh_need_wss:"This mode requires wss — turn on wss (TLS to CDN) first, or pick packet-up",
- decoy_need_ip:"Enter the decoy (fake destination) IP",cover_need_sni:"For TLS cover you must enter the display domain (SNI)",
- creating_core:"Creating the core tunnel on both nodes…",saving_rebuild_both:"Saving and rebuilding both ends…",
- pf_add_t:"Add port-forward",pf_edit_t:"Edit port-forward",pf_node:"Node",pf_listen_port:"Listen port",pf_dst_port:"Destination port",
- pf_dst_ips:"Destination IP(s) — comma-separated",pf_rot_min:"Rotate every (minutes) — if you gave several IPs",pf_rot_between:"Rotate between targets",
- pf_rot_interval:"Rotate interval (minutes)",pf_lip:"Listen IP",pf_lip_note:"The port is forwarded only on this IP",
- pf_lip_full:"Listen IP — the port is forwarded only on this IP",pf_rot_note:"Rotation is enabled only with 2 or more destination IPs.",
- pf_need_ports:"Ports and destination IP are required",pf_need_all:"Node, listen/destination port and IP are required",creating_dots:"Creating…",
- pf_created:"Port-forward created: ",pf_del_confirm:"Delete this port-forward?",pf_active_now:"Currently on: ",pf_targets:"Targets: ",
- pf_iface:"Interface: ",pf_lip_lbl:"Listen IP: ",pf_lp_lbl:"Listen port: ",pf_dp_lbl:"Destination port: ",pf_active_badge:"Active · target",
- pf_disabled:"Inactive",pf_rule:"Rule",pf_rotate_now:"Rotate now",pf_rotate_done:"Rotated → ",pf_rotate_failed:"Rotation failed",
- set_on_ipchange:"When a node's IP changes",set_on_ipchange_d:"Alert, or auto-heal",set_rec_int:"Reconcile check interval (seconds)",
- set_rec_range:"5 to 3600",set_poll_int:"Fleet poll interval (seconds)",set_poll_range:"0.3 to 60 — sub-1s allowed (heavier load)",set_ui_int:"UI refresh interval (seconds)",set_ui_range:"0.3 to 60 — rates/gauges refresh at this cadence",set_ech_int:"ECH key refresh interval (minutes)",set_ech_range:"0 = off, else 1 to 1440 — a CDN key rotation self-heals",set_upwin:"Uptime-bar window",
- set_upwin_d:"60 cells; each cell = window ÷ 60",set_mode_auto:"Auto",set_mode_alert:"Alert",set_default:"default",set_agent_update:"Agent update",
- set_tun_hd:"Advanced self-heal timing",set_tun_note:"These apply fleet-wide and take effect on each tunnel at its next build/rebuild. To apply now, Rebuild the tunnel. Out-of-range values are clamped in the core.",set_tun_reset:"Reset to defaults",set_tun_saved:"Timing saved",set_tun_reset_confirm:"Reset all timings to defaults?",
- set_tcat_pool:"1) Pool health (IP rotation — direct & WS CDN)",set_tcat_dead:"2) Dead detection / self-heal (keepalive-based)",set_tcat_rot:"3) Rotation",
- set_t_suspect:"Suspect retest schedule (secs)",set_t_suspect_d:"Comma list of steps; each failure walks one step, past the last → dead",
- set_t_deadretest:"Dead-entry retest interval (secs)",set_t_deadretest_d:"A dead IP is retested this often",
- set_t_pinttl:"Manual-pin cap (secs)",set_t_pinttl_d:"An unlanded pin (dead IP) is held at most this long",
- set_t_datafail:"Short-session threshold",set_t_datafail_d:"Consecutive short sessions before an IP is suspected",
- set_t_datagood:"Outage-guard window (secs)",set_t_datagood_d:"Only blame an IP if some edge was healthy this recently",
- set_t_idlemult:"Idle multiplier (×keepalive)",set_t_idlemult_d:"ws/tcp read deadline = mult × keepalive",
- set_t_idlemin:"Idle floor (secs)",set_t_idlemin_d:"Idle deadline never below this",
- set_t_ssmult:"Session-stale multiplier (×keepalive)",set_t_ssmult_d:"udp/raw/flux stale window = mult × keepalive",
- set_t_ssmin:"Session-stale floor (secs)",set_t_ssmin_d:"Stale window never below this",
- set_t_pingloss:"Ping-loss threshold",set_t_pingloss_d:"This many unanswered keepalives → close the connection",
- set_t_minlive:"Min healthy session (secs)",set_t_minlive_d:"A session shorter than this is a data-plane fault against the IP",
- set_t_probeto:"Edge probe timeout (secs)",set_t_probeto_d:"Cap on a single TCP+TLS probe",
- set_g1:"1) Panel timing",set_g1h:"runs on the central",set_g1c:"panel",
- set_g2:"2) Pool health & IP rotation",set_g2h:"client core",set_g2c:"both pools",
- set_g3:"3) WS-CDN edge burn",set_g3h:"ws/xhttp tunnels",set_g3c:"WS-CDN only",
- set_g4:"4) Stream dead-detection",set_g4h:"keepalive-based",set_g4c:"ws / tcp",
- set_g5:"5) Datagram dead-detection",set_g5h:"handshake-less",set_g5c:"udp / raw / flux",
- set_x_ipchange:"Germany node IP changed → “Alert” only flags it (you rebuild); “Auto” rebuilds it with the new IP.",
- set_x_rec:"<b>15</b> = a check every 15s; smaller = faster reaction, slightly more load.",
- set_x_poll:"<b>0.9</b> = node cards refresh ~every second; smaller = livelier but more polling.",
- set_x_ui:"<b>1</b> = numbers/charts refresh every second (browser only, no network load).",
- set_x_ech:"<b>15</b> = a fresh key every 15 min; <b>0</b> = off (not recommended).",
- set_x_upwin:"<b>24h</b> = each cell 24 min; <b>1h</b> = each cell 1 min (finer).",
- set_x_suspect:"IP suspected → retry after 30s, dies again → 60s, then 120… past <b>600</b> → dead.",
- set_x_deadretest:"<b>1800</b> = a dead IP gets one retry every 30 min.",
- set_x_pinttl:"<b>5</b> = you pin; if not up in 5s the pin releases and normal rotation resumes.",
- set_x_datafail:"<b>3</b> = three back-to-back early drops → edge suspected.",
- set_x_datagood:"<b>120</b> = if no edge was healthy in the last 120s it's a global outage, not this edge.",
- set_x_idlemult:"keepalive=10s, mult=<b>4</b> → 40s of silence = connection dead.",
- set_x_idlemin:"mult×keepalive = 40s but floor=<b>60</b> → deadline becomes 60s.",
- set_x_ssmult:"keepalive=10, mult=<b>3</b> → 30s of silence → a new session is built.",
- set_x_ssmin:"<b>10</b> = under 10s of silence, don't treat the session as stale.",
- set_x_pingloss:"<b>3</b> = three unanswered pings in a row → close & reconnect.",
- set_x_minlive:"<b>20</b> = a connection dying after 5s = IP fault, not a normal drop.",
- set_x_probeto:"<b>5</b> = edge didn't handshake within 5s → fail. (Direct carriers have no prober.)",
- h1:"1 hour",h3:"3 hours",h6:"6 hours",h8:"8 hours",h12:"12 hours",h24:"24 hours",
- pending_check:"Checking…",off_word:"Off",on_word:"On",
 }});
-(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  pf_dest:"مقصد",
  // command palette
  pal_search:"جستجوی نود، تونل یا دستور…",pal_move:"حرکت",pal_pick:"انتخاب",pal_close:"بستن",pal_none:"موردی یافت نشد",
@@ -6480,22 +6321,8 @@ var I18N={fa:{
  ag_nodes_updated:" نود بروزرسانی شد",ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
  ag_installing_core:"در حال نصبِ هسته…",ag_core_already:"هسته از قبل به‌روز بود",ag_core_updated:"هسته به‌روز شد",
-},en:{
- pf_dest:"target",
- pal_search:"Search a node, tunnel or command…",pal_move:"move",pal_pick:"select",pal_close:"close",pal_none:"No results",
- pal_g_nodes:"Nodes",pal_g_tuns:"Tunnels",pal_g_acts:"Commands",
- pal_add_tun:"Add tunnel",pal_agent:"Agent update",pal_checkall:"Check all tunnels on this page",pal_theme:"Toggle light/dark theme",
- ag_title:"Agent & core",ag_sub:"Update and restart node agents and cores from the panel, without SSH",
- ag_node_agent:"Node agent",ag_data_core:"Data core",ag_fetch_git:"Fetch from GitHub",ag_file_btn:"Agent file",ag_push_all:"Push agent to all nodes",
- ag_binary:"Binary",ag_install_all:"Install core on all nodes",ag_search:"Search node…",ag_ready:"Ready to push",ag_empty:"Empty",ag_no_item:"Nothing here",
- ag_core_hint:"⚠️ Both ends of a core tunnel must run the same version; if you change one node's version, move the peer node to the same version too, or that tunnel drops.",
- ag_lbl_agent:"agent",ag_lbl_core:"core",ag_up_avail:"update available",ag_uptodate:"up to date",ag_not_installed:"not installed",
- ag_no_online:"No node is online",ag_skipped_off:"Offline — skipped",ag_fail:"Failed: ",ag_already:"Already up to date",ag_updated:"Updated",ag_restarting:" · restarting…",
- ag_nodes_updated:" nodes updated",ag_pick_first:"Load an agent first",ag_confirm_all:"Update and restart the agent on ",ag_confirm_all2:" online nodes?",
- ag_pick_ver:"Pick a version first",ag_confirm_core:"Install core version \\"",ag_confirm_core2:"\\" on ",ag_confirm_core3:" online nodes and restart core tunnels?",
- ag_installing_core:"Installing core…",ag_core_already:"Core already up to date",ag_core_updated:"Core updated",
 }});
-(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  fmt_day:"روز",fmt_hr:"ساعت",fmt_min:"دقیقه",fmt_sec:"ثانیه",fmt_and:"و",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
  edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
  link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
@@ -6506,19 +6333,8 @@ var I18N={fa:{
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
-},en:{
- fmt_day:"day",fmt_hr:"hr",fmt_min:"min",fmt_sec:"sec",fmt_and:"and",cipher_auto:"Auto",cipher_none:"No cipher",
- edit_tun_t:"Edit tunnel",ip_of:"IP of ",multi_ip:"multi-IP",ip_each_end:"IP of each tunnel end",
- link_ip_note1:"If a node has several IPs, choose which one the tunnel binds to. Changing type, subnet or IP rebuilds the tunnel on both nodes (ID ",link_ip_note2:" is kept).",
- le_port_4789:"UDP port (empty = 4789)",le_port_auto:"UDP port (empty = auto from ID)",
- ph_burned_manual:"Burned (manual)",ph_dead:"Dead (permanent)",ph_suspect:"Suspect (temporary)",ph_active:"Healthy · active edge",ph_healthy:"Healthy",
- pb_healthy:"healthy",pb_temp:"temp",pb_dead:"dead",pb_burned:"burned",pool_empty:"Empty — add an entry",
- peer_live_hd:"Live pool status",peer_probe_btn:"Test all",peer_st_active:"Active",peer_st_rot:"In rotation",peer_pinned:"Pinned to this IP",peer_rotating:"This node rotates across several IPs — the IP shown is the currently-active one",peer_live_note:"A burned IP is retested on schedule and returns to rotation by itself when healthy; pin to switch to an IP manually.",
- peer_live_empty:"The live IP status and pin button appear here once the tunnel is running on an up-to-date node. If you just updated: update the node, then hit \\"Save & rebuild\\" so it's rebuilt with the new core.",
- pa_restore:"Restore to rotation",pa_testnow:"Test now",pa_active_ip:"Current IP",pa_activate:"Make this active",pa_pinning:"Activating…",
- flux_rotated:"Rotated — tunnel rebuilt",pool_make_first:"Create the tunnel first",pool_probe_sent:"Immediate probe sent",pool_edge_active:"This edge is now active",
 }});
-(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  // ---- core create/edit form + shared section builders (Gap 1)
  // subnet ranges
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
@@ -6580,57 +6396,8 @@ var I18N={fa:{
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",ip_multi_hint:"(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)",
  port_flux_ph:"flux پورت ثابت ندارد",port_raw_ph:"raw پورت ندارد",port_ws_ph:"۸۰ (کلادفلر Flexible)",
-},en:{
- snr_192:"Auto · 192.168.x (recommended)",snr_10:"Auto · 10.x",snr_172:"Auto · 172.16.x",snr_custom:"Custom (enter manually)",
- rawp_best:"best",rawp_warn:"may not pass through NAT",rawp_bip_m:"custom proto · default 58",rawp_icmp_m:"proto 1 · ping-like",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · fake TCP",rawp_esp_m:"proto 50 · IPsec ESP",
- wsp_ws_m:"standard WebSocket",wsp_xhttp_m:"GET/POST · bypasses WS blocks",xhm_packet_m:"short POSTs · most compatible",xhm_grpc_m:"one bidi request · streams over CDN",
- frot_180:"Every 3 min",frot_300:"Every 5 min",frot_600:"Every 10 min (default)",frot_900:"Every 15 min",frot_1800:"Every 30 min",frot_3600:"Every 1 hour",
- fsh_random_n:"Random",fsh_random_m:"no mimicry",fsh_quic_m:"HTTP/3-like",fsh_video_n:"Video call",fsh_video_m:"large packets",fsh_webrtc_m:"small RTP",
- fec_light:"Light",fec_balanced:"Balanced",fec_strong:"Strong",fec_ov20:"20% overhead",fec_ov30:"30% overhead",fec_ov50:"50% overhead",
- flux_carrier_lbl:"Flux carrier",flux_udp_best:"internet",flux_udp_m:"real UDP · rotating port",flux_stun_m:"STUN header · looks like a video call",flux_raw_warn:"same-segment / L2 only",flux_raw_m:"raw IP proto · L2 only",
- flux_shape_lbl:"Shape profile — mimic which traffic",flux_rot_lbl:"Rotation interval",flux_rot_ph:"interval",flux_rotate_btn:"Rotate now (advances the epoch; brief drop)",
- flux_note:"The wire shape rotates <b>signal-free</b> each interval — both ends derive one epoch from the clock. <b>udp/stun</b> traverse the internet; <b>raw</b> is same-segment only. Encryption is required.",
- flux_live:"Live shape",flux_carrier_word:"carrier",flux_next_pre:"next rotation in",flux_next_post:"",
- spoof_hd:"IP spoofing (camouflage)",spoof_decoy_t:"Destination spoof (Decoy)",spoof_decoy_d:"On the wire it looks like traffic goes to the IP below, but it really reaches your server.",spoof_decoy_ph:"Decoy (fake destination) IP — e.g. 185.51.200.10",
- spoof_src_t:"Source spoof",spoof_src_d:"Hides the real source IP on the wire (optional).",spoof_src_ph:"Fake source IP — e.g. 198.51.100.9",spoof_checking:"Checking spoof capability on the nodes…",
- spoof_cap_ok:"<b>Both nodes are technically capable.</b> But whether it actually works also depends on the datacenter egress and the path — this check only measures node capability, not that; building the tunnel confirms it.",
- spoof_cap_bad_pre:"<b>Disabled — not possible on node “",spoof_cap_bad_mid:"”.</b> Reason: ",spoof_reason_unknown:"unknown",spoof_cap_err:"<b>Check failed.</b> Could not query spoof capability from the nodes.",
- fec_t:"Error correction (FEC)",fec_d:"Rebuilds lost packets with parity and no retransmit — for lossy/throttled links. Costs some bandwidth; only on datagram carriers (udp/raw/flux), no effect on tcp/ws.",fec_rate_lbl:"FEC redundancy rate",
- fec_note:"“10+3” means for every 10 data packets, 3 parity packets; the receiver can lose up to 3 of every 13 and still rebuild. Both tunnel ends use the same setting.",
- ds_t:"Fake-packet desync (anti-DPI)",ds_d:"Emits a few decoy packets to mis-sync a stateful DPI; the real session is untouched. On raw/flux and on tcp/ws (injected TCP segments) — not plain udp.",ds_mode_lbl:"Decoy mode",ds_ttl_lbl:"Decoy TTL",ds_count_lbl:"Decoy count",
- ds_note:"Low TTL = the decoy survives a few hops and dies before the server (1 for a short relay, 3–5 for an internet path to the DPI). Bad checksum = the server drops it. Count = how many decoys per handshake.",
- ds_m_ttl_t:"Low TTL",ds_m_ttl_s:"dies en route",ds_m_bad_t:"Bad checksum",ds_m_bad_s:"server drops it",ds_m_both_t:"Both",ds_m_both_s:"combined",
- wstls_t:"wss (TLS to CDN)",wstls_d:"The client connects to the CDN edge over TLS; the server stays plain behind the CDN. Required for fronting. WS/CDN carrier only.",
- ech_t:"ECH — hide the SNI",ech_d:"Encrypts the domain name inside the ClientHello so an SNI filter cannot see which domain it is. Requires wss; for a pool it is fetched automatically per domain.",echpx_t:"Proxy for the ECH-key fetch",echpx_d:"For a filtered domain — the panel fetches the ECH key through this proxy (socks5/http). Only for the key fetch, not tunnel traffic.",sni_t:"SNI fragmentation (anti-DPI)",sni_d:"Splits the ClientHello across two TCP segments so no single packet holds the full domain name and an SNI-based DPI cannot match it. A cheap complement to ECH; requires wss.",sni_pos_lbl:"Split position (split_pos) — 0 = auto (middle of the domain)",disorder_t:"disorder mode (anti-reassembly DPI)",disorder_d:"Sends the first ClientHello segment at a low TTL so it dies in transit and the DPI sees the packets out of order; the kernel retransmits it so the server still completes. For a stronger DPI that reassembles the stream.",sni_ttl_lbl:"Head-segment TTL (split_ttl) — 0 = default (4)",sni_mode_lbl:"SNI fragmentation mode",m_split_s:"two plain segments",m_dis_s:"low-TTL head",m_fake_s:"decoy ClientHello (anti-reassembly)",
- ws_prof_lbl:"CDN profile",ws_prof_note:"<b>WS</b> = standard WebSocket. <b>XHTTP</b> = a GET(download)+POST(upload) pair; bypasses an account/CDN that blocks WebSocket. Both are fronted with the same domain/wss/ECH.",
- xh_mode_lbl:"xHTTP mode",xh_mode_note:"<b>packet-up</b> = short POSTs; most compatible (works even if the CDN buffers the body). <b>gRPC</b> = one fully bidirectional request shaped as real gRPC, so Cloudflare connects to the origin over h2c and <b>streams</b> instead of buffering — the best option on Cloudflare. gRPC requires <b>wss</b>.",
- ws_pool_t:"Edge pool (rotation + blocklist)",ws_pool_d:"Several IPs and domains; the core rotates and drops burned ones. Off = one fixed edge.",
- ws_host_lbl:"Fronting domain (Host / SNI)",ph_cdn_domain:"e.g. cdn.example.com",ws_edge_lbl:"CDN edge IP (optional) — the client connects to this instead of the origin",ph_edge_ip:"e.g. 104.16.0.1 or 104.16.0.1:443",ws_path_lbl:"Path",
- ws_note:"Traffic looks like HTTPS over the CDN (collateral freedom). Put the server behind a CDN (e.g. Cloudflare), SSL on Flexible, origin port 80. With a <b>pool</b>, give several IPs/domains to rotate and drop burned ones.",
- rot_3m:"Every 3 min",rot_5m:"Every 5 min",rot_10m:"Every 10 min",rot_15m:"Every 15 min",rot_30m:"Every 30 min",rot_1h:"Every 1 hour",rot_4h:"Every 4 hours",rot_8h:"Every 8 hours",rot_off_fo:"Off (failover only)",
- pool_ip_lbl:"CDN edge IPs",pool_sni_lbl:"Domains (SNI)",pool_ip_min2:"The pool needs at least 2 active IPs — you can't go below that",pool_ab_t:"Auto-burn",pool_ab_d:"A blocked edge is dropped automatically and retested on a backoff; when it recovers it comes back on its own.",
- pool_warm_t:"Warm standby edge",pool_warm_d:"Keeps a second edge ready in the background; when the active edge dies it switches instantly with no noticeable drop. Slight extra traffic (keepalive only).",
- pool_bad_ip:"Invalid IP (e.g. 104.16.0.1 or 104.16.0.1:443)",pool_bad_dom:"Invalid domain (e.g. cdn.example.com)",pool_need_clean:"The pool needs at least one clean IP and one clean domain",
- ech_need_wss_alert:"Turn on wss (TLS to CDN) first — ECH works inside that same TLS.",
- roles_lbl:"Roles — which node listens (server)",roles_note1:"The server node opens the",roles_note2:" port; the client node (usually behind NAT) connects to it.",
- srv_advice:"<b>Recommendation: put the server abroad.</b> If the Iran node is behind NAT or its port is filtered, an Iran-side server will not be reachable. With an open public IP it may work, but inbound to Iran is more heavily filtered/monitored and less durable.",
- enc_method_lbl:"Encryption method",cipher_ph:"cipher",transport_lbl:"Connection carrier",tr_udp_d:"datagram",tr_tcp_d:"steadier",tr_raw_d:"raw packet",tr_flux_d:"polymorphic",tr_dns_d:"last resort",
- dns_zone_lbl:"Delegated zone",dns_zone_note:"A subdomain whose NS is delegated to your server — the server is its authoritative NS. e.g. <b>t.example.com</b>",dns_resolvers_lbl:"Recursive resolvers (client)",dns_resolvers_note:"IPs of Iranian domestic DNS resolvers the client queries (comma-separated). The client never sends a packet to the server IP — that is what hides the tunnel from a destination filter.",dns_delegation_note:"Before use: at your domain registrar, delegate this zone's NS to the server IP and keep the server's port 53 open. Encryption is required. It is slow, but survives the worst case.",dns_need_enc:"The dns carrier needs encryption (don't set the cipher to \\"none\\")",dns_need_zone:"Enter the dns zone — e.g. t.example.com",dns_need_resolvers:"Enter at least one domestic resolver (IPv4)",port_dns_ph:"dns has no port (53)",
- raw_prof_lbl:"Encapsulation profile (raw)",raw_note:"Both ends must use the same profile. <b>bip</b> is optimal; a gold dot means it may not pass through NAT. The raw carrier needs <b>root</b> and encryption.",
- raw_proto_lbl:"IP protocol number (bip)",raw_proto_native:"native",raw_proto_hint:"bip has no L4 header; only the outer protocol number changes to slip past a protocol-whitelist filter. Default 58 (ICMPv6), which the IPv4 kernel ignores. Range 1–255.",raw_proto_warn:"This is a protocol the host stack also uses (ICMP/TCP/UDP/ESP/AH) and may conflict — 58 or 253 are safer.",raw_proto_bad:"The IP protocol number must be between 1 and 255",
- obfs_t:"DPI camouflage",obfs_d:"Strips signatures · padding/jitter · probe resistance. Encryption required.",
- cover_t:"TLS cover (looks like HTTPS)",cover_d:"Traffic looks like HTTPS and resists active probing too. TCP carrier only.",
- cover_sni_lbl:"Cover site (SNI) — required",cover_sni_ph:"e.g. a real, popular HTTPS site",
- cover_sni_note1:"For any anonymous connection (probe/censor) the server <b>actually connects to this site</b> and proxies traffic to it, so a probe sees that site\\'s real certificate (active-probe resistant). So it must be a <b>real, reachable, unblocked, popular HTTPS site</b> — preferably on a large CDN.",
- cover_sni_note2:"The server <b>actually connects and proxies</b> anonymous probes to this site, so it must be a <b>real, reachable, unblocked, popular HTTPS site</b> (preferably on a large CDN).",
- gso_t:"GSO/GRO acceleration",gso_d:"Speeds up bulk transfer (large packets, fewer syscalls). Linux only; no effect if unsupported.",
- set_gkd:"Dead-detection base — fleet-wide",set_gkdh:"keepalive & fixed deadline, every tunnel",set_gkdc:"all",set_t_keepalive:"keepalive (seconds)",set_t_keepalive_d:"A keep-alive frame is exchanged every this-many seconds; the base every dead-window scales off. Smaller = a dead tunnel turns red faster, at a little extra traffic. Range 5–120.",set_x_keepalive:"keepalive=<b>10</b> → a ping every 10s; the auto window is ~30s of silence = dead.",set_t_deadafter:"Fixed dead deadline (seconds)",set_t_deadafter_d:"If no authenticated frame arrives for this many seconds, the carrier is declared dead. <b>0 = auto</b> (derive from the multipliers below). A positive value = one fixed window for every tunnel. Range 10–300.",set_x_deadafter:"0 → auto (~3×keepalive). 20 → every tunnel dead after 20s of silence.",set_da_auto:"0 = auto: the dead window is derived from keepalive × the multipliers in groups 4 and 5.",set_da_fixed:"One number for every carrier: a tunnel is dead after {n}s of silence.",set_da_floored:"(you set {v}, but the 2×keepalive floor raised it to {n}.)",set_auto_only:"Auto mode only — applies while the fixed deadline is 0",set_auto_off:"No effect — the fixed deadline is on",
- core_range_lbl:"Local subnet (private range — auto by ID)",core_port_lbl:"Port (empty = auto · you can set 443)",core_port_lbl2:"Port (you can use 443)",core_subnet_lbl:"Internal subnet",
- core_edit_note:"Saving rebuilds the tunnel on both nodes (brief drop).",ph_subnet:"e.g. 192.168.99.0/24",
- role_server_word:"server",role_client_word:"client",ip_multi_hint:"(has several IPs — pick one for the tunnel)",
- port_flux_ph:"flux has no fixed port",port_raw_ph:"raw has no port",port_ws_ph:"80 (Cloudflare Flexible)",
 }});
-(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k];for(var k in x.en)I18N.en[k]=x.en[k]})({fa:{
+(function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  pct:"٪",list_sep:"، ",unit_kb:"کیلوبایت",unit_mb_full:"مگابایت",app_title:"tnl · کنترل فلیت",
  ip_toggle_hint:"بزن تا بینِ نامِ نود و اینترفیس جابه‌جا شود",
  // ---- node-add modal
@@ -6665,108 +6432,14 @@ var I18N={fa:{
  cor_bin_saved_pre:"باینری ذخیره شد: ",cor_bin_saved_post:" — «نصبِ همه» را بزن یا از منوی هر نود",
  ag_pick_file_first:"اول فایلِ ایجنت را انتخاب کن",ag_checking_saving:"در حال بررسی و ذخیره…",ag_saved_pre:"ذخیره شد: v",
  ag_fetching_git:"در حال دریافت از گیت‌هاب…",ag_fetched_pre:"دریافت شد: v",ag_fetched_post:" — حالا «پوشِ همه» را بزن",
-},en:{
- pct:"%",list_sep:", ",unit_kb:"KB",unit_mb_full:"MB",app_title:"tnl · Fleet control",
- ip_toggle_hint:"Tap to toggle between node name and interface",
- nadd_auto:"Automatic",nadd_manual:"Manual",nadd_title:"Add node",
- nadd_autonote:"Enter the node server's SSH details; the panel logs in itself, installs the agent, creates a token and connects the node.",
- nadd_node_name:"Node name",nadd_srv_ip:"Server IP",nadd_ssh_port:"SSH port",nadd_ssh_user:"SSH user",
- nadd_agent_port:"Agent port",nadd_ctrl_proxy:"Control proxy (optional)",px_type:"Proxy type",px_ip:"IP",px_port:"Port",px_user:"Username",px_pass:"Password",px_opt:"optional",px_hint:"Empty username & password = no auth. The panel uses this proxy for BOTH the install SSH and node control.",px_need_ipport:"Proxy IP and port are required",px_bad_port:"Invalid proxy port (1–65535)",px_bad_cred:"Proxy user/pass cannot contain @ : / or spaces",nadd_ssh_auth:"SSH authentication",
- nadd_pass:"Password",nadd_privkey:"Private key",nadd_pass_ph:"Server SSH password",
- nadd_pass_hint:"Server SSH password — not stored, used only during installation.",
- nadd_key_hint:"SSH private key — safer than a password; sshpass is not needed either.",
- nadd_manual_name:"Name",nadd_manual_host:"Host / IP",nadd_agent_port2:"Agent port",nadd_node_tok:"Node token",
- nadd_manual_proxy:"Control proxy (optional) — the panel connects to this node through it",
- nadd_install_connect:"Install & auto-connect",nadd_add_connect:"Add & connect",
- nadd_pass_word:"SSH password",nadd_is_required:" is required",nadd_need_name_ip:"Server name and IP are required",
- inst_ssh:"SSH connection",inst_download:"Agent download",inst_service:"Install & start service",inst_register:"Register & connect in panel",
- inst_connecting:"Connecting…",inst_waiting:"Waiting…",inst_installing:"Installing…",inst_done:"Done",
- inst_status_notfound:"Install status not found",inst_panel_lost:"Lost connection to the panel",inst_node_installed:"Node installed",inst_retry:"Retry",
- custom_subnet_ph:"e.g. 192.168.99.0/24 or fd00:99::/64",ttype_port_ph:"e.g. 51820",
- ttype_port_auto_lbl:"UDP port (optional — empty = auto from ID)",
- ttype_l2_note:"Runs over UDP; you can set a custom port to bypass filtering.",
- ttype_vxlan_lbl:"UDP port (empty = 4789)",
- ttype_vxlan_note:"The standard VXLAN port; you can change it to bypass filtering (e.g. 443).",
- ttype_ipsec_note:"Encrypted (ESP). A key is auto-generated and securely delivered to both ends — no external daemon.",
- ag_word_agent:"Agent",ag_word_core:"Core",ag_pick_version:"Select version",err_github:"Failed — does the panel have GitHub access?",
- ag_no_agent_loaded:"No agent loaded yet — “Fetch from GitHub” or “Agent file”.",
- ag_no_core_staged:"No core downloaded on the panel yet — click “Fetch from GitHub” to stage it for push.",
- cor_downloading:"Downloading the core onto the panel…",cor_staged_pre:"Core “",cor_staged_post:"” is staged on the panel",
- cor_pushing:"Pushing the staged core…",cor_reading_upload:"Reading and uploading the binary…",cor_read_fail:"Failed to read the file",
- cor_bin_saved_pre:"Binary saved: ",cor_bin_saved_post:" — click “Install all” or use each node's menu",
- ag_pick_file_first:"Select the agent file first",ag_checking_saving:"Checking and saving…",ag_saved_pre:"Saved: v",
- ag_fetching_git:"Fetching from GitHub…",ag_fetched_pre:"Fetched: v",ag_fetched_post:" — now click “Push to all”",
 }});
-function T(k){var d=I18N[LANG]||{};if(k in d)return d[k];if(k in I18N.fa)return I18N.fa[k];return k}
+function T(k){return (k in I18N.fa)?I18N.fa[k]:k}
 // ---- backend error translator (Gap 2): backend raises Persian; translate the STATIC ones on the
 // client for the EN locale. Unmatched messages (interpolated / dynamic) fall back to the original.
-var ERR={
- "حالت باید auto یا alert باشد":"Mode must be auto or alert",
- "رمزِ SSH یا کلیدِ خصوصی لازم است":"SSH password or private key is required",
- "نود پیدا نشد":"Node not found",
- "کد خالی است":"The code is empty",
- "فایل بیش از حد بزرگ است":"File is too large",
- "این فایل ایجنتِ نود نیست":"This file is not the node agent",
- "نسخهٔ ایجنت در کد پیدا نشد":"Agent version not found in the code",
- "فایلِ دریافتی خالی است":"The fetched file is empty",
- "فایلِ دریافتی بیش از حد بزرگ است":"The fetched file is too large",
- "فایلِ دریافتی ایجنتِ نود نیست":"The fetched file is not the node agent",
- "نسخهٔ ایجنت در کدِ دریافتی پیدا نشد":"Agent version not found in the fetched code",
- "ابتدا یک ایجنت بارگذاری کنید":"Load an agent first",
- "فایل base64 نامعتبر است":"Invalid base64 file",
- "فایل خیلی کوچک است — این باینریِ هسته نیست":"File is too small — this is not the core binary",
- "این یک باینریِ ELF لینوکسی نیست":"This is not a Linux ELF binary",
- "نسخهٔ هسته نامعتبر است — فقط حروف/عدد و کاراکترهای «._+-» مجاز است":"Invalid core version — only letters/digits and the characters “._+-” are allowed",
- "معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است":"Invalid architecture — only amd64 or arm64 allowed",
- "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن":"No core is staged on the panel — download a version first",
- "هیچ باینریِ سفارشی‌ای بارگذاری نشده":"No custom binary has been uploaded",
- "آی‌پیِ مبدأِ جعلی نامعتبر است (باید IPv4 باشد)":"Invalid fake source IP (must be IPv4)",
- "آی‌پیِ طُعمه (مقصد) نامعتبر است (باید IPv4 باشد)":"Invalid decoy (destination) IP (must be IPv4)",
- "حاملِ flux به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)":"The flux carrier requires encryption (do not set cipher to “none”)",
- "حاملِ flux نامعتبر است (udp / stun / raw)":"Invalid flux carrier (udp / stun / raw)",
- "بازهٔ چرخشِ flux باید بین ۱۰ تا ۸۶۴۰۰ ثانیه باشد":"The flux rotation interval must be between 10 and 86400 seconds",
- "پروفایلِ شکلِ flux نامعتبر است":"Invalid flux shape profile",
- "مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥۱، مجموع ≤۲۵۵)":"Invalid FEC values (data and parity each ≥1, sum ≤255)",
- "دامنهٔ WebSocket (ws_host) نامعتبر است":"Invalid WebSocket domain (ws_host)",
- "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)":"Invalid WebSocket path (ws_path) (must start with /)",
- "برای wss (TLS به CDN) باید دامنه (ws_host) را وارد کنی":"For wss (TLS to CDN) you must enter the domain (ws_host)",
- "آدرسِ لبهٔ CDN (edge_ip) نامعتبر است":"Invalid CDN edge address (edge_ip)",
- "ECH به wss نیاز دارد — اول wss (TLS به CDN) را روشن کن":"ECH requires wss — turn on wss (TLS to CDN) first",
- "استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد (سوخته‌ها کافی نیستند)":"The pool needs at least one clean IP and one clean domain (burned ones do not count)",
- "استخر خیلی بزرگ است (حداکثر ۶۴)":"The pool is too large (max 64)",
- "مسیر (path) نامعتبر است":"Invalid path",
- "آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن":"Both tunnel ends have the same IP; pick a different IP for each end",
- "سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24":"The subnet must have a prefix — e.g. 192.168.9.0/24",
- "پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)":"UDP port is out of range (1 to 65535)",
- "روشِ رمزنگاری نامعتبر است":"Invalid encryption method",
- "حاملِ اتصال نامعتبر است":"Invalid connection carrier",
- "حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)":"The raw carrier requires encryption (do not set cipher to “none”)",
- "پروفایلِ raw نامعتبر است":"Invalid raw profile",
- "استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)":"Camouflage requires encryption (do not set cipher to “none”)",
- "پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)":"TLS cover requires encryption (do not set cipher to “none”)",
- "دامنهٔ نمایشی (SNI) نامعتبر است":"Invalid display domain (SNI)",
- "برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی":"For TLS cover you must enter the display domain (SNI)",
- "شناسهٔ تونل خارج از محدوده است (۱ تا ۲۵۴)":"Tunnel ID is out of range (1 to 254)",
- "نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «._-» (۱ تا ۴۰ کاراکتر) مجاز است":"Invalid port-forward name — only letters/digits and “._-” (1 to 40 characters) allowed",
- "این لینک استخرِ لبه ندارد":"This link has no edge pool",
- "نودِ کلاینت پیدا نشد":"Client node not found",
- "kind باید ip یا sni باشد":"kind must be ip or sni",
- "dim باید ip یا sni باشد":"dim must be ip or sni",
- "چرخشِ الان فقط برای لینکِ h-flux است":"Rotate-now is only for h-flux links",
- "پروب ناموفق بود":"Probe failed",
- "انتخاب ناموفق بود":"Selection failed",
- "چرخش ناموفق بود":"Rotation failed",
- "در حال بررسی…":"Checking…",
- "ناموفق — پنل به گیت‌هاب دسترسی دارد؟":"Failed — does the panel have GitHub access?",
- "ناموفق":"Failed"
-};
-function terr(msg){return (LANG==='en'&&msg&&ERR[msg])?ERR[msg]:msg}
+function terr(msg){return msg}
 function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
 function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
-function applyLang(lang){if(lang!='fa'&&lang!='en')lang='fa';LANG=lang;try{localStorage.setItem('tnl_lang',lang)}catch(e){}
- var dir=(lang=='fa')?'rtl':'ltr';document.documentElement.lang=lang;document.documentElement.dir=dir;try{document.body.dir=dir}catch(e){}
- paintNav();render();updateSidebar()}
-(function(){var dir=(LANG=='fa')?'rtl':'ltr';document.documentElement.lang=LANG;document.documentElement.dir=dir;try{document.body.dir=dir}catch(e){}})();
+(function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
 var H={'Content-Type':'application/json','X-Requested-With':'tnl-central'};
 function j(u){return fetch('/api/'+u).then(function(r){return r.json()})}
 function post(u,b){return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{})}).then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})}
@@ -8453,7 +8126,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
  setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
-function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString(LANG=='fa'?'fa-IR':'en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
+function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  '<div id="logChips"></div>'+
@@ -8510,13 +8183,13 @@ function logFilter(k){LOGFILTER=k;var ch=el('logChips');
 // multi-line). OLD events only have the combined string, so parse the legacy "…: A ⟵ B" (edge
 // switch) and "… — reason" forms too, so both render readably.
 function evParts(e){
- var title=(LANG=='en'?e.en:e.fa)||e.fa||e.en||'';
- var det=(LANG=='en'?e.den:e.dfa)||'';
+ var title=e.fa||'';
+ var det=e.dfa||'';
  if(det)return{title:title,lines:det.split('\\n')};
  var arrow=title.indexOf(' ⟵ ')>=0?' ⟵ ':(title.indexOf(' → ')>=0?' → ':'');
  var ci=title.indexOf(': ');
  if(arrow&&ci>0){var ab=title.slice(ci+2).split(arrow);
-   return{title:title.slice(0,ci),lines:[(LANG=='en'?'from: ':'از: ')+(ab[0]||'').trim(),(LANG=='en'?'to: ':'به: ')+(ab[1]||'').trim()]};}
+   return{title:title.slice(0,ci),lines:['از: '+(ab[0]||'').trim(),'به: '+(ab[1]||'').trim()]};}
  var dash=title.indexOf(' — ');
  if(dash>0)return{title:title.slice(0,dash),lines:[title.slice(dash+3)]};
  return{title:title,lines:[]};
@@ -8533,9 +8206,9 @@ var EPILL='display:inline-block;direction:ltr;unicode-bidi:isolate;font-size:11p
 function evVal(l){var i=l.indexOf(': ');return i>0?l.slice(i+2):l;}
 function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]||''));
  return '<div style="margin-top:7px;line-height:2.2">'+
-   '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'from':'از')+'</span> '+
+   '<span style="font-size:10.5px;color:var(--sub)">'+'از'+'</span> '+
    '<span style="'+EPILL+'">'+frm+'</span> '+
-   '<span style="font-size:10.5px;color:var(--sub)">'+(LANG=='en'?'to':'به')+'</span> '+
+   '<span style="font-size:10.5px;color:var(--sub)">'+'به'+'</span> '+
    '<span style="'+EPILL+';color:var(--acc);border-color:color-mix(in srgb,var(--acc) 30%,transparent);background:var(--accw)">'+to+'</span></div>';}
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
@@ -8556,9 +8229,7 @@ function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
  var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
- var langseg='<div class="seg2" style="max-width:240px"><button type="button" class="segopt'+(LANG=='fa'?' on':'')+'" onclick="applyLang(\\'fa\\')"><b>فارسی</b></button><button type="button" class="segopt'+(LANG=='en'?' on':'')+'" onclick="applyLang(\\'en\\')"><b>English</b></button></div>';
  box.innerHTML=grp('set_g1','set_g1h','set_g1c','sc-panel',
-  row(T('lang_label'),'فارسی / English',langseg)+
   qr(T('set_on_ipchange'),'set_on_ipchange_d','set_x_ipchange','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
   qr(T('set_rec_int'),'set_rec_range','set_x_rec','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
   qr(T('set_poll_int'),'set_poll_range','set_x_poll','<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.poll_interval)||2)+'">')+
