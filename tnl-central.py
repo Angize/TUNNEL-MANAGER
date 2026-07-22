@@ -6154,6 +6154,7 @@ body.dark .tag.core{color:#a78bfa}
 <script>
 // ===== i18n — Persian (default) + English. localStorage 'tnl_lang' is the source of truth. =====
 var LANG='fa';
+var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
@@ -7319,31 +7320,31 @@ function coreCard(l){
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
-var _corSrv='a',_corTr='udp',_corObfs=false,_corCover=false,_corRawProfile='bip',_corGso=false,_corFluxCarrier='udp',_corFluxRotate=600,_corFluxShape='random',_corWsTls=false,_corEch=false,_corEchProxy=false,_corXhttp=false,_corXhMode='packet',_corFec=false,_corFecData=10,_corFecParity=3,_corDesync=false,_corDesyncTtl=4,_corDesyncCount=2,_corDesyncMode='ttl',_corSniSplit=false,_corSplitPos=0,_corSniMode='split',_corSplitTtl=0;
+_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bip',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Xhttp=false,_corS.XhMode='packet',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'xhttp',m:T('wsp_xhttp_m')}]}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function corSetWsProf(p){_corXhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corXhttp?'':'none';corWssGate()}
-function ceSetWsProf(p){_eeXhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeXhttp?'':'none';ceWssGate()}
+function corSetWsProf(p){_corS.Xhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corS.Xhttp?'':'none';corWssGate()}
+function ceSetWsProf(p){_eeS.Xhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeS.Xhttp?'':'none';ceWssGate()}
 // xhttp upstream style: packet-up (default) | gRPC. Shown only when the XHTTP profile is picked.
 function XHTTP_MODES(){return [{v:'packet',n:'packet-up',m:T('xhm_packet_m')},{v:'grpc',n:'gRPC',m:T('xhm_grpc_m')}]}
 function xhModeTiles(px,cur){return XHTTP_MODES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function corSetXhMode(m){_corXhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
-function ceSetXhMode(m){_eeXhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});ceWssGate()}
-function corSetTr(t){_corTr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':(t=='dns'?'DNS':'UDP')))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corRotVis('e_')}
-function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corTr=='flux')?'':'none';fluxTick()}
-function corWsVis(){var ws=_corTr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corSniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
-function corToggleWsTls(){_corWsTls=!_corWsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corWsTls);if(!_corWsTls){if(_corEch){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corSniSplit){_corSniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
-function corToggleSni(){if(!_corWsTls){_corSniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corSniSplit=!_corSniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corSniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corSniSplit?'':'none'}
-function corSetSniMode(m){_corSniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
+function corSetXhMode(m){_corS.XhMode=m;var g=el('e_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});corWssGate()}
+function ceSetXhMode(m){_eeS.XhMode=m;var g=el('ee_xhmpg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xm')==m)});ceWssGate()}
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'ws/TCP':(t=='dns'?'DNS':'UDP')))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corRotVis('e_')}
+function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corS.Tr=='flux')?'':'none';fluxTick()}
+function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
+function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
+function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
+function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
 // wss is MANDATORY for an edge pool and for the stream/gRPC xhttp modes (all need HTTP/2 to the
 // edge). In those cases force the toggle on and grey it (pointer-events:none) so it can't be turned
 // off in the UI only to be silently forced back on at save — the bug the user hit. Free otherwise.
-function corWssGate(){var mand=poolGet('e_').pool||(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc'));var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corWsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
-function corToggleEch(){if(!_corWsTls){_corEch=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corEch=!_corEch;var s=el('e_wsech');if(s)s.classList.toggle('on',_corEch);corEchPxGate()}
-function corToggleEchProxy(){_corEchProxy=!_corEchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corEchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corEchProxy?'':'none'}
-function corEchPxGate(){var vis=(_corTr=='ws'&&_corEch),row=el('e_echpxrow');if(!vis){_corEchProxy=false;var s=el('e_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('e_echpxbody');if(b)b.style.display=(vis&&_corEchProxy)?'':'none'}
+function corWssGate(){var mand=poolGet('e_').pool||(_corS.Xhttp&&(_corS.XhMode=='stream'||_corS.XhMode=='grpc'));var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
+function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corS.Ech=!_corS.Ech;var s=el('e_wsech');if(s)s.classList.toggle('on',_corS.Ech);corEchPxGate()}
+function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
+function corEchPxGate(){var vis=(_corS.Tr=='ws'&&_corS.Ech),row=el('e_echpxrow');if(!vis){_corS.EchProxy=false;var s=el('e_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('e_echpxbody');if(b)b.style.display=(vis&&_corS.EchProxy)?'':'none'}
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,warm:l?!!l.ws_warm_standby:false,
   open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
@@ -7409,18 +7410,18 @@ function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
 function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;body.ws_warm_standby=d.warm;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
-function corSetFluxCarrier(c){_corFluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
-function corSetFluxShape(s){_corFluxShape=s;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
-function corFluxRotChg(){_corFluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
-function corFecDatagram(){return _corTr=='udp'||_corTr=='raw'||_corTr=='flux'}
-function corToggleFec(){if(!corFecDatagram())return;_corFec=!_corFec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corFec);var r=el('e_fecrates');if(r)r.style.display=_corFec?'':'none'}
-function corSetFecRate(d,p){_corFecData=d;_corFecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
-function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corFec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function corSetFluxCarrier(c){_corS.FluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
+function corSetFluxShape(s){_corS.FluxShape=s;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
+function corFluxRotChg(){_corS.FluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
+function corFecDatagram(){return _corS.Tr=='udp'||_corS.Tr=='raw'||_corS.Tr=='flux'}
+function corToggleFec(){if(!corFecDatagram())return;_corS.Fec=!_corS.Fec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corS.Fec);var r=el('e_fecrates');if(r)r.style.display=_corS.Fec?'':'none'}
+function corSetFecRate(d,p){_corS.FecData=d;_corS.FecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
+function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corS.Fec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
 async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast(T('flux_rotated'),'ok');fluxTick()}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
 // Live edge-pool status: poll the active edge for the open edit link and reflect it (active
 // row highlight + live bar), plus mirror any auto-burns the core reported. doPoolRotate signals
 // the core to jump one dimension with no rebuild, then re-polls shortly after.
-var _eePoolLid='';
+_eeS.PoolLid='';
 function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').split(' · ');
   d.act={ip:(a[0]||'').trim(),sni:(a[1]||'').trim()};
   d.live={};(st.health||[]).forEach(function(h){if(h&&h.key)d.live[(h.kind=='sni'?'sni':'ip')+':'+h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
@@ -7428,7 +7429,7 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
   // release the pin lock once the chosen edge is confirmed active (or after a 12s safety timeout)
   if(d.pinPending){var pk=d.pinPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.pinPending=null;}
   poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // live health (سالم/موقت/دائمی) + active edge overlay onto the rows
-async function poolTick(){if(!_eePoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eePoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
+async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 (function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   // live-cadence self-loop
 // Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){var host=el('ee_lst_'+k);if(!host)return;
@@ -7595,12 +7596,12 @@ function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'d
  +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" onclick="'+fnp+'SetDesyncMode(\\''+m.v+'\\')"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
  +'<div class="grid2"><div><label>'+esc(T('ds_ttl_lbl'))+'</label><input id="'+idp+'dsttl" dir="ltr" inputmode="numeric" value="'+(ttl||4)+'"></div><div><label>'+esc(T('ds_count_lbl'))+'</label><input id="'+idp+'dscount" dir="ltr" inputmode="numeric" value="'+(count||2)+'"></div></div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
-function corToggleDesync(){_corDesync=!_corDesync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corDesync);var b=el('e_dsbody');if(b)b.style.display=_corDesync?'':'none'}
-function corSetDesyncMode(m){_corDesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
-function corDesyncGate(){var dg=(_corTr=='raw'||_corTr=='flux'||_corTr=='tcp'||_corTr=='ws'),row=el('e_dsrow');if(!dg){_corDesync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
-function ceToggleDesync(){_eeDesync=!_eeDesync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeDesync);var b=el('ee_dsbody');if(b)b.style.display=_eeDesync?'':'none'}
-function ceSetDesyncMode(m){_eeDesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
-function ceDesyncGate(){var dg=(_eeTr=='raw'||_eeTr=='flux'||_eeTr=='tcp'||_eeTr=='ws'),row=el('ee_dsrow');if(!dg){_eeDesync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
+function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
+function corDesyncGate(){var dg=(_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='tcp'||_corS.Tr=='ws'),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
+function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
+function ceDesyncGate(){var dg=(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp'||_eeS.Tr=='ws'),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 // ---- wss + ECH toggles live down in the general feature-toggle area (next to obfs / cover /
 // gso), not inside the ws block, so they stay put in single AND pool mode. They are shown only
 // when the carrier is WS/CDN (corWsVis/ceWsVis) and hidden otherwise, like the tcp-only cover.
@@ -7653,24 +7654,24 @@ function wsPoolInner(idp,fnp,lid){
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw" id="'+idp+'poolwarm" onclick="poolToggleWarm(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_warm_t'))+'</b><small>'+esc(T('pool_warm_d'))+'</small></div></div>';}
 function fluxStatText(fc,rot){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">'+esc(T('flux_live'))+'</b> · epoch <span class="mono">#'+ep+'</span> · '+esc(T('flux_carrier_word'))+' <span class="mono">'+fc+'</span> · '+esc(T('flux_next_pre'))+' <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> '+esc(T('flux_next_post'));}
-function fluxTick(){[['e_',_corTr,_corFluxCarrier,_corFluxRotate],['ee_',_eeTr,_eeFluxCarrier,_eeFluxRotate]].forEach(function(a){
+function fluxTick(){[['e_',_corS.Tr,_corS.FluxCarrier,_corS.FluxRotate],['ee_',_eeS.Tr,_eeS.FluxCarrier,_eeS.FluxRotate]].forEach(function(a){
  var w=el(a[0]+'fluxstat');if(w&&a[1]=='flux')w.innerHTML=fluxStatText(a[2],a[3]);});}
 setInterval(fluxTick,1000);
-var _corDecoy=false,_corSrc=false,_corSpoofOk=false;
-function corSpoofVis(){var w=el('e_spoofblk');if(!w)return;var show=(_corTr=='raw'&&_corRawProfile=='bip');w.style.display=show?'':'none';if(show)corSpoofProbe()}
+_corS.Decoy=false,_corS.Src=false,_corS.SpoofOk=false;
+function corSpoofVis(){var w=el('e_spoofblk');if(!w)return;var show=(_corS.Tr=='raw'&&_corS.RawProfile=='bip');w.style.display=show?'':'none';if(show)corSpoofProbe()}
 async function corSpoofProbe(){var cap=el('e_cap');if(!cap)return;cap.className='spoofcap wait';cap.innerHTML=esc(T('spoof_checking'));
- var res=await spoofProbePair(ssVal('e_a'),ssVal('e_b'));_corSpoofOk=res.ok;
- spoofApplyCap('e_',res.ok,res.html,function(){_corDecoy=false;_corSrc=false;
+ var res=await spoofProbePair(ssVal('e_a'),ssVal('e_b'));_corS.SpoofOk=res.ok;
+ spoofApplyCap('e_',res.ok,res.html,function(){_corS.Decoy=false;_corS.Src=false;
   var d=el('e_decoysw'),s=el('e_srcsw');if(d)d.classList.remove('on');if(s)s.classList.remove('on');
   var di=el('e_decoyiprow'),si=el('e_srciprow');if(di)di.style.display='none';if(si)si.style.display='none'})}
-function corToggleDecoy(){if(!_corSpoofOk)return;_corDecoy=!_corDecoy;el('e_decoysw').classList.toggle('on',_corDecoy);el('e_decoyiprow').style.display=_corDecoy?'':'none'}
-function corToggleSrc(){if(!_corSpoofOk)return;_corSrc=!_corSrc;el('e_srcsw').classList.toggle('on',_corSrc);el('e_srciprow').style.display=_corSrc?'':'none'}
-function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corTr=='raw')?'':'none'}
-function corDnsVis(){var w=el('e_dnsblk');if(w)w.style.display=(_corTr=='dns')?'':'none'}
+function corToggleDecoy(){if(!_corS.SpoofOk)return;_corS.Decoy=!_corS.Decoy;el('e_decoysw').classList.toggle('on',_corS.Decoy);el('e_decoyiprow').style.display=_corS.Decoy?'':'none'}
+function corToggleSrc(){if(!_corS.SpoofOk)return;_corS.Src=!_corS.Src;el('e_srcsw').classList.toggle('on',_corS.Src);el('e_srciprow').style.display=_corS.Src?'':'none'}
+function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corS.Tr=='raw')?'':'none'}
+function corDnsVis(){var w=el('e_dnsblk');if(w)w.style.display=(_corS.Tr=='dns')?'':'none'}
 // trFade: hide the carrier-bar edge fade once scrolled to the overflow end (Math.abs handles RTL's
 // negative scrollLeft as well as LTR; a non-overflowing bar reads as already at-end -> no fade).
 function trFade(bar){if(!bar)return;var w=bar.parentNode;if(!w)return;w.classList.toggle('atend',Math.abs(bar.scrollLeft)+bar.clientWidth>=bar.scrollWidth-4)}
-function corPortGate(){var p=el('e_port');if(!p)return;if(_corTr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_corTr=='raw'||_corTr=='flux'||_corTr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_corTr=='flux')?T('port_flux_ph'):(_corTr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
+function corPortGate(){var p=el('e_port');if(!p)return;if(_corS.Tr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_corS.Tr=='flux')?T('port_flux_ph'):(_corS.Tr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
 // dnsSection: the transport=dns config block (delegated zone + client resolver list + delegation
 // guide). Revealed by {cor,ce}DnsVis. The server is the zone's authoritative NS on :53; the client
 // queries the listed DOMESTIC resolvers, so it never sends a packet to the server IP.
@@ -7682,20 +7683,20 @@ function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none
  +'<input id="'+idp+'dnsresolvers" class="mono" placeholder="10.202.10.202, 10.202.10.102" style="direction:ltr">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:5px">'+T('dns_resolvers_note')+'</div>'
  +'<div class="autonote" style="margin-top:11px">'+ic('warn')+'<span>'+T('dns_delegation_note')+'</span></div></div>'}
-function corSetProfile(p){_corRawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis()}
+function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis()}
 function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('e_',val)}
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
-function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=(_corTr=='raw'&&_corRawProfile=='bip');w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='58';corProtoWarn()}}
-function corToggleGso(){_corGso=!_corGso;var s=el('e_gso');if(s)s.classList.toggle('on',_corGso)}
-function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corObfs=!_corObfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corObfs)}
-function corToggleCover(){if(_corTr!='tcp')return;_corCover=!_corCover;var s=el('e_cover');if(s)s.classList.toggle('on',_corCover);corSniVis()}
-function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corCover&&_corTr=='tcp')?'':'none'}
-function corCoverGate(){var tcp=_corTr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_corCover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';corSniVis()}
+function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=(_corS.Tr=='raw'&&_corS.RawProfile=='bip');w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='58';corProtoWarn()}}
+function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.toggle('on',_corS.Gso)}
+function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
+function corToggleCover(){if(_corS.Tr!='tcp')return;_corS.Cover=!_corS.Cover;var s=el('e_cover');if(s)s.classList.toggle('on',_corS.Cover);corSniVis()}
+function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corS.Cover&&_corS.Tr=='tcp')?'':'none'}
+function corCoverGate(){var tcp=_corS.Tr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_corS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';corSniVis()}
 function onCorCipher(){var none=ssVal('e_cipher')=='none',row=el('e_obfsrow'),s=el('e_obfs');
- if(none){_corObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
+ if(none){_corS.Obfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corSrv='a';_corTr='udp';_corObfs=false;_corCover=false;_corRawProfile='bip';_corGso=false;_corDecoy=false;_corSrc=false;_corSpoofOk=false;_corFluxCarrier='udp';_corFluxRotate=600;_corFluxShape='random';_corWsTls=false;_corEch=false;_corEchProxy=false;_corSniSplit=false;_corSplitPos=0;_corSniMode='split';_corSplitTtl=0;_corXhttp=false;_corXhMode='packet';_corFec=false;_corFecData=10;_corFecParity=3;_corDesync=false;_corDesyncTtl=4;_corDesyncCount=2;_corDesyncMode='ttl';_eePoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bip';_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Xhttp=false;_corS.XhMode='packet';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div><label class="first">'+esc(T('src_node'))+'</label>'+ssHTML('e_a',items,items[0].v,T('src_node'),'onCorNode')+'</div>'+
   '<div><label class="first">'+esc(T('dst_node'))+'</label>'+ssHTML('e_b',items,items[1].v,T('dst_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -7722,7 +7723,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();trFade(el('e_trbar'))}
-function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corTr=='raw'&&_corRawProfile=='bip')corSpoofProbe()}
+function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='raw'&&_corS.RawProfile=='bip')corSpoofProbe()}
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
 var _rotS={};
@@ -7733,7 +7734,7 @@ function rotSetHTML(px){var st=rotSt(px),cur=String(st.secs||0);
  function opt(vv,lab){return '<option value="'+vv+'"'+(cur==vv?' selected':'')+'>'+esc(lab)+'</option>'}
  return '<div id="'+px+'rotset" style="display:none;margin-top:2px"><label class="first">'+esc(T('rot_interval'))+'</label>'+
  '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select></div>'}
-function rotTr(px){return px=='e_'?_corTr:_eeTr}
+function rotTr(px){return px=='e_'?_corS.Tr:_eeS.Tr}
 function rotIsDirect(px){return _ENUMS.tr_direct.indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
 // rotFirstSel is the first SELECTED pool IP in display order (or ''): all IPs are equal now (no
@@ -7747,7 +7748,7 @@ function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(p
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
-function renderRotIps(px){var srv=(px=='e_')?_corSrv:_eeSrv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
+function renderRotIps(px){var srv=(px=='e_')?_corS.Srv:_eeS.Srv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
  // Role-based label: a node's IPs are the DESTINATION pool when that node is the SERVER (the client dials
  // it) and the SOURCE pool when it's the client. A fixed a=src/b=dst was wrong whenever node A is the
  // server — it then mislabels the server's (destination) IPs as "source", contradicting the live view.
@@ -7781,19 +7782,19 @@ function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_sn
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' '+esc(T('role_server_word'))+'</b><span>'+esc(an)+' '+esc(T('role_client_word'))+'</span>'}
-function corSetSrv(s){_corSrv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('e_')}
+function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('e_')}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
- var body={a_node:a,b_node:bb,type:'core',server_side:_corSrv,cipher:ssVal('e_cipher'),transport:_corTr,obfs:_corObfs,cover:(_corCover&&_corTr=='tcp'),gso:_corGso};
- if(_corTr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_corRawProfile;if(_corRawProfile=='bip'){var _rp=parseInt(v('e_rawproto')||'58',10);if(!(_rp>=1&&_rp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return}body.raw_proto=_rp}}
- if(_corTr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_corFluxCarrier;body.flux_rotate_secs=_corFluxRotate;body.flux_shape=_corFluxShape}
- if(_corTr=='dns'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return}var _dz=(v('e_dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return}var _dr=(v('e_dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return}body.dns_zone=_dz;body.dns_resolvers=_dr}
- if(corFecDatagram()){body.fec=_corFec;if(_corFec){body.fec_data=_corFecData;body.fec_parity=_corFecParity}}
- if(_corTr=='raw'||_corTr=='flux'||_corTr=='tcp'||_corTr=='ws'){body.fake_desync=_corDesync;if(_corDesync){body.fake_ttl=parseInt(v('e_dsttl'))||4;body.fake_count=parseInt(v('e_dscount'))||2;body.fake_mode=_corDesyncMode}}
- if(_corTr=='ws'){body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corWsTls;body.ech=_corEch;body.ech_proxy=(_corEch&&_corEchProxy);if(_corEch&&_corEchProxy)body.ech_proxy_url=(v('e_echproxyurl')||'').trim();body.sni_split=_corSniSplit;if(_corSniSplit){body.split_pos=parseInt(v('e_snisplitpos'))||0;body.sni_mode=_corSniMode;if(_corSniMode!='split')body.split_ttl=parseInt(v('e_splitttl'))||0;}body.ws_xhttp=_corXhttp;if(_corXhttp)body.ws_xhttp_mode=_corXhMode;if(poolGet('e_').pool){var pe=poolCollect('e_',body);if(pe!==true){m.className='msg err';m.textContent=pe;return}}else{body.ws_pool=false;body.ws_host=(v('e_wshost')||'').trim();body.edge_ip=(v('e_wsedge')||'').trim();if(_corWsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_corEch&&!_corWsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_corXhttp&&(_corXhMode=='stream'||_corXhMode=='grpc')&&!_corWsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
- if(_corTr=='raw'&&_corRawProfile=='bip'&&_corSpoofOk){
-  if(_corDecoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
-  if(_corSrc){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
+ var body={a_node:a,b_node:bb,type:'core',server_side:_corS.Srv,cipher:ssVal('e_cipher'),transport:_corS.Tr,obfs:_corS.Obfs,cover:(_corS.Cover&&_corS.Tr=='tcp'),gso:_corS.Gso};
+ if(_corS.Tr=='raw'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_corS.RawProfile;if(_corS.RawProfile=='bip'){var _rp=parseInt(v('e_rawproto')||'58',10);if(!(_rp>=1&&_rp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return}body.raw_proto=_rp}}
+ if(_corS.Tr=='flux'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_corS.FluxCarrier;body.flux_rotate_secs=_corS.FluxRotate;body.flux_shape=_corS.FluxShape}
+ if(_corS.Tr=='dns'){if(ssVal('e_cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return}var _dz=(v('e_dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return}var _dr=(v('e_dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return}body.dns_zone=_dz;body.dns_resolvers=_dr}
+ if(corFecDatagram()){body.fec=_corS.Fec;if(_corS.Fec){body.fec_data=_corS.FecData;body.fec_parity=_corS.FecParity}}
+ if(_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='tcp'||_corS.Tr=='ws'){body.fake_desync=_corS.Desync;if(_corS.Desync){body.fake_ttl=parseInt(v('e_dsttl'))||4;body.fake_count=parseInt(v('e_dscount'))||2;body.fake_mode=_corS.DesyncMode}}
+ if(_corS.Tr=='ws'){body.ws_path=(v('e_wspath')||'').trim();body.ws_tls=_corS.WsTls;body.ech=_corS.Ech;body.ech_proxy=(_corS.Ech&&_corS.EchProxy);if(_corS.Ech&&_corS.EchProxy)body.ech_proxy_url=(v('e_echproxyurl')||'').trim();body.sni_split=_corS.SniSplit;if(_corS.SniSplit){body.split_pos=parseInt(v('e_snisplitpos'))||0;body.sni_mode=_corS.SniMode;if(_corS.SniMode!='split')body.split_ttl=parseInt(v('e_splitttl'))||0;}body.ws_xhttp=_corS.Xhttp;if(_corS.Xhttp)body.ws_xhttp_mode=_corS.XhMode;if(poolGet('e_').pool){var pe=poolCollect('e_',body);if(pe!==true){m.className='msg err';m.textContent=pe;return}}else{body.ws_pool=false;body.ws_host=(v('e_wshost')||'').trim();body.edge_ip=(v('e_wsedge')||'').trim();if(_corS.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_corS.Ech&&!_corS.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_corS.Xhttp&&(_corS.XhMode=='stream'||_corS.XhMode=='grpc')&&!_corS.WsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
+ if(_corS.Tr=='raw'&&_corS.RawProfile=='bip'&&_corS.SpoofOk){
+  if(_corS.Decoy){var dip=(v('e_decoyip')||'').trim();if(!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}body.spoof_dst=dip}
+  if(_corS.Src){var sip=(v('e_srcip')||'').trim();if(sip)body.spoof_src=sip}}
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var _rverr=rotValidate('e_');if(_rverr){m.className='msg err';m.textContent=_rverr;return}
  var _sa=rotSt('e_');
@@ -7807,53 +7808,53 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
  else{m.className='msg err';m.textContent=terr(r.d.error||r.d.msg||T('failed'))}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-var _eeSrv='a',_eeTr='udp',_eeObfs=false,_eeCover=false,_eeRawProfile='bip',_eeGso=false,_eeFluxCarrier='udp',_eeFluxRotate=600,_eeFluxShape='random',_eeWsTls=false,_eeEch=false,_eeEchProxy=false,_eeXhttp=false,_eeXhMode='packet',_eeFec=false,_eeFecData=10,_eeFecParity=3,_eeDesync=false,_eeDesyncTtl=4,_eeDesyncCount=2,_eeDesyncMode='ttl',_eeSniSplit=false,_eeSplitPos=0,_eeSniMode='split',_eeSplitTtl=0;
-function ceSetTr(t){_eeTr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();corRotVis('ee_')}
-function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeTr=='flux')?'':'none';fluxTick()}
-function ceWsVis(){var ws=_eeTr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeSniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
-function ceToggleWsTls(){_eeWsTls=!_eeWsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeWsTls);if(!_eeWsTls){if(_eeEch){_eeEch=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeSniSplit){_eeSniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
-function ceToggleSni(){if(!_eeWsTls){_eeSniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_eeSniSplit=!_eeSniSplit;var s=el('ee_snisplit');if(s)s.classList.toggle('on',_eeSniSplit);var b=el('ee_snisplitbody');if(b)b.style.display=_eeSniSplit?'':'none'}
-function ceSetSniMode(m){_eeSniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
-function ceWssGate(){var mand=poolGet('ee_').pool||(_eeXhttp&&(_eeXhMode=='stream'||_eeXhMode=='grpc'));var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeWsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
-function ceToggleEch(){if(!_eeWsTls){_eeEch=false;var e=el('ee_wsech');if(e)e.classList.remove('on');ceEchPxGate();alert(T('ech_need_wss_alert'));return}_eeEch=!_eeEch;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeEch);ceEchPxGate()}
-function ceToggleEchProxy(){_eeEchProxy=!_eeEchProxy;var s=el('ee_echpx');if(s)s.classList.toggle('on',_eeEchProxy);var b=el('ee_echpxbody');if(b)b.style.display=_eeEchProxy?'':'none'}
-function ceEchPxGate(){var vis=(_eeTr=='ws'&&_eeEch),row=el('ee_echpxrow');if(!vis){_eeEchProxy=false;var s=el('ee_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('ee_echpxbody');if(b)b.style.display=(vis&&_eeEchProxy)?'':'none'}
-function ceSetFluxCarrier(c){_eeFluxCarrier=c;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
-function ceSetFluxShape(s){_eeFluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
-function ceFluxRotChg(){_eeFluxRotate=parseInt(ssVal('ee_fluxrot'))||600;fluxTick()}
-function ceFecDatagram(){return _eeTr=='udp'||_eeTr=='raw'||_eeTr=='flux'}
-function ceToggleFec(){if(!ceFecDatagram())return;_eeFec=!_eeFec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeFec);var r=el('ee_fecrates');if(r)r.style.display=_eeFec?'':'none'}
-function ceSetFecRate(d,p){_eeFecData=d;_eeFecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
-function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeFec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
-var _eeDecoy=false,_eeSrc=false,_eeSpoofOk=false,_eeNodesArr=['',''];
-function ceSpoofVis(){var w=el('ee_spoofblk');if(!w)return;var show=(_eeTr=='raw'&&_eeRawProfile=='bip');w.style.display=show?'':'none';if(show)ceSpoofProbe()}
+_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bip',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Xhttp=false,_eeS.XhMode='packet',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
+function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();corRotVis('ee_')}
+function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
+function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
+function ceToggleWsTls(){_eeS.WsTls=!_eeS.WsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeS.WsTls);if(!_eeS.WsTls){if(_eeS.Ech){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeS.SniSplit){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
+function ceToggleSni(){if(!_eeS.WsTls){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_eeS.SniSplit=!_eeS.SniSplit;var s=el('ee_snisplit');if(s)s.classList.toggle('on',_eeS.SniSplit);var b=el('ee_snisplitbody');if(b)b.style.display=_eeS.SniSplit?'':'none'}
+function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
+function ceWssGate(){var mand=poolGet('ee_').pool||(_eeS.Xhttp&&(_eeS.XhMode=='stream'||_eeS.XhMode=='grpc'));var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
+function ceToggleEch(){if(!_eeS.WsTls){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on');ceEchPxGate();alert(T('ech_need_wss_alert'));return}_eeS.Ech=!_eeS.Ech;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeS.Ech);ceEchPxGate()}
+function ceToggleEchProxy(){_eeS.EchProxy=!_eeS.EchProxy;var s=el('ee_echpx');if(s)s.classList.toggle('on',_eeS.EchProxy);var b=el('ee_echpxbody');if(b)b.style.display=_eeS.EchProxy?'':'none'}
+function ceEchPxGate(){var vis=(_eeS.Tr=='ws'&&_eeS.Ech),row=el('ee_echpxrow');if(!vis){_eeS.EchProxy=false;var s=el('ee_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('ee_echpxbody');if(b)b.style.display=(vis&&_eeS.EchProxy)?'':'none'}
+function ceSetFluxCarrier(c){_eeS.FluxCarrier=c;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
+function ceSetFluxShape(s){_eeS.FluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
+function ceFluxRotChg(){_eeS.FluxRotate=parseInt(ssVal('ee_fluxrot'))||600;fluxTick()}
+function ceFecDatagram(){return _eeS.Tr=='udp'||_eeS.Tr=='raw'||_eeS.Tr=='flux'}
+function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none'}
+function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
+function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
+_eeS.Decoy=false,_eeS.Src=false,_eeS.SpoofOk=false,_eeS.NodesArr=['',''];
+function ceSpoofVis(){var w=el('ee_spoofblk');if(!w)return;var show=(_eeS.Tr=='raw'&&_eeS.RawProfile=='bip');w.style.display=show?'':'none';if(show)ceSpoofProbe()}
 async function ceSpoofProbe(){var cap=el('ee_cap');if(!cap)return;cap.className='spoofcap wait';cap.innerHTML=esc(T('spoof_checking'));
- var res=await spoofProbePair(_eeNodesArr[0],_eeNodesArr[1]);_eeSpoofOk=res.ok;
- spoofApplyCap('ee_',res.ok,res.html,function(){_eeDecoy=false;_eeSrc=false;
+ var res=await spoofProbePair(_eeS.NodesArr[0],_eeS.NodesArr[1]);_eeS.SpoofOk=res.ok;
+ spoofApplyCap('ee_',res.ok,res.html,function(){_eeS.Decoy=false;_eeS.Src=false;
   var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.remove('on');if(s)s.classList.remove('on');
   var di=el('ee_decoyiprow'),si=el('ee_srciprow');if(di)di.style.display='none';if(si)si.style.display='none'})}
-function ceToggleDecoy(){if(!_eeSpoofOk)return;_eeDecoy=!_eeDecoy;el('ee_decoysw').classList.toggle('on',_eeDecoy);el('ee_decoyiprow').style.display=_eeDecoy?'':'none'}
-function ceToggleSrc(){if(!_eeSpoofOk)return;_eeSrc=!_eeSrc;el('ee_srcsw').classList.toggle('on',_eeSrc);el('ee_srciprow').style.display=_eeSrc?'':'none'}
+function ceToggleDecoy(){if(!_eeS.SpoofOk)return;_eeS.Decoy=!_eeS.Decoy;el('ee_decoysw').classList.toggle('on',_eeS.Decoy);el('ee_decoyiprow').style.display=_eeS.Decoy?'':'none'}
+function ceToggleSrc(){if(!_eeS.SpoofOk)return;_eeS.Src=!_eeS.Src;el('ee_srcsw').classList.toggle('on',_eeS.Src);el('ee_srciprow').style.display=_eeS.Src?'':'none'}
 function ceSpoofPrefill(l){var di=el('ee_decoyip'),si=el('ee_srcip');if(di&&l.spoof_dst)di.value=l.spoof_dst;if(si&&l.spoof_src)si.value=l.spoof_src;
- _eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;
- var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.toggle('on',_eeDecoy);if(s)s.classList.toggle('on',_eeSrc);
- var dr=el('ee_decoyiprow'),sr=el('ee_srciprow');if(dr)dr.style.display=_eeDecoy?'':'none';if(sr)sr.style.display=_eeSrc?'':'none'}
-function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeTr=='raw')?'':'none'}
-function ceDnsVis(){var w=el('ee_dnsblk');if(w)w.style.display=(_eeTr=='dns')?'':'none'}
-function cePortGate(){var p=el('ee_port');if(!p)return;if(_eeTr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_eeTr=='raw'||_eeTr=='flux'||_eeTr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_eeTr=='flux')?T('port_flux_ph'):(_eeTr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
-function ceSetProfile(p){_eeRawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis();ceProtoVis()}
+ _eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;
+ var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.toggle('on',_eeS.Decoy);if(s)s.classList.toggle('on',_eeS.Src);
+ var dr=el('ee_decoyiprow'),sr=el('ee_srciprow');if(dr)dr.style.display=_eeS.Decoy?'':'none';if(sr)sr.style.display=_eeS.Src?'':'none'}
+function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeS.Tr=='raw')?'':'none'}
+function ceDnsVis(){var w=el('ee_dnsblk');if(w)w.style.display=(_eeS.Tr=='dns')?'':'none'}
+function cePortGate(){var p=el('ee_port');if(!p)return;if(_eeS.Tr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_eeS.Tr=='flux')?T('port_flux_ph'):(_eeS.Tr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
+function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis();ceProtoVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
-function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=(_eeTr=='raw'&&_eeRawProfile=='bip');w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='58';ceProtoWarn()}}
-function ceToggleGso(){_eeGso=!_eeGso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeGso)}
-function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeObfs=!_eeObfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeObfs)}
-function ceToggleCover(){if(_eeTr!='tcp')return;_eeCover=!_eeCover;var s=el('ee_cover');if(s)s.classList.toggle('on',_eeCover);ceSniVis()}
-function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeCover&&_eeTr=='tcp')?'':'none'}
-function ceCoverGate(){var tcp=_eeTr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeCover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
+function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=(_eeS.Tr=='raw'&&_eeS.RawProfile=='bip');w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='58';ceProtoWarn()}}
+function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
+function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
+function ceToggleCover(){if(_eeS.Tr!='tcp')return;_eeS.Cover=!_eeS.Cover;var s=el('ee_cover');if(s)s.classList.toggle('on',_eeS.Cover);ceSniVis()}
+function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS.Tr=='tcp')?'':'none'}
+function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){var none=ssVal('ee_cipher')=='none',row=el('ee_obfsrow'),s=el('ee_obfs');
- if(none){_eeObfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
+ if(none){_eeS.Obfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=none?'none':''}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeSrv=(l.server_side=='b')?'b':'a';_eeTr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeObfs=!!l.obfs;_eeCover=!!l.cover&&_eeTr=='tcp';_eeRawProfile=l.raw_profile||'bip';_eeGso=!!l.gso;_eeDecoy=!!l.spoof_dst;_eeSrc=!!l.spoof_src;_eeSpoofOk=false;_eeNodesArr=[l.a_node,l.b_node];_eeFluxCarrier=l.flux_carrier||'udp';_eeFluxRotate=l.flux_rotate_secs||600;_eeFluxShape=l.flux_shape||'random';_eeWsTls=!!l.ws_tls;_eeEch=!!l.ech;_eeEchProxy=!!l.ech_proxy;_eeSniSplit=!!l.sni_split;_eeSplitPos=l.split_pos||0;_eeSniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeSplitTtl=l.split_ttl||0;_eeXhttp=!!l.ws_xhttp;_eeXhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeFec=!!l.fec;_eeFecData=l.fec_data||10;_eeFecParity=l.fec_parity||3;_eeDesync=!!l.fake_desync;_eeDesyncTtl=l.fake_ttl||4;_eeDesyncCount=l.fake_count||2;_eeDesyncMode=l.fake_mode||'ttl';_eePoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Xhttp=!!l.ws_xhttp;_eeS.XhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs||600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
@@ -7861,49 +7862,49 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
   '<div class="grid2"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
   '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+'<div id="ee_peerlive"></div>'+
-  '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeSrv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeSrv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div>'+
+  '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div>'+
   '<div class="autonote">'+ic('warn')+'<span>'+T('srv_advice')+'</span></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
-  '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeTr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeTr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeTr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeTr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeTr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button><button type="button" class="segopt'+(_eeTr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="ee_rawblk" style="display:'+((_eeTr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeRawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+'</div>'+
-  fluxSection('ee_','ce',_eeFluxCarrier,_eeFluxRotate,_eeFluxShape,id)+
-  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeWsTls,l.edge_ip,_eeEch,_eeXhttp,_eeXhMode,l.id)+
+  '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>WS</b><span>CDN</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
+  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+'</div>'+
+  fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
+  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Xhttp,_eeS.XhMode,l.id)+
   dnsSection('ee_','ce')+
   spoofSection('ee_','ce')+
-  '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeObfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
-  '<div class="tglbox" id="ee_coverrow"'+((_eeTr!='tcp')?' style="display:none"':'')+'><div class="tglsw'+(_eeCover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>'+esc(T('cover_t'))+'</b><small>'+esc(T('cover_d'))+'</small></div></div>'+
-  wsToggleRows('ee_','ce',_eeWsTls,_eeEch,_eeEchProxy,(l.ech_proxy_url||''),_eeSniSplit,_eeSplitPos,_eeSniMode,_eeSplitTtl,_eeTr=='ws')+
-  '<div id="ee_snirow" style="display:'+((_eeCover&&_eeTr=='tcp')?'':'none')+'"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="ee_sni" placeholder="'+esc(T('cover_sni_ph'))+'" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note2')+'</div></div>'+
-  '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeGso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
-  fecSection('ee_','ce',_eeFec,_eeFecData,_eeFecParity,(_eeTr=='udp'||_eeTr=='raw'||_eeTr=='flux'))+
-  desyncSection('ee_','ce',_eeDesync,_eeDesyncTtl,_eeDesyncCount,_eeDesyncMode,(_eeTr=='raw'||_eeTr=='flux'||_eeTr=='tcp'||_eeTr=='ws'))+
+  '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Obfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
+  '<div class="tglbox" id="ee_coverrow"'+((_eeS.Tr!='tcp')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Cover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>'+esc(T('cover_t'))+'</b><small>'+esc(T('cover_d'))+'</small></div></div>'+
+  wsToggleRows('ee_','ce',_eeS.WsTls,_eeS.Ech,_eeS.EchProxy,(l.ech_proxy_url||''),_eeS.SniSplit,_eeS.SplitPos,_eeS.SniMode,_eeS.SplitTtl,_eeS.Tr=='ws')+
+  '<div id="ee_snirow" style="display:'+((_eeS.Cover&&_eeS.Tr=='tcp')?'':'none')+'"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="ee_sni" placeholder="'+esc(T('cover_sni_ph'))+'" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note2')+'</div></div>'+
+  '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeS.Gso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
+  fecSection('ee_','ce',_eeS.Fec,_eeS.FecData,_eeS.FecParity,(_eeS.Tr=='udp'||_eeS.Tr=='raw'||_eeS.Tr=='flux'))+
+  desyncSection('ee_','ce',_eeS.Desync,_eeS.DesyncTtl,_eeS.DesyncCount,_eeS.DesyncMode,(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp'||_eeS.Tr=='ws'))+
   '<div class="grid2"><div><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>'+esc(T('core_subnet_lbl'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();if(el('ee_rawproto')&&l.raw_proto)el('ee_rawproto').value=l.raw_proto;ceProtoVis();if(el('ee_dnszone')&&l.dns_zone)el('ee_dnszone').value=l.dns_zone;if(el('ee_dnsresolvers')&&l.dns_resolvers)el('ee_dnsresolvers').value=(l.dns_resolvers||[]).join(', ');ceDnsVis();ceFluxVis();ceWsVis();trFade(el('ee_trbar'));if(_eePoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
+ ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();if(el('ee_rawproto')&&l.raw_proto)el('ee_rawproto').value=l.raw_proto;ceProtoVis();if(el('ee_dnszone')&&l.dns_zone)el('ee_dnszone').value=l.dns_zone;if(el('ee_dnsresolvers')&&l.dns_resolvers)el('ee_dnsresolvers').value=(l.dns_resolvers||[]).join(', ');ceDnsVis();ceFluxVis();ceWsVis();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.b_name)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.a_name)+' '+esc(T('role_client_word'))+'</span>'}
-function ceSetSrv(s){_eeSrv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('ee_')}
+function ceSetSrv(s){_eeS.Srv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('ee_')}
 async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent=T('saving_rebuild_both');
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
- var body={id:id,type:'core',server_side:_eeSrv,cipher:ssVal('ee_cipher'),transport:_eeTr,obfs:_eeObfs,cover:(_eeCover&&_eeTr=='tcp'),gso:_eeGso};
- if(_eeTr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_eeRawProfile;if(_eeRawProfile=='bip'){var _erp=parseInt(v('ee_rawproto')||'58',10);if(!(_erp>=1&&_erp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return}body.raw_proto=_erp}}
- if(_eeTr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_eeFluxCarrier;body.flux_rotate_secs=_eeFluxRotate;body.flux_shape=_eeFluxShape}
- if(_eeTr=='dns'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return}var _edz=(v('ee_dnszone')||'').trim().toLowerCase();if(!_edz){m.className='msg err';m.textContent=T('dns_need_zone');return}var _edr=(v('ee_dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_edr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return}body.dns_zone=_edz;body.dns_resolvers=_edr}
- if(ceFecDatagram()){body.fec=_eeFec;if(_eeFec){body.fec_data=_eeFecData;body.fec_parity=_eeFecParity}}
- if(_eeTr=='raw'||_eeTr=='flux'||_eeTr=='tcp'||_eeTr=='ws'){body.fake_desync=_eeDesync;if(_eeDesync){body.fake_ttl=parseInt(v('ee_dsttl'))||4;body.fake_count=parseInt(v('ee_dscount'))||2;body.fake_mode=_eeDesyncMode}}
- if(_eeTr=='ws'){body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeWsTls;body.ech=_eeEch;body.ech_proxy=(_eeEch&&_eeEchProxy);if(_eeEch&&_eeEchProxy)body.ech_proxy_url=(v('ee_echproxyurl')||'').trim();body.sni_split=_eeSniSplit;if(_eeSniSplit){body.split_pos=parseInt(v('ee_snisplitpos'))||0;body.sni_mode=_eeSniMode;if(_eeSniMode!='split')body.split_ttl=parseInt(v('ee_splitttl'))||0;}body.ws_xhttp=_eeXhttp;if(_eeXhttp)body.ws_xhttp_mode=_eeXhMode;if(poolGet('ee_').pool){var pe2=poolCollect('ee_',body);if(pe2!==true){m.className='msg err';m.textContent=pe2;return}}else{body.ws_pool=false;body.ws_host=(v('ee_wshost')||'').trim();body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeWsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_eeEch&&!_eeWsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_eeXhttp&&(_eeXhMode=='stream'||_eeXhMode=='grpc')&&!_eeWsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
- if(_eeTr=='raw'&&_eeRawProfile=='bip'&&_eeSpoofOk){
+ var body={id:id,type:'core',server_side:_eeS.Srv,cipher:ssVal('ee_cipher'),transport:_eeS.Tr,obfs:_eeS.Obfs,cover:(_eeS.Cover&&_eeS.Tr=='tcp'),gso:_eeS.Gso};
+ if(_eeS.Tr=='raw'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return}body.raw_profile=_eeS.RawProfile;if(_eeS.RawProfile=='bip'){var _erp=parseInt(v('ee_rawproto')||'58',10);if(!(_erp>=1&&_erp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return}body.raw_proto=_erp}}
+ if(_eeS.Tr=='flux'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return}body.flux_carrier=_eeS.FluxCarrier;body.flux_rotate_secs=_eeS.FluxRotate;body.flux_shape=_eeS.FluxShape}
+ if(_eeS.Tr=='dns'){if(ssVal('ee_cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return}var _edz=(v('ee_dnszone')||'').trim().toLowerCase();if(!_edz){m.className='msg err';m.textContent=T('dns_need_zone');return}var _edr=(v('ee_dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_edr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return}body.dns_zone=_edz;body.dns_resolvers=_edr}
+ if(ceFecDatagram()){body.fec=_eeS.Fec;if(_eeS.Fec){body.fec_data=_eeS.FecData;body.fec_parity=_eeS.FecParity}}
+ if(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp'||_eeS.Tr=='ws'){body.fake_desync=_eeS.Desync;if(_eeS.Desync){body.fake_ttl=parseInt(v('ee_dsttl'))||4;body.fake_count=parseInt(v('ee_dscount'))||2;body.fake_mode=_eeS.DesyncMode}}
+ if(_eeS.Tr=='ws'){body.ws_path=(v('ee_wspath')||'').trim();body.ws_tls=_eeS.WsTls;body.ech=_eeS.Ech;body.ech_proxy=(_eeS.Ech&&_eeS.EchProxy);if(_eeS.Ech&&_eeS.EchProxy)body.ech_proxy_url=(v('ee_echproxyurl')||'').trim();body.sni_split=_eeS.SniSplit;if(_eeS.SniSplit){body.split_pos=parseInt(v('ee_snisplitpos'))||0;body.sni_mode=_eeS.SniMode;if(_eeS.SniMode!='split')body.split_ttl=parseInt(v('ee_splitttl'))||0;}body.ws_xhttp=_eeS.Xhttp;if(_eeS.Xhttp)body.ws_xhttp_mode=_eeS.XhMode;if(poolGet('ee_').pool){var pe2=poolCollect('ee_',body);if(pe2!==true){m.className='msg err';m.textContent=pe2;return}}else{body.ws_pool=false;body.ws_host=(v('ee_wshost')||'').trim();body.edge_ip=(v('ee_wsedge')||'').trim();if(_eeS.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return}if(_eeS.Ech&&!_eeS.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return}if(_eeS.Xhttp&&(_eeS.XhMode=='stream'||_eeS.XhMode=='grpc')&&!_eeS.WsTls){m.className='msg err';m.textContent=T('xh_need_wss');return}}}
+ if(_eeS.Tr=='raw'&&_eeS.RawProfile=='bip'&&_eeS.SpoofOk){
   // Send an explicit value for both spoof fields ONLY when the capability probe resolved OK —
   // then the toggles reflect real user intent, so an empty value legitimately CLEARS a decoy/source
   // (backend keys on presence). When the probe is pending or NOT-ok we OMIT these fields entirely,
   // so the backend PRESERVES the stored decoy: a flaky local CAP_NET_RAW probe (which even
   // force-toggles the switches off in the UI) must never silently strip a working decoy config.
-  var dip=_eeDecoy?(v('ee_decoyip')||'').trim():'';
-  var sip=_eeSrc?(v('ee_srcip')||'').trim():'';
-  if(_eeDecoy&&!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}
+  var dip=_eeS.Decoy?(v('ee_decoyip')||'').trim():'';
+  var sip=_eeS.Src?(v('ee_srcip')||'').trim():'';
+  if(_eeS.Decoy&&!dip){m.className='msg err';m.textContent=T('decoy_need_ip');return}
   body.spoof_dst=dip;body.spoof_src=sip}
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var _rverr2=rotValidate('ee_');if(_rverr2){m.className='msg err';m.textContent=_rverr2;return}
