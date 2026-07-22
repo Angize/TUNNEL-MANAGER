@@ -618,7 +618,6 @@ def parallel_map(fn, items, workers=32):
 
 POLL_WORKERS = 64          # concurrent node probes per sweep
 POLL_GAP = 2               # seconds to rest between full sweeps
-SWEEP_DEADLINE = 30        # legacy per-sweep deadline — no longer enforced; the poller fires-and-forgets, bounded by `inflight`
 _pc = {}                   # node_id -> {"ping":..., "list":..., "ping_ts":t, "list_ts":t}
 _pc_lock = threading.Lock()
 _tf = {}                   # node_id -> {prev_ts, prev_up, if:{key:{prx,ptx,rx_bps,tx_bps,crx,ctx}}, seed:{}}
@@ -2925,6 +2924,16 @@ def _ech_from_text(s):
     return ""
 
 
+def _ech_from_doh_answers(data):
+    """Return the first ECH key found in a DoH JSON reply's HTTPS (type-65) answers, else ''."""
+    for ans in data.get("Answer", []):
+        if ans.get("type") in (65, "65", "HTTPS"):
+            v = _ech_from_text(str(ans.get("data", "")))
+            if v:
+                return v
+    return ""
+
+
 def _fetch_ech(host, proxy=""):
     """Return the base64 ECHConfigList from host's HTTPS (type 65) DNS record — for THIS host only
     (no fallback to another domain's key). To kill the transient "not found" that a single slow or
@@ -2952,11 +2961,7 @@ def _fetch_ech(host, proxy=""):
                                          headers={"accept": "application/dns-json", "user-agent": "tnl-central"})
             with urllib.request.urlopen(req, timeout=5) as r:
                 data = json.loads(r.read().decode("utf-8", "replace"))
-            for ans in data.get("Answer", []):
-                if ans.get("type") in (65, "65", "HTTPS"):
-                    v = _ech_from_text(str(ans.get("data", "")))
-                    if v:
-                        return v
+            return _ech_from_doh_answers(data)
         except Exception:
             pass
         return ""
@@ -2982,11 +2987,7 @@ def _fetch_ech(host, proxy=""):
                          headers={"accept": "application/dns-json", "user-agent": "tnl-central"})
             data = json.loads(conn.getresponse().read().decode("utf-8", "replace"))
             conn.close()
-            for ans in data.get("Answer", []):
-                if ans.get("type") in (65, "65", "HTTPS"):
-                    v = _ech_from_text(str(ans.get("data", "")))
-                    if v:
-                        return v
+            return _ech_from_doh_answers(data)
         except Exception:
             pass
         finally:
@@ -3604,15 +3605,7 @@ def api_pool_probe_now(d):
     """Live 'probe now' for a ws edge pool: tell the client node to SIGHUP the running core so
     it retests every suspect/dead edge at once (no rebuild). Returns fresh status via the next poll."""
     d = d or {}
-    _require(d, ["id"])
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        raise ValueError("این لینک استخرِ لبه ندارد")
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
-    if not node:
-        raise ValueError("نودِ کلاینت پیدا نشد")
+    L, node = _ws_pool_client(d)
     r = node_call(node, "pool-probe-now", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "پروب ناموفق بود"}
@@ -3627,14 +3620,7 @@ def api_pool_select(d):
     _require(d, ["id", "kind", "key"])
     if d["kind"] not in ("ip", "sni"):
         raise ValueError("kind باید ip یا sni باشد")
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        raise ValueError("این لینک استخرِ لبه ندارد")
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
-    if not node:
-        raise ValueError("نودِ کلاینت پیدا نشد")
+    L, node = _ws_pool_client(d)
     r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
@@ -3647,6 +3633,21 @@ def api_pool_select(d):
     except RuntimeError:
         pass  # a concurrent pin mutated it mid-iteration; the next call prunes
     return {"ok": True}
+
+
+def _ws_pool_client(d):
+    """Resolve (link, client node) for a ws EDGE-pool link, raising a clear error when the link isn't a
+    pooled-ws core or its client node is gone. Mirror of _peer_pool_client for the ws-pool live-status ops."""
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    if not L or L.get("type") != "core" or not L.get("ws_pool"):
+        raise ValueError("این لینک استخرِ لبه ندارد")
+    server_side = L.get("server_side", "a")
+    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
+    node = get_node(client_id)
+    if not node:
+        raise ValueError("نودِ کلاینت پیدا نشد")
+    return L, node
 
 
 def _peer_pool_client(d):
@@ -6157,7 +6158,7 @@ var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
- brand_sub:"کنترل فلیت",theme:"تم",lang_label:"زبان",
+ brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
  no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
@@ -6182,7 +6183,7 @@ var I18N={fa:{
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_half:"نیم‌بند",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -6205,7 +6206,7 @@ var I18N={fa:{
  ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
  // node edit / add
  nd_edit:"ویرایشِ نود",f_name:"نام",f_host_ip:"هاست / آی‌پی",f_port:"پورت",f_token:"توکن",tok_keep:"خالی = توکن فعلی بماند",
- f_ctrlproxy_empty:"پروکسیِ کنترل (خالی = بدون پروکسی)",need_nhp:"نام، هاست و پورت لازم است",
+ need_nhp:"نام، هاست و پورت لازم است",
  
  
  
@@ -6239,8 +6240,8 @@ var I18N={fa:{
  rot_t:"چرخشِ آی‌پی",rot_d:"بینِ آی‌پی‌های هر نود می‌چرخد و آی‌پیِ بلاک‌شده را کنار می‌گذارد (مسیرِ مستقیم، بدونِ CDN)",
  rot_interval:"بازهٔ چرخش",rot_onfail:"فقط هنگامِ قطع",rot_1m:"هر ۱ دقیقه",rot_5m:"هر ۵ دقیقه",rot_10m:"هر ۱۰ دقیقه",
  rot_min2:"برای چرخش باید حداقل ۲ آی‌پی در هر استخر انتخاب شود",
- rot_autoburn_t:"حذفِ خودکارِ آی‌پیِ بلاک‌شده",rot_autoburn_d:"آی‌پیی که وصل نشد کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب که شد، خودش برمی‌گردد",
- rot_primary:"اصلی",
+ 
+ 
  // rebuild picker
  rb_title:"بازسازیِ تونل",rb_newip:"آی‌پیِ جدید",rb_no_ip:"آی‌پیِ قابلِ انتخابی نیست",rb_info:"آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.",
  rb_no_link:"اطلاعاتِ لینک در دسترس نیست",rb_no_drift:"این تونل driftی ندارد",rebuilding:"در حال بازسازی…",rb_fetch_err:"خطا در دریافتِ اطلاعات",
@@ -6265,7 +6266,7 @@ var I18N={fa:{
  set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۰٫۳ تا ۶۰ — زیرِ ۱ هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"۰٫۳ تا ۶۰ — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"۰ = خاموش، وگرنه ۱ تا ۱۴۴۰ — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
- set_tcat_pool:"۱) سلامتِ استخر (چرخشِ IP — مستقیم و WS CDN)",set_tcat_dead:"۲) تشخیصِ مرگ / self-heal (بر پایهٔ keepalive)",set_tcat_rot:"۳) چرخش",
+ 
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"لیستِ پله‌ها با کاما؛ هر شکست یک پله جلو، بعد از آخری → مرده",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (ثانیه)",set_t_deadretest_d:"IPِ مرده هر این‌قدر یک‌بار دوباره تست می‌شود",
  set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"پینِ نشسته‌نشده (IPِ خراب) حداکثر این‌قدر نگه‌داشته می‌شود",
@@ -6329,7 +6330,7 @@ var I18N={fa:{
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_probe_btn:"تستِ همه",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"آی‌پیِ سوخته طبق زمان‌بندی دوباره تست می‌شود و اگر سالم شد خودش به چرخش برمی‌گردد؛ با پین می‌توانید دستی روی یک آی‌پی سوییچ کنید.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
@@ -6365,7 +6366,7 @@ var I18N={fa:{
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  // ws toggle rows
  wstls_t:"wss (TLS به CDN)",wstls_d:"کلاینت با TLS به لبهٔ CDN وصل می‌شود؛ سرور پشتِ CDN ساده می‌ماند. برای فرانتینگ لازم است. فقط با حاملِ WS/CDN.",
- ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را داخلِ ClientHello رمز می‌کند تا فیلترچیِ SNI نبیند کدام دامنه است. نیازمندِ wss؛ برای استخر برای هر دامنه خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"ClientHello را روی مرزِ دو بستهٔ TCP می‌شکند تا نامِ دامنه در یک بسته کامل نباشد و DPIِ SNI-محور نتواند تطبیق دهد. مکملِ ارزانِ ECH؛ نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — ۰ = خودکار (وسطِ دامنه)",disorder_t:"حالتِ disorder (ضدِ DPIِ بازسازی‌کننده)",disorder_d:"سگمنتِ اولِ ClientHello را با TTLِ پایین می‌فرستد تا در مسیر بمیرد و DPI بسته‌ها را بی‌ترتیب ببیند؛ کرنل با ارسالِ مجدد سرور را کامل می‌رساند. برای سانسورِ قوی‌تر که استریم را reassemble می‌کند.",sni_ttl_lbl:"TTLِ سگمنتِ سرْ (split_ttl) — ۰ = پیش‌فرض (۴)",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
+ ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را داخلِ ClientHello رمز می‌کند تا فیلترچیِ SNI نبیند کدام دامنه است. نیازمندِ wss؛ برای استخر برای هر دامنه خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"ClientHello را روی مرزِ دو بستهٔ TCP می‌شکند تا نامِ دامنه در یک بسته کامل نباشد و DPIِ SNI-محور نتواند تطبیق دهد. مکملِ ارزانِ ECH؛ نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — ۰ = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ (split_ttl) — ۰ = پیش‌فرض (۴)",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
  // ws section
  ws_prof_lbl:"پروفایلِ CDN",ws_prof_note:"<b>WS</b> = وب‌سوکتِ استاندارد. <b>XHTTP</b> = جفتِ GET(دانلود)+POST(آپلود)؛ اکانت/CDNی را که وب‌سوکت را بلاک کرده دور می‌زند. هر دو با همین دامنه/wss/ECH فرانت می‌شوند.",
  xh_mode_lbl:"حالتِ xHTTP",xh_mode_note:"<b>packet-up</b> = چند POSTِ کوتاه؛ سازگارترین (حتی اگر CDN بدنه را بافر کند رد می‌شود). <b>gRPC</b> = یک درخواستِ کاملاً دوطرفه به‌شکلِ gRPCِ واقعی، تا Cloudflare با h2c به مبدأ وصل شود و به‌جای بافر <b>استریم</b> کند — بهترین گزینه رویِ Cloudflare. gRPC به <b>wss</b> نیاز دارد.",
@@ -6394,7 +6395,7 @@ var I18N={fa:{
  set_gkd:"پایهٔ تشخیصِ مرگ — سراسری",set_gkdh:"keepalive و مهلتِ ثابت، روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ زنده‌نگه‌دار رد و بدل می‌شود؛ پایهٔ همهٔ پنجره‌های تشخیصِ مرگ. کوچک‌تر = مرگِ تونل سریع‌تر قرمز می‌شود، با ترافیکِ اضافهٔ ناچیز. بازهٔ ۵ تا ۱۲۰.",set_x_keepalive:"keepalive=<b>۱۰</b> ← هر ۱۰ث یک پینگ؛ پنجرهٔ خودکار ~۳۰ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ فریمِ معتبری نیاید، حامل «مرده» فرض می‌شود. <b>۰ = خودکار</b> (از روی ضریب‌های پایین). عددِ مثبت = پنجرهٔ ثابتِ یکسان برای همهٔ تونل‌ها. بازهٔ ۱۰ تا ۳۰۰.",set_x_deadafter:"۰ ← خودکار (~۳×keepalive). ۲۰ ← همهٔ تونل‌ها پس از ۲۰ث سکوت مرده.",set_da_auto:"۰ = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های ۴ و ۵ حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ ۲×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = ۰ باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
- role_server_word:"سرور",role_client_word:"کلاینت",ip_multi_hint:"(چند آی‌پی دارد — یکی را برای تونل انتخاب کن)",
+ role_server_word:"سرور",role_client_word:"کلاینت",
  port_flux_ph:"flux پورت ثابت ندارد",port_raw_ph:"raw پورت ندارد",port_ws_ph:"۸۰ (کلادفلر Flexible)",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
@@ -6409,7 +6410,7 @@ var I18N={fa:{
  nadd_pass_hint:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",
  nadd_key_hint:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
  nadd_manual_name:"نام",nadd_manual_host:"هاست / آی‌پی",nadd_agent_port2:"پورت agent",nadd_node_tok:"توکن نود",
- nadd_manual_proxy:"پروکسیِ کنترل (اختیاری) — پنل از این پروکسی به این نود وصل می‌شود",
+ 
  nadd_install_connect:"نصب و اتصالِ خودکار",nadd_add_connect:"افزودن و اتصال",
  nadd_pass_word:"رمزِ SSH",nadd_is_required:" لازم است",nadd_need_name_ip:"نام و آی‌پیِ سرور لازم است",
  // ---- live install steps
@@ -6636,7 +6637,6 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
 // Each skeleton mirrors the EXACT geometry of its real card (same wrapper classes, so it lands in
 // the same grid/shadow/padding and the swap to live data is seamless). skb() = one shimmer bar.
 function skb(w,h,r){return '<span class="sk" style="width:'+w+';height:'+(h||12)+'px'+(r!=null?';border-radius:'+r+'px':'')+'"></span>'}
-function skAct(){return '<span class="sk" style="width:37px;height:33px;border-radius:11px"></span>'}
 function skNodeCard(){return '<div class="card node acc"><div class="chead">'+   // collapsed node accordion header
   '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
   '<span class="grow"></span><div class="hmain" style="gap:6px;min-width:0;flex:0 0 auto">'+skb('90px',14)+skb('150px',11)+'</div>'+
