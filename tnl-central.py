@@ -68,7 +68,7 @@ CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "ws", "dns")  # every core
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw", "flux")               # direct carriers (support IP rotation)
 DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux")                      # handshake-less carriers (fec / ip-spoof)
 DESYNC_TRANSPORTS     = ("raw", "flux", "tcp", "ws")                # carriers that support fake-desync
-STATUSRING_TRANSPORTS = ("udp", "raw", "flux", "ws")               # carriers that write a precise status ring
+STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "ws")        # carriers that write a precise status ring (direct tcp/cover client writes one too, core v2.48.3+)
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _core_blob_lock = threading.Lock()   # serialize the custom core binary + its meta writes
@@ -4782,10 +4782,11 @@ def _events_once():
             continue
         nm = L.get("name", "")
         # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram
-        # transport (udp/raw/flux), or a single-edge ws/xhttp. For ALL of those, don't ALSO emit a
-        # coarse event here or every drop is double-counted (the datagram core's "stale"/"keepalive"
-        # down renders as a red "disconnected" in the precise section too). Only a plain-tcp core, which
-        # writes no status ring, relies on the coarse classification below.
+        # transport (udp/raw/flux), a direct tcp/cover client (hb + rotation/self-heal ring, core
+        # v2.48.3+), or a single-edge ws/xhttp. For ALL of those, don't ALSO emit a coarse event here
+        # or every drop is double-counted (the datagram core's "stale"/"keepalive" down renders as a
+        # red "disconnected" in the precise section too). A core with no status ring at all (e.g. a
+        # client node offline so the core is dead) relies on the coarse classification below.
         precise_core = L.get("type") == "core" and (
             bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)
         if up:
@@ -4814,10 +4815,10 @@ def _events_once():
         _ev_state["links_coarse_down"].discard(lid)
 
     # --- core tunnels: PRECISE core-recorded events (down reason + burns for a ws pool;
-    #     self-heal/reconnect reasons for a udp/raw/flux datagram client; in-band ECH self-heal for a
-    #     single-edge ws/xhttp client) and — for a pool — the automatic edge-IP change. The core saw
-    #     the real error; the panel just renders it. Any core with a status file qualifies: a pool, a
-    #     datagram transport, or a single-edge ws/xhttp. Only plain tcp cores write no status file. ---
+    #     self-heal/reconnect reasons for a udp/raw/flux datagram client; src/peer-rotate + burn/heal for
+    #     a direct tcp/cover client; in-band ECH self-heal for a single-edge ws/xhttp client) and — for a
+    #     pool — the automatic edge-IP change. The core saw the real error; the panel just renders it.
+    #     Any direct-transport (udp/tcp/raw/flux) client or ws pool / single-edge ws/xhttp writes one. ---
     seen = set()
     now = int(time.time())
     for L in links:
@@ -4826,7 +4827,7 @@ def _events_once():
         is_pool = bool(L.get("ws_pool"))
         tr = str(L.get("transport") or "").lower()
         if not is_pool and tr not in STATUSRING_TRANSPORTS:
-            continue  # no core status file -> nothing precise to read (single-edge ws writes one; plain tcp doesn't)
+            continue  # no core status file -> nothing precise to read (direct udp/tcp/raw/flux + single-edge ws all write one)
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
