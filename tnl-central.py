@@ -2133,19 +2133,21 @@ def api_node_del(d):
         n = get_node(nid)
         if not n:
             raise ValueError("نود پیدا نشد")
-        r = node_call(n, "wipe", "POST", {}, timeout=60)
-        node_ok = bool(r.get("ok"))
-        if not node_ok:
-            # A wipe fails either because the server is genuinely UNREACHABLE (best-effort applies) or
-            # because it ANSWERED with an error — a LIVE node, which best-effort would ORPHAN, so it is
-            # never force-removed. Distinguish with a fresh ping.
-            reachable = bool(node_call(n, "ping", "GET", timeout=6).get("ok"))
-            if reachable:
-                raise ValueError("سرور پاسخ داد ولی پاک‌سازی ناتمام ماند: " + (r.get("error") or r.get("msg") or "خطا")
-                                 + " — نود در دسترس است؛ دوباره تلاش کن («پاک‌سازیِ اجباری» فقط برای سرورِ ازدسترس‌خارج است).")
-            if not force:  # unreachable + not forced: keep all-or-nothing, touch nothing
-                raise ValueError("سرور در دسترس نیست — چیزی از پنل حذف نشد. اگر برای همیشه از دسترس خارج است «پاک‌سازیِ اجباری» را بزن؛ وگرنه «فقط از پنل جدا کن».")
-            # unreachable + force -> best-effort: clean the panel + every reachable peer below
+        if force and _cached_ping(nid).get("ok") is False:
+            # The operator forced AND the poller already reports this node offline -> skip the doomed
+            # ~60s node-side wipe and go straight to best-effort. No blocking call, no wait. Safe against
+            # orphaning a LIVE node: best-effort runs ONLY on a node the poller currently sees as offline
+            # (a reachable node reads online, so it takes the normal-wipe branch below instead).
+            node_ok = False
+        else:
+            r = node_call(n, "wipe", "POST", {}, timeout=60)
+            node_ok = bool(r.get("ok"))
+            if not node_ok:
+                # The poller saw this node as UP (or never polled it) yet the wipe failed — it may be a LIVE
+                # node returning an error, which best-effort would ORPHAN. Keep all-or-nothing. If the node
+                # is really down its status flips to offline within a poll, and a retry force-wipes instantly.
+                raise ValueError("پاک‌سازیِ سمتِ نود ناتمام ماند: " + (r.get("error") or r.get("msg") or "خطا")
+                                 + " — اگر نود قطع است چند لحظه صبر کن تا وضعیتش قرمز شود بعد «پاک‌سازیِ اجباری» بزن؛ وگرنه «فقط از پنل جدا کن».")
         with _reg_lock:  # snapshot this node's links; they are removed only AFTER the peer teardowns are durably parked
             links = load_links()
             mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
@@ -3652,6 +3654,13 @@ def api_delete_link(d):
             n = get_node(nid)
             if not n:
                 continue   # node no longer registered -> nothing to tear down on it
+            if force and _cached_ping(nid).get("ok") is False:
+                # the poller already knows this end is offline -> don't block on a doomed delete; park it now
+                if _pending_add(nid, L["name"]):
+                    deferred.append(nm)
+                else:
+                    errs.append(f"{nm}: صفِ حذفِ معلق نوشته نشد")
+                continue
             r = node_call(n, "delete", "POST", {"name": L["name"]})
             if not r.get("ok"):
                 if not force:
@@ -6341,7 +6350,7 @@ var I18N={fa:{
  del_wipe_confirm:"مطمئنی؟ کلِ نود روی سرور — تونل‌ها، ایجنت و توکن — پاک می‌شود و برگشت ندارد.",del_wipe_yes:"بله، پاک کن",
  del_wiping:"در حال پاک‌سازیِ نود…",del_detaching:"در حال جدا کردن…",node_wiped:"نود کاملاً پاک‌سازی شد",node_detached:"نود از پنل جدا شد",
  del_force_ask:"این تونل به‌اجبار حذف شود؟ سمتِ نودِ در دسترس همین حالا بسته می‌شود، و سمتِ نودِ قطع وقتی برگشت خودکار پاک می‌شود.",del_force_yes:"حذفِ اجباری",
- del_wipe_force_ask:"سرور در دسترس نیست. «پاک‌سازیِ اجباری»؟ رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند؛ خودِ این سرور اگر روزی برگشت باید دستی پاک شود.",del_wipe_force_yes:"پاک‌سازیِ اجباری",del_force_wiping:"در حالِ پاک‌سازیِ اجباری…",node_force_wiped:"نود از پنل پاک شد (سرور در دسترس نبود؛ سمتِ مقابل بسته شد)",
+ del_wipe_force_ask:"سرور قطع است — «پاک‌سازیِ اجباری»؟ رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند؛ خودِ این سرور اگر روزی برگشت باید دستی پاک شود.",del_wipe_force_yes:"پاک‌سازیِ اجباری",del_wipe_force_s:"سرور قطع است، پس روی خودش کاری نمی‌شود کرد: رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند. برگشت‌ناپذیر است!",del_force_wiping:"در حالِ پاک‌سازیِ اجباری…",node_force_wiped:"نود از پنل پاک شد (سرور در دسترس نبود؛ سمتِ مقابل بسته شد)",
  pend_del_t:"حذفِ معلق — وقتی این نود دوباره وصل شد، خودکار پاک‌سازی می‌شود",
  test_testing:"در حال تست…",node_added_online:" · آنلاین",node_added_offline:" · آفلاین: ",
  // tunnels
@@ -7049,7 +7058,7 @@ function nodeCard(n){var i=n.info||{};
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — replaces the old آنلاین text badge
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+(n.pending_del>0?'<span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f;flex:0 0 auto" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
@@ -7081,10 +7090,15 @@ async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textCo
  // reason — a timed-out request has no latency to report, so no misleading "· 8164ms" on a dead node.
  if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
  else{m.className='msg err';m.textContent=T('offline')+': '+(terr(info.error)||T('not_available'))}}
-function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');
+function doForceWipe(id){return confirmBox(T('del_wipe_force_ask'),T('del_wipe_force_yes')).then(function(ok){if(ok)return doDelNode(id,true,true)})}
+function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');var offline=btn.getAttribute('data-online')==='0';
+ // Node OFFLINE -> the destructive option is best-effort force-wipe DIRECTLY (one confirm, no doomed full-wipe + timeout).
+ var wipeOpt=offline
+  ?'<button type="button" class="delopt danger" onclick="doForceWipe(\\''+id+'\\')"><div class="do-t">'+ic('warn')+esc(T('del_wipe_force_yes'))+'</div><div class="do-s">'+esc(T('del_wipe_force_s'))+'</div></button>'
+  :'<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>';
  var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">'+esc(T('del_how'))+'</div>'+
   '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+esc(T('del_detach_t'))+'</div><div class="do-s">'+esc(T('del_detach_s'))+'</div></button>'+
-  '<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>'+
+  wipeOpt+
   '<div class="msg" id="del_msg"></div>';
  openModal('<div class="msticky"><span class="medi medi-bad">'+ic('trash')+'</span><div class="ttl"><h3>'+esc(T('nd_del'))+'</h3><div class="sb">'+esc(nm)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 async function doDelNode(id,wipe,force){var m=el('del_msg');
@@ -7096,10 +7110,6 @@ async function doDelNode(id,wipe,force){var m=el('del_msg');
   toast(wipe?((r.d.node_wiped===false)?T('node_force_wiped'):T('node_wiped')):T('node_detached'),'ok');
   if(ov)closeModal(ov);else refreshNodes();return}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false});
- if(wipe&&!force){                                    // normal wipe failed (server unreachable?) -> offer best-effort force
-  if(await confirmBox(((r.d&&r.d.error)||T('failed'))+'\\n\\n'+T('del_wipe_force_ask'),T('del_wipe_force_yes')))return doDelNode(id,true,true);
-  if(m){m.className='msg';m.textContent=''}          // declined -> clear the stale "در حال پاک‌سازی…" status
-  return}
  if(m){m.className='msg err';m.textContent=terr((r.d&&r.d.error)||T('failed'))}}
 
 // ===== Tunnels
@@ -7276,14 +7286,15 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
  if(r.ok&&r.d.ok){toast(T('t_rebuilt'),'ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
  else toast(terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')),'err')}
 async function delLink(id){
- if(!await confirmBox(T('del_tun_confirm')))return;
+ var l=FLEET.filter(function(x){return x.id==id})[0]||{};
+ if(l.a_online===false||l.b_online===false){          // an endpoint is KNOWN-offline -> straight to force: one dialog, no wait
+  if(!await confirmBox(T('del_force_ask'),T('del_force_yes')))return;
+  var rf=await post('delete-link',{id:id,force:true});
+  if(rf.d&&rf.d.msg)toast(rf.d.msg,(rf.d.ok?'ok':'err'));else if(!(rf.d&&rf.d.ok))toast(perr(rf),'err');
+  delete CHK[id];editingId=null;refreshFleet();return}
+ if(!await confirmBox(T('del_tun_confirm')))return;   // both endpoints online -> normal delete
  var r=await post('delete-link',{id:id});
- if(r.d&&r.d.ok===false&&r.d.msg){                    // a node was offline -> record kept; offer force
-  if(!await confirmBox(r.d.msg+'\\n\\n'+T('del_force_ask'),T('del_force_yes')))return;
-  var r2=await post('delete-link',{id:id,force:true});
-  if(r2.d&&r2.d.msg)toast(r2.d.msg,(r2.d.ok?'ok':'err'));
-  else if(!(r2.d&&r2.d.ok))toast(perr(r2),'err');
- }else if(r.d&&r.d.msg){toast(T('del_partial')+r.d.msg,'err')}
+ if(r.d&&r.d.msg)toast(r.d.msg,(r.d.ok?'ok':'err'));else if(!(r.d&&r.d.ok))toast(perr(r),'err');
  delete CHK[id];editingId=null;refreshFleet()}
 
 // ===== Create
