@@ -422,6 +422,13 @@ def get_node(nid):
     return next((n for n in load_nodes() if n["id"] == nid), None)
 
 
+def _client_node(L):
+    """The registered CLIENT-side node of a core link — the end that dials (server_side names the
+    listener; the other end is the client). Returns the node dict or None; callers handle not-found."""
+    server_side = L.get("server_side", "a")
+    return get_node(L.get("b_node") if server_side == "a" else L.get("a_node"))
+
+
 def _recvn(s, n):
     buf = b""
     while len(buf) < n:
@@ -2103,28 +2110,45 @@ def api_node_traffic(d):
             "tunnels": tunnels, "portfw": portfw}
 
 
+def _store_agent_src(src, msgs, extra_meta=None):
+    """Validate a node-agent source (size cap, py-compile gate, agent sentinel, version pull) and store
+    it + meta as the current pushable agent. `msgs` supplies the four Persian error variants
+    (too_big / bad_py-prefix / not_agent / no_ver); `extra_meta` merges into AGENT_META (e.g.
+    {"source": "git"}). Shared by api_agent_upload and api_agent_fetch_git; the per-caller empty/source
+    check stays at the call site. Returns {ok, version, sha256[:12]}."""
+    if len(src.encode()) > 262144:
+        raise ValueError(msgs["too_big"])
+    try:
+        compile(src, "tnl-node.py", "exec")            # same compile gate the node uses — a broken paste never gets stored
+    except SyntaxError as e:
+        raise ValueError(msgs["bad_py"] + str(e))
+    if '"agent": "tnl-node"' not in src:               # sentinel: only the node agent can be pushed (never tnl-central.py)
+        raise ValueError(msgs["not_agent"])
+    m = re.search(r'"version":\s*(\d+)', src)
+    if not m:
+        raise ValueError(msgs["no_ver"])
+    ver, sha = int(m.group(1)), hashlib.sha256(src.encode()).hexdigest()
+    meta = {"version": ver, "sha256": sha, "size": len(src.encode()), "uploaded_ts": int(time.time())}
+    if extra_meta:
+        meta.update(extra_meta)
+    with _agent_lock:
+        save_text(AGENT_FILE, src)
+        save_json(AGENT_META, meta)
+    return {"ok": True, "version": ver, "sha256": sha[:12]}
+
+
 def api_agent_upload(d):
     """Store a new node-agent source in the panel (validated) so it can be pushed to the fleet."""
     _require(d, ["code"])
     src = d["code"]
     if not isinstance(src, str) or not src.strip():
         raise ValueError("کد خالی است")
-    if len(src.encode()) > 262144:
-        raise ValueError("فایل بیش از حد بزرگ است")
-    try:
-        compile(src, "tnl-node.py", "exec")            # same compile gate the node uses — a broken paste never gets stored
-    except SyntaxError as e:
-        raise ValueError("کد پایتون نامعتبر: " + str(e))
-    if '"agent": "tnl-node"' not in src:               # sentinel: only the node agent can be pushed (never tnl-central.py)
-        raise ValueError("این فایل ایجنتِ نود نیست")
-    m = re.search(r'"version":\s*(\d+)', src)
-    if not m:
-        raise ValueError("نسخهٔ ایجنت در کد پیدا نشد")
-    ver, sha = int(m.group(1)), hashlib.sha256(src.encode()).hexdigest()
-    with _agent_lock:
-        save_text(AGENT_FILE, src)
-        save_json(AGENT_META, {"version": ver, "sha256": sha, "size": len(src.encode()), "uploaded_ts": int(time.time())})
-    return {"ok": True, "version": ver, "sha256": sha[:12]}
+    return _store_agent_src(src, {
+        "too_big": "فایل بیش از حد بزرگ است",
+        "bad_py": "کد پایتون نامعتبر: ",
+        "not_agent": "این فایل ایجنتِ نود نیست",
+        "no_ver": "نسخهٔ ایجنت در کد پیدا نشد",
+    })
 
 
 def api_agent_fetch_git(d):
@@ -2138,23 +2162,12 @@ def api_agent_fetch_git(d):
         raise ValueError(f"دریافت از گیت‌هاب ناموفق: {str(e)[:120]}")
     if not src.strip():
         raise ValueError("فایلِ دریافتی خالی است")
-    if len(src.encode()) > 262144:
-        raise ValueError("فایلِ دریافتی بیش از حد بزرگ است")
-    try:
-        compile(src, "tnl-node.py", "exec")
-    except SyntaxError as e:
-        raise ValueError("کدِ دریافتی نامعتبر: " + str(e))
-    if '"agent": "tnl-node"' not in src:
-        raise ValueError("فایلِ دریافتی ایجنتِ نود نیست")
-    m = re.search(r'"version":\s*(\d+)', src)
-    if not m:
-        raise ValueError("نسخهٔ ایجنت در کدِ دریافتی پیدا نشد")
-    ver, sha = int(m.group(1)), hashlib.sha256(src.encode()).hexdigest()
-    with _agent_lock:
-        save_text(AGENT_FILE, src)
-        save_json(AGENT_META, {"version": ver, "sha256": sha, "size": len(src.encode()),
-                               "uploaded_ts": int(time.time()), "source": "git"})
-    return {"ok": True, "version": ver, "sha256": sha[:12]}
+    return _store_agent_src(src, {
+        "too_big": "فایلِ دریافتی بیش از حد بزرگ است",
+        "bad_py": "کدِ دریافتی نامعتبر: ",
+        "not_agent": "فایلِ دریافتی ایجنتِ نود نیست",
+        "no_ver": "نسخهٔ ایجنت در کدِ دریافتی پیدا نشد",
+    }, {"source": "git"})
 
 
 def api_agent_info(d):
@@ -3577,9 +3590,7 @@ def api_edge_status(d):
     # client (udp/raw/flux) writes a lightweight event ring (self-heal reasons). Read whichever
     # exists; `pool` stays accurate so pool-only UI keeps behaving.
     is_pool = bool(L.get("ws_pool"))
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
+    node = _client_node(L)
     if not node:
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": "client node not found"}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
@@ -3605,15 +3616,20 @@ def api_edge_status(d):
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
-def api_pool_probe_now(d):
-    """Live 'probe now' for a ws edge pool: tell the client node to SIGHUP the running core so
-    it retests every suspect/dead edge at once (no rebuild). Returns fresh status via the next poll."""
-    d = d or {}
-    L, node = _ws_pool_client(d)
-    r = node_call(node, "pool-probe-now", "POST", {"name": L.get("name")}, timeout=10)
+def _probe_now(d, resolve, endpoint):
+    """Shared 'probe now': resolve the client node (ws-edge or direct pool), tell it to SIGHUP the core
+    so it retests every suspect/dead entry at once. One place for the fallback error + response shape."""
+    L, node = resolve(d or {})
+    r = node_call(node, endpoint, "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "پروب ناموفق بود"}
     return {"ok": True}
+
+
+def api_pool_probe_now(d):
+    """Live 'probe now' for a ws edge pool: tell the client node to SIGHUP the running core so
+    it retests every suspect/dead edge at once (no rebuild). Returns fresh status via the next poll."""
+    return _probe_now(d, _ws_pool_client, "pool-probe-now")
 
 
 def api_pool_select(d):
@@ -3646,9 +3662,7 @@ def _ws_pool_client(d):
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ws_pool"):
         raise ValueError("این لینک استخرِ لبه ندارد")
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
+    node = _client_node(L)
     if not node:
         raise ValueError("نودِ کلاینت پیدا نشد")
     return L, node
@@ -3661,9 +3675,7 @@ def _peer_pool_client(d):
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ip_rotate"):
         raise ValueError("این لینک استخرِ آی‌پی ندارد")
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
+    node = _client_node(L)
     if not node:
         raise ValueError("نودِ کلاینت پیدا نشد")
     return L, node
@@ -3712,9 +3724,7 @@ def api_peer_status(d):
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ip_rotate"):
         return {"ok": True, "pool": False, "now": int(time.time()), "dst": dict(empty), "src": dict(empty)}
-    server_side = L.get("server_side", "a")
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
+    node = _client_node(L)
     if not node:
         return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": "client node not found"}
     r = node_call(node, "peer-status", "POST", {"name": L.get("name")}, timeout=10)
@@ -3727,11 +3737,7 @@ def api_peer_status(d):
 def api_peer_probe_now(d):
     """'Probe now' for a direct-transport pool: SIGHUP the client's core to retest every burned
     endpoint at once (re-admit it to rotation) with no rebuild. Fresh state arrives via the next poll."""
-    L, node = _peer_pool_client(d or {})
-    r = node_call(node, "peer-probe-now", "POST", {"name": L.get("name")}, timeout=10)
-    if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or "پروب ناموفق بود"}
-    return {"ok": True}
+    return _probe_now(d, _peer_pool_client, "peer-probe-now")
 
 
 def api_peer_select(d):
@@ -4128,9 +4134,7 @@ def _ech_live_push(lid, chmap):
     L = next((x for x in load_links() if x.get("id") == lid), None)
     if not L or L.get("type") != "core" or not (L.get("ws_pool") or L.get("ws_host")):
         return ""
-    server_side = L.get("server_side", "a")   # the CLIENT is the non-server side (it dials the CDN with ECH)
-    client_id = L.get("b_node") if server_side == "a" else L.get("a_node")
-    node = get_node(client_id)
+    node = _client_node(L)   # the CLIENT is the non-server side (it dials the CDN with ECH)
     if not node:
         return ""
     try:
@@ -4907,6 +4911,18 @@ def _pf_name(v):
     return s
 
 
+def _pf_push(n, endpoint, body, timeout=120, ret="name"):
+    """Push a port-forward op to node n and normalize the reply: raise its Persian/error text on failure,
+    refresh n's cache, and return {ok, <ret>: r[ret]}. Shared by portfw / portfw-edit / portfw-next
+    (portfw-del is intentionally NOT routed here — it doesn't raise on !ok and also drops its byte
+    counters)."""
+    r = node_call(n, endpoint, "POST", body, timeout=timeout)
+    if not r.get("ok"):
+        raise ValueError(r.get("error") or r.get("msg") or "failed")
+    _refresh_cache([n["id"]])
+    return {"ok": True, ret: r.get(ret)}
+
+
 def api_portfw(d):
     _require(d, ["node", "listen_port", "dst_port", "dst_ips"])
     n = get_node(d["node"])
@@ -4920,11 +4936,7 @@ def api_portfw(d):
         body["iface"] = _pf_field("iface", d["iface"])
     if d.get("listen_ip"):
         body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
-    r = node_call(n, "portfw", "POST", body, timeout=120)
-    if not r.get("ok"):
-        raise ValueError(r.get("error") or r.get("msg") or "failed")
-    _refresh_cache([n["id"]])
-    return {"ok": True, "name": r.get("name")}
+    return _pf_push(n, "portfw", body)
 
 
 # Port-forwards have no central array — they live in each node's core configs and are aggregated from the
@@ -5015,11 +5027,7 @@ def api_portfw_edit(d):
             body[k] = _pf_field(k, d[k])
     if "rotate" in d:
         body["rotate"] = bool(d["rotate"])
-    r = node_call(n, "portfw-edit", "POST", body, timeout=120)
-    if not r.get("ok"):
-        raise ValueError(r.get("error") or r.get("msg") or "failed")
-    _refresh_cache([n["id"]])
-    return {"ok": True, "name": r.get("name")}
+    return _pf_push(n, "portfw-edit", body)
 
 
 def api_portfw_next(d):
@@ -5027,11 +5035,7 @@ def api_portfw_next(d):
     n = get_node(d["node"])
     if not n:
         raise ValueError("node not found")
-    r = node_call(n, "portfw-next", "POST", {"name": _pf_name(d["name"])}, timeout=60)
-    if not r.get("ok"):
-        raise ValueError(r.get("error") or r.get("msg") or "failed")
-    _refresh_cache([n["id"]])
-    return {"ok": True, "active": r.get("active")}
+    return _pf_push(n, "portfw-next", {"name": _pf_name(d["name"])}, timeout=60, ret="active")
 
 
 def api_portfw_del(d):
@@ -7021,7 +7025,7 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  m.className='msg';m.textContent=T('rebuilding_both');
  var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
  var r=await post('edit-link',body);
- if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=terr(r.d.error||r.d.msg||T('failed'))}}
+ if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=perr(r)}}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
 async function checkLink(id){CHECKING++;
@@ -7309,7 +7313,15 @@ var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,
 function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
 // poolRemain: seconds left until an entry's next retest, using the server clock sampled at the
 // last poll plus the client-side elapsed time since — so the countdown ticks smoothly between polls.
-function poolRemain(d,next){if(!next||!d.srvNow)return -1;var el=d.srvNow+(Date.now()-(d.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-el));}
+// _cdRemain: seconds until `next` given the server clock `now` sampled at local time `polledMs`.
+// _cdTick: refresh every .pcd countdown text + .pbar fill inside host against that clock. Shared by the
+// ws-edge pool view (poolRemain/poolCdTick, data in d) and the direct peer pool view (peerRemain/
+// peerCdTick, data in the _peerData global) — the peer view was copied from the pool view.
+function _cdRemain(now,polledMs,next){if(!next||!now)return -1;var e=now+(Date.now()-(polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
+function _cdTick(host,now,polledMs){if(!host)return;
+  Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=_cdRemain(now,polledMs,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
+  Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=_cdRemain(now,polledMs,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
+function poolRemain(d,next){return _cdRemain(d.srvNow,d.polledMs,next);}
 function poolCdTxt(r){var m=Math.floor(r/60),s=r%60;return m+':'+(s<10?'0'+s:s);}
 function poolCd(d,next){var r=poolRemain(d,next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 // Backoff schedule (must mirror the core): a suspect entry's current step length by fail count;
@@ -7382,9 +7394,7 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
 async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 (function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   // live-cadence self-loop
 // Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
-function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){var host=el('ee_lst_'+k);if(!host)return;
-  Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=poolRemain(d,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
-  Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=poolRemain(d,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})})}
+function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){_cdTick(el('ee_lst_'+k),d.srvNow,d.polledMs)})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
 async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
@@ -7430,7 +7440,7 @@ function peerApply(st){
     _peerData[side]={active:String(sec.active||''),addrs:(sec.addrs||[]).map(String),pin:String(sec.pin||''),live:live};});
   if(_peerData.pinPending){var pk=_peerData.pinPending,sec=_peerData[pk.side]||{};if(sec.active===pk.key||(Date.now()-pk.ts>12000))_peerData.pinPending=null;}
   peerRender();}
-function peerRemain(next){if(!next||!_peerData.now)return -1;var e=_peerData.now+(Date.now()-(_peerData.polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
+function peerRemain(next){return _cdRemain(_peerData.now,_peerData.polledMs,next);}
 function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
 function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
@@ -7469,9 +7479,7 @@ function peerRender(){var host=el('ee_peerlive');if(!host)return;
   // this on a pool:true response, and _peerLid is set only for a rotating tunnel, so the hint is apt.
   if(!boxes){host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div><div class="muted" style="font-size:11px;line-height:1.7">'+esc(T('peer_live_empty'))+'</div></div>';return;}
   host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div>'+boxes+'<div class="muted" style="font-size:10.5px;line-height:1.7;margin-top:2px">'+esc(T('peer_live_note'))+'</div></div>';}
-function peerCdTick(){if(!_peerLid)return;var host=el('ee_peerlive');if(!host)return;
-  Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=peerRemain(+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
-  Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=peerRemain(+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
+function peerCdTick(){if(!_peerLid)return;_cdTick(el('ee_peerlive'),_peerData.now,_peerData.polledMs)}
 setInterval(peerCdTick,1000);
 async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.getAttribute('data-ip');
   if(!_peerLid||_peerData.pinPending||!key)return;
@@ -7762,7 +7770,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  m.textContent=T('creating_core');
  var r=await post('create-tunnel',body);
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
- else{m.className='msg err';m.textContent=terr(r.d.error||r.d.msg||T('failed'))}}
+ else{m.className='msg err';m.textContent=perr(r)}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bip',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Xhttp=false,_eeS.XhMode='packet',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();corRotVis('ee_')}
@@ -7915,7 +7923,7 @@ async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=
  m.className='msg';m.textContent=T('saving');
  var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   // only multi-IP nodes expose the picker; empty ⇒ node keeps old pin
  var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5,listen_ip:lip});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=terr(r.d.error||r.d.msg||T('failed'))}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=perr(r)}}
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
  if(!node||!lp||!dp||!ips){m.className='msg err';m.textContent=T('pf_need_all');return}
  m.className='msg';m.textContent=T('creating_dots');
