@@ -3278,6 +3278,84 @@ def api_create_tunnel(d):
         return _create_tunnel_impl(d)
 
 
+def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
+    """Build the core-carrier fields for a tunnel record from request `d`, falling back to the stored
+    link `cur` for any field `d` omits (so a partial edit — e.g. flux "rotate now" — never strips obfs /
+    cover / gso / rotation). Pass cur={} on CREATE: every cur.get(...) is then None, so this reduces
+    EXACTLY to the old create block (the sub-helpers all normalize cur to {} too, so cur=None and cur={}
+    are equivalent). Returns (ce, server_side): ce is merged into `extra`; server_side is the local the
+    caller uses afterwards. Raises ValueError on any invalid field (same messages as before)."""
+    ce = {}
+    cipher = str(d.get("cipher") or cur.get("cipher") or "auto").strip().lower()
+    if cipher not in CORE_CIPHERS:
+        raise ValueError("روشِ رمزنگاری نامعتبر است")
+    ce["cipher"] = cipher
+    if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
+        ce["psk"] = cur.get("psk") or secrets.token_hex(32)
+    transport = str(d.get("transport") or cur.get("transport") or "udp").strip().lower()
+    if transport not in CORE_TRANSPORTS:
+        raise ValueError("حاملِ اتصال نامعتبر است")
+    ce["transport"] = transport
+    if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
+        if cipher == "none":
+            raise ValueError("حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
+        profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bip").strip().lower()
+        if profile not in CORE_RAW_PROFILES:
+            raise ValueError("پروفایلِ raw نامعتبر است")
+        ce["raw_profile"] = profile
+        ce.update(_spoof_fields(d, transport, profile, cipher, cur))   # decoy / source spoofing (bip only); cur preserves omitted fields
+    if transport == "dns":                     # DNS-tunnel carrier (last resort), crypto required
+        ce.update(_dns_fields(d, transport, cipher, cur))
+    if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
+        ce.update(_flux_fields(d, transport, cipher, cur))
+    if transport == "ws":                      # WebSocket carrier (CDN-frontable)
+        ce.update(_ws_fields(d, transport, cur))
+    ce.update(_fec_fields(d, transport, cur))    # FEC (datagram carriers only); {} elsewhere
+    ce.update(_desync_fields(d, transport, cur)) # fake-packet desync (raw/flux only); {} elsewhere
+    # obfs/cover/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
+    # doesn't strip the anti-DPI layer, TLS cover, or throughput offload. On create cur={} makes each
+    # fallback None/False — identical to reading only d.
+    if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):   # anti-DPI needs the AEAD key
+        if cipher == "none":
+            raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
+        ce["obfs"] = True
+    cover = (bool(d.get("cover")) if "cover" in d else bool(cur.get("cover"))) and transport == "tcp"   # TLS cover is TCP-only
+    if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
+        raise ValueError("پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
+    cover_sni = str((d["cover_sni"] if "cover_sni" in d else cur.get("cover_sni")) or "").strip()
+    if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
+        raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
+    if cover and not cover_sni:   # required: no imposed default SNI
+        raise ValueError("برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی")
+    if cover:
+        ce["cover"] = True
+        ce["cover_sni"] = cover_sni
+    if (bool(d.get("gso")) if "gso" in d else bool(cur.get("gso"))):   # TUN segmentation offload (throughput); any transport
+        ce["gso"] = True
+    # IP rotation (direct transports): a full form edit sends ip_rotate + pools; a partial edit omits them,
+    # so preserve the stored config. On create cur={} => the elif is dead and "ip_rotate" in d gates it
+    # exactly as the old create block (which added nothing when ip_rotate was absent/false).
+    if "ip_rotate" in d:
+        if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
+            ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
+            bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
+            if a_ip not in ap:
+                ap = [a_ip] + ap   # the tunnel's primary IP anchors each side's pool
+            if b_ip not in bp:
+                bp = [b_ip] + bp
+            if len(ap) >= 2 or len(bp) >= 2:   # at least one side actually has enough to rotate
+                ce["ip_rotate"] = True
+                ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
+                ce["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
+                ce["auto_burn"] = bool(d.get("auto_burn"))
+    elif cur.get("ip_rotate"):   # partial edit — carry the stored rotation config forward unchanged
+        for _k in _ROTATION_KEYS:
+            if cur.get(_k) is not None:
+                ce[_k] = cur[_k]
+    server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (cur.get("server_side") or "a")
+    return ce, server_side
+
+
 def _create_tunnel_impl(d):
     _require(d, ["a_node", "b_node", "type"])
     A, B = get_node(d["a_node"]), get_node(d["b_node"])
@@ -3342,64 +3420,8 @@ def _create_tunnel_impl(d):
         extra["psk"] = secrets.token_hex(32)   # shared ESP key material for both sides
     server_side = None
     if ttype == "core":
-        cipher = str(d.get("cipher") or "auto").strip().lower()
-        if cipher not in CORE_CIPHERS:
-            raise ValueError("روشِ رمزنگاری نامعتبر است")
-        extra["cipher"] = cipher
-        if cipher != "none":
-            extra["psk"] = secrets.token_hex(32)   # shared AEAD key, never sent to the browser
-        transport = str(d.get("transport") or "udp").strip().lower()
-        if transport not in CORE_TRANSPORTS:
-            raise ValueError("حاملِ اتصال نامعتبر است")
-        extra["transport"] = transport
-        if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
-            if cipher == "none":
-                raise ValueError("حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-            profile = str(d.get("raw_profile") or "bip").strip().lower()
-            if profile not in CORE_RAW_PROFILES:
-                raise ValueError("پروفایلِ raw نامعتبر است")
-            extra["raw_profile"] = profile
-            extra.update(_spoof_fields(d, transport, profile, cipher))   # decoy / source spoofing (bip only)
-        if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
-            extra.update(_flux_fields(d, transport, cipher))
-        if transport == "dns":                     # DNS-tunnel carrier (last resort), crypto required
-            extra.update(_dns_fields(d, transport, cipher))
-        if transport == "ws":                      # WebSocket carrier (CDN-frontable)
-            extra.update(_ws_fields(d, transport))
-        extra.update(_fec_fields(d, transport))    # FEC (datagram carriers only); {} elsewhere
-        extra.update(_desync_fields(d, transport)) # fake-packet desync (raw/flux only); {} elsewhere
-        if bool(d.get("obfs")):                    # anti-DPI needs the AEAD key
-            if cipher == "none":
-                raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-            extra["obfs"] = True
-        cover = bool(d.get("cover")) and transport == "tcp"   # TLS cover (HTTPS camouflage) is TCP-only; ignore on UDP/raw
-        if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
-            raise ValueError("پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-        cover_sni = str(d.get("cover_sni") or "").strip()
-        if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
-            raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
-        if cover and not cover_sni:   # required: no imposed default SNI
-            raise ValueError("برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی")
-        if cover:
-            extra["cover"] = True
-            extra["cover_sni"] = cover_sni
-        if bool(d.get("gso")):                     # TUN segmentation offload (throughput); any transport
-            extra["gso"] = True
-        server_side = "b" if str(d.get("server_side")) == "b" else "a"  # which node listens (operator's pick)
-        # IP rotation (direct transports): the operator picks a subset of each node's IPs to cycle.
-        # Stored in the link so edit/rebuild replay it; assigned per-role by _core_rotation_bodies.
-        if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
-            ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
-            bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
-            if a_ip not in ap:
-                ap = [a_ip] + ap   # the tunnel's primary IP anchors each side's pool
-            if b_ip not in bp:
-                bp = [b_ip] + bp
-            if len(ap) >= 2 or len(bp) >= 2:   # at least one side actually has enough to rotate
-                extra["ip_rotate"] = True
-                extra["a_ip_pool"], extra["b_ip_pool"] = ap, bp
-                extra["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
-                extra["auto_burn"] = bool(d.get("auto_burn"))
+        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips)  # cur={} => the create form; server_side used below
+        extra.update(ce)
     # Precise same-server-IP conflict: another core tunnel that binds the SAME (server ip, port, L4
     # proto). Different carrier, different port, or a raw/flux carrier (shared sockets) is allowed.
     if ttype == "core":
@@ -3798,74 +3820,8 @@ def _edit_link_impl(d):
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
     server_side = None
     if ttype == "core":
-        cipher = str(d.get("cipher") or L.get("cipher") or "auto").strip().lower()
-        if cipher not in CORE_CIPHERS:
-            raise ValueError("روشِ رمزنگاری نامعتبر است")
-        extra["cipher"] = cipher
-        if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
-            extra["psk"] = L.get("psk") or secrets.token_hex(32)
-        transport = str(d.get("transport") or L.get("transport") or "udp").strip().lower()
-        if transport not in CORE_TRANSPORTS:
-            raise ValueError("حاملِ اتصال نامعتبر است")
-        extra["transport"] = transport
-        if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
-            if cipher == "none":
-                raise ValueError("حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-            profile = str(d.get("raw_profile") or L.get("raw_profile") or "bip").strip().lower()
-            if profile not in CORE_RAW_PROFILES:
-                raise ValueError("پروفایلِ raw نامعتبر است")
-            extra["raw_profile"] = profile
-            extra.update(_spoof_fields(d, transport, profile, cipher, L))   # decoy / source spoofing (bip only); L preserves omitted fields
-        if transport == "dns":                     # DNS-tunnel carrier (last resort), crypto required; L preserves omitted fields
-            extra.update(_dns_fields(d, transport, cipher, L))
-        if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
-            extra.update(_flux_fields(d, transport, cipher, L))
-        if transport == "ws":                      # WebSocket carrier (CDN-frontable)
-            extra.update(_ws_fields(d, transport, L))
-        extra.update(_fec_fields(d, transport, L)) # FEC (datagram carriers only); {} elsewhere
-        extra.update(_desync_fields(d, transport, L)) # fake-packet desync (raw/flux only); {} elsewhere; L preserves omitted fields
-        # obfs/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
-        # (flux "rotate now" sends neither) doesn't strip the anti-DPI layer or the throughput
-        # offload. A full form edit always sends both as booleans, so it still overrides correctly.
-        if (bool(d.get("obfs")) if "obfs" in d else bool(L.get("obfs"))):
-            if cipher == "none":
-                raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-            extra["obfs"] = True
-        # cover/cover_sni fall back to the stored value when the request omits the key, so a PARTIAL
-        # edit (a future tcp-link partial save) doesn't silently strip the TLS cover — matching obfs/gso.
-        cover = (bool(d.get("cover")) if "cover" in d else bool(L.get("cover"))) and transport == "tcp"
-        if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
-            raise ValueError("پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-        cover_sni = str((d["cover_sni"] if "cover_sni" in d else L.get("cover_sni")) or "").strip()
-        if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
-            raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
-        if cover and not cover_sni:   # required: no imposed default SNI
-            raise ValueError("برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی")
-        if cover:
-            extra["cover"] = True
-            extra["cover_sni"] = cover_sni
-        if (bool(d.get("gso")) if "gso" in d else bool(L.get("gso"))):   # TUN segmentation offload; fall back to stored on a partial edit
-            extra["gso"] = True
-        # IP rotation: a full form edit sends ip_rotate + pools; a partial edit (e.g. flux "rotate now")
-        # omits them, so preserve the stored rotation config. Assigned per-role by _core_rotation_bodies.
-        if "ip_rotate" in d:
-            if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
-                ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
-                bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
-                if a_ip not in ap:
-                    ap = [a_ip] + ap
-                if b_ip not in bp:
-                    bp = [b_ip] + bp
-                if len(ap) >= 2 or len(bp) >= 2:
-                    extra["ip_rotate"] = True
-                    extra["a_ip_pool"], extra["b_ip_pool"] = ap, bp
-                    extra["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
-                    extra["auto_burn"] = bool(d.get("auto_burn"))
-        elif L.get("ip_rotate"):   # partial edit — carry the stored rotation config forward unchanged
-            for _k in _ROTATION_KEYS:
-                if L.get(_k) is not None:
-                    extra[_k] = L[_k]
-        server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (L.get("server_side") or "a")
+        ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)  # cur=L => stored fields fill in whatever a partial edit omits
+        extra.update(ce)
     # Compare against the effective stored port: a record created before the
     # settable-port feature has no "port" key, so fall back to the type's default
     # (4789 for vxlan, 20000+id otherwise). Without this a no-op edit of a legacy
