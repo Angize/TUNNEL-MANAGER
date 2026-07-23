@@ -44,6 +44,7 @@ NODES_FILE = os.path.join(CENTRAL_DIR, "nodes.json")
 LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
 TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
 SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable panel settings (reconcile mode, intervals, …)
+PENDING_FILE = os.path.join(CENTRAL_DIR, "pending_del.json")  # {node_id: [tunnel_name,…]} teardowns owed to a node that was unreachable at delete/wipe time; drained by the poller when the node reconnects, pruned when the node is removed
 UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")     # persisted per-minute up/down history so the bar survives restarts
 PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")  # operator's manual card order for port-forwards (list of node_id+name keys)
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")          # the node-agent source the operator uploaded, pushed to nodes
@@ -70,6 +71,7 @@ DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux")                      # handshake-
 DESYNC_TRANSPORTS     = ("raw", "flux", "tcp", "ws")                # carriers that support fake-desync
 STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "ws")        # carriers that write a precise status ring (direct tcp/cover client writes one too, core v2.48.3+)
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
+_pending_lock = threading.Lock()   # serialize pending_del.json read-modify-write (deferred teardowns)
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
 _core_blob_lock = threading.Lock()   # serialize the custom core binary + its meta writes
 _node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
@@ -422,6 +424,93 @@ def get_node(nid):
     return next((n for n in load_nodes() if n["id"] == nid), None)
 
 
+# --------------------------------------------------------------------------- deferred teardown queue
+# When a force-delete (tunnel) or best-effort wipe (dead node) can't reach a node to tear its tunnel(s)
+# down, the panel record is removed anyway and the owed teardown is parked here as {node_id: [names]}.
+# The poller drains it (_pending_drain) the moment that node answers again — sending the same idempotent
+# `delete` op — so no live server keeps an orphan. Entries are pruned when the node itself is removed
+# (api_node_del), so a permanently-dead node's owed teardowns live no longer than its own record.
+def _pending_load():
+    try:
+        with open(PENDING_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _pending_add(node_id, name):
+    """Park a teardown owed to node_id (dedup); return True once it is DURABLY persisted (False if the
+    write failed — the caller must then keep its own record so the owed teardown isn't silently lost).
+    A blank node/name is a no-op that reports success."""
+    if not node_id or not name:
+        return True
+    with _pending_lock:
+        d = _pending_load()
+        lst = list(d.get(node_id) or [])
+        if name not in lst:
+            lst.append(name)
+        d[node_id] = lst
+        try:
+            save_json(PENDING_FILE, d)
+            return True
+        except OSError:
+            return False
+
+
+def _pending_remove(node_id, name):
+    """Drop one owed teardown (after it succeeds), removing the node key when its list empties."""
+    with _pending_lock:
+        d = _pending_load()
+        lst = [x for x in (d.get(node_id) or []) if x != name]
+        if lst:
+            d[node_id] = lst
+        else:
+            d.pop(node_id, None)
+        try:
+            save_json(PENDING_FILE, d)
+        except OSError:
+            pass
+
+
+def _pending_prune_node(node_id):
+    """Drop ALL teardowns owed to a node (called when the node itself is removed)."""
+    with _pending_lock:
+        d = _pending_load()
+        if node_id in d:
+            d.pop(node_id, None)
+            try:
+                save_json(PENDING_FILE, d)
+            except OSError:
+                pass
+
+
+def _pending_names(node_id):
+    """The tunnel names still owed a teardown on node_id (a copy, safe to iterate)."""
+    return list(_pending_load().get(node_id) or [])
+
+
+def _pending_counts():
+    """{node_id: count} for the UI badge."""
+    return {k: len(v) for k, v in _pending_load().items() if v}
+
+
+def _pending_gc(valid):
+    """Drop deferred teardowns owed to node ids NOT in `valid` (the current registry). Closes the
+    add-after-prune race (a force-delete's _pending_add landing just after the node was removed) and GCs
+    any stale key, so pending_del.json can never grow unbounded. Called from the poller's reap sweep."""
+    with _pending_lock:
+        d = _pending_load()
+        drop = [k for k in d if k not in valid]
+        if drop:
+            for k in drop:
+                d.pop(k, None)
+            try:
+                save_json(PENDING_FILE, d)
+            except OSError:
+                pass
+
+
 def _client_node(L):
     """The registered CLIENT-side node of a core link — the end that dials (server_side names the
     listener; the other end is the client). Returns the node dict or None; callers handle not-found."""
@@ -653,6 +742,28 @@ def _tombed(nid, ts):
         return bool(exp and ts < exp)
 
 
+def _pending_drain(n):
+    """Finish the teardowns owed to node n now that it has answered. Uses the idempotent `delete` op, so
+    a tunnel that is already gone (or never existed on a re-imaged node) still clears cleanly. Best-effort:
+    a delete that still fails stays queued for the next successful poll. Usually a no-op (queue empty).
+    CRITICAL: a parked name that a CURRENTLY-REGISTERED link owns on this node is STALE — a recycled
+    tunnel_id gave a brand-new live tunnel the same name (e.g. reused core42) — so drop it WITHOUT deleting;
+    otherwise the drain would tear down a legitimate re-created tunnel."""
+    nid = n["id"]
+    names = _pending_names(nid)
+    if not names:
+        return
+    live = {L["name"] for L in load_links() if L.get("a_node") == nid or L.get("b_node") == nid}
+    for nm in names:
+        if nm in live:                       # a registered tunnel now owns this name here -> stale park, drop it
+            _pending_remove(nid, nm)
+            continue
+        r = node_call(n, "delete", "POST", {"name": nm}, timeout=8)
+        if r.get("ok"):
+            _pending_remove(nid, nm)
+            _tf_forget(nid, [nm])   # drop stale traffic totals so a reused tunnel name starts fresh
+
+
 def _poll_node(n):
     ping = node_call(n, "ping", "GET", timeout=6)
     t_ping = time.time()   # stamp the rate at ping-return time, not after the slower list call
@@ -672,6 +783,8 @@ def _poll_node(n):
         return
     with _pc_lock:  # publish ping+list together so readers never see a torn (fresh-ping / stale-list) pair
         _pc[n["id"]] = {"ping": ping, "list": lst, "ping_ts": t_ping, "list_ts": now}
+    if ping.get("ok"):   # node answered -> finish any teardowns owed to it (rare; no-op when the queue is empty)
+        _pending_drain(n)
 
 
 def _refresh_cache(nids):
@@ -745,6 +858,7 @@ def poller_loop():
                     lk = _node_locks.get(nid)
                     if lk is not None and not lk.locked():
                         _node_locks.pop(nid, None)
+            _pending_gc(valid)   # drop deferred teardowns owed to removed nodes (add-after-prune race / stale keys)
             if nodes:
                 # Only submit nodes that aren't still being polled from an earlier
                 # sweep. Otherwise a fleet of slow/unreachable nodes would pile a
@@ -1303,10 +1417,11 @@ def _redact_proxy(proxy):
     return re.sub(r"://[^/@]*@", "://", str(proxy or "").strip())
 
 
-def _node_view(n):
+def _node_view(n, pend=None):
     _uw = get_settings().get("uptime_window", 1)
     base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": _redact_proxy(n.get("proxy")),
             "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
+            "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),   # teardowns owed to this node, waiting for it to reconnect
             "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -1324,7 +1439,8 @@ def api_nodes(d):
     total = len(nodes)
     page = nodes[off:off + lim]
     _ensure_cached(page)  # bounded to one page — warms cold-start without touching the whole fleet
-    return {"nodes": [_node_view(n) for n in page], "total": total, "offset": off, "limit": lim,
+    _pend = _pending_counts()   # read the deferred-teardown queue once for the whole page
+    return {"nodes": [_node_view(n, _pend) for n in page], "total": total, "offset": off, "limit": lim,
             "uptime_window": get_settings().get("uptime_window", 1)}
 
 
@@ -2007,31 +2123,53 @@ def api_node_del(d):
     _require(d, ["id"])
     nid = d["id"]
     wipe = bool(d.get("wipe"))
+    # force = the operator asserts the node's server is DEAD/gone: wipe best-effort instead of
+    # all-or-nothing — skip the (impossible) node-side wipe if unreachable, but STILL close every
+    # reachable peer's half now and remove the node + its links from the panel. An unreachable peer's
+    # teardown is parked (pending_del) for its own reconnect, so no live server keeps an orphan.
+    force = bool(d.get("wipe_force") or d.get("force"))
     out = {"ok": True, "wiped": wipe}
-    if wipe:  # full wipe is ALL-OR-NOTHING: if the node side fails, touch nothing so nothing is half-removed
+    if wipe:
         n = get_node(nid)
         if not n:
             raise ValueError("نود پیدا نشد")
         r = node_call(n, "wipe", "POST", {}, timeout=60)
-        if not r.get("ok"):
-            raise ValueError("پاک‌سازیِ سمتِ نود ناموفق: " + (r.get("error") or r.get("msg") or "در دسترس نیست")
-                             + " — چیزی از پنل حذف نشد. اگر سرور از دسترس خارج است یا ایجنتش قدیمی است، «فقط از پنل جدا کن» را بزن.")
-        with _reg_lock:  # wipe succeeded -> drop this node's links from the registry
+        node_ok = bool(r.get("ok"))
+        if not node_ok:
+            # A wipe fails either because the server is genuinely UNREACHABLE (best-effort applies) or
+            # because it ANSWERED with an error — a LIVE node, which best-effort would ORPHAN, so it is
+            # never force-removed. Distinguish with a fresh ping.
+            reachable = bool(node_call(n, "ping", "GET", timeout=6).get("ok"))
+            if reachable:
+                raise ValueError("سرور پاسخ داد ولی پاک‌سازی ناتمام ماند: " + (r.get("error") or r.get("msg") or "خطا")
+                                 + " — نود در دسترس است؛ دوباره تلاش کن («پاک‌سازیِ اجباری» فقط برای سرورِ ازدسترس‌خارج است).")
+            if not force:  # unreachable + not forced: keep all-or-nothing, touch nothing
+                raise ValueError("سرور در دسترس نیست — چیزی از پنل حذف نشد. اگر برای همیشه از دسترس خارج است «پاک‌سازیِ اجباری» را بزن؛ وگرنه «فقط از پنل جدا کن».")
+            # unreachable + force -> best-effort: clean the panel + every reachable peer below
+        with _reg_lock:  # snapshot this node's links; they are removed only AFTER the peer teardowns are durably parked
             links = load_links()
             mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
             mine_ids = {L["id"] for L in mine}
-            save_json(LINKS_FILE, [L for L in links if L["id"] not in mine_ids])
-        def _del_peer_half(L):  # tear the peer's half of each tunnel down too, so no orphan is left behind
+        _park_failed = []
+        def _del_peer_half(L):  # tear the peer's half of each tunnel down too, so no live server is left an orphan
             peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
             pn = get_node(peer_id)
             if not pn:
                 return
             with _PairLock(peer_id, peer_id):  # lock ONLY the peer (nid is being wiped/removed): a shared nid lock
-                node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # would serialize all N calls -> N*timeout. Still mutually excludes a rebuild on this pair (it holds peer_id too).
+                rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # would serialize all N calls -> N*timeout. Still mutually excludes a rebuild on this pair (it holds peer_id too).
+            if not rr.get("ok") and not _pending_add(peer_id, L["name"]):
+                _park_failed.append(L["id"])   # unreachable peer's teardown couldn't be persisted (rare disk error)
         parallel_map(_del_peer_half, mine, workers=32)  # fan out: N offline peers must not serialize to N*timeout
-        out["links_removed"] = len(mine)
+        if _park_failed:  # a park write failed -> abort BEFORE removing links/node, so nothing is left an orphan; the operator retries
+            raise ValueError("صفِ حذفِ معلق نوشته نشد؛ برای پرهیز از تونلِ یتیم چیزی حذف نشد — دوباره تلاش کن.")
+        with _reg_lock:  # NOW drop the links — every offline peer's teardown is durably parked (crash-safe: a crash before this leaves the record retryable, never record-gone-but-unparked)
+            save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
+        out["links_removed"] = len(mine_ids)
+        out["node_wiped"] = node_ok   # False when a DEAD node was force-removed (its own server wasn't cleaned)
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
+    _pending_prune_node(nid)   # node removed from the panel -> the poller can no longer drain its owed teardowns, so drop them
     # Set the tombstone BEFORE popping the caches. _poll_node checks _tombed() right before each cache
     # write, so a poll already mid-flight must see the tomb by the time it writes — otherwise it writes
     # _pc/_tf/_uh back AFTER we popped them and the deleted node is resurrected (phantom throughput in
@@ -3467,6 +3605,10 @@ def _create_tunnel_impl(d):
                           "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, "created": int(time.time()),
                           **extra, **({"server_side": server_side} if ttype == "core" else {})})
             save_json(LINKS_FILE, links)
+        # This create OWNS `name` now (tunnel_ids recycle, so a freed name can be reused): supersede any
+        # teardown still parked for it on either node so the poller's drain can never reap this live tunnel.
+        _pending_remove(A["id"], name)
+        _pending_remove(B["id"], name)
     except Exception as e:  # tunnels are live on BOTH nodes but the record failed to persist — tear them back down
         da = node_call(A, "delete", "POST", {"name": name})
         db = node_call(B, "delete", "POST", {"name": name})
@@ -3490,21 +3632,45 @@ def api_delete_link(d):
         L = next((x for x in load_links() if x["id"] == d["id"]), None)  # re-read under the lock
         if not L:
             return {"ok": True}  # a concurrent op already deleted it
-        errs = []
-        for nid, nm in ((L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])):
+        # force = the operator accepts removing the record even if a node can't be reached now: the
+        # reachable end is torn down at once, and each unreachable end's teardown is PARKED (pending_del)
+        # for the poller to finish on reconnect — so no live server is left an orphan and the operator
+        # is never stuck. Without force we keep the record (the original no-orphan guard).
+        force = bool(d.get("force"))
+        ends = [(L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])]
+        # NON-FORCE must be truthful: if we're going to KEEP the record (a node is unreachable) we must not
+        # have already torn down the OTHER end. So pre-check reachability from the poll cache — if any end
+        # is offline, keep BOTH halves untouched and offer force, instead of deleting the reachable half and
+        # then reporting "link kept".
+        if not force:
+            off = [nm for nid, nm in ends if not _cached_ping(nid).get("ok")]
+            if off:
+                _refresh_cache([L["a_node"], L["b_node"]])
+                return {"ok": False, "msg": "نودِ «" + "»، «".join(off) + "» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
+        errs, deferred = [], []
+        for nid, nm in ends:
             n = get_node(nid)
-            if n:
-                r = node_call(n, "delete", "POST", {"name": L["name"]})
-                if not r.get("ok"):
-                    errs.append(f"{nm}: {r.get('error')}")
-        if errs:  # a registered node failed/was offline — KEEP the record so a later delete can finish teardown (no orphans)
+            if not n:
+                continue   # node no longer registered -> nothing to tear down on it
+            r = node_call(n, "delete", "POST", {"name": L["name"]})
+            if not r.get("ok"):
+                if not force:
+                    errs.append(f"{nm}: {r.get('error')}")   # cache said online but it failed (raced offline)
+                elif _pending_add(nid, L["name"]):            # force: park this end's teardown for reconnect
+                    deferred.append(nm)
+                else:
+                    errs.append(f"{nm}: صفِ حذفِ معلق نوشته نشد")   # park write failed -> keep the record, retry later
+        if errs:  # non-force + a node failed/offline — KEEP the record so a later delete can finish teardown (no orphans)
             _refresh_cache([L["a_node"], L["b_node"]])
-            return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن"}
+            return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         with _reg_lock:  # atomic RMW; re-read so a concurrent create isn't clobbered
             save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
         _tf_forget(L["a_node"], [L["name"]])   # drop stale traffic totals so a reused tunnel name starts fresh
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
+        if deferred:
+            return {"ok": True, "deferred": deferred,
+                    "msg": "لینک حذف شد؛ پاک‌سازیِ سمتِ «" + "»، «".join(deferred) + "» وقتی نود برگشت خودکار انجام می‌شود"}
         return {"ok": True}
 
 
@@ -5574,7 +5740,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tglsw.on::after{inset-inline-start:21px;background:var(--acc)}
 .modalov{position:fixed;inset:0;z-index:58;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);animation:fade .18s ease both}
 .modal{width:344px;max-width:100%;border-radius:20px;padding:20px;background:linear-gradient(180deg,color-mix(in srgb,#fff 5%,color-mix(in srgb,var(--card) 92%,transparent)),color-mix(in srgb,var(--card) 88%,transparent));border:1px solid color-mix(in srgb,var(--tx) 12%,transparent);box-shadow:0 24px 60px -20px rgba(0,0,0,.7),inset 0 1px 0 var(--hi)}
-.mtext{font-size:14px;line-height:1.85}.mbtns{display:flex;gap:9px;margin-top:17px}
+.mtext{font-size:14px;line-height:1.85;white-space:pre-line}.mbtns{display:flex;gap:9px;margin-top:17px}
 .mbtns .primary,.mbtns .ghost{margin:0}
 .mbtns .primary{background:linear-gradient(180deg,color-mix(in srgb,var(--bad) 92%,#fff),var(--bad));color:#fff;box-shadow:0 10px 22px -12px color-mix(in srgb,var(--bad) 55%,transparent)}
 @keyframes fade{from{opacity:0}to{opacity:1}}
@@ -6174,6 +6340,9 @@ var I18N={fa:{
  del_wipe_t:"پاک‌سازیِ کاملِ نود",del_wipe_s:"روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!",
  del_wipe_confirm:"مطمئنی؟ کلِ نود روی سرور — تونل‌ها، ایجنت و توکن — پاک می‌شود و برگشت ندارد.",del_wipe_yes:"بله، پاک کن",
  del_wiping:"در حال پاک‌سازیِ نود…",del_detaching:"در حال جدا کردن…",node_wiped:"نود کاملاً پاک‌سازی شد",node_detached:"نود از پنل جدا شد",
+ del_force_ask:"این تونل به‌اجبار حذف شود؟ سمتِ نودِ در دسترس همین حالا بسته می‌شود، و سمتِ نودِ قطع وقتی برگشت خودکار پاک می‌شود.",del_force_yes:"حذفِ اجباری",
+ del_wipe_force_ask:"سرور در دسترس نیست. «پاک‌سازیِ اجباری»؟ رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند؛ خودِ این سرور اگر روزی برگشت باید دستی پاک شود.",del_wipe_force_yes:"پاک‌سازیِ اجباری",del_force_wiping:"در حالِ پاک‌سازیِ اجباری…",node_force_wiped:"نود از پنل پاک شد (سرور در دسترس نبود؛ سمتِ مقابل بسته شد)",
+ pend_del_t:"حذفِ معلق — وقتی این نود دوباره وصل شد، خودکار پاک‌سازی می‌شود",
  test_testing:"در حال تست…",node_added_online:" · آنلاین",node_added_offline:" · آفلاین: ",
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
@@ -6878,7 +7047,7 @@ function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
  var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — replaces the old آنلاین text badge
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div><span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+(n.pending_del>0?'<span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f;flex:0 0 auto" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
@@ -6918,15 +7087,20 @@ function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribut
   '<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>'+
   '<div class="msg" id="del_msg"></div>';
  openModal('<div class="msticky"><span class="medi medi-bad">'+ic('trash')+'</span><div class="ttl"><h3>'+esc(T('nd_del'))+'</h3><div class="sb">'+esc(nm)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
-async function doDelNode(id,wipe){var m=el('del_msg');
- if(wipe&&!await confirmBox(T('del_wipe_confirm'),T('del_wipe_yes')))return;
- if(m){m.className='msg';m.textContent=wipe?T('del_wiping'):T('del_detaching')}
+async function doDelNode(id,wipe,force){var m=el('del_msg');
+ if(wipe&&!force&&!await confirmBox(T('del_wipe_confirm'),T('del_wipe_yes')))return;
+ if(m){m.className='msg';m.textContent=(wipe?(force?T('del_force_wiping'):T('del_wiping')):T('del_detaching'))}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=true});
- var r=await post('node-del',{id:id,wipe:wipe});
+ var r=await post('node-del',{id:id,wipe:wipe,wipe_force:!!force});
  if(r.ok&&r.d.ok){editingId=null;var ov=m?m.closest('.modalov'):null;
-  toast(wipe?T('node_wiped'):T('node_detached'),'ok');
-  if(ov)closeModal(ov);else refreshNodes()}
- else{if(m){m.className='msg err';m.textContent=terr((r.d&&r.d.error)||T('failed'))}document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false})}}
+  toast(wipe?((r.d.node_wiped===false)?T('node_force_wiped'):T('node_wiped')):T('node_detached'),'ok');
+  if(ov)closeModal(ov);else refreshNodes();return}
+ document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false});
+ if(wipe&&!force){                                    // normal wipe failed (server unreachable?) -> offer best-effort force
+  if(await confirmBox(((r.d&&r.d.error)||T('failed'))+'\\n\\n'+T('del_wipe_force_ask'),T('del_wipe_force_yes')))return doDelNode(id,true,true);
+  if(m){m.className='msg';m.textContent=''}          // declined -> clear the stale "در حال پاک‌سازی…" status
+  return}
+ if(m){m.className='msg err';m.textContent=terr((r.d&&r.d.error)||T('failed'))}}
 
 // ===== Tunnels
 function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','tun_sub')+
@@ -7101,7 +7275,16 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
  var r=await post('rebuild-link',body);
  if(r.ok&&r.d.ok){toast(T('t_rebuilt'),'ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
  else toast(terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')),'err')}
-async function delLink(id){if(!await confirmBox(T('del_tun_confirm')))return;var r=await post('delete-link',{id:id});if(!r.d.ok&&r.d.msg)toast(T('del_partial')+r.d.msg,'err');delete CHK[id];editingId=null;refreshFleet()}
+async function delLink(id){
+ if(!await confirmBox(T('del_tun_confirm')))return;
+ var r=await post('delete-link',{id:id});
+ if(r.d&&r.d.ok===false&&r.d.msg){                    // a node was offline -> record kept; offer force
+  if(!await confirmBox(r.d.msg+'\\n\\n'+T('del_force_ask'),T('del_force_yes')))return;
+  var r2=await post('delete-link',{id:id,force:true});
+  if(r2.d&&r2.d.msg)toast(r2.d.msg,(r2.d.ok?'ok':'err'));
+  else if(!(r2.d&&r2.d.ok))toast(perr(r2),'err');
+ }else if(r.d&&r.d.msg){toast(T('del_partial')+r.d.msg,'err')}
+ delete CHK[id];editingId=null;refreshFleet()}
 
 // ===== Create
 // one endpoint's IP field for the create forms: multi-IP -> dropdown; single-IP -> disabled box (like the edit form)
