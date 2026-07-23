@@ -1534,7 +1534,7 @@ def api_summary(d):
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
-            "ev_seq": _ev_seq_get(), "log_count": len(load_events()),
+            "ev_seq": _ev_seq_get(), "log_count": _ev_count_get(),
             "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2),
             "suspect_backoff": _tun.get("suspect_backoff", _TUNING_DEFAULTS["suspect_backoff"]),
             "dead_retest_secs": _tun.get("dead_retest_secs", _TUNING_DEFAULTS["dead_retest_secs"])}
@@ -3288,11 +3288,7 @@ def _create_tunnel_impl(d):
     ttype = d["type"]
     if ttype not in TYPES:
         raise ValueError("bad type")
-    pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
-    if not pa.get("ok"):
-        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
-    if not pb.get("ok"):
-        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
+    pa, pb = _ping_both(A, B)
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
     want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
@@ -3306,16 +3302,7 @@ def _create_tunnel_impl(d):
         raise ValueError("could not determine node IPs")
     if a_ip == b_ip:
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
-    new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
-    for L in load_links():  # (a multi-ip pair may legitimately have several tunnels on different ips)
-        same_pair = frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair
-        # core is carrier-multiplexed (see _core_l4_conflict): several core tunnels may share an IP pair
-        # as long as their server L4 binds don't clash, so it is NOT blocked here by ip-pair alone —
-        # the precise per-carrier/port check runs after the carrier is known.
-        if L.get("type") == ttype and same_pair and ttype != "core":
-            raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
-        if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
-            raise ValueError(f"تونلِ «{L.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    _guard_dup_pair(A, B, a_ip, b_ip, ttype)  # reject a TRUE duplicate (same non-core type / any ipip-fou on this ip-pair)
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
@@ -3768,11 +3755,7 @@ def _edit_link_impl(d):
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
         raise ValueError("a node of this link is no longer registered")
-    pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
-    if not pa.get("ok"):
-        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
-    if not pb.get("ok"):
-        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
+    pa, pb = _ping_both(A, B)
     tid = int(L["tunnel_id"])
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
@@ -3789,20 +3772,7 @@ def _edit_link_impl(d):
         raise ValueError("could not determine node IPs")
     if a_ip == b_ip:
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
-    new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])  # block only a TRUE duplicate: same type on the same ip-pair
-    for x in load_links():
-        if x.get("id") == L["id"]:
-            continue
-        same_pair = frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair
-        # core is carrier-multiplexed (see _core_l4_conflict): several core tunnels may share an IP pair
-        # as long as their server L4 binds don't clash, so it is NOT blocked here by ip-pair alone — the
-        # precise per-carrier/port check runs below (with exclude_id, so an edit never conflicts with
-        # itself). This mirrors the create path; without the core exemption, EDITING one of two coexisting
-        # core tunnels on the same IP pair would wrongly fail even when they don't technically clash.
-        if x.get("type") == ttype and same_pair and ttype != "core":
-            raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
-        if ttype in IPIP_FAMILY and x.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
-            raise ValueError(f"تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])  # same as create, but never conflict with self
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
@@ -4009,11 +3979,7 @@ def _rebuild_link_impl(d):
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
         raise ValueError("a node of this link is no longer registered")
-    pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
-    if not pa.get("ok"):
-        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
-    if not pb.get("ok"):
-        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
+    pa, pb = _ping_both(A, B)
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
@@ -4522,6 +4488,7 @@ EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-eve
 EVENTS_CAP = 500
 _events_lock = threading.Lock()
 _ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
+_ev_count = None  # lazy-loaded current (capped) event count, mirrored in memory so api_summary needn't re-parse events.json
 _ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}  # last-seen state (in-memory); rotip[lid:axis]=last source/dest IP, for from→to on a rotation
 
 
@@ -4653,17 +4620,28 @@ def _ev_seq_get():
     return _ev_seq_total
 
 
+def _ev_count_get():
+    """Current (capped) number of stored events, kept in memory so the hot api_summary poll doesn't
+    re-parse events.json every call. Seeded once from the file, then maintained by log_event and
+    api_events_clear — the only writers, both under _events_lock."""
+    global _ev_count
+    if _ev_count is None:
+        _ev_count = len(load_events())
+    return _ev_count
+
+
 def log_event(level, kind, fa, dfa=""):
     """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad.
     fa is the one-line TITLE; dfa is an optional detail/reason that may contain "\\n" for
     multiple lines (e.g. an edge switch's from/to) — the UI renders each line separately."""
-    global _ev_seq_total
+    global _ev_seq_total, _ev_count
     with _events_lock:
         evs = load_events()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
                        "fa": fa, "dfa": dfa})
         if len(evs) > EVENTS_CAP:
             evs = evs[:EVENTS_CAP]
+        _ev_count = len(evs)   # keep the in-memory count in step with the file (read lock-free by api_summary)
         try:
             save_json(EVENTS_FILE, evs)
         except OSError:
@@ -4794,6 +4772,20 @@ def _events_once():
     #     Any direct-transport (udp/tcp/raw/flux) client or ws pool / single-edge ws/xhttp writes one. ---
     seen = set()
     now = int(time.time())
+    # Prefetch every status-ring core tunnel's edge-status IN PARALLEL first. api_edge_status is a live
+    # per-node RPC (10s timeout), so doing it serially in the loop below made the whole sweep cost the SUM
+    # of one call per tunnel — a handful of slow/offline clients could stall event detection for the entire
+    # fleet. The per-link PROCESSING stays sequential and in `links` order below (event ordering, `now`, and
+    # the _ev_state mutations must remain single-threaded); only the network fetch is fanned out here.
+    todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
+            and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)]
+
+    def _es(L):
+        try:
+            return api_edge_status({"id": L["id"]})
+        except Exception:
+            return None
+    pre = dict(zip((L["id"] for L in todo), parallel_map(_es, todo)))
     for L in links:
         if L.get("type") != "core" or not L.get("enabled", True):
             continue
@@ -4804,10 +4796,7 @@ def _events_once():
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
-        try:
-            r = api_edge_status({"id": lid})
-        except Exception:
-            r = None
+        r = pre.get(lid)   # prefetched in parallel above; per-link processing below stays sequential + ordered
         if not r:
             continue
 
@@ -4901,11 +4890,13 @@ def api_events(d):
 
 
 def api_events_clear(d):
+    global _ev_count
     with _events_lock:
         try:
             save_json(EVENTS_FILE, [])
         except OSError:
             pass
+        _ev_count = 0
     return {"ok": True}
 
 
@@ -5102,6 +5093,34 @@ def api_portfw_del(d):
 
 def _flat_ips(ping):
     return [ip for ips in (ping.get("ips") or {}).values() for ip in ips]
+
+
+def _ping_both(A, B):
+    """Ping both endpoints of a link; raise the Persian "<node> offline" error for whichever is down.
+    Returns (pa, pb) — the raw ping replies the caller flattens with _flat_ips. Shared by
+    create/edit/rebuild."""
+    pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
+    if not pa.get("ok"):
+        raise ValueError(f"نودِ «{A['name']}» آفلاین است")
+    if not pb.get("ok"):
+        raise ValueError(f"نودِ «{B['name']}» آفلاین است")
+    return pa, pb
+
+
+def _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=None):
+    """Reject a TRUE duplicate tunnel: the same NON-core type on the same ip-pair, or any ipip/fou sharing
+    an ip-pair. `exclude_id` skips one link so an edit never conflicts with itself. A multi-ip pair may
+    legitimately host several tunnels on different ips; core is carrier-multiplexed (checked precisely by
+    the per-carrier/port logic elsewhere), so it is not blocked here by ip-pair alone. Shared create/edit."""
+    new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
+    for L in load_links():
+        if exclude_id is not None and L.get("id") == exclude_id:
+            continue
+        same_pair = frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair
+        if L.get("type") == ttype and same_pair and ttype != "core":
+            raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
+        if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
+            raise ValueError(f"تونلِ «{L.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
 
 
 def _node_ip_tags(nid):
@@ -5474,9 +5493,6 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
 .navi.on .ct.ctun{color:#fff;background:var(--acc);border-color:transparent}
 .live{margin-top:14px;padding:12px;border-radius:13px;background:var(--glass);border:1px solid var(--bord)}
-.live .lr{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--sub)}
-.live .lr b{color:var(--tx);font-size:13.5px}.live .lr b.ok{color:var(--ok)}
-@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}}
 .main{flex:1;min-width:0;max-width:1120px;padding:22px 26px 64px}
 .mtop{display:none;align-items:center;justify-content:space-between;gap:11px;padding:10px 14px;position:sticky;top:0;z-index:30;background:var(--side);border:1px solid var(--bord);border-radius:14px;box-shadow:var(--dsh)}
 .mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px;direction:ltr}
@@ -5540,16 +5556,12 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .tsw{width:38px;height:22px;border-radius:20px;background:var(--bord);position:relative;flex:0 0 auto;cursor:pointer;transition:.15s}
 .tsw::after{content:"";position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
 .tsw.on{background:var(--ok)}.tsw.on::after{right:19px}
-.hero{border-radius:24px;padding:18px 16px 15px;background:linear-gradient(140deg,color-mix(in srgb,var(--acc) 22%,var(--card)),color-mix(in srgb,var(--acc2) 11%,var(--card)) 55%,color-mix(in srgb,var(--card) 94%,transparent));border:1px solid color-mix(in srgb,var(--acc) 32%,transparent);box-shadow:0 18px 44px -18px color-mix(in srgb,var(--acc) 50%,transparent),inset 0 1px 0 var(--hi);margin-bottom:14px}
 .k{color:var(--sub);font-size:11.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
-.hero .v{font-size:30px;font-weight:800;text-shadow:0 0 26px color-mix(in srgb,var(--acc) 50%,transparent)}
 .v{font-size:22px;font-weight:800}.stat .v{font-size:22px}
 .sec{font-size:12.5px;font-weight:700;color:var(--sub);margin:20px 4px 9px;display:flex;align-items:center;gap:7px}
 .sec::after{content:'';flex:1;height:1px;background:linear-gradient(to left,var(--bord),transparent)}
-.chart{width:100%;height:auto;display:block}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:1px}
 .seg{display:flex;align-items:center;gap:14px}.donut{flex:0 0 116px}
-.nrow{display:flex;align-items:center;gap:11px}
 .ndot{width:10px;height:10px;border-radius:50%;background:var(--sub);flex:0 0 auto;box-shadow:0 0 8px var(--sub)}
 .ndot.on{background:var(--ok);box-shadow:0 0 9px color-mix(in srgb,var(--ok) 80%,transparent)}
 .ndot.off{background:var(--bad);box-shadow:0 0 9px color-mix(in srgb,var(--bad) 70%,transparent)}
@@ -5774,9 +5786,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .upbar{display:flex;gap:2px;height:22px;direction:ltr}
 .upbar i{flex:1;border-radius:2px;background:var(--ok);min-width:1px}.upbar i.d{background:var(--bad)}.upbar i.g{background:color-mix(in srgb,var(--sub) 28%,transparent)}
 /* agent update page */
-.agrow{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--card);margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
-.agrow .name{font-weight:700;font-size:14px}.agrow .ver{font-size:11.5px;color:var(--sub)}
-.agrow .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 .drop{border:1.5px dashed color-mix(in srgb,var(--acc) 45%,transparent);border-radius:13px;padding:18px;text-align:center;background:var(--accw);color:var(--sub);font-size:12.5px;cursor:pointer;margin-top:4px}.drop b{color:var(--acc)}
 .banner{display:flex;align-items:center;gap:12px}.banner .v{font-size:13.5px;font-weight:800}
 /* --- unified agent+core card (compact) --- */
@@ -5794,7 +5803,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-row .nm{font-weight:800;font-size:13px}
 .agx-pill{font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:6px;font-family:ui-monospace,monospace;direction:ltr;background:var(--field);color:var(--sub);border:1px solid var(--bord)}
 .agx-pill.cor{background:color-mix(in srgb,#8b5cf6 12%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 26%,transparent)}
-.agx-col{display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
 .agx-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;font-weight:800;font-size:10.5px;padding:5px 10px;border-radius:8px;cursor:pointer;min-width:74px;border:1px solid var(--bord);background:var(--glass);color:var(--tx)}
 .agx-btn .ic{width:13px;height:13px}
 .agx-btn.cor{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
@@ -5942,7 +5950,6 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .setctl>*{width:100%}
 .setctl .setfield{padding:8px 12px;font-size:13px}
 .setctl input.search{padding:8px 12px}
-.settcat{font-size:11.5px;font-weight:800;color:var(--acc);letter-spacing:.02em;margin:16px 2px 2px;padding-top:12px;border-top:1px dashed var(--bord)}
 .setgrp{margin-top:8px}
 .sc-panel{--sc:#4f6ef7;--scbg:#4f6ef722}.sc-both{--sc:#0891b2;--scbg:#0891b222}.sc-ws{--sc:#c2410c;--scbg:#c2410c22}.sc-dgram{--sc:#8b5cf6;--scbg:#8b5cf622}
 .grphd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 2px 8px;font-weight:800;font-size:14px;color:var(--tx)}
@@ -5961,7 +5968,6 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .setexp p{margin:0;font-size:12.5px;line-height:1.75;color:var(--tx)}
 .setexp .setex{margin-top:5px;color:var(--sub)}
 .setexp .setex b{color:var(--acc);font-weight:700}
-.settcat:first-of-type{border-top:none;padding-top:0}
 .setctl input.wtxt{max-width:150px;text-align:left;direction:ltr;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .setfield .val{color:var(--gold)}
 .setfield .cv{margin-inline-start:auto;color:var(--sub)}
@@ -6001,11 +6007,6 @@ body.dark .tag.core{color:#a78bfa}
 .rrow.on{box-shadow:inset -3px 0 0 var(--ok)}
 .rrow.on .sic{color:var(--ok);opacity:1}
 .rrow .rip{flex:1;text-align:center;font-family:var(--mono);font-size:12.5px;direction:ltr;letter-spacing:-.02em}
-.rhint{font-size:11px;color:var(--sub);text-align:center;margin-top:8px;line-height:1.7}
-.plist{border:1px solid var(--bord);border-radius:10px;overflow:hidden;background:var(--field)}
-.prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;min-height:42px;border-bottom:1px solid var(--bord)}
-.prow:last-child{border-bottom:none}
-.prow .pb{border:1px solid var(--bord);background:var(--glass);color:var(--sub);width:26px;height:26px;border-radius:7px;cursor:pointer;font-size:12px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
 .pempty{text-align:center;font-size:11px;color:var(--sub);padding:14px 0}
 .pacc{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--field);margin-top:12px}
 .pacchd{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;gap:10px}
@@ -6044,8 +6045,6 @@ body.dark .tag.core{color:#a78bfa}
 /* live peer-pool status (direct-transport rotation): مقصد + مبدأ boxes of health rows + per-IP pin */
 .peerlive{margin-top:12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);padding:11px 12px;display:flex;flex-direction:column;gap:10px}
 .peerlive .pllabel{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700}
-.peerlive .plprobe{margin-inline-start:auto;font-size:11px;padding:5px 10px;height:auto;display:inline-flex;align-items:center;gap:5px}
-.peerlive .plprobe .ic{width:13px;height:13px}
 .plbox{display:flex;flex-direction:column;gap:6px}
 .plbox .plbl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);font-weight:700}
 .plbox .plbadges{margin-inline-start:auto;display:inline-flex;gap:5px}
@@ -6056,7 +6055,6 @@ body.dark .tag.core{color:#a78bfa}
 .erow.pcol .ecd{display:flex;align-items:center;gap:8px;margin-top:7px;margin-inline-start:24px}
 .erow.pcol .ecd .pbar{flex:1 1 auto;width:auto;max-width:180px}
 .eib.aim.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
-.prow.active{background:color-mix(in srgb,var(--ok) 9%,transparent);box-shadow:inset 3px 0 0 var(--ok)}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:8px;font-weight:800;border-radius:5px;padding:1px 4px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent)}  /* stronger than the near-white --accw so the tint reads as clearly as the client's gold */
@@ -6147,8 +6145,7 @@ body.dark .tag.core{color:#a78bfa}
  </main>
 </div>
 <script>
-// ===== i18n — Persian (default) + English. localStorage 'tnl_lang' is the source of truth. =====
-var LANG='fa';
+// ===== i18n — Persian only (the English layer + language toggle were removed). =====
 var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
@@ -6434,6 +6431,8 @@ function T(k){return (k in I18N.fa)?I18N.fa[k]:k}
 // ---- backend error translator (Gap 2): backend raises Persian; translate the STATIC ones on the
 // client for the EN locale. Unmatched messages (interpolated / dynamic) fall back to the original.
 function terr(msg){return msg}
+function perr(r){return terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}   // canonical server-error message: error, then msg, then a generic fallback
+function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1><p class="sub">'+esc(T(subK))+'</p>'}   // page header shared by every *Skel view
 function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
 function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
 (function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
@@ -6528,8 +6527,8 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],HIST=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
-var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,createTries=0,pfTries=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
+var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
+var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
@@ -6656,7 +6655,7 @@ function skCards(kind){
  var n=Math.max(3,Math.min(8,num(arr.length)||6));
  var one=kind=='nodes'?skNodeCard:kind=='portfw'?skPfCard:kind=='agent'?skAgRow:function(){return skAccCard(kind=='core')};
  var out='';for(var i=0;i<n;i++)out+=one();return out}   // direct children of the list grid — no wrapper
-function overviewSkel(){el('view').innerHTML='<h1>'+ic('dash','var(--acc)')+' '+esc(T('nav_overview'))+'</h1><p class="sub">'+esc(T('ov_sub'))+'</p>'+
+function overviewSkel(){el('view').innerHTML=vhead('dash','nav_overview','ov_sub')+
  '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">'+esc(T('ov_health'))+'</div></div><div class="ochips" id="o_chips"></div></div>'+
  '<div class="sec">'+ic('warn','var(--acc)')+' '+esc(T('ov_attention'))+'</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
  '<div class="sec">'+ic('grid','var(--acc)')+' '+esc(T('ov_allnodes'))+'</div><div class="card ohcard"><div class="oheat" id="o_heat"></div><div class="heat-lg"><span><i style="background:var(--ok)"></i>'+esc(T('st_healthy'))+'</span><span><i style="background:var(--gold)"></i>'+esc(T('st_warn'))+'</span><span><i style="background:var(--bad)"></i>'+esc(T('st_crit'))+'</span></div><div class="muted" style="text-align:center;margin-top:6px;font-size:11px" id="o_heat_c"></div></div>'+
@@ -6717,7 +6716,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  setT('o_updown',num(s.uptime_down_nodes))}
 
 // ===== Nodes
-function nodesSkel(){el('view').innerHTML='<h1>'+ic('server','var(--acc)')+' '+esc(T('nav_nodes'))+'</h1><p class="sub">'+esc(T('nodes_sub'))+'</p>'+
+function nodesSkel(){el('view').innerHTML=vhead('server','nav_nodes','nodes_sub')+
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'+pagerBottom('nodes')}
 var _naddMode='auto';
@@ -6970,7 +6969,7 @@ async function doDelNode(id,wipe){var m=el('del_msg');
  else{if(m){m.className='msg err';m.textContent=terr((r.d&&r.d.error)||T('failed'))}document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false})}}
 
 // ===== Tunnels
-function tunnelsSkel(){CHK={};el('view').innerHTML='<h1>'+ic('link','var(--acc)')+' '+esc(T('nav_tunnels'))+'</h1><p class="sub">'+esc(T('tun_sub'))+'</p>'+
+function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','tun_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
@@ -7042,6 +7041,12 @@ function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic(
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
  return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
+function linkFooter(l,editFn){
+ var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
+ var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
+ return {drift:drift,acts:acts,msg:msg}}
 function linkCard(l){
  var body='<div class="tninfo">'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
@@ -7049,11 +7054,8 @@ function linkCard(l){
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   metaCols(l);
- var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openLinkEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
- var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
- return accShell(l,false,drift+body+accBodyTraf(l)+acts+msg)}
+ var F=linkFooter(l,'openLinkEdit');
+ return accShell(l,false,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
 async function refreshTunnels(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
@@ -7071,7 +7073,7 @@ async function checkLink(id){CHECKING++;
   setChk(id,'',esc(T('checking_conn')));
   var r=await post('check-link',{id:id});
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
-  if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(terr((r.d&&(r.d.error||r.d.msg))||T('failed'))));return}
+  if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
@@ -7101,8 +7103,8 @@ async function flipView(id){var r=await post('link-view',{id:id});
   setTimeout(function(){if(CHK[id]){CHK[id]=null;var m=el('lchk_'+id);if(m){m.className='msg';m.innerHTML=''}}},4000);
   refreshFleet()}
  else{toast(T('failed'),'err')}}
-async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
-async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast(perr(r),'err')}}
+async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast(perr(r),'err')}}
 // ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
 var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
@@ -7180,10 +7182,10 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
  m.textContent=T('creating_tun');
  var r=await post('create-tunnel',body);
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('tun_created'),'ok');refreshTunnels()}
- else{m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}
+ else{m.className='msg err';m.textContent=perr(r)}}
 
 // ===== Custom core (packet/core) — its own view, list and create form
-function coreSkel(){CHK={};el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('nav_core'))+'</h1><p class="sub">'+esc(T('core_sub'))+'</p>'+
+function coreSkel(){CHK={};el('view').innerHTML=vhead('cpu','nav_core','core_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
@@ -7310,11 +7312,8 @@ function coreCard(l){
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="tnend"><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="cprot" id="cprot_b_'+l.id+'">'+_brot+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(_bip)+'</div></div>'+
   '</div>'+
   coreMeta(l);
- var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
- var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openCoreEdit(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
- var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
- return accShell(l,true,drift+body+accBodyTraf(l)+acts+msg)}
+ var F=linkFooter(l,'openCoreEdit');
+ return accShell(l,true,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bip',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Xhttp=false,_corS.XhMode='packet',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
@@ -7412,7 +7411,7 @@ function corFecDatagram(){return _corS.Tr=='udp'||_corS.Tr=='raw'||_corS.Tr=='fl
 function corToggleFec(){if(!corFecDatagram())return;_corS.Fec=!_corS.Fec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corS.Fec);var r=el('e_fecrates');if(r)r.style.display=_corS.Fec?'':'none'}
 function corSetFecRate(d,p){_corS.FecData=d;_corS.FecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corS.Fec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
-async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast(T('flux_rotated'),'ok');fluxTick()}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast(T('flux_rotated'),'ok');fluxTick()}else{toast(perr(r),'err')}}
 // Live edge-pool status: poll the active edge for the open edit link and reflect it (active
 // row highlight + live bar), plus mirror any auto-burns the core reported. doPoolRotate signals
 // the core to jump one dimension with no rebuild, then re-polls shortly after.
@@ -7432,7 +7431,7 @@ function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=poolRemain(d,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
-async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
 // "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
 async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var d=poolGet('ee_');
@@ -7441,7 +7440,7 @@ async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err
   poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');
   var r=await post('pool-select',{id:lid,kind:kind,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
-  else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+  else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(perr(r),'err')}}
 // Split the active edge "IP:port · domain" into two clean chips (IP primary, domain muted).
 function edgeChips(v){v=String(v||'');
  if(!v)return '<span class="echip wait">…</span>';
@@ -7523,10 +7522,10 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   _peerData.pinPending={side:side,key:key,ts:Date.now()};peerRender();
   var r=await post('peer-select',{id:_peerLid,side:side,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
-  else{_peerData.pinPending=null;peerRender();toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+  else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
 async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
-  else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+  else{toast(perr(r),'err')}}
 // ---- IP spoofing (decoy) section — shared markup + per-form logic. Only for raw + bip.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+esc(T('spoof_hd'))+'</div>'
@@ -7913,10 +7912,10 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
  if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
- else{m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}
+ else{m.className='msg err';m.textContent=perr(r)}}
 
 // ===== Port-forward
-function portfwSkel(){el('view').innerHTML='<h1>'+ic('globe','var(--acc)')+' '+esc(T('nav_portfw'))+'</h1><p class="sub">'+esc(T('pf_sub'))+'</p>'+
+function portfwSkel(){el('view').innerHTML=vhead('globe','nav_portfw','pf_sub')+
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
  '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList">'+skCards('portfw')+'</div>'+pagerBottom('portfw');
  refreshPortfw()}
@@ -8003,7 +8002,7 @@ function agentBody(){return ''+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
  '<div id="agList">'+skCards('agent')+'</div>'+pagerBottom('agent')}
-function agentSkel(){el('view').innerHTML='<h1>'+ic('cpu','var(--acc)')+' '+esc(T('ag_title'))+'</h1><p class="sub">'+esc(T('ag_sub'))+'</p>'+agentBody();refreshAgent()}
+function agentSkel(){el('view').innerHTML=vhead('cpu','ag_title','ag_sub')+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
  var st=el('ag_status'),mt=el('ag_meta');
  if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
@@ -8124,7 +8123,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
-function logsSkel(){el('view').innerHTML='<h1>'+ic('activity','var(--acc)')+' '+esc(T('logs_title'))+'</h1><p class="sub">'+esc(T('logs_sub'))+'</p>'+
+function logsSkel(){el('view').innerHTML=vhead('activity','logs_title','logs_sub')+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';markLogsSeen();refreshLogs();}
@@ -8220,7 +8219,7 @@ function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember t
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
 // ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
-function settingsSkel(){el('view').innerHTML='<h1>'+ic('cog','var(--acc)')+' '+esc(T('nav_settings'))+'</h1><p class="sub">'+esc(T('set_sub'))+'</p><div id="setBox"><div class="card muted">'+esc(T('loading'))+'</div></div>'}
+function settingsSkel(){el('view').innerHTML=vhead('cog','nav_settings','set_sub')+'<div id="setBox"><div class="card muted">'+esc(T('loading'))+'</div></div>'}
 var _setMode='alert',_modeOv=null;
 function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
@@ -8296,18 +8295,18 @@ function tunDaBind(){var ids=['set_t_deadafter','set_t_keepalive'];
 async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
- else{if(m){m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}}
+ else{if(m){m.className='msg err';m.textContent=perr(r)}}}
 async function resetTuning(){if(!await confirmBox(T('set_tun_reset_confirm')))return;
  var r=await post('settings-set',{tuning:_TUNDEF});
  if(r.ok&&r.d.ok){toast(T('set_tun_saved'),'ok');refreshSettings()}
- else{toast(terr((r.d&&(r.d.error||r.d.msg))||T('failed')),'err')}}
+ else{toast(perr(r),'err')}}
 function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin')});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
- else{if(m){m.className='msg err';m.textContent=terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}}}
+ else{if(m){m.className='msg err';m.textContent=perr(r)}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
  updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
