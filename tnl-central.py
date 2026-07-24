@@ -2204,6 +2204,24 @@ def api_node_test(d):
     return {"ok": bool(p.get("ok")), "info": p}
 
 
+def api_node_kernel_tune(d):
+    """Host network tuning (part ب) on one node: apply / revert BBR+fq+buffer-ceilings, or read
+    status. Operator-triggered from the node card; apply and revert mutate host-wide sysctls on the
+    node, status is a read-only snapshot the button uses to show current state."""
+    _require(d, ["id"])
+    n = get_node(d["id"])
+    if not n:
+        raise ValueError("not found")
+    action = str(d.get("action") or "status")
+    if action not in ("apply", "revert", "status"):
+        raise ValueError("bad action")
+    p = node_call(n, "kernel-tune", "POST", {"action": action}, timeout=15)
+    if not p.get("ok"):
+        return {"ok": False, "error": p.get("error", "unreachable")}
+    return {"ok": True, "active": bool(p.get("active")), "cc": str(p.get("cc") or ""),
+            "qdisc": str(p.get("qdisc") or ""), "bbr_available": bool(p.get("bbr_available"))}
+
+
 def api_node_stats(d):
     """Fresh live stats for the node-details popup (CPU/RAM/Disk gauges) — bypasses the cache."""
     _require(d, ["id"])
@@ -5372,7 +5390,7 @@ API = {
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
-    "node-test": api_node_test, "node-stats": api_node_stats,
+    "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
@@ -5390,7 +5408,7 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
     "reorder": api_reorder,
 }
-MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "create-tunnel", "edit-link", "rebuild-link",
+MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -6305,7 +6323,8 @@ var I18N={fa:{
  // nodes
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
  nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
- tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",
+ tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",tip_tune:"تیونینگِ شبکه",
+ kt_title:"تیونینگِ کرنل (BBR)",kt_sub:"شتاب‌دهیِ شبکه‌ی سرور",kt_desc:"BBR + fq + بافرهای بزرگ‌تر را روی این سرور روشن می‌کند. روی مسیرِ پرتلفات و پرتأخیرِ ایران، سرعتِ حامل‌های TCP را بالا می‌برد. اختیاری و برگشت‌پذیر.",kt_state:"وضعیت",kt_cc:"کنترلِ ازدحام",kt_qdisc:"صف‌بندی",kt_on:"روشن",kt_off:"خاموش",kt_enable:"روشن کردن",kt_disable:"خاموش کردن",kt_nobbr:"کرنلِ این سرور BBR ندارد — روشن‌کردن ممکن نیست.",kt_working:"در حال اعمال…",kt_enabled:"تیونینگ روشن شد",kt_disabled:"تیونینگ خاموش شد",kt_close:"بستن",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
  uptime_bar:"آپتایم",node_min2:"حداقل ۲ نودِ آنلاین لازم است",
  // tunnels
@@ -7058,7 +7077,7 @@ function nodeCard(n){var i=n.info||{};
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — replaces the old آنلاین text badge
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('activity')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
@@ -7090,6 +7109,25 @@ async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textCo
  // reason — a timed-out request has no latency to report, so no misleading "· 8164ms" on a dead node.
  if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
  else{m.className='msg err';m.textContent=T('offline')+': '+(terr(info.error)||T('not_available'))}}
+function kernelTune(id){post('node-kernel-tune',{id:id,action:'status'}).then(function(r){
+ if(!(r.ok&&r.d.ok)){toast(terr((r.d&&r.d.error)||T('failed')),'err');return}
+ ktShow(id,r.d)})}
+function ktRows(s){var active=!!s.active,cc=esc(s.cc||'?'),qd=esc(s.qdisc||'?');
+ var chip=active?'<span class="tag" style="background:color-mix(in srgb,#3fb984 20%,transparent);color:#3fb984">'+esc(T('kt_on'))+'</span>':'<span class="tag" style="color:var(--sub)">'+esc(T('kt_off'))+'</span>';
+ var row=function(lbl,val){return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span class="muted" style="font-size:12.5px">'+esc(lbl)+'</span>'+val+'</div>'};
+ return '<div style="display:flex;flex-direction:column;gap:9px;padding:11px 13px;border:1px solid rgba(255,255,255,.08);border-radius:11px">'+row(T('kt_state'),chip)+row(T('kt_cc'),'<b class="mono">'+cc+'</b>')+row(T('kt_qdisc'),'<b class="mono">'+qd+'</b>')+'</div>'}
+function ktShow(id,s){var ex=document.querySelector('.modal.ktmodal');if(ex)closeModal(ex.closest('.modalov'));  // never stack two kt modals (double-click / re-render)
+ var bbr=!!s.bbr_available,active=!!s.active;
+ var note=bbr?'':'<div class="msg err" style="margin-top:9px">'+esc(T('kt_nobbr'))+'</div>';
+ var btn=active?'<button class="ghost" onclick="ktDo(this,\\''+id+'\\',\\'revert\\')">'+ic('reset')+esc(T('kt_disable'))+'</button>'
+  :'<button class="primary"'+(bbr?'':' disabled')+' onclick="ktDo(this,\\''+id+'\\',\\'apply\\')">'+ic('activity')+esc(T('kt_enable'))+'</button>';
+ openModal('<div class="msticky"><span class="medi">'+ic('activity')+'</span><div class="ttl"><h3>'+esc(T('kt_title'))+'</h3><div class="sb">'+esc(T('kt_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody"><div class="muted" style="font-size:12.5px;line-height:1.75;margin-bottom:12px">'+esc(T('kt_desc'))+'</div>'+ktRows(s)+note+'<div class="msg kt_msg"></div></div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('kt_close'))+'</button>'+btn+'</div>',{cls:'ktmodal'})}
+async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('.kt_msg'):null;  // resolve controls from THIS modal, not a global id (two kt modals could share it)
+ btn.disabled=true;if(m){m.className='msg kt_msg';m.textContent=T('kt_working')}
+ var r=await post('node-kernel-tune',{id:id,action:action});
+ if(r.ok&&r.d.ok){toast(action=='apply'?T('kt_enabled'):T('kt_disabled'),'ok');
+  if(ov&&document.body.contains(ov))ktShow(id,r.d)}  // re-render fresh state (ktShow closes this one first); skip if the operator dismissed it mid-request
+ else{if(m){m.className='msg err kt_msg';m.textContent=terr((r.d&&r.d.error)||T('failed'))}btn.disabled=false}}
 function doForceWipe(id){return confirmBox(T('del_wipe_force_ask'),T('del_wipe_force_yes')).then(function(ok){if(ok)return doDelNode(id,true,true)})}
 function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');var offline=btn.getAttribute('data-online')==='0';
  // Node OFFLINE -> the destructive option is best-effort force-wipe DIRECTLY (one confirm, no doomed full-wipe + timeout).
