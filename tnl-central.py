@@ -69,7 +69,7 @@ CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "ws", "dns")  # every core
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw", "flux")               # direct carriers (support IP rotation)
 DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux")                      # handshake-less carriers (fec / ip-spoof)
 DESYNC_TRANSPORTS     = ("raw", "flux", "tcp", "ws")                # carriers that support fake-desync
-STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "ws")        # carriers that write a precise status ring (direct tcp/cover client writes one too, core v2.48.3+)
+STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "ws")        # carriers that write a precise status ring (the direct tcp/cover client writes one too)
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _pending_lock = threading.Lock()   # serialize pending_del.json read-modify-write (deferred teardowns)
 _agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
@@ -1343,7 +1343,7 @@ def _tunnel_extra(src, refetch_ech=True):
                 e["split_ttl"] = int(src["split_ttl"])
     if src.get("ws_xhttp"):              # xhttp mode (bypasses WebSocket block)
         e["ws_xhttp"] = True
-        if src.get("ws_xhttp_mode") in ("packet", "stream", "grpc"):  # upstream style: packet-up | stream-one | grpc
+        if src.get("ws_xhttp_mode") in ("packet", "grpc"):  # upstream style: packet-up | grpc
             e["ws_xhttp_mode"] = src["ws_xhttp_mode"]
     if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
         e["ech"] = True
@@ -2893,14 +2893,14 @@ def _guard_port_conflicts(bindings, exclude=frozenset()):
     if so. `exclude` holds (node_id, ip, port, proto) tuples the edited tunnel already owns,
     so a tunnel never conflicts with itself — including, for a pooled server, every one of its
     selected pool IPs (each is a distinct binding now that the server binds them explicitly rather
-    than 0.0.0.0). Nodes too old to know `portcheck` (or briefly unreachable) are skipped rather
+    than 0.0.0.0). A node that can't answer (briefly unreachable / timing out) is skipped rather
     than hard-blocked."""
     for node, ip, port, proto in bindings:
         if (node["id"], ip or "", int(port), proto) in exclude:
             continue
         r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or ""}, timeout=10)
         if not r.get("ok"):
-            continue  # unknown endpoint (old agent) / offline -> can't verify, don't block the build
+            continue  # node unreachable -> can't verify, don't block the build
         if r.get("busy"):
             who = str(r.get("who") or "").strip()
             tail = f" — {who}" if who else ""
@@ -3434,9 +3434,9 @@ def _ws_fields(d, transport, cur=None):
         out["ws_xhttp"] = True
         # Upstream style: packet-up (default, many short POSTs — most CDN-compatible) or grpc (a
         # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
-        # buffering; needs wss). The legacy plain "stream" value canonicalizes to grpc.
+        # buffering; needs wss).
         mode = str((d.get("ws_xhttp_mode") if "ws_xhttp_mode" in d else cur.get("ws_xhttp_mode")) or "").strip().lower()
-        if mode in ("stream", "grpc"):
+        if mode == "grpc":
             out["ws_xhttp_mode"] = "grpc"
     ss = _sni_split_fields(d, cur)  # SNI fragmentation (wss only)
     if ss:
@@ -3552,7 +3552,7 @@ def _ws_pool_fields(d, cur=None):
     # xhttp upstream style over the pool (only stored when non-default, mirroring the single edge).
     if res["ws_xhttp"]:
         mode = str((d.get("ws_xhttp_mode") if "ws_xhttp_mode" in d else cur.get("ws_xhttp_mode")) or "").strip().lower()
-        if mode in ("stream", "grpc"):
+        if mode == "grpc":
             res["ws_xhttp_mode"] = "grpc"
     res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
     res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
@@ -3933,9 +3933,8 @@ def api_edge_status(d):
         })
     # Use the CLIENT NODE's clock as "now" (it shares the core's clock that stamped next_retest_unix),
     # so retest countdowns are correct even if the panel's clock is skewed from the node's. `ts` is the
-    # status file's write time -> the UI can flag a stale file (dead tunnel) as offline. Fall back to
-    # the panel clock only if an older node build didn't send `now`.
-    node_now = int(r.get("now") or 0) or int(time.time())
+    # status file's write time -> the UI can flag a stale file (dead tunnel) as offline.
+    node_now = int(r.get("now") or 0)
     return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
@@ -4033,7 +4032,6 @@ def _peer_sec_norm(sec):
     pin = str(sec.get("pin") or "")
     return {"active": active if _peer_addr_ok(active) else "",
             "addrs": [x for x in (str(v) for v in (sec.get("addrs") or [])) if _peer_addr_ok(x)][:64],
-            "burned": [x for x in (str(v) for v in (sec.get("burned") or [])) if _peer_addr_ok(x)][:64],
             "health": health, "pin": pin if _peer_addr_ok(pin) else "", "ts": int(sec.get("ts") or 0)}
 
 
@@ -4043,7 +4041,7 @@ def api_peer_status(d):
     active endpoint, the per-endpoint health FSM (suspect/dead + retest countdown), and any manual
     pin. `now` is the client node's clock (which stamped the retest times) so countdowns stay correct."""
     d = d or {}
-    empty = {"active": "", "addrs": [], "burned": [], "health": [], "pin": "", "ts": 0}
+    empty = {"active": "", "addrs": [], "health": [], "pin": "", "ts": 0}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ip_rotate"):
@@ -4054,7 +4052,7 @@ def api_peer_status(d):
     r = node_call(node, "peer-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
         return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": r.get("error") or r.get("msg")}
-    node_now = int(r.get("now") or 0) or int(time.time())
+    node_now = int(r.get("now") or 0)
     return {"ok": True, "pool": True, "now": node_now, "dst": _peer_sec_norm(r.get("dst")), "src": _peer_sec_norm(r.get("src"))}
 
 
@@ -4152,12 +4150,8 @@ def _edit_link_impl(d):
     if ttype == "core":
         ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)  # cur=L => stored fields fill in whatever a partial edit omits
         extra.update(ce)
-    # Compare against the effective stored port: a record created before the
-    # settable-port feature has no "port" key, so fall back to the type's default
-    # (4789 for vxlan, 20000+id otherwise). Without this a no-op edit of a legacy
-    # link reads as changed and forces a needless rebuild (a brief outage).
-    _defport = 4789 if ttype == "vxlan" else (20000 + tid)
-    port_same = ("port" not in extra) or (extra["port"] == (L.get("port") or _defport))
+    # api_create_link always stores an explicit port, so compare straight against the record.
+    port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
     # Non-core links may short-circuit an unchanged edit (avoids a needless outage). Core links must
     # NOT: the button is "save AND rebuild", and a core edit always does a clean both-ends-down rebuild
     # below (the only reliable way to un-wedge a tunnel), so never silently no-op it — which is exactly
@@ -4806,12 +4800,9 @@ _EV_DOWN_CODE = {
     "dropped": "اتصال قطع شد",
     # datagram transports (udp/raw/flux) — connectionless self-heal reasons
     "stale": "سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد",
-    "keepalive": "keepalive بی‌پاسخ ماند — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش",
-    "handshake": "دست‌دادن شکست خورد (سرِ مقابل نبود/فیلتر شد)",
 }
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
-    "connect": "تونل وصل شد",
 }
 _EV_BURN_CODE = {
     "ip_blocked": "آی‌پیِ لبه بلاک است (روی SNIِ سالم هم جواب نداد)",
@@ -4900,14 +4891,14 @@ def load_events():
 def _ev_seq_get():
     """Monotonic count of ALL events ever logged. Unlike len(events) it keeps growing past the
     500-cap, so the sidebar 'logs' unread badge (this minus the client's last-seen value) stays
-    correct forever. Seeds from the current file size on first use after this feature shipped."""
+    correct forever. Starts at zero when the seq file is missing (fresh install)."""
     global _ev_seq_total
     if _ev_seq_total is None:
         try:
             with open(EVENTS_SEQ_FILE) as f:
                 _ev_seq_total = int(json.load(f))
         except (OSError, ValueError, TypeError):
-            _ev_seq_total = len(load_events())
+            _ev_seq_total = 0
     return _ev_seq_total
 
 
@@ -5024,9 +5015,9 @@ def _events_once():
             continue
         nm = L.get("name", "")
         # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram
-        # transport (udp/raw/flux), a direct tcp/cover client (hb + rotation/self-heal ring, core
-        # v2.48.3+), or a single-edge ws/xhttp. For ALL of those, don't ALSO emit a coarse event here
-        # or every drop is double-counted (the datagram core's "stale"/"keepalive" down renders as a
+        # transport (udp/raw/flux), a direct tcp/cover client (hb + rotation/self-heal ring), or a
+        # single-edge ws/xhttp. For ALL of those, don't ALSO emit a coarse event here or every
+        # drop is double-counted (the datagram core's "stale"/"keepalive" down renders as a
         # red "disconnected" in the precise section too). A core with no status ring at all (e.g. a
         # client node offline so the core is dead) relies on the coarse classification below.
         precise_core = L.get("type") == "core" and (
@@ -7598,7 +7589,7 @@ document.addEventListener('pointercancel',reordEnd,true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?('xHTTP·'+((l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet')):(l.ws_tls?'WSS':'WS')):'UDP';
+ var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?('xHTTP·'+((l.ws_xhttp_mode=='grpc')?'grpc':'packet')):(l.ws_tls?'WSS':'WS')):'UDP';
  var prt=(l.transport!='raw'&&l.transport!='flux'&&l.transport!='dns'&&l.port)?'<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>'+esc(T('carrier'))+': <b class="mono">'+tr+'</b></div>';
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
@@ -7663,10 +7654,10 @@ function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.displ
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
 function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
 function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
-// wss is MANDATORY for an edge pool and for the stream/gRPC xhttp modes (all need HTTP/2 to the
+// wss is MANDATORY for an edge pool and for the gRPC xhttp mode (both need HTTP/2 to the
 // edge). In those cases force the toggle on and grey it (pointer-events:none) so it can't be turned
 // off in the UI only to be silently forced back on at save — the bug the user hit. Free otherwise.
-function corWssGate(){var mand=poolGet('e_').pool||(_corS.Xhttp&&(_corS.XhMode=='stream'||_corS.XhMode=='grpc'));var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
+function corWssGate(){var mand=poolGet('e_').pool||(_corS.Xhttp&&_corS.XhMode=='grpc');var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corS.Ech=!_corS.Ech;var s=el('e_wsech');if(s)s.classList.toggle('on',_corS.Ech);corEchPxGate()}
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
 function corEchPxGate(){var vis=(_corS.Tr=='ws'&&_corS.Ech),row=el('e_echpxrow');if(!vis){_corS.EchProxy=false;var s=el('e_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('e_echpxbody');if(b)b.style.display=(vis&&_corS.EchProxy)?'':'none'}
@@ -7674,7 +7665,7 @@ var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,warm:l?!!l.ws_warm_standby:false,
   open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
-  sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return typeof s=='string'?s:((s&&s.host)||'')}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
+  sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return (s&&s.host)||''}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
 // An edge IP must be a real IPv4 (four 0-255 octets, optional :port) or a real domain
 // (labels + an alphabetic TLD); an SNI must be a real domain. This rejects garbage like
@@ -7948,7 +7939,7 @@ function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_d
 function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp,mode,lid){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid" id="'+idp+'wspg">'+wsProfTiles(fnp,xhttp?'xhttp':'ws')+'</div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 8px">'+T('ws_prof_note')+'</div>'
- +'<div id="'+idp+'xhmblk" style="display:'+(xhttp?'':'none')+';margin-bottom:8px"><label style="margin-top:2px">'+esc(T('xh_mode_lbl'))+'</label><div class="pgrid" id="'+idp+'xhmpg">'+xhModeTiles(fnp,(mode=='grpc'||mode=='stream')?'grpc':'packet')+'</div>'
+ +'<div id="'+idp+'xhmblk" style="display:'+(xhttp?'':'none')+';margin-bottom:8px"><label style="margin-top:2px">'+esc(T('xh_mode_lbl'))+'</label><div class="pgrid" id="'+idp+'xhmpg">'+xhModeTiles(fnp,mode=='grpc'?'grpc':'packet')+'</div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 0">'+T('xh_mode_note')+'</div></div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>'+esc(T('ws_pool_t'))+'</b><small>'+esc(T('ws_pool_d'))+'</small></div></div>'
  +'<div id="'+idp+'wshostblk" style="margin-top:11px">'
@@ -8144,7 +8135,7 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if((S.Tr=='udp'||S.Tr=='raw'||S.Tr=='flux')){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(S.Tr=='raw'||S.Tr=='flux'||S.Tr=='tcp'||S.Tr=='ws'){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode!='split')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.ws_xhttp=S.Xhttp;if(S.Xhttp)body.ws_xhttp_mode=S.XhMode;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){m.className='msg err';m.textContent=pe;return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return true}if(S.Ech&&!S.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return true}if(S.Xhttp&&(S.XhMode=='stream'||S.XhMode=='grpc')&&!S.WsTls){m.className='msg err';m.textContent=T('xh_need_wss');return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode!='split')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.ws_xhttp=S.Xhttp;if(S.Xhttp)body.ws_xhttp_mode=S.XhMode;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){m.className='msg err';m.textContent=pe;return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return true}if(S.Ech&&!S.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return true}if(S.Xhttp&&S.XhMode=='grpc'&&!S.WsTls){m.className='msg err';m.textContent=T('xh_need_wss');return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
@@ -8173,7 +8164,7 @@ function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.displa
 function ceToggleWsTls(){_eeS.WsTls=!_eeS.WsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeS.WsTls);if(!_eeS.WsTls){if(_eeS.Ech){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeS.SniSplit){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
 function ceToggleSni(){if(!_eeS.WsTls){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_eeS.SniSplit=!_eeS.SniSplit;var s=el('ee_snisplit');if(s)s.classList.toggle('on',_eeS.SniSplit);var b=el('ee_snisplitbody');if(b)b.style.display=_eeS.SniSplit?'':'none'}
 function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
-function ceWssGate(){var mand=poolGet('ee_').pool||(_eeS.Xhttp&&(_eeS.XhMode=='stream'||_eeS.XhMode=='grpc'));var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
+function ceWssGate(){var mand=poolGet('ee_').pool||(_eeS.Xhttp&&_eeS.XhMode=='grpc');var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function ceToggleEch(){if(!_eeS.WsTls){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on');ceEchPxGate();alert(T('ech_need_wss_alert'));return}_eeS.Ech=!_eeS.Ech;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeS.Ech);ceEchPxGate()}
 function ceToggleEchProxy(){_eeS.EchProxy=!_eeS.EchProxy;var s=el('ee_echpx');if(s)s.classList.toggle('on',_eeS.EchProxy);var b=el('ee_echpxbody');if(b)b.style.display=_eeS.EchProxy?'':'none'}
 function ceEchPxGate(){var vis=(_eeS.Tr=='ws'&&_eeS.Ech),row=el('ee_echpxrow');if(!vis){_eeS.EchProxy=false;var s=el('ee_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('ee_echpxbody');if(b)b.style.display=(vis&&_eeS.EchProxy)?'':'none'}
@@ -8211,7 +8202,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Xhttp=!!l.ws_xhttp;_eeS.XhMode=(l.ws_xhttp_mode=='grpc'||l.ws_xhttp_mode=='stream')?'grpc':'packet';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Xhttp=!!l.ws_xhttp;_eeS.XhMode=(l.ws_xhttp_mode=='grpc')?'grpc':'packet';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs||600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
@@ -8532,20 +8523,11 @@ function logListHTML(){
 function logFilter(k){LOGFILTER=k;var ch=el('logChips');
  if(ch){var cs=ch.querySelectorAll('.fchip');for(var i=0;i<cs.length;i++)cs[i].classList.toggle('on',cs[i].getAttribute('data-f')===k);}
  var box=el('logList');if(box)setHTML(box,logListHTML());}
-// Split an event into a clean title + detail lines. New events carry dfa/den (detail, possibly
-// multi-line). OLD events only have the combined string, so parse the legacy "…: A ⟵ B" (edge
-// switch) and "… — reason" forms too, so both render readably.
+// Split an event into a clean title + detail lines. Every event carries its structure in dfa
+// (detail, possibly multi-line); an event with no detail is title-only.
 function evParts(e){
- var title=e.fa||'';
  var det=e.dfa||'';
- if(det)return{title:title,lines:det.split('\\n')};
- var arrow=title.indexOf(' ⟵ ')>=0?' ⟵ ':(title.indexOf(' → ')>=0?' → ':'');
- var ci=title.indexOf(': ');
- if(arrow&&ci>0){var ab=title.slice(ci+2).split(arrow);
-   return{title:title.slice(0,ci),lines:['از: '+(ab[0]||'').trim(),'به: '+(ab[1]||'').trim()]};}
- var dash=title.indexOf(' — ');
- if(dash>0)return{title:title.slice(0,dash),lines:[title.slice(dash+3)]};
- return{title:title,lines:[]};
+ return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
 // One detail line. "label: value" -> RTL label + LTR-isolated value (IP:port · domain reads clean in
 // an RTL page). A plain sentence renders with dir=auto so Persian stays RTL.
