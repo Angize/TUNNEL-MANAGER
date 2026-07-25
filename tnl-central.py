@@ -4886,7 +4886,9 @@ def _ev_core_text(kind, code, detail, nm):
         return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", f"برچسب: self-heal\n{rf}" if rf else "برچسب: self-heal")
     if kind == "burn":
         rf = _EV_BURN_CODE.get(code, "سوخته شد")
-        return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}\n{rf}")
+        # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
+        # carried two sentences for one fact. The endpoint is the useful part; keep only that.
+        return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "heal":
         # A previously-sidelined member recovered and is back in the rotation pool. Three flavors:
         # peer-retest/src-retest are the DIRECT-transport pool's destination/source IP recovering on the
@@ -6000,13 +6002,18 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .logcard .ltime{flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;margin-top:2px}
 /* from -> to: one row per side, the label fixed-width so the two values line up under each other. */
 .lfromto{display:flex;flex-direction:column;gap:5px}
-.lft{display:flex;align-items:center;gap:8px;min-width:0}
-.lft .k{flex:0 0 auto;font-size:11px;color:var(--sub);width:26px;text-align:start}
-/* The pill hugs its value instead of spanning the row: an IP is 11-15 characters, and a box stretched
-   to the card width read as an empty input field rather than a value. */
-.lft .v{flex:0 1 auto;max-width:100%;min-width:0;direction:ltr;unicode-bidi:isolate;text-align:left;font-size:11.5px;
-  padding:4px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);
-  color:var(--tx);overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.lft{display:flex;align-items:center;gap:6px;min-width:0}
+/* No fixed label width: «از:» and «به:» are the same length anyway, so a fixed column only pushed
+   the value away from the edge it should sit against. */
+.lft .k{flex:0 0 auto;font-size:11px;color:var(--sub);text-align:start}
+/* The pill is exactly as wide as its value. It used to wrap «IP:port · domain» onto a second line
+   inside a box that still spanned the row, which read as a half-empty input field. nowrap keeps
+   the endpoint on one line; max-width + overflow-x means a pathologically long value scrolls
+   inside its own pill instead of stretching the card. */
+.lft .v{flex:0 1 auto;max-width:100%;min-width:0;direction:ltr;unicode-bidi:isolate;text-align:left;
+  font-size:11.5px;padding:4px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);
+  color:var(--tx);white-space:nowrap;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .lft.to .v{color:var(--acc);background:var(--accw);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
 .lnote{font-size:11.5px;color:var(--sub);line-height:1.85;overflow-wrap:anywhere}
 .lcat{font-size:10px;font-weight:700;border-radius:999px;padding:1px 8px;flex:0 0 auto;white-space:nowrap;line-height:1.7}
@@ -8640,15 +8647,21 @@ function evParts(e){
 // along a wrapped line. Values are LTR-isolated: an IP:port · domain must not be reordered by the RTL
 // page. This replaces evLine/evEdgeBox/evVal, which rendered the same data three different ways
 // depending on the event kind — a move looked different on a rot event than on an edge event.
+// A detail line is one of three things:
+//   «برچسب: x»  -> a chip, lifted into the header
+//   «key: value» -> a labelled pill (از / به / لبه / آی‌پی …) — «به» is the accented destination
+//   anything else -> a plain sentence
+// The key test is deliberately narrow (short, no spaces): a reason string that happens to contain
+// ": " must stay a sentence rather than be chopped into a fake label.
 function evDetail(lines){if(!lines||!lines.length)return {html:'',tags:[]};
- var mv=[],notes=[],tags=[];
+ var rows=[],notes=[],tags=[];
  for(var i=0;i<lines.length;i++){var l=lines[i],c=l.indexOf(': ');
   var k=c>0?l.slice(0,c):'';
-  if(k=='\u0627\u0632'||k=='\u0628\u0647')mv.push({k:k,v:l.slice(c+2)});
-  else if(k=='\u0628\u0631\u0686\u0633\u0628')tags.push(l.slice(c+2));
-  else notes.push(c>0?l.slice(c+2):l);}
+  if(k=='\u0628\u0631\u0686\u0633\u0628'){tags.push(l.slice(c+2));continue}
+  if(k&&k.length<=12&&k.indexOf(' ')<0)rows.push({k:k,v:l.slice(c+2)});
+  else notes.push(l);}
  var out='';
- if(mv.length)out+='<div class="lfromto">'+mv.map(function(m){
+ if(rows.length)out+='<div class="lfromto">'+rows.map(function(m){
    return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
           '<span class="v">'+esc(m.v)+'</span></div>'}).join('')+'</div>';
  for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
