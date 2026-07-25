@@ -5967,16 +5967,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok)}
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
-/* Tuning values are 1-5 characters, so the number field is narrow — but .setctl is a fixed 118-150px
-   column, and narrowing only the INPUT left the rest of that column as dead space, which read as the
-   field having drifted away from its label. Shrink the column too, and only on the tuning cards:
-   the panel-wide group (sc-panel) holds dropdowns and a mode button that need the full width. */
-.setgrp:not(.sc-panel) .setctl{min-width:0;max-width:92px}
-.setgrp:not(.sc-panel) .setctl input.tnum{width:100%;min-width:0;text-align:center;padding:8px 10px;
-  font-variant-numeric:tabular-nums}
-/* the comma list is the one field that genuinely needs room */
-.setgrp:not(.sc-panel) .setctl:has(input.wtxt){max-width:none;min-width:140px}
-.setgrp:not(.sc-panel) .setctl input.wtxt{width:100%;min-width:0;text-align:center}
 .setrow2.tun-off{opacity:.55}
 .setgrp.acc .grphd.acch{cursor:pointer;user-select:none}
 /* nowrap on the header itself, wrap INSIDE the title box: a long title pushes the chip onto a second
@@ -8801,7 +8791,7 @@ function grp(tk,hk,ck,cls,rows,gk){
 // build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
-function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search tnum" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
+function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
 function tuningCard(s){
  return '<div class="sec2" style="margin:14px 2px 2px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
   '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
