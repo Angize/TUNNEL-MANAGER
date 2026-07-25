@@ -4657,9 +4657,9 @@ def _ech_refresh_once():
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome, not an optimistic guess
-                    log_event("warn", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ به wss ساده تنزل یافت و بازسازی شد")
+                    log_event("warn", "ech", f"دلیل: حذفِ رکوردِ ECH تونلِ «{nm}»", "به wss ساده تنزل یافت و بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"رکوردِ ECHِ تونلِ «{nm}» حذف شد؛ تنزل به wss ساده شد ولی بازسازی شکست خورد — هنوز قطع")
+                    log_event("bad", "ech", f"دلیل: حذفِ رکوردِ ECH تونلِ «{nm}»", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
@@ -4693,9 +4693,9 @@ def _ech_refresh_once():
                 _ech_down_rebuilt.add(lid)
                 why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome; a failed rebuild must not read as success
-                    log_event("ok", "ech", f"تونلِ «{nm}» {why_fa} و کلیدِ ECH چرخیده بود؛ با کلیدِ تازه بازسازی شد")
+                    log_event("ok", "ech", f"دلیل: چرخشِ کلیدِ ECH تونلِ «{nm}»", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازی با کلیدِ تازهٔ ECH شکست خورد — هنوز قطع")
+                    log_event("bad", "ech", f"دلیل: چرخشِ کلیدِ ECH تونلِ «{nm}»", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
                     _ech_down_rebuilt.discard(lid)   # let the NEXT cycle retry (don't burn the episode on a failed rebuild)
         else:
             _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
@@ -4725,9 +4725,9 @@ def _ech_heal_once():
         _ech_down_rebuilt.add(lid)
         why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
         if _ech_safe_rebuild(lid):
-            log_event("ok", "ech", f"تونلِ «{nm}» {why_fa}؛ سریع با کلیدِ تازهٔ ECH بازسازی شد")
+            log_event("ok", "ech", f"دلیل: بازسازیِ سریعِ ECH تونلِ «{nm}»", f"{why_fa}")
         else:
-            log_event("bad", "ech", f"تونلِ «{nm}» {why_fa} و بازسازیِ سریعِ ECH شکست خورد — هنوز قطع")
+            log_event("bad", "ech", f"دلیل: بازسازیِ سریعِ ECH تونلِ «{nm}»", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
             _ech_down_rebuilt.discard(lid)   # let the next tick retry (don't burn the episode on a failed rebuild)
 
 
@@ -4874,8 +4874,8 @@ _EV_BURN_CODE = {
 # "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation
 # or an operator pin. Render them as informational (ok) events, not a red "disconnected". (level, fa)
 _EV_ROT_CODE = {
-    "peer-rotate": ("ok", "آی‌پیِ مقصد را چرخاند (self-heal/زمان‌بندی‌شده)"),
-    "src-rotate":  ("ok", "آی‌پیِ مبدأ را چرخاند"),
+    "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
+    "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
 }
 
 
@@ -4893,40 +4893,42 @@ def _ev_core_text(kind, code, detail, nm):
             lvl, fa = rot
             return (lvl, "rot", f"تونلِ «{nm}»: {fa}", "")
         rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
-        return ("bad", "link", f"تونلِ «{nm}» قطع شد", rf)
+        return ("bad", "link", f"دلیل: قطعِ تونلِ «{nm}»", rf)
     if kind == "up":
         rf = _EV_UP_CODE.get(code, "تونل وصل شد")
-        return ("ok", "link", f"تونلِ «{nm}» دوباره وصل شد", rf)
+        return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", f"برچسب: self-heal\n{rf}" if rf else "برچسب: self-heal")
     if kind == "burn":
         rf = _EV_BURN_CODE.get(code, "سوخته شد")
-        return ("warn", "edge", f"لبهٔ «{key}» تونلِ «{nm}» سوخت", rf)
+        # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
+        # carried two sentences for one fact. The endpoint is the useful part; keep only that.
+        return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "heal":
         # A previously-sidelined member recovered and is back in the rotation pool. Three flavors:
         # peer-retest/src-retest are the DIRECT-transport pool's destination/source IP recovering on the
         # data plane; the default (ws edge pool) is a background probe recovery. Distinct from the
         # active-carrier up/reconnect above.
         if code == "peer-retest":
-            return ("ok", "edge", f"آی‌پیِ مقصدِ «{key}» تونلِ «{nm}» دوباره سالم شد و به استخر برگشت",
-                    "داده روی این آی‌پی دوباره برقرار شد")
+            return ("ok", "edge", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
+                    f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
         if code == "src-retest":
-            return ("ok", "edge", f"آی‌پیِ مبدأِ «{key}» تونلِ «{nm}» دوباره سالم شد و به استخر برگشت",
-                    "داده روی این آی‌پی دوباره برقرار شد")
-        return ("ok", "edge", f"لبهٔ «{key}» تونلِ «{nm}» با retest ترمیم شد و به استخر برگشت",
+            return ("ok", "edge", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
+                    f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
+        return ("ok", "edge", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
                 "بازآزماییِ پس‌زمینه موفق شد")
     if kind == "pool":
         # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 healthy
         # IPs, so when only one is left the tunnel keeps working but STOPS switching edges (which is why
         # the rotation log goes quiet). detail is "healthy/total". Surface the pause and its recovery.
         if code == "degraded":
-            return ("warn", "edge", f"استخرِ «{nm}» به یک لبهٔ سالم رسید — چرخش متوقف شد ({key})",
+            return ("warn", "edge", f"دلیل: توقفِ چرخش تونلِ «{nm}» — فقط یک لبهٔ سالم مانده",
                     "تا وقتی لبهٔ دیگری سالم نشود، روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
             # The operator pinned an edge that turned out to be genuinely blocked. Rather than hold the
             # tunnel down for the whole pin window, the pin self-released and rotation moved to a healthy
             # edge. Explains "I pinned it, the tunnel dropped, and it jumped back to the old edge".
-            return ("warn", "edge", f"پینِ لبهٔ «{key}» تونلِ «{nm}» آزاد شد — آن لبه مسدود بود",
+            return ("warn", "edge", f"دلیل: آزادشدنِ پینِ تونلِ «{nm}» — آن لبه مسدود بود",
                     "لبهٔ پین‌شده واقعاً مسدود بود؛ برای جلوگیری از قطعی، چرخش به لبهٔ سالم برگشت")
-        return ("ok", "edge", f"استخرِ «{nm}» ترمیم شد — چرخش از سر گرفته شد ({key})",
+        return ("ok", "edge", f"دلیل: ازسرگیریِ چرخش تونلِ «{nm}»",
                 "لبهٔ دیگری سالم شد و به استخر برگشت")
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
@@ -4935,7 +4937,8 @@ def _ev_core_text(kind, code, detail, nm):
         # it so the (long) key lands in its OWN labeled box instead of being dumped inline in the message.
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
-        return ("ok", "ech", f"کلیدِ ECHِ تونلِ «{nm}» درجا self-heal شد (واکنشی/in-band)", dfa)
+        return ("ok", "ech", f"دلیل: ترمیمِ خودکارِ کلیدِ ECH تونلِ «{nm}»",
+                f"برچسب: self-heal\n{dfa}" if dfa else "برچسب: self-heal")
     return None
 
 
@@ -5048,9 +5051,9 @@ def _events_once():
             continue
         nm = n.get("name", "")
         if online:
-            log_event("ok", "node", f"نودِ «{nm}» آنلاین شد")
+            log_event("ok", "node", f"دلیل: آنلاین‌شدنِ نودِ «{nm}»")
         else:
-            log_event("bad", "node", f"نودِ «{nm}» آفلاین شد")
+            log_event("bad", "node", f"دلیل: آفلاین‌شدنِ نودِ «{nm}»")
     for nid in [k for k in _ev_state["nodes"] if k not in seen]:
         _ev_state["nodes"].pop(nid, None)
 
@@ -5089,7 +5092,7 @@ def _events_once():
             if precise_core and lid not in _ev_state["links_coarse_down"]:
                 pass  # the paired "up" comes from the core event ring
             else:
-                log_event("ok", "link", f"تونلِ «{nm}» وصل شد")
+                log_event("ok", "link", f"دلیل: وصلِ تونلِ «{nm}»")
             _ev_state["links_coarse_down"].discard(lid)
         else:
             # The core records the PRECISE down reason itself (see the edge section) — don't also emit a
@@ -5100,7 +5103,7 @@ def _events_once():
                 pass  # core-sourced precise "down" (and its paired "up") come from the event ring
             else:
                 rf = _link_down_reason(L, nmap)
-                log_event("bad", "link", f"تونلِ «{nm}» قطع شد", rf)
+                log_event("bad", "link", f"دلیل: قطعِ تونلِ «{nm}»", rf)
                 if precise_core:
                     _ev_state["links_coarse_down"].add(lid)  # coarse (node-offline) down -> pair with a coarse up
     for lid in [k for k in _ev_state["links"] if k not in seen]:
@@ -5190,7 +5193,7 @@ def _events_once():
                             dfa = f"به: {ip}"
                         else:
                             dfa = ""
-                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", dfa)
+                        log_event(lvl, "rot", f"دلیل: {fa} تونلِ «{nm}»", dfa)
                         continue
                     txt = _ev_core_text(ekind, ecode, edet, nm)
                     if txt:
@@ -5203,7 +5206,7 @@ def _events_once():
                 prev = _ev_state["edge"].get(lid)
                 _ev_state["edge"][lid] = active
                 if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
-                    log_event("warn", "edge", f"لبهٔ تونلِ «{nm}» خودکار عوض شد", f"از: {prev}\nبه: {active}")
+                    log_event("warn", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
         except Exception:
             continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
@@ -6015,6 +6018,35 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .fchip.on{color:#fff;background:var(--acc);border-color:var(--acc)}
 .fchip .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sub) 18%,transparent);border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
 .fchip.on .ct{background:rgba(255,255,255,.25);color:#fff}
+/* --- system log ------------------------------------------------------------------------------ */
+.logcard{display:flex;margin-bottom:9px;padding:0;overflow:hidden;box-shadow:var(--sh-sm)}
+.logcard .lstripe{width:4px;flex:0 0 auto}
+.logcard .lbody{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;flex:1;min-width:0}
+.logcard .lico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto;margin-top:1px}
+.logcard .lico .ic{width:15px;height:15px}
+.logcard .lmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.logcard .lhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+/* The title carries the whole reason, so it leads and the category chip follows it as a quiet tag. */
+.logcard .ltitle{font-size:13px;font-weight:800;line-height:1.6;overflow-wrap:anywhere;color:var(--tx)}
+.logcard .ltag{flex:0 0 auto;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;
+  background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok);direction:ltr;unicode-bidi:isolate}
+.logcard .ltime{flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;margin-top:2px}
+/* from -> to: one row per side, the label fixed-width so the two values line up under each other. */
+.lfromto{display:flex;flex-direction:column;gap:5px}
+.lft{display:flex;align-items:center;gap:6px;min-width:0}
+/* No fixed label width: «از:» and «به:» are the same length anyway, so a fixed column only pushed
+   the value away from the edge it should sit against. */
+.lft .k{flex:0 0 auto;font-size:11px;color:var(--sub);text-align:start}
+/* The pill is exactly as wide as its value. It used to wrap «IP:port · domain» onto a second line
+   inside a box that still spanned the row, which read as a half-empty input field. nowrap keeps
+   the endpoint on one line; max-width + overflow-x means a pathologically long value scrolls
+   inside its own pill instead of stretching the card. */
+.lft .v{flex:0 1 auto;max-width:100%;min-width:0;direction:ltr;unicode-bidi:isolate;text-align:left;
+  font-size:11.5px;padding:4px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);
+  color:var(--tx);white-space:nowrap;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.lft.to .v{color:var(--acc);background:var(--accw);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
+.lnote{font-size:11.5px;color:var(--sub);line-height:1.85;overflow-wrap:anywhere}
 .lcat{font-size:10px;font-weight:700;border-radius:999px;padding:1px 8px;flex:0 0 auto;white-space:nowrap;line-height:1.7}
 .lcat-tunnel{color:#4d80f0;background:color-mix(in srgb,#4d80f0 15%,transparent)}
 .lcat-rot{color:#12a5b8;background:color-mix(in srgb,#12a5b8 16%,transparent)}
@@ -8639,13 +8671,16 @@ function logListHTML(){
  return evs.map(function(e){
    var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
-   var p=evParts(e),cat=logCat(e);
-   return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
-     '<span style="width:5px;flex:0 0 auto;background:'+col+'"></span>'+
-     '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
-       '<span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
-       '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="lcat lcat-'+cat+'">'+esc(T('logc_'+cat))+'</span><span dir="auto" style="font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere">'+esc(p.title)+'</span></div>'+(((e.kind=='edge'||e.kind=='rot')&&p.lines.length>=2)?evEdgeBox(p.lines):p.lines.map(evLine).join(''))+'</div>'+
-       '<span class="mono" style="flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;padding-top:2px">'+esc(fmtEvTime(e.ts))+'</span>'+
+   var p=evParts(e),d=evDetail(p.lines);
+   return '<div class="card logcard">'+
+     '<span class="lstripe" style="background:'+col+'"></span>'+
+     '<div class="lbody">'+
+       '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
+       '<div class="lmain">'+
+         '<div class="lhead"><span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
+           d.tags.map(function(t){return '<span class="ltag">'+esc(t)+'</span>'}).join('')+'</div>'+
+         d.html+'</div>'+
+       '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';}).join('');}
 // Only toggle the active class on the existing chips (do NOT rebuild the row) — rebuilding resets the
 // horizontal scrollLeft, which snapped the row back to the start when picking a scrolled-to tab. Counts
@@ -8659,22 +8694,31 @@ function evParts(e){
  var det=e.dfa||'';
  return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
-// One detail line. "label: value" -> RTL label + LTR-isolated value (IP:port · domain reads clean in
-// an RTL page). A plain sentence renders with dir=auto so Persian stays RTL.
-function evLine(l){var i=l.indexOf(': ');
- if(i>0)return '<div style="display:flex;gap:7px;align-items:flex-start;margin-top:5px"><span style="color:var(--sub);font-size:11px;flex:0 0 auto;padding-top:5px">'+esc(l.slice(0,i))+':</span>'+
-   '<span class="mono" dir="ltr" style="font-size:12px;color:var(--tx);overflow-wrap:anywhere;text-align:left;flex:1;min-width:0;unicode-bidi:isolate;background:var(--field);border:1px solid var(--bord);border-radius:7px;padding:4px 8px">'+esc(l.slice(i+2))+'</span></div>';
- return '<div dir="auto" style="font-size:11.5px;color:var(--sub);line-height:1.8;overflow-wrap:anywhere;margin-top:3px">'+esc(l)+'</div>';}
-// Edge-switch detail on ONE line: «از» + old pill, «به» + accent new pill. Values are LTR-isolated
-// so IP:port · domain reads cleanly in the RTL page. lines are ["از: OLD","به: NEW"] (from evParts).
-var EPILL='display:inline-block;direction:ltr;unicode-bidi:isolate;font-size:11px;padding:3px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);color:var(--tx);white-space:normal;overflow-wrap:anywhere;max-width:100%;vertical-align:middle';
-function evVal(l){var i=l.indexOf(': ');return i>0?l.slice(i+2):l;}
-function evEdgeBox(lines){var frm=esc(evVal(lines[0]||'')),to=esc(evVal(lines[1]||''));
- return '<div style="margin-top:7px;line-height:2.2">'+
-   '<span style="font-size:10.5px;color:var(--sub)">'+'از'+'</span> '+
-   '<span style="'+EPILL+'">'+frm+'</span> '+
-   '<span style="font-size:10.5px;color:var(--sub)">'+'به'+'</span> '+
-   '<span style="'+EPILL+';color:var(--acc);border-color:color-mix(in srgb,var(--acc) 30%,transparent);background:var(--accw)">'+to+'</span></div>';}
+// Every detail line is either «از: X» / «به: Y» — a move — or a plain sentence. Render the move as two
+// labelled rows one under the other, so the eye compares the two values vertically instead of hunting
+// along a wrapped line. Values are LTR-isolated: an IP:port · domain must not be reordered by the RTL
+// page. This replaces evLine/evEdgeBox/evVal, which rendered the same data three different ways
+// depending on the event kind — a move looked different on a rot event than on an edge event.
+// A detail line is one of three things:
+//   «برچسب: x»  -> a chip, lifted into the header
+//   «key: value» -> a labelled pill (از / به / لبه / آی‌پی …) — «به» is the accented destination
+//   anything else -> a plain sentence
+// The key test is deliberately narrow (short, no spaces): a reason string that happens to contain
+// ": " must stay a sentence rather than be chopped into a fake label.
+function evDetail(lines){if(!lines||!lines.length)return {html:'',tags:[]};
+ var rows=[],notes=[],tags=[];
+ for(var i=0;i<lines.length;i++){var l=lines[i],c=l.indexOf(': ');
+  var k=c>0?l.slice(0,c):'';
+  if(k=='\u0628\u0631\u0686\u0633\u0628'){tags.push(l.slice(c+2));continue}
+  if(k&&k.length<=12&&k.indexOf(' ')<0)rows.push({k:k,v:l.slice(c+2)});
+  else notes.push(l);}
+ var out='';
+ if(rows.length)out+='<div class="lfromto">'+rows.map(function(m){
+   return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
+          '<span class="v">'+esc(m.v)+'</span></div>'}).join('')+'</div>';
+ for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
+ return {html:out,tags:tags}}
+
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
  if(!LOGEVS.length){if(ch)ch.innerHTML='';setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
