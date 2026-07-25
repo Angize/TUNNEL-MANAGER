@@ -2470,8 +2470,11 @@ def api_core_upload(d):
     sha = hashlib.sha256(raw).hexdigest()
     name = str(d.get("name") or "core.bin")[:80]
     with _core_blob_lock:
-        with open(CORE_BLOB, "wb") as f:
-            f.write(raw)
+        # Atomic, like every other on-disk write here. A raw open("wb") truncates first, so a crash or a
+        # full disk mid-write leaves a SHORT binary on disk while CORE_BLOB_META still describes the
+        # previous upload — and core-push verifies against that meta, so it would ship a truncated ELF to
+        # the fleet believing it was the good one.
+        save_bytes(CORE_BLOB, raw)
         save_json(CORE_BLOB_META, {"sha256": sha, "size": len(raw), "name": name, "uploaded_ts": int(time.time())})
     return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name}
 
@@ -4472,7 +4475,7 @@ def _ech_live_push(lid, chmap):
         return ""   # node offline or core rejected -> don't claim a push that didn't land
     nm = str(node.get("name") or "").strip()
     host = str(node.get("host") or "").strip()
-    return "%s (%s)" % (nm, host) if nm and host else (nm or host or str(client_id))
+    return "%s (%s)" % (nm, host) if nm and host else (nm or host or str(node.get("id") or ""))
 
 
 def _ech_pool_state(lid):
