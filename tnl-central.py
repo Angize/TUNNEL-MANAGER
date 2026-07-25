@@ -5953,6 +5953,24 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok)}
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
+/* Tuning values are 1-5 characters. A full-width box for "4" wastes the row and makes every card taller
+   than it needs to be; the comma list (suspect_backoff) is the one that genuinely needs room. */
+.setctl input.tnum{flex:0 0 auto;width:88px;min-width:0;text-align:center;padding:8px 10px;
+  font-variant-numeric:tabular-nums}
+.setctl input.wtxt{flex:1 1 auto;min-width:0;width:auto;text-align:center}
+.setrow2.tun-off{opacity:.55}
+.setgrp.acc .grphd.acch{cursor:pointer;user-select:none}
+/* nowrap on the header itself, wrap INSIDE the title box: a long title pushes the chip onto a second
+   line but can never push the chevron off the first one, so the control stays at the card's far edge
+   — the same place on every card, open or closed. */
+.setgrp.acc .grphd.acch{gap:8px;flex-wrap:nowrap;align-items:flex-start}
+.setgrp.acc .grphd.acch .grphdl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
+/* The chevron sits at the far end of the header — in this RTL page that is the LEFT edge — so every
+   card has its control in the same place regardless of how long the title or the scope chip is. */
+.setgrp.acc .grphd.acch .pchev{margin-inline-start:auto;flex:0 0 auto;align-self:center;line-height:1;
+  color:var(--sub);font-size:12px;transition:transform .2s}
+.setgrp.acc .grphd.acch .pchev.open{transform:rotate(180deg)}
+.setgrp.acc .grphd.acch:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:8px}
 .search:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0 2px;flex-wrap:wrap}
 .pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
@@ -6158,8 +6176,19 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .chkall .ic{width:15px;height:15px}
 .chkall:active{transform:scale(.97)}
 /* tunnels toolbar: make «افزودن تونل» and «بررسی اتصال همگانی» pixel-identical (equal width + height + font) */
-.tbtnrow{display:flex;gap:9px;margin:18px 0 12px}
-.tbtnrow>button{flex:1 1 0;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;margin:0;font-size:13px;line-height:1.2;padding:12px 14px;border-radius:12px}
+.tbtnrow{display:flex;gap:8px;margin:14px 0 10px;flex-wrap:wrap}
+/* Action buttons were full-bleed slabs: 13px text in a 12x14 box stretched edge to edge, which on a
+   phone reads as a banner rather than a control. Size them to their label, keep a 40px tap target. */
+.tbtnrow>button{flex:0 1 auto;min-width:0;display:inline-flex;align-items:center;justify-content:center;
+  gap:6px;margin:0;font-size:12.5px;line-height:1.2;padding:9px 15px;min-height:38px;border-radius:10px}
+.tbtnrow>button.primary{flex:0 1 auto}
+.tbtnrow>button .ic{width:14px;height:14px}
+/* «بازگردانی به پیش‌فرض» sat on --glass with --sub text: on the settings card's own background it was
+   nearly invisible, so the one destructive control on the page was the least legible thing on it.
+   Give it the warning role it actually has — readable, and clearly not the primary action. */
+.tbtnrow>button.ghost{background:color-mix(in srgb,var(--gold) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--gold) 42%,transparent);color:var(--gold);font-weight:800}
+.tbtnrow>button.ghost:hover{background:color-mix(in srgb,var(--gold) 20%,transparent)}
 .tbtnrow>button .ic{width:15px;height:15px}
 /* command palette (Ctrl+K) */
 .modalov.palov{align-items:flex-start;padding-top:64px}
@@ -6593,26 +6622,26 @@ var I18N={fa:{
  set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
  
- set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"لیستِ پله‌ها با کاما؛ هر شکست یک پله جلو، بعد از آخری → مرده",
- set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (ثانیه)",set_t_deadretest_d:"IPِ مرده هر این‌قدر یک‌بار دوباره تست می‌شود",
- set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"پینِ نشسته‌نشده (IPِ خراب) حداکثر این‌قدر نگه‌داشته می‌شود",
- set_t_datafail:"آستانهٔ سشنِ کوتاه",set_t_datafail_d:"چند سشنِ کوتاهِ پشت‌سرهم تا IP مشکوک شود",
- set_t_datagood:"پنجرهٔ گاردِ قطعی (ثانیه)",set_t_datagood_d:"فقط وقتی IP مقصر شود که تازگی یک سشنِ سالم بوده",
- set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"مهلتِ خواندنِ ws/tcp = ضریب × keepalive",
- set_t_idlemin:"کفِ idle (ثانیه)",set_t_idlemin_d:"مهلتِ idle زیرِ این نرود",
- set_t_ssmult:"ضریبِ کهنگیِ سشن (×keepalive)",set_t_ssmult_d:"پنجرهٔ کهنگیِ udp/raw/flux = ضریب × keepalive",
- set_t_ssmin:"کفِ کهنگیِ سشن (ثانیه)",set_t_ssmin_d:"پنجرهٔ کهنگی زیرِ این نرود",
- set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"این‌قدر keepalive بی‌پاسخ → بستنِ اتصال",
- set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"سشنِ کوتاه‌تر از این = خرابیِ داده‌ای علیهِ آن IP",
- set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"سقفِ زمانِ یک پروبِ TCP+TLS",
+ set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، با کاما جدا. یعنی: بار اول ۳۰ ثانیه صبر کن و دوباره امتحان کن؛ باز نشد، ۶۰ ثانیه؛ بعد ۱۲۰… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
+ set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (ثانیه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر ثانیه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
+ set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"وقتی خودت روی یک آی‌پی دکمهٔ «این را فعال کن» را می‌زنی، تونل سعی می‌کند برود روی همان. ولی اگر آن آی‌پی خراب باشد، تا ابد منتظر نمی‌ماند — بعد از این‌قدر ثانیه بی‌خیال می‌شود و می‌رود سراغ بقیه. یعنی یک انتخابِ اشتباه، تونلت را قطع نگه نمی‌دارد.",
+ set_t_datafail:"آستانهٔ سشنِ کوتاه",set_t_datafail_d:"بعضی وقت‌ها یک آی‌پیِ CDN وصل می‌شود ولی چند ثانیه بعد می‌افتد. این عدد می‌گوید چند بارِ پشتِ‌هم این اتفاق بیفتد تا آن آی‌پی را کنار بگذارد. کمترش کنی زودتر کنار می‌گذارد، ولی ممکن است آی‌پیِ سالم را هم بی‌گناه کنار بگذارد.",
+ set_t_datagood:"پنجرهٔ گاردِ قطعی (ثانیه)",set_t_datagood_d:"یک محافظ، تا بی‌خود همه‌چیز را خراب علامت نزند. اگر اینترنتِ خودِ سرور قطع شود، همهٔ آی‌پی‌ها با هم می‌افتند — تقصیرِ آن‌ها نیست. برای همین یک آی‌پی فقط وقتی مقصر شناخته می‌شود که در این چند ثانیهٔ اخیر، لااقل یکی از بقیه سالم کار کرده باشد. اگر هیچ‌کدام سالم نبوده، یعنی مشکل از خودِ سرور است و هیچ آی‌پی‌ای علامت نمی‌خورد.",
+ set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"برای تونل‌های ws و tcp. چند برابرِ keepalive سکوت را تحمل کند تا بگوید اتصال مرده است. مثلاً اگر keepalive ۱۰ ثانیه باشد و این عدد ۴، بعد از ۴۰ ثانیه بی‌خبری اتصال را می‌بندد و از نو وصل می‌شود.",
+ set_t_idlemin:"کفِ idle (ثانیه)",set_t_idlemin_d:"کفِ همان محاسبهٔ بالا. اگر ضرب‌کردن عددِ کوچکی درآورد، از این پایین‌تر نرود. جلوی این را می‌گیرد که یک کندیِ چندثانیه‌ایِ اینترنت، الکی قطعیِ تونل خوانده شود.",
+ set_t_ssmult:"ضریبِ کهنگیِ سشن (×keepalive)",set_t_ssmult_d:"برای تونل‌های udp و raw و flux. این‌ها ارتباطِ دائمیِ برقرارشده ندارند، پس تنها نشانهٔ سالم‌بودنشان این است که داده می‌رسد. چند برابرِ keepalive سکوت را تحمل کند تا ارتباط را از نو برقرار کند.",
+ set_t_ssmin:"کفِ کهنگیِ سشن (ثانیه)",set_t_ssmin_d:"کفِ همان محاسبه برای udp و raw و flux — از این کمتر، سکوت را به حسابِ قطعی نگذار.",
+ set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"چند تا از آن بسته‌های «زنده‌ای؟» پشتِ‌هم بی‌جواب بماند تا اتصال را ببندد و دوباره وصل شود. کم که باشد سریع‌تر واکنش نشان می‌دهد، ولی روی اینترنتِ ناپایدار ممکن است بی‌خود قطع و وصل کند.",
+ set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک قطعیِ عادی حساب نمی‌شود — به پای خرابیِ همان آی‌پی نوشته می‌شود. این‌طوری آی‌پی‌ای که مدام وصل می‌شود و فوری می‌افتد، شناسایی و کنار گذاشته می‌شود.",
+ set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"برای اینکه بفهمد یک آی‌پیِ خراب دوباره سالم شده یا نه، یک اتصالِ آزمایشی می‌زند. این می‌گوید چند ثانیه منتظرِ جوابش بماند. اگر اینترنتت کند است این عدد را زیاد کن، وگرنه آی‌پیِ سالم را هم رد می‌کند.",
  set_g1:"۱) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
- set_g2:"۲) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
- set_g3:"۳) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
+ set_g2:"۱) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
+ set_g3:"۲) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
  set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
  set_g7:"۵) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
- set_g5:"۶) تشخیصِ مرگِ دیتاگرام",set_g5h:"بی‌هندشیک",set_g5c:"udp / raw / flux",
+ set_g5:"۵) دیتاگرام: کهنگیِ سشن و کارایی",set_g5h:"بی‌هندشیک، به‌علاوهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
  set_g6:"۷) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
- set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"اتاقِ انتظارِ بسته‌ها در کرنل؛ بزرگ‌تر = در انفجارِ ترافیک کمتر دور ریخته می‌شود",
+ set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود ۲٫۷ برابر شد). <b>۰</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
  set_x_rec:"<b>۱۵</b> = هر ۱۵ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
  set_x_poll:"<b>۰٫۹</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
@@ -6722,7 +6751,7 @@ var I18N={fa:{
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO/GRO",gso_d:"عبورِ حجیم را سریع‌تر می‌کند (پکت‌های بزرگ، syscallِ کمتر). فقط لینوکس؛ اگر پشتیبانی نشود بی‌اثر است.",
- set_gkd:"پایهٔ تشخیصِ مرگ — سراسری",set_gkdh:"keepalive و مهلتِ ثابت، روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ زنده‌نگه‌دار رد و بدل می‌شود؛ پایهٔ همهٔ پنجره‌های تشخیصِ مرگ. کوچک‌تر = مرگِ تونل سریع‌تر قرمز می‌شود، با ترافیکِ اضافهٔ ناچیز. بازهٔ ۵ تا ۱۲۰.",set_x_keepalive:"keepalive=<b>۱۰</b> ← هر ۱۰ث یک پینگ؛ پنجرهٔ خودکار ~۳۰ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ فریمِ معتبری نیاید، حامل «مرده» فرض می‌شود. <b>۰ = خودکار</b> (از روی ضریب‌های پایین). عددِ مثبت = پنجرهٔ ثابتِ یکسان برای همهٔ تونل‌ها. بازهٔ ۱۰ تا ۳۰۰.",set_x_deadafter:"۰ ← خودکار (~۳×keepalive). ۲۰ ← همهٔ تونل‌ها پس از ۲۰ث سکوت مرده.",set_da_auto:"۰ = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های ۴ و ۵ حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ ۲×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = ۰ باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
+ set_gkd:"۳) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>۱۰</b> ← هر ۱۰ث یک پینگ؛ پنجرهٔ خودکار ~۳۰ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>۰ بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت کارت‌های ۴ و ۵ بی‌اثر می‌شوند.",set_x_deadafter:"۰ ← خودکار (~۳×keepalive). ۲۰ ← همهٔ تونل‌ها پس از ۲۰ث سکوت مرده.",set_da_auto:"۰ = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های ۴ و ۵ حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ ۲×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = ۰ باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -8655,46 +8684,62 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
  tunDaBind();refreshAgent()}
 // A settings row with a "?" that expands a concept + example; grp() wraps a scope-tagged group card.
 function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
-function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
-function grp(tk,hk,ck,cls,rows){return '<div class="card setgrp '+cls+'"><div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span><small>'+T(hk)+'</small></div>'+rows+'</div>'}
+function qr(lbl,ck,xk,ctl,rc){return '<div class="setrow2'+(rc?' '+rc:'')+'"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
+// A settings group is a COLLAPSIBLE card. These blocks are long — seven of them stacked made the page
+// a scroll marathon on a phone — so each collapses to its header. Open state is per-group and kept in
+// _setOpen, because refreshSettings() rebuilds this HTML wholesale and would otherwise reset it.
+// gk is a stable key; pass gk='' for a card that must never collapse (the panel-wide group).
+var _setOpen={};
+function setAcc(k){_setOpen[k]=!_setOpen[k];var b=el('sgb_'+k),c=el('sgc_'+k);
+ if(b)b.style.display=_setOpen[k]?'':'none';if(c)c.classList.toggle('open',!!_setOpen[k])}
+function grp(tk,hk,ck,cls,rows,gk){
+ // The <small> sub-header is gone: it restated the scope chip next to it («تونل‌های ws/xhttp» beside
+ // «فقط WS-CDN»), so it cost a line of height per card and told the operator nothing new.
+ var hd='<div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>';
+ if(!gk)return '<div class="card setgrp '+cls+'">'+hd+rows+'</div>';
+ var op=!!_setOpen[gk];
+ return '<div class="card setgrp acc '+cls+'">'
+  +'<div class="grphd acch" onclick="setAcc(\\''+gk+'\\')" role="button" tabindex="0" aria-expanded="'+(op?'true':'false')+'">'
+  +'<span class="grphdl"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></span>'
+  +'<span class="pchev'+(op?' open':'')+'" id="sgc_'+gk+'">&#9662;</span></div>'
+  +'<div class="setgrpb" id="sgb_'+gk+'"'+(op?'':' style="display:none"')+'>'+rows+'</div></div>'}
 // Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
 // build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
-function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
+function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search tnum" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
 function tuningCard(s){
  return '<div class="sec2" style="margin:14px 2px 2px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
   '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
   grp('set_g2','set_g2h','set_g2c','sc-both',
     qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').join(', '))+'">')+
     qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tv(s,'dead_retest_secs'),5,86400))+
-    qr(T('set_t_pinttl'),'set_t_pinttl_d','set_x_pinttl',tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600)))+
+    qr(T('set_t_pinttl'),'set_t_pinttl_d','set_x_pinttl',tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600)),'g2')+
   grp('set_g3','set_g3h','set_g3c','sc-ws',
     qr(T('set_t_datafail'),'set_t_datafail_d','set_x_datafail',tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
     qr(T('set_t_datagood'),'set_t_datagood_d','set_x_datagood',tNum('set_t_datagood',_tv(s,'data_good_window_secs'),1,86400))+
-    qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)))+
+    qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)),'g3')+
+  /* MERGED: the fixed deadline and the failure thresholds are one subject — both are global, both apply
+     to every carrier, and neither is affected by the auto/fixed switch. They were two cards only because
+     they were written at different times. ping_loss and min_liveness stay NON-auto (ApplyTuning applies
+     them unconditionally, on paths that never consult the dead window) — see #254. */
   grp('set_gkd','set_gkdh','set_gkdc','sc-both',
     qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
     qr(T('set_t_deadafter'),'set_t_deadafter_d','set_x_deadafter',tNum('set_t_deadafter',_tv(s,'dead_after_secs'),0,300))+
-    '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 2px"></div>')+
-  grp('set_g4','set_g4h','set_g4c','sc-both tun-auto',
-    qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100))+
-    qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400)))+
-  /* NOT tun-auto: ping-loss and min-liveness are applied by ApplyTuning unconditionally and consumed on
-     paths that never consult the dead window (the client drops after N unanswered keepalives; a session
-     shorter than min-liveness is charged as a data failure against that endpoint). While they sat in the
-     tun-auto group a positive fixed deadline greyed them out and labelled them "no effect", so two fully
-     live knobs became permanently uneditable and were advertised as inert. */
-  grp('set_g7','set_g7h','set_g7c','sc-both',
+    '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 6px"></div>'+
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
-    qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600)))+
-  grp('set_g5','set_g5h','set_g5c','sc-dgram tun-auto',
-    qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
-    qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400)))+
-  /* No tun-auto here: the socket buffer is a throughput knob, unrelated to the dead-window formula the
-     fixed-deadline switch greys out. */
-  grp('set_g6','set_g6h','set_g6c','sc-dgram',
-    qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64)))+
+    qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600)),'gkd')+
+  grp('set_g4','set_g4h','set_g4c','sc-both',
+    qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100),'tun-auto')+
+    qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400),'tun-auto'),'g4')+
+  /* MERGED: datagram staleness and the socket buffer are the same audience (udp/raw/flux). The merge is
+     only safe because tun-auto moved to the ROW: the two staleness knobs are greyed by a positive fixed
+     deadline, the socket buffer never is (it is a throughput knob, unrelated to the dead-window formula).
+     Marking the whole CARD auto here would grey out sock_buf and label it inert — exactly the #254 bug. */
+  grp('set_g5','set_g5h','set_g5c','sc-dgram',
+    qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100),'tun-auto')+
+    qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400),'tun-auto')+
+    qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64)),'g5')+
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
@@ -8709,13 +8754,21 @@ function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
  var v=Math.max(0,parseInt(d.value)||0),k=el('set_t_keepalive'),ka=Math.max(5,parseInt(k&&k.value)||15);
  var on=v>0,eff=Math.max(v,2*ka),h=el('tun_dahint');
  if(h)h.textContent=on?(T('set_da_fixed').replace('{n}',eff)+(eff>v?' '+T('set_da_floored').replace('{v}',v).replace('{n}',eff):'')):T('set_da_auto');
- var gs=document.querySelectorAll('.setgrp.tun-auto');
- for(var i=0;i<gs.length;i++){var g=gs[i],n=g.querySelector('.tun-state');
+ // Grey out the AUTO-only knobs by ROW, not by card. They used to be marked on the whole group, which
+ // worked only while every row in a group was auto. Now that datagram staleness shares a card with the
+ // socket buffer, a card-level sweep would disable sock_buf too and label it inert — the exact defect
+ // #254 fixed for ping_loss/min_liveness. One note per card that CONTAINS auto rows, placed under the
+ // header so a collapsed card still reads correctly when opened.
+ var rows=document.querySelectorAll('.setrow2.tun-auto'),seen=[];
+ for(var i=0;i<rows.length;i++){var r=rows[i];
+  var ins=r.querySelectorAll('input');for(var q=0;q<ins.length;q++)ins[q].disabled=on;
+  r.classList.toggle('tun-off',on);
+  var g=r.closest('.setgrp');if(g&&seen.indexOf(g)<0)seen.push(g)}
+ for(var j=0;j<seen.length;j++){var g2=seen[j],n=g2.querySelector('.tun-state');
   if(!n){n=document.createElement('div');n.className='tun-state';n.style.cssText='font-size:11px;line-height:1.7;margin:-2px 4px 8px';
-   var hd=g.querySelector('.grphd');if(hd)hd.insertAdjacentElement('afterend',n);else g.insertBefore(n,g.firstChild)}
+   var host=g2.querySelector('.setgrpb')||g2;host.insertBefore(n,host.firstChild)}
   n.textContent=on?T('set_auto_off'):T('set_auto_only');
-  n.style.color=on?'var(--gold)':'var(--sub)';
-  var ins=g.querySelectorAll('input');for(var q=0;q<ins.length;q++)ins[q].disabled=on}}
+  n.style.color=on?'var(--gold)':'var(--sub)'}}
 function tunDaBind(){var ids=['set_t_deadafter','set_t_keepalive'];
  for(var i=0;i<ids.length;i++){var e=el(ids[i]);if(e)e.addEventListener('input',tunDaSync)}
  tunDaSync()}
