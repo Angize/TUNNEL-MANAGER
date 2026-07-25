@@ -1589,10 +1589,9 @@ def api_summary(d):
         bh, _b = _link_side_health(L, "b_node")
         both_up = isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
         if both_up:
-            # a busy tunnel is proven live by traffic-flow (alive) even when the node skipped the ICMP
-            # probe (peer_ping absent); fall back to peer_ping for an idle tunnel / pre-upgrade node.
-            pinged = (ah.get("alive") is True) or (bh.get("alive") is True) \
-                or (ah.get("peer_ping") is True) or (bh.get("peer_ping") is True)
+            # a busy tunnel is proven live by traffic-flow / the core heartbeat (alive), which the node
+            # reports for every core tunnel — the ICMP probe is only a tiebreaker it may skip entirely.
+            pinged = (ah.get("alive") is True) or (bh.get("alive") is True)
             if pinged:
                 up += 1
             else:
@@ -4685,8 +4684,6 @@ _EV_BURN_CODE = {
 _EV_ROT_CODE = {
     "peer-rotate": ("ok", "آی‌پیِ مقصد را چرخاند (self-heal/زمان‌بندی‌شده)"),
     "src-rotate":  ("ok", "آی‌پیِ مبدأ را چرخاند"),
-    "peer-pin":    ("ok", "روی آی‌پیِ مقصدِ پین‌شده رفت"),
-    "src-pin":     ("ok", "روی آی‌پیِ مبدأِ پین‌شده رفت"),
 }
 
 
@@ -7162,9 +7159,8 @@ function sideTxt(online,h){
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
  if(h.dead)return T('st_disc');   // frozen core heartbeat = the encrypted session died (peer gone)
- if(h.peer_ping===true){var e=pingInfo(h);return T('t_side_conn')+(e?' · '+e:'')}
- if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via traffic-flow (ICMP maybe unrun/filtered)
- if(h.peer_ping===false||h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
+ if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
+ if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
 function sideState(online,h){  // k: dot color class, w: the word to show ONLY when there's a problem
  if(!online||!h)return {k:'bad',w:T('st_disc')};
@@ -7173,8 +7169,6 @@ function sideState(online,h){  // k: dot color class, w: the word to show ONLY w
  if(h.dead)return {k:'bad',w:T('st_disc')};       // confirmed dead (frozen core heartbeat) -> red at once
  if(h.alive===true)return {k:'ok',w:''};          // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:''};       // up but not proven live yet (connecting, or no traffic + probe failed) -> yellow
- if(h.peer_ping===true)return {k:'ok',w:''};      // pre-upgrade node (no `alive`): a passed ICMP probe IS its proof of life -> green
- if(h.peer_ping===false)return {k:'warn',w:''};   // pre-upgrade node: failed probe -> yellow
  return {k:'warn',w:''}}   // no positive proof of life (unknown / still connecting) -> yellow, never green by default
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
  return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="'+esc(T('tst_connected'))+'"')+'></span>'}
@@ -7259,7 +7253,7 @@ async function checkLink(id){CHECKING++;
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
-  var pinged=(d.a_health&&(d.a_health.alive===true||d.a_health.peer_ping===true))||(d.b_health&&(d.b_health.alive===true||d.b_health.peer_ping===true));
+  var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
   var okAll=aup&&bup&&pinged&&!(d.a_health&&d.a_health.dead)&&!(d.b_health&&d.b_health.dead);
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health)));
@@ -7927,20 +7921,17 @@ function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.pr
 // only when an endpoint actually dies) and stays LAST, exactly like the ws pool's «خاموش» entry.
 var ROT_PRESETS=[180,300,600,900,1800,3600];
 var ROT_LABELS={180:'rot_3m',300:'rot_5m',600:'rot_10m',900:'rot_15m',1800:'rot_30m',3600:'rot_1h'};
-// rotNorm snaps a STORED interval onto the preset list so a legacy value (the retired 60s option, or
-// anything hand-set through the API) opens on the nearest preset instead of an empty placeholder. It
-// only changes what the form SHOWS; the tunnel keeps its stored value until the operator saves.
-// 0 is passed through untouched — it is a mode, not a duration.
-function rotNorm(v){v=parseInt(v)||0;if(v<=0)return 0;
- var b=ROT_PRESETS[0];for(var i=1;i<ROT_PRESETS.length;i++){if(Math.abs(ROT_PRESETS[i]-v)<Math.abs(b-v))b=ROT_PRESETS[i]}
- return b}
 // Styled list (ssHTML) rather than a native <select>, matching the IP/node pickers and the ws pool's
 // own interval list — the native control renders as an OS sheet that looks nothing like the rest.
+// The stored value is passed through RAW: no snapping, no normalising. A value that is not a preset
+// (a retired option, or anything hand-set through the API) simply shows the placeholder and is kept
+// verbatim until the operator picks something. With no stored value at all — the create form — ssHTML
+// falls back to the first item, so a freshly enabled rotation starts at 3 minutes.
 function rotSetHTML(px){var st=rotSt(px);
  var items=ROT_PRESETS.map(function(v){return {v:v,label:T(ROT_LABELS[v])}});
  items.push({v:0,label:T('rot_onfail')});
  return '<div id="'+px+'rotset" style="display:none;margin-top:2px"><label class="first">'+esc(T('rot_interval'))+'</label>'+
- ssHTML(px+'rotsecs',items,rotNorm(st.secs),T('rot_interval'))+'</div>'}
+ ssHTML(px+'rotsecs',items,st.secs,T('rot_interval'))+'</div>'}
 function rotTr(px){return px=='e_'?_corS.Tr:_eeS.Tr}
 function rotIsDirect(px){return _ENUMS.tr_direct.indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
