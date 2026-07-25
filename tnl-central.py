@@ -5967,11 +5967,16 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok)}
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
-/* Tuning values are 1-5 characters. A full-width box for "4" wastes the row and makes every card taller
-   than it needs to be; the comma list (suspect_backoff) is the one that genuinely needs room. */
-.setctl input.tnum{flex:0 0 auto;width:88px;min-width:0;text-align:center;padding:8px 10px;
+/* Tuning values are 1-5 characters, so the number field is narrow — but .setctl is a fixed 118-150px
+   column, and narrowing only the INPUT left the rest of that column as dead space, which read as the
+   field having drifted away from its label. Shrink the column too, and only on the tuning cards:
+   the panel-wide group (sc-panel) holds dropdowns and a mode button that need the full width. */
+.setgrp:not(.sc-panel) .setctl{min-width:0;max-width:92px}
+.setgrp:not(.sc-panel) .setctl input.tnum{width:100%;min-width:0;text-align:center;padding:8px 10px;
   font-variant-numeric:tabular-nums}
-.setctl input.wtxt{flex:1 1 auto;min-width:0;width:auto;text-align:center}
+/* the comma list is the one field that genuinely needs room */
+.setgrp:not(.sc-panel) .setctl:has(input.wtxt){max-width:none;min-width:140px}
+.setgrp:not(.sc-panel) .setctl input.wtxt{width:100%;min-width:0;text-align:center}
 .setrow2.tun-off{opacity:.55}
 .setgrp.acc .grphd.acch{cursor:pointer;user-select:none}
 /* nowrap on the header itself, wrap INSIDE the title box: a long title pushes the chip onto a second
@@ -6187,6 +6192,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 /* The release picker and its check button share a row: the button is what FILLS the picker, so
    putting it anywhere else would leave an empty dropdown with no visible way to populate it. */
 .corverrow{display:flex;gap:8px;align-items:center;margin-bottom:9px}
+/* Before the first check there is nothing to pick. A .setfield here looked like a dead control;
+   this is a status line, so it reads as one. */
+.corempty{flex:1;min-width:0;font-size:12px;color:var(--sub);line-height:1.7;padding:2px 2px}
 .corverrow>#cor_ver_box{flex:1;min-width:0}
 .corverrow>.corcheck{flex:0 0 auto;margin:0;padding:9px 13px;font-size:12.5px;min-height:38px;
   border-radius:10px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
@@ -6233,12 +6241,10 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
   gap:6px;margin:0;font-size:12.5px;line-height:1.2;padding:9px 15px;min-height:38px;border-radius:10px}
 .tbtnrow>button.primary{flex:0 1 auto}
 .tbtnrow>button .ic{width:14px;height:14px}
-/* «بازگردانی به پیش‌فرض» sat on --glass with --sub text: on the settings card's own background it was
-   nearly invisible, so the one destructive control on the page was the least legible thing on it.
-   Give it the warning role it actually has — readable, and clearly not the primary action. */
-.tbtnrow>button.ghost{background:color-mix(in srgb,var(--gold) 12%,transparent);
-  border:1px solid color-mix(in srgb,var(--gold) 42%,transparent);color:var(--gold);font-weight:800}
-.tbtnrow>button.ghost:hover{background:color-mix(in srgb,var(--gold) 20%,transparent)}
+/* «بازگردانی به پیش‌فرض» sat on --glass with --sub text and was nearly invisible on the card's own
+   background. It needs to be readable without competing with Save — a legible outline, not a fill. */
+.tbtnrow>button.ghost{background:var(--glass);border:1px solid var(--bord);color:var(--tx);font-weight:700}
+.tbtnrow>button.ghost:hover{background:var(--field);border-color:var(--sub)}
 .tbtnrow>button .ic{width:15px;height:15px}
 /* command palette (Ctrl+K) */
 .modalov.palov{align-items:flex-start;padding-top:64px}
@@ -8549,7 +8555,7 @@ async function loadCoreVersions(want){
  // Nothing cached yet means the operator has not checked. Say so in the picker instead of showing an
  // empty control that looks broken.
  box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'')
-   :'<div class="setfield" style="opacity:.7;cursor:default"><span class="val">'+esc(T('cor_ver_empty'))+'</span></div>'}
+   :'<div class="corempty">'+esc(T('cor_ver_empty'))+'</div>'}
 // The panel no longer polls GitHub on its own. This is the ONLY thing that fetches the release list,
 // and it runs when the operator asks. It reports what it found rather than silently reordering the
 // dropdown, because "is there a new version" is the actual question being asked.
