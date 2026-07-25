@@ -192,6 +192,12 @@ _TUNING_DEFAULTS = {
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
+    # دستهٔ ۳ — کارایی
+    # sock_buf_mb is expressed in MiB for the operator; the core's `sock_buf` field is BYTES, so
+    # _apply_core_tuning converts. 4 matches the core's own default (config.go: c.SockBuf = 4<<20), so an
+    # untouched knob stamps nothing and the core keeps its default. 0 means OFF -> stamped as -1, the
+    # core's "leave the kernel default" sentinel. Only the datagram carriers (udp/raw/flux) use it.
+    "sock_buf_mb": 4,
 }
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400), "pin_ttl_secs": (1, 3600),
@@ -201,6 +207,7 @@ _TUNING_RANGES = {
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
     "probe_timeout_secs": (1, 120),
     "keepalive": (5, 120), "dead_after_secs": (0, 300),   # dead_after 0 = auto; a positive value is floored to 10 on build
+    "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
 
 
@@ -1258,9 +1265,17 @@ def _apply_core_tuning(a_body, b_body):
     if tn.get("dead_after_secs"):
         _da = max(10, min(300, int(tn["dead_after_secs"])))
         a_body["dead_after_secs"] = b_body["dead_after_secs"] = _da
-    # everything else rides in the `tuning` object (the core clamps it); strip the two top-level knobs so
+    # sock_buf is a top-level core field too, and it is the one knob the operator sets in a different unit
+    # than the core reads: MiB here, BYTES on the wire. 0 means "off", which the core spells as a negative
+    # value ("leave the kernel default"); anything else is MiB -> bytes. _settings_tuning already omits the
+    # knob when it equals the panel default (4), which is the core's own default, so an untouched fleet
+    # stamps nothing and the core applies its 4 MiB itself.
+    if "sock_buf_mb" in tn:
+        _mb = max(0, min(64, int(tn["sock_buf_mb"])))
+        a_body["sock_buf"] = b_body["sock_buf"] = -1 if _mb == 0 else _mb * (1 << 20)
+    # everything else rides in the `tuning` object (the core clamps it); strip the top-level knobs so
     # they never appear twice on the wire.
-    _tn = {k: v for k, v in tn.items() if k not in ("keepalive", "dead_after_secs")}
+    _tn = {k: v for k, v in tn.items() if k not in ("keepalive", "dead_after_secs", "sock_buf_mb")}
     if _tn:
         a_body["tuning"] = _tn
         b_body["tuning"] = _tn
@@ -6431,6 +6446,8 @@ var I18N={fa:{
  set_g3:"۳) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
  set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
  set_g5:"۵) تشخیصِ مرگِ دیتاگرام",set_g5h:"بی‌هندشیک",set_g5c:"udp / raw / flux",
+ set_g6:"۶) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
+ set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"اتاقِ انتظارِ بسته‌ها در کرنل؛ بزرگ‌تر = در انفجارِ ترافیک کمتر دور ریخته می‌شود",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
  set_x_rec:"<b>۱۵</b> = هر ۱۵ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
  set_x_poll:"<b>۰٫۹</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
@@ -6449,6 +6466,7 @@ var I18N={fa:{
  set_x_pingloss:"<b>۳</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
  set_x_minlive:"<b>۲۰</b> = اتصال بعد از ۵ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
  set_x_probeto:"<b>۵</b> = لبه در ۵ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
+ set_x_sockbuf:"<b>۴</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود ۲٫۷ برابر شد). <b>۰</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
  h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
@@ -8475,10 +8493,14 @@ function tuningCard(s){
   grp('set_g5','set_g5h','set_g5c','sc-dgram tun-auto',
     qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100))+
     qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400)))+
+  /* No tun-auto here: the socket buffer is a throughput knob, unrelated to the dead-window formula the
+     fixed-deadline switch greys out. */
+  grp('set_g6','set_g6h','set_g6c','sc-dgram',
+    qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64)))+
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto'))};
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a
