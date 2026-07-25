@@ -2875,8 +2875,16 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
         srv_ip = a_ip if server_a else b_ip
         srv_pool = (a_pool if server_a else b_pool) or []
         t = (transport or "udp").lower()
-        if t in ("raw", "flux", "dns"):
-            return []                        # raw-IP / rotating-protocol / dns(:53 authoritative NS) — no per-tunnel L4 port to portcheck
+        if t in ("raw", "flux"):
+            return []                        # raw-IP / rotating-protocol: genuinely no L4 port to portcheck
+        if t == "dns":
+            # dns DOES have an L4 port, and the most contended one on the box: the server core binds
+            # <self_ip>:53 as an authoritative NS. Lumping it with raw/flux exempted it from the guard
+            # entirely, so a second dns tunnel on the same node — or any node already running
+            # systemd-resolved, dnsmasq, bind, or a stray recursor — built cleanly and then failed at
+            # core start with an address-in-use the operator never sees, because the panel had already
+            # reported success. Port is fixed, so `p` is ignored here.
+            return [(srv, srv_ip, 53, "udp")]
         proto = "tcp" if t in ("tcp", "ws") else "udp"  # ws is a TCP/WebSocket carrier
         pool_ips = [ip for ip in srv_pool if ip] if t in ("udp", "tcp") else []
         if pool_ips:
@@ -2919,6 +2927,21 @@ FLUX_UDP_DPORTS = (443, 3478, 19302, 5349, 8801)
 FLUX_STUN_DPORTS = (3478, 19302, 5349)
 
 
+def _peer_addrs(rec, side):
+    """Every address a link's `side` end can present: its anchor plus, when IP rotation is on, each
+    selected pool IP. The conflict guards must reason over ALL of them — a rotating peer is reachable
+    from any pool member, so an anchor-only comparison silently under-reports."""
+    out = []
+    ip = rec.get(side + "_ip")
+    if ip:
+        out.append(ip)
+    if rec.get("ip_rotate"):
+        for x in (rec.get(side + "_ip_pool") or []):
+            if x and x not in out:
+                out.append(x)
+    return out
+
+
 def _flux_drop_points(rec):
     """[(node_id, peer_ip, udp_port)] a flux tunnel's anti-leak rules DROP inbound traffic on.
 
@@ -2938,8 +2961,13 @@ def _flux_drop_points(rec):
     ports = FLUX_STUN_DPORTS if carrier == "stun" else FLUX_UDP_DPORTS
     out = []
     for p in ports:
-        out.append((rec.get("a_node"), rec.get("b_ip"), p))   # on A, dropping traffic from B
-        out.append((rec.get("b_node"), rec.get("a_ip"), p))   # on B, dropping traffic from A
+        # Every peer address, not just the anchor. Under IP rotation the peer reaches us from any IP in
+        # its pool, so the node installs a DROP per pool IP — a guard that only knew the anchor missed
+        # every collision on the other pool members and let the panel build a tunnel it would black-hole.
+        for bip in _peer_addrs(rec, "b"):
+            out.append((rec.get("a_node"), bip, p))   # on A, dropping traffic from B
+        for aip in _peer_addrs(rec, "a"):
+            out.append((rec.get("b_node"), aip, p))   # on B, dropping traffic from A
     return out
 
 
@@ -2953,12 +2981,16 @@ def _udp_recv_points(rec):
     p = int(rec.get("port") or _default_tunnel_port(ttype, rec.get("tunnel_id")) or 0)
     if not p:
         return []
+    # Same widening as _flux_drop_points: a rotating peer sends from any IP in its pool, so the traffic
+    # a DROP rule could swallow is not limited to the anchor. Comparing anchor-to-anchor made the guard
+    # blind to every collision that involved a non-anchor pool member on either side.
     if ttype in ("fou", "l2tpv3", "vxlan"):
-        return [(rec.get("a_node"), rec.get("b_ip"), p), (rec.get("b_node"), rec.get("a_ip"), p)]
+        return ([(rec.get("a_node"), bip, p) for bip in _peer_addrs(rec, "b")] +
+                [(rec.get("b_node"), aip, p) for aip in _peer_addrs(rec, "a")])
     if ttype == "core" and str(rec.get("transport") or "udp").lower() == "udp":
         if (rec.get("server_side") or "a") == "a":
-            return [(rec.get("a_node"), rec.get("b_ip"), p)]
-        return [(rec.get("b_node"), rec.get("a_ip"), p)]
+            return [(rec.get("a_node"), bip, p) for bip in _peer_addrs(rec, "b")]
+        return [(rec.get("b_node"), aip, p) for aip in _peer_addrs(rec, "a")]
     return []
 
 
@@ -2989,7 +3021,8 @@ def _flux_drop_conflict(src, exclude_id=None):
 
 def _core_l4_conflict(new_binds, exclude_id=None):
     """Registry-level conflict check for a core tunnel. Core is CARRIER-MULTIPLEXED on its server IP:
-    only udp/tcp/ws bind an EXCLUSIVE kernel port (returned by _port_bindings), so two core tunnels
+    only udp/tcp/ws (and dns, on the fixed :53) bind an EXCLUSIVE kernel port (returned by
+    _port_bindings), so two core tunnels
     truly clash ONLY when their server (node, ip, port, L4-proto) coincide. raw/flux return no bindings
     — they use shared raw/AF_PACKET sockets and every frame is AEAD-authenticated, so any number
     coexist on one server IP (each drops the others' frames). So a raw-vs-udp, a udp:9000-vs-udp:9001,
