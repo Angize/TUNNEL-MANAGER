@@ -2379,9 +2379,8 @@ def api_agent_push(d):
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
-_core_versions_cache = {"ts": 0.0, "attempt": 0.0, "data": None}
+_core_versions_cache = {"ts": 0.0, "data": None}   # filled ONLY by api_core_check (the button)
 _core_versions_lock = threading.Lock()
-_core_versions_refreshing = False
 
 
 def _fetch_core_versions():
@@ -2402,43 +2401,41 @@ def _fetch_core_versions():
         return None
 
 
-def _core_versions_refresh_bg():
-    global _core_versions_refreshing
-    try:
-        vers = _fetch_core_versions()
-        with _core_versions_lock:
-            if vers is not None:  # success -> publish; failure -> keep the old cache, just record the attempt
-                _core_versions_cache["data"] = vers
-                _core_versions_cache["ts"] = time.time()
-    finally:
-        with _core_versions_lock:
-            _core_versions_refreshing = False
-
-
 def api_core_versions(d):
-    """The core versions the operator can install/downgrade to — the core repo's GitHub releases,
-    newest first, plus a "latest" tag. Served INSTANTLY from cache; when the cache is stale a refresh
-    runs in the BACKGROUND (deduped, min 60s between attempts) so a slow/blocked GitHub — common from
-    the deployment region — never blocks the settings/agent page load. Degrades to whatever is cached
-    (or just the uploaded/staged binary) until a refresh succeeds."""
-    global _core_versions_refreshing
-    now = time.time()
-    with _core_versions_lock:
-        fresh = _core_versions_cache["data"] is not None and now - _core_versions_cache["ts"] <= 300
-        recent_attempt = now - _core_versions_cache["attempt"] < 60
-        if not fresh and not recent_attempt and not _core_versions_refreshing:
-            _core_versions_refreshing = True
-            _core_versions_cache["attempt"] = now
-            threading.Thread(target=_core_versions_refresh_bg, daemon=True).start()
-        vers = list(_core_versions_cache["data"] or [])
+    """The core versions the operator can install/downgrade to — served PURELY from cache, never
+    fetching. GitHub is often slow or blocked from the deployment region, and a background refresh on
+    every settings/agent page load meant the panel reached out on its own schedule for something the
+    operator had not asked for. api_core_check is the one place that talks to GitHub now, and it only
+    runs when the button is pressed. An empty list until then is the honest state: the panel does not
+    know what releases exist."""
+    vers = list(_core_versions_cache["data"] or [])
     out = list(vers)  # newest first
     if out:  # tag the newest real release "(latest)" instead of a synthetic "latest" item
         out[0] = {**out[0], "label": (out[0].get("label") or out[0]["id"]) + " (latest)", "latest": True}
     info = _core_blob_info()
     if info:                                          # offer the operator-uploaded binary as its own choice
-        out.append({"id": "custom", "label": "باینریِ آپلودشده" + (" · " + info["name"] if info.get("name") else ""),
+        out.append({"id": "custom", "label": "\u0628\u0627\u06cc\u0646\u0631\u06cc\u0650 \u0622\u067e\u0644\u0648\u062f\u0634\u062f\u0647" + (" \u00b7 " + info["name"] if info.get("name") else ""),
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
-    return {"versions": out, "staged": _staged_info()}   # staged = the core the panel has ready to push
+    return {"versions": out, "staged": _staged_info(), "checked_ts": int(_core_versions_cache["ts"] or 0)}
+
+
+def api_core_check(d):
+    """Ask GitHub for the release list, NOW, because the operator pressed the button. Synchronous on
+    purpose: the button reports what happened, so it has to wait for the answer. Returns how many
+    versions are known and whether the newest one is different from what we had, so the UI can say
+    "there is a new version" instead of just silently reordering a dropdown."""
+    before = list(_core_versions_cache["data"] or [])
+    prev_top = (before[0].get("id") if before else "")
+    vers = _fetch_core_versions()
+    if vers is None:
+        # Keep the previous list rather than blanking it — a failed check must not lose what we knew.
+        return {"ok": False, "error": "\u062f\u0631\u06cc\u0627\u0641\u062a \u0627\u0632 \u06af\u06cc\u062a\u200c\u0647\u0627\u0628 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062f"}
+    with _core_versions_lock:
+        _core_versions_cache["data"] = vers
+        _core_versions_cache["ts"] = time.time()
+    top = (vers[0].get("id") if vers else "")
+    return {"ok": True, "count": len(vers), "latest": top, "newer": bool(top and top != prev_top),
+            "first_check": not before}
 
 
 def _core_blob_info():
@@ -2501,8 +2498,9 @@ def _resolve_core_version(version):
     for v in (api_core_versions({}).get("versions") or []):
         if v.get("id") and v["id"] != "custom":
             return v["id"]
-    # Cache still cold (its refresh is async) — this is an explicit operator stage/install action, not
-    # a page load, so a one-off synchronous fetch here is fine and avoids recording the abstract "latest".
+    # Cache still cold — the operator has not pressed «بررسی آپدیت» yet. This IS an explicit stage/install
+    # action, not a page load, so a one-off synchronous fetch here is fine and beats recording the
+    # abstract "latest" against a node.
     fetched = _fetch_core_versions()
     if fetched:
         with _core_versions_lock:
@@ -5580,7 +5578,7 @@ API = {
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
-    "core-versions": api_core_versions, "core-update": api_core_update,
+    "core-versions": api_core_versions, "core-check": api_core_check, "core-update": api_core_update,
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
     "reorder": api_reorder,
 }
@@ -5588,7 +5586,7 @@ MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-update", "core-upload", "core-stage", "core-push",
+             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-check", "core-update", "core-upload", "core-stage", "core-push",
              "reorder"}
 
 # ----------------------------------------------------------------------------- HTTP
@@ -6123,6 +6121,13 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-uni .k .grow{flex:1}
 .agx-meta{display:flex;flex-wrap:wrap;gap:5px 10px;align-items:center;font-size:11.5px;color:var(--sub);background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 11px;margin-bottom:11px}
 .agx-meta .sep{width:3px;height:3px;border-radius:50%;background:var(--sub);opacity:.5}
+/* The release picker and its check button share a row: the button is what FILLS the picker, so
+   putting it anywhere else would leave an empty dropdown with no visible way to populate it. */
+.corverrow{display:flex;gap:8px;align-items:center;margin-bottom:9px}
+.corverrow>#cor_ver_box{flex:1;min-width:0}
+.corverrow>.corcheck{flex:0 0 auto;margin:0;padding:9px 13px;font-size:12.5px;min-height:38px;
+  border-radius:10px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.corverrow>.corcheck .ic{width:14px;height:14px}
 .agx-act{display:flex;gap:7px;flex-wrap:wrap}
 .agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
 .agx-act .primary{flex:1;justify-content:center}
@@ -6644,6 +6649,7 @@ var I18N={fa:{
  pal_add_tun:"افزودن تونل",pal_agent:"بروزرسانیِ ایجنت",pal_checkall:"تستِ همهٔ تونل‌های صفحه",pal_theme:"تغییرِ تمِ روشن/تیره",
  // agent/core update page (partial)
  ag_title:"ایجنت و هسته",ag_sub:"آپدیت و ری‌استارتِ ایجنت و هستهٔ نودها از پنل، بدونِ SSH",
+ cor_check:"بررسی آپدیت",cor_checking:"در حال بررسی…",cor_check_new:"نسخهٔ تازه پیدا شد — از لیست انتخابش کن و «دریافت از گیت‌هاب» را بزن",cor_check_same:"تازه‌ترین نسخه همینی است که داری",cor_check_first:"{n} نسخه پیدا شد — یکی را انتخاب کن",cor_check_none:"هیچ نسخه‌ای پیدا نشد",cor_ver_empty:"هنوز بررسی نشده — «بررسی آپدیت» را بزن",
  ag_node_agent:"ایجنتِ نودها",ag_data_core:"هستهٔ داده",ag_fetch_git:"دریافت از گیت‌هاب",ag_file_btn:"فایلِ ایجنت",ag_push_all:"پوشِ ایجنت به همهٔ نودها",
  ag_binary:"باینری",ag_install_all:"نصبِ هسته روی همهٔ نودها",ag_search:"جستجوی نود…",ag_ready:"آمادهٔ پوش",ag_empty:"خالی",ag_no_item:"موردی نیست",
  ag_core_hint:"⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.",
@@ -8415,7 +8421,8 @@ function agentBody(){return ''+
  '<div class="card agx-uni">'+   // CORE card — matched to the agent card
   '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> '+esc(T('ag_data_core'))+'<span class="grow"></span><span id="cor_status"></span></div>'+
   '<div class="agx-meta" id="cor_meta"></div>'+
-  '<div id="cor_ver_box" style="margin-bottom:9px"></div>'+
+  '<div class="corverrow"><div id="cor_ver_box"></div>'+
+    '<button type="button" class="ghost corcheck" onclick="corCheck()">'+ic('redo')+esc(T('cor_check'))+'</button></div>'+
   '<div class="agx-act">'+
     '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
@@ -8455,7 +8462,21 @@ async function loadCoreVersions(want){
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
  var sel=want||ssVal('corver')||(items.length?items[0].v:'');   // default to the newest real version (no synthetic "latest")
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
- box.innerHTML=ssHTML('corver',items,sel,T('ag_pick_version'),'')}
+ // Nothing cached yet means the operator has not checked. Say so in the picker instead of showing an
+ // empty control that looks broken.
+ box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'')
+   :'<div class="setfield" style="opacity:.7;cursor:default"><span class="val">'+esc(T('cor_ver_empty'))+'</span></div>'}
+// The panel no longer polls GitHub on its own. This is the ONLY thing that fetches the release list,
+// and it runs when the operator asks. It reports what it found rather than silently reordering the
+// dropdown, because "is there a new version" is the actual question being asked.
+async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textContent=T('cor_checking')}
+ var res=await post('core-check',{});var d=(res&&res.d)||{};
+ if(!(res.ok&&d.ok)){if(m){m.className='msg err';m.textContent=terr(d.error||T('err_github'))}return}
+ await loadCoreVersions();
+ if(m){m.className='msg ok';
+  m.textContent=!d.count?T('cor_check_none')
+    :d.first_check?T('cor_check_first').replace('{n}',d.count)
+    :d.newer?T('cor_check_new'):T('cor_check_same')}}
 async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';m.textContent=T('cor_downloading');
  var res=await post('core-stage',{version:ver});
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+CK;loadCoreVersions()}
