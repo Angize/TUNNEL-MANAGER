@@ -3873,8 +3873,15 @@ def _restore_link(A, B, L, extra=None):
     _rs, _ab = max(0, min(86400, int(L.get("rotate_secs") or 0))), bool(L.get("auto_burn"))
     for N, self_ip, peer_ip, own, peer in ((A, L["a_ip"], L["b_ip"], _ap, _bp), (B, L["b_ip"], L["a_ip"], _bp, _ap)):
         if N:
+            # `enabled` must be explicit. The rebuild path op_delete's both ends BEFORE it builds, and
+            # op_delete os.remove()s the persisted config — so by the time a rollback runs there is no
+            # stored value left for the node to carry forward, and its `d.get("enabled", old..., True)`
+            # falls all the way through to True. A tunnel the operator had deliberately switched OFF
+            # therefore came back ON after any failed edit or rebuild. All three real build paths pass
+            # this key; only the rollback did not.
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
-                    "subnet": L["subnet"], "id": tid, "name": L["name"], **extra}
+                    "subnet": L["subnet"], "id": tid, "name": L["name"],
+                    "enabled": L.get("enabled", True), **extra}
             role = _core_role(L, N["id"])
             if role:
                 body["role"] = role
