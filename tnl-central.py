@@ -3797,6 +3797,12 @@ def _restore_link(A, B, L, extra=None):
                 body["role"] = role
                 if _rot:   # replay the stored IP-rotation pools for this node's role
                     _apply_core_rotation(body, role == "client", own, peer, _rs, _ab)
+                # ...and the fleet-wide timing, exactly like the three real build paths. Without this a
+                # rolled-back tunnel came back UP but with the core's compiled-in keepalive / dead-window
+                # instead of the operator's, silently, on the very path where they are already reading an
+                # error about something else. Both args are this one body; _apply_core_tuning stamps them
+                # identically.
+                _apply_core_tuning(body, body)
             try:
                 node_call(N, "tunnel", "POST", body, timeout=200)
             except Exception:
@@ -6473,8 +6479,9 @@ var I18N={fa:{
  set_g2:"۲) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
  set_g3:"۳) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
  set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
- set_g5:"۵) تشخیصِ مرگِ دیتاگرام",set_g5h:"بی‌هندشیک",set_g5c:"udp / raw / flux",
- set_g6:"۶) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
+ set_g7:"۵) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
+ set_g5:"۶) تشخیصِ مرگِ دیتاگرام",set_g5h:"بی‌هندشیک",set_g5c:"udp / raw / flux",
+ set_g6:"۷) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
  set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"اتاقِ انتظارِ بسته‌ها در کرنل؛ بزرگ‌تر = در انفجارِ ترافیک کمتر دور ریخته می‌شود",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
  set_x_rec:"<b>۱۵</b> = هر ۱۵ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
@@ -8515,7 +8522,13 @@ function tuningCard(s){
     '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 2px"></div>')+
   grp('set_g4','set_g4h','set_g4c','sc-both tun-auto',
     qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100))+
-    qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400))+
+    qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400)))+
+  /* NOT tun-auto: ping-loss and min-liveness are applied by ApplyTuning unconditionally and consumed on
+     paths that never consult the dead window (the client drops after N unanswered keepalives; a session
+     shorter than min-liveness is charged as a data failure against that endpoint). While they sat in the
+     tun-auto group a positive fixed deadline greyed them out and labelled them "no effect", so two fully
+     live knobs became permanently uneditable and were advertised as inert. */
+  grp('set_g7','set_g7h','set_g7c','sc-both',
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
     qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600)))+
   grp('set_g5','set_g5h','set_g5c','sc-dgram tun-auto',
