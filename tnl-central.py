@@ -2791,8 +2791,19 @@ def api_fleet(d):
                "drift": link_drift(L["id"]), **tfl.get(L["id"], {})}
         # Live active pool IP: the CLIENT node writes .peerpool (active destination) / .srcpool (active
         # source); surface it per side so the card shows the IP the tunnel is really on right now (the
-        # server's box = active destination, the client's box = active source). Present only when that
-        # side actually rotates (>=2 in its pool -> the node wrote the file).
+        # server's box = active destination, the client's box = active source).
+        #
+        # `*_ip_rot` (the rotation mark) is a property of the POOL, not of the status file. It used to be
+        # set to True whenever a status file carried an active address, on the assumption written in the
+        # old comment here: ">=2 in its pool -> the node wrote the file". That assumption is dead. The
+        # core deliberately builds a ONE-entry source pool (main.go gates on len(SrcIPs) >= 1) to PIN a
+        # client's source IP, because bind_ip only works on the TCP family — and a one-entry pool writes
+        # its status file just like a real one. So a node with a single IP was marked as rotating, with a
+        # tooltip that told the operator it "cycles between several IPs", while PeerPool provably never
+        # moves it (TestPeerPoolSingleEndpointNoop). Read the pool itself instead.
+        #
+        # Set unconditionally, unlike the active IP: whether a side rotates is CONFIGURATION and is always
+        # known, while the active address is live state that may not exist yet (node down, core starting).
         if L.get("type") == "core" and L.get("ip_rotate"):
             srvA = (L.get("server_side") != "b")
             cl = lb if srvA else la  # the client is the non-server node
@@ -2800,10 +2811,12 @@ def api_fleet(d):
             dact = str(pd.get("dst") or "").split(":")[0]  # active destination (bare IP)
             sact = str(pd.get("src") or "").split(":")[0]  # active source (bare IP)
             a_act, b_act = (dact, sact) if srvA else (sact, dact)
+            rec["a_ip_rot"] = len([x for x in (L.get("a_ip_pool") or []) if x]) >= 2
+            rec["b_ip_rot"] = len([x for x in (L.get("b_ip_pool") or []) if x]) >= 2
             if a_act:
-                rec["a_ip_active"], rec["a_ip_rot"] = a_act, True
+                rec["a_ip_active"] = a_act
             if b_act:
-                rec["b_ip_active"], rec["b_ip_rot"] = b_act, True
+                rec["b_ip_active"] = b_act
         out.append(rec)
     return {"links": out, "total": total, "offset": off, "limit": lim}
 
@@ -7669,12 +7682,15 @@ function coreCard(l){
  if(!l.ip_rotate){   // rotation OFF: evict any stale cached rotating IP so the icon + active-IP don't linger from a prior rotation
    var ce=false;if(PEERST[ka]){delete PEERST[ka];ce=true}if(PEERST[kb]){delete PEERST[kb];ce=true}if(ce)peerStSave();
  }else if(_aA||_aB){var ch=false;
-   if(_aA&&(PEERST[ka]||{}).ip!==_aA){PEERST[ka]={ip:_aA,rot:!!l.a_ip_rot};ch=true}
-   if(_aB&&(PEERST[kb]||{}).ip!==_aB){PEERST[kb]={ip:_aB,rot:!!l.b_ip_rot};ch=true}
+   if(_aA&&(PEERST[ka]||{}).ip!==_aA){PEERST[ka]={ip:_aA};ch=true}
+   if(_aB&&(PEERST[kb]||{}).ip!==_aB){PEERST[kb]={ip:_aB};ch=true}
    if(ch)peerStSave();}
  var _pa=PEERST[ka]||{},_pb=PEERST[kb]||{};
  var _aip=_aA||_pa.ip||l.a_ip,_bip=_aB||_pb.ip||l.b_ip;
- var _arot=(l.a_ip_rot||_pa.rot)?rotMark():'',_brot=(l.b_ip_rot||_pb.rot)?rotMark():'';
+ // The rotation mark comes from the record ONLY. The cache holds the last active IP so a reload
+ // paints instantly, but it must not carry `rot`: the entry is rewritten only when the IP CHANGES,
+ // so a side that stops rotating (a pool trimmed to one) would keep a stale rot:true forever.
+ var _arot=l.a_ip_rot?rotMark():'',_brot=l.b_ip_rot?rotMark():'';
  var body='<div class="tninfo">'+
   '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="tnend"><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="cprot" id="cprot_a_'+l.id+'">'+_arot+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(_aip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
@@ -7852,7 +7868,7 @@ function peerApply(st){
 function peerRemain(next){return _cdRemain(_peerData.now,_peerData.polledMs,next);}
 function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
-function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
+function peerRow(side,ip,fixed){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
   var rowc,sc,sic,stt;
   if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
   else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
@@ -7872,7 +7888,9 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
-  if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
+  // No pin button on a single-address side: "jump to this endpoint" resolves to the one already active.
+  if(fixed){}
+  else if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
   else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
   // No delete button here on purpose: an IP is removed from the pool in the rotation-config section
   // (drop it + Save rebuilds), so a second live-view delete would just be a redundant path.
@@ -7888,6 +7906,11 @@ function peerAccOpen(side){var d=_peerData[side];if(!d)return true;
 function peerAcc(side){if(!_peerData.open)_peerData.open={};
   _peerData.open[side]=!peerAccOpen(side);peerRender();}
 function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '';
+  // ONE address is not a pool. The core still builds a 1-entry PeerPool there — that is how a client's
+  // source IP gets pinned when bind_ip cannot do it (udp/raw/flux) — but it provably never moves, so
+  // the per-row pin button has nothing to switch to. The heading is unchanged: the operator already
+  // knows how many IPs the side has, and the rotation mark on the tunnel card carries the distinction.
+  var fixed=d.addrs.length<2;
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
   var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
   var acc=d.addrs.length>PEER_ACC_MIN,open=peerAccOpen(side);
@@ -7898,7 +7921,7 @@ function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '
     +'<div class="pacctl"><div class="pacct">'+esc(lab)+'</div><div class="paccs">'+badges+'</div></div>'
     +'<div style="display:flex;align-items:center;gap:8px">'+chev+'</div></div>';
   var body='<div class="paccbody"'+(open?'':' style="display:none"')+'><div class="rpool">'
-    +d.addrs.map(function(ip){return peerRow(side,ip)}).join('')+'</div></div>';
+    +d.addrs.map(function(ip){return peerRow(side,ip,fixed)}).join('')+'</div></div>';
   return '<div class="pacc">'+hd+body+'</div>';}
 function peerRender(){var host=el('ee_peerlive');if(!host)return;
   var boxes=peerBox('dst',T('dst_ip'))+peerBox('src',T('src_ip'));
