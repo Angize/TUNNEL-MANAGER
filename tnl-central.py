@@ -2913,6 +2913,80 @@ def _core_bind_keys(bindings):
     return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
 
 
+# The UDP destination ports each flux carrier rotates across. MIRRORS the core's flux.go
+# (fluxDportPool / fluxStunDports); tools/tuning_consistency.py fails if they drift.
+FLUX_UDP_DPORTS = (443, 3478, 19302, 5349, 8801)
+FLUX_STUN_DPORTS = (3478, 19302, 5349)
+
+
+def _flux_drop_points(rec):
+    """[(node_id, peer_ip, udp_port)] a flux tunnel's anti-leak rules DROP inbound traffic on.
+
+    flux receives via AF_PACKET — before the IP stack — so the kernel sees frames nobody is listening
+    for and answers ICMP port-unreachable, revealing that no real STUN/QUIC service runs here. A
+    raw-PREROUTING DROP silences that. The rule covers EVERY pool port at once rather than the current
+    epoch's, deliberately, so an epoch rotation never has to touch iptables — and that is exactly why
+    it can also swallow an UNRELATED tunnel's traffic from the same peer.
+    Both ends install it: the client at dial, the server on the first authenticated frame.
+    The `raw` flux carrier is exempt: it rotates IP PROTOCOL numbers, and that pool already excludes
+    253 so a co-located raw/bip tunnel survives — the guard this one was missing."""
+    if str(rec.get("type") or "") != "core" or str(rec.get("transport") or "").lower() != "flux":
+        return []
+    carrier = str(rec.get("flux_carrier") or "udp").lower()
+    if carrier == "raw":
+        return []
+    ports = FLUX_STUN_DPORTS if carrier == "stun" else FLUX_UDP_DPORTS
+    out = []
+    for p in ports:
+        out.append((rec.get("a_node"), rec.get("b_ip"), p))   # on A, dropping traffic from B
+        out.append((rec.get("b_node"), rec.get("a_ip"), p))   # on B, dropping traffic from A
+    return out
+
+
+def _udp_recv_points(rec):
+    """[(node_id, peer_ip, udp_port)] this tunnel RECEIVES UDP on — exactly what a flux DROP rule on
+    the same node, from the same peer, on the same port would swallow.
+
+    Only a LISTENING side counts: a core udp client dials from a random ephemeral source port, which
+    the pool can never match. fou/l2tpv3/vxlan decap on that port at BOTH ends."""
+    ttype = str(rec.get("type") or "")
+    p = int(rec.get("port") or _default_tunnel_port(ttype, rec.get("tunnel_id")) or 0)
+    if not p:
+        return []
+    if ttype in ("fou", "l2tpv3", "vxlan"):
+        return [(rec.get("a_node"), rec.get("b_ip"), p), (rec.get("b_node"), rec.get("a_ip"), p)]
+    if ttype == "core" and str(rec.get("transport") or "udp").lower() == "udp":
+        if (rec.get("server_side") or "a") == "a":
+            return [(rec.get("a_node"), rec.get("b_ip"), p)]
+        return [(rec.get("b_node"), rec.get("a_ip"), p)]
+    return []
+
+
+def _flux_drop_conflict(src, exclude_id=None):
+    """The stored link a flux anti-leak DROP rule would black-hole (or that would black-hole THIS
+    tunnel), or None.
+
+    The core cannot make this call: it has no idea what else runs on the node. The panel does, and it
+    already owns port-conflict checking, so the collision is refused at build time with a clear error
+    instead of silently killing a previously healthy tunnel — the failure mode is a tunnel that just
+    stops carrying traffic, with no event, no log and a perfectly healthy network.
+
+    Two flux tunnels between the same pair are NOT a conflict: neither receives UDP on a pool port, so
+    their identical rules are harmless."""
+    drop = set(_flux_drop_points(src))
+    recv = set(_udp_recv_points(src))
+    if not drop and not recv:
+        return None
+    for L in load_links():
+        if exclude_id and L.get("id") == exclude_id:
+            continue
+        if drop and drop & set(_udp_recv_points(L)):
+            return L
+        if recv and recv & set(_flux_drop_points(L)):
+            return L
+    return None
+
+
 def _core_l4_conflict(new_binds, exclude_id=None):
     """Registry-level conflict check for a core tunnel. Core is CARRIER-MULTIPLEXED on its server IP:
     only udp/tcp/ws bind an EXCLUSIVE kernel port (returned by _port_bindings), so two core tunnels
@@ -3641,6 +3715,15 @@ def _create_tunnel_impl(d):
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
         if _clash:
             raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن (حامل‌های دیگر/پورت‌های دیگر روی همین آی‌پی مجازند)")
+    # A flux udp/stun tunnel DROPs inbound UDP from its peer on every rotation port, so it would
+    # silently black-hole an unrelated tunnel that receives UDP from that same peer on one of them.
+    # Checked for BOTH tunnel types (core and the kernel UDP carriers), in both directions.
+    _fx = _flux_drop_conflict({**extra, "type": ttype, "a_node": A["id"], "b_node": B["id"],
+                               "a_ip": a_ip, "b_ip": b_ip, "tunnel_id": tid, "server_side": server_side})
+    if _fx:
+        raise ValueError(f"با تونلِ «{_fx.get('name')}» تداخل دارد: حاملِ flux روی پورت‌های چرخشی‌اش "
+                         f"({', '.join(str(x) for x in FLUX_UDP_DPORTS)}) ترافیکِ UDPِ ورودی از همان نود را "
+                         f"می‌اندازد و آن تونل بی‌صدا می‌میرد؛ پورتِ دیگری برای یکی از این دو انتخاب کن")
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
     node_extra = _node_extra(extra)
@@ -4096,6 +4179,15 @@ def _edit_link_impl(d):
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
         if _clash:
             raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن")
+    # Same flux anti-leak check as create — an edit can introduce the collision either way round: by
+    # switching this tunnel TO flux/udp, or by moving another one ONTO a rotation port.
+    _fx = _flux_drop_conflict({**extra, "type": ttype, "a_node": A["id"], "b_node": B["id"],
+                               "a_ip": a_ip, "b_ip": b_ip, "tunnel_id": tid, "server_side": server_side},
+                              exclude_id=L.get("id"))
+    if _fx:
+        raise ValueError(f"با تونلِ «{_fx.get('name')}» تداخل دارد: حاملِ flux روی پورت‌های چرخشی‌اش "
+                         f"({', '.join(str(x) for x in FLUX_UDP_DPORTS)}) ترافیکِ UDPِ ورودی از همان نود را "
+                         f"می‌اندازد و آن تونل بی‌صدا می‌میرد؛ پورتِ دیگری برای یکی از این دو انتخاب کن")
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
     # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
     # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running

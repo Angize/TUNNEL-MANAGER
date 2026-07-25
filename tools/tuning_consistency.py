@@ -168,6 +168,23 @@ def main():
         check(tuple(p_rng.get("sock_buf_mb")) == (0, sb_max),
               f"sock_buf range: panel={tuple(p_rng.get('sock_buf_mb'))} core=(0 means off, max {sb_max} MiB)")
 
+    print("== 2b) flux rotation port pools: panel vs core (flux.go) ==")
+    # The panel needs these to refuse a tunnel whose UDP port a flux anti-leak DROP rule would swallow.
+    # That is a COPY of a core constant, which is the exact shape that rots silently — so guard it.
+    flux_go = (Path(a.core) / "internal" / "packet" / "flux.go").read_text(encoding="utf-8")
+    for panel_name, go_name in (("FLUX_UDP_DPORTS", "fluxDportPool"), ("FLUX_STUN_DPORTS", "fluxStunDports")):
+        m = re.search(r"var\s+" + go_name + r"\s*=\s*\[\]uint16\{([^}]*)\}", flux_go)
+        if not m:
+            check(False, f"{panel_name}: CANNOT PARSE {go_name} in flux.go -- THIS SCRIPT is out of date")
+            continue
+        core_ports = tuple(int(x) for x in re.findall(r"\d+", m.group(1)))
+        try:
+            panel_ports = tuple(panel_const(panel_src, panel_name))
+        except KeyError:
+            check(False, f"{panel_name}: missing from the panel")
+            continue
+        check(panel_ports == core_ports, f"{panel_name}: panel={panel_ports} core={core_ports}")
+
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
     check(n_keys == expected,
