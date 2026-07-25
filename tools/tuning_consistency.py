@@ -85,7 +85,14 @@ def go_default(src, var, is_list):
 
 
 def go_clamp(src, field):
-    m = re.search(r"tclamp(?:64|Int)\(t\." + re.escape(field) + r",\s*(\d+),\s*(\d+)\)", src)
+    """The (lo, hi) ApplyTuning clamps a knob, or None when the clamp cannot be located.
+
+    The suffix is optional because the core merged tclamp64/tclampInt into ONE generic
+    `func tclamp[T int | int32 | int64]`. While this regex still demanded the suffix it matched
+    nothing, so every knob reported core=None — the guard was red on all 11 ranges and, worse, was
+    verifying nothing about them. Keep both spellings accepted so the guard survives either shape.
+    """
+    m = re.search(r"tclamp(?:64|Int)?\(t\." + re.escape(field) + r",\s*(\d+),\s*(\d+)\)", src)
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
@@ -126,7 +133,14 @@ def main():
             c_clamp = go_clamp(tuning_go, go_field)
             pr = p_rng.get(panel_key)
             pr = tuple(pr) if pr is not None else None
-            check(pr == c_clamp, f"range   {panel_key}: panel={pr} core={c_clamp}")
+            if c_clamp is None:
+                # Say WHY it is None. A silent "core=None" reads like drift the operator should fix in
+                # the panel, when it actually means this guard stopped parsing tuning.go — which is how
+                # it sat red-but-useless after tclamp64/tclampInt merged into a generic tclamp.
+                check(False, f"range   {panel_key}: CANNOT PARSE the core clamp for t.{go_field}"
+                             f" -- tuning.go changed shape and THIS SCRIPT is out of date (panel={pr})")
+            else:
+                check(pr == c_clamp, f"range   {panel_key}: panel={pr} core={c_clamp}")
 
     print("== 2) top-level config.go knobs (keepalive / dead_after_secs) ==")
     ka_def = int(re.search(r"c\.Keepalive\s*=\s*(\d+)", config_go).group(1))
