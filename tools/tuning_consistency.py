@@ -154,6 +154,19 @@ def main():
     check(tuple(p_rng.get("dead_after_secs"))[1] == da_hi,
           f"dead_after_secs max: panel={tuple(p_rng.get('dead_after_secs'))[1]} core={da_hi}")
     check(da_lo == 10, f"dead_after_secs core positive-floor is {da_lo} (panel floors a positive value to 10)")
+    # sock_buf is the one knob stored in a DIFFERENT UNIT than the core reads: the panel keeps MiB
+    # (sock_buf_mb) and _apply_core_tuning multiplies to bytes, so compare after converting. The core's
+    # own default is written as a shift (4 << 20), and its clamp ceiling likewise.
+    sb_def_m = re.search(r"c\.SockBuf\s*=\s*(\d+)\s*<<\s*20", config_go)
+    sb_max_m = re.search(r"c\.SockBuf\s*>\s*(\d+)\s*<<\s*20", config_go)
+    if not sb_def_m or not sb_max_m:
+        check(False, "sock_buf: CANNOT PARSE the core default/clamp in config.go -- THIS SCRIPT is out of date")
+    else:
+        sb_def, sb_max = int(sb_def_m.group(1)), int(sb_max_m.group(1))
+        check(p_def.get("sock_buf_mb") == sb_def and js_ok("sock_buf_mb", sb_def),
+              f"sock_buf default: panel={p_def.get('sock_buf_mb')} MiB core={sb_def} MiB")
+        check(tuple(p_rng.get("sock_buf_mb")) == (0, sb_max),
+              f"sock_buf range: panel={tuple(p_rng.get('sock_buf_mb'))} core=(0 means off, max {sb_max} MiB)")
 
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
