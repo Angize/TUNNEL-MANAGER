@@ -2590,9 +2590,37 @@ def _staged_bytes(arch):
     return raw, hashlib.sha256(raw).hexdigest(), ver
 
 
+def _node_arch(node):
+    """The CPU architecture to push a core binary for, or "" when it cannot be established.
+
+    nodes.json has NEVER carried an `arch` key — no write path adds one (api_node_add, the SSH
+    installer and api_node_edit all build the record without it) — so reading it off the record and
+    defaulting to amd64 sent the x86-64 asset to EVERY node. An arm64 node then chmod-755'd that binary
+    into CORE_BIN and rebuilt its tunnels: each core died with "Exec format error", every core tunnel on
+    that node stayed down, and it never self-corrected because the agent page compares the node's
+    reported sha against the staged one, so it read "update available" forever and each retry pushed the
+    same wrong binary.
+
+    The node already reports its arch in the ping payload, so take it from there: an explicit record
+    value first (the freshly-added-node path passes one in), then the poll cache, then one live ping for
+    a node that has not been polled yet. Returning "" instead of guessing is deliberate — a wrong-arch
+    push is far more damaging than a refused one, and the caller turns it into a clear operator error."""
+    a = str(node.get("arch") or "").strip()
+    if a in ("amd64", "arm64"):
+        return a
+    a = str(_cached_ping(node.get("id") or "").get("arch") or "").strip()
+    if a in ("amd64", "arm64"):
+        return a
+    a = str((node_call(node, "ping", "GET", timeout=10) or {}).get("arch") or "").strip()
+    return a if a in ("amd64", "arm64") else ""
+
+
 def _push_staged(node):
     """Push the staged core to one node via core-install (no node download). Returns a result dict."""
-    b = _staged_bytes(node.get("arch") or "amd64")
+    arch = _node_arch(node)
+    if not arch:
+        return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
+    b = _staged_bytes(arch)
     if not b:
         return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
     raw, sha, ver = b
