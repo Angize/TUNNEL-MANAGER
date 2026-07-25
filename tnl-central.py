@@ -6340,7 +6340,8 @@ body.dark .tag.core{color:#a78bfa}
 .pacc{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--field);margin-top:12px}
 .pacchd{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;gap:10px}
 .pacct{font-size:13px;font-weight:700}
-.paccs{margin-top:5px;display:flex;gap:5px;flex-wrap:wrap}
+.pacchd .pacctl{display:flex;align-items:center;gap:8px;flex:1;min-width:0}   /* title + badges share ONE line */
+.paccs{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 .pbadge{font-size:10px;font-weight:700;border-radius:99px;padding:1px 8px}
 .pbadge.ok{background:rgba(78,201,154,.16);color:var(--ok)}
 .pbadge.bad{background:rgba(240,115,106,.16);color:var(--bad)}
@@ -6372,12 +6373,11 @@ body.dark .tag.core{color:#a78bfa}
 .pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
 /* live peer-pool status (direct-transport rotation): مقصد + مبدأ boxes of health rows + per-IP pin */
-.peerlive{margin-top:12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);padding:11px 12px;display:flex;flex-direction:column;gap:10px}
+.peerlive{margin-top:12px;display:flex;flex-direction:column}
+.peerlive .pacc{margin-top:8px}                       /* each side is its own card now, not a row in one box */
+.peerlive .pllabel{margin-bottom:2px}
 .peerlive .pllabel{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700}
-.plbox{display:flex;flex-direction:column;gap:6px}
-.plbox .plbl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);font-weight:700}
-.plbox .plbadges{margin-inline-start:auto;display:inline-flex;gap:5px}
-.plbox .rpool{border:none;background:transparent;display:flex;flex-direction:column;gap:6px;overflow:visible}
+.peerlive .rpool{border:none;background:transparent;display:flex;flex-direction:column;gap:6px;overflow:visible}
 /* peer-pool row is a COLUMN: top line (icon+ip+actions) then the retest countdown UNDER it, indented */
 .erow.pcol{flex-direction:column;align-items:stretch;flex-wrap:nowrap;row-gap:0}
 .erow.pcol .etop{display:flex;align-items:center;gap:8px}
@@ -7839,7 +7839,7 @@ function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating')
 // in the core edit modal for a running pooled tunnel; poll -> render rows (فعال / در چرخش / سوختهٔ موقت
 // / سوختهٔ دائمی) with a retest countdown and a per-IP pin button, plus a "test all" (probe-now) button.
 var _peerLid='';
-var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
+var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
 async function peerTick(){if(!_peerLid||!el('ee_peerlive'))return;var r=await post('peer-status',{id:_peerLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)peerApply(r.d);}
 (function peerLoop(){setTimeout(function(){Promise.resolve(peerTick()).then(peerLoop,peerLoop)},UIV)})();   // live-cadence self-loop
 function peerApply(st){
@@ -7877,10 +7877,29 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // No delete button here on purpose: an IP is removed from the pool in the rotation-config section
   // (drop it + Save rebuilds), so a second live-view delete would just be a redundant path.
   return '<div class="erow pcol '+rowc+((h&&h.state=='dead')?' dead':'')+'"><div class="etop"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span><span class="eacts">'+acts+'</span></div>'+cd+'</div>';}
+// Above this many addresses a side collapses into an accordion. Three rows read at a glance; a fourth
+// starts pushing the OTHER side (and the roles/save controls) off a phone screen, which is exactly the
+// state a rotating tunnel is normally in.
+var PEER_ACC_MIN=3;
+function peerAccOpen(side){var d=_peerData[side];if(!d)return true;
+  if(d.addrs.length<=PEER_ACC_MIN)return true;                 // short list: no chevron, never collapsed
+  if(!_peerData.open)_peerData.open={};
+  return _peerData.open[side]!==false;}                        // long list: open by default, remembered
+function peerAcc(side){if(!_peerData.open)_peerData.open={};
+  _peerData.open[side]=!peerAccOpen(side);peerRender();}
 function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '';
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
   var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
-  return '<div class="plbox"><div class="plbl">'+esc(lab)+'<span class="plbadges">'+badges+'</span></div><div class="rpool">'+d.addrs.map(function(ip){return peerRow(side,ip)}).join('')+'</div></div>';}
+  var acc=d.addrs.length>PEER_ACC_MIN,open=peerAccOpen(side);
+  // Same .pacc card the CDN-edge / SNI sections use, so both pool views read as the same component:
+  // one card per axis, title and badges on ONE line, chevron only when the list is long enough to hide.
+  var chev=acc?'<div class="pchev'+(open?' open':'')+'">&#9662;</div>':'';
+  var hd='<div class="pacchd"'+(acc?' onclick="peerAcc(\\''+side+'\\')"':' style="cursor:default"')+'>'
+    +'<div class="pacctl"><div class="pacct">'+esc(lab)+'</div><div class="paccs">'+badges+'</div></div>'
+    +'<div style="display:flex;align-items:center;gap:8px">'+chev+'</div></div>';
+  var body='<div class="paccbody"'+(open?'':' style="display:none"')+'><div class="rpool">'
+    +d.addrs.map(function(ip){return peerRow(side,ip)}).join('')+'</div></div>';
+  return '<div class="pacc">'+hd+body+'</div>';}
 function peerRender(){var host=el('ee_peerlive');if(!host)return;
   var boxes=peerBox('dst',T('dst_ip'))+peerBox('src',T('src_ip'));
   // No live data yet: rather than a blank gap (which reads as "the feature is missing"), show WHY — the
@@ -8011,7 +8030,7 @@ function wsPoolInner(idp,fnp,lid){
  function block(kind,label,ph){
    // per-edge selection replaced the header rotate button — pin a specific edge from its row instead.
    return '<div class="pacc"><div class="pacchd" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
-     +'<div><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
+     +'<div class="pacctl"><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
      +'<div style="display:flex;align-items:center;gap:8px"><div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
      +'<div class="paccbody" id="'+idp+'body_'+kind+'">'
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
@@ -8257,7 +8276,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Xhttp=!!l.ws_xhttp;_eeS.XhMode=(l.ws_xhttp_mode=='grpc')?'grpc':'packet';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null};
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Xhttp=!!l.ws_xhttp;_eeS.XhMode=(l.ws_xhttp_mode=='grpc')?'grpc':'packet';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
  var aips=l.a_ips||[],bips=l.b_ips||[];
  // rotate_secs=0 is «فقط هنگامِ قطع», a real stored value the backend clamps to (0..86400) — not an
  // absent field. `||600` treated it as absent because 0 is falsy in JS, so opening the edit form on a
