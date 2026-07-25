@@ -7920,10 +7920,27 @@ var _rotS={};
 function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
 function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+esc(T('cor_tab_ips'))+'</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+esc(T('cor_tab_set'))+'</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0;var _tb=box.querySelector('.trbar');if(_tb)trFade(_tb)}
-function rotSetHTML(px){var st=rotSt(px),cur=String(st.secs||0);
- function opt(vv,lab){return '<option value="'+vv+'"'+(cur==vv?' selected':'')+'>'+esc(lab)+'</option>'}
+// Rotation-interval presets — the same minute-scale set the flux epoch and the ws edge pool already
+// offer, so every rotation control in the panel reads identically. The old sub-minute choice is gone:
+// each destination hop costs a full re-handshake (the session is dropped and rebuilt), so a 1-minute
+// interval bought a traffic gap every minute for no real anti-detection gain. 0 = failover-only (rotate
+// only when an endpoint actually dies) and stays LAST, exactly like the ws pool's «خاموش» entry.
+var ROT_PRESETS=[180,300,600,900,1800,3600];
+var ROT_LABELS={180:'rot_3m',300:'rot_5m',600:'rot_10m',900:'rot_15m',1800:'rot_30m',3600:'rot_1h'};
+// rotNorm snaps a STORED interval onto the preset list so a legacy value (the retired 60s option, or
+// anything hand-set through the API) opens on the nearest preset instead of an empty placeholder. It
+// only changes what the form SHOWS; the tunnel keeps its stored value until the operator saves.
+// 0 is passed through untouched — it is a mode, not a duration.
+function rotNorm(v){v=parseInt(v)||0;if(v<=0)return 0;
+ var b=ROT_PRESETS[0];for(var i=1;i<ROT_PRESETS.length;i++){if(Math.abs(ROT_PRESETS[i]-v)<Math.abs(b-v))b=ROT_PRESETS[i]}
+ return b}
+// Styled list (ssHTML) rather than a native <select>, matching the IP/node pickers and the ws pool's
+// own interval list — the native control renders as an OS sheet that looks nothing like the rest.
+function rotSetHTML(px){var st=rotSt(px);
+ var items=ROT_PRESETS.map(function(v){return {v:v,label:T(ROT_LABELS[v])}});
+ items.push({v:0,label:T('rot_onfail')});
  return '<div id="'+px+'rotset" style="display:none;margin-top:2px"><label class="first">'+esc(T('rot_interval'))+'</label>'+
- '<select id="'+px+'rotsecs" style="width:100%;height:44px">'+opt('0',T('rot_onfail'))+opt('60',T('rot_1m'))+opt('300',T('rot_5m'))+opt('600',T('rot_10m'))+'</select></div>'}
+ ssHTML(px+'rotsecs',items,rotNorm(st.secs),T('rot_interval'))+'</div>'}
 function rotTr(px){return px=='e_'?_corS.Tr:_eeS.Tr}
 function rotIsDirect(px){return _ENUMS.tr_direct.indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
@@ -7957,7 +7974,10 @@ function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bS
 function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
  function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,out=[];ips.forEach(function(ip){if(sel[ip])out.push(ip)});return out}
  var ap=pool('a'),bp=pool('b');if(ap.length<2&&bp.length<2)return null;
- var secs=parseInt((el(px+'rotsecs')||{}).value)||0;
+ // Styled list, not a native <select>, so read through ssVal. The `||0` is load-bearing: ssVal is
+ // SEL[key]||'' and the failover-only entry's value is the NUMBER 0, which is falsy, so an untouched
+ // failover selection reads back as '' and must fall through to 0 (same shape the ws pool relies on).
+ var secs=parseInt(ssVal(px+'rotsecs'))||0;
  // auto-burn is always on now (like the ws edge pool): a blocked IP is sidelined and retested on
  // backoff, returning to rotation when healthy — no operator toggle.
  return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:true,a_ip:ap[0]||'',b_ip:bp[0]||''}}
