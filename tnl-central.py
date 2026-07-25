@@ -3173,16 +3173,20 @@ def _fec_fields(d, transport, cur=None):
     return out
 
 
-def _desync_fields(d, transport, cur=None):
+def _desync_fields(d, transport, cur=None, xhttp=False):
     """Fake-packet desync (anti-DPI): the client emits decoy packets that reach an on-path DPI but
     not the server, mis-syncing a stateful DPI while the real session is untouched. raw/flux forge
     whole IPv4 decoys; tcp/ws inject decoy TCP segments on the kernel connection's 4-tuple. Not on
-    plain udp (no injection hook). cur (the existing link) supplies edit defaults so a partial edit
+    plain udp (no injection hook), and NOT on the ws carrier's xhttp mode — its conn is synthetic, so
+    the injector's *net.TCPAddr assertion fails and no decoy is ever emitted. cur (the existing link)
+    supplies edit defaults so a partial edit
     keeps the stored config. Returns {} when off / not applicable — so switching to udp cleanly
     drops the fields."""
     out = {}
     if transport not in DESYNC_TRANSPORTS:
         return out
+    if transport == "ws" and xhttp:
+        return out   # xhttp has no real TCP 4-tuple for the injector to mirror; the core rejects it
     cur = cur or {}
     on = bool(d.get("fake_desync")) if ("fake_desync" in d) else bool(cur.get("fake_desync"))
     if not on:
@@ -3634,7 +3638,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if transport == "ws":                      # WebSocket carrier (CDN-frontable)
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))    # FEC (datagram carriers only); {} elsewhere
-    ce.update(_desync_fields(d, transport, cur)) # fake-packet desync (raw/flux only); {} elsewhere
+    ce.update(_desync_fields(d, transport, cur, bool(ce.get("ws_xhttp"))))  # fake-packet desync; {} when off / not applicable
     # obfs/cover/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
     # doesn't strip the anti-DPI layer, TLS cover, or throughput offload. On create cur={} makes each
     # fallback None/False — identical to reading only d.
@@ -7684,8 +7688,8 @@ function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best'
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'xhttp',m:T('wsp_xhttp_m')}]}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function corSetWsProf(p){_corS.Xhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corS.Xhttp?'':'none';corWssGate()}
-function ceSetWsProf(p){_eeS.Xhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeS.Xhttp?'':'none';ceWssGate()}
+function corSetWsProf(p){_corS.Xhttp=(p=='xhttp');var g=el('e_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('e_xhmblk');if(mb)mb.style.display=_corS.Xhttp?'':'none';corWssGate();corDesyncGate()}
+function ceSetWsProf(p){_eeS.Xhttp=(p=='xhttp');var g=el('ee_wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)});var mb=el('ee_xhmblk');if(mb)mb.style.display=_eeS.Xhttp?'':'none';ceWssGate();ceDesyncGate()}
 // xhttp upstream style: packet-up (default) | gRPC. Shown only when the XHTTP profile is picked.
 function XHTTP_MODES(){return [{v:'packet',n:'packet-up',m:T('xhm_packet_m')},{v:'grpc',n:'gRPC',m:T('xhm_grpc_m')}]}
 function xhModeTiles(px,cur){return XHTTP_MODES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xm="'+p.v+'" onclick="'+px+'SetXhMode(\\''+p.v+'\\')"><div class="pn">'+p.n+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
@@ -7961,10 +7965,13 @@ function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'d
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
-function corDesyncGate(){var dg=(_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='tcp'||_corS.Tr=='ws'),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+// xhttp is excluded: its conn is synthetic, so the AF_PACKET injector has no real 4-tuple to mirror
+// and not one decoy is ever emitted. The core rejects the combination outright, so leaving the
+// toggle visible would only let the operator build a tunnel that fails validation.
+function corDesyncGate(){var dg=((_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='tcp')||(_corS.Tr=='ws'&&!_corS.Xhttp)),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
 function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
-function ceDesyncGate(){var dg=(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp'||_eeS.Tr=='ws'),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function ceDesyncGate(){var dg=((_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp')||(_eeS.Tr=='ws'&&!_eeS.Xhttp)),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 // ---- wss + ECH toggles live down in the general feature-toggle area (next to obfs / cover /
 // gso), not inside the ws block, so they stay put in single AND pool mode. They are shown only
 // when the carrier is WS/CDN (corWsVis/ceWsVis) and hidden otherwise, like the tcp-only cover.
