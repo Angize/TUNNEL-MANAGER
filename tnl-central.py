@@ -1284,13 +1284,13 @@ def _apply_core_tuning(a_body, b_body):
 # The packet-up upstream shape per CDN. The binding constraint is requests/sec from one address,
 # not bandwidth: measured on a real ArvanCloud edge at ~120ms RTT, the Cloudflare shape (8 workers,
 # ~70 POST/s) gets the source IP TCP-blocked for ~3.5 minutes, while 4x512K at ~33/s runs clean at
-# 4/106 Mbit. Cloudflare never blinked at either. xh_up_rate is the portable half — workers/RTT is
+# 4/106 Mbit. Cloudflare never blinked at either. http_up_rate is the portable half — workers/RTT is
 # the real rate, so a worker count alone means something different on a fast path than a slow one.
 # "cf" carries the core's own defaults, so it emits NOTHING and a Cloudflare tunnel is byte-identical
 # to before this existed.
-XH_PROFILES = {
+CDN_PROFILES = {
     "cf":    {},
-    "arvan": {"xh_up_workers": 4, "xh_up_batch_kb": 512, "xh_up_rate": 30},
+    "arvan": {"http_up_workers": 4, "http_up_batch_kb": 512, "http_up_rate": 30},
 }
 
 
@@ -1354,15 +1354,13 @@ def _tunnel_extra(src, refetch_ech=True):
             e["sni_mode"] = src["sni_mode"]
             if src.get("split_ttl"):
                 e["split_ttl"] = int(src["split_ttl"])
-    if src.get("ws_xhttp"):              # xhttp mode (bypasses WebSocket block)
-        e["ws_xhttp"] = True
-        if src.get("ws_xhttp_mode") in ("packet", "grpc"):  # upstream style: packet-up | grpc
-            e["ws_xhttp_mode"] = src["ws_xhttp_mode"]
+    if src.get("cdn_carrier") in ("http", "grpc"):   # the shape this CDN carrier takes
+        e["cdn_carrier"] = src["cdn_carrier"]
         # The CDN profile is stored as a NAME and expanded here, so the numbers exist in exactly one
         # place and a stored tunnel picks up a retuned profile on its next rebuild. grpc has no POST
         # ladder, so the shape is meaningless there.
-        if src.get("ws_xhttp_mode") != "grpc":
-            e.update(XH_PROFILES.get(str(src.get("xh_profile") or "cf"), {}))
+        if src.get("cdn_carrier") == "http":
+            e.update(CDN_PROFILES.get(str(src.get("cdn_profile") or "cf"), {}))
     if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
         e["ech"] = True
         host = src.get("ws_host")
@@ -3202,11 +3200,11 @@ def _fec_fields(d, transport, cur=None):
     return out
 
 
-def _desync_fields(d, transport, cur=None, xhttp=False):
+def _desync_fields(d, transport, cur=None, is_http=False):
     """Fake-packet desync (anti-DPI): the client emits decoy packets that reach an on-path DPI but
     not the server, mis-syncing a stateful DPI while the real session is untouched. raw/flux forge
     whole IPv4 decoys; tcp/ws inject decoy TCP segments on the kernel connection's 4-tuple. Not on
-    plain udp (no injection hook), and NOT on the ws carrier's xhttp mode — its conn is synthetic, so
+    plain udp (no injection hook), and NOT on the ws carrier's HTTP shape — its conn is synthetic, so
     the injector's *net.TCPAddr assertion fails and no decoy is ever emitted. cur (the existing link)
     supplies edit defaults so a partial edit
     keeps the stored config. Returns {} when off / not applicable — so switching to udp cleanly
@@ -3214,8 +3212,8 @@ def _desync_fields(d, transport, cur=None, xhttp=False):
     out = {}
     if transport not in DESYNC_TRANSPORTS:
         return out
-    if transport == "ws" and xhttp:
-        return out   # xhttp has no real TCP 4-tuple for the injector to mirror; the core rejects it
+    if transport == "ws" and is_http:
+        return out   # the HTTP carrier has no real TCP 4-tuple for the injector to mirror; the core rejects it
     cur = cur or {}
     on = bool(d.get("fake_desync")) if ("fake_desync" in d) else bool(cur.get("fake_desync"))
     if not on:
@@ -3526,29 +3524,31 @@ def _ws_fields(d, transport, cur=None):
             raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد)" % host)
         out["ech"] = True
         out["ws_ech"] = cfg
-    # xhttp: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a
+    # http: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a
     # WebSocket upgrade, so it passes a CDN/account that blocks WebSocket. Independent of
     # wss (works over plain http too, though wss is the usual fronting choice). Single-edge
-    # path only — the pool branch above returns first and builds its OWN xhttp fields, so a
-    # pool's xhttp is handled there (the pool supports xhttp too, via _ws_pool_fields).
-    xh = d.get("ws_xhttp") if ("ws_xhttp" in d) else cur.get("ws_xhttp")
+    # path only — the pool branch above returns first and builds its OWN carrier fields, so a
+    # pool's carrier shape is handled there (the pool supports http too, via _ws_pool_fields).
+    cdn = str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws").strip().lower()
+    if cdn not in ("ws", "http", "grpc"):
+        raise ValueError("حاملِ CDN نامعتبر است")
+    xh = cdn != "ws"
     if bool(xh):
-        out["ws_xhttp"] = True
+        out["cdn_carrier"] = cdn
         # Upstream style: packet-up (default, many short POSTs — most CDN-compatible) or grpc (a
         # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
         # buffering; needs wss).
-        mode = str((d.get("ws_xhttp_mode") if "ws_xhttp_mode" in d else cur.get("ws_xhttp_mode")) or "").strip().lower()
-        if mode == "grpc":
-            out["ws_xhttp_mode"] = "grpc"
+        if cdn == "grpc":
+            pass   # nothing else to record: the carrier value IS the mode
         else:
             # Which CDN this tunnel fronts through, for the upstream shape. Only on packet-up: the
             # ladder is what a WAF counts, and grpc does not have one. Stored as a name; _tunnel_extra
             # turns it into numbers.
-            prof = str((d.get("xh_profile") if "xh_profile" in d else cur.get("xh_profile")) or "cf").strip().lower()
-            if prof not in XH_PROFILES:
+            prof = str((d.get("cdn_profile") if "cdn_profile" in d else cur.get("cdn_profile")) or "cf").strip().lower()
+            if prof not in CDN_PROFILES:
                 raise ValueError("پروفایلِ CDN نامعتبر است")
             if prof != "cf":
-                out["xh_profile"] = prof
+                out["cdn_profile"] = prof
     ss = _sni_split_fields(d, cur)  # SNI fragmentation (wss only)
     if ss:
         if not out.get("ws_tls"):
@@ -3651,7 +3651,7 @@ def _ws_pool_fields(d, cur=None):
         "ws_pool": True,
         "ws_tls": True,
         "ech": ech_on,   # shared toggle; per-SNI ECHConfigList lives inside ws_edge_snis
-        "ws_xhttp": bool(d.get("ws_xhttp") if "ws_xhttp" in d else cur.get("ws_xhttp")),  # xhttp carrier over the pool
+        "cdn_carrier": str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws"),  # carrier shape over the pool
         "ws_edge_ips": clean_ips,
         "ws_edge_ips_burned": burned_ips,
         "ws_edge_snis": snis,                # [{host,ech,path}] — sent to the node + stored
@@ -3661,11 +3661,11 @@ def _ws_pool_fields(d, cur=None):
         "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
     }
-    # xhttp upstream style over the pool (only stored when non-default, mirroring the single edge).
-    if res["ws_xhttp"]:
-        mode = str((d.get("ws_xhttp_mode") if "ws_xhttp_mode" in d else cur.get("ws_xhttp_mode")) or "").strip().lower()
+    # carrier shape over the pool (only stored when non-default, mirroring the single edge).
+    if res["cdn_carrier"] != "ws":
+        mode = res["cdn_carrier"]
         if mode == "grpc":
-            res["ws_xhttp_mode"] = "grpc"
+            res["cdn_carrier"] = "grpc"
     res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
     res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
     return res
@@ -3710,7 +3710,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if transport == "ws":                      # WebSocket carrier (CDN-frontable)
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))    # FEC (datagram carriers only); {} elsewhere
-    ce.update(_desync_fields(d, transport, cur, bool(ce.get("ws_xhttp"))))  # fake-packet desync; {} when off / not applicable
+    ce.update(_desync_fields(d, transport, cur, ce.get("cdn_carrier", "ws") != "ws"))  # fake-packet desync; {} when off / not applicable
     # obfs/cover/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
     # doesn't strip the anti-DPI layer, TLS cover, or throughput offload. On create cur={} makes each
     # fallback None/False — identical to reading only d.
@@ -4335,7 +4335,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "ws_xhttp", "ws_xhttp_mode", "xh_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -5139,7 +5139,7 @@ def _events_once():
         nm = L.get("name", "")
         # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram
         # transport (udp/raw/flux), a direct tcp/cover client (hb + rotation/self-heal ring), or a
-        # single-edge ws/xhttp. For ALL of those, don't ALSO emit a coarse event here or every
+        # single-edge ws/http. For ALL of those, don't ALSO emit a coarse event here or every
         # drop is double-counted (the datagram core's "stale"/"keepalive" down renders as a
         # red "disconnected" in the precise section too). A core with no status ring at all (e.g. a
         # client node offline so the core is dead) relies on the coarse classification below.
@@ -5172,9 +5172,9 @@ def _events_once():
 
     # --- core tunnels: PRECISE core-recorded events (down reason + burns for a ws pool;
     #     self-heal/reconnect reasons for a udp/raw/flux datagram client; src/peer-rotate + burn/heal for
-    #     a direct tcp/cover client; in-band ECH self-heal for a single-edge ws/xhttp client) and — for a
+    #     a direct tcp/cover client; in-band ECH self-heal for a single-edge ws/http client) and — for a
     #     pool — the automatic edge-IP change. The core saw the real error; the panel just renders it.
-    #     Any direct-transport (udp/tcp/raw/flux) client or ws pool / single-edge ws/xhttp writes one. ---
+    #     Any direct-transport (udp/tcp/raw/flux) client or ws pool / single-edge ws/http writes one. ---
     seen = set()
     now = int(time.time())
     # Prefetch every status-ring core tunnel's edge-status IN PARALLEL first. api_edge_status is a live
@@ -6721,7 +6721,7 @@ var I18N={fa:{
  core_edit_t:"ویرایشِ تونلِ هسته",not_found:"یافت نشد",no_change:"تغییری نبود",saved_rebuilt:"ذخیره و بازسازی شد",core_tun_t:"تونلِ هسته",core_tun_sub:"هستهٔ اختصاصی · packet/core",
  core_created:"تونلِ هسته ساخته شد",raw_need_enc:"حاملِ raw به رمزنگاری نیاز دارد",flux_need_enc:"حاملِ flux به رمزنگاری نیاز دارد",
  wss_need_host:"برای wss باید دامنه (Host) را وارد کنی",ech_need_wss:"ECH به wss نیاز دارد — اول wss را روشن کن",sni_need_wss:"تقسیمِ SNI به wss نیاز دارد — اول wss را روشن کن",
- xh_need_wss:"gRPC نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا حاملِ HTTP را انتخاب کن",
+ cdn_need_wss:"gRPC نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا حاملِ HTTP را انتخاب کن",
  decoy_need_ip:"آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن",cover_need_sni:"برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی",
  creating_core:"در حال ساختِ تونلِ هسته روی دو نود…",saving_rebuild_both:"در حال ذخیره و بازسازیِ دو سر…",
  // portfw
@@ -6753,7 +6753,7 @@ var I18N={fa:{
  set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"برای اینکه بفهمد یک آی‌پیِ خراب دوباره سالم شده یا نه، یک اتصالِ آزمایشی می‌زند. این می‌گوید چند ثانیه منتظرِ جوابش بماند. اگر اینترنتت کند است این عدد را زیاد کن، وگرنه آی‌پیِ سالم را هم رد می‌کند.",
  set_g1:"۱) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
  set_g2:"۱) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
- set_g3:"۲) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/xhttp",set_g3c:"فقط WS-CDN",
+ set_g3:"۲) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/http",set_g3c:"فقط WS-CDN",
  set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
  set_g7:"۵) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
  set_g5:"۵) دیتاگرام: کهنگیِ سشن و کارایی",set_g5h:"بی‌هندشیک، به‌علاوهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
@@ -6818,11 +6818,11 @@ var I18N={fa:{
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
- // ws / xhttp profiles
- xh_prof_lbl:"CDNِ روبه‌رو",
- xhp_cf_n:"کلودفلر",xhp_cf_m:"POSTِ بیشتر · سریع‌تر",
- xhp_arvan_n:"ابرآروان",xhp_arvan_m:"POSTِ کمتر و بزرگ‌تر",
- xh_prof_note:"تنها فرقشان این است که کلاینت چند POST در ثانیه می‌زند — و همین فرقِ بینِ کارکردن و بلاک‌شدن است. کلودفلر تا نزدیکِ ۷۰ درخواست در ثانیه را تحمل می‌کند؛ <b>دیوارهٔ ابرآروان با همین عدد، آی‌پیِ نود را چند دقیقه می‌بندد</b> — پس آنجا POSTها کمتر و بزرگ‌تر می‌شوند. روی CDNِ دیگری از کلودفلر شروع کن؛ اگر زیرِ بار قطع شد، ابرآروان را بزن.",
+ // the CDN carrier tiles + the http profile
+ cdn_prof_lbl:"CDNِ روبه‌رو",
+ cdnp_cf_n:"کلودفلر",cdnp_cf_m:"POSTِ بیشتر · سریع‌تر",
+ cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"POSTِ کمتر و بزرگ‌تر",
+ cdn_prof_note:"تنها فرقشان این است که کلاینت چند POST در ثانیه می‌زند — و همین فرقِ بینِ کارکردن و بلاک‌شدن است. کلودفلر تا نزدیکِ ۷۰ درخواست در ثانیه را تحمل می‌کند؛ <b>دیوارهٔ ابرآروان با همین عدد، آی‌پیِ نود را چند دقیقه می‌بندد</b> — پس آنجا POSTها کمتر و بزرگ‌تر می‌شوند. روی CDNِ دیگری از کلودفلر شروع کن؛ اگر زیرِ بار قطع شد، ابرآروان را بزن.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  // flux rotation presets + shapes
  frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
@@ -7786,7 +7786,7 @@ document.addEventListener('pointercancel',reordEnd,true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?(l.ws_xhttp?((l.ws_xhttp_mode=='grpc')?'GRPC':'HTTP'):'WS'):'UDP';   /* exactly the three names the picker shows; wss has its own tag */
+ var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?((l.cdn_carrier=='grpc')?'GRPC':(l.cdn_carrier=='http')?'HTTP':'WS'):'UDP';   /* exactly the three names the picker shows; wss has its own tag */
  var prt=(l.transport!='raw'&&l.transport!='flux'&&l.transport!='dns'&&l.port)?'<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>'+esc(T('carrier'))+': <b class="mono">'+tr+'</b></div>';
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
@@ -7836,45 +7836,44 @@ function coreCard(l){
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
-_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bip',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Xhttp=false,_corS.XhMode='packet',_corS.XhProf='cf',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
+_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bip',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.CdnProf='cf',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 // The three ways to cross a CDN, as ONE choice. They are three separate transports everywhere
-// else (xray calls them WebSocket / gRPC / XHTTP), and only looked like a family here because
-// grpc happens to live in xhttp.go and share the ws_xhttp config flag — an implementation detail
-// that had leaked into the UI as a second picker. The stored config is unchanged: ws_xhttp is
-// (v != 'ws') and ws_xhttp_mode is 'grpc' or 'packet'.
+// else, and only looked like a family here because
+// grpc happened to live in the same file and share one config flag with http — an implementation
+// detail that had leaked into the UI as a second picker. The value stored is now the tile itself.
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
 // the selector value for a stored link
-function wsProfOf(S){return S.Xhttp?(S.XhMode=='grpc'?'grpc':'http'):'ws'}
+function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
 // Which CDN the HTTP carrier fronts through. It changes ONE thing — how many POSTs per second the
 // client makes — and that is the whole difference between running and being blocked: Cloudflare
 // tolerates ~70/s, ArvanCloud's WAF blocks the source IP for minutes. Only HTTP has a POST ladder,
 // so this row appears for HTTP alone.
-function XH_PROFILES(){return [{v:'cf',n:T('xhp_cf_n'),m:T('xhp_cf_m')},{v:'arvan',n:T('xhp_arvan_n'),m:T('xhp_arvan_m')}]}
-function xhProfTiles(px,cur){return XH_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-xp="'+p.v+'" onclick="'+px+'SetXhProf(\\''+p.v+'\\')"><div class="pn">'+esc(p.n)+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function _setXhProf(S,px,p){S.XhProf=p;var g=el(px+'xhppg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-xp')==p)})}
-function corSetXhProf(p){_setXhProf(_corS,'e_',p)}
-function ceSetXhProf(p){_setXhProf(_eeS,'ee_',p)}
+function CDN_PROFILES(){return [{v:'cf',n:T('cdnp_cf_n'),m:T('cdnp_cf_m')},{v:'arvan',n:T('cdnp_arvan_n'),m:T('cdnp_arvan_m')}]}
+function cdnProfTiles(px,cur){return CDN_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-cp="'+p.v+'" onclick="'+px+'SetCdnProf(\\''+p.v+'\\')"><div class="pn">'+esc(p.n)+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
+function _setCdnProf(S,px,p){S.CdnProf=p;var g=el(px+'cdnppg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-cp')==p)})}
+function corSetCdnProf(p){_setCdnProf(_corS,'e_',p)}
+function ceSetCdnProf(p){_setCdnProf(_eeS,'ee_',p)}
 // the row is meaningful only on the HTTP carrier (ws has no POSTs, grpc has no ladder)
-function xhProfOn(S){return S.Tr=='ws'&&S.Xhttp&&S.XhMode!='grpc'}
-function corXhProfGate(){var r=el('e_xhprow');if(r)r.style.display=xhProfOn(_corS)?'':'none'}
-function ceXhProfGate(){var r=el('ee_xhprow');if(r)r.style.display=xhProfOn(_eeS)?'':'none'}
+function cdnProfOn(S){return S.Tr=='ws'&&S.Cdn=='http'}
+function corCdnProfGate(){var r=el('e_cdnprow');if(r)r.style.display=cdnProfOn(_corS)?'':'none'}
+function ceCdnProfGate(){var r=el('ee_cdnprow');if(r)r.style.display=cdnProfOn(_eeS)?'':'none'}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function _setWsProf(S,px,p){S.Xhttp=(p!='ws');S.XhMode=(p=='grpc')?'grpc':'packet';
+function _setWsProf(S,px,p){S.Cdn=p;
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
-function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corXhProfGate()}
-function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceXhProfGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP')))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corXhProfGate();corRotVis('e_');onCorCipher()}   /* obfs is unavailable on dns -- re-gate on every transport change, not just on a cipher change */
+function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnProfGate()}
+function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnProfGate()}
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP')))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corCdnProfGate();corRotVis('e_');onCorCipher()}   /* obfs is unavailable on dns -- re-gate on every transport change, not just on a cipher change */
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corS.Tr=='flux')?'':'none';fluxTick()}
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
 function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
 function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
-// wss is MANDATORY for an edge pool and for the gRPC xhttp mode (both need HTTP/2 to the
+// wss is MANDATORY for an edge pool and for the grpc carrier (both need HTTP/2 to the
 // edge). In those cases force the toggle on and grey it (pointer-events:none) so it can't be turned
 // off in the UI only to be silently forced back on at save — the bug the user hit. Free otherwise.
-function corWssGate(){var mand=poolGet('e_').pool||(_corS.Xhttp&&_corS.XhMode=='grpc');var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
+function corWssGate(){var mand=poolGet('e_').pool||_corS.Cdn=='grpc';var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corS.Ech=!_corS.Ech;var s=el('e_wsech');if(s)s.classList.toggle('on',_corS.Ech);corEchPxGate()}
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
 function corEchPxGate(){var vis=(_corS.Tr=='ws'&&_corS.Ech),row=el('e_echpxrow');if(!vis){_corS.EchProxy=false;var s=el('e_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('e_echpxbody');if(b)b.style.display=(vis&&_corS.EchProxy)?'':'none'}
@@ -8163,16 +8162,15 @@ function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'d
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
-// xhttp is excluded: its conn is synthetic, so the AF_PACKET injector has no real 4-tuple to mirror
-// and not one decoy is ever emitted. The core rejects the combination outright, so leaving the
-// toggle visible would only let the operator build a tunnel that fails validation.
 // ONE definition of "can this carrier really inject decoy segments?". There were four hand-written
 // copies of it — the two gates, the edit form's initial render, and the submit-body collector — and only
-// the gates had learned that xhttp cannot. So switching the CDN profile to XHTTP hid the toggle, but
-// OPENING a tunnel already stored as xhttp rendered it visible (and ON), which is exactly what the
-// operator was looking at. raw/flux forge the whole IPv4 header; tcp/cover/ws inject on the kernel
-// connection's real 4-tuple; an xhttp conn is synthetic and has no 4-tuple to mirror.
-function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='tcp'||(S.Tr=='ws'&&!S.Xhttp)}
+// the gates knew the http/grpc carriers cannot. So PICKING one of them hid the toggle, but OPENING a
+// tunnel already stored that way rendered it visible (and ON), which is exactly what the operator was
+// looking at. raw/flux forge the whole IPv4 header; tcp/cover/ws inject on the kernel connection's
+// real 4-tuple; an http/grpc conn is synthetic and has no 4-tuple to mirror, so the AF_PACKET injector
+// emits nothing at all — and the core rejects the combination outright, so leaving the toggle visible
+// would only let the operator build a tunnel that fails validation.
+function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
 function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
 function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
@@ -8191,12 +8189,12 @@ function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyurl,sni,pos,mode,ttl,show
   +'<div id="'+idp+'snittlbody" style="margin-top:6px'+((mode&&mode!='split')?'':';display:none')+'"><label>'+esc(T('sni_ttl_lbl'))+'</label><input id="'+idp+'splitttl" type="number" min="0" max="255" value="'+(ttl||0)+'"></div></div>';}
 function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_dis_s')},{v:'fake',s:T('m_fake_s')}]}
 // ---- ws (WebSocket / CDN) — shared markup.
-function wsSection(idp,fnp,host,path,tls,edge,ech,xhttp,mode,lid,prof){return '<div id="'+idp+'wsblk" style="display:none">'
- +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid p3" id="'+idp+'wspg">'+wsProfTiles(fnp,wsProfOf({Xhttp:xhttp,XhMode:mode}))+'</div>'
+function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,prof){return '<div id="'+idp+'wsblk" style="display:none">'
+ +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid p3" id="'+idp+'wspg">'+wsProfTiles(fnp,wsProfOf({Cdn:cdn}))+'</div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 8px">'+T('ws_prof_note')+'</div>'
- +'<div id="'+idp+'xhprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('xh_prof_lbl'))+'</label>'
- +'<div class="pgrid" id="'+idp+'xhppg">'+xhProfTiles(fnp,prof=='arvan'?'arvan':'cf')+'</div>'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 0">'+T('xh_prof_note')+'</div></div>'
+ +'<div id="'+idp+'cdnprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('cdn_prof_lbl'))+'</label>'
+ +'<div class="pgrid" id="'+idp+'cdnppg">'+cdnProfTiles(fnp,prof=='arvan'?'arvan':'cf')+'</div>'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 0">'+T('cdn_prof_note')+'</div></div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>'+esc(T('ws_pool_t'))+'</b><small>'+esc(T('ws_pool_d'))+'</small></div></div>'
  +'<div id="'+idp+'wshostblk" style="margin-top:11px">'
  +'<label>'+esc(T('ws_host_lbl'))+'</label><input id="'+idp+'wshost" dir="ltr" placeholder="'+esc(T('ph_cdn_domain'))+'" value="'+esc(host||'')+'">'
@@ -8283,7 +8281,7 @@ function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(
 function onCorCipher(){_obfsGate('e_',_corS)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bip';_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Xhttp=false;_corS.XhMode='packet';_corS.XhProf='cf';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bip';_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.CdnProf='cf';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div><label class="first">'+esc(T('src_node'))+'</label>'+ssHTML('e_a',items,items[0].v,T('src_node'),'onCorNode')+'</div>'+
   '<div><label class="first">'+esc(T('dst_node'))+'</label>'+ssHTML('e_b',items,items[1].v,T('dst_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -8295,7 +8293,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt" id="e_tr_dns" onclick="corSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
   '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('e_','cor')+'</div>'+
   fluxSection('e_','cor','udp',600,'random',null)+
-  wsSection('e_','cor','','',false,'',false,false,'packet','','cf')+
+  wsSection('e_','cor','','',false,'',false,'ws','','cf')+
   dnsSection('e_','cor')+
   spoofSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
@@ -8309,7 +8307,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050"></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corXhProfGate();trFade(el('e_trbar'))}
+ corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnProfGate();trFade(el('e_trbar'))}
 function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='raw'&&_corS.RawProfile=='bip')corSpoofProbe()}
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
@@ -8396,7 +8394,7 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if((S.Tr=='udp'||S.Tr=='raw'||S.Tr=='flux')){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode!='split')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.ws_xhttp=S.Xhttp;if(S.Xhttp){body.ws_xhttp_mode=S.XhMode;if(S.XhMode!='grpc')body.xh_profile=S.XhProf}if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){m.className='msg err';m.textContent=pe;return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return true}if(S.Ech&&!S.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return true}if(S.Xhttp&&S.XhMode=='grpc'&&!S.WsTls){m.className='msg err';m.textContent=T('xh_need_wss');return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode!='split')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http')body.cdn_profile=S.CdnProf;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){m.className='msg err';m.textContent=pe;return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return true}if(S.Ech&&!S.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return true}if(S.Cdn=='grpc'&&!S.WsTls){m.className='msg err';m.textContent=T('cdn_need_wss');return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
@@ -8418,14 +8416,14 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
  else{m.className='msg err';m.textContent=perr(r)}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bip',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Xhttp=false,_eeS.XhMode='packet',_eeS.XhProf='cf',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();ceXhProfGate();corRotVis('ee_');onEeCipher()}   /* same obfs/dns re-gate for the edit form */
+_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bip',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.CdnProf='cf',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
+function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();ceCdnProfGate();corRotVis('ee_');onEeCipher()}   /* same obfs/dns re-gate for the edit form */
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeS.WsTls=!_eeS.WsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeS.WsTls);if(!_eeS.WsTls){if(_eeS.Ech){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeS.SniSplit){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
 function ceToggleSni(){if(!_eeS.WsTls){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_eeS.SniSplit=!_eeS.SniSplit;var s=el('ee_snisplit');if(s)s.classList.toggle('on',_eeS.SniSplit);var b=el('ee_snisplitbody');if(b)b.style.display=_eeS.SniSplit?'':'none'}
 function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
-function ceWssGate(){var mand=poolGet('ee_').pool||(_eeS.Xhttp&&_eeS.XhMode=='grpc');var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
+function ceWssGate(){var mand=poolGet('ee_').pool||_eeS.Cdn=='grpc';var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function ceToggleEch(){if(!_eeS.WsTls){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on');ceEchPxGate();alert(T('ech_need_wss_alert'));return}_eeS.Ech=!_eeS.Ech;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeS.Ech);ceEchPxGate()}
 function ceToggleEchProxy(){_eeS.EchProxy=!_eeS.EchProxy;var s=el('ee_echpx');if(s)s.classList.toggle('on',_eeS.EchProxy);var b=el('ee_echpxbody');if(b)b.style.display=_eeS.EchProxy?'':'none'}
 function ceEchPxGate(){var vis=(_eeS.Tr=='ws'&&_eeS.Ech),row=el('ee_echpxrow');if(!vis){_eeS.EchProxy=false;var s=el('ee_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('ee_echpxbody');if(b)b.style.display=(vis&&_eeS.EchProxy)?'':'none'}
@@ -8463,7 +8461,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Xhttp=!!l.ws_xhttp;_eeS.XhMode=(l.ws_xhttp_mode=='grpc')?'grpc':'packet';_eeS.XhProf=(l.xh_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.CdnProf=(l.cdn_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
  var aips=l.a_ips||[],bips=l.b_ips||[];
  // rotate_secs=0 is «فقط هنگامِ قطع», a real stored value the backend clamps to (0..86400) — not an
  // absent field. `||600` treated it as absent because 0 is falsy in JS, so opening the edit form on a
@@ -8481,7 +8479,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+'</div>'+
   fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
-  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Xhttp,_eeS.XhMode,l.id,_eeS.XhProf)+
+  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,_eeS.CdnProf)+
   dnsSection('ee_','ce')+
   spoofSection('ee_','ce')+
   '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Obfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
@@ -8495,7 +8493,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();if(el('ee_rawproto')&&l.raw_proto)el('ee_rawproto').value=l.raw_proto;ceProtoVis();if(el('ee_dnszone')&&l.dns_zone)el('ee_dnszone').value=l.dns_zone;if(el('ee_dnsresolvers')&&l.dns_resolvers)el('ee_dnsresolvers').value=(l.dns_resolvers||[]).join(', ');ceDnsVis();ceFluxVis();ceWsVis();ceDesyncGate();ceXhProfGate();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
+ ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();if(el('ee_rawproto')&&l.raw_proto)el('ee_rawproto').value=l.raw_proto;ceProtoVis();if(el('ee_dnszone')&&l.dns_zone)el('ee_dnszone').value=l.dns_zone;if(el('ee_dnsresolvers')&&l.dns_resolvers)el('ee_dnsresolvers').value=(l.dns_resolvers||[]).join(', ');ceDnsVis();ceFluxVis();ceWsVis();ceDesyncGate();ceCdnProfGate();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.b_name)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.a_name)+' '+esc(T('role_client_word'))+'</span>'}
@@ -8881,7 +8879,7 @@ function setAcc(k){_setOpen[k]=!_setOpen[k];var b=el('sgb_'+k),c=el('sgc_'+k),h=
  // say the opposite of the truth for the rest of the session.
  if(h)h.setAttribute('aria-expanded',_setOpen[k]?'true':'false')}
 function grp(tk,hk,ck,cls,rows,gk){
- // The <small> sub-header is gone: it restated the scope chip next to it («تونل‌های ws/xhttp» beside
+ // The <small> sub-header is gone: it restated the scope chip next to it («تونل‌های ws/http» beside
  // «فقط WS-CDN»), so it cost a line of height per card and told the operator nothing new.
  var hd='<div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>';
  if(!gk)return '<div class="card setgrp '+cls+'">'+hd+rows+'</div>';
