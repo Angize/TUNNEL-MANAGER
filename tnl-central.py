@@ -8083,10 +8083,17 @@ function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Arr
 // xhttp is excluded: its conn is synthetic, so the AF_PACKET injector has no real 4-tuple to mirror
 // and not one decoy is ever emitted. The core rejects the combination outright, so leaving the
 // toggle visible would only let the operator build a tunnel that fails validation.
-function corDesyncGate(){var dg=((_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='tcp')||(_corS.Tr=='ws'&&!_corS.Xhttp)),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+// ONE definition of "can this carrier really inject decoy segments?". There were four hand-written
+// copies of it — the two gates, the edit form's initial render, and the submit-body collector — and only
+// the gates had learned that xhttp cannot. So switching the CDN profile to XHTTP hid the toggle, but
+// OPENING a tunnel already stored as xhttp rendered it visible (and ON), which is exactly what the
+// operator was looking at. raw/flux forge the whole IPv4 header; tcp/cover/ws inject on the kernel
+// connection's real 4-tuple; an xhttp conn is synthetic and has no 4-tuple to mirror.
+function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='tcp'||(S.Tr=='ws'&&!S.Xhttp)}
+function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
 function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
-function ceDesyncGate(){var dg=((_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp')||(_eeS.Tr=='ws'&&!_eeS.Xhttp)),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 // ---- wss + ECH toggles live down in the general feature-toggle area (next to obfs / cover /
 // gso), not inside the ws block, so they stay put in single AND pool mode. They are shown only
 // when the carrier is WS/CDN (corWsVis/ceWsVis) and hidden otherwise, like the tcp-only cover.
@@ -8304,7 +8311,7 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='flux'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return true}body.flux_carrier=S.FluxCarrier;body.flux_rotate_secs=S.FluxRotate;body.flux_shape=S.FluxShape}
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if((S.Tr=='udp'||S.Tr=='raw'||S.Tr=='flux')){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
- if(S.Tr=='raw'||S.Tr=='flux'||S.Tr=='tcp'||S.Tr=='ws'){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
+ if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
  if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode!='split')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.ws_xhttp=S.Xhttp;if(S.Xhttp)body.ws_xhttp_mode=S.XhMode;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){m.className='msg err';m.textContent=pe;return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return true}if(S.Ech&&!S.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return true}if(S.Xhttp&&S.XhMode=='grpc'&&!S.WsTls){m.className='msg err';m.textContent=T('xh_need_wss');return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
@@ -8399,12 +8406,12 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div id="ee_snirow" style="display:'+((_eeS.Cover&&_eeS.Tr=='tcp')?'':'none')+'"><label>'+esc(T('cover_sni_lbl'))+'</label><input id="ee_sni" placeholder="'+esc(T('cover_sni_ph'))+'" value="'+esc(l.cover_sni||'')+'"><div class="muted" style="font-size:11px;margin-top:5px;line-height:1.7">'+T('cover_sni_note2')+'</div></div>'+
   '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeS.Gso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
   fecSection('ee_','ce',_eeS.Fec,_eeS.FecData,_eeS.FecParity,(_eeS.Tr=='udp'||_eeS.Tr=='raw'||_eeS.Tr=='flux'))+
-  desyncSection('ee_','ce',_eeS.Desync,_eeS.DesyncTtl,_eeS.DesyncCount,_eeS.DesyncMode,(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='tcp'||_eeS.Tr=='ws'))+
+  desyncSection('ee_','ce',_eeS.Desync,_eeS.DesyncTtl,_eeS.DesyncCount,_eeS.DesyncMode,desyncOk(_eeS))+
   '<div class="grid2"><div><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>'+esc(T('core_subnet_lbl'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();if(el('ee_rawproto')&&l.raw_proto)el('ee_rawproto').value=l.raw_proto;ceProtoVis();if(el('ee_dnszone')&&l.dns_zone)el('ee_dnszone').value=l.dns_zone;if(el('ee_dnsresolvers')&&l.dns_resolvers)el('ee_dnsresolvers').value=(l.dns_resolvers||[]).join(', ');ceDnsVis();ceFluxVis();ceWsVis();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
+ ceRoleLbls(l);renderRotIps('ee_');corRotVis('ee_');cePortGate();ceSpoofPrefill(l);ceSpoofVis();if(el('ee_rawproto')&&l.raw_proto)el('ee_rawproto').value=l.raw_proto;ceProtoVis();if(el('ee_dnszone')&&l.dns_zone)el('ee_dnszone').value=l.dns_zone;if(el('ee_dnsresolvers')&&l.dns_resolvers)el('ee_dnsresolvers').value=(l.dns_resolvers||[]).join(', ');ceDnsVis();ceFluxVis();ceWsVis();ceDesyncGate();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(l.a_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.b_name)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(l.b_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.a_name)+' '+esc(T('role_client_word'))+'</span>'}
