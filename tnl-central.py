@@ -6818,7 +6818,7 @@ var I18N={fa:{
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
- // ws / the HTTP carrier profiles
+ // the CDN carrier tiles + the http profile
  cdn_prof_lbl:"CDNِ روبه‌رو",
  cdnp_cf_n:"کلودفلر",cdnp_cf_m:"POSTِ بیشتر · سریع‌تر",
  cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"POSTِ کمتر و بزرگ‌تر",
@@ -7840,7 +7840,7 @@ _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile
 function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 // The three ways to cross a CDN, as ONE choice. They are three separate transports everywhere
-// else (xray calls them WebSocket / gRPC / XHTTP), and only looked like a family here because
+// else, and only looked like a family here because
 // grpc happened to live in the same file and share one config flag with http — an implementation
 // detail that had leaked into the UI as a second picker. The value stored is now the tile itself.
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
@@ -7870,7 +7870,7 @@ function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.displ
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
 function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
 function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m!='split')?'':'none'}
-// wss is MANDATORY for an edge pool and for the gRPC the HTTP carrier mode (both need HTTP/2 to the
+// wss is MANDATORY for an edge pool and for the grpc carrier (both need HTTP/2 to the
 // edge). In those cases force the toggle on and grey it (pointer-events:none) so it can't be turned
 // off in the UI only to be silently forced back on at save — the bug the user hit. Free otherwise.
 function corWssGate(){var mand=poolGet('e_').pool||_corS.Cdn=='grpc';var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
@@ -8162,15 +8162,14 @@ function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'d
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
-// the HTTP carrier is excluded: its conn is synthetic, so the AF_PACKET injector has no real 4-tuple to mirror
-// and not one decoy is ever emitted. The core rejects the combination outright, so leaving the
-// toggle visible would only let the operator build a tunnel that fails validation.
 // ONE definition of "can this carrier really inject decoy segments?". There were four hand-written
 // copies of it — the two gates, the edit form's initial render, and the submit-body collector — and only
-// the gates had learned that the HTTP carrier cannot. So switching the CDN profile to XHTTP hid the toggle, but
-// OPENING a tunnel already stored as the HTTP carrier rendered it visible (and ON), which is exactly what the
-// operator was looking at. raw/flux forge the whole IPv4 header; tcp/cover/ws inject on the kernel
-// connection's real 4-tuple; an the HTTP carrier conn is synthetic and has no 4-tuple to mirror.
+// the gates knew the http/grpc carriers cannot. So PICKING one of them hid the toggle, but OPENING a
+// tunnel already stored that way rendered it visible (and ON), which is exactly what the operator was
+// looking at. raw/flux forge the whole IPv4 header; tcp/cover/ws inject on the kernel connection's
+// real 4-tuple; an http/grpc conn is synthetic and has no 4-tuple to mirror, so the AF_PACKET injector
+// emits nothing at all — and the core rejects the combination outright, so leaving the toggle visible
+// would only let the operator build a tunnel that fails validation.
 function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
 function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
