@@ -3445,6 +3445,31 @@ def _sni_split_fields(d, cur):
     return out
 
 
+# Ports a CDN serves in the clear, and ports it serves TLS on. Dialing one from the wrong side is
+# the mistake that broke every fronted tunnel until node #118: with wss on, a client aimed at :80
+# hands a TLS ClientHello to a plaintext edge and the handshake dies before anything else is tried —
+# which reads as "this CDN doesn't support the carrier" and is nothing of the sort.
+#
+# This REJECTS the known-wrong ports rather than whitelisting the right ones. A whitelist would be
+# Cloudflare's list (443/2053/2083/2087/2096/8443 and 80/8080/8880/2052/2082/2086/2095) and would
+# refuse a perfectly good custom port on a CDN we have not met. The blacklist catches 100% of the
+# real mistake — 80 against 443 — without guessing what every other edge serves.
+_EDGE_PLAIN_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
+_EDGE_TLS_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
+
+
+def _edge_port_ok(port, tls):
+    """Raise when an explicit edge port contradicts the wss setting. Anything unrecognised passes."""
+    if tls and port in _EDGE_PLAIN_PORTS:
+        raise ValueError(
+            "wss روشن است ولی پورتِ لبه %d است — این پورتِ HTTPِ ساده‌ست و دستِ TLS آنجا شکست می‌خورد. "
+            "۴۴۳ بگذار (یا wss را خاموش کن)." % port)
+    if not tls and port in _EDGE_TLS_PORTS:
+        raise ValueError(
+            "wss خاموش است ولی پورتِ لبه %d است — آنجا TLS سرو می‌شود و درخواستِ ساده جواب نمی‌گیرد. "
+            "۸۰ بگذار (یا wss را روشن کن)." % port)
+
+
 def _ws_fields(d, transport, cur=None):
     """Validate and return the ws (WebSocket/CDN) carrier fields. ws_host is the Host
     header + TLS SNI (the fronting/origin domain); ws_path the request path; ws_tls makes
@@ -3478,6 +3503,9 @@ def _ws_fields(d, transport, cur=None):
         eh = edge.rpartition(":")[0] or edge
         if not re.match(r"^[A-Za-z0-9.\-]{1,253}$", eh):
             raise ValueError("آدرسِ لبهٔ CDN (edge_ip) نامعتبر است")
+        ep = edge.rpartition(":")[2] if ":" in edge else ""
+        if ep.isdigit():
+            _edge_port_ok(int(ep), bool(out.get("ws_tls")))
         out["edge_ip"] = edge
     # ECH (Encrypted ClientHello): hides the SNI so an SNI-blocklisting censor can't see the
     # real domain. It rides the TLS ClientHello, so it only makes sense with wss. We fetch the
@@ -3567,6 +3595,7 @@ def _ws_pool_fields(d, cur=None):
             p = x.rpartition(":")[2] if ":" in x else "443"
             if not re.match(_IP4_RE, h) or not (p.isdigit() and 1 <= int(p) <= 65535):
                 raise ValueError("آی‌پیِ لبهٔ نامعتبر (باید IPv4:port باشد؛ دامنه مجاز نیست — استخر مستقیم به آی‌پی وصل می‌شود): %s" % x)
+            _edge_port_ok(int(p), True)   # a pool is always wss
             v = "%s:%s" % (h, p)
             if v in seen:
                 continue
