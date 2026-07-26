@@ -7931,7 +7931,7 @@ function peerApply(st){
 function peerRemain(next){return _cdRemain(_peerData.now,_peerData.polledMs,next);}
 function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
-function peerRow(side,ip,fixed){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
+function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
   var rowc,sc,sic,stt;
   if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
   else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
@@ -7951,9 +7951,7 @@ function peerRow(side,ip,fixed){var d=_peerData[side],h=d.live[ip],act=(d.active
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
-  // No pin button on a single-address side: "jump to this endpoint" resolves to the one already active.
-  if(fixed){}
-  else if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
+  if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
   else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
   // No delete button here on purpose: an IP is removed from the pool in the rotation-config section
   // (drop it + Save rebuilds), so a second live-view delete would just be a redundant path.
@@ -7968,12 +7966,16 @@ function peerAccOpen(side){var d=_peerData[side];if(!d)return true;
   return _peerData.open[side]!==false;}                        // long list: open by default, remembered
 function peerAcc(side){if(!_peerData.open)_peerData.open={};
   _peerData.open[side]=!peerAccOpen(side);peerRender();}
-function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '';
-  // ONE address is not a pool. The core still builds a 1-entry PeerPool there — that is how a client's
-  // source IP gets pinned when bind_ip cannot do it (udp/raw/flux) — but it provably never moves, so
-  // the per-row pin button has nothing to switch to. The heading is unchanged: the operator already
-  // knows how many IPs the side has, and the rotation mark on the tunnel card carries the distinction.
-  var fixed=d.addrs.length<2;
+// «وضعیت زندهٔ استخر» shows POOLS. A side with one address is not one, so it gets no card.
+//
+// This also removes an asymmetry the operator could not have guessed at. main.go builds a destination
+// pool at >=2 peers but a SOURCE pool at >=1, because a 1-entry source pool has a second job: pinning
+// the client's egress IP, which bind_ip cannot do on udp/raw/flux. A pool that gets built writes a
+// status file; one that does not, does not. So the single-IP side appeared as a card when it was the
+// CLIENT and vanished when it was the SERVER — two tunnels of the same shape rendering differently
+// depending on which end was which. Gating on the address count makes both read the same: exactly the
+// sides that actually rotate.
+function peerBox(side,lab){var d=_peerData[side];if(!d||d.addrs.length<2)return '';
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
   var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
   var acc=d.addrs.length>PEER_ACC_MIN,open=peerAccOpen(side);
@@ -7984,7 +7986,7 @@ function peerBox(side,lab){var d=_peerData[side];if(!d||!d.addrs.length)return '
     +'<div class="pacctl"><div class="pacct">'+esc(lab)+'</div><div class="paccs">'+badges+'</div></div>'
     +'<div style="display:flex;align-items:center;gap:8px">'+chev+'</div></div>';
   var body='<div class="paccbody"'+(open?'':' style="display:none"')+'><div class="rpool">'
-    +d.addrs.map(function(ip){return peerRow(side,ip,fixed)}).join('')+'</div></div>';
+    +d.addrs.map(function(ip){return peerRow(side,ip)}).join('')+'</div></div>';
   return '<div class="pacc">'+hd+body+'</div>';}
 function peerRender(){var host=el('ee_peerlive');if(!host)return;
   var boxes=peerBox('dst',T('dst_ip'))+peerBox('src',T('src_ip'));
