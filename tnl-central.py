@@ -3445,29 +3445,34 @@ def _sni_split_fields(d, cur):
     return out
 
 
-# Ports a CDN serves in the clear, and ports it serves TLS on. Dialing one from the wrong side is
-# the mistake that broke every fronted tunnel until node #118: with wss on, a client aimed at :80
-# hands a TLS ClientHello to a plaintext edge and the handshake dies before anything else is tried —
-# which reads as "this CDN doesn't support the carrier" and is nothing of the sort.
+# The ports a CDN proxies, split by scheme. An edge port from the wrong side is the mistake that
+# broke every fronted tunnel until node #118: with wss on, a client aimed at :80 hands a TLS
+# ClientHello to a plaintext edge and the handshake dies before anything else is tried — which reads
+# as "this CDN doesn't support the carrier" and is nothing of the sort.
 #
-# This REJECTS the known-wrong ports rather than whitelisting the right ones. A whitelist would be
-# Cloudflare's list (443/2053/2083/2087/2096/8443 and 80/8080/8880/2052/2082/2086/2095) and would
-# refuse a perfectly good custom port on a CDN we have not met. The blacklist catches 100% of the
-# real mistake — 80 against 443 — without guessing what every other edge serves.
+# This is a WHITELIST: with wss the port must be one a CDN serves TLS on, without it one served in
+# the clear. Nothing else is accepted. (A blacklist of the obviously-wrong ports was tried first and
+# was not enough in practice — an edge port outside these lists does not front anything, it just
+# fails later and looks like a broken carrier.)
 _EDGE_PLAIN_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
 _EDGE_TLS_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 
 
 def _edge_port_ok(port, tls):
-    """Raise when an explicit edge port contradicts the wss setting. Anything unrecognised passes."""
-    if tls and port in _EDGE_PLAIN_PORTS:
+    """Raise unless an explicit edge port matches the scheme wss selects. Runs on create AND edit:
+    both go through _core_extra -> _ws_fields, the create form with cur={} and the edit with the
+    stored link."""
+    allowed = _EDGE_TLS_PORTS if tls else _EDGE_PLAIN_PORTS
+    if port in allowed:
+        return
+    lst = "، ".join(str(x) for x in allowed)
+    if tls:
         raise ValueError(
-            "wss روشن است ولی پورتِ لبه %d است — این پورتِ HTTPِ ساده‌ست و دستِ TLS آنجا شکست می‌خورد. "
-            "۴۴۳ بگذار (یا wss را خاموش کن)." % port)
-    if not tls and port in _EDGE_TLS_PORTS:
-        raise ValueError(
-            "wss خاموش است ولی پورتِ لبه %d است — آنجا TLS سرو می‌شود و درخواستِ ساده جواب نمی‌گیرد. "
-            "۸۰ بگذار (یا wss را روشن کن)." % port)
+            "wss (TLS به CDN) روشن است، پس پورتِ لبه باید یکی از پورت‌های HTTPS باشد: %s — "
+            "پورتِ %d قبول نیست. (یا wss را خاموش کن و پورتِ HTTP بگذار.)" % (lst, port))
+    raise ValueError(
+        "wss خاموش است، پس پورتِ لبه باید یکی از پورت‌های HTTP باشد: %s — "
+        "پورتِ %d قبول نیست. (یا wss را روشن کن و ۴۴۳ بگذار.)" % (lst, port))
 
 
 def _ws_fields(d, transport, cur=None):
