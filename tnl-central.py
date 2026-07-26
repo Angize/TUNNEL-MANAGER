@@ -4530,7 +4530,9 @@ def _ech_live_push(lid, chmap):
         return ""   # node offline or core rejected -> don't claim a push that didn't land
     nm = str(node.get("name") or "").strip()
     host = str(node.get("host") or "").strip()
-    return "%s (%s)" % (nm, host) if nm and host else (nm or host or str(node.get("id") or ""))
+    # «name • host», not «name (host)»: the pair reads as ONE value inside one labelled pill, and a
+    # parenthesis wrapped around an LTR address inside an RTL line renders mirrored.
+    return "%s \u2022 %s" % (nm, host) if nm and host else (nm or host or str(node.get("id") or ""))
 
 
 def _ech_pool_state(lid):
@@ -4894,7 +4896,7 @@ def _ev_core_text(kind, code, detail, nm):
         return ("bad", "link", f"دلیل: قطعِ تونلِ «{nm}»", rf)
     if kind == "up":
         rf = _EV_UP_CODE.get(code, "تونل وصل شد")
-        return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", f"برچسب: self-heal\n{rf}" if rf else "برچسب: self-heal")
+        return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", rf)
     if kind == "burn":
         rf = _EV_BURN_CODE.get(code, "سوخته شد")
         # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
@@ -4935,8 +4937,7 @@ def _ev_core_text(kind, code, detail, nm):
         # it so the (long) key lands in its OWN labeled box instead of being dumped inline in the message.
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
-        return ("ok", "ech", f"دلیل: ترمیمِ خودکارِ کلیدِ ECH تونلِ «{nm}»",
-                f"برچسب: self-heal\n{dfa}" if dfa else "برچسب: self-heal")
+        return ("ok", "ech", f"دلیل: ترمیمِ خودکارِ کلیدِ ECH تونلِ «{nm}»", dfa)
     return None
 
 
@@ -6018,25 +6019,24 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .logcard .lico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto;margin-top:1px}
 .logcard .lico .ic{width:15px;height:15px}
 .logcard .lmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
-.logcard .lhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-/* The title carries the whole reason, so it leads and the category chip follows it as a quiet tag. */
+/* The title carries the whole reason, on its own line. */
 .logcard .ltitle{font-size:13px;font-weight:800;line-height:1.6;overflow-wrap:anywhere;color:var(--tx)}
-.logcard .ltag{flex:0 0 auto;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;
-  background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok);direction:ltr;unicode-bidi:isolate}
 .logcard .ltime{flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;margin-top:2px}
 /* from -> to: one row per side, the label fixed-width so the two values line up under each other. */
 .lfromto{display:flex;flex-direction:column;gap:5px}
-.lft{display:flex;align-items:center;gap:6px;min-width:0}
+/* baseline, not center: against a value that wraps to several lines the label must sit on the
+   FIRST line, not float halfway down the pill. */
+.lft{display:flex;align-items:baseline;gap:6px;min-width:0}
 /* No fixed label width: «از:» and «به:» are the same length anyway, so a fixed column only pushed
    the value away from the edge it should sit against. */
 .lft .k{flex:0 0 auto;font-size:11px;color:var(--sub);text-align:start}
-/* The pill is exactly as wide as its value. It used to wrap «IP:port · domain» onto a second line
-   inside a box that still spanned the row, which read as a half-empty input field. nowrap keeps
-   the endpoint on one line; max-width + overflow-x means a pathologically long value scrolls
-   inside its own pill instead of stretching the card. */
+/* The pill hugs its value, so a bare IP stays a small chip. A value too long for the row — an
+   «IP:port · SNI» endpoint, a base64 ECH key — WRAPS inside the pill. It used to scroll instead,
+   which hid the rest of the value behind a horizontal gesture nobody would think to make on a log
+   entry; showing the value whole is the entire point of the box. */
 .lft .v{flex:0 1 auto;max-width:100%;min-width:0;direction:ltr;unicode-bidi:isolate;text-align:left;
-  font-size:11.5px;padding:4px 9px;border-radius:8px;background:var(--field);border:1px solid var(--bord);
-  color:var(--tx);white-space:nowrap;overflow-x:auto;
+  font-size:11.5px;line-height:1.8;padding:4px 9px;border-radius:8px;background:var(--field);
+  border:1px solid var(--bord);color:var(--tx);overflow-wrap:anywhere;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .lft.to .v{color:var(--acc);background:var(--accw);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
 .lnote{font-size:11.5px;color:var(--sub);line-height:1.85;overflow-wrap:anywhere}
@@ -8690,15 +8690,14 @@ function logListHTML(){
  return evs.map(function(e){
    var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
-   var p=evParts(e),d=evDetail(p.lines);
+   var p=evParts(e);
    return '<div class="card logcard">'+
      '<span class="lstripe" style="background:'+col+'"></span>'+
      '<div class="lbody">'+
        '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
        '<div class="lmain">'+
-         '<div class="lhead"><span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
-           d.tags.map(function(t){return '<span class="ltag">'+esc(t)+'</span>'}).join('')+'</div>'+
-         d.html+'</div>'+
+         '<span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
+         evDetail(p.lines)+'</div>'+
        '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';}).join('');}
 // Only toggle the active class on the existing chips (do NOT rebuild the row) — rebuilding resets the
@@ -8718,25 +8717,26 @@ function evParts(e){
 // along a wrapped line. Values are LTR-isolated: an IP:port · domain must not be reordered by the RTL
 // page. This replaces evLine/evEdgeBox/evVal, which rendered the same data three different ways
 // depending on the event kind — a move looked different on a rot event than on an edge event.
-// A detail line is one of three things:
-//   «برچسب: x»  -> a chip, lifted into the header
-//   «key: value» -> a labelled pill (از / به / لبه / آی‌پی …) — «به» is the accented destination
+// A detail line is one of two things:
+//   «key: value» -> a labelled pill (از / به / لبه / دامنه / کلیدِ ECH / نودِ مقصد …); «به» is accented
 //   anything else -> a plain sentence
-// The key test is deliberately narrow (short, no spaces): a reason string that happens to contain
-// ": " must stay a sentence rather than be chopped into a fake label.
-function evDetail(lines){if(!lines||!lines.length)return {html:'',tags:[]};
- var rows=[],notes=[],tags=[];
+// A label is SHORT and free of sentence punctuation — that is the whole test. The older one also
+// demanded no space, which quietly demoted every multi-word label the backend emits («کلیدِ ECH»,
+// «نودِ مقصد», «کلیدِ تازهٔ ECH») to a grey sentence — so a 300-char base64 key was dumped
+// inline instead of boxed. tools/log_labels_check.py pins this gate against the labels the Python
+// side really emits, so the two can no longer drift apart in silence.
+function evDetail(lines){if(!lines||!lines.length)return '';
+ var rows=[],notes=[];
  for(var i=0;i<lines.length;i++){var l=lines[i],c=l.indexOf(': ');
   var k=c>0?l.slice(0,c):'';
-  if(k=='\u0628\u0631\u0686\u0633\u0628'){tags.push(l.slice(c+2));continue}
-  if(k&&k.length<=12&&k.indexOf(' ')<0)rows.push({k:k,v:l.slice(c+2)});
+  if(k&&k.length<=16&&!/[\u060C\u061B\u061F.!?()\u00AB\u00BB\u2014]/.test(k))rows.push({k:k,v:l.slice(c+2)});
   else notes.push(l);}
  var out='';
  if(rows.length)out+='<div class="lfromto">'+rows.map(function(m){
    return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
           '<span class="v">'+esc(m.v)+'</span></div>'}).join('')+'</div>';
  for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
- return {html:out,tags:tags}}
+ return out}
 
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
