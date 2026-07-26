@@ -5969,18 +5969,26 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
 .setrow2.tun-off{opacity:.55}
-.setgrp.acc .grphd.acch{cursor:pointer;user-select:none}
+/* A settings group is its OWN accordion — hence `sacc`, not `acc`. `.card.acc` belongs to the
+   node/tunnel/port-forward card, and THAT component sets `padding:0` on the card because its own
+   header (.chead) and body (.cbody-in) carry the padding instead. The settings card borrowed the
+   class name and inherited the zero and nothing else: the header text sat 2px from the border, the
+   rows ran into the edge, and a collapsed card was 36px tall against a 15px radius — a capsule, not
+   a card. Same inset as .card's own 14px, so an open group lines up with every other card on the page. */
+.setgrp.sacc{padding:0}
+.setgrp.sacc .grphd.acch{margin:0;padding:12px 14px;gap:8px;flex-wrap:nowrap;align-items:center;
+  cursor:pointer;user-select:none}
 /* nowrap on the header itself, wrap INSIDE the title box: a long title pushes the chip onto a second
-   line but can never push the chevron off the first one, so the control stays at the card's far edge
-   — the same place on every card, open or closed. */
-.setgrp.acc .grphd.acch{gap:8px;flex-wrap:nowrap;align-items:flex-start}
-.setgrp.acc .grphd.acch .grphdl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
-/* The chevron sits at the far end of the header — in this RTL page that is the LEFT edge — so every
-   card has its control in the same place regardless of how long the title or the scope chip is. */
-.setgrp.acc .grphd.acch .pchev{margin-inline-start:auto;flex:0 0 auto;align-self:center;line-height:1;
+   line but can never push the chevron off it, so the control stays at the card's far edge — the same
+   place on every card, open or closed. */
+.setgrp.sacc .grphd.acch .grphdl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
+/* The chevron sits at the far end of the header — in this RTL page that is the LEFT edge. */
+.setgrp.sacc .grphd.acch .pchev{margin-inline-start:auto;flex:0 0 auto;line-height:1;
   color:var(--sub);font-size:12px;transition:transform .2s}
-.setgrp.acc .grphd.acch .pchev.open{transform:rotate(180deg)}
-.setgrp.acc .grphd.acch:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:8px}
+.setgrp.sacc .grphd.acch .pchev.open{transform:rotate(180deg)}
+/* inset + the card's own radius: .card is overflow:hidden, so an outward ring gets clipped away. */
+.setgrp.sacc .grphd.acch:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;border-radius:15px}
+.setgrp.sacc .setgrpb{padding:0 14px 12px}
 .search:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0 2px;flex-wrap:wrap}
 .pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
@@ -7982,7 +7990,7 @@ function peerBox(side,lab){var d=_peerData[side];if(!d||d.addrs.length<2)return 
   // Same .pacc card the CDN-edge / SNI sections use, so both pool views read as the same component:
   // one card per axis, title and badges on ONE line, chevron only when the list is long enough to hide.
   var chev=acc?'<div class="pchev'+(open?' open':'')+'">&#9662;</div>':'';
-  var hd='<div class="pacchd"'+(acc?' onclick="peerAcc(\\''+side+'\\')"':' style="cursor:default"')+'>'
+  var hd='<div class="pacchd"'+(acc?' data-acc role="button" tabindex="0" onclick="peerAcc(\\''+side+'\\')"':' style="cursor:default"')+'>'
     +'<div class="pacctl"><div class="pacct">'+esc(lab)+'</div><div class="paccs">'+badges+'</div></div>'
     +'<div style="display:flex;align-items:center;gap:8px">'+chev+'</div></div>';
   var body='<div class="paccbody"'+(open?'':' style="display:none"')+'><div class="rpool">'
@@ -8117,7 +8125,7 @@ function wsPoolInner(idp,fnp,lid){
  // list — every entry with a status pill (فعال / در چرخش / سوخته) — plus the add bar.
  function block(kind,label,ph){
    // per-edge selection replaced the header rotate button — pin a specific edge from its row instead.
-   return '<div class="pacc"><div class="pacchd" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
+   return '<div class="pacc"><div class="pacchd" data-acc role="button" tabindex="0" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
      +'<div class="pacctl"><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
      +'<div style="display:flex;align-items:center;gap:8px"><div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
      +'<div class="paccbody" id="'+idp+'body_'+kind+'">'
@@ -8776,16 +8784,19 @@ function qr(lbl,ck,xk,ctl,rc){return '<div class="setrow2'+(rc?' '+rc:'')+'"><di
 // _setOpen, because refreshSettings() rebuilds this HTML wholesale and would otherwise reset it.
 // gk is a stable key; pass gk='' for a card that must never collapse (the panel-wide group).
 var _setOpen={};
-function setAcc(k){_setOpen[k]=!_setOpen[k];var b=el('sgb_'+k),c=el('sgc_'+k);
- if(b)b.style.display=_setOpen[k]?'':'none';if(c)c.classList.toggle('open',!!_setOpen[k])}
+function setAcc(k){_setOpen[k]=!_setOpen[k];var b=el('sgb_'+k),c=el('sgc_'+k),h=el('sgh_'+k);
+ if(b)b.style.display=_setOpen[k]?'':'none';if(c)c.classList.toggle('open',!!_setOpen[k]);
+ // aria was written once at render time and never touched again, so the FIRST interaction made it
+ // say the opposite of the truth for the rest of the session.
+ if(h)h.setAttribute('aria-expanded',_setOpen[k]?'true':'false')}
 function grp(tk,hk,ck,cls,rows,gk){
  // The <small> sub-header is gone: it restated the scope chip next to it («تونل‌های ws/xhttp» beside
  // «فقط WS-CDN»), so it cost a line of height per card and told the operator nothing new.
  var hd='<div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>';
  if(!gk)return '<div class="card setgrp '+cls+'">'+hd+rows+'</div>';
  var op=!!_setOpen[gk];
- return '<div class="card setgrp acc '+cls+'">'
-  +'<div class="grphd acch" onclick="setAcc(\\''+gk+'\\')" role="button" tabindex="0" aria-expanded="'+(op?'true':'false')+'">'
+ return '<div class="card setgrp sacc '+cls+'">'
+  +'<div class="grphd acch" id="sgh_'+gk+'" data-acc onclick="setAcc(\\''+gk+'\\')" role="button" tabindex="0" aria-expanded="'+(op?'true':'false')+'">'
   +'<span class="grphdl"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></span>'
   +'<span class="pchev'+(op?' open':'')+'" id="sgc_'+gk+'">&#9662;</span></div>'
   +'<div class="setgrpb" id="sgb_'+gk+'"'+(op?'':' style="display:none"')+'>'+rows+'</div></div>'}
@@ -8876,6 +8887,11 @@ async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.text
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
  updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
+// Every accordion header is role="button" + tabindex="0", so it has to answer Enter and Space like
+// one; none of them did. Delegated, so a header only has to carry data-acc and its own onclick.
+document.addEventListener('keydown',function(e){if(e.key!='Enter'&&e.key!=' ')return;
+ var h=e.target&&e.target.closest&&e.target.closest('[data-acc]');if(!h)return;
+ e.preventDefault();h.click()});
 // ===== command palette (Ctrl+K) =====
 document.addEventListener('keydown',function(e){if(!((e.ctrlKey||e.metaKey)&&(e.key=='k'||e.key=='K')))return;
  if(PAL){e.preventDefault();closePal();return}
