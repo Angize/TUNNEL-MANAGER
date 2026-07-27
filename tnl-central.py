@@ -5209,7 +5209,16 @@ def _events_once():
         seen.add(lid)
         nm = L.get("name", "")
         r = pre.get(lid)   # prefetched in parallel above; per-link processing below stays sequential + ordered
-        if not r:
+        # A FAILED fetch must change nothing. api_edge_status never returns a falsy value on failure —
+        # both of its failure branches return ok:True with empty active/health/events plus an `error`
+        # key — so `if not r` never caught an unreachable node, and the empty payload was processed as
+        # if the core had genuinely reported "no events, no active edge". One 10s RPC timeout, or the
+        # gap right after push-agent restarts the agent while tnl-core keeps running, then (a) reset
+        # this link's event high-water to 0 below, so the NEXT good sweep re-logged the core's whole
+        # ring with ts=now and evicted the real history out of EVENTS_CAP, and (b) stored the active
+        # edge as "", so the sweep after that logged a «چرخش لبه» that never happened with a blank
+        # «از:». Skip the link entirely and keep the state we already had.
+        if not r or "error" in r:
             continue
 
         # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass.
@@ -5238,7 +5247,11 @@ def _events_once():
                 # update / crash). Once mx has fallen BELOW our high-water, the core restarted: the stale
                 # high-water would then skip every post-restart event forever (rotations stop logging). Re-
                 # baseline from 0 so the fresh ring's events are logged again.
-                if mx < last:
+                # Requires a ring to reason from: an EMPTY one is "no evidence", not "the core restarted".
+                # A rebuild deletes the status file (build_core) and the core recreates it with an empty
+                # ring, so a sweep landing in that window reset the high-water and re-logged every event
+                # again once the ring had refilled.
+                if clean and mx < last:
                     last = 0
                 for sq, e in sorted(clean, key=lambda x: x[0]):
                     if sq <= last:
@@ -5271,7 +5284,13 @@ def _events_once():
                 # automatic active-edge switch (suppressed briefly after an operator pin)
                 active = str(r.get("active") or "")
                 prev = _ev_state["edge"].get(lid)
-                _ev_state["edge"][lid] = active
+                # Remember only a REAL edge. An empty `active` is "the core has not picked one yet"
+                # (fresh status file after a rebuild), not "the edge changed to nothing" — and storing
+                # it poisoned prev, so the next sweep saw ""->1.2.3.4 and logged a warn «چرخش لبه» with
+                # a blank «از:» for an edge that had never moved. The guard below already refuses to log
+                # on the empty sweep itself; this keeps the empty value out of the remembered state too.
+                if active:
+                    _ev_state["edge"][lid] = active
                 if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
                     log_event("warn", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
         except Exception:
