@@ -3589,13 +3589,13 @@ def _ws_fields(d, transport, cur=None):
     xh = cdn != "ws"
     if bool(xh):
         out["cdn_carrier"] = cdn
-        # Upstream style: packet-up (default, many short POSTs — most CDN-compatible) or grpc (a
+        # Upstream style: post (default, many short POSTs — most CDN-compatible) or grpc (a
         # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
         # buffering; needs wss).
         if cdn == "grpc":
             pass   # nothing else to record: the carrier value IS the mode
         else:
-            # Which CDN this tunnel fronts through, for the upstream shape. Only on packet-up: the
+            # Which CDN this tunnel fronts through, for the upstream shape. Only on the http carrier: the
             # ladder is what a WAF counts, and grpc does not have one. Stored as a name; _tunnel_extra
             # turns it into numbers.
             prof = str((d.get("cdn_profile") if "cdn_profile" in d else cur.get("cdn_profile")) or "cf").strip().lower()
