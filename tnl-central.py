@@ -1608,23 +1608,48 @@ def api_summary(d):
             crit.append(nid)
 
     nmap = {n["id"]: n.get("name", "") for n in nodes}
-    up = noping = down = drift_n = 0
+    up = noping = down = drift_n = off_n = 0
     types = {"vxlan": 0, "gre": 0, "sit": 0}
     worst_tun = None
     rtts = []
     for L in links:
+        # An operator-disabled tunnel is not a fault. Its unit is stopped (core: the TUN is gone ->
+        # counted «قطع» + −10 score) or its netdev is admin-down (non-core: the iface still exists, so
+        # the probe fails -> counted «بدونِ پینگ» + −3) — three different answers for one deliberate
+        # action, while the card correctly greys it out as «خاموش» and _events_once skips it entirely.
+        # Report it as its own bucket instead of as breakage.
+        if not L.get("enabled", True):
+            types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
+            off_n += 1
+            continue
+        ah, _a = _link_side_health(L, "a_node")
+        bh, _b = _link_side_health(L, "b_node")
+        # health {"up": None} means "this node has not published its first sweep yet" (op_list fills it
+        # for any config missing from the node's background snapshot), NOT "down". The card already
+        # renders it grey «در حال بررسی…»; here `None` was simply falsy, so every tunnel on a node whose
+        # agent had just restarted — exactly what push-agent does — was counted «قطع», raised a red
+        # alert and docked 10 score each, for the ~2-3 s until the node's first health sweep published.
+        if (isinstance(ah, dict) and ah.get("up") is None) or (isinstance(bh, dict) and bh.get("up") is None):
+            types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
+            continue
         if L.get("type") == "core":
             types["core"] = types.get("core", 0) + 1   # count core tunnels in the overview breakdown too
             if link_drift(L["id"]):
                 drift_n += 1
-            elif _link_up(L):
+            # Judge a core tunnel by the SAME rule the card paints it with. _link_up is only "both ifaces
+            # exist AND neither is positively dead" — it never consults `alive` — so an up-but-unproven
+            # tunnel ({up:true, alive:false, dead:false}: a core client before its first authenticated
+            # frame, or any carrier with no heartbeat and filtered ICMP) showed AMBER on the card and
+            # «متصل» on the dashboard at the same moment, and «بدونِ پینگ» could never contain a core
+            # tunnel at all even though the non-core branch below has always used exactly this test.
+            elif not _link_up(L):
+                down += 1
+            elif (isinstance(ah, dict) and ah.get("alive") is True) or (isinstance(bh, dict) and bh.get("alive") is True):
                 up += 1
             else:
-                down += 1
+                noping += 1
             continue  # but emit NO link/drift alert for core: those navigate to the tunnels page, which hides core
         types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
-        ah, _a = _link_side_health(L, "a_node")
-        bh, _b = _link_side_health(L, "b_node")
         both_up = isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
         if both_up:
             # a busy tunnel is proven live by traffic-flow / the core heartbeat (alive), which the node
@@ -1688,6 +1713,7 @@ def api_summary(d):
             "crit": len(crit), "outdated": outdated,
             "alerts": alerts[:10],
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
+            "link_off": off_n,   # operator-disabled: its own bucket, so it stops reading as breakage
             "link_types": types, "worst_tunnel": worst_tun,
             "fleet_avg_ping": round(sum(rtts) / len(rtts)) if rtts else None,
             "uptime_avg": (int(sum(ups) / len(ups) * 10) / 10 if ups else 100), "uptime_down_nodes": downcnt, "uptime_window": win,  # FLOOR to 1 decimal so the fleet avg never rounds up to 100 when a node had downtime
@@ -5138,6 +5164,16 @@ def _events_once():
         b_probed = _cache_get(L.get("b_node")) is not None
         if not (a_probed and b_probed):
             continue
+        # "Probed" is not the same as "judged". A node that has just restarted its agent answers
+        # /api/list immediately but its background health sweep publishes only at the END of its first
+        # round, so every config comes back as {"up": None} for a couple of seconds — and _link_up
+        # reads that None as falsy, i.e. as DOWN. push-agent does exactly this, so every agent push
+        # wrote a bogus «قطع» for each of that node's tunnels, paired seconds later by a «وصل».
+        # None means unknown: hold the state we have.
+        _ah, _ = _link_side_health(L, "a_node")
+        _bh, _ = _link_side_health(L, "b_node")
+        if (isinstance(_ah, dict) and _ah.get("up") is None) or (isinstance(_bh, dict) and _bh.get("up") is None):
+            continue
         up = bool(_link_up(L))
         prev = _ev_state["links"].get(lid)
         _ev_state["links"][lid] = up
@@ -7183,7 +7219,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  var sc=num(s.health_score),scol=sc>=85?cssv('--ok'):sc>=60?cssv('--gold'):cssv('--bad');
  var se=el('o_score');se.textContent=sc;se.style.color=scol;
  el('o_chips').innerHTML='<span class="ochip a">'+esc(T('ov_chip_node'))+' <b dir="ltr">'+on+'/'+tot+'</b></span>'+
-  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+(num(s.link_total)||links)+'</b></span>'+
+  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+((num(s.link_total)-num(s.link_off))||links)+'</b></span>'+   // a tunnel the operator switched off is not part of "how many are healthy"
   '<span class="ochip a">'+esc(T('ov_chip_tunnel'))+' <b>'+num(s.tunnels)+'</b></span>'+
   (alerts.length?'<span class="ochip b">'+esc(T('ov_chip_alert'))+' <b>'+alerts.length+'</b></span>':'<span class="ochip o">'+esc(T('ov_chip_noalert'))+'</span>');
  // ---- alerts feed
@@ -7204,11 +7240,14 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  var wh=wr(T('disk'),w.disk)+wr(T('ram'),w.ram)+wr('CPU',w.cpu);
  el('o_worst').innerHTML=wh||'<div class="muted" style="text-align:center;padding:8px 0;font-size:12.5px">'+esc(T('ov_no_online'))+'</div>';
  // ---- tunnel status breakdown
- var lu=num(s.link_up),ln=num(s.link_noping),ld=num(s.link_down),ldr=num(s.link_drift);
+ var lu=num(s.link_up),ln=num(s.link_noping),ld=num(s.link_down),ldr=num(s.link_drift),lo=num(s.link_off);
+ // A disabled tunnel gets its OWN tile and only when there is one, so the usual four-tile row is
+ // unchanged — it used to be counted «قطع» (core) or «بدونِ پینگ» (the rest) and docked the score.
  el('o_tst').innerHTML='<div class="tb"><div class="n" style="color:var(--ok)">'+lu+'</div><div class="l">'+esc(T('tst_connected'))+'</div></div>'+
   '<div class="tb"><div class="n" style="color:var(--gold)">'+ln+'</div><div class="l">'+esc(T('tst_noping'))+'</div></div>'+
   '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">'+esc(T('tst_down'))+'</div></div>'+
-  '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">'+esc(T('tst_rebuild'))+'</div></div>';
+  '<div class="tb"><div class="n" style="color:'+(ldr?'var(--gold)':'var(--tx)')+'">'+ldr+'</div><div class="l">'+esc(T('tst_rebuild'))+'</div></div>'+
+  (lo?'<div class="tb"><div class="n" style="color:var(--sub)">'+lo+'</div><div class="l">'+esc(T('st_off'))+'</div></div>':'');
  var ty=s.link_types||{};
  var TYD=[['core','#6366f1'],['vxlan','var(--acc)'],['gre','var(--ok)'],['sit','#a855f7'],['ipip','#14b8a6'],['l2tpv3','#8b5cf6'],['fou','#ec4899'],['ipsec','#f43f5e']];
  var tt=0;TYD.forEach(function(x){tt+=num(ty[x[0]])});tt=tt||1;
