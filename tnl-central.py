@@ -8001,9 +8001,9 @@ function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx
 // An edge IP must be a real IPv4 (four 0-255 octets, optional :port) or a real domain
 // (labels + an alphabetic TLD); an SNI must be a real domain. This rejects garbage like
 // "876889767" (no dots) AND "543.45534.453453" (dotted but not a valid IP or domain).
-var _ip4Re=/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
-function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
+var _ip4Re=/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/;
+var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$/;
+function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
 // poolRemain: seconds left until an entry's next retest, using the server clock sampled at the
 // last poll plus the client-side elapsed time since — so the countdown ticks smoothly between polls.
 // _cdRemain: seconds until `next` given the server clock `now` sampled at local time `polledMs`.
