@@ -1290,7 +1290,13 @@ def _apply_core_tuning(a_body, b_body):
 # to before this existed.
 CDN_PROFILES = {
     "cf":    {},
-    "arvan": {"http_up_workers": 4, "http_up_batch_kb": 512, "http_up_rate": 30},
+    # Measured from an Iranian node through an Iranian ArvanCloud PoP (2026-07-27), saturated upstream,
+    # six runs — wss on and off, at 4x512/30, 8x128/no-cap and 16x64/no-cap: the edge stayed open in
+    # every one, with no client error and no truncated body. The 4x512 rate-30 throttle this entry used
+    # to carry was derived from a ban seen from a FOREIGN source IP, and on the real path it bought
+    # nothing while costing about 5x the upstream (2.7 -> 14.9 Mbit). So Arvan runs the core defaults,
+    # exactly like Cloudflare.
+    "arvan": {},
 }
 
 
@@ -6820,9 +6826,9 @@ var I18N={fa:{
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
  // the CDN carrier tiles + the http profile
  cdn_prof_lbl:"CDNِ روبه‌رو",
- cdnp_cf_n:"کلودفلر",cdnp_cf_m:"POSTِ بیشتر · سریع‌تر",
+ cdnp_cf_n:"کلودفلر",cdnp_cf_m:"پیش‌فرضِ پرسرعت",
  cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"POSTِ کمتر و بزرگ‌تر",
- cdn_prof_note:"تنها فرقشان این است که کلاینت چند POST در ثانیه می‌زند — و همین فرقِ بینِ کارکردن و بلاک‌شدن است. کلودفلر تا نزدیکِ ۷۰ درخواست در ثانیه را تحمل می‌کند؛ <b>دیوارهٔ ابرآروان با همین عدد، آی‌پیِ نود را چند دقیقه می‌بندد</b> — پس آنجا POSTها کمتر و بزرگ‌تر می‌شوند. روی CDNِ دیگری از کلودفلر شروع کن؛ اگر زیرِ بار قطع شد، ابرآروان را بزن.",
+ cdn_prof_note:"تعیین می‌کند کلاینت چند POST در ثانیه بزند. <b>هر دو الان یکی‌اند</b> — پیش‌فرضِ هسته (۸ کارگر × ۱۲۸KB، بدونِ سقفِ نرخ). سقفِ قبلیِ ابرآروان از بنی درآمده بود که از یک آی‌پیِ خارجی خورده بود؛ از داخلِ ایران دیواره در هیچ‌کدام از شش تستِ اشباع نزد، و آن سقف حدودِ ۵ برابر سرعتِ آپلود را می‌خورد. اگر CDNِ دیگری زیرِ بار قطع کرد، خبر بده تا یک پروفایلِ محافظه‌کارانه برایش اندازه بگیریم.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  // flux rotation presets + shapes
  frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
