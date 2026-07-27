@@ -1505,6 +1505,29 @@ def api_spoof_probe(d):
             "node": n["name"]}
 
 
+def _mirror_beat(ah, bh):
+    """A point-to-point core tunnel is alive/dead as a whole, but only the CLIENT side writes the core
+    heartbeat status file. Its hb-derived verdict — live_src "beat" (fresh/stale hb) or "nohb" (never
+    connected: dw published, no hb yet) — is authoritative for the WHOLE tunnel, because only the client
+    sees whether RETURN traffic arrives. Mirror it onto the heartbeat-less server endpoint, whose
+    one-directional flow/ping would otherwise false-green a HALF-OPEN tunnel (the server still receives
+    the client's upload → flow-"alive"). Returns the adjusted pair; the copy matters because ah/bh are
+    references into the poll cache. Shared by api_fleet and api_check_link — the manual check used to
+    return the raw per-node dicts, so pressing «بررسی» on a half-open tunnel flipped the server dot from
+    red to green and the next fleet refresh snapped it back."""
+    beat = ah if isinstance(ah, dict) and ah.get("live_src") in ("beat", "nohb") else (
+        bh if isinstance(bh, dict) and bh.get("live_src") in ("beat", "nohb") else None)
+    if beat is None:
+        return ah, bh
+    other = bh if beat is ah else ah
+    if not (isinstance(other, dict) and other.get("up") and other.get("live_src") not in ("beat", "nohb")):
+        return ah, bh
+    other = dict(other)
+    other["alive"] = beat.get("alive")
+    other["dead"] = bool(beat.get("dead"))
+    return (ah, other) if beat is ah else (other, bh)
+
+
 def _link_side_health(L, node_key):
     lst = _cached_list(L[node_key])
     if lst.get("configs") is None:
@@ -2774,26 +2797,7 @@ def api_fleet(d):
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
         ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
-        # A point-to-point core tunnel is alive/dead as a whole, but only the CLIENT side writes the core
-        # heartbeat status file. Its hb-derived verdict — live_src "beat" (fresh/stale hb) OR "nohb" (never
-        # connected, dw published but no hb yet) — is authoritative for the WHOLE tunnel, because only the
-        # client sees whether RETURN traffic arrives. Mirror it onto the heartbeat-less server endpoint,
-        # whose one-directional flow/ping would otherwise false-green a HALF-OPEN tunnel (the server still
-        # receives the client's upload → flow-"alive"). "nohb" was previously omitted here, so a
-        # never-connected tunnel showed the server green while the client correctly went red. Copy first —
-        # ah/bh are references into the cache.
-        _beat = ah if isinstance(ah, dict) and ah.get("live_src") in ("beat", "nohb") else (
-            bh if isinstance(bh, dict) and bh.get("live_src") in ("beat", "nohb") else None)
-        if _beat is not None:
-            _other = bh if _beat is ah else ah
-            if isinstance(_other, dict) and _other.get("up") and _other.get("live_src") not in ("beat", "nohb"):
-                _other = dict(_other)
-                _other["alive"] = _beat.get("alive")
-                _other["dead"] = bool(_beat.get("dead"))
-                if _beat is ah:
-                    bh = _other
-                else:
-                    ah = _other
+        ah, bh = _mirror_beat(ah, bh)   # the client's hb verdict is the whole tunnel's — see the helper
         a_ips = _flat_ips(_cached_ping(L["a_node"]))
         b_ips = _flat_ips(_cached_ping(L["b_node"]))
         side = "b" if L.get("view_side") == "b" else "a"
@@ -4368,8 +4372,13 @@ def api_check_link(d):
         return {"online": True, "health": None}  # node up but tunnel unknown/error
 
     a, b = parallel_map(chk, [L["a_node"], L["b_node"]])  # ping both ends at once (halves the wait)
+    # Same mirror the fleet view applies. checkLink writes these straight into the dots the fleet render
+    # owns, so without it the manual check disagreed with the card it sits on: on a half-open tunnel the
+    # server end self-reports alive via live_src "flow" and its dot flipped red→green, then snapped back
+    # on the next refresh.
+    ah, bh = _mirror_beat(a["health"], b["health"])
     return {"ok": True, "name": L["name"], "a_online": a["online"], "b_online": b["online"],
-            "a_health": a["health"], "b_health": b["health"]}
+            "a_health": ah, "b_health": bh}
 
 
 def api_rebuild_link(d):
@@ -4921,6 +4930,10 @@ _EV_DOWN_CODE = {
     "dropped": "اتصال قطع شد",
     # datagram transports (udp/raw/flux) — connectionless self-heal reasons
     "stale": "سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد",
+    # A timed destination rotation keeps the AEAD session, so a dead endpoint produces no handshake
+    # failure to notice it — the carrier probes the jumped-to IP every second instead and gives up after
+    # the same threshold. Distinct from "stale": the SESSION is fine, this one ADDRESS went silent.
+    "peer-dead": "آی‌پیِ مقصدی که چرخش روی آن رفت جواب نداد — سوزانده شد و رفت روی آی‌پیِ بعدی",
 }
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
@@ -6640,6 +6653,13 @@ var I18N={fa:{
  ov_noalert:"همه‌چیز مرتب است — هشداری نیست",ov_no_nodes:"نودی نیست",ov_no_online:"نودِ آنلاینی نیست",ov_no_tunnel:"تونلی نیست",
  ov_heat_note:"نود · هر میله = بدترین متریکِ آن نود (دیسک/رم/CPU) · خاکستری = آفلاین",
  tst_connected:"متصل",tst_noping:"بدونِ پینگ",tst_down:"قطع",tst_rebuild:"نیازمندِ بازسازی",
+ // Tooltip per DOT state. The dot used to carry title=«متصل» whenever sideState returned no status
+ // word — which is three of its outcomes, two of them YELLOW — so a not-proven-live tunnel told the
+ // operator the exact opposite of what its colour meant, while every RED dot (the ones that actually
+ // need explaining) had no title at all.
+ tst_dead:"سشنِ رمزنگاری مرده — ضربانِ هسته یخ زده، سرِ مقابل جواب نمی‌دهد",
+ tst_unproven:"اینترفیس بالاست ولی زنده‌بودنش ثابت نشده — نه ترافیکی آمده نه پروب جواب داده",
+ tst_connecting:"در حالِ وصل‌شدن — هنوز هیچ فریمی از سرِ مقابل نرسیده",
  ov_worst_q:"بدترین کیفیت: تونلِ",ov_loss:"اتلاف",ov_ping:"پینگ",ov_all_good:"کیفیتِ همهٔ تونل‌ها خوب است",ov_fleet_ping:"میانگینِ پینگِ فلیت",
  ov_uptime_lbl:"میانگینِ آپ‌تایمِ",ov_hours_recent:"ساعتِ اخیر",load:"لود",
  // nodes
@@ -7495,16 +7515,22 @@ function sideTxt(online,h){
  if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
-function sideState(online,h){  // k: dot color class, w: the word to show ONLY when there's a problem
- if(!online||!h)return {k:'bad',w:T('st_disc')};
- if(h.up==null)return {k:'na',w:'…'};
- if(!h.up)return {k:'bad',w:T('st_disc')};
- if(h.dead)return {k:'bad',w:T('st_disc')};       // confirmed dead (frozen core heartbeat) -> red at once
- if(h.alive===true)return {k:'ok',w:''};          // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
- if(h.alive===false)return {k:'warn',w:''};       // up but not proven live yet (connecting, or no traffic + probe failed) -> yellow
- return {k:'warn',w:''}}   // no positive proof of life (unknown / still connecting) -> yellow, never green by default
+// k: dot color class · w: the word to show ONLY when there's a problem · t: the tooltip, ALWAYS.
+// Four different causes used to collapse into one wordless red dot with no title (node offline, tunnel
+// absent from the node, iface down, dead crypto session) while both YELLOW outcomes inherited
+// title=«متصل» from sideDot's "no word means connected" shortcut — the opposite of what they mean. The
+// per-cause text already existed in sideTxt, but sideTxt is only ever called from the manual check.
+function sideState(online,h){
+ if(!online)return {k:'bad',w:T('st_disc'),t:T('t_side_off')};        // the agent itself did not answer
+ if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
+ if(h.up==null)return {k:'na',w:'…',t:T('checking')};
+ if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
+ if(h.dead)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};           // confirmed dead (frozen core heartbeat) -> red at once
+ if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
+ if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
+ return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
 function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
- return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'"'+(s.w?'':' title="'+esc(T('tst_connected'))+'"')+'></span>'}
+ return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
  var idr='<div>'+esc(T('tid'))+': <b>'+esc(l.tunnel_id)+'</b></div>';
@@ -7532,7 +7558,8 @@ async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(
  if(!(r.ok&&r.d.ok)){L.enabled=!next;toast(T('failed'),'err')}else{toast(next?T('turned_on'):T('turned_off'),'ok')}
  refreshFleet()}
 function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="'+esc(T('st_off'))+'"></span>';
- var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health);return '<span class="sdot '+s.k+'"></span>'}
+ var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health);
+ return '<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}   // the collapsed head is often the ONLY dot on screen — it needs the reason too
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
 function accHead(l,isCore){var on=l.enabled!==false;
@@ -7708,7 +7735,7 @@ function coreSkel(){CHK={};el('view').innerHTML=vhead('cpu','nav_core','core_sub
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
- setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core');if(typeof refreshCardEdges=='function')setTimeout(refreshCardEdges,300)}
+ setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
 // ===== reorder cards: explicit "reorder mode" (toolbar toggle) + drag by the grip handle =====
 // Long-press was dropped — it fought text-select/copy and scroll ("hold to copy" kept triggering a drag).
 // Now the user taps the reorder toggle in the toolbar; each card shows a grip (touch-action:none) and
@@ -7997,7 +8024,12 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
  await Promise.all(Array.prototype.map.call(els,function(elm){var lid=elm.id.slice(9);   // parallel, not one-by-one
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
     if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
-(function edgesLoop(){setTimeout(function(){refreshCardEdges().then(edgesLoop,edgesLoop)},UIV)})();   // live-cadence self-loop
+// Live-cadence self-loop. Back off in a hidden tab exactly like tick() does: this fires one POST per
+// visible pool card and each one costs the panel a live node RPC, so a full page of 25 cards at the
+// default 2s interval was 12.5 requests/second from a single tab — and it kept going with the tab in
+// the background, where tick() has always stood down.
+(function edgesLoop(){var d=document.hidden?Math.max(UIV,4000):UIV;
+ setTimeout(function(){if(document.hidden){edgesLoop();return}refreshCardEdges().then(edgesLoop,edgesLoop)},d)})();
 // Fleet cards for direct-transport IP-rotation tunnels show the CURRENTLY-ACTIVE pool IP in each node box
 // (server box = active destination, client box = active source) plus a rotation mark on any node whose
 // IPs rotate. The active IP arrives with the fleet data (api_fleet reads it from the client node), so
