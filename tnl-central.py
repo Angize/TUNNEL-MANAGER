@@ -1281,16 +1281,23 @@ def _apply_core_tuning(a_body, b_body):
         b_body["tuning"] = _tn
 
 
-# The packet-up upstream shape per CDN. The binding constraint is requests/sec from one address,
-# not bandwidth: measured on a real ArvanCloud edge at ~120ms RTT, the Cloudflare shape (8 workers,
-# ~70 POST/s) gets the source IP TCP-blocked for ~3.5 minutes, while 4x512K at ~33/s runs clean at
-# 4/106 Mbit. Cloudflare never blinked at either. http_up_rate is the portable half — workers/RTT is
-# the real rate, so a worker count alone means something different on a fast path than a slow one.
+# The packet-up upstream shape per CDN. The binding constraint is requests/sec from one address, not
+# bandwidth — workers/RTT is the real rate, so a worker count alone means something different on a
+# fast path than a slow one, which is why this is a profile and not a constant. The ~3.5-minute
+# ArvanCloud ban that first motivated it was measured from a FOREIGN source IP against a foreign PoP;
+# from inside Iran it does not reproduce (see the arvan entry below), so both profiles are the core
+# defaults today and the table exists for the next CDN that does need one.
 # "cf" carries the core's own defaults, so it emits NOTHING and a Cloudflare tunnel is byte-identical
 # to before this existed.
 CDN_PROFILES = {
     "cf":    {},
-    "arvan": {"http_up_workers": 4, "http_up_batch_kb": 512, "http_up_rate": 30},
+    # Measured from an Iranian node through an Iranian ArvanCloud PoP (2026-07-27), saturated upstream,
+    # six runs — wss on and off, at 4x512/30, 8x128/no-cap and 16x64/no-cap: the edge stayed open in
+    # every one, with no client error and no truncated body. The 4x512 rate-30 throttle this entry used
+    # to carry was derived from a ban seen from a FOREIGN source IP, and on the real path it bought
+    # nothing while costing about 5x the upstream (2.7 -> 14.9 Mbit). So Arvan runs the core defaults,
+    # exactly like Cloudflare.
+    "arvan": {},
 }
 
 
@@ -6820,9 +6827,9 @@ var I18N={fa:{
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
  // the CDN carrier tiles + the http profile
  cdn_prof_lbl:"CDNِ روبه‌رو",
- cdnp_cf_n:"کلودفلر",cdnp_cf_m:"POSTِ بیشتر · سریع‌تر",
- cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"POSTِ کمتر و بزرگ‌تر",
- cdn_prof_note:"تنها فرقشان این است که کلاینت چند POST در ثانیه می‌زند — و همین فرقِ بینِ کارکردن و بلاک‌شدن است. کلودفلر تا نزدیکِ ۷۰ درخواست در ثانیه را تحمل می‌کند؛ <b>دیوارهٔ ابرآروان با همین عدد، آی‌پیِ نود را چند دقیقه می‌بندد</b> — پس آنجا POSTها کمتر و بزرگ‌تر می‌شوند. روی CDNِ دیگری از کلودفلر شروع کن؛ اگر زیرِ بار قطع شد، ابرآروان را بزن.",
+ cdnp_cf_n:"کلودفلر",cdnp_cf_m:"پیش‌فرضِ پرسرعت",
+ cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"فعلاً همان پیش‌فرض",
+ cdn_prof_note:"تعیین می‌کند کلاینت چند POST در ثانیه بزند. <b>هر دو الان یکی‌اند</b> — پیش‌فرضِ هسته (۸ کارگر × ۱۲۸KB، بدونِ سقفِ نرخ). سقفِ قبلیِ ابرآروان از بنی درآمده بود که از یک آی‌پیِ خارجی خورده بود؛ از داخلِ ایران دیواره در هیچ‌کدام از شش تستِ اشباع نزد، و آن سقف حدودِ ۵ برابر سرعتِ آپلود را می‌خورد. اگر CDNِ دیگری زیرِ بار قطع کرد، خبر بده تا یک پروفایلِ محافظه‌کارانه برایش اندازه بگیریم.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  // flux rotation presets + shapes
  frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
@@ -7847,9 +7854,11 @@ function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_
 // the selector value for a stored link
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
 // Which CDN the HTTP carrier fronts through. It changes ONE thing — how many POSTs per second the
-// client makes — and that is the whole difference between running and being blocked: Cloudflare
-// tolerates ~70/s, ArvanCloud's WAF blocks the source IP for minutes. Only HTTP has a POST ladder,
-// so this row appears for HTTP alone.
+// client makes. BOTH entries are the core defaults today: the Arvan throttle was derived from a ban
+// seen from a FOREIGN source IP, and re-measured from an Iranian node through an Iranian PoP the WAF
+// did not fire at any of six saturated settings, while the cap cost ~5x the upstream. The selector
+// stays so a future CDN can get a measured profile without a schema change. Only HTTP has a POST
+// ladder, so this row appears for HTTP alone.
 function CDN_PROFILES(){return [{v:'cf',n:T('cdnp_cf_n'),m:T('cdnp_cf_m')},{v:'arvan',n:T('cdnp_arvan_n'),m:T('cdnp_arvan_m')}]}
 function cdnProfTiles(px,cur){return CDN_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-cp="'+p.v+'" onclick="'+px+'SetCdnProf(\\''+p.v+'\\')"><div class="pn">'+esc(p.n)+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function _setCdnProf(S,px,p){S.CdnProf=p;var g=el(px+'cdnppg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-cp')==p)})}
