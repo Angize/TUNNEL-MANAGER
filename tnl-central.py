@@ -7810,10 +7810,14 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
  var enc='<div class="enc-line">'+esc(T('enc'))+': '+encv+'</div>';
  // WS/CDN edge box: pool -> the LIVE active edge (filled by refreshCardEdges from the core
  // status file); single edge -> the fixed SNI · edge (static, no polling).
+// The card shows the edge ADDRESS only. The port is never the operator's choice to read here — it is
+// either what they typed or, far more often, the 443/80 the node derives from wss — and carrying it
+// pushed a long IPv4 onto a second line. Stored and dialled value unchanged.
+function edgeHost(v){v=String(v||'');var i=v.lastIndexOf(':');return (i>0&&v.indexOf(':')==i)?v.slice(0,i):v}
  var edge='';
  if(l.transport=='ws'){
    if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="echips" id="cardedge_'+l.id+'">'+edgeChips(EDGEV[l.id]||'')+'</div></div>';}
-   else{var pp=[];if(l.ws_host)pp.push(esc(l.ws_host));if(l.edge_ip)pp.push(esc(l.edge_ip));
+   else{var pp=[];if(l.ws_host)pp.push(esc(l.ws_host));if(l.edge_ip)pp.push(esc(edgeHost(l.edge_ip)));
      if(pp.length)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="cv mono">'+pp.join(' · ')+'</div></div>';}
  }
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
