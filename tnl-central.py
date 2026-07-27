@@ -1281,23 +1281,40 @@ def _apply_core_tuning(a_body, b_body):
         b_body["tuning"] = _tn
 
 
-# The packet-up upstream shape per CDN. The binding constraint is requests/sec from one address, not
-# bandwidth — workers/RTT is the real rate, so a worker count alone means something different on a
-# fast path than a slow one, which is why this is a profile and not a constant. The ~3.5-minute
-# ArvanCloud ban that first motivated it was measured from a FOREIGN source IP against a foreign PoP;
-# from inside Iran it does not reproduce (see the arvan entry below), so both profiles are the core
-# defaults today and the table exists for the next CDN that does need one.
+# The upstream POST-ladder shape per CDN. The binding constraint is what the CDN counts per source
+# address, and for ArvanCloud that was measured (2026-07-27, foreign client -> Iranian origin behind an
+# Arvan PoP, keep-alive POSTs exactly as the core sends them) to be the number of CONCURRENT connections,
+# NOT the request rate:
+#
+#     workers  req/s  result
+#      8        17    survived 180 s saturated  (17.5 Mbit)
+#     12        25    survived  90 s            (26.3 Mbit)
+#     14        29    survived  90 s            (30.7 Mbit)
+#     16        29    BANNED after 18 s
+#
+# 14 and 16 pushed the SAME 29 req/s and only 16 was cut, so the limiter counts sockets. That also
+# settles a question this table used to hedge on: a worker count IS portable between paths, because
+# concurrency does not depend on RTT the way request rate does. (It also explains the old "threshold
+# between 4 and 6" reading — that harness opened a fresh TCP connection per POST instead of reusing one.)
+#
+# The ban is per source IP, ACCOUNT-WIDE (every hostname on the account went dark for that IP at the same
+# instant, not just the one under load), edge TCP 80+443 refused while ICMP kept answering, and it lasted
+# ~10 minutes both times. An Iranian client did not reproduce it at any setting, so this profile is sized
+# for the worst case — a FOREIGN client, which is what the reverse-connect topology uses.
 # "cf" carries the core's own defaults, so it emits NOTHING and a Cloudflare tunnel is byte-identical
 # to before this existed.
 CDN_PROFILES = {
     "cf":    {},
-    # Measured from an Iranian node through an Iranian ArvanCloud PoP (2026-07-27), saturated upstream,
-    # six runs — wss on and off, at 4x512/30, 8x128/no-cap and 16x64/no-cap: the edge stayed open in
-    # every one, with no client error and no truncated body. The 4x512 rate-30 throttle this entry used
-    # to carry was derived from a ban seen from a FOREIGN source IP, and on the real path it bought
-    # nothing while costing about 5x the upstream (2.7 -> 14.9 Mbit). So Arvan runs the core defaults,
-    # exactly like Cloudflare.
-    "arvan": {},
+    # Half the measured ban threshold, so the carrier keeps its margin: the real client also holds the
+    # downstream GET open and a warm standby adds one more socket, and none of that may add up to 16.
+    # Throughput is bought with the BATCH instead, which costs no sockets and actually LOWERS the request
+    # rate (capacity is in-flight/RTT, and in-flight is workers x batch). Measured at 8 workers through
+    # the same edge: 128 KB -> 17.5 Mbit at 17 req/s, 256 KB -> 29.3 at 14, 512 KB -> 50.7 at 12. So 8x512
+    # is both ~3x faster than the default AND further from the limiter than 14 workers ever was, while
+    # staying at half the server's 1 MiB per-POST read cap.
+    # Both keys are written explicitly rather than leaning on the core's defaults: if a future core raises
+    # its own default worker count, this profile must NOT silently follow it past the ban threshold.
+    "arvan": {"http_up_workers": 8, "http_up_batch_kb": 512},
 }
 
 
