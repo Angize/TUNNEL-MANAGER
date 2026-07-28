@@ -3736,6 +3736,14 @@ def _ws_pool_fields(d, cur=None):
     def _hosts(key):
         seen, res = set(), []
         for x in _list(key):
+            # The stored ws_edge_snis shape is a list of {host,ech,path} dicts (written below). The
+            # documented edit fallback feeds that stored value straight back here whenever the request
+            # omits the key, so accept the dict form (take its host) alongside the plain host string the
+            # form sends — ech/path are rebuilt below (ech re-fetched fresh, path from ws_path), so the
+            # host is all we carry. Without this, an edit that omits ws_edge_snis fed str(dict) to the
+            # domain regex and hard-failed with «دامنهٔ (SNI) نامعتبر», defeating the stated fallback.
+            if isinstance(x, dict):
+                x = x.get("host", "")
             x = str(x).strip().lower()
             if not x or x in seen:
                 continue
