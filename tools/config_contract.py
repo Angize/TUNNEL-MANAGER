@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Cross-path config contract guard for core tunnels.
+
+The panel has THREE independent ways to build the body it sends a node:
+
+    create    api_create_tunnel  -> _core_extra(d, cur={})  -> _node_extra
+    edit      api_edit_link      -> _core_extra(d, cur=L)   -> _node_extra
+    rebuild   api_rebuild_*      -> _tunnel_extra(L)
+
+They must agree. When they drift, the panel reports success and the tunnel quietly runs with a
+different config than the operator chose — the exact shape of panel #275/#280/#285, where the CDN
+profile reached the node on the rebuild path only and three commits in a row claimed "chain verified
+end to end" after testing the one path that worked.
+
+This tool builds every carrier through all three paths and fails (exit 1) when they disagree, or when
+a key the operator set never reaches the node body. Run it with no arguments after touching any
+_core_extra / _tunnel_extra / _*_fields helper:
+
+    python3 tools/config_contract.py
+"""
+import importlib.util
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PANEL = os.path.join(os.path.dirname(HERE), "tnl-central.py")
+
+
+def load_panel():
+    spec = importlib.util.spec_from_file_location("tnl_central", PANEL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+P = load_panel()
+
+A_IP, B_IP = "203.0.113.5", "198.51.100.7"
+A_IPS, B_IPS = [A_IP, "203.0.113.6"], [B_IP, "198.51.100.8"]
+
+# Each case: the create request a form would send, plus the keys that MUST reach the node body.
+CASES = [
+    ("udp", {"transport": "udp", "cipher": "auto"}, {"transport": "udp"}),
+    ("tcp+cover", {"transport": "tcp", "cipher": "auto", "cover": True, "cover_sni": "example.com"},
+     {"transport": "tcp", "cover": True, "cover_sni": "example.com"}),
+    ("raw/bip+proto", {"transport": "raw", "cipher": "auto", "raw_profile": "bip", "raw_proto": 58},
+     {"transport": "raw", "raw_profile": "bip", "raw_proto": 58}),
+    ("raw/bip native", {"transport": "raw", "cipher": "auto", "raw_profile": "bip"},
+     {"transport": "raw", "raw_profile": "bip"}),
+    ("raw/gre", {"transport": "raw", "cipher": "auto", "raw_profile": "gre"},
+     {"transport": "raw", "raw_profile": "gre"}),
+    ("raw/icmp+fec", {"transport": "raw", "cipher": "auto", "raw_profile": "icmp",
+                      "fec": True, "fec_data": 10, "fec_parity": 3},
+     {"transport": "raw", "raw_profile": "icmp", "fec": True, "fec_data": 10, "fec_parity": 3}),
+    ("spoof/src", {"transport": "spoof", "cipher": "auto", "spoof_src": "192.0.2.7", "raw_proto": 58},
+     {"transport": "spoof", "spoof_src": "192.0.2.7", "raw_proto": 58}),
+    ("spoof/dst", {"transport": "spoof", "cipher": "auto", "spoof_dst": "185.51.200.10"},
+     {"transport": "spoof", "spoof_dst": "185.51.200.10"}),
+    ("spoof/both+desync", {"transport": "spoof", "cipher": "auto", "spoof_src": "192.0.2.7",
+                           "spoof_dst": "185.51.200.10", "fake_desync": True, "fake_ttl": 5,
+                           "fake_count": 3, "fake_mode": "ttl"},
+     {"transport": "spoof", "spoof_src": "192.0.2.7", "spoof_dst": "185.51.200.10",
+      "fake_desync": True, "fake_ttl": 5, "fake_count": 3, "fake_mode": "ttl"}),
+    ("spoof+fec", {"transport": "spoof", "cipher": "auto", "spoof_src": "192.0.2.7",
+                   "fec": True, "fec_data": 10, "fec_parity": 3},
+     {"transport": "spoof", "spoof_src": "192.0.2.7", "fec": True}),
+    ("flux/udp", {"transport": "flux", "cipher": "auto", "flux_carrier": "udp",
+                  "flux_rotate_secs": 600, "flux_shape": "random"},
+     {"transport": "flux", "flux_carrier": "udp", "flux_shape": "random"}),
+    ("dns", {"transport": "dns", "cipher": "auto", "dns_zone": "t.example.com",
+             "dns_resolvers": ["10.0.0.1"]},
+     {"transport": "dns", "dns_zone": "t.example.com"}),
+    ("ws/http+arvan", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
+                       "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "arvan"},
+     {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 512}),
+]
+
+# Keys that legitimately differ between paths (not part of the contract).
+IGNORE = {"psk", "ws_ech", "ech"}
+
+
+def build_create(req):
+    ce, _ = P._core_extra(dict(req), {}, A_IP, B_IP, A_IPS, B_IPS)
+    return P._node_extra(ce)
+
+
+def build_edit(req, stored):
+    """An edit re-sends the same form values with the stored link as `cur`."""
+    ce, _ = P._core_extra(dict(req), dict(stored), A_IP, B_IP, A_IPS, B_IPS)
+    return P._node_extra(ce)
+
+
+def build_rebuild(stored):
+    """Rebuild/restore replays the STORED record (no fresh ECH fetch, so it never hits the network)."""
+    return P._tunnel_extra(dict(stored), refetch_ech=False)
+
+
+def diff(name, path_a, a, path_b, b):
+    out = []
+    for k in sorted(set(a) | set(b)):
+        if k in IGNORE:
+            continue
+        va, vb = a.get(k, "<missing>"), b.get(k, "<missing>")
+        if va != vb:
+            out.append("    %-20s %s=%r  vs  %s=%r" % (k, path_a, va, path_b, vb))
+    return out
+
+
+def main():
+    failures = []
+    for name, req, must in CASES:
+        try:
+            create = build_create(req)
+            # The stored link record is `extra` merged into the row; _core_extra's own output is
+            # exactly what gets stored, so reuse it as `cur` for the edit and rebuild paths.
+            stored, _ = P._core_extra(dict(req), {}, A_IP, B_IP, A_IPS, B_IPS)
+            stored = dict(stored)
+            stored["type"] = "core"
+            edit = build_edit(req, stored)
+            rebuild = build_rebuild(stored)
+        except Exception as e:
+            failures.append("[%s] BUILD FAILED: %s: %s" % (name, type(e).__name__, e))
+            continue
+
+        # 1) every key the operator set must actually reach the node body, on every path.
+        for path_name, body in (("create", create), ("edit", edit), ("rebuild", rebuild)):
+            for k, want in must.items():
+                if body.get(k) != want:
+                    failures.append("[%s] %s: %s = %r, want %r" %
+                                    (name, path_name, k, body.get(k, "<missing>"), want))
+
+        # 2) the three paths must agree with each other.
+        for pa, a, pb, b in (("create", create, "edit", edit),
+                             ("create", create, "rebuild", rebuild)):
+            d = diff(name, pa, a, pb, b)
+            if d:
+                failures.append("[%s] %s != %s:\n%s" % (name, pa, pb, "\n".join(d)))
+
+        print("  ok  %s" % name)
+
+    if failures:
+        print("\nFAILURES (%d):" % len(failures))
+        for f in failures:
+            print("  - %s" % f)
+        return 1
+    print("\nall %d carriers agree across create / edit / rebuild" % len(CASES))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
