@@ -1529,6 +1529,74 @@ def api_spoof_probe(d):
             "node": n["name"]}
 
 
+def api_spoof_egress_probe(d):
+    """END-TO-END spoof probe: does a forged source / decoy destination actually arrive, on THIS pair,
+    in the direction the tunnel will use? Unlike spoof-probe (a local can-the-sockets-open check), this
+    forges real packets on one node and listens for them on the other. The CLIENT side forges+sends; the
+    SERVER side receives — so receiver = the server-side node, sender = the client-side node.
+
+    The receiver starts a bounded background capture (returns a token), the sender forges a baseline
+    (real->real), a forged SOURCE, and (when a decoy is given) a decoy DESTINATION; then we read the
+    verdict by token. baseline distinguishes "the whole path/proto is blocked" from "the forge was
+    dropped". No stored state changes; it just sends a handful of probe packets."""
+    an, bn = str(d.get("a_node") or ""), str(d.get("b_node") or "")
+    if an == bn or not an or not bn:
+        return {"ok": False, "error": "دو نودِ متفاوت لازم است"}
+    a, b = get_node(an), get_node(bn)
+    if not a or not b:
+        return {"ok": False, "error": "node not found"}
+    srv = "b" if str(d.get("server_side")) == "b" else "a"
+    receiver, sender = (a, b) if srv == "a" else (b, a)   # server listens, client forges
+    try:
+        proto = int(d.get("proto") or 253)
+    except (TypeError, ValueError):
+        proto = 253
+    if not 1 <= proto <= 255:
+        return {"ok": False, "error": "proto out of range"}
+    forged_src = str(d.get("spoof_src") or "").strip() or "192.0.2.7"   # test the operator's IP, else TEST-NET-1
+    decoy = str(d.get("spoof_dst") or "").strip()
+    if forged_src and not is_ipv4(forged_src):
+        return {"ok": False, "error": "spoof_src must be IPv4"}
+    if decoy and not is_ipv4(decoy):
+        return {"ok": False, "error": "spoof_dst must be IPv4"}
+    peer_ip = str(receiver.get("host") or "").strip()   # an IP that routes to the receiver box
+    if not is_ipv4(peer_ip):
+        return {"ok": False, "error": "receiver has no usable IP"}
+    nonce = secrets.token_hex(8)
+    window = 8
+
+    lr = node_call(receiver, "spoof-egress-listen", "POST",
+                   {"nonce": nonce, "proto": proto, "decoy": decoy, "window": window}, timeout=15)
+    if not isinstance(lr, dict) or not lr.get("ok") or not lr.get("token"):
+        return {"ok": False, "error": "نودِ گیرنده «%s» شنود را شروع نکرد: %s"
+                % (receiver["name"], (lr.get("error") or lr.get("reason") if isinstance(lr, dict) else "بی‌پاسخ"))}
+    token = lr["token"]
+    time.sleep(0.4)   # let the AF_PACKET socket be up before the sender fires
+
+    sr = node_call(sender, "spoof-egress-send", "POST",
+                   {"nonce": nonce, "proto": proto, "peer": peer_ip,
+                    "forged_src": forged_src, "decoy_dst": decoy}, timeout=15)
+    if not isinstance(sr, dict) or not sr.get("ok"):
+        return {"ok": False, "error": "نودِ فرستنده «%s» نتوانست بفرستد: %s"
+                % (sender["name"], (sr.get("error") if isinstance(sr, dict) else "بی‌پاسخ"))}
+
+    deadline = time.time() + window + 4
+    res = None
+    while time.time() < deadline:
+        res = node_call(receiver, "spoof-egress-result", "POST", {"token": token}, timeout=10)
+        if isinstance(res, dict) and res.get("done"):
+            break
+        time.sleep(0.6)
+    if not isinstance(res, dict) or not res.get("done"):
+        return {"ok": False, "error": "نتیجهٔ شنود در زمانِ مقرر نرسید"}
+    saw = res.get("saw") or {}
+    return {"ok": True,
+            "baseline": bool(saw.get("baseline")), "src": bool(saw.get("src")), "dst": bool(saw.get("dst")),
+            "tested_src": forged_src, "tested_dst": decoy,
+            "observed": res.get("observed") or {},
+            "sender": sender["name"], "receiver": receiver["name"], "proto": proto}
+
+
 def _mirror_beat(ah, bh):
     """A point-to-point core tunnel is alive/dead as a whole, but only the CLIENT side writes the core
     heartbeat status file. Its hb-derived verdict — live_src "beat" (fresh/stale hb) or "nohb" (never
@@ -5746,6 +5814,7 @@ def api_checkin_impl(source_ip, d):
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
     "spoof-probe": api_spoof_probe,
+    "spoof-egress-probe": api_spoof_egress_probe,
     "settings": api_settings, "settings-set": api_settings_set,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
@@ -5769,7 +5838,7 @@ API = {
 }
 MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
-             "peer-status", "peer-probe-now", "peer-select",
+             "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-check", "core-update", "core-upload", "core-stage", "core-push",
              "reorder"}
@@ -6956,7 +7025,19 @@ var I18N={fa:{
  // Measured live 2026-07-28 on our own two nodes; state the limits instead of promising camouflage that cannot be delivered.
  spoof_decoy_warn:"<b>آی‌پیِ طُعمه باید به همین سرور روت شود</b> — یعنی یک آی‌پیِ اضافه که دیتاسنتر به همین ماشین می‌فرستد. یک آی‌پیِ دلخواه (مثلاً سایتی محبوب) کار <b>نمی‌کند</b>: روترهای مسیر بسته را بر اساسِ همان مقصدِ جعلی می‌برند و هرگز به سرورت نمی‌رسد. (اندازه‌گیری‌شده روی همین دو نود.)",
  spoof_src_warn:"<b>روی دیتاسنترهایی که ضدِجعل (uRPF/BCP38) دارند کار نمی‌کند</b> — و هر دو سرورِ فعلیِ ما دارند: بستهٔ با مبدأِ جعلی از نود خارج می‌شود ولی هرگز به آن‌طرف نمی‌رسد. حتی آی‌پی‌ای از /24ِ خودت که مالکش نیستی هم رد می‌شود. اگر پرووایدرت اجازه بدهد کار می‌کند؛ اول تست کن.",
- spoof_cap_ok:"<b>هر دو نود از نظرِ فنی مجازند.</b> ولی اینکه واقعاً کار کند به خروجیِ دیتاسنتر و مسیر هم بستگی دارد — این چک فقط قابلیتِ نودها را می‌سنجد، نه آن را؛ با ساختِ تونل قطعی می‌شود.",
+ spoof_cap_ok:"<b>هر دو نود از نظرِ فنی مجازند.</b> ولی اینکه واقعاً کار کند به خروجیِ دیتاسنتر و مسیر هم بستگی دارد — این چک فقط قابلیتِ نودها را می‌سنجد، نه آن را؛ با دکمهٔ زیر تستِ واقعی بگیر.",
+ spoof_egr_btn:"تستِ واقعیِ عبور (بستهٔ جعلی می‌فرستد)",
+ spoof_egr_hint:"یک نود بستهٔ با هدرِ جعلی می‌سازد و نودِ دیگر گوش می‌دهد که واقعاً رسید یا نه — در همان جهتی که تونل کار می‌کند. چند بستهٔ کوچک می‌فرستد، چیزی را تغییر نمی‌دهد.",
+ spoof_egr_running:"در حال تست روی دو نود… (چند ثانیه)",
+ spoof_egr_fail:"تست ناموفق بود",
+ spoof_egr_two_nodes:"اول دو نودِ متفاوت را انتخاب کن",
+ spoof_egr_hd:"نتیجهٔ تستِ واقعی",
+ spoof_egr_base_ok:"مسیر باز است — بستهٔ عادی رسید.",
+ spoof_egr_base_no:"مسیر بسته است — حتی بستهٔ عادی هم نرسید. این شمارهٔ پروتکل روی این مسیر بلاک است؛ عدد دیگری امتحان کن.",
+ spoof_egr_src_ok:"جعلِ مبدأ کار می‌کند — بستهٔ با مبدأِ جعلی رسید.",
+ spoof_egr_src_no:"جعلِ مبدأ کار نمی‌کند — دیتاسنترِ فرستنده بستهٔ با مبدأِ جعلی را انداخت (ضدِجعل).",
+ spoof_egr_dst_ok:"طُعمه به سرور می‌رسد — این آی‌پی به گیرنده روت می‌شود.",
+ spoof_egr_dst_no:"طُعمه نرسید — این آی‌پی به سرورِ گیرنده روت نمی‌شود؛ باید آی‌پیِ اضافه‌ای باشد که به همین ماشین می‌رسد.",
  spoof_cap_bad_pre:"<b>غیرفعال — روی نودِ «",spoof_cap_bad_mid:"» نمی‌شود.</b> علت: ",spoof_reason_unknown:"نامشخص",spoof_cap_err:"<b>بررسی ناموفق بود.</b> نتوانستم امکانِ جعل را از نودها بپرسم.",
  // fec section
  fec_t:"تصحیحِ خطا (FEC)",fec_d:"پکت‌های گم‌شده را با پریتی و بدونِ ری‌ترنسمیت بازسازی می‌کند — برای لینکِ پُرافت/throttle. سربارِ پهنای‌باند دارد؛ فقط رو حاملِ دیتاگرامی (udp/raw/flux)، رو tcp/ws بی‌اثر.",fec_rate_lbl:"نرخِ افزونگیِ FEC",
@@ -8249,7 +8330,35 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
  +'<div class="tglbox" id="'+idp+'srcrow"><div class="tglsw" id="'+idp+'srcsw" onclick="'+fnp+'ToggleSrc()"></div><div class="tt"><b>'+esc(T('spoof_src_t'))+'</b><small>'+esc(T('spoof_src_d'))+'</small></div></div>'
  +'<div id="'+idp+'srciprow" style="display:none;margin:8px 0 2px"><input id="'+idp+'srcip" class="mono" placeholder="'+esc(T('spoof_src_ph'))+'" inputmode="numeric">'
  +'<div class="spoofcap no" style="margin-top:8px">'+ic('warn')+'<span>'+T('spoof_src_warn')+'</span></div></div>'
- +'<div class="spoofcap wait" id="'+idp+'cap">…</div></div>'}
+ +'<div class="spoofcap wait" id="'+idp+'cap">…</div>'
+ +'<button type="button" class="gbtn sm" id="'+idp+'egrbtn" style="margin-top:10px;width:100%" onclick="spoofEgressTest(\\''+idp+'\\')">'+ic('redo')+'<span>'+esc(T('spoof_egr_btn'))+'</span></button>'
+ +'<div class="muted" style="font-size:10.5px;line-height:1.6;margin-top:6px">'+esc(T('spoof_egr_hint'))+'</div>'
+ +'<div id="'+idp+'egr" style="display:none;margin-top:8px"></div></div>'}
+// The capability caption (spoofcap) only says the sockets can OPEN. spoofEgressTest actually forges a
+// packet on one node and listens on the other, so the operator learns — for THIS pair, in the tunnel's
+// direction — whether a forged source survives the sender's datacenter and whether a decoy routes to
+// the server. It reads the same form fields the tunnel will use, so the answer is about the real config.
+function spoofFormCtx(idp){
+  if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv};
+  return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv};}
+function _egrRow(ok,txt){return '<div class="spoofcap '+(ok?'ok':'no')+'" style="margin-top:6px">'+(ok?ic('okc'):ic('xc'))+'<span>'+esc(txt)+'</span></div>';}
+async function spoofEgressTest(idp){
+  var ctx=spoofFormCtx(idp),out=el(idp+'egr'),btn=el(idp+'egrbtn');if(!out)return;
+  if(ctx.a==ctx.b||!ctx.a||!ctx.b){out.style.display='';out.innerHTML=_egrRow(false,T('spoof_egr_two_nodes'));return;}
+  var proto=parseInt(v(idp+'rawproto')||'58',10);if(!(proto>=1&&proto<=255))proto=253;
+  var body={a_node:ctx.a,b_node:ctx.b,server_side:ctx.srv,proto:proto,
+            spoof_src:(v(idp+'srcip')||'').trim(),spoof_dst:(v(idp+'decoyip')||'').trim()};
+  out.style.display='';out.innerHTML='<div class="spoofcap wait">'+esc(T('spoof_egr_running'))+'</div>';
+  if(btn)btn.disabled=true;
+  var r=await post('spoof-egress-probe',body);
+  if(btn)btn.disabled=false;
+  if(!(r.ok&&r.d&&r.d.ok)){out.innerHTML=_egrRow(false,perr(r)||T('spoof_egr_fail'));return;}
+  var d=r.d,html='<div class="pllabel" style="margin-bottom:2px">'+esc(T('spoof_egr_hd'))
+    +' <span class="muted" style="font-weight:600">('+esc(d.sender)+' → '+esc(d.receiver)+'، proto '+esc(d.proto)+')</span></div>';
+  html+=_egrRow(d.baseline, d.baseline?T('spoof_egr_base_ok'):T('spoof_egr_base_no'));
+  html+=_egrRow(d.src, d.src?(T('spoof_egr_src_ok')+(d.tested_src?(' ('+d.tested_src+')'):'')):T('spoof_egr_src_no'));
+  if(d.tested_dst)html+=_egrRow(d.dst, d.dst?T('spoof_egr_dst_ok'):T('spoof_egr_dst_no'));
+  out.innerHTML=html;}
 // protoSection: the bip-only outer-IP protocol-number picker. bip carries no L4 header, so only the
 // outer protocol number changes — set it to slip past a protocol-whitelist filter. Default 58 (ICMPv6,
 // which the IPv4 kernel ignores); 253 keeps bip's native number. Revealed by {cor,ce}ProtoVis on raw+bip.
