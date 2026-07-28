@@ -1,0 +1,84 @@
+name: ci
+
+# The panel had no automated check of any kind: ~5,700 lines of Python and ~290 KB of browser JavaScript,
+# and the only thing standing between a typo and the dashboard was someone remembering to run a script.
+#
+# What runs here, and why each one exists:
+#
+#   py_compile            the Python parses. `-W error::SyntaxWarning` is deliberate: an invalid escape
+#                         sequence (a JS regex `\d` inside a non-raw string) is a warning today and a
+#                         SyntaxError in a future Python — i.e. a panel that stops importing at all.
+#   js_syntax_check.py    the browser JS parses. It must be checked on the DECODED INDEX_HTML, never on
+#                         the .py bytes: in the source the escapes are unresolved and the __..._JSON__
+#                         placeholders are still literal, so a checker reading the file directly either
+#                         chokes or — worse — passes on something the browser never sees.
+#   tuning_consistency    panel/node/core agree on every tuning knob. core's tuning.go is the authority.
+#   log_labels_check      every log label the backend emits still renders as a pill, not as prose.
+#
+# The last one of those needs all three repositories, so the sibling checkouts below reproduce the
+# maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
+# guards then find each other with their default paths. CORE and NODE are public repositories, so the
+# default GITHUB_TOKEN is enough; if either is ever made private this needs a PAT secret instead.
+#
+# The daily schedule is not redundant with the pull-request trigger: tuning drift can be introduced from
+# the CORE or the NODE side, where this workflow does not run. The cron catches that within a day.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the panel
+        uses: actions/checkout@v5
+        with:
+          path: TUNNEL-MANAGER
+
+      - name: Check out core (tuning.go is the authority the guard compares against)
+        uses: actions/checkout@v5
+        with:
+          repository: Angize/TUNNEL-MANAGER-CORE
+          path: TUNNEL-MANAGER-CORE
+
+      - name: Check out the node agent
+        uses: actions/checkout@v5
+        with:
+          repository: Angize/TUNNEL-MANAGER-NODE
+          path: TUNNEL-MANAGER-NODE
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: py_compile (warnings are errors)
+        working-directory: TUNNEL-MANAGER
+        run: python -W error::SyntaxWarning -m py_compile tnl-central.py
+
+      - name: browser JS parses
+        working-directory: TUNNEL-MANAGER
+        run: python tools/js_syntax_check.py
+
+      - name: tuning knobs agree across panel / node / core
+        working-directory: TUNNEL-MANAGER
+        run: python tools/tuning_consistency.py
+
+      - name: log labels survive the browser's label gate
+        working-directory: TUNNEL-MANAGER
+        run: python tools/log_labels_check.py
