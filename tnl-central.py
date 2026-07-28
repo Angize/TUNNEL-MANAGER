@@ -1316,6 +1316,11 @@ CDN_PROFILES = {
     # its own default worker count, this profile must NOT silently follow it past the ban threshold.
     "arvan": {"http_up_workers": 8, "http_up_batch_kb": 512},
 }
+# A profile may also carry "http_up_rate" (POSTs/sec, 1..1000; 0 = unpaced). That knob is plumbed all the
+# way through — node whitelist -> _core_config -> core config -> the carrier's upMinGap — but NOTHING here
+# produces it today, so it is always 0 and the pacer is off. It is left wired on purpose: it is the lever
+# for a CDN that bans on REQUEST RATE rather than on socket count (arvan bans on sockets, which is why
+# that profile buys throughput with a bigger batch instead). Measure first, then set it here.
 
 
 def _tunnel_extra(src, refetch_ech=True):
@@ -3794,11 +3799,10 @@ def _ws_pool_fields(d, cur=None):
         "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
     }
-    # carrier shape over the pool (only stored when non-default, mirroring the single edge).
-    if res["cdn_carrier"] != "ws":
-        mode = res["cdn_carrier"]
-        if mode == "grpc":
-            res["cdn_carrier"] = "grpc"
+    # NOTE: cdn_carrier is stored ALWAYS (see the dict above), not only when non-default. A block used to
+    # sit here claiming otherwise, "mirroring the single edge" — but all it did was assign "grpc" to a
+    # value that already was "grpc", so it normalized nothing and stored nothing. Anyone chasing a
+    # cdn_profile that goes missing on a pooled tunnel would read it as the normalization step it never was.
     res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
     res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
     return res
@@ -7013,9 +7017,9 @@ var I18N={fa:{
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
  // the CDN carrier tiles + the http profile
  cdn_prof_lbl:"CDNِ روبه‌رو",
- cdnp_cf_n:"کلودفلر",cdnp_cf_m:"پیش‌فرضِ پرسرعت",
- cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"فعلاً همان پیش‌فرض",
- cdn_prof_note:"تعیین می‌کند کلاینت چند POST در ثانیه بزند. <b>هر دو الان یکی‌اند</b> — پیش‌فرضِ هسته (۸ کارگر × ۱۲۸KB، بدونِ سقفِ نرخ). سقفِ قبلیِ ابرآروان از بنی درآمده بود که از یک آی‌پیِ خارجی خورده بود؛ از داخلِ ایران دیواره در هیچ‌کدام از شش تستِ اشباع نزد، و آن سقف حدودِ ۵ برابر سرعتِ آپلود را می‌خورد. اگر CDNِ دیگری زیرِ بار قطع کرد، خبر بده تا یک پروفایلِ محافظه‌کارانه برایش اندازه بگیریم.",
+ cdnp_cf_n:"کلودفلر",cdnp_cf_m:"۸ کارگر × ۱۲۸KB (پیش‌فرض)",
+ cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"۸ کارگر × ۵۱۲KB · ~۳× سریع‌تر",
+ cdn_prof_note:"تعیین می‌کند کلاینت آپلود را با چه شکلی POST کند. <b>کلودفلر</b> = پیش‌فرضِ هسته (۸ کارگر × ۱۲۸KB). <b>ابرآروان</b> = ۸ کارگر × ۵۱۲KB که اندازه‌گیری‌شده حدودِ ۳ برابر سریع‌تر است (~۵۰ در برابر ~۱۷ مگابیت) و هنوز زیرِ آستانه‌ای که وافِ آروان روی آن بن می‌زند (که با تعدادِ سوکت اندازه می‌گیرد نه نرخ، و آن آستانه ۱۶ سوکت بود). اگر CDNِ دیگری زیرِ بار قطع کرد، خبر بده تا یک پروفایلِ محافظه‌کارانه برایش اندازه بگیریم.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  // flux rotation presets + shapes
  frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
