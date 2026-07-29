@@ -1325,7 +1325,27 @@ def _apply_core_tuning(a_body, b_body):
 # "cf" carries the core's own defaults, so it emits NOTHING and a Cloudflare tunnel is byte-identical
 # to before this existed.
 CDN_PROFILES = {
-    "cf":    {},
+    # Measured 2026-07-29 against a REAL Cloudflare edge (proxied hostname, plain-HTTP origin), four
+    # 10-second iperf3 runs per setting through the tunnel, medians in Mbit:
+    #
+    #     8x128 (the old default)  up 251  down 333     <- worst upstream by a wide margin
+    #     8x256                    up 325  down 357     <- chosen
+    #     8x512                    up 321  down 251     <- downstream swings 170..363, unstable
+    #     16x128                   up 321  down 343
+    #     16x256                   up 332  down 341     <- ties 8x256 on speed, twice the sockets
+    #     16x512                   up 305  down 322
+    #
+    # Leaning on the core's defaults cost ~30% of the upstream for nothing: every other setting beat
+    # 8x128, and the 8x128 readings were tight (242..260), so that is a real gap and not noise. 256 KB
+    # is where the gain lands; 512 KB buys no more upstream and made the DOWNSTREAM erratic across
+    # repeats. Workers stay at 8 rather than 16, which measured the same upstream: a worker is a
+    # concurrent socket, and socket COUNT is what a CDN's limiter counts (proven on Arvan, where 16
+    # was cut off and 14 was not), so paying double the concurrency for a tie is a bad trade.
+    # No edge block was seen at any setting here — 22 runs, the edge answered after every one.
+    # CAVEAT: measured DE -> Cloudflare EU PoP -> DE, RTT ~12-16 ms. Capacity is in-flight/RTT, so a
+    # far-away client (an Iranian one is ~76 ms out) may want a BIGGER batch to fill the pipe. The
+    # ranking should carry; the absolute numbers will not. Re-measure from Iran before going past 256.
+    "cf":    {"http_up_workers": 8, "http_up_batch_kb": 256},
     # Half the measured ban threshold, so the carrier keeps its margin: the real client also holds the
     # downstream GET open and a warm standby adds one more socket, and none of that may add up to 16.
     # Throughput is bought with the BATCH instead, which costs no sockets and actually LOWERS the request
