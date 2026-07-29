@@ -74,11 +74,11 @@ CASES = [
     ("ws/http+arvan", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                        "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "arvan"},
      {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 512}),
-    # The DEFAULT profile is its own case: "cf" expands to nothing, so a body that carries http_up_*
-    # keys here means some other profile's numbers leaked in.
+    # The DEFAULT profile is its own case — it carries its OWN measured numbers now, rather than
+    # leaning on the core's defaults, so "cf reached the node" has to be asserted just like arvan's.
     ("ws/http+cf", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                     "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "cf"},
-     {"transport": "ws", "cdn_carrier": "http"}),
+     {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 256}),
     # grpc has no POST ladder, so no profile applies and none of its knobs may appear.
     ("ws/grpc", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                  "ws_path": "/", "ws_tls": True, "cdn_carrier": "grpc"},
