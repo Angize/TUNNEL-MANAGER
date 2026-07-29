@@ -3648,6 +3648,24 @@ def _edge_port_ok(port, tls):
         "پورتِ %d قبول نیست. (یا wss را روشن کن و ۴۴۳ بگذار.)" % (lst, port))
 
 
+def _cdn_profile_field(d, cur, cdn):
+    """The POST-ladder profile for a `http` CDN carrier, validated. Returns an empty dict for any
+    other carrier (grpc has no ladder; plain ws has no CDN shape) and for the default `cf`, which does
+    not need storing — _node_extra falls back to it.
+
+    Shared by the single-edge builder and the edge-POOL one. It used to exist only in the single-edge
+    branch, and _ws_fields returns to the pool builder BEFORE reaching it, so on a pooled tunnel the
+    operator's profile choice was dropped on EVERY path — rebuild included — while the panel kept
+    showing the tile as selected. One definition, two call sites, so the two cannot drift again."""
+    if cdn != "http":
+        return {}
+    cur = cur or {}
+    prof = str((d.get("cdn_profile") if "cdn_profile" in d else cur.get("cdn_profile")) or "cf").strip().lower()
+    if prof not in CDN_PROFILES:
+        raise ValueError("پروفایلِ CDN نامعتبر است")
+    return {"cdn_profile": prof} if prof != "cf" else {}
+
+
 def _ws_fields(d, transport, cur=None):
     """Validate and return the ws (WebSocket/CDN) carrier fields. ws_host is the Host
     header + TLS SNI (the fronting/origin domain); ws_path the request path; ws_tls makes
@@ -3702,8 +3720,8 @@ def _ws_fields(d, transport, cur=None):
     # http: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a
     # WebSocket upgrade, so it passes a CDN/account that blocks WebSocket. Independent of
     # wss (works over plain http too, though wss is the usual fronting choice). Single-edge
-    # path only — the pool branch above returns first and builds its OWN carrier fields, so a
-    # pool's carrier shape is handled there (the pool supports http too, via _ws_pool_fields).
+    # path only — the pool branch above returns first and builds its OWN carrier fields, including the
+    # profile, through the SAME _cdn_profile_field helper this branch uses.
     cdn = str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws").strip().lower()
     if cdn not in ("ws", "http", "grpc"):
         raise ValueError("حاملِ CDN نامعتبر است")
@@ -3713,17 +3731,10 @@ def _ws_fields(d, transport, cur=None):
         # Upstream style: post (default, many short POSTs — most CDN-compatible) or grpc (a
         # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
         # buffering; needs wss).
-        if cdn == "grpc":
-            pass   # nothing else to record: the carrier value IS the mode
-        else:
-            # Which CDN this tunnel fronts through, for the upstream shape. Only on the http carrier: the
-            # ladder is what a WAF counts, and grpc does not have one. Stored as a name; _tunnel_extra
-            # turns it into numbers.
-            prof = str((d.get("cdn_profile") if "cdn_profile" in d else cur.get("cdn_profile")) or "cf").strip().lower()
-            if prof not in CDN_PROFILES:
-                raise ValueError("پروفایلِ CDN نامعتبر است")
-            if prof != "cf":
-                out["cdn_profile"] = prof
+        # Which CDN this tunnel fronts through, for the upstream shape. Only on the http carrier: the
+        # ladder is what a WAF counts, and grpc does not have one. Stored as a name; _node_extra turns
+        # it into numbers, for every path at once.
+        out.update(_cdn_profile_field(d, cur, cdn))
     ss = _sni_split_fields(d, cur)  # SNI fragmentation (wss only)
     if ss:
         if not out.get("ws_tls"):
@@ -3848,6 +3859,9 @@ def _ws_pool_fields(d, cur=None):
     # sit here claiming otherwise, "mirroring the single edge" — but all it did was assign "grpc" to a
     # value that already was "grpc", so it normalized nothing and stored nothing. Anyone chasing a
     # cdn_profile that goes missing on a pooled tunnel would read it as the normalization step it never was.
+    # It went missing because it was never built here at all: the POST ladder is the same over a pool
+    # (only the endpoint rotates), so the profile applies exactly as it does to a single edge.
+    res.update(_cdn_profile_field(d, cur, res["cdn_carrier"]))
     res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
     res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
     return res
