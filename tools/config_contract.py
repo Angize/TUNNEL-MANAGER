@@ -83,6 +83,22 @@ CASES = [
     ("ws/grpc", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                  "ws_path": "/", "ws_tls": True, "cdn_carrier": "grpc"},
      {"transport": "ws", "cdn_carrier": "grpc"}),
+    # An edge POOL is its own branch — _ws_fields returns to _ws_pool_fields before it ever reaches
+    # the single-edge carrier block — so every ws case above says nothing about it. That gap is why a
+    # pooled tunnel ignored the profile on all three paths for a whole release. ECH is off so this
+    # never touches the network.
+    ("ws-pool/http+arvan", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
+                            "ws_edge_ips": ["203.0.113.10", "203.0.113.11"],
+                            "ws_edge_snis": ["a.example.com", "b.example.com"],
+                            "ech": False, "cdn_carrier": "http", "cdn_profile": "arvan"},
+     {"transport": "ws", "ws_pool": True, "cdn_carrier": "http",
+      "http_up_workers": 8, "http_up_batch_kb": 512}),
+    ("ws-pool/http+cf", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
+                         "ws_edge_ips": ["203.0.113.10", "203.0.113.11"],
+                         "ws_edge_snis": ["a.example.com", "b.example.com"],
+                         "ech": False, "cdn_carrier": "http", "cdn_profile": "cf"},
+     {"transport": "ws", "ws_pool": True, "cdn_carrier": "http",
+      "http_up_workers": 8, "http_up_batch_kb": 256}),
 ]
 
 # Keys that legitimately differ between paths (not part of the contract).
