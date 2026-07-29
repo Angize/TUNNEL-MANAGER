@@ -74,10 +74,29 @@ CASES = [
     ("ws/http+arvan", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                        "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "arvan"},
      {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 512}),
+    # The DEFAULT profile is its own case: "cf" expands to nothing, so a body that carries http_up_*
+    # keys here means some other profile's numbers leaked in.
+    ("ws/http+cf", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
+                    "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "cf"},
+     {"transport": "ws", "cdn_carrier": "http"}),
+    # grpc has no POST ladder, so no profile applies and none of its knobs may appear.
+    ("ws/grpc", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
+                 "ws_path": "/", "ws_tls": True, "cdn_carrier": "grpc"},
+     {"transport": "ws", "cdn_carrier": "grpc"}),
 ]
 
 # Keys that legitimately differ between paths (not part of the contract).
 IGNORE = {"psk", "ws_ech", "ech"}
+
+# Keys that must NEVER reach a node, on any path. A node silently drops what it does not whitelist
+# (tnl-node.py's op_tunnel is a hand-written ~300-line list), so a panel-only key that leaks into a
+# body is invisible at runtime — no error, no log, just a setting that does nothing. That is exactly
+# how `cdn_profile` shipped for a release: sent as a name, dropped on arrival, and the operator's
+# choice of CDN profile quietly did nothing on every path except rebuild.
+NEVER = ("cdn_profile", "ws_edge_ips_burned", "ws_edge_snis_burned",
+         "ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
+# ...unless a case's own contract asks for it (none do today; the check reads `must` so a future
+# carrier that legitimately needs one of these can say so instead of quietly disabling the guard).
 
 
 def build_create(req):
@@ -130,7 +149,14 @@ def main():
                     failures.append("[%s] %s: %s = %r, want %r" %
                                     (name, path_name, k, body.get(k, "<missing>"), want))
 
-        # 2) the three paths must agree with each other.
+        # 2) no panel-only key may reach a node body, on any path — the node would drop it in silence.
+        for path_name, body in (("create", create), ("edit", edit), ("rebuild", rebuild)):
+            for k in NEVER:
+                if k in body and k not in must:
+                    failures.append("[%s] %s: %s = %r reached the node body; it is panel-only and the "
+                                    "node drops unwhitelisted keys silently" % (name, path_name, k, body[k]))
+
+        # 3) the three paths must agree with each other.
         for pa, a, pb, b in (("create", create, "edit", edit),
                              ("create", create, "rebuild", rebuild)):
             d = diff(name, pa, a, pb, b)

@@ -1198,7 +1198,11 @@ def norm_subnet(ttype, tid, provided, base=None):
 # Pool blacklists are panel-side only (the operator's memory of which edges are burned); the node/core
 # never consume them, so strip them from any node body. _tunnel_extra (rebuild) already omits them by
 # construction — this keeps the create/edit node bodies consistent with that.
-_PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned")
+# Keys the panel keeps for itself: the node either has no use for them or does not whitelist them at
+# all (an unwhitelisted key is dropped in silence there, which is how `cdn_profile` went missing for a
+# whole release). `cdn_profile` is stored as a NAME and expanded by _node_extra into the numbers the
+# node does whitelist, so the name itself never needs to travel.
+_PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned", "cdn_profile")
 
 # IP-rotation config lives in the LINK record and is consumed by _core_rotation_bodies to derive each
 # node's PER-ROLE fields (peer_ips/src_ips on the client, pool_listen on the server). The raw keys must
@@ -1207,8 +1211,25 @@ _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_bu
 
 
 def _node_extra(extra):
+    """Turn a panel-side extras dict into the body a NODE receives: expand what is stored as a NAME
+    into the numbers the core reads, then drop the keys that are the panel's own bookkeeping.
+
+    EVERY path to a node goes through here — create, edit, and rebuild (via _tunnel_extra's return).
+    That is the whole point. The CDN profile used to be expanded inside _tunnel_extra alone, which
+    only the rebuild path runs, so create and edit shipped the profile NAME instead: tnl-node.py does
+    not whitelist `cdn_profile`, so it was dropped in silence and the tunnel came up on the core's
+    defaults. An operator who picked ابرآروان got 8x128 KB rather than 8x512 KB — measured on that
+    edge as ~17 Mbit where 50 was available — and only a manual rebuild ever fixed it. Three commits
+    in a row claimed the chain was verified end to end after checking the one path that worked.
+
+    Keep this the only funnel. `tools/config_contract.py` fails the build if the three paths drift."""
+    e = dict(extra)
+    if e.get("cdn_carrier") == "http":
+        # Stored as a name so the numbers live in exactly one place and a stored tunnel picks up a
+        # retuned profile on its next push. grpc has no POST ladder, so the shape is meaningless there.
+        e.update(CDN_PROFILES.get(str(e.get("cdn_profile") or "cf"), {}))
     skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS
-    return {k: v for k, v in extra.items() if k not in skip}
+    return {k: v for k, v in e.items() if k not in skip}
 
 
 def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto_burn):
@@ -1385,11 +1406,11 @@ def _tunnel_extra(src, refetch_ech=True):
                 e["split_ttl"] = int(src["split_ttl"])
     if src.get("cdn_carrier") in ("http", "grpc"):   # the shape this CDN carrier takes
         e["cdn_carrier"] = src["cdn_carrier"]
-        # The CDN profile is stored as a NAME and expanded here, so the numbers exist in exactly one
-        # place and a stored tunnel picks up a retuned profile on its next rebuild. grpc has no POST
-        # ladder, so the shape is meaningless there.
+        # Carry the profile NAME, exactly as create/edit do. _node_extra is what expands it into
+        # numbers, for all three paths at once — expanding it here instead is what made this path the
+        # only one that worked.
         if src.get("cdn_carrier") == "http":
-            e.update(CDN_PROFILES.get(str(src.get("cdn_profile") or "cf"), {}))
+            e["cdn_profile"] = str(src.get("cdn_profile") or "cf")
     if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
         e["ech"] = True
         host = src.get("ws_host")
@@ -1441,7 +1462,11 @@ def _tunnel_extra(src, refetch_ech=True):
         e["spoof_src"] = src["spoof_src"]
     if src.get("spoof_dst"):             # decoy destination (raw bip; the node wires the AF_PACKET side by role)
         e["spoof_dst"] = src["spoof_dst"]
-    return e
+    # Through the SAME funnel create and edit use, so a name-to-numbers expansion can never again exist
+    # on one path only. The rebuild callers splat this straight into the node body (`**extra`) and so
+    # cannot apply it themselves; returning it already funnelled is what makes "one funnel" true rather
+    # than aspirational. Verified to strip nothing from any rebuild body across all 13 carriers.
+    return _node_extra(e)
 
 
 def _core_role(L, node_id):
