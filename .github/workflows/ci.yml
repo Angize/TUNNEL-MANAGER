@@ -22,6 +22,10 @@ name: ci
 #                         spent its whole life failing on a divergence nobody saw.
 #   ws_pool_edit_test     an edit that omits a pool field falls back to the stored pool instead of
 #                         emptying it. Added in the same batch, and likewise never run.
+#   cdn_profile_labels    each CDN-profile tile advertises the numbers that profile really sends. The
+#                         tile is the only place the operator learns what the choice does, and it is
+#                         hand-written Persian ~5,700 lines away from the dict that decides the bytes.
+#                         They drifted inside one batch (#293 wrote the text, #295 changed the numbers).
 #
 # The last one of those needs all three repositories, so the sibling checkouts below reproduce the
 # maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
@@ -98,3 +102,6 @@ jobs:
       - name: an edit that omits a pool field keeps the stored pool
         working-directory: TUNNEL-MANAGER
         run: python tools/ws_pool_edit_test.py
+      - name: CDN profile tiles advertise what they send
+        working-directory: TUNNEL-MANAGER
+        run: python tools/cdn_profile_labels_check.py
