@@ -1399,8 +1399,13 @@ def _tunnel_extra(src, refetch_ech=True):
         e["flux_rotate_secs"] = src["flux_rotate_secs"]
     if src.get("flux_shape"):            # flux statistical size profile
         e["flux_shape"] = src["flux_shape"]
-    if src.get("flux_epoch_offset"):     # flux manual "rotate now" epoch bump
-        e["flux_epoch_offset"] = src["flux_epoch_offset"]
+    if "flux_epoch_offset" in src:       # flux manual "rotate now" epoch bump; 0 is a VALUE, not absence
+        # Presence, not truthiness. _flux_fields writes this key unconditionally (`int(... or 0)`), so
+        # a flux tunnel that has never been bumped stores 0 — and `if src.get(...)` dropped it, leaving
+        # create/edit and rebuild building different bodies. The node normalises both to 0, so nothing
+        # broke; the CONTRACT did, and config_contract.py has been failing on exactly this since the
+        # commit that added it. Matching the writer is the fix, not teaching the guard to look away.
+        e["flux_epoch_offset"] = int(src.get("flux_epoch_offset") or 0)
     if src.get("fec"):                   # flux FEC (loss recovery); carry the block geometry too
         e["fec"] = True
         e["fec_data"] = src.get("fec_data") or 10
@@ -1424,7 +1429,13 @@ def _tunnel_extra(src, refetch_ech=True):
             e["sni_mode"] = src["sni_mode"]
             if src.get("split_ttl"):
                 e["split_ttl"] = int(src["split_ttl"])
-    if src.get("cdn_carrier") in ("http", "grpc"):   # the shape this CDN carrier takes
+    if src.get("cdn_carrier"):           # the shape this CDN carrier takes
+        # Whatever is STORED, which is the rule the writers use. _ws_pool_fields stores cdn_carrier
+        # ALWAYS (its own comment says so, and explains why: a pooled tunnel whose profile went missing
+        # would otherwise read a normalization as the bug), while _ws_fields stores it only when it is
+        # not "ws" — so on a POOL create/edit put `cdn_carrier: "ws"` in the node body and this path
+        # dropped it. The node defaults an absent one to "ws", so nothing broke; the three paths still
+        # disagreed, which is the one thing this funnel exists to prevent.
         e["cdn_carrier"] = src["cdn_carrier"]
         # Carry the profile NAME, exactly as create/edit do. _node_extra is what expands it into
         # numbers, for all three paths at once — expanding it here instead is what made this path the

@@ -99,6 +99,21 @@ CASES = [
                          "ech": False, "cdn_carrier": "http", "cdn_profile": "cf"},
      {"transport": "ws", "ws_pool": True, "cdn_carrier": "http",
       "http_up_workers": 8, "http_up_batch_kb": 256}),
+    # The PLAIN-WebSocket pool. Every pool case above sets an http carrier, so none of them covers the
+    # default shape — and that is where the second real divergence was hiding: _ws_pool_fields stores
+    # cdn_carrier ALWAYS (unlike _ws_fields, which stores it only when it is not "ws"), so create/edit
+    # put `cdn_carrier: "ws"` in the node body while _tunnel_extra forwarded only http/grpc.
+    ("ws-pool/ws", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
+                    "ws_edge_ips": ["203.0.113.10", "203.0.113.11"],
+                    "ws_edge_snis": ["a.example.com", "b.example.com"],
+                    "ech": False, "cdn_carrier": "ws"},
+     {"transport": "ws", "ws_pool": True, "cdn_carrier": "ws"}),
+    # A flux tunnel that has been bumped by "rotate now" — the case where flux_epoch_offset is a real
+    # non-zero value rather than the 0 every flux tunnel stores from birth. Both have to survive all
+    # three paths, and the zero one is what the guard has been red on since it was written.
+    ("flux/udp+bumped", {"transport": "flux", "cipher": "auto", "flux_carrier": "udp",
+                         "flux_rotate_secs": 600, "flux_shape": "random", "flux_epoch_offset": 3},
+     {"transport": "flux", "flux_carrier": "udp", "flux_epoch_offset": 3}),
 ]
 
 # Keys that legitimately differ between paths (not part of the contract).
