@@ -26,6 +26,9 @@ name: ci
 #                         tile is the only place the operator learns what the choice does, and it is
 #                         hand-written Persian ~5,700 lines away from the dict that decides the bytes.
 #                         They drifted inside one batch (#293 wrote the text, #295 changed the numbers).
+#   sni_mode_fields       split_ttl stays a disorder-only knob, on all three build paths AND in the
+#                         browser. disorder and fake want opposite values out of that one input, so
+#                         offering it for both shipped a decoy that died before the DPI.
 #
 # The last one of those needs all three repositories, so the sibling checkouts below reproduce the
 # maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
@@ -105,3 +108,6 @@ jobs:
       - name: CDN profile tiles advertise what they send
         working-directory: TUNNEL-MANAGER
         run: python tools/cdn_profile_labels_check.py
+      - name: split_ttl stays a disorder-only knob
+        working-directory: TUNNEL-MANAGER
+        run: python tools/sni_mode_fields_check.py
