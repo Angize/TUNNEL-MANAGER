@@ -3381,6 +3381,15 @@ def _fec_fields(d, transport, cur=None):
     fp = int(d.get("fec_parity") or cur.get("fec_parity") or 3)
     if fd < 1 or fp < 1 or fd + fp > 255:
         raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥۱، مجموع ≤۲۵۵)")
+    # ...and the RECEIVER has to be able to repair the block, which the sum rule says nothing about.
+    # The core's decoder hands intact shards over on arrival and parity-recovered ones last, so a
+    # repaired frame reaches the AEAD up to blocksize-1 sequences behind the newest — and its replay
+    # guard (a 64-slot window) refuses anything a full window behind. Past 64 the parity is computed,
+    # sent, reconstructed and then discarded: full FEC bandwidth, zero repair, in silence. The core
+    # refuses it (config.go, packet.MaxFecData), so accepting it here builds a tunnel that will not
+    # start. Measured on the guard itself: 64 recovers, 65 does not.
+    if fd > 64:
+        raise ValueError("دادهٔ FEC حداکثر ۶۴ است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)")
     out["fec_data"] = fd
     out["fec_parity"] = fp
     return out
@@ -3416,6 +3425,12 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     mode = str(d.get("fake_mode") or cur.get("fake_mode") or "ttl").strip().lower()
     if mode not in ("ttl", "badsum", "both"):
         raise ValueError("حالتِ طعمه نامعتبر است")
+    if mode == "both" and cnt == 1:
+        # One decoy cannot be both a low-TTL packet and a bad-checksum one. The core says exactly that
+        # and REFUSES the config (config.go: `fake_mode "both" needs fake_count >= 2`), so letting it
+        # through here means both ends of a live tunnel die on the next core-update — with the panel
+        # reporting the edit as saved.
+        raise ValueError("حالتِ «هر دو» به حداقل ۲ طعمه نیاز دارد (یک طعمه نمی‌تواند هم‌زمان TTL‌پایین و چک‌سام‌خراب باشد)")
     out["fake_mode"] = mode
     return out
 
@@ -3745,6 +3760,12 @@ def _ws_fields(d, transport, cur=None):
         raise ValueError("حاملِ CDN نامعتبر است")
     xh = cdn != "ws"
     if bool(xh):
+        if cdn == "grpc" and not out.get("ws_tls"):
+            # The core refuses it (config.go: `cdn_carrier "grpc" requires ws_tls`) because a gRPC call
+            # needs HTTP/2 to the edge and only wss negotiates h2 there. The browser forces the wss
+            # toggle on and greys it out for grpc, which is why this looked closed — but the toggle is
+            # not the funnel; this is, and it is reachable straight from the API.
+            raise ValueError("حاملِ grpc به wss نیاز دارد (برای HTTP/2 به لبه) — اول wss را روشن کن")
         out["cdn_carrier"] = cdn
         # Upstream style: post (default, many short POSTs — most CDN-compatible) or grpc (a
         # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
@@ -3943,6 +3964,12 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):   # anti-DPI needs the AEAD key
         if cipher == "none":
             raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
+        if transport == "dns":
+            # The core refuses this combination outright (config.go: "obfs is not supported on the dns
+            # transport"), so accepting it here builds a tunnel that cannot start on EITHER end. The
+            # browser hides the toggle for dns, which is why it looked closed — but this funnel is what
+            # create, edit and rebuild all go through, and the API is reachable without the browser.
+            raise ValueError("استتار روی حاملِ dns پشتیبانی نمی‌شود (کریرِ DNS اصلاً فریمِ obfs ندارد) — استتار را خاموش کن")
         ce["obfs"] = True
     cover = (bool(d.get("cover")) if "cover" in d else bool(cur.get("cover"))) and transport == "tcp"   # TLS cover is TCP-only
     if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
