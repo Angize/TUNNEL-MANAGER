@@ -14,6 +14,14 @@ name: ci
 #                         chokes or — worse — passes on something the browser never sees.
 #   tuning_consistency    panel/node/core agree on every tuning knob. core's tuning.go is the authority.
 #   log_labels_check      every log label the backend emits still renders as a pill, not as prose.
+#   config_contract       the panel's THREE independent ways of building a node body (create / edit /
+#                         rebuild) build the SAME body. This is the guard for the defect class that
+#                         shipped three times in a row under "chain verified end to end": a key that
+#                         reaches two of the three paths, and a node that drops what it does not
+#                         whitelist without a word. It was added without being wired in here, so it
+#                         spent its whole life failing on a divergence nobody saw.
+#   ws_pool_edit_test     an edit that omits a pool field falls back to the stored pool instead of
+#                         emptying it. Added in the same batch, and likewise never run.
 #
 # The last one of those needs all three repositories, so the sibling checkouts below reproduce the
 # maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
@@ -82,3 +90,11 @@ jobs:
       - name: log labels survive the browser's label gate
         working-directory: TUNNEL-MANAGER
         run: python tools/log_labels_check.py
+
+      - name: create / edit / rebuild build the same node body
+        working-directory: TUNNEL-MANAGER
+        run: python tools/config_contract.py
+
+      - name: an edit that omits a pool field keeps the stored pool
+        working-directory: TUNNEL-MANAGER
+        run: python tools/ws_pool_edit_test.py
