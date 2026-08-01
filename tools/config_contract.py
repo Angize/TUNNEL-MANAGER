@@ -156,6 +156,28 @@ def build_edit(req, stored):
     return P._node_extra(ce)
 
 
+def build_edit_partial(req, stored):
+    """A PARTIAL edit: the operator changed nothing this form carries, so every value has to come back
+    out of the STORED record.
+
+    This arm exists because the full-resend one above cannot see the fallback at all. Every helper
+    reads `d.get(k) if k in d else cur.get(k)`, so when `d` is the whole create request `cur` is never
+    consulted — create and edit then call the same function with the same `d`, and check (3) comparing
+    those two is close to a tautology.
+
+    The path that went unexercised is the one that actually broke: panel #292/#45 was a partial edit of
+    a POOLED link feeding `str({'host': ...})` to the SNI regex and hard-failing with «SNI نامعتبر»,
+    because `stored` holds `[{host, ech, path}]` DICTS while every case here supplies plain host
+    STRINGS. tools/ws_pool_edit_test.py covers that one helper directly, for that one key; no other
+    omitted-field fallback was exercised anywhere.
+
+    Only the transport is passed, because that is what _core_extra switches on. Everything else must be
+    reconstructed from `cur`, and must come out IDENTICAL to the full resend — which is precisely the
+    panel's stated edit contract, and the thing nothing was checking."""
+    ce, _ = P._core_extra({"transport": req["transport"]}, dict(stored), A_IP, B_IP, A_IPS, B_IPS)
+    return P._node_extra(ce)
+
+
 def build_rebuild(stored):
     """Rebuild/restore replays the STORED record (no fresh ECH fetch, so it never hits the network)."""
     return P._tunnel_extra(dict(stored), refetch_ech=False)
@@ -183,20 +205,23 @@ def main():
             stored = dict(stored)
             stored["type"] = "core"
             edit = build_edit(req, stored)
+            edit_partial = build_edit_partial(req, stored)
             rebuild = build_rebuild(stored)
         except Exception as e:
             failures.append("[%s] BUILD FAILED: %s: %s" % (name, type(e).__name__, e))
             continue
 
         # 1) every key the operator set must actually reach the node body, on every path.
-        for path_name, body in (("create", create), ("edit", edit), ("rebuild", rebuild)):
+        for path_name, body in (("create", create), ("edit", edit),
+                                ("edit (partial)", edit_partial), ("rebuild", rebuild)):
             for k, want in must.items():
                 if body.get(k) != want:
                     failures.append("[%s] %s: %s = %r, want %r" %
                                     (name, path_name, k, body.get(k, "<missing>"), want))
 
         # 2) no panel-only key may reach a node body, on any path — the node would drop it in silence.
-        for path_name, body in (("create", create), ("edit", edit), ("rebuild", rebuild)):
+        for path_name, body in (("create", create), ("edit", edit),
+                                ("edit (partial)", edit_partial), ("rebuild", rebuild)):
             for k in NEVER:
                 if k in body and k not in must:
                     failures.append("[%s] %s: %s = %r reached the node body; it is panel-only and the "
@@ -218,6 +243,7 @@ def main():
 
         # 3) the three paths must agree with each other.
         for pa, a, pb, b in (("create", create, "edit", edit),
+                             ("create", create, "edit (partial)", edit_partial),
                              ("create", create, "rebuild", rebuild)):
             d = diff(name, pa, a, pb, b)
             if d:
