@@ -178,13 +178,13 @@ def save_bytes(path, data, mode=0o644):
 # core clamps again, so the panel is convenience-validation, not the authority. suspect_backoff is a
 # list of positive seconds (the retest schedule). Grouped by category for the Settings UI.
 _TUNING_DEFAULTS = {
-    # دستهٔ ۱ — سلامتِ استخر (Pool health FSM)
+    # 1 - pool health FSM
     "suspect_backoff": [30, 60, 120, 300, 600],
     "dead_retest_secs": 1800,
     "pin_ttl_secs": 30,
     "data_fail_threshold": 2,
     "data_good_window_secs": 120,
-    # دستهٔ ۲ — تشخیصِ مرگ / self-heal
+    # 2 - dead detection / self-heal
     "keepalive": 15,          # fleet-wide keepalive (the base clock every dead-window scales off); was per-tunnel
     "dead_after_secs": 0,     # fleet-wide fixed dead-window (seconds); 0 = auto (derive from the multipliers below)
     "idle_mult": 4,
@@ -194,7 +194,7 @@ _TUNING_DEFAULTS = {
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
-    # دستهٔ ۳ — کارایی
+    # 3 - throughput
     # sock_buf_mb is expressed in MiB for the operator; the core's `sock_buf` field is BYTES, so
     # _apply_core_tuning converts. 4 matches the core's own default (config.go: c.SockBuf = 4<<20), so an
     # untouched knob stamps nothing and the core keeps its default. 0 means OFF -> stamped as -1, the
@@ -275,7 +275,7 @@ def _settings_tuning():
 def settings_defaults():
     return {
         "reconcile_mode": "alert",  # default. "alert" = only flag a drifted tunnel; the operator clicks
-                                    # بازسازی on the affected one. "auto" = panel rebuilds it itself (single-IP).
+                                    # rebuild on the affected one. "auto" = panel rebuilds it itself (single-IP).
         "reconcile_interval": 15,   # seconds between reconcile sweeps (5–3600)
         "poll_interval": 2,         # seconds the fleet poller rests between sweeps (0.3–60, fractional OK)
         "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
@@ -3676,8 +3676,8 @@ def _sni_split_fields(d, cur):
     out = {"sni_split": True}
     if sp:
         out["split_pos"] = sp
-    # mode: "split" (دو سگمنتِ in-order) | "disorder" (سگمنتِ سرْ با TTL پایین) | "fake" (ClientHelloِ
-    # جعلی با SNIِ فریب روی همان seq، ضدِ DPIِ بازسازی‌کننده)
+    # mode: "split" = two in-order segments | "disorder" = head segment at a low TTL |
+    # "fake" = a decoy ClientHello at the same seq, against a DPI that reassembles.
     mode = str((d.get("sni_mode") if "sni_mode" in d else cur.get("sni_mode")) or "split").strip().lower()
     if mode not in ("split", "disorder", "fake"):
         raise ValueError("حالتِ SNI نامعتبر است (split / disorder / fake)")
@@ -8031,7 +8031,7 @@ async function flipView(id){var r=await post('link-view',{id:id});
  else{toast(T('failed'),'err')}}
 async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast(perr(r),'err')}}
 async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast(perr(r),'err')}}
-// ===== IP tags + rebuild IP picker (opens on بازسازی for a drift-flagged tunnel) =====
+// ===== IP tags + rebuild IP picker (opens on rebuild for a drift-flagged tunnel) =====
 var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
 var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
