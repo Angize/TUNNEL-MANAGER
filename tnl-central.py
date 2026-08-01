@@ -1324,8 +1324,11 @@ def _apply_core_tuning(a_body, b_body):
 # instant, not just the one under load), edge TCP 80+443 refused while ICMP kept answering, and it lasted
 # ~10 minutes both times. An Iranian client did not reproduce it at any setting, so this profile is sized
 # for the worst case — a FOREIGN client, which is what the reverse-connect topology uses.
-# "cf" carries the core's own defaults, so it emits NOTHING and a Cloudflare tunnel is byte-identical
-# to before this existed.
+# BOTH profiles carry real numbers, so both change the node body. "cf" began as an empty entry that
+# deferred to the core's own defaults, and this comment went on describing that after #295 measured
+# 8x256 one screen below it. Neither half of it held: the core's default is 8x128, not 8x256, and an
+# http-carrier client body now leaves the panel with two extra knobs on it whichever profile is picked.
+# tools/panel_says_what_it_does_check.py fails if this paragraph drifts from the dict again.
 CDN_PROFILES = {
     # Measured 2026-07-29 against a REAL Cloudflare edge (proxied hostname, plain-HTTP origin), four
     # 10-second iperf3 runs per setting through the tunnel, medians in Mbit:
@@ -7194,7 +7197,7 @@ var I18N={fa:{
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"این استخر پروبِ جداگانه ندارد — خودِ ترافیکِ زنده آزمایش است. آی‌پیِ سوخته وقتی صبرش تمام شد در «چرخشِ بعدی» دوباره امتحان می‌شود؛ اگر چرخشِ زمان‌دار خاموش باشد (بازه = ۰)، وقتی آی‌پیِ فعلی از کار بیفتد. «الان تست کن» صبر را جلو می‌کشد تا آن امتحان زودتر برسد — خودش تستی نمی‌فرستد. با «این را فعال کن» هم می‌توانید دستی روی یک آی‌پی بپرید.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
- flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",pool_edge_active:"این لبه فعال شد",
+ flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخش/اتصالِ بعدی امتحان می‌شوند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  // ---- core create/edit form + shared section builders (Gap 1)
@@ -8514,8 +8517,14 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   var r=await post('peer-select',{id:_peerLid,side:side,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
+// peerProbeNow is the DIRECT (udp/tcp/raw/flux) pool's «الان تست کن». It must NOT claim a probe was
+// sent, which is what it used to toast: core's probeAllNow only sets nextRetest = now, and unlike the
+// ws EDGE pool there is no retestLoop behind these pools (tcp.go starts one only for b.pool), so
+// nothing dials. The next real attempt is the next rotation or failover. peer_live_note directly
+// above the button already says exactly that — the toast was contradicting the panel's own help text
+// two lines away. poolProbeNow, the ws-edge twin, keeps pool_probe_sent because there it is true.
 async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
-  if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
+  if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(perr(r),'err')}}
 // ---- IP spoofing section — shared markup + per-form logic. Only for the "spoof" transport.
 // Each toggle carries a measured limit (2026-07-28, on our own two nodes): a decoy destination only
