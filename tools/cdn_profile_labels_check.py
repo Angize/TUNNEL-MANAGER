@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""The CDN-profile tiles must advertise the numbers the profile actually sends.
+"""The picker tiles must advertise the numbers they really produce — CDN profiles, and FEC rates.
 
 Each profile in the picker shows a one-line summary — «۸ کارگر × ۲۵۶KB» — and that line is the ONLY
 place an operator learns what the choice does. It is hand-written Persian in I18N, sitting ~5,700
@@ -13,7 +13,16 @@ default … worst upstream by a wide margin" — so the picker recommended, by i
 change was made to get away from. Nothing could catch that: no test reads Persian UI strings, and the
 config-contract guard checks what reaches the node, not what the operator was told.
 
-This reads the two numbers back out of each tile and compares them with the profile dict. Run it with
+The FEC rate tiles are the same class one screen down: each shows «N٪ سربار» beside its d+p geometry,
+and that percentage is p/d — the overhead of a SATURATED block. A partial block (any tunnel under
+~667 pps at 10+3) puts fewer data shards on the wire but always at least one parity shard, so the
+instantaneous overhead is higher: 100% for a single-packet block. That is the arithmetic floor of
+keeping a block protected, not a defect — emitting zero parity would drop protection exactly on the
+low-rate case where one lost datagram hurts an inner TCP most, and the erasure RATIO the encoder
+guarantees (kEff/(count+kEff) >= k/(n+k)) is never worse than what was picked. But the tile stated a
+bare percentage, so this checks it really is p/d and that fec_note carries the caveat.
+
+This reads the numbers back out of each tile and compares them with what produces them. Run it with
 no arguments; it is wired into CI beside the other guards.
 
     python3 tools/cdn_profile_labels_check.py
@@ -25,6 +34,13 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PANEL = os.path.join(os.path.dirname(HERE), "tnl-central.py")
+
+# Every failure message here quotes a Persian UI string, and the maintainer runs these on a Windows
+# console whose default encoding is cp1252 — which cannot encode Persian digits at all. So the guard
+# would raise UnicodeEncodeError while PRINTING the failure it had correctly detected: it fires, and
+# then tells you nothing. Found by actually running a deliberately-broken tree, not by reading.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Persian-Indic digits, which is what the UI is written in (CLAUDE.md §2: the panel is Persian-only).
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
@@ -55,6 +71,18 @@ def tile_numbers(src, key):
     return (int(n.group(1)), int(kb.group(1))), m.group(1)
 
 
+def pct_of(src, key):
+    """Pull the percentage out of an overhead label, e.g. «۳۰٪ سربار» -> 30."""
+    m = re.search(r'%s:"([^"]*)"' % re.escape(key), src)
+    if not m:
+        return None, "no such I18N key"
+    text = m.group(1).translate(FA_DIGITS)
+    n = re.search(r"(\d+)\s*٪", text)
+    if not n:
+        return None, "the label does not state «N٪»: %r" % m.group(1)
+    return int(n.group(1)), m.group(1)
+
+
 def main():
     P = load_panel()
     src = open(PANEL, encoding="utf-8").read()
@@ -80,12 +108,42 @@ def main():
             continue
         print("  ok  %-8s tile says %d x %d KB, and that is what it sends" % (name, got[0], got[1]))
 
+    # --- FEC rate tiles: the «N٪ سربار» label must be p/d, and fec_note must carry the caveat.
+    rates = re.search(r"function FEC_RATES\(\)\{return \[(.*?)\]\}", src, re.S)
+    if not rates:
+        failures.append("FEC_RATES was not found — this check cannot read its subject, so it must not "
+                        "report success")
+    else:
+        tiles = re.findall(r"\{d:(\d+),p:(\d+),n:T\('[^']+'\),ov:T\('([^']+)'\)\}", rates.group(1))
+        if not tiles:
+            failures.append("FEC_RATES matched but no {d,p,ov} tiles parsed out of it")
+        for d, p, ov_key in tiles:
+            d, p = int(d), int(p)
+            got, shown = pct_of(src, ov_key)
+            want = round(p * 100.0 / d)
+            if got is None:
+                failures.append("[fec %d+%d] %s: %s" % (d, p, ov_key, shown))
+            elif got != want:
+                failures.append("[fec %d+%d] the tile says %d%% overhead, but p/d is %d%%\n"
+                                "      tile: %s" % (d, p, got, want, shown))
+            else:
+                print("  ok  fec %d+%d tile says %d%%, and p/d is %d%%" % (d, p, got, want))
+        note = re.search(r'fec_note:"([^"]*)"', src)
+        if not note:
+            failures.append("fec_note was not found")
+        elif "۱۰۰٪" not in note.group(1):
+            failures.append("fec_note does not say the tile percentage is the SATURATED-block figure "
+                            "(a single-packet block costs ۱۰۰٪) — on its own the tile reads as a "
+                            "promise the encoder only keeps on a busy tunnel")
+        else:
+            print("  ok  fec_note says the tile percentage is the saturated-block figure")
+
     if failures:
         print("\nFAILURES (%d):" % len(failures))
         for f in failures:
             print("  - %s" % f)
         return 1
-    print("\nall %d CDN profile tiles advertise what they send" % len(profiles))
+    print("\nall %d CDN profile tiles and every FEC rate tile advertise what they produce" % len(profiles))
     return 0
 
 
