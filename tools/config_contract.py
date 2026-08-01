@@ -79,7 +79,10 @@ CASES = [
     ("ws/http+cf", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                     "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "cf"},
      {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 256}),
-    # grpc has no POST ladder, so no profile applies and none of its knobs may appear.
+    # grpc has no POST ladder, so no profile applies and none of its knobs may appear. That sentence
+    # stood here while NOTHING checked it: `must` only asserts the keys it lists, NEVER did not carry
+    # the POST-ladder knobs, and check (3) compares the three paths against each other — so a leak
+    # present on all three was invisible. HTTP_ONLY below is the check the comment was describing.
     ("ws/grpc", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                  "ws_path": "/", "ws_tls": True, "cdn_carrier": "grpc"},
      {"transport": "ws", "cdn_carrier": "grpc"}),
@@ -128,6 +131,18 @@ NEVER = ("cdn_profile", "ws_edge_ips_burned", "ws_edge_snis_burned",
          "ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
 # ...unless a case's own contract asks for it (none do today; the check reads `must` so a future
 # carrier that legitimately needs one of these can say so instead of quietly disabling the guard).
+
+# The POST-ladder knobs are a different and HARDER rule than NEVER: the core does not ignore them
+# elsewhere, it REFUSES the whole config —
+#
+#   config.go: if c.HTTPUpWorkers != 0 || c.HTTPUpBatchKB != 0 || c.HTTPUpRate != 0 {
+#                  if c.Role != "client" || c.CDNCarrier != "http" { return errors.New(...) } }
+#
+# so a leak here is not a silently-dropped key, it is a tunnel that will not start, on both ends, with
+# the panel reporting the save as successful. The condition is taken from the core rather than written
+# out as a per-case list, so a new carrier gets the rule for free: the knobs may appear when and only
+# when the case's own contract says this is an http carrier.
+HTTP_ONLY = ("http_up_workers", "http_up_batch_kb", "http_up_rate")
 
 
 def build_create(req):
@@ -186,6 +201,20 @@ def main():
                 if k in body and k not in must:
                     failures.append("[%s] %s: %s = %r reached the node body; it is panel-only and the "
                                     "node drops unwhitelisted keys silently" % (name, path_name, k, body[k]))
+
+        # 2b) ...and the POST-ladder knobs may appear ONLY on an http carrier, because the core
+        #     refuses the config outright anywhere else. The positive half is already covered: the
+        #     arvan/cf cases list the numbers in `must`, so this cannot be satisfied by never
+        #     emitting them at all.
+        if must.get("cdn_carrier") != "http":
+            for path_name, body in (("create", create), ("edit", edit), ("rebuild", rebuild)):
+                for k in HTTP_ONLY:
+                    if k in body:
+                        failures.append("[%s] %s: %s = %r reached the node body on a %s carrier; the "
+                                        "core REFUSES that config (http-carrier client only), so both "
+                                        "ends would fail to start while the panel reported the save as "
+                                        "successful" % (name, path_name, k, body[k],
+                                                        must.get("cdn_carrier") or must.get("transport")))
 
         # 3) the three paths must agree with each other.
         for pa, a, pb, b in (("create", create, "edit", edit),
