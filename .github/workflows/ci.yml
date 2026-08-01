@@ -37,6 +37,11 @@ name: ci
 #                         the core clamps them to injectMaxTTL. The panel stored the unclamped number,
 #                         so the form, the node and core's own startup line all reported a hop budget
 #                         the wire never carried. The ceiling is read out of core, not copied.
+#   spoof_egress_probe    the "does the forge really get out" button probes the IPs the TUNNEL will use,
+#                         on both ends and in both directions. It aimed at the node's MANAGEMENT host
+#                         instead, and per-IP filtering is this project's documented reality, so a green
+#                         could be about an address the tunnel never touches. A node registered by
+#                         hostname made the button a dead end outright.
 #
 # The last one of those needs all three repositories, so the sibling checkouts below reproduce the
 # maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
@@ -126,3 +131,6 @@ jobs:
       - name: fake_ttl reports what the wire carries
         working-directory: TUNNEL-MANAGER
         run: python tools/fake_ttl_cap_check.py
+      - name: the spoof egress test probes the tunnel's own pair
+        working-directory: TUNNEL-MANAGER
+        run: python tools/spoof_egress_probe_check.py
