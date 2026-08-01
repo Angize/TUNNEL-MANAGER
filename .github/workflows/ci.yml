@@ -32,6 +32,11 @@ name: ci
 #   sni_mode_fields       split_ttl stays a disorder-only knob, on all three build paths AND in the
 #                         browser. disorder and fake want opposite values out of that one input, so
 #                         offering it for both shipped a decoy that died before the DPI.
+#   fake_ttl_cap          fake_ttl means two different things by carrier: raw/flux/spoof forge a header
+#                         and honour 1..255, while tcp/ws inject on the real connection's 4-tuple and
+#                         the core clamps them to injectMaxTTL. The panel stored the unclamped number,
+#                         so the form, the node and core's own startup line all reported a hop budget
+#                         the wire never carried. The ceiling is read out of core, not copied.
 #
 # The last one of those needs all three repositories, so the sibling checkouts below reproduce the
 # maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
@@ -118,3 +123,6 @@ jobs:
       - name: split_ttl stays a disorder-only knob
         working-directory: TUNNEL-MANAGER
         run: python tools/sni_mode_fields_check.py
+      - name: fake_ttl reports what the wire carries
+        working-directory: TUNNEL-MANAGER
+        run: python tools/fake_ttl_cap_check.py
