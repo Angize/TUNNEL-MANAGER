@@ -6358,8 +6358,7 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .badge.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 32%,transparent)}
 .badge.na{background:var(--glass);color:var(--sub);border:1px solid var(--bord)}
 .badge.warn{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 34%,transparent)}
-/* line-height is pinned, not left at `normal`: at `normal` the pill's height came from the font's own
-   metrics (~1.7em), so trimming the padding alone barely moved it. */
+/* line-height pinned: at `normal` the font metrics set the pill height, not the padding */
 .tag{font-size:10.5px;line-height:1.5;text-transform:uppercase;letter-spacing:.4px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);color:var(--acc);border-radius:7px;padding:0 6px;font-weight:700}
 .tag.sit{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .tag.gre{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
@@ -6701,7 +6700,7 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 /* node cards are accordion (chead + collapsing cbody) — no forced flex-column/equal-height (that would block the collapse) */
 /* tunnel card: two node tiles (name + status pill + address) with ↔ between them, then a 2-col meta grid */
 .tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px;direction:ltr}
-.tninfo>*{direction:rtl}   /* columns flow LTR, so the LAST child is the RIGHT one — which is where sideOrder() always puts the SERVER end; each box keeps its own RTL content */
+.tninfo>*{direction:rtl}   /* columns flow LTR, so the last child is the right one; each box keeps RTL content */
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -7091,8 +7090,7 @@ var I18N={fa:{
  tip_flip:"تعویضِ دیدِ مصرف — فعلاً: ",
  // create tunnel
  add_tunnel_t:"افزودنِ تونل",create_sub:"سیستمی · یک مبدأ ↔ یک مقصد",src_node:"نودِ مبدأ",dst_node:"نودِ مقصد",
- // The core form labels its two node pickers by ROLE, not by slot. src_node/dst_node stay for the
- // generic tunnel modal (vxlan/gre/ipip/…), which has no listen/dial role for them to contradict.
+ // Core form only; the generic modal keeps src_node/dst_node (it has no server/client role).
  srv_node:"نودِ سرور",cli_node:"نودِ کلاینت",
  tun_type:"نوع تونل",local_range:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)",custom_subnet:"سابنتِ دلخواه",range:"رنج",
  create_tun_btn:"ساخت تونل",two_diff_nodes:"دو نودِ متفاوت انتخاب کن",creating_tun:"در حال ساختِ تونل…",tun_created:"تونل ساخته شد",
@@ -7948,16 +7946,10 @@ function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title
  return '<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}   // the collapsed head is often the ONLY dot on screen — it needs the reason too
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
-// srvIsA reports whether end A is the LISTENING (server) end of a core tunnel.
-//
-// The card always puts the SERVER on the RIGHT and the CLIENT on the LEFT, whichever of a/b happens
-// to hold that role — the roles swap from tunnel to tunnel, and reading a fleet where the server
-// jumps sides card to card is what made this worth fixing. Both .tninfo and .hpeers flow LTR, so
-// "right" is the LAST slot in each. The header and the node boxes derive their order from THIS one
-// function precisely so they cannot drift apart and show a name on one side with its dot on the other.
+// srvIsA reports whether end A is the listening (server) end.
 function srvIsA(l){return l.server_side!='b'}
-// sideOrder returns [left, right] as 'a'/'b'. Non-core tunnels have no server/client role at all, so
-// they keep the plain a-then-b order.
+// sideOrder returns [left,right]. Server goes right; non-core tunnels have no role, so a then b.
+// Both .tninfo and .hpeers flow LTR, so the right slot is the last one.
 function sideOrder(l,isCore){return (isCore&&srvIsA(l))?['b','a']:['a','b']}
 function accHead(l,isCore){var on=l.enabled!==false;
  var so=sideOrder(l,isCore),sl=so[0],sr=so[1];
@@ -8236,8 +8228,7 @@ function edgeHost(v){v=String(v||'');var i=v.lastIndexOf(':');return (i>0&&v.ind
  if(l.transport=='ws'){
    if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="echips" id="cardedge_'+l.id+'">'+edgeChips(EDGEV[l.id]||'')+'</div></div>';}
    else{var eip=l.edge_ip?edgeHost(l.edge_ip):'',edom=l.ws_host||'';
-     // Same two-chip layout as the live box above, on a NEUTRAL wrapper: this edge is fixed, nothing
-     // polls it, so the green tint and the liveness dot would both be claiming something untrue.
+     // Fixed edge: same chips, neutral wrapper — nothing polls it, so no live tint and no dot.
      if(eip||edom)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="echips">'+edgeChipsOf(eip,edom)+'</div></div>';}
  }
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
@@ -8259,14 +8250,12 @@ function coreCard(l){
  // paints instantly, but it must not carry `rot`: the entry is rewritten only when the IP CHANGES,
  // so a side that stops rotating (a pool trimmed to one) would keep a stale rot:true forever.
  var _arot=l.a_ip_rot?rotMark():'',_brot=l.b_ip_rot?rotMark():'';
- // One box builder for BOTH ends, so the two can never drift in markup or in which id they carry —
- // and so the pair can be EMITTED in either order without duplicating the template. The ids stay
- // keyed by the end (cpip_a_/lba_/cprot_a_...), never by screen position: refreshCardEdges and the
- // live-status poll look them up by end, and they must keep working when the ends swap sides.
+ // One builder for both ends, so the pair can be emitted in either order. Ids stay keyed by the end
+ // (cpip_a_/lba_/cprot_a_), never by screen position — the live-status poll looks them up by end.
  var _ip={a:_aip,b:_bip},_rt={a:_arot,b:_brot};
  var nbox=function(s){var isSrv=(s=='a')==srvA;
   return '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono" id="cpip_'+s+'_'+l.id+'">'+esc(_ip[s])+'</div></div>'};
- var _so=sideOrder(l,true);   // [left, right] — the server end is always the right one
+ var _so=sideOrder(l,true);   // [left, right]
  var body='<div class="tninfo">'+
   nbox(_so[0])+
   '<span class="tnarrow">↔</span>'+
@@ -8434,17 +8423,13 @@ async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
   else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(perr(r),'err')}}
 // Split the active edge "IP:port · domain" into two clean chips (IP primary, domain muted).
-// edgeChipsOf renders the address as two chips. BOTH card edge boxes go through it — the pooled
-// tunnel's live box and the single-edge tunnel's fixed one — so the pair cannot drift in markup or in
-// which class each half carries. The boxes differ only in the wrapper: .cedge.live tints itself green
-// and carries a liveness dot, the fixed one stays neutral because nothing polls it.
+// edgeChipsOf renders the address as two chips. Both edge boxes use it; only the wrapper differs.
 function edgeChipsOf(ip,dom){
  if(!ip&&!dom)return '<span class="echip wait">…</span>';
  var h=ip?'<span class="echip ip">'+esc(ip)+'</span>':'';
  if(dom)h+='<span class="echip dom">'+esc(dom)+'</span>';
  return h}
-// edgeChips takes the core status file's "ip · domain" value verbatim (refreshCardEdges passes it
-// straight through), so the split stays here rather than at every call site.
+// edgeChips splits the core status file's "ip · domain" value.
 function edgeChips(v){v=String(v||'');var p=v.split(' · ');return edgeChipsOf(p[0]||'',p.slice(1).join(' · '))}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');
@@ -8803,11 +8788,8 @@ function onCorCipher(){_obfsGate('e_',_corS)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bip';_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.CdnProf='cf';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
- // The two pickers are labelled and ORDERED by role (corRoleLbls), not by slot: "which node listens"
- // is decided by the roles segment below, and a fixed «مبدأ/مقصد» here contradicted it — the same node
- // read as «مبدأ» up here and as the «مقصد» IP pool two rows down (that row is role-based on purpose,
- // because it maps 1:1 onto the core's src_ips/peer_ips). Only the label text and the grid order move;
- // the selects themselves are never re-rendered, so a re-label cannot drop the operator's choice.
+ // Pickers are labelled and ordered by role (corNodeLbls), not by slot. The roles segment below is
+ // where the role is chosen; the IP row two rows down stays keyed to core's src_ips/peer_ips.
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
   '<div id="e_bwrap"><label class="first" id="e_blab"></label>'+ssHTML('e_b',items,items[1].v,T('cli_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -8921,20 +8903,13 @@ function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' '+esc(T('role_server_word'))+'</b><span>'+esc(an)+' '+esc(T('role_client_word'))+'</span>';
  corNodeLbls()}
-// corNodeLbls names and places the two node pickers from the CURRENT role. The roles segment stays the
-// single place the decision is made — this only shows the same fact twice without letting the two drift.
-//
-// .grid2 is a 2-column grid on an RTL page, so the first-ORDERED item is the RIGHT column: the server
-// end therefore takes order 0, matching the tunnel card, which also puts the server on the right.
-// Nothing is re-rendered — a label's textContent and a wrapper's `order` are the whole change, so the
-// selects keep their state and their onCorNode handlers.
+// corNodeLbls names and places the pickers from the current role. .grid2 is RTL, so order 0 is the
+// right column. Only label text and `order` change, so the selects keep their state.
 function corNodeLbls(){var srvA=(_corS.Srv=='a'),la=el('e_alab'),lb=el('e_blab');
  if(la)la.textContent=srvA?T('srv_node'):T('cli_node');
  if(lb)lb.textContent=srvA?T('cli_node'):T('srv_node');
- // The IP row has to travel WITH its picker. Ordering only the pickers put node B's selector above
- // node A's addresses the moment the server was end B — two stacked grids that no longer line up, and
- // the operator would have read the wrong node's IP list. e_aip/e_bip are also what renderRotIps fills,
- // so the rotation pool follows the same move.
+ // The IP field moves with its picker, or the two grids stop lining up. e_aip/e_bip are also what
+ // renderRotIps fills, so the rotation pool follows.
  var A=[el('e_awrap'),el('e_aip')],B=[el('e_bwrap'),el('e_bip')];
  A.forEach(function(e){if(e)e.style.order=srvA?'0':'1'});
  B.forEach(function(e){if(e)e.style.order=srvA?'1':'0'})}
