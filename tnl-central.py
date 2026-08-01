@@ -5202,6 +5202,20 @@ _EV_ROT_CODE = {
 }
 
 
+def _mib(b):
+    """Bytes -> a short human size for a log detail. Falls back to the raw string when it is not a
+    number, because a core that sends something unexpected must still render as SOMETHING."""
+    try:
+        n = int(b)
+    except (TypeError, ValueError):
+        return str(b)
+    if n >= 1 << 20:
+        return "%.1f مگابایت" % (n / float(1 << 20))
+    if n >= 1 << 10:
+        return "%.0f کیلوبایت" % (n / float(1 << 10))
+    return "%d بایت" % n
+
+
 def _ev_core_text(kind, code, detail, nm):
     """Render a core event into (level, kind, title, detail) for log_event(*...).
     Splitting title from detail lets the UI show the reason on its own line."""
@@ -5225,6 +5239,31 @@ def _ev_core_text(kind, code, detail, nm):
         # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
         # carried two sentences for one fact. The endpoint is the useful part; keep only that.
         return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
+    if kind == "cfg":
+        # A setting the operator CHOSE that the host did not actually grant. The core discovers these
+        # while it opens its sockets; before this they only reached the core unit's journal, which the
+        # node reads on exactly one branch — after a build that FAILED. A core that started and was
+        # merely clamped went through no branch at all, so the panel kept showing the setting green
+        # and the only way to learn otherwise was to ssh to the node.
+        #
+        # detail is DATA, never prose (the same split every other core event uses). For
+        # sockbuf-clamped it is "<send|receive> <asked> <effective>", both in bytes.
+        # The two directions are written out rather than interpolated because tools/log_labels_check.py
+        # recognises a LABEL by a literal prefix followed by a value. «بافرِ {dir}: …» renders fine but
+        # the guard cannot read it statically, so the pill/prose decision would have gone unchecked —
+        # which is the exact gap that guard exists to close.
+        if code == "sockbuf-clamped":
+            parts = key.split()
+            title = f"تونلِ «{nm}»: بافرِ سوکت به‌اندازه‌ای که خواستی اعمال نشد"
+            if len(parts) == 3 and parts[0] == "send":
+                return ("warn", "cfg", title,
+                        f"بافرِ ارسال: {_mib(parts[1])} خواسته شد، {_mib(parts[2])} اعمال شد\n"
+                        f"چاره: net.core.wmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
+            if len(parts) == 3:
+                return ("warn", "cfg", title,
+                        f"بافرِ دریافت: {_mib(parts[1])} خواسته شد، {_mib(parts[2])} اعمال شد\n"
+                        f"چاره: net.core.rmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
+        return ("warn", "cfg", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
     if kind == "heal":
         # A previously-sidelined member recovered and is back in the rotation pool. Three flavors:
         # peer-retest/src-retest are the DIRECT-transport pool's destination/source IP recovering on the
