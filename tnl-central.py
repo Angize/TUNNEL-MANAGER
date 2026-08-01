@@ -6699,7 +6699,7 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 /* node cards are accordion (chead + collapsing cbody) — no forced flex-column/equal-height (that would block the collapse) */
 /* tunnel card: two node tiles (name + status pill + address) with ↔ between them, then a 2-col meta grid */
 .tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px;direction:ltr}
-.tninfo>*{direction:rtl}   /* columns flow LTR so box B (b_name) sits on the RIGHT — same side as the header's a↔b; each box keeps its own RTL content */
+.tninfo>*{direction:rtl}   /* columns flow LTR, so the LAST child is the RIGHT one — which is where sideOrder() always puts the SERVER end; each box keeps its own RTL content */
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -7949,13 +7949,25 @@ function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title
  return '<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}   // the collapsed head is often the ONLY dot on screen — it needs the reason too
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
+// srvIsA reports whether end A is the LISTENING (server) end of a core tunnel.
+//
+// The card always puts the SERVER on the RIGHT and the CLIENT on the LEFT, whichever of a/b happens
+// to hold that role — the roles swap from tunnel to tunnel, and reading a fleet where the server
+// jumps sides card to card is what made this worth fixing. Both .tninfo and .hpeers flow LTR, so
+// "right" is the LAST slot in each. The header and the node boxes derive their order from THIS one
+// function precisely so they cannot drift apart and show a name on one side with its dot on the other.
+function srvIsA(l){return l.server_side!='b'}
+// sideOrder returns [left, right] as 'a'/'b'. Non-core tunnels have no server/client role at all, so
+// they keep the plain a-then-b order.
+function sideOrder(l,isCore){return (isCore&&srvIsA(l))?['b','a']:['a','b']}
 function accHead(l,isCore){var on=l.enabled!==false;
+ var so=sideOrder(l,isCore),sl=so[0],sr=so[1];
  var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+grip()+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
   '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
-   '<span class="hpeers" dir="ltr">'+accDot(l,'a')+esc(l.a_name)+' ↔ '+esc(l.b_name)+accDot(l,'b')+'</span></div></div>'+CHEVI+'</div>'}
+   '<span class="hpeers" dir="ltr">'+accDot(l,sl)+esc(l[sl+'_name'])+' ↔ '+esc(l[sr+'_name'])+accDot(l,sr)+'</span></div></div>'+CHEVI+'</div>'}
 function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>'+esc(T('tun_off_note'))+'</span></div>';
  var hasT=(l.rx_total!=null||l.rx_bps!=null);
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
@@ -8246,10 +8258,18 @@ function coreCard(l){
  // paints instantly, but it must not carry `rot`: the entry is rewritten only when the IP CHANGES,
  // so a side that stops rotating (a pool trimmed to one) would keep a stale rot:true forever.
  var _arot=l.a_ip_rot?rotMark():'',_brot=l.b_ip_rot?rotMark():'';
+ // One box builder for BOTH ends, so the two can never drift in markup or in which id they carry —
+ // and so the pair can be EMITTED in either order without duplicating the template. The ids stay
+ // keyed by the end (cpip_a_/lba_/cprot_a_...), never by screen position: refreshCardEdges and the
+ // live-status poll look them up by end, and they must keep working when the ends swap sides.
+ var _ip={a:_aip,b:_bip},_rt={a:_arot,b:_brot};
+ var nbox=function(s){var isSrv=(s=='a')==srvA;
+  return '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono" id="cpip_'+s+'_'+l.id+'">'+esc(_ip[s])+'</div></div>'};
+ var _so=sideOrder(l,true);   // [left, right] — the server end is always the right one
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="tnend"><span class="rl '+(srvA?'srv':'cli')+'">'+(srvA?T('server'):T('client'))+'</span><span class="cprot" id="cprot_a_'+l.id+'">'+_arot+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></span></div><div class="tna mono" id="cpip_a_'+l.id+'">'+esc(_aip)+'</div></div>'+
+  nbox(_so[0])+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="tnend"><span class="rl '+(srvA?'cli':'srv')+'">'+(srvA?T('client'):T('server'))+'</span><span class="cprot" id="cprot_b_'+l.id+'">'+_brot+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></span></div><div class="tna mono" id="cpip_b_'+l.id+'">'+esc(_bip)+'</div></div>'+
+  nbox(_so[1])+
   '</div>'+
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
