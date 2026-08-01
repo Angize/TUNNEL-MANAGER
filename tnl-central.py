@@ -1622,9 +1622,33 @@ def api_spoof_egress_probe(d):
         return {"ok": False, "error": "spoof_src must be IPv4"}
     if decoy and not is_ipv4(decoy):
         return {"ok": False, "error": "spoof_dst must be IPv4"}
-    peer_ip = str(receiver.get("host") or "").strip()   # an IP that routes to the receiver box
+    # Aim at the IPs THIS TUNNEL will use, not at the node registry's management host. uRPF and decoy
+    # routing are per-IP on these providers — that is the whole premise the spoof work rests on — so
+    # probing a different address answers a different question: a multi-IP node can come back green on
+    # its management IP while the tunnel's chosen IP is filtered, or the reverse. The docstring above
+    # and the button's own hint both promise "on THIS pair, in the direction the tunnel will use".
+    #
+    # It also un-breaks a node registered by HOSTNAME, which api_node_add explicitly permits: `host`
+    # then never parses as IPv4, so the button returned "receiver has no usable IP" and never contacted
+    # either node — for a tunnel that builds perfectly well, because a_ip/b_ip come from the node's live
+    # IP list and never from `host`.
+    def _node_ips(node):
+        ips = _flat_ips(_cached_ping(node["id"]))
+        if not ips:   # cold poll cache (a node added moments ago) — ask it directly rather than give up
+            ips = _flat_ips(node_call(node, "ping", "GET", timeout=10))
+        return ips
+
+    def _pick(want, ips, node):
+        want = str(want or "").strip()
+        if want and want in ips:   # the operator's explicit pick, validated exactly as create/edit do
+            return want
+        return ips[0] if ips else str(node.get("host") or "").strip()
+
+    a_ip = _pick(d.get("a_ip"), _node_ips(a), a)
+    b_ip = _pick(d.get("b_ip"), _node_ips(b), b)
+    peer_ip, real_src = (a_ip, b_ip) if srv == "a" else (b_ip, a_ip)   # receiver listens, sender forges
     if not is_ipv4(peer_ip):
-        return {"ok": False, "error": "receiver has no usable IP"}
+        return {"ok": False, "error": "نودِ گیرنده «%s» هیچ آی‌پیِ قابل‌استفاده‌ای گزارش نکرد" % receiver["name"]}
     nonce = secrets.token_hex(8)
     window = 8
 
@@ -1636,9 +1660,16 @@ def api_spoof_egress_probe(d):
     token = lr["token"]
     time.sleep(0.4)   # let the AF_PACKET socket be up before the sender fires
 
-    sr = node_call(sender, "spoof-egress-send", "POST",
-                   {"nonce": nonce, "proto": proto, "peer": peer_ip,
-                    "forged_src": forged_src, "decoy_dst": decoy}, timeout=15)
+    send_body = {"nonce": nonce, "proto": proto, "peer": peer_ip,
+                 "forged_src": forged_src, "decoy_dst": decoy}
+    # real_src is the BASELINE's source: without it the node falls back to _egress_route_local(peer),
+    # the route-local source toward whatever we aimed at. The baseline is the line that separates "the
+    # whole proto is blocked" from "the forge was dropped", and per-IP directional filtering is exactly
+    # this project's documented reality — so it has to leave from the tunnel's own IP too, not just
+    # arrive at it. The node already accepts and validates this field.
+    if is_ipv4(real_src):
+        send_body["real_src"] = real_src
+    sr = node_call(sender, "spoof-egress-send", "POST", send_body, timeout=15)
     if not isinstance(sr, dict) or not sr.get("ok"):
         return {"ok": False, "error": "نودِ فرستنده «%s» نتوانست بفرستد: %s"
                 % (sender["name"], (sr.get("error") if isinstance(sr, dict) else "بی‌پاسخ"))}
@@ -8508,14 +8539,22 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
 // direction — whether a forged source survives the sender's datacenter and whether a decoy routes to
 // the server. It reads the same form fields the tunnel will use, so the answer is about the real config.
 function spoofFormCtx(idp){
-  if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv};
-  return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv};}
+  // aip/bip come from pickedIP, the same helper the create and edit submits use, so the probe really
+  // does test "the same form fields the tunnel will use" instead of the node's management host.
+  if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv,
+                       aip:pickedIP('e_','a',''),bip:pickedIP('e_','b','')};
+  // The same source the edit submit (doCoreEdit) reads its anchors from, so the probe and the save
+  // cannot disagree about which IP this tunnel is on.
+  var l=(FLEET||[]).filter(function(x){return x.id==editingId})[0]||{};
+  return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv,
+          aip:pickedIP('ee_','a',l.a_ip||''),bip:pickedIP('ee_','b',l.b_ip||'')};}
 function _egrRow(ok,txt){return '<div class="spoofcap '+(ok?'ok':'no')+'" style="margin-top:6px">'+(ok?ic('okc'):ic('xc'))+'<span>'+esc(txt)+'</span></div>';}
 async function spoofEgressTest(idp){
   var ctx=spoofFormCtx(idp),out=el(idp+'egr'),btn=el(idp+'egrbtn');if(!out)return;
   if(ctx.a==ctx.b||!ctx.a||!ctx.b){out.style.display='';out.innerHTML=_egrRow(false,T('spoof_egr_two_nodes'));return;}
   var proto=parseInt(v(idp+'rawproto')||'58',10);if(!(proto>=1&&proto<=255))proto=253;
   var body={a_node:ctx.a,b_node:ctx.b,server_side:ctx.srv,proto:proto,
+            a_ip:ctx.aip||'',b_ip:ctx.bip||'',
             spoof_src:(v(idp+'srcip')||'').trim(),spoof_dst:(v(idp+'decoyip')||'').trim()};
   out.style.display='';out.innerHTML='<div class="spoofcap wait">'+esc(T('spoof_egr_running'))+'</div>';
   if(btn)btn.disabled=true;
@@ -8780,6 +8819,18 @@ function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('
 // b_ip) — the pool seed. Any selected IP works; first-in-order keeps it stable.
 function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
  for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
+// pickedIP: the node IP THIS FORM has chosen for one side — the tunnel's a_ip/b_ip. With rotation on
+// and more than one address it is the pool anchor (the stored one if it is still in the pool, so the
+// anchor does not drift on every edit, else the first selected, else the first listed); otherwise it
+// is the single-IP picker's value. `stored` is '' on create and the link's current value on edit.
+//
+// It exists because this expression was written out by hand in the create submit and again in the edit
+// submit, and the spoof egress test — which promises an answer about "the same form fields the tunnel
+// will use" — had NEITHER, so it silently probed the node's management host instead. A third hand copy
+// is how that gap reappears; there is one now.
+function pickedIP(px,side,stored){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
+ if(st.on&&ips.length>1)return (stored&&sel[stored]&&stored)||rotFirstSel(px,side)||ips[0]||'';
+ return el('ssb_'+px+side+'ip_sel')?ssVal(px+side+'ip_sel'):(stored||'')}
 function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(px+'rotrow');if(!w)return;
  var multi=(st.aIps.length>1||st.bIps.length>1)&&rotIsDirect(px);
  if(!multi){st.on=false;w.innerHTML='';var r0=el(px+'rotset');if(r0)r0.style.display='none';renderRotIps(px);return}
@@ -8855,9 +8906,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(_collectCoreBody(_corS,'e_',m,body))return;
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var _rverr=rotValidate('e_');if(_rverr){m.className='msg err';m.textContent=_rverr;return}
- var _sa=rotSt('e_');
- var aip=(_sa.on&&_sa.aIps.length>1)?(rotFirstSel('e_','a')||_sa.aIps[0]||''):(el('ssb_e_aip_sel')?ssVal('e_aip_sel'):'');if(aip)body.a_ip=aip;
- var bip=(_sa.on&&_sa.bIps.length>1)?(rotFirstSel('e_','b')||_sa.bIps[0]||''):(el('ssb_e_bip_sel')?ssVal('e_bip_sel'):'');if(bip)body.b_ip=bip;
+ var aip=pickedIP('e_','a','');if(aip)body.a_ip=aip;
+ var bip=pickedIP('e_','b','');if(bip)body.b_ip=bip;
  var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs;body.auto_burn=_rc.auto_burn}
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
  var port=v('e_port');if(port)body.port=port;
@@ -8955,11 +9005,11 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(_collectCoreBody(_eeS,'ee_',m,body))return;
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var _rverr2=rotValidate('ee_');if(_rverr2){m.className='msg err';m.textContent=_rverr2;return}
- var _sa2=rotSt('ee_');
  // Keep the stored anchor if it is still in the pool, so the anchor (a_ip/b_ip) doesn't drift to another
- // pool IP each edit (which churns the server bind and used to trip a false self port-conflict).
- var aip=(_sa2.on&&_sa2.aIps.length>1)?((_sa2.aSel[l.a_ip]&&l.a_ip)||rotFirstSel('ee_','a')||_sa2.aIps[0]||''):(el('ssb_ee_aip_sel')?ssVal('ee_aip_sel'):(l.a_ip||''));if(aip)body.a_ip=aip;
- var bip=(_sa2.on&&_sa2.bIps.length>1)?((_sa2.bSel[l.b_ip]&&l.b_ip)||rotFirstSel('ee_','b')||_sa2.bIps[0]||''):(el('ssb_ee_bip_sel')?ssVal('ee_bip_sel'):(l.b_ip||''));if(bip)body.b_ip=bip;
+ // pool IP each edit (which churns the server bind and used to trip a false self port-conflict) — that is
+ // what the `stored` argument does.
+ var aip=pickedIP('ee_','a',l.a_ip||'');if(aip)body.a_ip=aip;
+ var bip=pickedIP('ee_','b',l.b_ip||'');if(bip)body.b_ip=bip;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs;body.auto_burn=_rc2.auto_burn}
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
