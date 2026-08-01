@@ -6358,7 +6358,9 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .badge.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 32%,transparent)}
 .badge.na{background:var(--glass);color:var(--sub);border:1px solid var(--bord)}
 .badge.warn{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 34%,transparent)}
-.tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);color:var(--acc);border-radius:8px;padding:2px 8px;font-weight:700}
+/* line-height is pinned, not left at `normal`: at `normal` the pill's height came from the font's own
+   metrics (~1.7em), so trimming the padding alone barely moved it. */
+.tag{font-size:10.5px;line-height:1.5;text-transform:uppercase;letter-spacing:.4px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);color:var(--acc);border-radius:7px;padding:0 6px;font-weight:700}
 .tag.sit{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .tag.gre{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
 .tag.portfw{color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)}
@@ -6839,7 +6841,7 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .toast .ic{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-inline-end:4px}
 .tag.core{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 40%,transparent);background:color-mix(in srgb,#8b5cf6 12%,transparent)}
 body.dark .tag.core{color:#a78bfa}
-.tag.obfs{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent);text-transform:none;letter-spacing:0;padding:1px 6px;border-radius:7px;font-size:10px}
+.tag.obfs{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent);text-transform:none;letter-spacing:0;padding:0 5px;border-radius:6px;font-size:10px;line-height:1.5}
 .tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
 .tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
 .tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
@@ -6920,7 +6922,7 @@ body.dark .tag.core{color:#a78bfa}
 .enmeta .emcol>div.wrap{white-space:normal;overflow:visible}
 .enmeta .emcol b{color:var(--tx);font-weight:700}
 .enmeta .earrow{visibility:hidden}
-.enmeta .emcol>div.feat{display:flex;align-items:center;gap:4px;flex-wrap:wrap;white-space:normal;overflow:visible}
+.enmeta .emcol>div.feat{display:flex;align-items:center;gap:3px;flex-wrap:wrap;white-space:normal;overflow:visible}
 .enmeta .emcol>div.tagrow{overflow:visible;white-space:nowrap}
 .enmeta .feat .nofeat{opacity:.55}
 .cedge{margin-top:10px;background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 12px}
@@ -8233,8 +8235,10 @@ function edgeHost(v){v=String(v||'');var i=v.lastIndexOf(':');return (i>0&&v.ind
  var edge='';
  if(l.transport=='ws'){
    if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="echips" id="cardedge_'+l.id+'">'+edgeChips(EDGEV[l.id]||'')+'</div></div>';}
-   else{var pp=[];if(l.ws_host)pp.push(esc(l.ws_host));if(l.edge_ip)pp.push(esc(edgeHost(l.edge_ip)));
-     if(pp.length)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="cv mono">'+pp.join(' · ')+'</div></div>';}
+   else{var eip=l.edge_ip?edgeHost(l.edge_ip):'',edom=l.ws_host||'';
+     // Same two-chip layout as the live box above, on a NEUTRAL wrapper: this edge is fixed, nothing
+     // polls it, so the green tint and the liveness dot would both be claiming something untrue.
+     if(eip||edom)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="echips">'+edgeChipsOf(eip,edom)+'</div></div>';}
  }
  return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
 function coreCard(l){
@@ -8430,12 +8434,18 @@ async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
   else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(perr(r),'err')}}
 // Split the active edge "IP:port · domain" into two clean chips (IP primary, domain muted).
-function edgeChips(v){v=String(v||'');
- if(!v)return '<span class="echip wait">…</span>';
- var p=v.split(' · '),ip=p[0]||'',dom=p.slice(1).join(' · ');
- var h='<span class="echip ip">'+esc(ip)+'</span>';
+// edgeChipsOf renders the address as two chips. BOTH card edge boxes go through it — the pooled
+// tunnel's live box and the single-edge tunnel's fixed one — so the pair cannot drift in markup or in
+// which class each half carries. The boxes differ only in the wrapper: .cedge.live tints itself green
+// and carries a liveness dot, the fixed one stays neutral because nothing polls it.
+function edgeChipsOf(ip,dom){
+ if(!ip&&!dom)return '<span class="echip wait">…</span>';
+ var h=ip?'<span class="echip ip">'+esc(ip)+'</span>':'';
  if(dom)h+='<span class="echip dom">'+esc(dom)+'</span>';
  return h}
+// edgeChips takes the core status file's "ip · domain" value verbatim (refreshCardEdges passes it
+// straight through), so the split stays here rather than at every call site.
+function edgeChips(v){v=String(v||'');var p=v.split(' · ');return edgeChipsOf(p[0]||'',p.slice(1).join(' · '))}
 // Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');
  await Promise.all(Array.prototype.map.call(els,function(elm){var lid=elm.id.slice(9);   // parallel, not one-by-one
