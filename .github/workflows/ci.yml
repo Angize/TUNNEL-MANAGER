@@ -42,6 +42,11 @@ name: ci
 #                         instead, and per-IP filtering is this project's documented reality, so a green
 #                         could be about an address the tunnel never touches. A node registered by
 #                         hostname made the button a dead end outright.
+#   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
+#                         true when written and were left beside code that stopped making them true:
+#                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
+#                         it in, and the DIRECT pool's «الان تست کن» claiming a probe was sent when
+#                         nothing dials. No other guard reads Persian prose.
 #
 # The last one of those needs all three repositories, so the sibling checkouts below reproduce the
 # maintainer's local layout (…/TUNNEL-MANAGER, …/TUNNEL-MANAGER-CORE, …/TUNNEL-MANAGER-NODE) and the
@@ -134,3 +139,6 @@ jobs:
       - name: the spoof egress test probes the tunnel's own pair
         working-directory: TUNNEL-MANAGER
         run: python tools/spoof_egress_probe_check.py
+      - name: the panel's prose and toasts agree with what it does
+        working-directory: TUNNEL-MANAGER
+        run: python tools/panel_says_what_it_does_check.py
