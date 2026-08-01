@@ -69,6 +69,8 @@ CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # e
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw", "flux")               # direct carriers (support IP rotation); spoof is NOT here — it never rotates
 DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux", "spoof")             # handshake-less carriers (fec)
 DESYNC_TRANSPORTS     = ("raw", "flux", "spoof", "tcp", "ws")       # carriers that support fake-desync
+DESYNC_INJECT_TRANSPORTS = ("tcp", "ws")   # carriers whose decoys ride the REAL connection's 4-tuple
+DESYNC_INJECT_TTL_MAX = 8   # core's injectMaxTTL (internal/packet/desync.go): the ceiling on those
 STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # carriers that write a precise status ring (the direct tcp/cover client writes one too)
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _pending_lock = threading.Lock()   # serialize pending_del.json read-modify-write (deferred teardowns)
@@ -3417,6 +3419,17 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
         raise ValueError("TTLِ طعمه باید بین ۱ تا ۲۵۵ باشد")
+    # On tcp/ws the decoy rides the REAL connection's 4-tuple, so the core clamps it to injectMaxTTL
+    # (a well-formed segment that reached the server would draw an RST). raw/flux/spoof forge a whole
+    # IPv4 header toward a peer we hold no kernel connection to, so there the full 1..255 is honoured.
+    # Storing the unclamped number made every layer the operator can see report a hop budget the wire
+    # never carried: the panel stored 30, the edit form echoed 30, the node persisted 30, and core's
+    # own startup line printed ttl=30 while 8 went out. This is the single gate all three build paths
+    # share — create and edit both funnel through here, and _tunnel_extra replays the stored (already
+    # clamped) value — so clamping here makes all of them agree with the wire. The form shows the cap
+    # too (desyncTtlCap), so the number the operator is looking at is the number that ships.
+    if transport in DESYNC_INJECT_TRANSPORTS:
+        ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
     out["fake_ttl"] = ttl
     cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
     if cnt < 1 or cnt > 64:
@@ -7160,6 +7173,7 @@ var I18N={fa:{
  fec_note:"«۱۰+۳» یعنی هر ۱۰ پکتِ داده، ۳ پکتِ پریتی؛ گیرنده تا ۳ تا از هر ۱۳ تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند.",
  ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"چند بستهٔ قلابی می‌فرستد تا ماشینِ حالتِ DPI گیج شود؛ نشستِ واقعی دست‌نخورده می‌ماند. روی raw/flux و روی tcp/ws (تزریقِ سگمنتِ TCP) — روی udp نه.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
  ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (۱ برای رله‌ٔ کوتاه، ۳ تا ۵ برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
+ ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ ۸ دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به ۸ کم می‌شود. روی raw/flux/spoof کلِ ۱ تا ۲۵۵ اعمال می‌شود.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  // ws toggle rows
  wstls_t:"wss (TLS به CDN)",wstls_d:"کلاینت با TLS به لبهٔ CDN وصل می‌شود؛ سرور پشتِ CDN ساده می‌ماند. برای فرانتینگ لازم است. فقط با حاملِ WS/CDN.",
@@ -8530,6 +8544,7 @@ function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'ba
 function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
  +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" onclick="'+fnp+'SetDesyncMode(\\''+m.v+'\\')"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
  +'<div class="grid2"><div><label>'+esc(T('ds_ttl_lbl'))+'</label><input id="'+idp+'dsttl" dir="ltr" inputmode="numeric" value="'+(ttl||4)+'"></div><div><label>'+esc(T('ds_count_lbl'))+'</label><input id="'+idp+'dscount" dir="ltr" inputmode="numeric" value="'+(count||2)+'"></div></div>'
+ +'<div class="spoofcap no" id="'+idp+'dsttlcap" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('ds_ttl_cap'))+'</span></div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
@@ -8542,10 +8557,21 @@ function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Arr
 // emits nothing at all — and the core rejects the combination outright, so leaving the toggle visible
 // would only let the operator build a tunnel that fails validation.
 function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='spoof'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
-function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+// desyncInjects: the carriers whose decoys ride the REAL connection's 4-tuple (tcp/cover/ws), where
+// the core clamps the decoy TTL to 8 -- a well-formed segment that reached the server would draw an
+// RST. raw/flux/spoof forge a whole IPv4 header toward a peer we hold no kernel connection to, so
+// there the full 1..255 is honoured. ONE definition, like desyncOk right above, so the two gates and
+// the panel's _desync_fields cannot drift.
+function desyncInjects(S){return S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
+// desyncTtlCap shows the ceiling where it applies and clamps what the operator is LOOKING at, so the
+// form never echoes back a hop budget the wire will not carry. The server clamps too (_desync_fields
+// is the one gate all three build paths share); this is so it is never a silent change.
+function desyncTtlCap(idp,S){var cap=el(idp+'dsttlcap'),inj=desyncInjects(S);if(cap)cap.style.display=inj?'':'none';
+ var t=el(idp+'dsttl');if(t&&inj){var n=parseInt(t.value,10);if(n>8)t.value='8'}}
+function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('e_',_corS)}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
 function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
-function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none'}
+function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('ee_',_eeS)}
 // ---- wss + ECH toggles live down in the general feature-toggle area (next to obfs / cover /
 // gso), not inside the ws block, so they stay put in single AND pool mode. They are shown only
 // when the carrier is WS/CDN (corWsVis/ceWsVis) and hidden otherwise, like the tcp-only cover.
