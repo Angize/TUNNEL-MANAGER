@@ -7211,6 +7211,7 @@ var I18N={fa:{
  cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"۸ کارگر × ۵۱۲KB · ~۳× سریع‌تر",
  cdn_prof_note:"تعیین می‌کند کلاینت آپلود را با چه شکلی POST کند. <b>کلودفلر</b> = ۸ کارگر × ۲۵۶KB، اندازه‌گیری‌شده روی خودِ کلودفلر (۲۹ در برابر ۱۷ مگابیتِ ۱۲۸KB). <b>ابرآروان</b> = ۸ کارگر × ۵۱۲KB که اندازه‌گیری‌شده حدودِ ۳ برابر سریع‌تر است (~۵۰ در برابر ~۱۷ مگابیت) و هنوز زیرِ آستانه‌ای که وافِ آروان روی آن بن می‌زند (که با تعدادِ سوکت اندازه می‌گیرد نه نرخ، و آن آستانه ۱۶ سوکت بود). اگر CDNِ دیگری زیرِ بار قطع کرد، خبر بده تا یک پروفایلِ محافظه‌کارانه برایش اندازه بگیریم.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
+ grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با ۴۰۳ رد می‌کند و تونل اصلاً بالا نمی‌آید. روی Cloudflare: Network ← gRPC. اندازه‌گیری‌شده روی لبهٔ واقعی: تنها چیزی که رد می‌شود همان هدرِ Content-Type: application/grpc است — روی ابرآروان همین درخواست ۲۰۰ گرفت.",
  // flux rotation presets + shapes
  frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
  fsh_random_n:"تصادفی",fsh_random_m:"بدونِ تقلید",fsh_quic_m:"شبیهِ HTTP/3",fsh_video_n:"ویدیوکال",fsh_video_m:"بسته‌های بزرگ",fsh_webrtc_m:"RTPِ کوچک",
@@ -8276,10 +8277,17 @@ function corSetCdnProf(p){_setCdnProf(_corS,'e_',p)}
 function ceSetCdnProf(p){_setCdnProf(_eeS,'ee_',p)}
 // the row is meaningful only on the HTTP carrier (ws has no POSTs, grpc has no ladder)
 function cdnProfOn(S){return S.Tr=='ws'&&S.Cdn=='http'}
-function corCdnProfGate(){var r=el('e_cdnprow');if(r)r.style.display=cdnProfOn(_corS)?'':'none'}
-function ceCdnProfGate(){var r=el('ee_cdnprow');if(r)r.style.display=cdnProfOn(_eeS)?'':'none'}
+function corCdnProfGate(){var r=el('e_cdnprow');if(r)r.style.display=cdnProfOn(_corS)?'':'none';grpcZoneGate(_corS,'e_')}
+function ceCdnProfGate(){var r=el('ee_cdnprow');if(r)r.style.display=cdnProfOn(_eeS)?'':'none';grpcZoneGate(_eeS,'ee_')}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function _setWsProf(S,px,p){S.Cdn=p;
+// grpcZoneGate reveals the "your CDN zone must have gRPC turned on" warning for the grpc carrier.
+// MEASURED on a live Cloudflare edge: an otherwise identical POST is 404'd (it reaches the origin
+// routing) while the same request carrying Content-Type: application/grpc is 403'd by the edge
+// itself — the UA and TE headers make no difference. ArvanCloud answered the same shape with 200, so
+// this is a per-CDN switch and not a fault in the carrier. Without the warning the operator builds a
+// tunnel that cannot come up and the only clue is an HTTP status in the node's log.
+function grpcZoneGate(S,px){var w=el(px+'grpczone');if(w)w.style.display=(S.Cdn=='grpc')?'':'none'}
+function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
 function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnProfGate()}
 function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnProfGate()}
@@ -8675,6 +8683,7 @@ function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_d
 // ---- ws (WebSocket / CDN) — shared markup.
 function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,prof){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid p3" id="'+idp+'wspg">'+wsProfTiles(fnp,wsProfOf({Cdn:cdn}))+'</div>'
+ +'<div class="spoofcap no" id="'+idp+'grpczone" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('grpc_zone_warn'))+'</span></div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin:2px 2px 8px">'+T('ws_prof_note')+'</div>'
  +'<div id="'+idp+'cdnprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('cdn_prof_lbl'))+'</label>'
  +'<div class="pgrid" id="'+idp+'cdnppg">'+cdnProfTiles(fnp,prof=='arvan'?'arvan':'cf')+'</div>'
