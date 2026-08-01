@@ -232,7 +232,8 @@ def main():
         #     arvan/cf cases list the numbers in `must`, so this cannot be satisfied by never
         #     emitting them at all.
         if must.get("cdn_carrier") != "http":
-            for path_name, body in (("create", create), ("edit", edit), ("rebuild", rebuild)):
+            for path_name, body in (("create", create), ("edit", edit),
+                                    ("edit (partial)", edit_partial), ("rebuild", rebuild)):
                 for k in HTTP_ONLY:
                     if k in body:
                         failures.append("[%s] %s: %s = %r reached the node body on a %s carrier; the "
