@@ -7720,12 +7720,20 @@ function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','t
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
-function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct')):T('t_noloss'));return p.join(' · ')}
+// The carrier round trip is the better latency number when the core published one: it is measured on the
+// tunnel itself, through obfs and crypto, while the ICMP figure shares none of that path.
+function pingInfo(h){var p=[];if(h.carrier_rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.carrier_rtt_ms));
+ else if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct')):T('t_noloss'));return p.join(' · ')}
 // linkDir: does THIS side's outbound actually reach the peer? No host can answer that about itself —
 // it only knows what it sent — but the panel holds both ends, so `us.tx_live && them.rx_live` settles
 // it directly, with no probe at all. Undetermined (null) whenever either half is unknown or the tunnel
 // is simply idle: silence is not a failure, which is what the probe is still there for.
 function linkDir(us, them){
+ // The carrier's own answered keepalive settles this end WITHOUT the far end's help: the pong proves our
+ // ping arrived and that the reply came back. It is checked first because it is the stronger evidence —
+ // one round trip on the real carrier — and because it works on an IDLE tunnel, where no byte counter
+ // moves and the pairing below has nothing to compare. Positive only: the node never sets it false.
+ if(us&&us.round_trip===true)return true;
  if(!us||!them)return null;
  if(us.tx_live!==true)return null;              // we are not sending; nothing to conclude
  if(them.rx_live===true)return true;            // our bytes are coming out the far end
