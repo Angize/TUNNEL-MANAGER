@@ -6189,6 +6189,7 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .chev{width:16px;height:16px;color:var(--sub);transition:transform .2s;flex:0 0 auto}
 .card.open .chev{transform:rotate(180deg)}
 .cbody{max-height:0;overflow:hidden;transition:max-height .28s ease}
+body.reord-on .cbody{transition:none}   /* reordDown reads scrollHeight right after collapsing a card */
 .card.open .cbody{max-height:720px}
 .cbody-in{padding:12px 14px 14px;border-top:1px solid var(--bord)}
 .offtxt{color:var(--bad);font-weight:700}
@@ -8011,7 +8012,13 @@ function reordDown(e){
  var box=card.parentNode;if(!box)return;
  if(e.cancelable)e.preventDefault();
  reordCollapse(card);
- RORD={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),pid:e.pointerId,grabY:e.clientY,lastY:e.clientY,swaps:[]};
+ // The auto-scroll ceiling, measured BEFORE the drag transform exists. .card.rdrag is overflow:visible,
+ // so translateY extends the document's scrollable area downward — and reordAutoScroll then scrolls into
+ // the room it just made, forever. Reordering never changes the total height, so one measurement bounds
+ // the whole drag; reordCollapse above must therefore settle synchronously (see body.reord-on .cbody).
+ var vh0=window.innerHeight||document.documentElement.clientHeight;
+ RORD={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),pid:e.pointerId,grabY:e.clientY,lastY:e.clientY,swaps:[],
+       maxY:Math.max(0,(document.documentElement.scrollHeight||0)-vh0)};
  try{card.setPointerCapture(e.pointerId)}catch(_){}
  card.classList.add('rdrag');document.body.classList.add('rdragging');
  if(navigator.vibrate){try{navigator.vibrate(10)}catch(_){}}
@@ -8037,7 +8044,9 @@ function reordAutoScroll(){   // touch-action:none means the browser won't scrol
  var y=RORD.lastY,vh=window.innerHeight||document.documentElement.clientHeight,edge=76,ds=0;
  if(y<edge)ds=-Math.min(24,((edge-y)/3|0)+3);
  else if(y>vh-edge)ds=Math.min(24,((y-(vh-edge))/3|0)+3);
- if(ds){var b=window.pageYOffset;window.scrollBy(0,ds);var a=window.pageYOffset-b;if(a){RORD.grabY-=a;reordApply();}}   // grabY-=scrolled keeps the card pinned under the finger
+ var cur=window.pageYOffset;   // clamp to the pre-drag scroll range, or the card's own overflow feeds the scroll
+ if(ds>0)ds=Math.min(ds,RORD.maxY-cur);else if(ds<0)ds=Math.max(ds,-cur);
+ if(ds>0||ds<0){var b=cur;window.scrollBy(0,ds);var a=window.pageYOffset-b;if(a){RORD.grabY-=a;reordApply();}}   // grabY-=scrolled keeps the card pinned under the finger
  RORD_AS=requestAnimationFrame(reordAutoScroll);
 }
 function reordShift(nb,up){
