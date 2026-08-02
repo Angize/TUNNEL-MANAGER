@@ -131,6 +131,36 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     JSON.stringify(r && r.cls));
   want(r && r.html.indexOf('24') >= 0, 'the check lines must report the count');
 
+  // ---- pairing the two ends: the only thing that can settle "does what I send arrive" ----
+  // A is pushing packets in and B's tunnel delivers none of them. This is the real measured case:
+  // 122 out of the Iranian node in 20s, 0 arrived — with A's heartbeat fresh the whole time.
+  var A_SENDING = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_live:true, rx_live:true};
+  var B_DEAF    = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_live:true, rx_live:false};
+
+  want(linkDir(A_SENDING, B_DEAF) === false,
+    'A is sending and B receives nothing — the direction must read broken with no probe involved');
+  want(linkDir(B_DEAF, A_SENDING) === true,
+    'the OTHER direction is carrying and must not be condemned with it');
+  want(sideState(true, A_SENDING, B_DEAF).k === 'warn',
+    'the side whose traffic lands nowhere must be amber');
+  want(sideState(true, B_DEAF, A_SENDING).k === 'ok',
+    'the side whose traffic DOES land must stay green — the half that works is information');
+
+  // Idle is not failure, and one unknown half must never manufacture a verdict.
+  var IDLE = {up:true, alive:true, dead:false, tx_live:false, rx_live:false};
+  want(linkDir(IDLE, IDLE) === null, 'an idle tunnel must stay undetermined, not fail');
+  want(linkDir(A_SENDING, {up:true, alive:true}) === null,
+    'a peer that reports no direction at all must not produce a verdict');
+  want(linkDir(A_SENDING, null) === null, 'an unreachable peer must not produce a verdict');
+  want(sideState(true, IDLE, IDLE).k === 'ok', 'an idle-but-alive side stays green');
+
+  return run(A_SENDING, B_DEAF);
+}).then(function(r){
+  want(r && r.cls === 'err',
+    'one direction proven not to land must fail the whole check, even with both ends alive and no ' +
+    'probe loss to point at; got ' + JSON.stringify(r && r.cls));
+  want(r && r.html.indexOf(T('t_side_oneway')) >= 0, 'and it must name which state it is');
+
   console.log(JSON.stringify({fails: __fails}));
 }).catch(function(e){
   console.log(JSON.stringify({fails: ['harness threw: ' + (e && e.stack || e)]}));
