@@ -7372,11 +7372,10 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
  tip.innerHTML='<span>'+esc(bar.dataset.nm)+'</span> '+bar.dataset.info;
  tip.style.left=(bar.offsetLeft+bar.offsetWidth/2)+'px';tip.style.display='block';
  clearTimeout(box._tt);box._tt=setTimeout(function(){if(tip)tip.style.display='none'},2400)}
-// ===== skeleton loading cards: shown in a list container while its data loads (async), so a page
-// reload never shows a blank/frozen gap. The shells mirror the real card geometry so the swap to
-// live data is seamless; a page's last-known count keeps the height stable (fallback 6).
-// Each skeleton mirrors the EXACT geometry of its real card (same wrapper classes, so it lands in
-// the same grid/shadow/padding and the swap to live data is seamless). skb() = one shimmer bar.
+// ===== skeleton loading cards: shown while a list's data loads, so a page reload never leaves a
+// blank gap. Each shell mirrors its real card's wrapper classes, so it lands in the same grid and
+// the swap to live data is seamless; the page's last-known count keeps the height stable.
+// skb() = one shimmer bar.
 function skb(w,h,r){return '<span class="sk" style="width:'+w+';height:'+(h||12)+'px'+(r!=null?';border-radius:'+r+'px':'')+'"></span>'}
 function skNodeCard(){return '<div class="card node acc"><div class="chead">'+   // collapsed node accordion header
   '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
@@ -7758,10 +7757,9 @@ function sideTxt(online,h){
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
 // k: dot color class · w: the word to show ONLY when there's a problem · t: the tooltip, ALWAYS.
-// Four different causes used to collapse into one wordless red dot with no title (node offline, tunnel
-// absent from the node, iface down, dead crypto session) while both YELLOW outcomes inherited
-// title=«متصل» from sideDot's "no word means connected" shortcut — the opposite of what they mean. The
-// per-cause text already existed in sideTxt, but sideTxt is only ever called from the manual check.
+// Every cause carries its own tooltip — no answer, no such tunnel, iface down, dead session, and the
+// two yellow up-but-unproven outcomes. A wordless dot must never inherit title=«متصل» from the
+// "no word means connected" shortcut when that is not what it means.
 function sideState(online,h){
  if(!online)return {k:'bad',w:T('st_disc'),t:T('t_side_off')};        // the agent itself did not answer
  if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
@@ -7985,10 +7983,9 @@ function coreSkel(){CHK={};el('view').innerHTML=vhead('cpu','nav_core','core_sub
 async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
 // ===== reorder cards: explicit "reorder mode" (toolbar toggle) + drag by the grip handle =====
-// Long-press was dropped — it fought text-select/copy and scroll ("hold to copy" kept triggering a drag).
-// Now the user taps the reorder toggle in the toolbar; each card shows a grip (touch-action:none) and
-// dragging THAT live-swaps with the neighbour and persists server-side. Outside reorder mode nothing here
-// fires, so tap / scroll / copy behave normally. touch-action:none on the grip = no scroll-race, reliable drag.
+// The user taps the toggle; each card then shows a grip, and dragging THAT live-swaps with the
+// neighbour and persists server-side. Outside reorder mode nothing here fires, so tap / scroll /
+// copy behave normally. touch-action:none on the grip = no scroll-race.
 var REORDMODE=false,RORD_AS=0;   // RORD_AS = rAF id for edge auto-scroll during a drag
 function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);if(REORDMODE)reordCollapse();}
 // An OPEN card is several times taller than a collapsed one: it hides the neighbours it is supposed to
@@ -8095,11 +8092,10 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
    ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
    :'<b>'+esc(T('no_cipher'))+'</b>';
  var enc='<div class="enc-line">'+esc(T('enc'))+': '+encv+'</div>';
- // WS/CDN edge box: pool -> the LIVE active edge (filled by refreshCardEdges from the core
- // status file); single edge -> the fixed SNI · edge (static, no polling).
-// The card shows the edge ADDRESS only. The port is never the operator's choice to read here — it is
-// either what they typed or, far more often, the 443/80 the node derives from wss — and carrying it
-// pushed a long IPv4 onto a second line. Stored and dialled value unchanged.
+ // WS/CDN edge box: pool -> the LIVE active edge (refreshCardEdges fills it from the core status
+ // file); single edge -> the fixed SNI · edge, static, nothing polls it.
+// edgeHost drops the port: it is either what the operator typed or the 443/80 the node derives from
+// wss, and carrying it pushed a long IPv4 onto a second line. Stored and dialled value unchanged.
 function edgeHost(v){v=String(v||'');var i=v.lastIndexOf(':');return (i>0&&v.indexOf(':')==i)?v.slice(0,i):v}
  var edge='';
  if(l.transport=='ws'){
@@ -8152,11 +8148,9 @@ function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_
 // the selector value for a stored link
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
 // Which CDN the HTTP carrier fronts through. It changes ONE thing — how many POSTs per second the
-// client makes. BOTH entries are the core defaults today: the Arvan throttle was derived from a ban
-// seen from a FOREIGN source IP, and re-measured from an Iranian node through an Iranian PoP the WAF
-// did not fire at any of six saturated settings, while the cap cost ~5x the upstream. The selector
-// stays so a future CDN can get a measured profile without a schema change. Only HTTP has a POST
-// ladder, so this row appears for HTTP alone.
+// client makes. Both entries carry the core's own defaults, so the selector is here to let a future
+// CDN get its own profile without a schema change. Only HTTP has a POST ladder, so this row appears
+// for HTTP alone.
 function CDN_PROFILES(){return [{v:'cf',n:T('cdnp_cf_n'),m:T('cdnp_cf_m')},{v:'arvan',n:T('cdnp_arvan_n'),m:T('cdnp_arvan_m')}]}
 function cdnProfTiles(px,cur){return CDN_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-cp="'+p.v+'" onclick="'+px+'SetCdnProf(\\''+p.v+'\\')"><div class="pn">'+esc(p.n)+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function _setCdnProf(S,px,p){S.CdnProf=p;var g=el(px+'cdnppg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-cp')==p)})}
@@ -8168,11 +8162,9 @@ function corCdnProfGate(){var r=el('e_cdnprow');if(r)r.style.display=cdnProfOn(_
 function ceCdnProfGate(){var r=el('ee_cdnprow');if(r)r.style.display=cdnProfOn(_eeS)?'':'none';grpcZoneGate(_eeS,'ee_')}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 // grpcZoneGate reveals the "your CDN zone must have gRPC turned on" warning for the grpc carrier.
-// MEASURED on a live Cloudflare edge: an otherwise identical POST is 404'd (it reaches the origin
-// routing) while the same request carrying Content-Type: application/grpc is 403'd by the edge
-// itself — the UA and TE headers make no difference. ArvanCloud answered the same shape with 200, so
-// this is a per-CDN switch and not a fault in the carrier. Without the warning the operator builds a
-// tunnel that cannot come up and the only clue is an HTTP status in the node's log.
+// A Cloudflare zone with gRPC off refuses the grpc content-type at the edge, so the tunnel cannot
+// come up and the only clue is an HTTP status in the node's log. ArvanCloud needs no such switch,
+// which is why this is a warning and not a block.
 function grpcZoneGate(S,px){var w=el(px+'grpczone');if(w)w.style.display=(S.Cdn=='grpc')?'':'none'}
 function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
@@ -8203,12 +8195,10 @@ function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx
 var _ip4Re=/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$/;
 function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
-// poolRemain: seconds left until an entry's next retest, using the server clock sampled at the
-// last poll plus the client-side elapsed time since — so the countdown ticks smoothly between polls.
-// _cdRemain: seconds until `next` given the server clock `now` sampled at local time `polledMs`.
-// _cdTick: refresh every .pcd countdown text + .pbar fill inside host against that clock. Shared by the
-// ws-edge pool view (poolRemain/poolCdTick, data in d) and the direct peer pool view (peerRemain/
-// peerCdTick, data in the _peerData global) — the peer view was copied from the pool view.
+// _cdRemain: seconds until `next`, from the server clock `now` sampled at local time `polledMs`
+// plus the time elapsed since — so the countdown ticks smoothly between polls.
+// _cdTick: refresh every .pcd text and .pbar fill inside host against that clock. Shared by the ws
+// edge pool view and the direct peer pool view.
 function _cdRemain(now,polledMs,next){if(!next||!now)return -1;var e=now+(Date.now()-(polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
 function _cdTick(host,now,polledMs){if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=_cdRemain(now,polledMs,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
@@ -8353,11 +8343,10 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // squeezing the retest timer beside the address — matches the WS-CDN-parity mockup the user approved.
   var cd=burned?'<div class="ecd">'+peerCd(h.next)+peerBar(h)+'</div>':'';
   var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
-  // Per-IP probe (↻) on a burned endpoint pulls its retest forward — same pool-wide SIGHUP the WS-CDN
-  // per-row probe uses (the core retests every burned edge at once; there is no single-IP probe op).
-  // Per-IP test button, only on a BURNED (suspect/dead) row — that is where it means something: it pulls
-  // the pool's retest forward so the edge can rejoin rotation sooner. A healthy IP has nothing to test
-  // (the direct pool has no single-IP out-of-band prober; retest = data-plane re-admission).
+  // Per-IP test button, only on a BURNED (suspect/dead) row: it pulls the pool's retest forward so
+  // the edge can rejoin rotation sooner. A healthy IP has nothing to test, and there is no single-IP
+  // probe op — the core retests every burned edge at once, the same pool-wide SIGHUP the WS-CDN
+  // per-row probe uses.
   if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow()">'+ic('redo')+'</button>';
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
@@ -8377,15 +8366,10 @@ function peerAccOpen(side){var d=_peerData[side];if(!d)return true;
   return _peerData.open[side]!==false;}                        // long list: open by default, remembered
 function peerAcc(side){if(!_peerData.open)_peerData.open={};
   _peerData.open[side]=!peerAccOpen(side);peerRender();}
-// «وضعیت زندهٔ استخر» shows POOLS. A side with one address is not one, so it gets no card.
-//
-// This also removes an asymmetry the operator could not have guessed at. main.go builds a destination
-// pool at >=2 peers but a SOURCE pool at >=1, because a 1-entry source pool has a second job: pinning
-// the client's egress IP, which bind_ip cannot do on udp/raw/flux. A pool that gets built writes a
-// status file; one that does not, does not. So the single-IP side appeared as a card when it was the
-// CLIENT and vanished when it was the SERVER — two tunnels of the same shape rendering differently
-// depending on which end was which. Gating on the address count makes both read the same: exactly the
-// sides that actually rotate.
+// «وضعیت زندهٔ استخر» shows POOLS, so a side with one address gets no card. main.go builds a
+// destination pool at >=2 peers but a SOURCE pool at >=1, because a 1-entry source pool also pins
+// the client's egress IP, which bind_ip cannot do on udp/raw/flux — and only a pool that is built
+// writes a status file. Gating on the address count makes both sides read the same.
 function peerBox(side,lab){var d=_peerData[side];if(!d||d.addrs.length<2)return '';
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
   var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
@@ -8415,19 +8399,16 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
 // peerProbeNow is the DIRECT (udp/tcp/raw/flux) pool's «الان تست کن». It must NOT claim a probe was
-// sent, which is what it used to toast: core's probeAllNow only sets nextRetest = now, and unlike the
-// ws EDGE pool there is no retestLoop behind these pools (tcp.go starts one only for b.pool), so
-// nothing dials. The next real attempt is the next rotation or failover. peer_live_note directly
-// above the button already says exactly that — the toast was contradicting the panel's own help text
-// two lines away. poolProbeNow, the ws-edge twin, keeps pool_probe_sent because there it is true.
+// sent: core's probeAllNow only sets nextRetest = now and there is no retestLoop behind these pools,
+// so nothing dials until the next rotation or failover. poolProbeNow, the ws-edge twin, does say
+// pool_probe_sent, because there it is true. tools/panel_says_what_it_does_check.py pins both.
 async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(perr(r),'err')}}
 // ---- IP spoofing section — shared markup + per-form logic. Only for the "spoof" transport.
-// Each toggle carries a measured limit (2026-07-28, on our own two nodes): a decoy destination only
-// arrives when that IP routes to the same server, and a forged source is dropped by any datacenter
-// running anti-spoofing — including both of ours. The warnings show as soon as the toggle is on, so
-// the operator sees the constraint before entering an IP rather than after the tunnel silently fails.
+// Each toggle carries its own limit: a decoy destination only arrives when that IP routes to the
+// same server, and a forged source is dropped by any datacenter running anti-spoofing. The warnings
+// show as soon as the toggle is on, so the operator sees the constraint before entering an IP.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+esc(T('spoof_hd'))+'</div>'
  +'<div class="tglbox" id="'+idp+'decoyrow"><div class="tglsw" id="'+idp+'decoysw" onclick="'+fnp+'ToggleDecoy()"></div><div class="tt"><b>'+esc(T('spoof_decoy_t'))+'</b><small>'+esc(T('spoof_decoy_d'))+'</small></div></div>'
@@ -8532,20 +8513,15 @@ function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'d
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
-// ONE definition of "can this carrier really inject decoy segments?". There were four hand-written
-// copies of it — the two gates, the edit form's initial render, and the submit-body collector — and only
-// the gates knew the http/grpc carriers cannot. So PICKING one of them hid the toggle, but OPENING a
-// tunnel already stored that way rendered it visible (and ON), which is exactly what the operator was
-// looking at. raw/flux forge the whole IPv4 header; tcp/cover/ws inject on the kernel connection's
-// real 4-tuple; an http/grpc conn is synthetic and has no 4-tuple to mirror, so the AF_PACKET injector
-// emits nothing at all — and the core rejects the combination outright, so leaving the toggle visible
-// would only let the operator build a tunnel that fails validation.
+// ONE definition of "can this carrier really inject decoy segments?", shared by both gates, the edit
+// form's initial render and the submit-body collector. raw/flux/spoof forge the whole IPv4 header and
+// tcp / plain-ws inject on the kernel connection's real 4-tuple; an http or grpc conn is synthetic
+// and has no 4-tuple to mirror, so the injector emits nothing and the core rejects the combination.
 function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='spoof'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
-// desyncInjects: the carriers whose decoys ride the REAL connection's 4-tuple (tcp/cover/ws), where
-// the core clamps the decoy TTL to 8 -- a well-formed segment that reached the server would draw an
-// RST. raw/flux/spoof forge a whole IPv4 header toward a peer we hold no kernel connection to, so
-// there the full 1..255 is honoured. ONE definition, like desyncOk right above, so the two gates and
-// the panel's _desync_fields cannot drift.
+// desyncInjects: the carriers whose decoys ride the REAL connection's 4-tuple (tcp, plain ws), where
+// the core clamps the decoy TTL to 8 — a well-formed segment that reached the server would draw an
+// RST. raw/flux/spoof forge a header toward a peer we hold no kernel connection to, so there the
+// full 1..255 is honoured. ONE definition, so the two gates and _desync_fields cannot drift.
 function desyncInjects(S){return S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
 // desyncTtlCap shows the ceiling where it applies and clamps what the operator is LOOKING at, so the
 // form never echoes back a hop budget the wire will not carry. The server clamps too (_desync_fields
@@ -8606,9 +8582,8 @@ function wsPoolInner(idp,fnp,lid){
    +'<label style="margin-top:14px">'+esc(T('flux_rot_lbl'))+'</label>'+sel
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_ab_t'))+'</b><small>'+esc(T('pool_ab_d'))+'</small></div></div>'
    +'<div class="tglbox" style="margin-top:10px"><div class="tglsw" id="'+idp+'poolwarm" onclick="poolToggleWarm(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_warm_t'))+'</b><small>'+esc(T('pool_warm_d'))+'</small></div></div>';}
-// The epoch NUMBER mirrors the core exactly: epochNow() = floor(unixtime/rotate) + flux_epoch_offset
-// (flux_linux.go). Leaving the offset out made «چرخش الان» look like it did nothing — the operator
-// pressed it, the core moved to the next shape, and this box kept showing the old number. The
+// The epoch NUMBER mirrors the core: floor(unixtime/rotate) + flux_epoch_offset. Without the offset
+// «چرخش الان» looked inert — the core moved to the next shape and this box kept the old number. The
 // countdown is unaffected: the offset is added AFTER the division, so it shifts the epoch's name,
 // not its boundaries.
 function fluxStatText(fc,rot,off){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot)+(+off||0),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
@@ -8654,11 +8629,10 @@ function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.O
 function corToggleCover(){if(_corS.Tr!='tcp')return;_corS.Cover=!_corS.Cover;var s=el('e_cover');if(s)s.classList.toggle('on',_corS.Cover);corSniVis()}
 function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corS.Cover&&_corS.Tr=='tcp')?'':'none'}
 function corCoverGate(){var tcp=_corS.Tr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_corS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';corSniVis()}
-// obfs is unavailable in two cases: cipher=none (there is nothing to frame) and the dns carrier, which
-// has NO obfs framing at all — main.go hands cfg.Obfs to every other carrier, but ListenDNS/DialDNS take
-// no such flag. The core now rejects that combination outright, so leaving the toggle visible would only
-// let the operator build a tunnel that fails validation; before the core check it was worse, since obfs
-// showed as enabled everywhere and quietly did nothing on the most sensitive carrier there is.
+// obfs is unavailable in two cases: cipher=none (nothing to frame) and the dns carrier, which has no
+// obfs framing at all — main.go hands cfg.Obfs to every other carrier, but ListenDNS/DialDNS take no
+// such flag. The core rejects that combination outright, so leaving the toggle visible would only let
+// the operator build a tunnel that fails validation.
 function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(px+'obfsrow'),s=el(px+'obfs');
  if(off){S.Obfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=off?'none':''}
 function onCorCipher(){_obfsGate('e_',_corS)}
@@ -8698,19 +8672,16 @@ var _rotS={};
 function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
 function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+esc(T('cor_tab_ips'))+'</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+esc(T('cor_tab_set'))+'</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0;var _tb=box.querySelector('.trbar');if(_tb)trFade(_tb)}
-// Rotation-interval presets — the same minute-scale set the flux epoch and the ws edge pool already
-// offer, so every rotation control in the panel reads identically. The old sub-minute choice is gone:
-// each destination hop costs a full re-handshake (the session is dropped and rebuilt), so a 1-minute
-// interval bought a traffic gap every minute for no real anti-detection gain. 0 = failover-only (rotate
-// only when an endpoint actually dies) and stays LAST, exactly like the ws pool's «خاموش» entry.
+// Rotation-interval presets — the same minute-scale set the flux epoch and the ws edge pool offer, so
+// every rotation control in the panel reads identically. Nothing sub-minute: each destination hop
+// costs a full re-handshake. 0 = failover-only, rotate only when an endpoint actually dies, and it
+// stays LAST like the ws pool's «خاموش» entry.
 var ROT_PRESETS=[180,300,600,900,1800,3600];
 var ROT_LABELS={180:'rot_3m',300:'rot_5m',600:'rot_10m',900:'rot_15m',1800:'rot_30m',3600:'rot_1h'};
 // Styled list (ssHTML) rather than a native <select>, matching the IP/node pickers and the ws pool's
-// own interval list — the native control renders as an OS sheet that looks nothing like the rest.
-// The stored value is passed through RAW: no snapping, no normalising. A value that is not a preset
-// (a retired option, or anything hand-set through the API) simply shows the placeholder and is kept
-// verbatim until the operator picks something. With no stored value at all — the create form — ssHTML
-// falls back to the first item, so a freshly enabled rotation starts at 3 minutes.
+// own interval list. The stored value is passed through RAW — no snapping: a value that is not a
+// preset shows the placeholder and is kept verbatim until the operator picks something. With no
+// stored value at all, ssHTML falls back to the first item.
 function rotSetHTML(px){var st=rotSt(px);
  var items=ROT_PRESETS.map(function(v){return {v:v,label:T(ROT_LABELS[v])}});
  items.push({v:0,label:T('rot_onfail')});
@@ -8726,13 +8697,8 @@ function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,s
  for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
 // pickedIP: the node IP THIS FORM has chosen for one side — the tunnel's a_ip/b_ip. With rotation on
 // and more than one address it is the pool anchor (the stored one if it is still in the pool, so the
-// anchor does not drift on every edit, else the first selected, else the first listed); otherwise it
-// is the single-IP picker's value. `stored` is '' on create and the link's current value on edit.
-//
-// It exists because this expression was written out by hand in the create submit and again in the edit
-// submit, and the spoof egress test — which promises an answer about "the same form fields the tunnel
-// will use" — had NEITHER, so it silently probed the node's management host instead. A third hand copy
-// is how that gap reappears; there is one now.
+// anchor does not drift on every edit, else the first selected, else the first listed); otherwise the
+// single-IP picker's value. `stored` is '' on create and the link's current value on edit.
 function pickedIP(px,side,stored){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
  if(st.on&&ips.length>1)return (stored&&sel[stored]&&stored)||rotFirstSel(px,side)||ips[0]||'';
  return el('ssb_'+px+side+'ip_sel')?ssVal(px+side+'ip_sel'):(stored||'')}
@@ -9215,19 +9181,10 @@ function evParts(e){
  var det=e.dfa||'';
  return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
-// Every detail line is either «از: X» / «به: Y» — a move — or a plain sentence. Render the move as two
-// labelled rows one under the other, so the eye compares the two values vertically instead of hunting
-// along a wrapped line. Values are LTR-isolated: an IP:port · domain must not be reordered by the RTL
-// page. This replaces evLine/evEdgeBox/evVal, which rendered the same data three different ways
-// depending on the event kind — a move looked different on a rot event than on an edge event.
-// A detail line is one of two things:
-//   «key: value» -> a labelled pill (از / به / لبه / دامنه / کلیدِ ECH / نودِ مقصد …); «به» is accented
-//   anything else -> a plain sentence
-// A label is SHORT and free of sentence punctuation — that is the whole test. The older one also
-// demanded no space, which quietly demoted every multi-word label the backend emits («کلیدِ ECH»,
-// «نودِ مقصد», «کلیدِ تازهٔ ECH») to a grey sentence — so a 300-char base64 key was dumped
-// inline instead of boxed. tools/log_labels_check.py pins this gate against the labels the Python
-// side really emits, so the two can no longer drift apart in silence.
+// A detail line is one of two things: «key: value» becomes a labelled pill (از / به / لبه / دامنه /
+// کلیدِ ECH …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
+// of sentence punctuation — that is the whole test, and it must allow spaces, since the backend emits
+// multi-word labels. tools/log_labels_check.py pins this gate against the labels it really emits.
 function evDetail(lines){if(!lines||!lines.length)return '';
  var rows=[],notes=[];
  for(var i=0;i<lines.length;i++){var l=lines[i],c=l.indexOf(': ');
@@ -9346,10 +9303,9 @@ function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
  var v=Math.max(0,parseInt(d.value)||0),k=el('set_t_keepalive'),ka=Math.max(5,parseInt(k&&k.value)||15);
  var on=v>0,eff=Math.max(v,2*ka),h=el('tun_dahint');
  if(h)h.textContent=on?(T('set_da_fixed').replace('{n}',eff)+(eff>v?' '+T('set_da_floored').replace('{v}',v).replace('{n}',eff):'')):T('set_da_auto');
- // Grey out the AUTO-only knobs by ROW, not by card. They used to be marked on the whole group, which
- // worked only while every row in a group was auto. Now that datagram staleness shares a card with the
- // socket buffer, a card-level sweep would disable sock_buf too and label it inert — the exact defect
- // #254 fixed for ping_loss/min_liveness. One note per card that CONTAINS auto rows, placed under the
+ // Grey out the AUTO-only knobs by ROW, not by card: a card can mix auto rows with manual ones (the
+ // socket buffer shares a card with datagram staleness), and a card-level sweep would disable the
+ // manual ones too and label them inert. One note per card that CONTAINS auto rows, placed under the
  // header so a collapsed card still reads correctly when opened.
  var rows=document.querySelectorAll('.setrow2.tun-auto'),seen=[];
  for(var i=0;i<rows.length;i++){var r=rows[i];
