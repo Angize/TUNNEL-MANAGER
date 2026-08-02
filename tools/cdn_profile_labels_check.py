@@ -2,28 +2,15 @@
 # -*- coding: utf-8 -*-
 """The picker tiles must advertise the numbers they really produce — CDN profiles, and FEC rates.
 
-Each profile in the picker shows a one-line summary — «۸ کارگر × ۲۵۶KB» — and that line is the ONLY
-place an operator learns what the choice does. It is hand-written Persian in I18N, sitting ~5,700
-lines away from CDN_PROFILES, which is the dict that decides the bytes.
+Each profile tile shows a one-line Persian summary and that line is the ONLY place an operator learns
+what the choice does, while CDN_PROFILES — thousands of lines away — decides the bytes. No other guard
+can catch a drift between them: none of them reads a Persian UI string.
 
-They drifted inside one batch: panel #293 wrote «۸ کارگر × ۱۲۸KB (پیش‌فرض)» when "cf" really was the
-core's default, and panel #295 then changed CDN_PROFILES["cf"] to 8×256 KB without touching the
-string. The tile went on advertising the exact setting #295's own measurement table calls "the old
-default … worst upstream by a wide margin" — so the picker recommended, by its numbers, the thing the
-change was made to get away from. Nothing could catch that: no test reads Persian UI strings, and the
-config-contract guard checks what reaches the node, not what the operator was told.
+The FEC tiles are the same class: «N٪ سربار» must be p/d, which is the overhead of a SATURATED block.
+A partial block always carries at least one parity shard, so its instantaneous overhead is higher —
+the arithmetic floor of keeping a block protected — and fec_note has to say so.
 
-The FEC rate tiles are the same class one screen down: each shows «N٪ سربار» beside its d+p geometry,
-and that percentage is p/d — the overhead of a SATURATED block. A partial block (any tunnel under
-~667 pps at 10+3) puts fewer data shards on the wire but always at least one parity shard, so the
-instantaneous overhead is higher: 100% for a single-packet block. That is the arithmetic floor of
-keeping a block protected, not a defect — emitting zero parity would drop protection exactly on the
-low-rate case where one lost datagram hurts an inner TCP most, and the erasure RATIO the encoder
-guarantees (kEff/(count+kEff) >= k/(n+k)) is never worse than what was picked. But the tile stated a
-bare percentage, so this checks it really is p/d and that fec_note carries the caveat.
-
-This reads the numbers back out of each tile and compares them with what produces them. Run it with
-no arguments; it is wired into CI beside the other guards.
+This reads the numbers back out of each tile and compares them with what produces them.
 
     python3 tools/cdn_profile_labels_check.py
 """

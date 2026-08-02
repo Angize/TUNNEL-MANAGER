@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
 """Guard: the browser JS embedded in the panel must actually parse.
 
-The whole front end lives inside two triple-quoted Python strings (LOGIN_HTML, INDEX_HTML) -- ~290 KB of
-JavaScript that `python3 -m py_compile` is perfectly happy with, because to Python it is just a string.
-A stray brace or a truncated function there compiles, deploys, and only then blanks the dashboard.
+The whole front end lives inside two triple-quoted Python strings, which `py_compile` is perfectly
+happy with because to Python they are just strings. A stray brace or a truncated function there
+compiles, deploys, and only then blanks the dashboard.
 
-There is a trap in checking it, and it is why this script imports the module instead of reading the file:
-
-  * In `tnl-central.py` the JS is still SOURCE -- escape sequences are unresolved and the two
-    `__..._JSON__` placeholders are still literal text. A checker that parses the .py bytes directly
-    either chokes on that or, far worse, silently parses something that is not what the browser gets.
-  * Importing the module runs the import-time `.replace("__TUNDEF_JSON__", ...)` wiring, so what we hand
-    to `node --check` is byte-for-byte what the browser receives. (Both panel and node import with no
-    side effects -- no file reads, no mkdir -- which is what makes this safe.)
-
-Two things are checked per string constant:
+This imports the module rather than reading the file: in the source the escapes are unresolved and the
+`__..._JSON__` placeholders are still literal text, so a checker parsing the .py bytes either chokes or,
+far worse, silently parses something the browser never gets. Importing runs the `.replace(...)` wiring,
+so what reaches `node --check` is what the browser receives. Two things per string constant:
 
   1. every `<script>` block parses (`node --check`);
-  2. no `__NAME__` placeholder survived the import-time injection. An unresolved `__TUNDEF_JSON__` is a
-     valid JS *identifier*, so it parses fine and then throws ReferenceError in the browser -- exactly
-     the silent-failure shape tuning_consistency.py exists to prevent on the Python side.
+  2. no `__NAME__` placeholder survived the import-time injection. An unresolved one is a valid JS
+     *identifier*, so it parses fine and then throws ReferenceError in the browser.
 
-Failures are reported as `tnl-central.py:<line>` where the line count of the decoded string matches its
-source span (the normal case: no escape expands into an extra newline). When it does not match, the
-script says so and falls back to a block-relative line rather than printing a number it cannot stand behind.
-
-Exit 0 = every block parses. Exit 1 = a syntax error, a surviving placeholder, no `node` on PATH, or no
-script blocks found at all -- a check that cannot read its subject must not report success.
+Exit 1 on a syntax error, a surviving placeholder, no `node` on PATH, or no script blocks found at all
+-- a check that cannot read its subject must not report success.
 """
 import argparse
 import ast

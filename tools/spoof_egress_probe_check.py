@@ -7,15 +7,12 @@ that promise is the whole reason to trust it: uRPF and decoy routing are per-IP 
 so a probe aimed somewhere else answers a different question. A multi-IP node can come back green on
 its management address while the tunnel's chosen address is filtered — or the reverse.
 
-It used to aim at the node registry's `host` (the MANAGEMENT address) and to send no `real_src` at
-all, so the node fell back to the route-local source toward that same wrong destination. Both ends of
-the baseline were therefore the wrong pair. And because `host` may legitimately be a HOSTNAME
-(api_node_add accepts one), the button was an unconditional dead end for such a node — "receiver has
-no usable IP", without contacting either side — while the tunnel itself builds perfectly, since
-a_ip/b_ip come from the node's live IP list and never from `host`.
+`host` may also legitimately be a HOSTNAME (api_node_add accepts one), while a_ip/b_ip always come
+from the node's live IP list — so aiming at `host` is an unconditional dead end for such a node, even
+though the tunnel itself builds perfectly.
 
-This drives the REAL handler with the node calls stubbed, and also checks the browser half: the
-picked IPs have to be in the request body, or the server can only ever guess.
+This drives the REAL handler with the node calls stubbed, and also checks the browser half: the picked
+IPs have to be in the request body, or the server can only ever guess.
 
     python3 tools/spoof_egress_probe_check.py
 """

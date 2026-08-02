@@ -5,19 +5,14 @@
 The panel offers ONE TTL input for both non-split SNI modes, and the two modes want OPPOSITE values
 out of it:
 
-    disorder  the head segment must EXPIRE before it reaches the server, so the TTL has to be LOW
-              (core's default is 4).
+    disorder  the head segment must EXPIRE before it reaches the server, so the TTL has to be LOW.
     fake      the decoy is killed at the server by its bad TCP checksum, not by expiring, and its
               whole job is to reach the on-path DPI FIRST. A low TTL kills it before the DPI and turns
               the strongest SNI mode into an expensive no-op.
 
-So a tunnel that stored 4 for disorder and then switched to fake shipped a decoy that died en route,
-with the panel, the node and the core's own startup line all reporting the mode as on. core's
-frag.go (fakeSegTTL) no longer reads the knob in fake mode at all — offering it here would be a
-setting the operator picks and nothing consumes.
-
-This drives all THREE panel build paths (create / edit / rebuild), because the panel has three and a
-gate added to one of them says nothing about the other two.
+core's frag.go (fakeSegTTL) does not read the knob in fake mode at all, so offering it there would be a
+setting the operator picks and nothing consumes. This drives all THREE panel build paths (create /
+edit / rebuild), because a gate added to one of them says nothing about the other two.
 
     python3 tools/sni_mode_fields_check.py
 """
