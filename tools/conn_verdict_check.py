@@ -101,8 +101,8 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   want(sideState(true, ONE_WAY).w === '',
     'the node boxes are tight — the one-way dot carries no word, got ' +
     JSON.stringify(sideState(true, ONE_WAY).w));
-  want(sideState(true, ONE_WAY).t === T('tst_oneway'),
-    'and with no word the tooltip is the ONLY explanation, so it must be the one-way one');
+  want(sideState(true, ONE_WAY).t === T('tst_oneway_ping'),
+    'with no word the tooltip is the ONLY explanation — a probe-driven amber must cite the probe');
   want(sideState(true, ALIVE_OK).k === 'ok',
     'a healthy side must still be green, got ' + sideState(true, ALIVE_OK).k);
   want(sideState(true, {up:true, alive:true, dead:true, loss_pct:100}).k === 'bad',
@@ -122,6 +122,9 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'the OTHER direction is carrying and must not be condemned with it');
   want(sideState(true, A_SENDING, B_DEAF).k === 'warn',
     'the side whose traffic lands nowhere must be amber');
+  want(sideState(true, A_SENDING, B_DEAF).t === T('tst_oneway_peer'),
+    'the PAIRED verdict runs with no probe at all, so its tooltip must not cite lost pings — got ' +
+    JSON.stringify(sideState(true, A_SENDING, B_DEAF).t));
   want(sideState(true, B_DEAF, A_SENDING).k === 'ok',
     'the side whose traffic DOES land must stay green — the half that works is information');
 

@@ -6911,7 +6911,7 @@ var I18N={fa:{
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
- t_side_oneway:"یک‌طرفه",tst_oneway:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر ۴ پینگِ آزمایشی گم شد",
+ t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر ۴ پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
@@ -7757,7 +7757,11 @@ function sideState(online,h,peer){
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
  if(h.dead)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};           // confirmed dead (frozen core heartbeat) -> red at once
- if(linkDir(h,peer)===false||oneWay(h))return {k:'warn',w:'',t:T('tst_oneway')};   // what this end sends lands nowhere -> amber; the box is tight, so the tooltip carries the why
+ // Two different findings share this amber, and with no word beside the dot the tooltip is the ONLY
+ // explanation — so it must name the one that actually fired. The paired verdict runs passively with
+ // no probe at all; quoting lost pings there would state a measurement that never happened.
+ if(linkDir(h,peer)===false)return {k:'warn',w:'',t:T('tst_oneway_peer')};
+ if(oneWay(h))return {k:'warn',w:'',t:T('tst_oneway_ping')};
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
