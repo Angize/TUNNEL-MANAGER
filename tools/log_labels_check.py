@@ -6,22 +6,16 @@ A system-log card renders each detail line as one of two things:
     «key: value»      -> a labelled pill  (از: 8.8.8.8   /   کلیدِ ECH: AEX+DQ…)
     anything else     -> a plain grey sentence
 
-`evDetail` in INDEX_HTML decides which, from the text alone. That decision is a HEURISTIC over a set of
-labels written a thousand lines away in Python, and nothing tied the two together — so when a label the
-gate happened to reject was added, the value did not break loudly. It just quietly stopped being a box:
-«کلیدِ ECH: <300 chars of base64>» was dumped inline as a wall of grey text, and «نودِ مقصد: IR01 • …»
-rendered as prose with a mirrored address. Silent, and invisible in every structural test.
+`evDetail` in INDEX_HTML decides which, from the text alone — a HEURISTIC over labels written a
+thousand lines away in Python. A rejected label does not break loudly; it just stops being a box, and a
+long base64 value is dumped inline as a wall of grey text with its address mirrored by the RTL page.
 
-This script closes that gap the way tuning_consistency.py does for the timing knobs:
+This extracts every expression reaching log_event's `dfa` argument, reduces each to a TEMPLATE so a
+label is recognised by shape rather than guesswork, and tests it against the gate's own constants read
+out of the JS. Known prose lines must FAIL, or "accept everything" would pass.
 
-  1. Parse tnl-central.py and pull out every expression that reaches log_event's `dfa` argument.
-  2. Reduce each to a TEMPLATE — interpolations (f-string holes, %s) collapsed to one marker — so a
-     "label" is recognised by what it is: text immediately followed by a value, not by guesswork.
-  3. Read the gate's own constants (length cap + rejected punctuation) straight out of the JS.
-  4. Require every extracted label to pass, and a few known prose lines to fail.
-
-Exit 0 = the two sides agree. Exit 1 = a label would render as a sentence (or the JS gate could not be
-parsed, which is itself a failure — a check that cannot read its subject must not report success).
+Exit 1 = a label would render as a sentence, or the JS gate could not be parsed — a check that cannot
+read its subject must not report success.
 """
 import argparse
 import ast

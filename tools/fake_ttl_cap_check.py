@@ -7,19 +7,15 @@
     tcp / ws             the decoy is a TCP segment INJECTED on the real connection's 4-tuple. A
                          well-formed one that actually reached the server would draw an RST or a
                          challenge-ACK and disturb the live flow, so core's specsTCP clamps it to
-                         injectMaxTTL (8) no matter what was configured.
+                         injectMaxTTL no matter what was configured.
 
-The clamp is right; the silence was not. The panel stored 30, the edit form echoed 30, the node
-persisted 30 and core's own startup line printed ttl=30 — while 8 went on the wire. Every report the
-operator can see was wrong about the same number, which is the whole finding.
-
-Two things are checked, because either alone can rot:
+The clamp is right; silence about it is not — every layer the operator can see must report the number
+that actually flies. Two things are checked, because either alone can rot:
 
   1) the panel's ceiling IS core's injectMaxTTL, read out of core rather than copied. A constant
      duplicated across two repositories with no guard is a constant that will drift.
-  2) all THREE panel build paths (create / edit / rebuild) clamp on the injecting carriers and
-     DO NOT clamp on the forging ones. A gate added to one path says nothing about the other two —
-     that is the defect class that shipped three times under "chain verified end to end".
+  2) all THREE panel build paths (create / edit / rebuild) clamp on the injecting carriers and DO NOT
+     clamp on the forging ones. A gate added to one path says nothing about the other two.
 
     python3 tools/fake_ttl_cap_check.py
 """

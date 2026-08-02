@@ -8,14 +8,10 @@ The panel has THREE independent ways to build the body it sends a node:
     edit      api_edit_link      -> _core_extra(d, cur=L)   -> _node_extra
     rebuild   api_rebuild_*      -> _tunnel_extra(L)
 
-They must agree. When they drift, the panel reports success and the tunnel quietly runs with a
-different config than the operator chose — the exact shape of panel #275/#280/#285, where the CDN
-profile reached the node on the rebuild path only and three commits in a row claimed "chain verified
-end to end" after testing the one path that worked.
-
-This tool builds every carrier through all three paths and fails (exit 1) when they disagree, or when
-a key the operator set never reaches the node body. Run it with no arguments after touching any
-_core_extra / _tunnel_extra / _*_fields helper:
+They must agree, or the panel reports success while the tunnel runs a config the operator did not
+choose. This builds every carrier through all three paths and exits 1 when they disagree, or when a
+key the operator set never reaches the node body. Run after touching any _core_extra / _tunnel_extra /
+_*_fields helper:
 
     python3 tools/config_contract.py
 """
@@ -122,26 +118,18 @@ CASES = [
 # Keys that legitimately differ between paths (not part of the contract).
 IGNORE = {"psk", "ws_ech", "ech"}
 
-# Keys that must NEVER reach a node, on any path. A node silently drops what it does not whitelist
-# (tnl-node.py's op_tunnel is a hand-written ~300-line list), so a panel-only key that leaks into a
-# body is invisible at runtime — no error, no log, just a setting that does nothing. That is exactly
-# how `cdn_profile` shipped for a release: sent as a name, dropped on arrival, and the operator's
-# choice of CDN profile quietly did nothing on every path except rebuild.
+# Keys that must NEVER reach a node, on any path. A node silently drops what it does not whitelist, so
+# a panel-only key that leaks into a body is invisible at runtime — no error, no log, just a setting
+# that does nothing.
 NEVER = ("cdn_profile", "ws_edge_ips_burned", "ws_edge_snis_burned",
          "ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
 # ...unless a case's own contract asks for it (none do today; the check reads `must` so a future
 # carrier that legitimately needs one of these can say so instead of quietly disabling the guard).
 
-# The POST-ladder knobs are a different and HARDER rule than NEVER: the core does not ignore them
-# elsewhere, it REFUSES the whole config —
-#
-#   config.go: if c.HTTPUpWorkers != 0 || c.HTTPUpBatchKB != 0 || c.HTTPUpRate != 0 {
-#                  if c.Role != "client" || c.CDNCarrier != "http" { return errors.New(...) } }
-#
-# so a leak here is not a silently-dropped key, it is a tunnel that will not start, on both ends, with
-# the panel reporting the save as successful. The condition is taken from the core rather than written
-# out as a per-case list, so a new carrier gets the rule for free: the knobs may appear when and only
-# when the case's own contract says this is an http carrier.
+# The POST-ladder knobs are a HARDER rule than NEVER: the core does not ignore them elsewhere, it
+# REFUSES the whole config unless the role is client and the carrier is http — so a leak here is a
+# tunnel that will not start on either end, with the panel reporting the save as successful. The rule
+# is read from each case's own contract, so a new http-shaped carrier gets it for free.
 HTTP_ONLY = ("http_up_workers", "http_up_batch_kb", "http_up_rate")
 
 
@@ -158,22 +146,10 @@ def build_edit(req, stored):
 
 def build_edit_partial(req, stored):
     """A PARTIAL edit: the operator changed nothing this form carries, so every value has to come back
-    out of the STORED record.
+    out of the STORED record — the panel's stated edit contract, and identical to the full resend.
 
-    This arm exists because the full-resend one above cannot see the fallback at all. Every helper
-    reads `d.get(k) if k in d else cur.get(k)`, so when `d` is the whole create request `cur` is never
-    consulted — create and edit then call the same function with the same `d`, and check (3) comparing
-    those two is close to a tautology.
-
-    The path that went unexercised is the one that actually broke: panel #292/#45 was a partial edit of
-    a POOLED link feeding `str({'host': ...})` to the SNI regex and hard-failing with «SNI نامعتبر»,
-    because `stored` holds `[{host, ech, path}]` DICTS while every case here supplies plain host
-    STRINGS. tools/ws_pool_edit_test.py covers that one helper directly, for that one key; no other
-    omitted-field fallback was exercised anywhere.
-
-    Only the transport is passed, because that is what _core_extra switches on. Everything else must be
-    reconstructed from `cur`, and must come out IDENTICAL to the full resend — which is precisely the
-    panel's stated edit contract, and the thing nothing was checking."""
+    The full-resend arm above cannot exercise that at all: every helper reads
+    `d.get(k) if k in d else cur.get(k)`, so when `d` is the whole request `cur` is never consulted."""
     ce, _ = P._core_extra({"transport": req["transport"]}, dict(stored), A_IP, B_IP, A_IPS, B_IPS)
     return P._node_extra(ce)
 

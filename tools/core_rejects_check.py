@@ -3,19 +3,14 @@
 """The panel must refuse every combination the CORE refuses.
 
 When it does not, the operator fills in a form, the panel says «ذخیره شد», the node stores it and
-builds a core config — and the core then exits on `validate()`. Both ends of the tunnel refuse to
-start, and nothing between the button and the crash says why. On an EDIT of a live tunnel the damage
-lands at the next core-update, far from the change that caused it.
+builds a core config — and the core then exits on `validate()`. Both ends refuse to start, and nothing
+between the button and the crash says why. On an EDIT of a live tunnel the damage lands at the next
+core-update, far from the change that caused it.
 
-Two of these shipped (obfs on dns, `fake_mode="both"` with one decoy) and a third was found by
-running this matrix rather than by reading the audit: `cdn_carrier="grpc"` without `ws_tls`. All three
-had a browser-side gate — the toggle is hidden, or forced on and greyed — which is exactly why they
-looked closed. The browser is not the funnel. `_core_extra` is, and create / edit / rebuild all go
-through it, as does the HTTP API with no browser involved at all.
-
-Each case names the core rule it mirrors, so a reader can check the pair. This is a MATRIX, not a
-transcription of `config.go`: most of the core's rules are about fields the panel generates itself and
-cannot get wrong. What belongs here is anything an operator can express.
+A browser-side gate is not the funnel — `_core_extra` is, and create / edit / rebuild all go through
+it, as does the HTTP API with no browser involved at all. Each case names the core rule it mirrors.
+This is a MATRIX, not a transcription of `config.go`: most of the core's rules are about fields the
+panel generates itself and cannot get wrong. What belongs here is anything an operator can express.
 
 The CONTROLS at the bottom matter as much as the cases: without them "reject everything" would pass.
 

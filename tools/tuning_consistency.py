@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Cross-repo tuning-knob consistency guard (consolidation Track B).
+"""Cross-repo tuning-knob consistency guard.
 
-The operator-tunable timing knobs are declared in places that must agree:
+The operator-tunable timing knobs are declared in three places that must agree:
   * core   TUNNEL-MANAGER-CORE/internal/packet/tuning.go  (the AUTHORITY: defaults in the var block,
            clamps in ApplyTuning) + config.go (keepalive / dead_after_secs top-level fields)
   * panel  TUNNEL-MANAGER/tnl-central.py    (_TUNING_DEFAULTS / _TUNING_RANGES; the browser _TUNDEF is
            now INJECTED from _TUNING_DEFAULTS at import, so it cannot drift -- verified here as "derived")
   * node   TUNNEL-MANAGER-NODE/tnl-node.py  (_TUNING_INT_KEYS -- the pass-through key roster)
 
-The panel's own comment says the defaults "MUST match the core", but nothing enforced it. This script IS
-that enforcement: it parses each source and fails (exit 1) with a diff on any drift. Run it from the panel
-repo (paths default to the sibling checkout layout) or pass --core/--panel/--node.
+This parses each source and fails (exit 1) with a diff on any drift. Run it from the panel repo (paths
+default to the sibling checkout layout) or pass --core/--panel/--node.
 """
 import argparse
 import ast
@@ -87,10 +86,9 @@ def go_default(src, var, is_list):
 def go_clamp(src, field):
     """The (lo, hi) ApplyTuning clamps a knob, or None when the clamp cannot be located.
 
-    The suffix is optional because the core merged tclamp64/tclampInt into ONE generic
-    `func tclamp[T int | int32 | int64]`. While this regex still demanded the suffix it matched
-    nothing, so every knob reported core=None — the guard was red on all 11 ranges and, worse, was
-    verifying nothing about them. Keep both spellings accepted so the guard survives either shape.
+    The suffix is optional: the core has carried both `tclamp64`/`tclampInt` and one generic
+    `tclamp`. Accept either spelling, or the guard reports core=None for every knob and verifies
+    nothing while looking merely red.
     """
     m = re.search(r"tclamp(?:64|Int)?\(t\." + re.escape(field) + r",\s*(\d+),\s*(\d+)\)", src)
     return (int(m.group(1)), int(m.group(2))) if m else None

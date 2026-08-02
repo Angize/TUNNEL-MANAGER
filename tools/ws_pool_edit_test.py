@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Guard for the ws edge-pool edit fallback (#45).
+"""Guard for the ws edge-pool edit fallback.
 
-_ws_pool_fields documents: "Missing input on an edit falls back to the stored value." But the stored
-ws_edge_snis is a list of {host,ech,path} dicts, while _hosts() only understood plain host strings — so
-any edit that omitted ws_edge_snis fed str(dict) to the SNI regex and hard-failed with «SNI نامعتبر»,
-defeating the very fallback the docstring promises. Today's UI always resends the string list, so it was
-a sleeping mine; the first programmatic partial edit of a pooled link steps on it.
+Missing input on an edit falls back to the stored value. The stored ws_edge_snis is a list of
+{host,ech,path} dicts, so a _hosts() that understands only plain host strings feeds str(dict) to the SNI
+regex and hard-fails with «SNI نامعتبر», defeating the fallback. The UI always resends the string list,
+so only a programmatic partial edit of a pooled link reaches this.
 
-This reproduces the fallback path (an edit that omits ws_edge_snis over a stored dict-shape pool) and
-fails (exit 1) if it raises or drops a host. Run with no arguments after touching _ws_pool_fields:
+This reproduces that path and fails (exit 1) if it raises or drops a host. Run after touching
+_ws_pool_fields:
 
     python3 tools/ws_pool_edit_test.py
 """
