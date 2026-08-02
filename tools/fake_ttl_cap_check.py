@@ -121,6 +121,38 @@ def main():
         else:
             print("  ok  panel ceiling %d == core injectMaxTTL" % core_cap)
 
+    # 1b) split_ttl answers to the SAME ceiling. The disorder head's whole job is to expire in transit,
+    # so a budget that reaches the peer makes it arrive whole and the mode is a no-op every layer still
+    # reports as active — the same defect shape as a fake_ttl the wire does not carry.
+    mh = re.search(r"^const MaxHopBudget = (\w+)$", desync_go, re.M)
+    if not mh:
+        failures.append("could not find `const MaxHopBudget = …` in core's internal/packet/desync.go — "
+                        "split_ttl's authority is unreadable, so this check must not report success")
+    else:
+        core_hop = core_cap if mh.group(1) == "injectMaxTTL" else None
+        if core_hop is None:
+            failures.append("MaxHopBudget is no longer injectMaxTTL (it is %r) — this check reads it "
+                            "through that alias and has gone blind" % mh.group(1))
+        else:
+            # Read through the module, not the AST: SPLIT_TTL_MAX is deliberately an alias of
+            # DESYNC_INJECT_TTL_MAX, which literal_eval cannot resolve.
+            panel_split = getattr(load_panel(a.panel), "SPLIT_TTL_MAX", None)
+            if panel_split != core_hop:
+                failures.append("panel SPLIT_TTL_MAX=%r but core MaxHopBudget=%r — the panel would let "
+                                "the operator store a disorder TTL the core refuses"
+                                % (panel_split, core_hop))
+            else:
+                print("  ok  panel SPLIT_TTL_MAX %d == core MaxHopBudget" % core_hop)
+            # ...and the browser input must not offer more than the submit will accept.
+            mi = re.search(r'id="\'\+idp\+\'splitttl" type="number" min="0" max="([^"]+)"', panel_src)
+            if not mi:
+                failures.append("the split_ttl input was not found in INDEX_HTML — this check went blind")
+            elif mi.group(1) != "__SPLITTTLMAX__":
+                failures.append("the split_ttl input hardcodes max=%r instead of the injected "
+                                "__SPLITTTLMAX__, so the form and the validator can drift" % mi.group(1))
+            else:
+                print("  ok  the split_ttl input takes its max from SPLIT_TTL_MAX")
+
     panel_inject = set(panel_const(panel_src, "DESYNC_INJECT_TRANSPORTS"))
     want_inject = {t for t, clamps in CARRIERS if clamps}
     if panel_inject != want_inject:
