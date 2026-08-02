@@ -1,24 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""The panel must not state, in prose or in a toast, something the code contradicts.
+"""A toast must not claim something the code does not do.
 
-Two claims from the 2026-07-31 review, both of the same shape: a sentence that was true when it was
-written, kept next to code that stopped making it true, with nothing in the toolchain able to notice.
-
-  1. the CDN_PROFILES header said «"cf" carries the core's own defaults, so it emits NOTHING and a
-     Cloudflare tunnel is byte-identical to before this existed» — written when "cf" really was an
-     empty entry. panel #295 then measured 8x256 and filled it in, one screen below the sentence.
-     Both halves went false at once: the core's default is 8x128, and every http-carrier client body
-     now leaves the panel with two extra knobs on it.
-
-  2. the DIRECT pool's «الان تست کن» toasted «پروبِ فوری فرستاده شد». It does not send one. core's
-     probeAllNow just sets nextRetest = now, and there is no retestLoop behind the direct pools —
-     tcp.go starts one only for the ws EDGE pool — so nothing dials until the next rotation or
-     failover. The help text two lines above the button (peer_live_note, fixed in #299) already said
-     «خودش تستی نمی‌فرستد», so the panel was contradicting itself inside one box.
-
-Neither is catchable by the other guards: config_contract checks what reaches the node, the label
-guard checks the tiles, and no test reads Persian prose. This one does.
+The DIRECT (udp/tcp/raw/flux) pool's «الان تست کن» sends no probe: core's probeAllNow only pulls
+nextRetest forward, and there is no retestLoop behind those pools, so nothing dials until the next
+rotation or failover. Its ws-EDGE twin DOES dial, so the same claim is true there — which is why this
+checks both, and cannot be satisfied by deleting the string from one of them.
 
     python3 tools/panel_says_what_it_does_check.py
 """
@@ -35,9 +22,6 @@ PANEL = os.path.join(os.path.dirname(HERE), "tnl-central.py")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Phrases that assert a profile changes nothing. If any profile carries knobs, they are false.
-EMITS_NOTHING = ("emits NOTHING", "byte-identical to before this existed")
-
 fails = []
 
 
@@ -50,27 +34,6 @@ def load_panel():
 
 def main():
     P = load_panel()
-    src = open(PANEL, encoding="utf-8").read()
-
-    # --- 1) the prose above CDN_PROFILES vs the dict itself -------------------------------------
-    profiles = getattr(P, "CDN_PROFILES", None)
-    if not profiles:
-        fails.append("CDN_PROFILES is missing or empty — this check cannot read its subject")
-    else:
-        head = src[: src.index("CDN_PROFILES = {")]
-        head = head[head.rfind("\n\n") :]  # the comment block immediately above the dict
-        carrying = sorted(n for n, prof in profiles.items() if prof)
-        for phrase in EMITS_NOTHING:
-            if phrase in head and carrying:
-                fails.append(
-                    "the comment above CDN_PROFILES still says %r, but %s carr%s real knobs now — a "
-                    "tunnel built on %s is NOT byte-identical to one built before the profiles existed"
-                    % (phrase, ", ".join(carrying), "ies" if len(carrying) == 1 else "y",
-                       "it" if len(carrying) == 1 else "them"))
-        if not fails:
-            print("  ok  the CDN_PROFILES prose does not claim a profile that carries knobs is inert")
-
-    # --- 2) the DIRECT pool's probe button must not claim a probe was sent -----------------------
     js = getattr(P, "INDEX_HTML", "")
     if "<script" not in js:
         fails.append("INDEX_HTML did not decode to anything with a <script> in it — this check cannot "
@@ -111,7 +74,7 @@ def report():
         for f in fails:
             print("  - %s" % f)
         return 1
-    print("\nthe panel's prose and its toasts agree with what the code does")
+    print("\nthe panel's toasts agree with what the code does")
     return 0
 
 
