@@ -6234,12 +6234,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
 .setrow2.tun-off{opacity:.55}
-/* A settings group is its OWN accordion — hence `sacc`, not `acc`. `.card.acc` belongs to the
-   node/tunnel/port-forward card, and THAT component sets `padding:0` on the card because its own
-   header (.chead) and body (.cbody-in) carry the padding instead. The settings card borrowed the
-   class name and inherited the zero and nothing else: the header text sat 2px from the border, the
-   rows ran into the edge, and a collapsed card was 36px tall against a 15px radius — a capsule, not
-   a card. Same inset as .card's own 14px, so an open group lines up with every other card on the page. */
+/* A settings group is its OWN accordion — hence `sacc`, not `acc`. `.card.acc` zeroes the card padding
+   because ITS header and body carry it instead; a settings group's do not, so the padding is restated
+   here at .card's own inset, and an open group lines up with every other card on the page. */
 .setgrp.sacc{padding:0}
 .setgrp.sacc .grphd.acch{margin:0;padding:12px 14px;gap:8px;flex-wrap:nowrap;align-items:center;
   cursor:pointer;user-select:none}
@@ -7049,7 +7046,7 @@ var I18N={fa:{
  // spoof section
  spoof_hd:"جعلِ آی‌پی (استتار)",spoof_decoy_t:"جعلِ مقصد (Decoy)",spoof_decoy_d:"روی سیم وانمود می‌شود ترافیک به آی‌پیِ زیر می‌رود، ولی واقعاً به سرورت می‌رسد.",spoof_decoy_ph:"آی‌پیِ طُعمه (مقصدِ جعلی) — مثلاً 185.51.200.10",
  spoof_src_t:"جعلِ مبدأ",spoof_src_d:"آی‌پیِ مبدأِ واقعی روی سیم مخفی می‌شود (اختیاری).",spoof_src_ph:"آی‌پیِ مبدأِ جعلی — مثلاً 198.51.100.9",spoof_checking:"بررسیِ امکانِ جعل روی نودها…",
- // Measured live 2026-07-28 on our own two nodes; state the limits instead of promising camouflage that cannot be delivered.
+ // State the limits instead of promising camouflage that cannot be delivered.
  spoof_decoy_warn:"<b>آی‌پیِ طُعمه باید به همین سرور روت شود</b> — یعنی یک آی‌پیِ اضافه که دیتاسنتر به همین ماشین می‌فرستد. یک آی‌پیِ دلخواه (مثلاً سایتی محبوب) کار <b>نمی‌کند</b>: روترهای مسیر بسته را بر اساسِ همان مقصدِ جعلی می‌برند و هرگز به سرورت نمی‌رسد. (اندازه‌گیری‌شده روی همین دو نود.)",
  spoof_src_warn:"<b>روی دیتاسنترهایی که ضدِجعل (uRPF/BCP38) دارند کار نمی‌کند</b> — و هر دو سرورِ فعلیِ ما دارند: بستهٔ با مبدأِ جعلی از نود خارج می‌شود ولی هرگز به آن‌طرف نمی‌رسد. حتی آی‌پی‌ای از /24ِ خودت که مالکش نیستی هم رد می‌شود. اگر پرووایدرت اجازه بدهد کار می‌کند؛ اول تست کن.",
  spoof_cap_ok:"<b>هر دو نود از نظرِ فنی مجازند.</b> ولی اینکه واقعاً کار کند به خروجیِ دیتاسنتر و مسیر هم بستگی دارد — این چک فقط قابلیتِ نودها را می‌سنجد، نه آن را؛ با دکمهٔ زیر تستِ واقعی بگیر.",
@@ -8729,13 +8726,10 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 // Mutates `body`; on a validation error it sets `m` and returns true so the caller bails out.
 function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bip'){var _rp=parseInt(v(px+'rawproto')||'58',10);if(!(_rp>=1&&_rp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return true}body.raw_proto=_rp}}
- /* The spoof carrier is bip-like: no profile, just the outer protocol number, plus the forged
-    field(s). Collected HERE (not in each submit handler) so create and edit build an identical body —
-    the split copies are what let the CDN profile ship broken on one path and work on the other.
-    The spoof fields are sent explicitly ONLY when the capability probe resolved OK; then the toggles
-    reflect real intent, so an empty value legitimately CLEARS one (the backend keys on presence).
-    While the probe is pending or NOT-ok they are OMITTED, so an edit PRESERVES the stored values
-    instead of a flaky local CAP_NET_RAW probe silently stripping a working config. */
+ /* The spoof carrier is bip-like: no profile, just the outer protocol number plus the forged field(s).
+    Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
+    go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
+    empty value legitimately CLEARS one; pending or NOT-ok they are OMITTED and an edit preserves. */
  if(S.Tr=='spoof'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('spoof_need_enc');return true}
   var _sp=parseInt(v(px+'rawproto')||'58',10);if(!(_sp>=1&&_sp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return true}body.raw_proto=_sp;
   if(S.SpoofOk){var _dip=S.Decoy?(v(px+'decoyip')||'').trim():'';var _sip=S.Src?(v(px+'srcip')||'').trim():'';
@@ -9235,10 +9229,9 @@ function tuningCard(s){
     qr(T('set_t_datafail'),'set_t_datafail_d','set_x_datafail',tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
     qr(T('set_t_datagood'),'set_t_datagood_d','set_x_datagood',tNum('set_t_datagood',_tv(s,'data_good_window_secs'),1,86400))+
     qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)),'g3')+
-  /* MERGED: the fixed deadline and the failure thresholds are one subject — both are global, both apply
-     to every carrier, and neither is affected by the auto/fixed switch. They were two cards only because
-     they were written at different times. ping_loss and min_liveness stay NON-auto (ApplyTuning applies
-     them unconditionally, on paths that never consult the dead window) — see #254. */
+  /* MERGED: the fixed deadline and the failure thresholds are one subject — both global, both applying
+     to every carrier, neither affected by the auto/fixed switch. ping_loss and min_liveness stay
+     NON-auto: ApplyTuning applies them unconditionally, on paths that never consult the dead window. */
   grp('set_gkd','set_gkdh','set_gkdc','sc-both',
     qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
     qr(T('set_t_deadafter'),'set_t_deadafter_d','set_x_deadafter',tNum('set_t_deadafter',_tv(s,'dead_after_secs'),0,300))+
@@ -9248,10 +9241,9 @@ function tuningCard(s){
   grp('set_g4','set_g4h','set_g4c','sc-both',
     qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100),'tun-auto')+
     qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400),'tun-auto'),'g4')+
-  /* MERGED: datagram staleness and the socket buffer are the same audience (udp/raw/flux). The merge is
-     only safe because tun-auto moved to the ROW: the two staleness knobs are greyed by a positive fixed
-     deadline, the socket buffer never is (it is a throughput knob, unrelated to the dead-window formula).
-     Marking the whole CARD auto here would grey out sock_buf and label it inert — exactly the #254 bug. */
+  /* MERGED: datagram staleness and the socket buffer are the same audience (udp/raw/flux). Safe only
+     because tun-auto moved to the ROW: the staleness knobs are greyed by a positive fixed deadline, the
+     socket buffer never is. Marking the whole CARD auto would grey out sock_buf and label it inert. */
   grp('set_g5','set_g5h','set_g5c','sc-dgram',
     qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100),'tun-auto')+
     qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400),'tun-auto')+
