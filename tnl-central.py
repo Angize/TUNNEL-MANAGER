@@ -6666,7 +6666,7 @@ body.dark .tag.core{color:#a78bfa}
 .tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
 .tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
 .tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
-/* core modal two-tab bar (آی‌پی‌ها / تنظیمات) — accent-wash active, matching .navi.on */
+/* core modal two-tab bar («آی‌پی‌ها» / «تنظیمات») — accent-wash active, matching .navi.on */
 .ctabs{display:flex;gap:8px;margin:2px 0 6px}
 .ctab{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:42px;border-radius:12px;background:var(--field);color:var(--sub);border:1px solid transparent;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;transition:.15s}
 .ctab svg{width:16px;height:16px}
@@ -6717,7 +6717,7 @@ body.dark .tag.core{color:#a78bfa}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
 .pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
-/* live peer-pool status (direct-transport rotation): مقصد + مبدأ boxes of health rows + per-IP pin */
+/* live peer-pool status (direct-transport rotation): «مقصد» + «مبدأ» boxes of health rows + per-IP pin */
 .peerlive{margin-top:12px;display:flex;flex-direction:column}
 .peerlive .pacc{margin-top:8px}                       /* each side is its own card now, not a row in one box */
 .peerlive .pllabel{margin-bottom:2px}
@@ -7157,10 +7157,10 @@ function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t
 function setHTML(box,html){if(!box)return;if(box._html===html)return;box._html=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
 function num(x){x=+x;return isFinite(x)?x:0}
 function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),c=Math.floor(s%60);
- if(d>0)return d+' '+T('fmt_day')+' '+T('fmt_and')+' '+h+' '+T('fmt_hr');   // >=1 روز: روز و ساعت
- if(h>0)return h+' '+T('fmt_hr')+' '+T('fmt_and')+' '+m+' '+T('fmt_min');   // >=1 ساعت: ساعت و دقیقه
- if(m>0)return m+' '+T('fmt_min');                                          // >=1 دقیقه: فقط دقیقه
- return c+' '+T('fmt_sec')}                                                 // <1 دقیقه: فقط ثانیه
+ if(d>0)return d+' '+T('fmt_day')+' '+T('fmt_and')+' '+h+' '+T('fmt_hr');
+ if(h>0)return h+' '+T('fmt_hr')+' '+T('fmt_and')+' '+m+' '+T('fmt_min');
+ if(m>0)return m+' '+T('fmt_min');
+ return c+' '+T('fmt_sec')}
 function fmtBytes(n){n=num(n);var u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<4){n/=1024;i++}return (i?(n<10?n.toFixed(2):n<100?n.toFixed(1):Math.round(n)):Math.round(n))+' '+u[i]}
 function fmtRate(b){b=num(b);var u=['bps','Kbps','Mbps','Gbps'],i=0;while(b>=1000&&i<3){b/=1000;i++}return (i?(b<10?b.toFixed(1):Math.round(b)):Math.round(b))+' '+u[i]}
 function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span><span class="tag '+esc(t.type)+'">'+esc(t.type)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso">'+fmtBytes(num(t.rx_total)+num(t.tx_total))+'</span></div></div>'}
@@ -7629,7 +7629,7 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.sw
 function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
  var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
- var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — replaces the old آنلاین text badge
+ var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('activity')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
@@ -8236,7 +8236,7 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').
   d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
   // release the pin lock once the chosen edge is confirmed active (or after a 12s safety timeout)
   if(d.pinPending){var pk=d.pinPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.pinPending=null;}
-  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // live health (سالم/موقت/دائمی) + active edge overlay onto the rows
+  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // live health («سالم»/«موقت»/«دائمی») + active edge overlay onto the rows
 async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
 (function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   // live-cadence self-loop
 // Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
@@ -8279,9 +8279,9 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
 // coreCard just renders l.*_ip_active — no separate poll — and syncs it to localStorage for instant reload.
 function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'}
 // ===== live status for a direct-transport IP-rotation pool (udp/tcp/raw/flux) — the ws edge pool's
-// per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes (مقصد + مبدأ). Shown
-// in the core edit modal for a running pooled tunnel; poll -> render rows (فعال / در چرخش / سوختهٔ موقت
-// / سوختهٔ دائمی) with a retest countdown and a per-IP pin button, plus a "test all" (probe-now) button.
+// per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes («مقصد» + «مبدأ»). Shown
+// in the core edit modal for a running pooled tunnel; poll -> render rows («فعال» / «در چرخش» / «سوختهٔ موقت»
+// / «سوختهٔ دائمی») with a retest countdown and a per-IP pin button, plus a "test all" (probe-now) button.
 var _peerLid='';
 var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
 async function peerTick(){if(!_peerLid||!el('ee_peerlive'))return;var r=await post('peer-status',{id:_peerLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)peerApply(r.d);}
@@ -8531,7 +8531,7 @@ function wsPoolInner(idp,fnp,lid){
  // Live "active edge" bar (edit only — a running tunnel exists). Populated by poolTick.
  // Each kind (ip / sni) is one collapsible accordion: the header shows a live «X در چرخش · Y
  // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
- // list — every entry with a status pill (فعال / در چرخش / سوخته) — plus the add bar.
+ // list — every entry with a status pill («فعال» / «در چرخش» / «سوخته») — plus the add bar.
  function block(kind,label,ph){
    // per-edge selection replaced the header rotate button — pin a specific edge from its row instead.
    return '<div class="pacc"><div class="pacchd" data-acc role="button" tabindex="0" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
@@ -9002,7 +9002,7 @@ async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ve
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast(T('ag_no_online'),'err');return}
  if(!await confirmBox(T('ag_confirm_core')+ver+T('ag_confirm_core2')+ids.length+T('ag_confirm_core3'),T('yes_all')))return;
- ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent=T('ag_installing_core')}});   // per-node status, like پوشِ همه
+ ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent=T('ag_installing_core')}});   // per-node status, like «پوشِ همه»
  var res=await post('core-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=0;
  rs.forEach(function(x){var m=el('agres_'+x.id);
   if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=(x.unchanged?T('ag_core_already'):T('ag_core_updated'))+CK}}
@@ -9026,7 +9026,7 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
  var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    // agent update available
  var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  // core update available/missing
- // status = a colored icon only (no به‌روز/آپدیت text); full text lives in the tooltip.
+ // status = a colored icon only (no «به‌روز»/«آپدیت» text); full text lives in the tooltip.
  function stx(lbl,cls,icon,tip){return '<span class="stx" title="'+tip+'">'+lbl+' <span class="ico '+cls+'">'+icon+'</span></span>'}
  // agent status + button-enable
  var agbdg,agdis;var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
@@ -9142,8 +9142,8 @@ function evParts(e){
  var det=e.dfa||'';
  return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
-// A detail line is one of two things: «key: value» becomes a labelled pill (از / به / لبه / دامنه /
-// کلیدِ ECH …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
+// A detail line is one of two things: «key: value» becomes a labelled pill («از» / «به» / «لبه» /
+// «دامنه» / «کلیدِ ECH» …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
 // of sentence punctuation — that is the whole test, and it must allow spaces, since the backend emits
 // multi-word labels. tools/log_labels_check.py pins this gate against the labels it really emits.
 function evDetail(lines){if(!lines||!lines.length)return '';
