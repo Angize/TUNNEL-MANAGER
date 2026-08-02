@@ -8132,7 +8132,17 @@ async function refreshCore(){if(editingId||CHECKING||RORD||RSAVE)return;var f=aw
 // dragging THAT live-swaps with the neighbour and persists server-side. Outside reorder mode nothing here
 // fires, so tap / scroll / copy behave normally. touch-action:none on the grip = no scroll-race, reliable drag.
 var REORDMODE=false,RORD_AS=0;   // RORD_AS = rAF id for edge auto-scroll during a drag
-function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);}
+function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);if(REORDMODE)reordCollapse();}
+// An OPEN card is several times taller than a collapsed one: it hides the neighbours it is supposed to
+// swap with, and reordApply compares midpoints, so the swap point sits far from the finger. Entering
+// reorder mode collapses every open card; reordDown collapses one opened while the mode was already on.
+// TOPEN and .card.acc are shared by nodes / tunnels / core / portfw, so this covers all four sections.
+function reordCollapse(one){
+ var cs=one?[one]:document.querySelectorAll('.card.acc.open');
+ for(var i=0;i<cs.length;i++){var c=cs[i];
+  if(!c.classList.contains('open'))continue;
+  c.classList.remove('open');var k=c.getAttribute('data-rid');if(k)TOPEN[k]=false;}
+}
 function gripSvg(){return '<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="7" cy="4.5" r="1.5"/><circle cx="13" cy="4.5" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="7" cy="15.5" r="1.5"/><circle cx="13" cy="15.5" r="1.5"/></svg>'}
 function grip(){return '<span class="rgrip" onclick="event.stopPropagation()" title="'+esc(T('reord_t'))+'">'+gripSvg()+'</span>'}
 function reordDown(e){
@@ -8143,6 +8153,7 @@ function reordDown(e){
  var card=g.closest('.card[data-rid]');if(!card)return;
  var box=card.parentNode;if(!box)return;
  if(e.cancelable)e.preventDefault();
+ reordCollapse(card);
  RORD={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),pid:e.pointerId,grabY:e.clientY,lastY:e.clientY,swaps:[]};
  try{card.setPointerCapture(e.pointerId)}catch(_){}
  card.classList.add('rdrag');document.body.classList.add('rdragging');
