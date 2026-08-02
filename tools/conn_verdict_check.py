@@ -107,6 +107,30 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   want(sideTxt(true, ONE_WAY).indexOf(T('t_side_conn')) < 0,
     'the one-way side text must not still say ' + T('t_side_conn'));
 
+  // ---- the drop count: the fact a dot cannot carry ----
+  var FLAPPY = {up:true, alive:true, dead:false, rtt_ms:30, loss_pct:0, drops:24, drop_win:300};
+  var STEADY = {up:true, alive:true, dead:false, rtt_ms:30, loss_pct:0, drops:0,  drop_win:300};
+  var ONCE   = {up:true, alive:true, dead:false, rtt_ms:30, loss_pct:0, drops:1,  drop_win:300};
+
+  want(sideDot(true, FLAPPY).indexOf('24') >= 0,
+    'a side that lost its session 24 times must show the number — the dot alone says "up right now" ' +
+    'and a tunnel reconnecting every ten seconds satisfies that forever');
+  want(sideDot(true, FLAPPY).indexOf(T('t_drops')) >= 0, 'the count must be labelled ' + T('t_drops'));
+  want(sideDot(true, FLAPPY).indexOf('sdot ok') >= 0,
+    'the DOT must stay green: up-right-now and how-often-it-falls-over are separate facts');
+  want(sideDot(true, FLAPPY).indexOf('stw warn') >= 0, '24 drops must read as a warning chip');
+  want(sideDot(true, ONCE).indexOf('stw warn') < 0, 'a single drop is ordinary and must not read amber');
+  want(sideDot(true, ONCE).indexOf('1 ' + T('t_drops')) >= 0, 'a single drop must still be shown');
+  want(sideDot(true, STEADY).indexOf(T('t_drops')) < 0, 'a tunnel that never dropped must show no chip');
+  want(sideTxt(true, FLAPPY).indexOf('24') >= 0, 'the check output must carry the count too');
+
+  return run(FLAPPY, FLAPPY);
+}).then(function(r){
+  want(r && r.cls === 'ok',
+    'drops alone must NOT fail the verdict — the link is carrying, it is just unstable; got ' +
+    JSON.stringify(r && r.cls));
+  want(r && r.html.indexOf('24') >= 0, 'the check lines must report the count');
+
   console.log(JSON.stringify({fails: __fails}));
 }).catch(function(e){
   console.log(JSON.stringify({fails: ['harness threw: ' + (e && e.stack || e)]}));
