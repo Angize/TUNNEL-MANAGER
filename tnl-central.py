@@ -6912,7 +6912,6 @@ var I18N={fa:{
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
  t_side_oneway:"یک‌طرفه",tst_oneway:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر ۴ پینگِ آزمایشی گم شد",
- t_drops:"قطعی",tst_drops:"در {n} دقیقهٔ اخیر این‌قدر بار سشن قطع شده و از نو وصل شده است. چرخشِ استخر جزو این شمار نیست — آن‌ها سشن را نمی‌بندند.",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
@@ -7744,9 +7743,8 @@ function sideTxt(online,h,peer){
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
  if(h.dead)return T('st_disc');   // frozen core heartbeat = the encrypted session died (peer gone)
- var dr=h.drops?' · '+h.drops+' '+T('t_drops'):'';
- if(linkDir(h,peer)===false||oneWay(h))return T('t_side_oneway')+' · '+pingInfo(h)+dr;
- if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')+dr}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
+ if(linkDir(h,peer)===false||oneWay(h))return T('t_side_oneway')+' · '+pingInfo(h);
+ if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
 // k: dot color class · w: the word to show ONLY when there's a problem · t: the tooltip, ALWAYS.
@@ -7763,15 +7761,8 @@ function sideState(online,h,peer){
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
-// DROP_WARN: below this a stray drop is ordinary; at or above it the count is a pattern and reads amber.
-// The COLOUR of the dot is untouched either way — "is it up now" and "how often does it fall over" are
-// two different facts, and a link that reconnects every ten seconds answers the first one yes forever.
-var DROP_WARN=3;
-function dropChip(h){if(!h||!h.drops)return '';
- var mins=Math.max(1,Math.round((h.drop_win||300)/60));
- return '<span class="stw '+(h.drops>=DROP_WARN?'warn':'na')+'" title="'+esc(T('tst_drops').replace('{n}',mins))+'">'+esc(h.drops+' '+T('t_drops'))+'</span>'}
 function sideDot(online,h,peer){var s=sideState(online,h,peer);   // shared by tunnel + core cards
- return dropChip(h)+(s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}
+ return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
  var idr='<div>'+esc(T('tid'))+': <b>'+esc(l.tunnel_id)+'</b></div>';
