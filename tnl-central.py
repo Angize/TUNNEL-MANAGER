@@ -1635,25 +1635,21 @@ def api_spoof_egress_probe(d):
 
 
 def _mirror_beat(ah, bh):
-    """A point-to-point core tunnel is alive/dead as a whole, but only the CLIENT side writes the core
-    heartbeat status file. Its hb-derived verdict — live_src "beat" (fresh/stale hb) or "nohb" (never
-    connected: dw published, no hb yet) — is authoritative for the WHOLE tunnel, because only the client
-    sees whether RETURN traffic arrives. Mirror it onto the heartbeat-less server endpoint, whose
-    one-directional flow/ping would otherwise false-green a HALF-OPEN tunnel (the server still receives
-    the client's upload → flow-"alive"). Returns the adjusted pair; the copy matters because ah/bh are
-    references into the poll cache. Shared by api_fleet and api_check_link — the manual check used to
-    return the raw per-node dicts, so pressing «بررسی» on a half-open tunnel flipped the server dot from
-    red to green and the next fleet refresh snapped it back."""
+    """Carry the CLIENT's death verdict onto the heartbeat-less server end.
+
+    Only the client core writes the status file, so `dead` — the core saying the session really ended —
+    exists on one side only. Liveness itself is no longer mirrored: each end now reports its own two
+    directions and the browser pairs them, which is what the mirror was standing in for. Returns the
+    adjusted pair; the copy matters because ah/bh are references into the poll cache."""
     beat = ah if isinstance(ah, dict) and ah.get("live_src") in ("beat", "nohb") else (
         bh if isinstance(bh, dict) and bh.get("live_src") in ("beat", "nohb") else None)
-    if beat is None:
+    if beat is None or not beat.get("dead"):
         return ah, bh
     other = bh if beat is ah else ah
-    if not (isinstance(other, dict) and other.get("up") and other.get("live_src") not in ("beat", "nohb")):
+    if not (isinstance(other, dict) and other.get("up")):
         return ah, bh
     other = dict(other)
-    other["alive"] = beat.get("alive")
-    other["dead"] = bool(beat.get("dead"))
+    other["dead"] = True
     return (ah, other) if beat is ah else (other, bh)
 
 
@@ -7725,6 +7721,16 @@ function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','t
  toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
 function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct')):T('t_noloss'));return p.join(' · ')}
+// linkDir: does THIS side's outbound actually reach the peer? No host can answer that about itself —
+// it only knows what it sent — but the panel holds both ends, so `us.tx_live && them.rx_live` settles
+// it directly, with no probe at all. Undetermined (null) whenever either half is unknown or the tunnel
+// is simply idle: silence is not a failure, which is what the probe is still there for.
+function linkDir(us, them){
+ if(!us||!them)return null;
+ if(us.tx_live!==true)return null;              // we are not sending; nothing to conclude
+ if(them.rx_live===true)return true;            // our bytes are coming out the far end
+ if(them.rx_live===false)return false;          // we are sending and it is arriving nowhere
+ return null}
 // oneWay: the probe RAN and every packet was lost, while the side still reports alive. Those two are not
 // in conflict — a peer whose replies still arrive keeps the core heartbeat fresh, and `alive` is decided
 // from that heartbeat before the ping is ever consulted — so the tunnel can carry nothing in one
@@ -7732,14 +7738,14 @@ function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.r
 // kernel answers, so a total loss there is not an ICMP policy: it is packets not crossing. Not proof of
 // death either (one probe), so this reads amber and never a confident green.
 function oneWay(h){return !!(h&&h.alive===true&&h.loss_pct!=null&&h.loss_pct>=100)}
-function sideTxt(online,h){
+function sideTxt(online,h,peer){
  if(!online)return T('t_side_off');
  if(!h)return T('t_side_notun');
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
  if(h.dead)return T('st_disc');   // frozen core heartbeat = the encrypted session died (peer gone)
  var dr=h.drops?' · '+h.drops+' '+T('t_drops'):'';
- if(oneWay(h))return T('t_side_oneway')+' · '+pingInfo(h)+dr;
+ if(linkDir(h,peer)===false||oneWay(h))return T('t_side_oneway')+' · '+pingInfo(h)+dr;
  if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')+dr}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
@@ -7747,13 +7753,13 @@ function sideTxt(online,h){
 // Every cause carries its own tooltip — no answer, no such tunnel, iface down, dead session, and the
 // two yellow up-but-unproven outcomes. A wordless dot must never inherit title=«متصل» from the
 // "no word means connected" shortcut when that is not what it means.
-function sideState(online,h){
+function sideState(online,h,peer){
  if(!online)return {k:'bad',w:T('st_disc'),t:T('t_side_off')};        // the agent itself did not answer
  if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
  if(h.dead)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};           // confirmed dead (frozen core heartbeat) -> red at once
- if(oneWay(h))return {k:'warn',w:T('t_side_oneway'),t:T('tst_oneway')};   // answers arrive, nothing crosses -> amber, and it says so
+ if(linkDir(h,peer)===false||oneWay(h))return {k:'warn',w:'',t:T('tst_oneway')};   // what this end sends lands nowhere -> amber; the box is tight, so the tooltip carries the why
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
@@ -7764,7 +7770,7 @@ var DROP_WARN=3;
 function dropChip(h){if(!h||!h.drops)return '';
  var mins=Math.max(1,Math.round((h.drop_win||300)/60));
  return '<span class="stw '+(h.drops>=DROP_WARN?'warn':'na')+'" title="'+esc(T('tst_drops').replace('{n}',mins))+'">'+esc(h.drops+' '+T('t_drops'))+'</span>'}
-function sideDot(online,h){var s=sideState(online,h);   // shared by tunnel + core cards
+function sideDot(online,h,peer){var s=sideState(online,h,peer);   // shared by tunnel + core cards
  return dropChip(h)+(s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
@@ -7793,10 +7799,10 @@ async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(
  if(!(r.ok&&r.d.ok)){L.enabled=!next;toast(T('failed'),'err')}else{toast(next?T('turned_on'):T('turned_off'),'ok')}
  refreshFleet()}
 function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="'+esc(T('st_off'))+'"></span>';
- var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health);
+ var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health, side=='a'?l.b_health:l.a_health);
  return '<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}   // the collapsed head is often the ONLY dot on screen — it needs the reason too
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
- return side=='a'?sideDot(l.a_online,l.a_health):sideDot(l.b_online,l.b_health)}
+ return side=='a'?sideDot(l.a_online,l.a_health,l.b_health):sideDot(l.b_online,l.b_health,l.a_health)}
 // srvIsA reports whether end A is the listening (server) end.
 function srvIsA(l){return l.server_side!='b'}
 // sideOrder returns [left,right]. Server goes right; non-core tunnels have no role, so a then b.
@@ -7852,13 +7858,16 @@ async function checkLink(id){CHECKING++;
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
   if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
-  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
+  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
+  // the probe this check just ran is part of the verdict, not decoration — and so is the far end's own
+  // view: a direction PROVEN not to land fails the whole tunnel, whichever end noticed.
   var okAll=aup&&bup&&pinged&&!(d.a_health&&d.a_health.dead)&&!(d.b_health&&d.b_health.dead)&&
-    !oneWay(d.a_health)&&!oneWay(d.b_health);   // the probe this check just ran is part of the verdict, not decoration
+    !oneWay(d.a_health)&&!oneWay(d.b_health)&&
+    linkDir(d.a_health,d.b_health)!==false&&linkDir(d.b_health,d.a_health)!==false;
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
-    (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health)));
+    (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health,d.b_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health,d.a_health)));
  }finally{CHECKING--}}
 async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast(T('no_tunnel_check'),'err');return}
  if(b){b.disabled=true;b.style.opacity='.6'}CHECKING++;  // hold guard across the whole batch
