@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # tnl-central — control plane for a fleet of tnl nodes.
 #
-# Runs ONLY on the central server. Human logs in (user/password); the panel keeps a registry of
-# node agents (host:port + token) and drives them over HTTP to build node<->node tunnels, view the
-# whole fleet, and see each node's live status & stats. The central is a controller only — tunnel
-# traffic flows directly between the two nodes, never through here.
+# Runs ONLY on the central server. A human logs in; the panel keeps a registry of node agents
+# (host:port + token) and drives them over HTTP to build node<->node tunnels, view the fleet, and see
+# each node's live status and stats. The central is a controller only — tunnel traffic flows directly
+# between the two nodes, never through here.
 #
 # Usage:
 #   sudo python3 tnl-central.py --install    # set user/password/port, install+start systemd service
 #   sudo python3 tnl-central.py --set-pass   # change login credentials
 #   sudo python3 tnl-central.py              # run (used by systemd)
 #
-# Plain HTTP: the session cookie is sniffable — run on a trusted network / VPN, or front with TLS.
+# Plain HTTP: the session cookie is sniffable — run on a trusted network, or front with TLS.
 
 import base64
 import getpass
@@ -92,12 +92,11 @@ class _PairLock:
         self._held = []
 
     def __enter__(self):
-        # Acquire the canonical per-node lock for each id. The poller can pop an IDLE lock (and another
-        # thread recreate it) in the window between our setdefault and our acquire, which would leave two
-        # threads holding DIFFERENT lock objects for the same node — lost mutual exclusion. Guard against
-        # it: after acquiring, re-check the lock is still the one registered for this id; if it was
-        # swapped, release and retry with the new canonical lock. The poller only pops a lock when it is
-        # NOT held, so a lock we already hold is never popped — the two rules together are race-free.
+        # Acquire the canonical per-node lock for each id. The poller can pop an IDLE lock, and another
+        # thread recreate it, between our setdefault and our acquire — which would leave two threads holding
+        # DIFFERENT lock objects for the same node. So after acquiring, re-check that the lock is still the
+        # one registered for this id, and retry with the new canonical one if it was swapped. The poller only
+        # pops a lock that is NOT held, so the two rules together are race-free.
         for i in self._ids:
             while True:
                 with _node_locks_guard:
@@ -173,10 +172,9 @@ def save_bytes(path, data, mode=0o644):
 # new keys can be added later: unknown stored keys are preserved and unset keys fall back to defaults.
 
 # Operational self-heal / pool-health timing knobs, exposed fleet-wide in Settings and stamped into
-# every core config on build/rebuild. Defaults MUST match the core's compiled-in defaults (tuning.go)
-# so an unchanged knob is a no-op. Each scalar has a (min, max) clamp matching the core's clamp; the
-# core clamps again, so the panel is convenience-validation, not the authority. suspect_backoff is a
-# list of positive seconds (the retest schedule). Grouped by category for the Settings UI.
+# every core config on build. Defaults MUST match the core's compiled-in defaults (tuning.go) so an
+# unchanged knob is a no-op. Each scalar carries the core's own (min, max) clamp; the core clamps
+# again, so this is convenience-validation, not the authority. Grouped by category for the UI.
 _TUNING_DEFAULTS = {
     # 1 - pool health FSM
     "suspect_backoff": [30, 60, 120, 300, 600],
@@ -195,10 +193,9 @@ _TUNING_DEFAULTS = {
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
     # 3 - throughput
-    # sock_buf_mb is expressed in MiB for the operator; the core's `sock_buf` field is BYTES, so
-    # _apply_core_tuning converts. 4 matches the core's own default (config.go: c.SockBuf = 4<<20), so an
-    # untouched knob stamps nothing and the core keeps its default. 0 means OFF -> stamped as -1, the
-    # core's "leave the kernel default" sentinel. Only the datagram carriers (udp/raw/flux) use it.
+    # sock_buf_mb is MiB for the operator; the core's `sock_buf` is BYTES, so _apply_core_tuning converts.
+    # 4 matches the core's own default, so an untouched knob stamps nothing. 0 means OFF and is stamped as
+    # -1, the core's "leave the kernel default" sentinel. Only the datagram carriers use it.
     "sock_buf_mb": 4,
 }
 _TUNING_RANGES = {
@@ -434,11 +431,10 @@ def get_node(nid):
 
 
 # --------------------------------------------------------------------------- deferred teardown queue
-# When a force-delete (tunnel) or best-effort wipe (dead node) can't reach a node to tear its tunnel(s)
-# down, the panel record is removed anyway and the owed teardown is parked here as {node_id: [names]}.
-# The poller drains it (_pending_drain) the moment that node answers again — sending the same idempotent
-# `delete` op — so no live server keeps an orphan. Entries are pruned when the node itself is removed
-# (api_node_del), so a permanently-dead node's owed teardowns live no longer than its own record.
+# When a force-delete or a best-effort wipe cannot reach a node to tear its tunnels down, the panel
+# record is removed anyway and the owed teardown is parked here as {node_id: [names]}. The poller
+# drains it the moment that node answers again, sending the same idempotent `delete` op, so no live
+# server keeps an orphan. Entries are pruned when the node itself is removed.
 def _pending_load():
     try:
         with open(PENDING_FILE) as f:
@@ -869,20 +865,17 @@ def poller_loop():
                         _node_locks.pop(nid, None)
             _pending_gc(valid)   # drop deferred teardowns owed to removed nodes (add-after-prune race / stale keys)
             if nodes:
-                # Only submit nodes that aren't still being polled from an earlier
-                # sweep. Otherwise a fleet of slow/unreachable nodes would pile a
-                # fresh copy of every node onto the (unbounded) work queue each
-                # sweep — growing memory and starving fresh submissions behind old
-                # ones exactly during an outage. Skipping in-flight nodes bounds the
-                # queue to at most one poll per node.
+                # Only submit nodes that are not still being polled from an earlier sweep. Otherwise a
+                # fleet of slow or unreachable nodes piles a fresh copy of every node onto the unbounded
+                # work queue each sweep — growing memory and starving fresh submissions behind old ones
+                # exactly during an outage. Skipping in-flight nodes bounds the queue to one poll per node.
                 with inflight_lock:
                     todo = [n for n in nodes if n["id"] not in inflight]
                     inflight.update(n["id"] for n in todo)
-                # Fire each due node's poll and immediately loop — do NOT wait for the batch to finish.
-                # A slow/offline node stays in `inflight` (so it's never resubmitted mid-flight) but it can
-                # no longer delay the others: every healthy node is resampled each poll_interval, so live
-                # rates/status stay fresh even while part of the fleet is unreachable. Workers publish into
-                # the cache as each finishes; `inflight` bounds the queue to at most one poll per node.
+                # Fire each due node's poll and immediately loop — do NOT wait for the batch. A slow or
+                # offline node stays in `inflight`, so it is never resubmitted mid-flight, but it can no
+                # longer delay the others: every healthy node is resampled each poll_interval, so live
+                # rates stay fresh even while part of the fleet is unreachable.
                 for n in todo:
                     ex.submit(_run, n)
         except Exception:
@@ -903,10 +896,10 @@ def _cached_list(nid):
 
 
 # ----------------------------------------------------------------------------- traffic accounting
-# Rates + lifetime byte totals are computed CENTRAL-side from the node's raw /proc/net/dev counters,
-# folded into the same 2s poll (the poll cadence IS the sample clock). Reset / reboot / counter-wrap
-# all collapse to "delta:=0, re-baseline", so a counter reset never fabricates a throughput spike or
-# corrupts the lifetime total. cum only ever adds validated (>=0) deltas — never the raw counter.
+# Rates and lifetime byte totals are computed CENTRAL-side from the node's raw /proc/net/dev counters,
+# folded into the same 2s poll — the poll cadence IS the sample clock. Reset, reboot and counter-wrap
+# all collapse to "delta:=0, re-baseline", so a counter reset never fabricates a spike, and `cum` only
+# ever adds validated (>=0) deltas, never the raw counter.
 
 TF_IF_MAX = 512            # max interfaces tracked per node — a compromised node must not grow this map unbounded
 TF_IF_KEY_MAX = 32         # max interface-name length stored (Linux ifname is <=15; slack for exotic names)
@@ -1197,13 +1190,10 @@ def norm_subnet(ttype, tid, provided, base=None):
     return sub if ok else subnet_default(ttype, tid, base)
 
 
-# Pool blacklists are panel-side only (the operator's memory of which edges are burned); the node/core
-# never consume them, so strip them from any node body. _tunnel_extra (rebuild) already omits them by
-# construction — this keeps the create/edit node bodies consistent with that.
 # Keys the panel keeps for itself: the node either has no use for them or does not whitelist them at
-# all (an unwhitelisted key is dropped in silence there, which is how `cdn_profile` went missing for a
-# whole release). `cdn_profile` is stored as a NAME and expanded by _node_extra into the numbers the
-# node does whitelist, so the name itself never needs to travel.
+# all, and an unwhitelisted key is dropped there in silence. Pool blacklists are the operator's own
+# memory of which edges are burned and the node/core never consume them. `cdn_profile` is stored as a
+# NAME and expanded by _node_extra into the numbers the node does whitelist, so the name never travels.
 _PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned", "cdn_profile")
 
 # IP-rotation config lives in the LINK record and is consumed by _core_rotation_bodies to derive each
@@ -1252,12 +1242,10 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto
         if own_pool:
             body["listen_ips"] = list(own_pool)   # bind exactly these (this server's own selected IPs)
         if peer_pool:
-            # The CLIENT's source pool (the IPs it sends FROM as it rotates its source). raw/flux servers
-            # receive via a raw/AF_PACKET socket that sees every host and pre-filter by the learned peer
-            # source, so a rotated client source would be dropped pre-crypto and never re-learned — the
-            # tunnel dies on a source rotation until a rebuild. Handing the server the client's known
-            # sources lets a rotated-but-expected source reach crypto and re-bind. udp/tcp re-learn on
-            # their own (bound socket per source); the node only forwards this for raw/flux.
+            # The CLIENT's source pool — the IPs it sends FROM as it rotates its source. raw/flux servers
+            # receive on a socket that sees every host and pre-filter by the learned peer source, so a rotated
+            # client source would be dropped pre-crypto and never re-learned, and the tunnel dies on a source
+            # rotation until a rebuild. udp/tcp re-learn on their own, so the node forwards this for raw/flux only.
             body["peer_src_ips"] = list(peer_pool)
 
 
@@ -1288,11 +1276,10 @@ def _apply_core_tuning(a_body, b_body):
     if tn.get("dead_after_secs"):
         _da = max(10, min(300, int(tn["dead_after_secs"])))
         a_body["dead_after_secs"] = b_body["dead_after_secs"] = _da
-    # sock_buf is a top-level core field too, and it is the one knob the operator sets in a different unit
-    # than the core reads: MiB here, BYTES on the wire. 0 means "off", which the core spells as a negative
-    # value ("leave the kernel default"); anything else is MiB -> bytes. _settings_tuning already omits the
-    # knob when it equals the panel default (4), which is the core's own default, so an untouched fleet
-    # stamps nothing and the core applies its 4 MiB itself.
+    # sock_buf is a top-level core field, and the one knob the operator sets in a different unit than the
+    # core reads: MiB here, BYTES on the wire. 0 means "off", which the core spells as a negative value.
+    # _settings_tuning already omits the knob when it equals the panel default, which is the core's own
+    # default, so an untouched fleet stamps nothing.
     if "sock_buf_mb" in tn:
         _mb = max(0, min(64, int(tn["sock_buf_mb"])))
         a_body["sock_buf"] = b_body["sock_buf"] = -1 if _mb == 0 else _mb * (1 << 20)
@@ -1305,68 +1292,33 @@ def _apply_core_tuning(a_body, b_body):
 
 
 # The upstream POST-ladder shape per CDN. The binding constraint is what the CDN counts per source
-# address, and for ArvanCloud that was measured (2026-07-27, foreign client -> Iranian origin behind an
-# Arvan PoP, keep-alive POSTs exactly as the core sends them) to be the number of CONCURRENT connections,
-# NOT the request rate:
-#
-#     workers  req/s  result
-#      8        17    survived 180 s saturated  (17.5 Mbit)
-#     12        25    survived  90 s            (26.3 Mbit)
-#     14        29    survived  90 s            (30.7 Mbit)
-#     16        29    BANNED after 18 s
-#
-# 14 and 16 pushed the SAME 29 req/s and only 16 was cut, so the limiter counts sockets. That also
-# settles a question this table used to hedge on: a worker count IS portable between paths, because
-# concurrency does not depend on RTT the way request rate does. (It also explains the old "threshold
-# between 4 and 6" reading — that harness opened a fresh TCP connection per POST instead of reusing one.)
-#
-# The ban is per source IP, ACCOUNT-WIDE (every hostname on the account went dark for that IP at the same
-# instant, not just the one under load), edge TCP 80+443 refused while ICMP kept answering, and it lasted
-# ~10 minutes both times. An Iranian client did not reproduce it at any setting, so this profile is sized
-# for the worst case — a FOREIGN client, which is what the reverse-connect topology uses.
-# BOTH profiles carry real numbers, so both change the node body. "cf" began as an empty entry that
-# deferred to the core's own defaults, and this comment went on describing that after #295 measured
-# 8x256 one screen below it. Neither half of it held: the core's default is 8x128, not 8x256, and an
-# http-carrier client body now leaves the panel with two extra knobs on it whichever profile is picked.
-# tools/panel_says_what_it_does_check.py fails if this paragraph drifts from the dict again.
+# address, and on ArvanCloud that was measured to be the number of CONCURRENT CONNECTIONS, not the
+# request rate: two settings pushing the same requests per second differed only in socket count, and
+# only the higher one was cut off. A worker count is therefore portable between paths, because
+# concurrency does not depend on RTT the way request rate does. The ban is per source IP and
+# ACCOUNT-WIDE, refusing edge TCP while ICMP keeps answering, and it lasts about ten minutes.
+# BOTH profiles carry real numbers, so both change the node body.
 CDN_PROFILES = {
-    # Measured 2026-07-29 against a REAL Cloudflare edge (proxied hostname, plain-HTTP origin), four
-    # 10-second iperf3 runs per setting through the tunnel, medians in Mbit:
-    #
-    #     8x128 (the old default)  up 251  down 333     <- worst upstream by a wide margin
-    #     8x256                    up 325  down 357     <- chosen
-    #     8x512                    up 321  down 251     <- downstream swings 170..363, unstable
-    #     16x128                   up 321  down 343
-    #     16x256                   up 332  down 341     <- ties 8x256 on speed, twice the sockets
-    #     16x512                   up 305  down 322
-    #
-    # Leaning on the core's defaults cost ~30% of the upstream for nothing: every other setting beat
-    # 8x128, and the 8x128 readings were tight (242..260), so that is a real gap and not noise. 256 KB
-    # is where the gain lands; 512 KB buys no more upstream and made the DOWNSTREAM erratic across
-    # repeats. Workers stay at 8 rather than 16, which measured the same upstream: a worker is a
-    # concurrent socket, and socket COUNT is what a CDN's limiter counts (proven on Arvan, where 16
-    # was cut off and 14 was not), so paying double the concurrency for a tie is a bad trade.
-    # No edge block was seen at any setting here — 22 runs, the edge answered after every one.
-    # CAVEAT: measured DE -> Cloudflare EU PoP -> DE, RTT ~12-16 ms. Capacity is in-flight/RTT, so a
-    # far-away client (an Iranian one is ~76 ms out) may want a BIGGER batch to fill the pipe. The
-    # ranking should carry; the absolute numbers will not. Re-measure from Iran before going past 256.
+    # Measured against a real Cloudflare edge: leaning on the core's own default cost about 30% of the
+    # upstream for nothing, and 256 KB is where the gain lands — 512 KB buys no more upstream and made the
+    # DOWNSTREAM erratic across repeats. Workers stay at 8 rather than 16, which measured the same
+    # upstream: a worker is a concurrent socket, and socket COUNT is what a CDN's limiter counts, so
+    # paying double the concurrency for a tie is a bad trade.
+    # CAVEAT: measured at a ~15 ms round-trip. Capacity is in-flight/RTT, so a far-away client may want a
+    # BIGGER batch to fill the pipe. The ranking should carry; the absolute numbers will not.
     "cf":    {"http_up_workers": 8, "http_up_batch_kb": 256},
     # Half the measured ban threshold, so the carrier keeps its margin: the real client also holds the
-    # downstream GET open and a warm standby adds one more socket, and none of that may add up to 16.
-    # Throughput is bought with the BATCH instead, which costs no sockets and actually LOWERS the request
-    # rate (capacity is in-flight/RTT, and in-flight is workers x batch). Measured at 8 workers through
-    # the same edge: 128 KB -> 17.5 Mbit at 17 req/s, 256 KB -> 29.3 at 14, 512 KB -> 50.7 at 12. So 8x512
-    # is both ~3x faster than the default AND further from the limiter than 14 workers ever was, while
-    # staying at half the server's 1 MiB per-POST read cap.
-    # Both keys are written explicitly rather than leaning on the core's defaults: if a future core raises
-    # its own default worker count, this profile must NOT silently follow it past the ban threshold.
+    # downstream GET open and a warm standby adds one more socket. Throughput is bought with the BATCH
+    # instead, which costs no sockets and actually LOWERS the request rate, since capacity is
+    # in-flight/RTT and in-flight is workers x batch. Both keys are written explicitly rather than leaning
+    # on the core's defaults: a future core that raises its own worker count must not silently follow it
+    # past the ban threshold.
     "arvan": {"http_up_workers": 8, "http_up_batch_kb": 512},
 }
-# A profile may also carry "http_up_rate" (POSTs/sec, 1..1000; 0 = unpaced). That knob is plumbed all the
-# way through — node whitelist -> _core_config -> core config -> the carrier's upMinGap — but NOTHING here
-# produces it today, so it is always 0 and the pacer is off. It is left wired on purpose: it is the lever
-# for a CDN that bans on REQUEST RATE rather than on socket count (arvan bans on sockets, which is why
-# that profile buys throughput with a bigger batch instead). Measure first, then set it here.
+# A profile may also carry "http_up_rate" (POSTs/sec, 1..1000; 0 = unpaced). The knob is plumbed all
+# the way through to the carrier's upMinGap, but nothing here produces it today, so it is always 0 and
+# the pacer is off. It stays wired on purpose: it is the lever for a CDN that bans on REQUEST RATE
+# rather than on socket count. Measure first, then set it here.
 
 
 def _tunnel_extra(src, refetch_ech=True):
@@ -1405,11 +1357,10 @@ def _tunnel_extra(src, refetch_ech=True):
     if src.get("flux_shape"):            # flux statistical size profile
         e["flux_shape"] = src["flux_shape"]
     if "flux_epoch_offset" in src:       # flux manual "rotate now" epoch bump; 0 is a VALUE, not absence
-        # Presence, not truthiness. _flux_fields writes this key unconditionally (`int(... or 0)`), so
-        # a flux tunnel that has never been bumped stores 0 — and `if src.get(...)` dropped it, leaving
-        # create/edit and rebuild building different bodies. The node normalises both to 0, so nothing
-        # broke; the CONTRACT did, and config_contract.py has been failing on exactly this since the
-        # commit that added it. Matching the writer is the fix, not teaching the guard to look away.
+        # Presence, not truthiness. _flux_fields writes this key unconditionally, so a flux tunnel that has
+        # never been bumped stores 0 — and `if src.get(...)` drops it, leaving create/edit and rebuild
+        # building different bodies. The node normalises both to 0, so nothing breaks; the CONTRACT does, and
+        # config_contract.py fails on exactly this. Matching the writer is the fix.
         e["flux_epoch_offset"] = int(src.get("flux_epoch_offset") or 0)
     if src.get("fec"):                   # flux FEC (loss recovery); carry the block geometry too
         e["fec"] = True
@@ -1435,12 +1386,10 @@ def _tunnel_extra(src, refetch_ech=True):
             if src.get("split_ttl"):
                 e["split_ttl"] = int(src["split_ttl"])
     if src.get("cdn_carrier"):           # the shape this CDN carrier takes
-        # Whatever is STORED, which is the rule the writers use. _ws_pool_fields stores cdn_carrier
-        # ALWAYS (its own comment says so, and explains why: a pooled tunnel whose profile went missing
-        # would otherwise read a normalization as the bug), while _ws_fields stores it only when it is
-        # not "ws" — so on a POOL create/edit put `cdn_carrier: "ws"` in the node body and this path
-        # dropped it. The node defaults an absent one to "ws", so nothing broke; the three paths still
-        # disagreed, which is the one thing this funnel exists to prevent.
+        # Whatever is STORED, which is the rule the writers use. _ws_pool_fields stores cdn_carrier ALWAYS
+        # while _ws_fields stores it only when it is not "ws" — so on a POOL create/edit the node body carries
+        # `cdn_carrier: "ws"` and this path dropped it. The node defaults an absent one to "ws", so nothing
+        # broke; the three paths still disagreed, which is the one thing this funnel exists to prevent.
         e["cdn_carrier"] = src["cdn_carrier"]
         # Carry the profile NAME, exactly as create/edit do. _node_extra is what expands it into
         # numbers, for all three paths at once — expanding it here instead is what made this path the
@@ -1466,12 +1415,10 @@ def _tunnel_extra(src, refetch_ech=True):
         e["ws_pool"] = True
         e["ws_tls"] = True
         e["ws_edge_ips"] = src["ws_edge_ips"]
-        # Re-fetch each SNI's ECHConfigList fresh on rebuild — a stored key goes stale when the CDN
-        # rotates it (~hourly on Cloudflare) and a stale key fails the ws-upgrade on EVERY edge (the
-        # whole pool goes dark and only a recreate recovers). NO fallback: if ECH is on and a key
-        # can't be fetched, the rebuild FAILS (raises) rather than replaying a stale/empty key — the
-        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact. (The
-        # restore path passes refetch_ech=False to reuse the stored key verbatim without raising.)
+        # Re-fetch each SNI's ECHConfigList fresh on rebuild — a stored key goes stale when the CDN rotates it
+        # and a stale key fails the ws-upgrade on EVERY edge, so the whole pool goes dark. NO fallback: if ECH
+        # is on and a key cannot be fetched, the rebuild FAILS rather than replaying a stale one, and the
+        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact.
         pool_ech = bool(src.get("ech"))
         hosts = [s.get("host") for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
         ech_map = _fetch_ech_map(hosts, _ech_px(src)) if (pool_ech and refetch_ech) else {}   # concurrent — not host-by-host
@@ -1626,15 +1573,10 @@ def api_spoof_egress_probe(d):
     if decoy and not is_ipv4(decoy):
         return {"ok": False, "error": "spoof_dst must be IPv4"}
     # Aim at the IPs THIS TUNNEL will use, not at the node registry's management host. uRPF and decoy
-    # routing are per-IP on these providers — that is the whole premise the spoof work rests on — so
-    # probing a different address answers a different question: a multi-IP node can come back green on
-    # its management IP while the tunnel's chosen IP is filtered, or the reverse. The docstring above
-    # and the button's own hint both promise "on THIS pair, in the direction the tunnel will use".
-    #
-    # It also un-breaks a node registered by HOSTNAME, which api_node_add explicitly permits: `host`
-    # then never parses as IPv4, so the button returned "receiver has no usable IP" and never contacted
-    # either node — for a tunnel that builds perfectly well, because a_ip/b_ip come from the node's live
-    # IP list and never from `host`.
+    # routing are per-IP on these providers — the whole premise the spoof work rests on — so probing a
+    # different address answers a different question: a multi-IP node can come back green on its
+    # management IP while the tunnel's chosen IP is filtered. It also works for a node registered by
+    # HOSTNAME, where `host` never parses as IPv4 while a_ip/b_ip come from the node's live IP list.
     def _node_ips(node):
         ips = _flat_ips(_cached_ping(node["id"]))
         if not ips:   # cold poll cache (a node added moments ago) — ask it directly rather than give up
@@ -1665,11 +1607,10 @@ def api_spoof_egress_probe(d):
 
     send_body = {"nonce": nonce, "proto": proto, "peer": peer_ip,
                  "forged_src": forged_src, "decoy_dst": decoy}
-    # real_src is the BASELINE's source: without it the node falls back to _egress_route_local(peer),
-    # the route-local source toward whatever we aimed at. The baseline is the line that separates "the
-    # whole proto is blocked" from "the forge was dropped", and per-IP directional filtering is exactly
-    # this project's documented reality — so it has to leave from the tunnel's own IP too, not just
-    # arrive at it. The node already accepts and validates this field.
+    # real_src is the BASELINE's source: without it the node falls back to the route-local source toward
+    # whatever we aimed at. The baseline is the line that separates "the whole proto is blocked" from "the
+    # forge was dropped", and per-IP directional filtering is this project's documented reality — so it
+    # has to leave from the tunnel's own IP too, not just arrive at it.
     if is_ipv4(real_src):
         send_body["real_src"] = real_src
     sr = node_call(sender, "spoof-egress-send", "POST", send_body, timeout=15)
@@ -1818,22 +1759,20 @@ def api_summary(d):
     worst_tun = None
     rtts = []
     for L in links:
-        # An operator-disabled tunnel is not a fault. Its unit is stopped (core: the TUN is gone ->
-        # counted «قطع» + −10 score) or its netdev is admin-down (non-core: the iface still exists, so
-        # the probe fails -> counted «بدونِ پینگ» + −3) — three different answers for one deliberate
-        # action, while the card correctly greys it out as «خاموش» and _events_once skips it entirely.
-        # Report it as its own bucket instead of as breakage.
+        # An operator-disabled tunnel is not a fault. Its unit is stopped (core: the TUN is gone, counted
+        # «قطع» and −10 score) or its netdev is admin-down (non-core: the probe fails, counted «بدونِ پینگ»
+        # and −3) — three different answers for one deliberate action, while the card correctly greys it out
+        # as «خاموش». Report it as its own bucket instead of as breakage.
         if not L.get("enabled", True):
             types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
             off_n += 1
             continue
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
-        # health {"up": None} means "this node has not published its first sweep yet" (op_list fills it
-        # for any config missing from the node's background snapshot), NOT "down". The card already
-        # renders it grey «در حال بررسی…»; here `None` was simply falsy, so every tunnel on a node whose
-        # agent had just restarted — exactly what push-agent does — was counted «قطع», raised a red
-        # alert and docked 10 score each, for the ~2-3 s until the node's first health sweep published.
+        # health {"up": None} means "this node has not published its first sweep yet", NOT "down". The card
+        # already renders it grey «در حال بررسی…»; here `None` is simply falsy, so every tunnel on a node
+        # whose agent had just restarted was counted «قطع», raised a red alert and docked 10 score each, for
+        # the seconds until the node's first health sweep published.
         if (isinstance(ah, dict) and ah.get("up") is None) or (isinstance(bh, dict) and bh.get("up") is None):
             types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
             continue
@@ -1841,12 +1780,10 @@ def api_summary(d):
             types["core"] = types.get("core", 0) + 1   # count core tunnels in the overview breakdown too
             if link_drift(L["id"]):
                 drift_n += 1
-            # Judge a core tunnel by the SAME rule the card paints it with. _link_up is only "both ifaces
-            # exist AND neither is positively dead" — it never consults `alive` — so an up-but-unproven
-            # tunnel ({up:true, alive:false, dead:false}: a core client before its first authenticated
-            # frame, or any carrier with no heartbeat and filtered ICMP) showed AMBER on the card and
-            # «متصل» on the dashboard at the same moment, and «بدونِ پینگ» could never contain a core
-            # tunnel at all even though the non-core branch below has always used exactly this test.
+            # Judge a core tunnel by the SAME rule the card paints it with. _link_up is only "both ifaces exist
+            # AND neither is positively dead" and never consults `alive`, so an up-but-unproven tunnel — a core
+            # client before its first authenticated frame, or any carrier with no heartbeat and filtered ICMP —
+            # showed AMBER on the card and «متصل» on the dashboard at the same moment.
             elif not _link_up(L):
                 down += 1
             elif (isinstance(ah, dict) and ah.get("alive") is True) or (isinstance(bh, dict) and bh.get("alive") is True):
@@ -2032,9 +1969,8 @@ SSH_KNOWN_HOSTS = os.path.join(CENTRAL_DIR, "known_hosts")
 
 # ProxyCommand relay: OpenSSH has no built-in SOCKS client, so when a node's control proxy is set we
 # tunnel the SSH TCP connection through it by pointing `-o ProxyCommand=` at this tiny relay. It does
-# the SAME SOCKS5 / HTTP-CONNECT handshake as the agent-HTTP path (_socks5_socket/_http_connect_socket)
-# then splices ssh's stdin/stdout to the tunneled socket. Proxy details arrive via TNL_PXY_* env vars
-# (so credentials never sit in argv). Self-contained stdlib — no nc/ncat/PySocks dependency on the panel.
+# the SAME SOCKS5 / HTTP-CONNECT handshake as the agent-HTTP path, then splices ssh's stdin/stdout to
+# the tunneled socket. Proxy details arrive via TNL_PXY_* env vars, so credentials never sit in argv.
 _PROXY_RELAY_SRC = r'''#!/usr/bin/env python3
 import os, sys, socket, base64, select
 
@@ -2164,11 +2100,10 @@ def _ensure_proxy_relay():
 
 
 def _ssh_argv(cfg, remote_cmd):
-    # TOFU: accept a host key the first time we see a node (needed for unattended
-    # provisioning) but PERSIST it and reject any later change. The old
-    # "StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null" trusted every key
-    # blindly on every connect, so an on-path attacker could MITM the install
-    # session and capture the SSH password / inject a malicious agent as root.
+    # TOFU: accept a host key the first time we see a node — needed for unattended provisioning — but
+    # PERSIST it and reject any later change. "StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null"
+    # trusts every key blindly on every connect, so an on-path attacker could MITM the install session and
+    # capture the SSH password or inject a malicious agent as root.
     opts = ["-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={SSH_KNOWN_HOSTS}",
             "-o", "ConnectTimeout=15", "-p", str(cfg["port"])]
     env = dict(os.environ)
@@ -2442,9 +2377,8 @@ def api_node_del(d):
     _pending_prune_node(nid)   # node removed from the panel -> the poller can no longer drain its owed teardowns, so drop them
     # Set the tombstone BEFORE popping the caches. _poll_node checks _tombed() right before each cache
     # write, so a poll already mid-flight must see the tomb by the time it writes — otherwise it writes
-    # _pc/_tf/_uh back AFTER we popped them and the deleted node is resurrected (phantom throughput in
-    # api_summary) until the next poller sweep. Setting it first is what makes the tomb actually do what
-    # its comment promises; popping after closes the window.
+    # the caches back AFTER we popped them and the deleted node is resurrected, with phantom throughput
+    # in api_summary, until the next poller sweep.
     with _tomb_lock:  # block an in-flight poll (submitted before this delete) from re-inserting the popped cache
         _tomb[nid] = time.time() + 20
     with _pc_lock:
@@ -3022,21 +2956,14 @@ def api_fleet(d):
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), **tfl.get(L["id"], {})}
-        # Live active pool IP: the CLIENT node writes .peerpool (active destination) / .srcpool (active
-        # source); surface it per side so the card shows the IP the tunnel is really on right now (the
-        # server's box = active destination, the client's box = active source).
+        # Live active pool IP: the CLIENT node writes .peerpool (active destination) and .srcpool (active
+        # source); surface it per side so the card shows the IP the tunnel is really on right now.
         #
-        # `*_ip_rot` (the rotation mark) is a property of the POOL, not of the status file. It used to be
-        # set to True whenever a status file carried an active address, on the assumption written in the
-        # old comment here: ">=2 in its pool -> the node wrote the file". That assumption is dead. The
-        # core deliberately builds a ONE-entry source pool (main.go gates on len(SrcIPs) >= 1) to PIN a
-        # client's source IP, because bind_ip only works on the TCP family — and a one-entry pool writes
-        # its status file just like a real one. So a node with a single IP was marked as rotating, with a
-        # tooltip that told the operator it "cycles between several IPs", while PeerPool provably never
-        # moves it (TestPeerPoolSingleEndpointNoop). Read the pool itself instead.
-        #
-        # Set unconditionally, unlike the active IP: whether a side rotates is CONFIGURATION and is always
-        # known, while the active address is live state that may not exist yet (node down, core starting).
+        # `*_ip_rot` (the rotation mark) is a property of the POOL, not of the status file — the core
+        # deliberately builds a ONE-entry source pool to PIN a client's source IP, and a one-entry pool writes
+        # its status file just like a real one, so keying off the file marks a single-IP node as rotating.
+        # Read the pool itself instead, and set it unconditionally: whether a side rotates is CONFIGURATION
+        # and always known, while the active address is live state that may not exist yet.
         if L.get("type") == "core" and L.get("ip_rotate"):
             srvA = (L.get("server_side") != "b")
             cl = lb if srvA else la  # the client is the non-server node
@@ -3128,11 +3055,9 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
             return []                        # raw-IP / rotating-protocol: genuinely no L4 port to portcheck
         if t == "dns":
             # dns DOES have an L4 port, and the most contended one on the box: the server core binds
-            # <self_ip>:53 as an authoritative NS. Lumping it with raw/flux exempted it from the guard
-            # entirely, so a second dns tunnel on the same node — or any node already running
-            # systemd-resolved, dnsmasq, bind, or a stray recursor — built cleanly and then failed at
-            # core start with an address-in-use the operator never sees, because the panel had already
-            # reported success. Port is fixed, so `p` is ignored here.
+            # <self_ip>:53 as an authoritative NS. Lumping it with raw/flux exempts it from the guard entirely,
+            # so a second dns tunnel on the same node — or any node already running systemd-resolved, dnsmasq or
+            # bind — builds cleanly and then fails at core start with an address-in-use nobody sees.
             return [(srv, srv_ip, 53, "udp")]
         proto = "tcp" if t in ("tcp", "ws") else "udp"  # ws is a TCP/WebSocket carrier
         pool_ips = [ip for ip in srv_pool if ip] if t in ("udp", "tcp") else []
@@ -3417,13 +3342,10 @@ def _fec_fields(d, transport, cur=None):
     fp = int(d.get("fec_parity") or cur.get("fec_parity") or 3)
     if fd < 1 or fp < 1 or fd + fp > 255:
         raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥۱، مجموع ≤۲۵۵)")
-    # ...and the RECEIVER has to be able to repair the block, which the sum rule says nothing about.
-    # The core's decoder hands intact shards over on arrival and parity-recovered ones last, so a
-    # repaired frame reaches the AEAD up to blocksize-1 sequences behind the newest — and its replay
-    # guard (a 64-slot window) refuses anything a full window behind. Past 64 the parity is computed,
-    # sent, reconstructed and then discarded: full FEC bandwidth, zero repair, in silence. The core
-    # refuses it (config.go, packet.MaxFecData), so accepting it here builds a tunnel that will not
-    # start. Measured on the guard itself: 64 recovers, 65 does not.
+    # ...and the RECEIVER has to be able to repair the block, which the sum rule says nothing about. The
+    # core's decoder hands intact shards over on arrival and parity-recovered ones last, so a repaired
+    # frame reaches the AEAD up to blocksize-1 sequences behind the newest — and its 64-slot replay window
+    # refuses anything a full window behind. Past that the parity costs full bandwidth and repairs nothing.
     if fd > 64:
         raise ValueError("دادهٔ FEC حداکثر ۶۴ است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)")
     out["fec_data"] = fd
@@ -3453,15 +3375,11 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
         raise ValueError("TTLِ طعمه باید بین ۱ تا ۲۵۵ باشد")
-    # On tcp/ws the decoy rides the REAL connection's 4-tuple, so the core clamps it to injectMaxTTL
-    # (a well-formed segment that reached the server would draw an RST). raw/flux/spoof forge a whole
-    # IPv4 header toward a peer we hold no kernel connection to, so there the full 1..255 is honoured.
-    # Storing the unclamped number made every layer the operator can see report a hop budget the wire
-    # never carried: the panel stored 30, the edit form echoed 30, the node persisted 30, and core's
-    # own startup line printed ttl=30 while 8 went out. This is the single gate all three build paths
-    # share — create and edit both funnel through here, and _tunnel_extra replays the stored (already
-    # clamped) value — so clamping here makes all of them agree with the wire. The form shows the cap
-    # too (desyncTtlCap), so the number the operator is looking at is the number that ships.
+    # On tcp/ws the decoy rides the REAL connection's 4-tuple, so the core clamps it to injectMaxTTL — a
+    # well-formed segment that reached the server would draw an RST. raw/flux/spoof forge a whole IPv4
+    # header toward a peer we hold no kernel connection to, so there the full 1..255 is honoured. Storing
+    # the unclamped number makes every layer the operator can see report a hop budget the wire never
+    # carried. This is the single gate all three build paths share, so clamping here makes them agree.
     if transport in DESYNC_INJECT_TRANSPORTS:
         ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
     out["fake_ttl"] = ttl
@@ -3685,10 +3603,8 @@ def _sni_split_fields(d, cur):
         out["sni_mode"] = mode
     # split_ttl is a DISORDER knob and nothing else. The two modes want opposite values out of the one
     # stored number — disorder needs it LOW so the head segment expires before the server, fake needs a
-    # normal TTL because its decoy is killed by a bad TCP checksum and has to REACH the on-path DPI —
-    # so a tunnel that stored 4 for disorder and then switched to fake shipped a decoy that died en
-    # route. core (frag.go, fakeSegTTL) no longer reads it in fake mode at all; offering it here would
-    # be a knob the operator sets and nothing consumes.
+    # normal TTL because its decoy is killed by a bad TCP checksum and has to REACH the on-path DPI. The
+    # core no longer reads it in fake mode at all, so offering it here would be a knob nothing consumes.
     if mode == "disorder":
         st = int((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0)
         if st < 0 or st > 255:
@@ -3698,15 +3614,11 @@ def _sni_split_fields(d, cur):
     return out
 
 
-# The ports a CDN proxies, split by scheme. An edge port from the wrong side is the mistake that
-# broke every fronted tunnel until node #118: with wss on, a client aimed at :80 hands a TLS
-# ClientHello to a plaintext edge and the handshake dies before anything else is tried — which reads
-# as "this CDN doesn't support the carrier" and is nothing of the sort.
-#
-# This is a WHITELIST: with wss the port must be one a CDN serves TLS on, without it one served in
-# the clear. Nothing else is accepted. (A blacklist of the obviously-wrong ports was tried first and
-# was not enough in practice — an edge port outside these lists does not front anything, it just
-# fails later and looks like a broken carrier.)
+# The ports a CDN proxies, split by scheme. An edge port from the wrong side breaks every fronted
+# tunnel: with wss on, a client aimed at :80 hands a TLS ClientHello to a plaintext edge and the
+# handshake dies before anything else is tried — which reads as "this CDN doesn't support the carrier"
+# and is nothing of the sort. This is a WHITELIST, because a port outside these lists does not front
+# anything; it just fails later and looks like a broken carrier.
 _EDGE_PLAIN_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
 _EDGE_TLS_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 
@@ -3783,11 +3695,10 @@ def _ws_fields(d, transport, cur=None):
         if ep.isdigit():
             _edge_port_ok(int(ep), bool(out.get("ws_tls")))
         out["edge_ip"] = edge
-    # ECH (Encrypted ClientHello): hides the SNI so an SNI-blocklisting censor can't see the
-    # real domain. It rides the TLS ClientHello, so it only makes sense with wss. We fetch the
-    # ECHConfigList from the domain's HTTPS DNS record over DoH here (the panel has clean
-    # internet; the in-country client's DNS is often poisoned) and store the base64 on the link
-    # so the node can forward it verbatim. Re-fetched on every save so a rotated key stays fresh.
+    # ECH (Encrypted ClientHello) hides the SNI so an SNI-blocklisting censor cannot see the real domain.
+    # It rides the TLS ClientHello, so it only makes sense with wss. We fetch the ECHConfigList from the
+    # domain's HTTPS DNS record over DoH here — the panel has clean internet, the in-country client's DNS
+    # is often poisoned — and store the base64 so the node forwards it verbatim. Re-fetched on every save.
     ech = d.get("ech") if ("ech" in d) else cur.get("ech")
     if ech:
         if not out.get("ws_tls"):
@@ -3797,11 +3708,10 @@ def _ws_fields(d, transport, cur=None):
             raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد)" % host)
         out["ech"] = True
         out["ws_ech"] = cfg
-    # http: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a
-    # WebSocket upgrade, so it passes a CDN/account that blocks WebSocket. Independent of
-    # wss (works over plain http too, though wss is the usual fronting choice). Single-edge
-    # path only — the pool branch above returns first and builds its OWN carrier fields, including the
-    # profile, through the SAME _cdn_profile_field helper this branch uses.
+    # http: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a WebSocket upgrade,
+    # so it passes a CDN or account that blocks WebSocket. Independent of wss, though wss is the usual
+    # fronting choice. Single-edge path only — the pool branch above returns first and builds its OWN
+    # carrier fields, including the profile, through the SAME _cdn_profile_field helper.
     cdn = str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws").strip().lower()
     if cdn not in ("ws", "http", "grpc"):
         raise ValueError("حاملِ CDN نامعتبر است")
@@ -3814,12 +3724,10 @@ def _ws_fields(d, transport, cur=None):
             # not the funnel; this is, and it is reachable straight from the API.
             raise ValueError("حاملِ grpc به wss نیاز دارد (برای HTTP/2 به لبه) — اول wss را روشن کن")
         out["cdn_carrier"] = cdn
-        # Upstream style: post (default, many short POSTs — most CDN-compatible) or grpc (a
-        # single full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of
-        # buffering; needs wss).
-        # Which CDN this tunnel fronts through, for the upstream shape. Only on the http carrier: the
-        # ladder is what a WAF counts, and grpc does not have one. Stored as a name; _node_extra turns
-        # it into numbers, for every path at once.
+        # Upstream style: post (default, many short POSTs — the most CDN-compatible) or grpc (a single
+        # full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of buffering; needs
+        # wss). Which CDN this tunnel fronts through decides the upstream shape, and only on the http carrier:
+        # the ladder is what a WAF counts, and grpc does not have one. Stored as a name; _node_extra expands it.
         out.update(_cdn_profile_field(d, cur, cdn))
     ss = _sni_split_fields(d, cur)  # SNI fragmentation (wss only)
     if ss:
@@ -3883,12 +3791,10 @@ def _ws_pool_fields(d, cur=None):
     def _hosts(key):
         seen, res = set(), []
         for x in _list(key):
-            # The stored ws_edge_snis shape is a list of {host,ech,path} dicts (written below). The
-            # documented edit fallback feeds that stored value straight back here whenever the request
-            # omits the key, so accept the dict form (take its host) alongside the plain host string the
-            # form sends — ech/path are rebuilt below (ech re-fetched fresh, path from ws_path), so the
-            # host is all we carry. Without this, an edit that omits ws_edge_snis fed str(dict) to the
-            # domain regex and hard-failed with «دامنهٔ (SNI) نامعتبر», defeating the stated fallback.
+            # The stored ws_edge_snis shape is a list of {host,ech,path} dicts. The documented edit fallback feeds
+            # that stored value straight back here whenever the request omits the key, so accept the dict form —
+            # taking its host — alongside the plain host string the form sends. ech and path are rebuilt below, so
+            # the host is all we carry; without this an edit that omits the key fails on the domain regex.
             if isinstance(x, dict):
                 x = x.get("host", "")
             x = str(x).strip().lower()
@@ -3911,12 +3817,10 @@ def _ws_pool_fields(d, cur=None):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise ValueError("مسیر (path) نامعتبر است")
-    # ECH is driven by the shared "ech" toggle (same one as the single edge): when on we fetch the
-    # ECHConfigList for each clean SNI (dig-first) to hide the SNI; when off every SNI is used with
-    # no ECH. Re-fetch FRESH on every save — the CDN rotates its ECH key (~hourly on Cloudflare), so
-    # a reused/stored key goes stale and would fail the ws-upgrade on every edge. NO fallback: if ECH
-    # is on and a SNI's key can't be fetched, the save FAILS (we never store an empty or stale key),
-    # matching the single-edge ws path.
+    # ECH is driven by the shared "ech" toggle, the same one as the single edge: when on we fetch the
+    # ECHConfigList for each clean SNI to hide it, when off every SNI is used with no ECH. Re-fetch FRESH
+    # on every save — the CDN rotates its key, and a stale one fails the ws-upgrade on every edge. NO
+    # fallback: if ECH is on and a SNI's key cannot be fetched the save FAILS, matching the single-edge path.
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
     _epx_store = {}
     _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""   # per-tunnel proxy for a filtered domain
@@ -3941,12 +3845,9 @@ def _ws_pool_fields(d, cur=None):
         "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
     }
-    # NOTE: cdn_carrier is stored ALWAYS (see the dict above), not only when non-default. A block used to
-    # sit here claiming otherwise, "mirroring the single edge" — but all it did was assign "grpc" to a
-    # value that already was "grpc", so it normalized nothing and stored nothing. Anyone chasing a
-    # cdn_profile that goes missing on a pooled tunnel would read it as the normalization step it never was.
-    # It went missing because it was never built here at all: the POST ladder is the same over a pool
-    # (only the endpoint rotates), so the profile applies exactly as it does to a single edge.
+    # cdn_carrier is stored ALWAYS here (see the dict above), not only when it is non-default. The profile
+    # applies to a pool exactly as it does to a single edge — the POST ladder is the same over a pool, only
+    # the endpoint rotates — so it is built here through the same helper.
     res.update(_cdn_profile_field(d, cur, res["cdn_carrier"]))
     res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
     res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
@@ -4239,11 +4140,10 @@ def api_delete_link(d):
 
 
 def api_reorder(d):
-    # Manual card ordering. For nodes/core/tunnels we swap the two items' positions in the persisted
-    # array (api_fleet/api_nodes iterate it in-order and paginate, so a raw swap moves the cards in every
-    # browser, permanently — no extra "ord" field, no migration). Port-forwards have no central array, so
-    # they use a key-order overlay instead (see _reorder_portfw). The client sends a card id and its visible
-    # neighbour (up/down), which are adjacent in the shown list, so the swap is exact.
+    # Manual card ordering. For nodes/core/tunnels we swap the two items' positions in the persisted array,
+    # which api_fleet/api_nodes iterate in order, so a raw swap moves the cards in every browser
+    # permanently — no extra "ord" field and no migration. Port-forwards have no central array and use a
+    # key-order overlay instead. The client sends a card id and its visible neighbour, which are adjacent.
     _require(d, ["kind", "id", "target"])
     kind = d["kind"]
     aid, bid = str(d["id"]), str(d["target"])
@@ -4285,12 +4185,10 @@ def _restore_link(A, B, L, extra=None):
     _rs, _ab = max(0, min(86400, int(L.get("rotate_secs") or 0))), bool(L.get("auto_burn"))
     for N, self_ip, peer_ip, own, peer in ((A, L["a_ip"], L["b_ip"], _ap, _bp), (B, L["b_ip"], L["a_ip"], _bp, _ap)):
         if N:
-            # `enabled` must be explicit. The rebuild path op_delete's both ends BEFORE it builds, and
-            # op_delete os.remove()s the persisted config — so by the time a rollback runs there is no
-            # stored value left for the node to carry forward, and its `d.get("enabled", old..., True)`
-            # falls all the way through to True. A tunnel the operator had deliberately switched OFF
-            # therefore came back ON after any failed edit or rebuild. All three real build paths pass
-            # this key; only the rollback did not.
+            # `enabled` must be explicit. The rebuild path op_delete's both ends BEFORE it builds, and op_delete
+            # removes the persisted config — so by the time a rollback runs there is no stored value left for the
+            # node to carry forward and its own default falls through to True. A tunnel the operator had
+            # deliberately switched OFF would come back ON after any failed edit. All three real build paths pass it.
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
                     "subnet": L["subnet"], "id": tid, "name": L["name"],
                     "enabled": L.get("enabled", True), **extra}
@@ -4299,11 +4197,10 @@ def _restore_link(A, B, L, extra=None):
                 body["role"] = role
                 if _rot:   # replay the stored IP-rotation pools for this node's role
                     _apply_core_rotation(body, role == "client", own, peer, _rs, _ab)
-                # ...and the fleet-wide timing, exactly like the three real build paths. Without this a
-                # rolled-back tunnel came back UP but with the core's compiled-in keepalive / dead-window
-                # instead of the operator's, silently, on the very path where they are already reading an
-                # error about something else. Both args are this one body; _apply_core_tuning stamps them
-                # identically.
+                # ...and the fleet-wide timing, exactly like the three real build paths. Without it a rolled-back
+                # tunnel comes back UP but with the core's compiled-in keepalive and dead-window instead of the
+                # operator's, silently, on the very path where they are already reading an error about something
+                # else. Both args are this one body; _apply_core_tuning stamps them identically.
                 _apply_core_tuning(body, body)
             try:
                 node_call(N, "tunnel", "POST", body, timeout=200)
@@ -4577,13 +4474,10 @@ def _edit_link_impl(d):
     # why the guard leads with `ttype != "core"` and no per-field core comparison is needed here.
     if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "unchanged": True, "name": old_name}
-    # Port-conflict guard: only verify bindings that DIFFER from what this tunnel already
-    # occupies (its current port/proto/server node are excluded so it can't clash with
-    # itself). A binding that is unchanged needs no check; a new/changed one must be free.
-    # A pooled server now binds each SELECTED pool IP explicitly (Task B), so _own expands to that exact
-    # per-IP set — a rebuild that keeps the same pool finds every new binding already in _own and skips
-    # it, with no IP-agnostic hack needed (the old 0.0.0.0 monopoly is gone). A newly ADDED pool IP is
-    # not in _own, so it is genuinely checked; a CHANGED port is a different binding and is checked too.
+    # Port-conflict guard: verify only bindings that DIFFER from what this tunnel already occupies — its
+    # current port/proto/server node are excluded so it cannot clash with itself. A pooled server binds
+    # each SELECTED pool IP explicitly, so _own expands to that exact per-IP set: a rebuild that keeps the
+    # same pool finds every binding already in _own and skips it, while a newly ADDED IP is genuinely checked.
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
                      _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
     # Same precise same-server-IP core conflict as create, but skip THIS tunnel (an edit that keeps its
@@ -4602,12 +4496,10 @@ def _edit_link_impl(d):
                          f"({', '.join(str(x) for x in FLUX_UDP_DPORTS)}) ترافیکِ UDPِ ورودی از همان نود را "
                          f"می‌اندازد و آن تونل بی‌صدا می‌میرد؛ پورتِ دیگری برای یکی از این دو انتخاب کن")
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
-    # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for
-    # any core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running
-    # its old crypto session: the freshly restarted server latches onto the stale still-live client and
-    # never re-handshakes, so the tunnel stays wedged. Tearing both ends down together (exactly what the
-    # standalone rebuild does) forces a clean simultaneous re-handshake. This is why "save & rebuild" used
-    # to leave a core tunnel dead while a separate "rebuild" fixed it.
+    # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for any
+    # core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running its
+    # old crypto session: the freshly restarted server latches onto the stale still-live client and never
+    # re-handshakes, so the tunnel stays wedged. Tearing both ends down forces a clean re-handshake.
     if name_changed or ttype == "core":
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
@@ -4771,10 +4663,9 @@ def api_link_toggle(d):
 
 
 # --------------------------------------------------------------------------- link reconciler
-# When a node's public IP changes, apply_all() on THAT node self-heals its own local_ip — but the
-# PEER still points remote_ip at the old address, so the tunnel stays down until an operator rebuilds
-# it. This loop closes the gap: it watches every link for a stored endpoint IP that has drifted off
-# the node's live IP set, and rebuilds the link — which rewrites remote_ip on the peer AND the record.
+# When a node's public IP changes, apply_all() on THAT node self-heals its own local_ip — but the PEER
+# still points remote_ip at the old address, so the tunnel stays down until an operator rebuilds it.
+# This loop watches every link for a stored endpoint IP that has drifted off the node's live IP set.
 
 RECONCILE_GAP = 15       # default seconds between reconcile sweeps (overridable via settings)
 RECONCILE_RETRY = 60     # per-link cool-down so a failing rebuild can't hammer the pair
@@ -4838,20 +4729,16 @@ def reconcile_loop():
 
 
 # --------------------------------------------------------------------------- automatic ECH refresh
-# A CDN (Cloudflare) rotates its ECH key roughly hourly; a stale stored ECHConfigList then fails the
-# ws-upgrade on EVERY edge and the tunnel goes dark (only a manual rebuild recovered it). The client
-# core and the in-country node sit behind poisoned DNS, so ONLY the panel can re-resolve the key.
-# This background loop re-fetches ECH for every ECH-enabled core link and:
-#   - key present, tunnel healthy  -> freshen the stored record silently (the live core self-heals
-#     in-band via retry_configs; the fresh stored key just keeps restarts/rebuilds valid) — no drop.
-#   - pool DOWN (core reachable, no active edge) -> rebuild with the fresh key. LEVEL-triggered on the
-#     down STATE, not edge-triggered on the key change: a stale-ECH pool stays down across many cycles
-#     but the key only *changes* once, so gating the rebuild on the change let a down tunnel sit dark
-#     forever (the record was freshened on cycle 1, then _ech_write returned False and the down-check
-#     was never reached again — the exact 1.5h stall). Rebuild once per down-episode (and again if the
-#     key rotates mid-episode); reset when the pool recovers.
-#   - record REMOVED (confirmed by _ECH_EMPTY_CYCLES consecutive empty fetches, so a transient DoH
-#     blip can't strip a good key) -> degrade the link to plain wss so it can't hard-fail, + rebuild.
+# A CDN rotates its ECH key roughly hourly; a stale stored ECHConfigList then fails the ws-upgrade on
+# EVERY edge and the tunnel goes dark. The client core and the in-country node sit behind poisoned DNS,
+# so ONLY the panel can re-resolve the key. This loop re-fetches for every ECH-enabled core link:
+#
+#   key present, tunnel healthy  freshen the stored record silently — the live core self-heals in-band
+#   pool DOWN                    rebuild with the fresh key, LEVEL-triggered on the down STATE, since
+#                                a stale-ECH pool stays down across many cycles while the key changes
+#                                only once. Once per down-episode, reset when the pool recovers
+#   record REMOVED               confirmed by _ECH_EMPTY_CYCLES consecutive empty fetches, so a DoH
+#                                blip cannot strip a good key: degrade to plain wss, then rebuild
 _ECH_EMPTY_CYCLES = 3   # consecutive empty fetches before an ECH record counts as truly REMOVED (blip guard)
 _ech_empty = {}         # (link_id, host) -> consecutive-empty count
 _ech_empty_lock = threading.Lock()
@@ -5041,18 +4928,12 @@ def _ech_refresh_once():
             else:
                 fa = "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label)
             log_event("ok", "ech", fa, dfa)
-        # Down-detection needs a live status file, which only a pool writes; a single edge is left to
-        # Layer 1 (the core's in-band retry) + the freshened stored key. For a pool, rebuild one we can
-        # SEE is down — LEVEL-triggered on the down state, NOT gated on the key changing THIS cycle (that
-        # gating is what let a persistently-down pool sit dark: the record is freshened once, then never
-        # changes again). Rebuild once per down-episode, and again if the key rotates while still down;
-        # reset the episode when the pool recovers.
-        # Rebuild when the pool is DOWN (no active edge) OR STALLED: an active edge is still coasting
-        # on an already-open connection while every IP edge is suspect/dead, so new establishes all fail
-        # on the stale ECH key (cloudflare-ech.com cert) and failover/rotation/reconnect are broken —
-        # but the live edge hasn't died yet, so the old `_link_is_down` check never fired and the tunnel
-        # sat un-rotatable for minutes until it finally went fully down. Catching `stalled` heals it as
-        # soon as the pool can no longer build a fresh edge, not minutes later.
+        # Down-detection needs a live status file, which only a pool writes; a single edge is left to the
+        # core's in-band retry plus the freshened stored key. For a pool, rebuild one we can SEE is down —
+        # LEVEL-triggered on the down state, NOT gated on the key changing this cycle, which is what lets a
+        # persistently-down pool sit dark. Rebuild once per down-episode, and again if the key rotates while
+        # still down. STALLED counts too: an active edge can coast on an already-open connection while every
+        # other edge is suspect, so new establishes all fail and failover is broken while nothing looks down.
         reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
         if kind == "pool" and (down or stalled):
             if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
@@ -5189,13 +5070,10 @@ def ech_refresh_loop():
 
 
 # --------------------------------------------------------------------------- system event log
-# A rolling, persisted record of things the SYSTEM did on its own — node up/down, tunnel up/down
-# (with a best-effort reason), and AUTOMATIC edge-IP changes — i.e. the events an operator would
-# otherwise never see. Operator-driven actions (create/edit/delete, manual pin/rotate, toggling a
-# tunnel off) are deliberately NOT logged: the detector only records STATE TRANSITIONS it observes,
-# newly-added/removed entities are seeded silently, disabled tunnels are skipped, and a manual pin
-# suppresses the edge-change it causes. Each event stores both fa+en text so it renders in either UI
-# language regardless of when it was recorded.
+# A rolling, persisted record of things the SYSTEM did on its own — node up/down, tunnel up/down with
+# a best-effort reason, and AUTOMATIC edge-IP changes. Operator-driven actions are deliberately NOT
+# logged: the detector records only STATE TRANSITIONS it observes, seeds new entities silently, skips
+# disabled tunnels, and suppresses the edge-change a manual pin causes.
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives the 500-cap)
 EVENTS_CAP = 500
@@ -5287,18 +5165,14 @@ def _ev_core_text(kind, code, detail, nm):
         # carried two sentences for one fact. The endpoint is the useful part; keep only that.
         return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "cfg":
-        # A setting the operator CHOSE that the host did not actually grant. The core discovers these
-        # while it opens its sockets; before this they only reached the core unit's journal, which the
-        # node reads on exactly one branch — after a build that FAILED. A core that started and was
-        # merely clamped went through no branch at all, so the panel kept showing the setting green
-        # and the only way to learn otherwise was to ssh to the node.
+        # A setting the operator CHOSE that the host did not actually grant. The core discovers these while it
+        # opens its sockets, and they only ever reached the core unit's journal, which the node reads on
+        # exactly one branch — after a build that FAILED. A core that started and was merely clamped goes
+        # through no branch at all.
         #
-        # detail is DATA, never prose (the same split every other core event uses). For
-        # sockbuf-clamped it is "<send|receive> <asked> <effective>", both in bytes.
-        # The two directions are written out rather than interpolated because tools/log_labels_check.py
-        # recognises a LABEL by a literal prefix followed by a value. «بافرِ {dir}: …» renders fine but
-        # the guard cannot read it statically, so the pill/prose decision would have gone unchecked —
-        # which is the exact gap that guard exists to close.
+        # detail is DATA, never prose, like every other core event. The two directions are written out rather
+        # than interpolated because tools/log_labels_check.py recognises a LABEL by a literal prefix followed
+        # by a value, and an interpolated one it cannot read statically would go unchecked.
         if code == "sockbuf-clamped":
             parts = key.split()
             title = f"تونلِ «{nm}»: بافرِ سوکت به‌اندازه‌ای که خواستی اعمال نشد"
@@ -5479,12 +5353,10 @@ def _events_once():
         b_probed = _cache_get(L.get("b_node")) is not None
         if not (a_probed and b_probed):
             continue
-        # "Probed" is not the same as "judged". A node that has just restarted its agent answers
-        # /api/list immediately but its background health sweep publishes only at the END of its first
-        # round, so every config comes back as {"up": None} for a couple of seconds — and _link_up
-        # reads that None as falsy, i.e. as DOWN. push-agent does exactly this, so every agent push
-        # wrote a bogus «قطع» for each of that node's tunnels, paired seconds later by a «وصل».
-        # None means unknown: hold the state we have.
+        # "Probed" is not the same as "judged". A node that has just restarted its agent answers /api/list
+        # immediately, but its background health sweep publishes only at the END of its first round, so every
+        # config comes back as {"up": None} for a couple of seconds — and _link_up reads that None as falsy,
+        # i.e. as DOWN. None means unknown: hold the state we have.
         _ah, _ = _link_side_health(L, "a_node")
         _bh, _ = _link_side_health(L, "b_node")
         if (isinstance(_ah, dict) and _ah.get("up") is None) or (isinstance(_bh, dict) and _bh.get("up") is None):
@@ -5495,12 +5367,10 @@ def _events_once():
         if first or prev is None or prev == up:
             continue
         nm = L.get("name", "")
-        # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram
-        # transport (udp/raw/flux), a direct tcp/cover client (hb + rotation/self-heal ring), or a
-        # single-edge ws/http. For ALL of those, don't ALSO emit a coarse event here or every
-        # drop is double-counted (the datagram core's "stale"/"keepalive" down renders as a
-        # red "disconnected" in the precise section too). A core with no status ring at all (e.g. a
-        # client node offline so the core is dead) relies on the coarse classification below.
+        # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram transport,
+        # a direct tcp/cover client, or a single-edge ws/http. For ALL of those, do not ALSO emit a coarse
+        # event here or every drop is double-counted. A core with no status ring at all, e.g. a client node
+        # offline so the core is dead, relies on the coarse classification below.
         precise_core = L.get("type") == "core" and (
             bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)
         if up:
@@ -5528,18 +5398,16 @@ def _events_once():
         _ev_state["links"].pop(lid, None)
         _ev_state["links_coarse_down"].discard(lid)
 
-    # --- core tunnels: PRECISE core-recorded events (down reason + burns for a ws pool;
-    #     self-heal/reconnect reasons for a udp/raw/flux datagram client; src/peer-rotate + burn/heal for
-    #     a direct tcp/cover client; in-band ECH self-heal for a single-edge ws/http client) and — for a
-    #     pool — the automatic edge-IP change. The core saw the real error; the panel just renders it.
-    #     Any direct-transport (udp/tcp/raw/flux) client or ws pool / single-edge ws/http writes one. ---
+    # --- core tunnels: PRECISE core-recorded events — the down reason and burns for a ws pool,
+    #     self-heal reasons for a datagram client, src/peer-rotate for a direct tcp/cover client, in-band
+    #     ECH self-heal for a single-edge ws/http client — and, for a pool, the automatic edge-IP change.
+    #     The core saw the real error; the panel just renders it. ---
     seen = set()
     now = int(time.time())
     # Prefetch every status-ring core tunnel's edge-status IN PARALLEL first. api_edge_status is a live
-    # per-node RPC (10s timeout), so doing it serially in the loop below made the whole sweep cost the SUM
-    # of one call per tunnel — a handful of slow/offline clients could stall event detection for the entire
-    # fleet. The per-link PROCESSING stays sequential and in `links` order below (event ordering, `now`, and
-    # the _ev_state mutations must remain single-threaded); only the network fetch is fanned out here.
+    # per-node RPC with a 10s timeout, so doing it serially in the loop below made the sweep cost the SUM
+    # of one call per tunnel, and a handful of slow clients could stall event detection for the whole
+    # fleet. The per-link PROCESSING stays sequential — ordering and the _ev_state mutations must be.
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
             and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)]
 
@@ -5560,23 +5428,18 @@ def _events_once():
         seen.add(lid)
         nm = L.get("name", "")
         r = pre.get(lid)   # prefetched in parallel above; per-link processing below stays sequential + ordered
-        # A FAILED fetch must change nothing. api_edge_status never returns a falsy value on failure —
-        # both of its failure branches return ok:True with empty active/health/events plus an `error`
-        # key — so `if not r` never caught an unreachable node, and the empty payload was processed as
-        # if the core had genuinely reported "no events, no active edge". One 10s RPC timeout, or the
-        # gap right after push-agent restarts the agent while tnl-core keeps running, then (a) reset
-        # this link's event high-water to 0 below, so the NEXT good sweep re-logged the core's whole
-        # ring with ts=now and evicted the real history out of EVENTS_CAP, and (b) stored the active
-        # edge as "", so the sweep after that logged a «چرخش لبه» that never happened with a blank
-        # «از:». Skip the link entirely and keep the state we already had.
+        # A FAILED fetch must change nothing. api_edge_status never returns a falsy value on failure — both
+        # of its failure branches return ok:True with empty active/health/events plus an `error` key — so
+        # `if not r` never catches an unreachable node and the empty payload is processed as a genuine "no
+        # events, no active edge". That would reset this link's event high-water, so the next good sweep
+        # re-logs the core's whole ring and evicts the real history, and store the active edge as "".
         if not r or "error" in r:
             continue
 
-        # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass.
-        # A single MALFORMED event from one node (a non-dict entry, or a non-numeric seq) must never throw
-        # out of this loop: that would kill _events_once and stop event logging for the WHOLE fleet (and,
-        # on the first pass, prevent init from ever being set). So coerce seq defensively, and wrap the
-        # whole per-link body so one bad link is isolated and skipped, not fatal for every other link.
+        # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass. A
+        # single MALFORMED event from one node must never throw out of this loop: that would kill _events_once
+        # and stop event logging for the WHOLE fleet, and on the first pass prevent init from ever being set.
+        # So coerce seq defensively and wrap the per-link body, so one bad link is skipped, not fatal.
         try:
             raw_evs = r.get("events")
             clean = []
@@ -5594,14 +5457,10 @@ def _events_once():
                 _ev_state["evseq"][lid] = mx
             else:
                 last = _ev_state["evseq"].get(lid, 0)
-                # The core's event seq restarts at 0 on every (re)start (rebuild / auto-reconcile / core
-                # update / crash). Once mx has fallen BELOW our high-water, the core restarted: the stale
-                # high-water would then skip every post-restart event forever (rotations stop logging). Re-
-                # baseline from 0 so the fresh ring's events are logged again.
-                # Requires a ring to reason from: an EMPTY one is "no evidence", not "the core restarted".
-                # A rebuild deletes the status file (build_core) and the core recreates it with an empty
-                # ring, so a sweep landing in that window reset the high-water and re-logged every event
-                # again once the ring had refilled.
+                # The core's event seq restarts at 0 on every (re)start. Once mx has fallen BELOW our high-water
+                # the core restarted, and the stale high-water would then skip every post-restart event forever,
+                # so re-baseline from 0. It requires a ring to reason from: an EMPTY one is "no evidence", not
+                # "the core restarted" — a rebuild deletes the status file and the core recreates it empty.
                 if clean and mx < last:
                     last = 0
                 for sq, e in sorted(clean, key=lambda x: x[0]):
@@ -5635,11 +5494,10 @@ def _events_once():
                 # automatic active-edge switch (suppressed briefly after an operator pin)
                 active = str(r.get("active") or "")
                 prev = _ev_state["edge"].get(lid)
-                # Remember only a REAL edge. An empty `active` is "the core has not picked one yet"
-                # (fresh status file after a rebuild), not "the edge changed to nothing" — and storing
-                # it poisoned prev, so the next sweep saw ""->1.2.3.4 and logged a warn «چرخش لبه» with
-                # a blank «از:» for an edge that had never moved. The guard below already refuses to log
-                # on the empty sweep itself; this keeps the empty value out of the remembered state too.
+                # Remember only a REAL edge. An empty `active` is "the core has not picked one yet", not "the
+                # edge changed to nothing" — and storing it poisons prev, so the next sweep sees ""->1.2.3.4 and
+                # logs a warn «چرخش لبه» with a blank «از:» for an edge that never moved. The guard below already
+                # refuses to log on the empty sweep itself; this keeps the empty value out of the state too.
                 if active:
                     _ev_state["edge"][lid] = active
                 if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
@@ -6122,11 +5980,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def _client_ip(self):
-        # Behind a trusted TLS-terminating proxy (conf['tls']) every request shares the proxy's TCP address,
-        # so keying the login limiter on it would let one attacker lock out ALL clients. Use the forwarded IP —
-        # but ONLY when the direct TCP peer is actually a trusted proxy. Otherwise a client could spoof
-        # X-Forwarded-For on every request to dodge the brute-force limiter entirely. The terminator normally
-        # runs on loopback; set conf['trusted_proxies'] (a list of IPs) if it sits on another host.
+        # Behind a trusted TLS-terminating proxy every request shares the proxy's TCP address, so keying the
+        # login limiter on it would let one attacker lock out ALL clients. Use the forwarded IP — but ONLY
+        # when the direct TCP peer is actually a trusted proxy, or a client could spoof X-Forwarded-For on
+        # every request and dodge the brute-force limiter entirely. Set conf['trusted_proxies'] if needed.
         peer = self.client_address[0]
         conf = self._conf()
         if conf.get("tls"):
