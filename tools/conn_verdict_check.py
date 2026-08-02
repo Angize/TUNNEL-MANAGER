@@ -136,6 +136,23 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   want(linkDir(A_SENDING, null) === null, 'an unreachable peer must not produce a verdict');
   want(sideState(true, IDLE, IDLE).k === 'ok', 'an idle-but-alive side stays green');
 
+  // ---- the answered keepalive: this end settles its own direction, no far end needed ----
+  var IDLE_RT = {up:true, alive:true, dead:false, tx_live:false, rx_live:false,
+                 round_trip:true, carrier_rtt_ms:37};
+  want(linkDir(IDLE_RT, IDLE) === true,
+    'an answered keepalive proves our ping got there AND came back — it must settle the direction on an ' +
+    'IDLE tunnel, where no byte counter moves and the pairing has nothing to compare');
+  want(linkDir(IDLE_RT, null) === true,
+    'and it must hold with the far end unreachable, since it needs nothing from it');
+  want(sideState(true, IDLE_RT, IDLE).k === 'ok', 'a proven round trip reads green');
+  want(sideTxt(true, IDLE_RT, IDLE).indexOf('37') >= 0,
+    'the carrier RTT is measured through obfs and crypto — the path the data really takes — so it is ' +
+    'the one to show');
+  // Positive only. A stale round trip must not condemn anything: the TCP family skips the ping when
+  // data just arrived, so "no recent pong" is no news at all.
+  want(linkDir({up:true, alive:true, tx_live:false, rx_live:false, round_trip:null}, IDLE) === null,
+    'no recent round trip must stay undetermined, never a failure');
+
   return run(A_SENDING, B_DEAF);
 }).then(function(r){
   want(r && r.cls === 'err',
