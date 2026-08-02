@@ -93,10 +93,9 @@ class _PairLock:
 
     def __enter__(self):
         # Acquire the canonical per-node lock for each id. The poller can pop an IDLE lock, and another
-        # thread recreate it, between our setdefault and our acquire — which would leave two threads holding
-        # DIFFERENT lock objects for the same node. So after acquiring, re-check that the lock is still the
-        # one registered for this id, and retry with the new canonical one if it was swapped. The poller only
-        # pops a lock that is NOT held, so the two rules together are race-free.
+        # thread recreate it, between our setdefault and our acquire — leaving two threads on DIFFERENT
+        # lock objects for one node. So re-check after acquiring and retry with the new canonical lock.
+        # The poller only pops a lock that is NOT held, so the two rules together are race-free.
         for i in self._ids:
             while True:
                 with _node_locks_guard:
@@ -431,10 +430,9 @@ def get_node(nid):
 
 
 # --------------------------------------------------------------------------- deferred teardown queue
-# When a force-delete or a best-effort wipe cannot reach a node to tear its tunnels down, the panel
-# record is removed anyway and the owed teardown is parked here as {node_id: [names]}. The poller
-# drains it the moment that node answers again, sending the same idempotent `delete` op, so no live
-# server keeps an orphan. Entries are pruned when the node itself is removed.
+# When a force-delete or a best-effort wipe cannot reach a node, the panel record is removed anyway and
+# the owed teardown is parked here as {node_id: [names]}. The poller drains it the moment that node
+# answers again, sending the same idempotent `delete` op. Entries are pruned when the node is removed.
 def _pending_load():
     try:
         with open(PENDING_FILE) as f:
@@ -896,10 +894,9 @@ def _cached_list(nid):
 
 
 # ----------------------------------------------------------------------------- traffic accounting
-# Rates and lifetime byte totals are computed CENTRAL-side from the node's raw /proc/net/dev counters,
-# folded into the same 2s poll — the poll cadence IS the sample clock. Reset, reboot and counter-wrap
-# all collapse to "delta:=0, re-baseline", so a counter reset never fabricates a spike, and `cum` only
-# ever adds validated (>=0) deltas, never the raw counter.
+# Rates and lifetime totals are computed CENTRAL-side from the node's raw /proc/net/dev counters, folded
+# into the same 2s poll — the poll cadence IS the sample clock. Reset, reboot and counter-wrap all
+# collapse to "delta:=0, re-baseline", and `cum` only ever adds validated (>=0) deltas.
 
 TF_IF_MAX = 512            # max interfaces tracked per node — a compromised node must not grow this map unbounded
 TF_IF_KEY_MAX = 32         # max interface-name length stored (Linux ifname is <=15; slack for exotic names)
@@ -1292,27 +1289,19 @@ def _apply_core_tuning(a_body, b_body):
 
 
 # The upstream POST-ladder shape per CDN. The binding constraint is what the CDN counts per source
-# address, and on ArvanCloud that was measured to be the number of CONCURRENT CONNECTIONS, not the
-# request rate: two settings pushing the same requests per second differed only in socket count, and
-# only the higher one was cut off. A worker count is therefore portable between paths, because
-# concurrency does not depend on RTT the way request rate does. The ban is per source IP and
-# ACCOUNT-WIDE, refusing edge TCP while ICMP keeps answering, and it lasts about ten minutes.
-# BOTH profiles carry real numbers, so both change the node body.
+# address, and on ArvanCloud that is the number of CONCURRENT CONNECTIONS rather than the request rate,
+# so a worker count is portable between paths in a way a request rate is not. Both profiles carry real
+# numbers, so both change the node body.
 CDN_PROFILES = {
-    # Measured against a real Cloudflare edge: leaning on the core's own default cost about 30% of the
-    # upstream for nothing, and 256 KB is where the gain lands — 512 KB buys no more upstream and made the
-    # DOWNSTREAM erratic across repeats. Workers stay at 8 rather than 16, which measured the same
-    # upstream: a worker is a concurrent socket, and socket COUNT is what a CDN's limiter counts, so
-    # paying double the concurrency for a tie is a bad trade.
-    # CAVEAT: measured at a ~15 ms round-trip. Capacity is in-flight/RTT, so a far-away client may want a
-    # BIGGER batch to fill the pipe. The ranking should carry; the absolute numbers will not.
+    # Cloudflare's shape. The batch is where the upstream gain lands; a bigger one buys no more and made
+    # the downstream erratic. Workers stay low rather than doubled, because a worker is a concurrent
+    # socket and socket COUNT is what a CDN's limiter counts. Only the ranking carries — the numbers came
+    # from a short round-trip, and capacity is in-flight/RTT, so a far-away client may want a bigger batch.
     "cf":    {"http_up_workers": 8, "http_up_batch_kb": 256},
-    # Half the measured ban threshold, so the carrier keeps its margin: the real client also holds the
-    # downstream GET open and a warm standby adds one more socket. Throughput is bought with the BATCH
-    # instead, which costs no sockets and actually LOWERS the request rate, since capacity is
-    # in-flight/RTT and in-flight is workers x batch. Both keys are written explicitly rather than leaning
-    # on the core's defaults: a future core that raises its own worker count must not silently follow it
-    # past the ban threshold.
+    # Half the ban threshold, so the carrier keeps its margin: the real client also holds the downstream
+    # GET open and a warm standby adds one more socket. Throughput is bought with the BATCH instead, which
+    # costs no sockets. Both keys are written explicitly rather than leaning on the core's defaults, so a
+    # future core that raises its own worker count cannot silently carry this past the threshold.
     "arvan": {"http_up_workers": 8, "http_up_batch_kb": 512},
 }
 # A profile may also carry "http_up_rate" (POSTs/sec, 1..1000; 0 = unpaced). The knob is plumbed all
@@ -1572,11 +1561,10 @@ def api_spoof_egress_probe(d):
         return {"ok": False, "error": "spoof_src must be IPv4"}
     if decoy and not is_ipv4(decoy):
         return {"ok": False, "error": "spoof_dst must be IPv4"}
-    # Aim at the IPs THIS TUNNEL will use, not at the node registry's management host. uRPF and decoy
-    # routing are per-IP on these providers — the whole premise the spoof work rests on — so probing a
-    # different address answers a different question: a multi-IP node can come back green on its
-    # management IP while the tunnel's chosen IP is filtered. It also works for a node registered by
-    # HOSTNAME, where `host` never parses as IPv4 while a_ip/b_ip come from the node's live IP list.
+    # Aim at the IPs THIS TUNNEL will use, not at the node registry's management host: uRPF and decoy
+    # routing are per-IP on these providers, so a multi-IP node can come back green on its management IP
+    # while the tunnel's chosen IP is filtered. It also works for a node registered by HOSTNAME, where
+    # `host` never parses as IPv4 while a_ip/b_ip come from the node's live IP list.
     def _node_ips(node):
         ips = _flat_ips(_cached_ping(node["id"]))
         if not ips:   # cold poll cache (a node added moments ago) — ask it directly rather than give up
@@ -2957,13 +2945,9 @@ def api_fleet(d):
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), **tfl.get(L["id"], {})}
         # Live active pool IP: the CLIENT node writes .peerpool (active destination) and .srcpool (active
-        # source); surface it per side so the card shows the IP the tunnel is really on right now.
-        #
-        # `*_ip_rot` (the rotation mark) is a property of the POOL, not of the status file — the core
-        # deliberately builds a ONE-entry source pool to PIN a client's source IP, and a one-entry pool writes
-        # its status file just like a real one, so keying off the file marks a single-IP node as rotating.
-        # Read the pool itself instead, and set it unconditionally: whether a side rotates is CONFIGURATION
-        # and always known, while the active address is live state that may not exist yet.
+        # source), surfaced per side. `*_ip_rot` is a property of the POOL, not of the status file — a
+        # one-entry source pool exists to PIN a source IP and writes a status file like a real one — so
+        # read the pool, and set it unconditionally: rotation is configuration, the address is live state.
         if L.get("type") == "core" and L.get("ip_rotate"):
             srvA = (L.get("server_side") != "b")
             cl = lb if srvA else la  # the client is the non-server node
@@ -3376,10 +3360,9 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     if ttl < 1 or ttl > 255:
         raise ValueError("TTLِ طعمه باید بین ۱ تا ۲۵۵ باشد")
     # On tcp/ws the decoy rides the REAL connection's 4-tuple, so the core clamps it to injectMaxTTL — a
-    # well-formed segment that reached the server would draw an RST. raw/flux/spoof forge a whole IPv4
-    # header toward a peer we hold no kernel connection to, so there the full 1..255 is honoured. Storing
-    # the unclamped number makes every layer the operator can see report a hop budget the wire never
-    # carried. This is the single gate all three build paths share, so clamping here makes them agree.
+    # well-formed segment reaching the server would draw an RST. raw/flux/spoof forge a whole IPv4 header
+    # toward a peer we hold no kernel connection to, so there the full 1..255 is honoured. This is the one
+    # gate all three build paths share, so clamping here keeps the stored number and the wire in step.
     if transport in DESYNC_INJECT_TRANSPORTS:
         ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
     out["fake_ttl"] = ttl
@@ -3614,11 +3597,10 @@ def _sni_split_fields(d, cur):
     return out
 
 
-# The ports a CDN proxies, split by scheme. An edge port from the wrong side breaks every fronted
-# tunnel: with wss on, a client aimed at :80 hands a TLS ClientHello to a plaintext edge and the
-# handshake dies before anything else is tried — which reads as "this CDN doesn't support the carrier"
-# and is nothing of the sort. This is a WHITELIST, because a port outside these lists does not front
-# anything; it just fails later and looks like a broken carrier.
+# The ports a CDN proxies, split by scheme. An edge port from the wrong side breaks every fronted tunnel:
+# with wss on, a client aimed at :80 hands a TLS ClientHello to a plaintext edge and the handshake dies
+# first — which reads as "this CDN doesn't support the carrier" and is nothing of the sort. A WHITELIST,
+# because a port outside these lists fronts nothing and just fails later.
 _EDGE_PLAIN_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
 _EDGE_TLS_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 
@@ -4729,16 +4711,9 @@ def reconcile_loop():
 
 
 # --------------------------------------------------------------------------- automatic ECH refresh
-# A CDN rotates its ECH key roughly hourly; a stale stored ECHConfigList then fails the ws-upgrade on
-# EVERY edge and the tunnel goes dark. The client core and the in-country node sit behind poisoned DNS,
-# so ONLY the panel can re-resolve the key. This loop re-fetches for every ECH-enabled core link:
-#
-#   key present, tunnel healthy  freshen the stored record silently — the live core self-heals in-band
-#   pool DOWN                    rebuild with the fresh key, LEVEL-triggered on the down STATE, since
-#                                a stale-ECH pool stays down across many cycles while the key changes
-#                                only once. Once per down-episode, reset when the pool recovers
-#   record REMOVED               confirmed by _ECH_EMPTY_CYCLES consecutive empty fetches, so a DoH
-#                                blip cannot strip a good key: degrade to plain wss, then rebuild
+# A CDN rotates its ECH key roughly hourly, and a stale stored ECHConfigList then fails the ws-upgrade on
+# EVERY edge. The client core and the in-country node sit behind poisoned DNS, so ONLY the panel can
+# re-resolve it; this loop re-fetches for every ECH-enabled core link and acts on what it finds.
 _ECH_EMPTY_CYCLES = 3   # consecutive empty fetches before an ECH record counts as truly REMOVED (blip guard)
 _ech_empty = {}         # (link_id, host) -> consecutive-empty count
 _ech_empty_lock = threading.Lock()
@@ -4930,10 +4905,8 @@ def _ech_refresh_once():
             log_event("ok", "ech", fa, dfa)
         # Down-detection needs a live status file, which only a pool writes; a single edge is left to the
         # core's in-band retry plus the freshened stored key. For a pool, rebuild one we can SEE is down —
-        # LEVEL-triggered on the down state, NOT gated on the key changing this cycle, which is what lets a
-        # persistently-down pool sit dark. Rebuild once per down-episode, and again if the key rotates while
-        # still down. STALLED counts too: an active edge can coast on an already-open connection while every
-        # other edge is suspect, so new establishes all fail and failover is broken while nothing looks down.
+        # LEVEL-triggered on the state, once per down-episode, again if the key rotates while still down.
+        # STALLED counts too: an active edge can coast on an open connection while every other is suspect.
         reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
         if kind == "pool" and (down or stalled):
             if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
@@ -5070,10 +5043,9 @@ def ech_refresh_loop():
 
 
 # --------------------------------------------------------------------------- system event log
-# A rolling, persisted record of things the SYSTEM did on its own — node up/down, tunnel up/down with
-# a best-effort reason, and AUTOMATIC edge-IP changes. Operator-driven actions are deliberately NOT
-# logged: the detector records only STATE TRANSITIONS it observes, seeds new entities silently, skips
-# disabled tunnels, and suppresses the edge-change a manual pin causes.
+# A rolling, persisted record of what the SYSTEM did on its own — node up/down, tunnel up/down with a
+# best-effort reason, and AUTOMATIC edge-IP changes. Operator-driven actions are deliberately not logged:
+# the detector records STATE TRANSITIONS only, seeds new entities silently and skips disabled tunnels.
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives the 500-cap)
 EVENTS_CAP = 500
@@ -5165,14 +5137,10 @@ def _ev_core_text(kind, code, detail, nm):
         # carried two sentences for one fact. The endpoint is the useful part; keep only that.
         return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "cfg":
-        # A setting the operator CHOSE that the host did not actually grant. The core discovers these while it
-        # opens its sockets, and they only ever reached the core unit's journal, which the node reads on
-        # exactly one branch — after a build that FAILED. A core that started and was merely clamped goes
-        # through no branch at all.
-        #
-        # detail is DATA, never prose, like every other core event. The two directions are written out rather
-        # than interpolated because tools/log_labels_check.py recognises a LABEL by a literal prefix followed
-        # by a value, and an interpolated one it cannot read statically would go unchecked.
+        # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
+        # opens its sockets, and they used to reach only the core unit's journal, which the node reads on
+        # exactly one branch. detail is DATA, never prose; the two directions are written out rather than
+        # interpolated so tools/log_labels_check.py can recognise the label statically.
         if code == "sockbuf-clamped":
             parts = key.split()
             title = f"تونلِ «{nm}»: بافرِ سوکت به‌اندازه‌ای که خواستی اعمال نشد"
@@ -5429,10 +5397,9 @@ def _events_once():
         nm = L.get("name", "")
         r = pre.get(lid)   # prefetched in parallel above; per-link processing below stays sequential + ordered
         # A FAILED fetch must change nothing. api_edge_status never returns a falsy value on failure — both
-        # of its failure branches return ok:True with empty active/health/events plus an `error` key — so
-        # `if not r` never catches an unreachable node and the empty payload is processed as a genuine "no
-        # events, no active edge". That would reset this link's event high-water, so the next good sweep
-        # re-logs the core's whole ring and evicts the real history, and store the active edge as "".
+        # failure branches return ok:True with empty active/health/events plus an `error` key — so `if not
+        # r` would not catch an unreachable node, and the empty payload would reset this link's event
+        # high-water and store the active edge as "".
         if not r or "error" in r:
             continue
 
