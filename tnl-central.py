@@ -6915,6 +6915,7 @@ var I18N={fa:{
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
+ t_side_oneway:"یک‌طرفه",tst_oneway:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر ۴ پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
@@ -7723,12 +7724,20 @@ function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','t
  toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
 function pingInfo(h){var p=[];if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct')):T('t_noloss'));return p.join(' · ')}
+// oneWay: the probe RAN and every packet was lost, while the side still reports alive. Those two are not
+// in conflict — a peer whose replies still arrive keeps the core heartbeat fresh, and `alive` is decided
+// from that heartbeat before the ping is ever consulted — so the tunnel can carry nothing in one
+// direction and still be called connected. The probe targets the peer's own TUN address, which its
+// kernel answers, so a total loss there is not an ICMP policy: it is packets not crossing. Not proof of
+// death either (one probe), so this reads amber and never a confident green.
+function oneWay(h){return !!(h&&h.alive===true&&h.loss_pct!=null&&h.loss_pct>=100)}
 function sideTxt(online,h){
  if(!online)return T('t_side_off');
  if(!h)return T('t_side_notun');
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
  if(h.dead)return T('st_disc');   // frozen core heartbeat = the encrypted session died (peer gone)
+ if(oneWay(h))return T('t_side_oneway')+' · '+pingInfo(h);
  if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
  return T('t_side_up_unk')}
@@ -7742,6 +7751,7 @@ function sideState(online,h){
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
  if(h.dead)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};           // confirmed dead (frozen core heartbeat) -> red at once
+ if(oneWay(h))return {k:'warn',w:T('t_side_oneway'),t:T('tst_oneway')};   // answers arrive, nothing crosses -> amber, and it says so
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
@@ -7836,7 +7846,8 @@ async function checkLink(id){CHECKING++;
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
-  var okAll=aup&&bup&&pinged&&!(d.a_health&&d.a_health.dead)&&!(d.b_health&&d.b_health.dead);
+  var okAll=aup&&bup&&pinged&&!(d.a_health&&d.a_health.dead)&&!(d.b_health&&d.b_health.dead)&&
+    !oneWay(d.a_health)&&!oneWay(d.b_health);   // the probe this check just ran is part of the verdict, not decoration
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health)));
  }finally{CHECKING--}}
