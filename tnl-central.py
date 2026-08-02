@@ -7759,7 +7759,7 @@ function sideState(online,h,peer){
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
  if(h.dead)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};           // confirmed dead (frozen core heartbeat) -> red at once
- if(linkDir(h,peer)===false||oneWay(h))return {k:'warn',w:T('t_side_oneway'),t:T('tst_oneway')};   // what this end sends lands nowhere -> amber, and it says so
+ if(linkDir(h,peer)===false||oneWay(h))return {k:'warn',w:'',t:T('tst_oneway')};   // what this end sends lands nowhere -> amber; the box is tight, so the tooltip carries the why
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default

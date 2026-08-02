@@ -98,8 +98,11 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   // the dot the dashboard paints, from the same health objects
   want(sideState(true, ONE_WAY).k === 'warn',
     'the dot for a one-way side must be amber, got ' + sideState(true, ONE_WAY).k);
-  want(sideState(true, ONE_WAY).w === T('t_side_oneway'),
-    'the one-way dot must carry its word, got ' + JSON.stringify(sideState(true, ONE_WAY).w));
+  want(sideState(true, ONE_WAY).w === '',
+    'the node boxes are tight — the one-way dot carries no word, got ' +
+    JSON.stringify(sideState(true, ONE_WAY).w));
+  want(sideState(true, ONE_WAY).t === T('tst_oneway'),
+    'and with no word the tooltip is the ONLY explanation, so it must be the one-way one');
   want(sideState(true, ALIVE_OK).k === 'ok',
     'a healthy side must still be green, got ' + sideState(true, ALIVE_OK).k);
   want(sideState(true, {up:true, alive:true, dead:true, loss_pct:100}).k === 'bad',
