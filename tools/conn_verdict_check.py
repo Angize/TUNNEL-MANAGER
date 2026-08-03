@@ -117,8 +117,8 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   // ---- pairing the two ends: the only thing that can settle "does what I send arrive" ----
   // A is pushing packets in and B's tunnel delivers none of them. This is the real measured case:
   // 122 out of the Iranian node in 20s, 0 arrived — with A's heartbeat fresh the whole time.
-  var A_SENDING = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_live:true, rx_live:true};
-  var B_DEAF    = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_live:true, rx_live:false};
+  var A_SENDING = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:0, live_win:12, dead_win:20};
+  var B_DEAF    = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:600, live_win:12, dead_win:20};
 
   want(linkDir(A_SENDING, B_DEAF) === false,
     'A is sending and B receives nothing — the direction must read broken with no probe involved');
@@ -133,15 +133,34 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'the side whose traffic DOES land must stay green — the half that works is information');
 
   // Idle is not failure, and one unknown half must never manufacture a verdict.
-  var IDLE = {up:true, alive:true, dead:false, tx_live:false, rx_live:false};
+  var IDLE = {up:true, alive:true, dead:false, tx_still:999, rx_still:999, live_win:12, dead_win:20};
   want(linkDir(IDLE, IDLE) === null, 'an idle tunnel must stay undetermined, not fail');
   want(linkDir(A_SENDING, {up:true, alive:true}) === null,
     'a peer that reports no direction at all must not produce a verdict');
+
+  // ---- the dead zone: a quiet patch is not a broken direction ----
+  // The two ends sample at unsynchronised moments and real traffic is bursty, so "I just sent" and
+  // "nothing reached me in the last 12s" disagree constantly on a perfectly healthy link. That
+  // disagreement used to come out as a red verdict; between the two thresholds there is now none.
+  var B_QUIET = {up:true, alive:true, dead:false, tx_still:0, rx_still:14, live_win:12, dead_win:20};
+  want(linkDir(A_SENDING, B_QUIET) === null,
+    'the peer quiet for 14s — past the 12s live window but well inside its 20s dead-window — must ' +
+    'produce NO verdict, not a broken one');
+  want(sideState(true, A_SENDING, B_QUIET).k === 'ok',
+    'and that side must stay green rather than flicker amber on an ordinary quiet patch');
+
+  var B_LONG = {up:true, alive:true, dead:false, tx_still:0, rx_still:25, live_win:12, dead_win:20};
+  want(linkDir(A_SENDING, B_LONG) === false,
+    'past the tunnel OWN dead-window the silence is unambiguous and must read broken');
+
+  var B_NO_DW = {up:true, alive:true, dead:false, tx_still:0, rx_still:9999, live_win:12, dead_win:0};
+  want(linkDir(A_SENDING, B_NO_DW) === null,
+    'a tunnel with no core publishes no dead-window, so no negative verdict is available to it');
   want(linkDir(A_SENDING, null) === null, 'an unreachable peer must not produce a verdict');
   want(sideState(true, IDLE, IDLE).k === 'ok', 'an idle-but-alive side stays green');
 
   // ---- the answered keepalive: this end settles its own direction, no far end needed ----
-  var IDLE_RT = {up:true, alive:true, dead:false, tx_live:false, rx_live:false,
+  var IDLE_RT = {up:true, alive:true, dead:false, tx_still:999, rx_still:999, live_win:12, dead_win:20,
                  round_trip:true, carrier_rtt_ms:37};
   want(linkDir(IDLE_RT, IDLE) === true,
     'an answered keepalive proves our ping got there AND came back — it must settle the direction on an ' +
@@ -154,7 +173,7 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'the one to show');
   // Positive only. A stale round trip must not condemn anything: the TCP family skips the ping when
   // data just arrived, so "no recent pong" is no news at all.
-  want(linkDir({up:true, alive:true, tx_live:false, rx_live:false, round_trip:null}, IDLE) === null,
+  want(linkDir({up:true, alive:true, tx_still:999, rx_still:999, live_win:12, dead_win:20, round_trip:null}, IDLE) === null,
     'no recent round trip must stay undetermined, never a failure');
 
   // ---- the node box's FRAME, which replaced the dot inside it ----
