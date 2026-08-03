@@ -6532,6 +6532,12 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px;direction:ltr}
 .tninfo>*{direction:rtl}   /* columns flow LTR, so the last child is the right one; each box keeps RTL content */
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
+/* The FRAME carries the state, never the fill: a filled box drowns the address and the role chip it
+   sits behind. 2px so it reads on a phone without the border shifting the layout. */
+.tnnode.st-ok{border:2px solid var(--ok);padding:9px 11px}
+.tnnode.st-warn{border:2px solid var(--gold);padding:9px 11px}
+.tnnode.st-bad{border:2px solid var(--bad);padding:9px 11px}
+.tnnode.st-na{border:2px solid var(--bord);padding:9px 11px}
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
@@ -7773,8 +7779,17 @@ function sideState(online,h,peer){
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
-function sideDot(online,h,peer){var s=sideState(online,h,peer);   // shared by tunnel + core cards
- return (s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':'')+'<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}
+// boxCls/boxTitle paint the node box's FRAME from the same verdict the header dot uses. The dot itself is
+// gone from inside the box — the card header already carries one per end, and two dots for one fact only
+// competed for a line that also holds the name, the role chip and the protocol.
+function boxCls(online,h,peer){return 'st-'+sideState(online,h,peer).k}
+// paintBox re-frames one box in place. The check writes the dots straight into their spans, so without
+// this the frame would keep the colour the last fleet refresh left and disagree with the words under it.
+function paintBox(id,online,h,peer){var e=el(id);if(!e)return;
+ e.className='tnnode '+boxCls(online,h,peer);e.title=boxTitle(online,h,peer)}
+function boxTitle(online,h,peer){return sideState(online,h,peer).t}
+function sideDot(online,h,peer){var s=sideState(online,h,peer);   // the WORD only; the frame carries the colour
+ return s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':''}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
  var idr='<div>'+esc(T('tid'))+': <b>'+esc(l.tunnel_id)+'</b></div>';
@@ -7835,9 +7850,9 @@ function linkFooter(l,editFn){
  return {drift:drift,acts:acts,msg:msg}}
 function linkCard(l){
  var body='<div class="tninfo">'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode '+boxCls(l.a_online,l.a_health,l.b_health)+'" id="bxa_'+l.id+'" title="'+esc(boxTitle(l.a_online,l.a_health,l.b_health))+'"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode '+boxCls(l.b_online,l.b_health,l.a_health)+'" id="bxb_'+l.id+'" title="'+esc(boxTitle(l.b_online,l.b_health,l.a_health))+'"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
@@ -7862,6 +7877,7 @@ async function checkLink(id){CHECKING++;
   if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
+  paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
   // the probe this check just ran is part of the verdict, not decoration — and so is the far end's own
@@ -8135,7 +8151,7 @@ function coreCard(l){
  // (cpip_a_/lba_/cprot_a_), never by screen position — the live-status poll looks them up by end.
  var _ip={a:_aip,b:_bip},_rt={a:_arot,b:_brot};
  var nbox=function(s){var isSrv=(s=='a')==srvA;
-  return '<div class="tnnode"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono" id="cpip_'+s+'_'+l.id+'">'+esc(_ip[s])+'</div></div>'};
+  return '<div class="tnnode '+boxCls(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health'])+'" id="bx'+s+'_'+l.id+'" title="'+esc(boxTitle(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health']))+'"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono" id="cpip_'+s+'_'+l.id+'">'+esc(_ip[s])+'</div></div>'};
  var _so=sideOrder(l,true);   // [left, right]
  var body='<div class="tninfo">'+
   nbox(_so[0])+

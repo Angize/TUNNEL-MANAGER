@@ -25,6 +25,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# The guard flips the panel source between runs, and a .pyc that survives one of those flips is
+# imported in place of the file under test — a revert then still "passes". Never write bytecode.
+sys.dont_write_bytecode = True
+
 SCRIPT_RE = re.compile(r"<script[^>]*>(.*?)</script>", re.S)
 
 STUBS = r"""
@@ -153,6 +157,18 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   want(linkDir({up:true, alive:true, tx_live:false, rx_live:false, round_trip:null}, IDLE) === null,
     'no recent round trip must stay undetermined, never a failure');
 
+  // ---- the node box's FRAME, which replaced the dot inside it ----
+  want(boxCls(true, ALIVE_OK, ALIVE_OK) === 'st-ok', 'a healthy box must be framed green');
+  want(boxCls(true, A_SENDING, B_DEAF) === 'st-warn', 'a one-way box must be framed amber');
+  want(boxCls(true, {up:true, alive:true, dead:true}, IDLE) === 'st-bad', 'a dead box must be framed red');
+  want(boxCls(false, ALIVE_OK, ALIVE_OK) === 'st-bad', 'an offline node must be framed red');
+  want(boxTitle(true, A_SENDING, B_DEAF) === T('tst_oneway_peer'),
+    'the frame carries the reason, since the dot inside the box is gone');
+  want(sideDot(true, ONE_WAY, ONE_WAY).indexOf('sdot') < 0,
+    'no dot may be rendered inside the box any more — the card header already has one per end');
+  want(sideDot(true, {up:true, alive:true, dead:true}, IDLE).indexOf(T('st_disc')) >= 0,
+    'the WORD stays: a red frame alone does not say whether it is disconnected or dead');
+
   return run(A_SENDING, B_DEAF);
 }).then(function(r){
   want(r && r.cls === 'err',
@@ -200,6 +216,25 @@ def main():
         print((r.stderr or r.stdout or "")[-2000:])
         return 1
     fails = json.loads(payload).get("fails") or []
+
+    # A class the browser JS cannot catch: the frame colours are CSS, and a state whose variable does not
+    # exist renders border:0 — invisible, while every structural assertion above still passes. Checking
+    # the four rules resolve to a variable the sheet actually declares is the cheap half of that.
+    css = re.search(r"<style>(.*?)</style>", mod.INDEX_HTML, re.S)
+    if css is None:
+        fails.append("no <style> block in the panel — THIS SCRIPT is out of date")
+    else:
+        sheet = css.group(1)
+        declared = set(re.findall(r"(--[a-z0-9-]+)\s*:", sheet))
+        for state in ("st-ok", "st-warn", "st-bad", "st-na"):
+            rule = re.search(r"\.tnnode\.%s\{([^}]*)\}" % state, sheet)
+            if rule is None:
+                fails.append("no .tnnode.%s rule — the node box has no frame for that state" % state)
+                continue
+            for var in re.findall(r"var\((--[a-z0-9-]+)\)", rule.group(1)):
+                if var not in declared:
+                    fails.append("`.tnnode.%s` uses %s, which the sheet never declares — the frame "
+                                 "renders as border:0 and the state is INVISIBLE" % (state, var))
     for msg in fails:
         print(" FAIL " + msg)
     if not fails:
