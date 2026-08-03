@@ -6533,11 +6533,15 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tninfo>*{direction:rtl}   /* columns flow LTR, so the last child is the right one; each box keeps RTL content */
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
 /* The FRAME carries the state, never the fill: a filled box drowns the address and the role chip it
-   sits behind. 2px so it reads on a phone without the border shifting the layout. */
-.tnnode.st-ok{border:2px solid var(--ok);padding:9px 11px}
-.tnnode.st-warn{border:2px solid var(--gold);padding:9px 11px}
-.tnnode.st-bad{border:2px solid var(--bad);padding:9px 11px}
-.tnnode.st-na{border:2px solid var(--bord);padding:9px 11px}
+   sits behind. Only the COLOUR changes — the width stays the 1px the action buttons use, so the box
+   keeps the same weight as everything around it and nothing reflows. */
+.tnnode.st-ok{border-color:var(--ok)}
+.tnnode.st-warn{border-color:var(--gold)}
+.tnnode.st-bad{border-color:var(--bad)}
+.tnnode.st-na{border-color:var(--bord)}
+/* The status span is empty whenever there is nothing to say, and an empty flex child still collects the
+   row's gap — which left the role chip floating away from the edge once the dot moved to the header. */
+.tnend .stat:empty,.tnhead .stat:empty{display:none}
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
