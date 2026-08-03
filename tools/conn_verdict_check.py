@@ -82,9 +82,11 @@ function run(aHealth, bHealth){
 // One verdict now decides everything: the node sends a TCP handshake out of the tunnel device and
 // reports whether ANYTHING came back. There is no ladder left to get the ordering wrong in, so what
 // these assertions defend is that no OTHER field creeps back into the decision.
-var ALIVE = {up:true, alive:true,  dead:false, rtt_ms:31.2};
-var DEAD  = {up:true, alive:false, dead:true,  rtt_ms:null};
-var PEND  = {up:true, alive:null,  dead:false, rtt_ms:null};
+var ALIVE = {up:true, alive:true,  dead:false, rtt_ms:31.2, loss_pct:0};
+var DEAD  = {up:true, alive:false, dead:true,  rtt_ms:null, loss_pct:100};
+var PEND  = {up:true, alive:null,  dead:false, rtt_ms:null, loss_pct:null};
+var LOSSY = {up:true, alive:true,  dead:false, rtt_ms:81.6, loss_pct:66.7};   // core43, measured
+var NICK  = {up:true, alive:true,  dead:false, rtt_ms:78.2, loss_pct:33.3};   // one sample of three lost
 
 Promise.resolve().then(function(){
   return run(ALIVE, ALIVE);
@@ -116,6 +118,35 @@ Promise.resolve().then(function(){
   want(sideState(true, {up:true, alive:true, dead:false, rx_still:9999, tx_still:9999}).k === 'ok',
     'and a long-idle side whose handshake DID come back stays green');
 
+  // The contradiction this guard exists for: the button said متصل while the card beside it drew a red
+  // frame, because the button sampled three times and the sweep twice. They read one measurement now,
+  // so the header may be ok ONLY when every side is drawn green. Asserted over the whole matrix, not
+  // over one example -- a single pair passing says nothing about the pair that actually diverged.
+  // Sequentially: run() writes shared capture state, so a Promise.all here would race and report a
+  // disagreement that only the test created.
+  return [[ALIVE,ALIVE],[ALIVE,LOSSY],[LOSSY,LOSSY],[ALIVE,DEAD],[LOSSY,DEAD],
+          [NICK,ALIVE],[NICK,NICK],[PEND,ALIVE],[DEAD,DEAD]].reduce(function(chain, pair){
+    return chain.then(function(){ return run(pair[0], pair[1]); }).then(function(r){
+      var green = sideState(true, pair[0]).k === 'ok' && sideState(true, pair[1]).k === 'ok';
+      want((r && r.cls === 'ok') === green,
+        'the check header and the frames must never disagree: header=' + (r && r.cls) +
+        ' but both-green=' + green + ' for ' + JSON.stringify(pair.map(function(h){return h.loss_pct})));
+    });
+  }, Promise.resolve()).then(function(){
+
+  want(sideState(true, LOSSY).k === 'warn',
+    'a tunnel that answers but drops two thirds of what it is asked is neither connected nor down; ' +
+    'calling it either is a lie in one direction');
+  want(sideState(true, LOSSY).w === T('t_side_lossy'),
+    'and the degraded frame keeps its WORD -- an amber frame alone does not say what is wrong');
+  want(sideState(true, NICK).k === 'ok',
+    'but ONE sample of three lost is jitter, not a broken tunnel: the amber must not flicker on it');
+  want(sideTxt(true, LOSSY).indexOf('67') >= 0 || sideTxt(true, LOSSY).indexOf('66') >= 0,
+    'the degraded side states the loss it measured, got ' + sideTxt(true, LOSSY));
+  want(sideTxt(true, LOSSY).indexOf('82') >= 0,
+    'and the FASTEST reply, not a retransmit: a lost first SYN reports the kernel 1s retry timer, ' +
+    'which is a loss symptom wearing latency clothes');
+
   want(sideState(true, ALIVE).k === 'ok', 'answered -> green');
   want(sideState(true, DEAD).k === 'bad', 'unanswered -> red');
   want(sideState(true, PEND).k === 'na', 'not yet measured -> neutral, never green');
@@ -131,6 +162,7 @@ Promise.resolve().then(function(){
   want(sideTxt(true, ALIVE).indexOf('31') >= 0, 'the answered side shows the round trip it measured');
 
   console.log(JSON.stringify({fails: __fails}));
+  });
 }).catch(function(e){
   console.log(JSON.stringify({fails: ['harness threw: ' + (e && e.stack || e)]}));
 });
