@@ -1634,25 +1634,6 @@ def api_spoof_egress_probe(d):
             "sender": sender["name"], "receiver": receiver["name"], "proto": proto}
 
 
-def _mirror_beat(ah, bh):
-    """Carry the CLIENT's death verdict onto the heartbeat-less server end.
-
-    Only the client core writes the status file, so `dead` — the core saying the session really ended —
-    exists on one side only. Liveness itself is no longer mirrored: each end now reports its own two
-    directions and the browser pairs them, which is what the mirror was standing in for. Returns the
-    adjusted pair; the copy matters because ah/bh are references into the poll cache."""
-    beat = ah if isinstance(ah, dict) and ah.get("live_src") in ("beat", "nohb") else (
-        bh if isinstance(bh, dict) and bh.get("live_src") in ("beat", "nohb") else None)
-    if beat is None or not beat.get("dead"):
-        return ah, bh
-    other = bh if beat is ah else ah
-    if not (isinstance(other, dict) and other.get("up")):
-        return ah, bh
-    other = dict(other)
-    other["dead"] = True
-    return (ah, other) if beat is ah else (other, bh)
-
-
 def _link_side_health(L, node_key):
     lst = _cached_list(L[node_key])
     if lst.get("configs") is None:
@@ -1799,11 +1780,11 @@ def api_summary(d):
             # worst view of the tunnel = the higher loss / rtt reported by either end
             sides = [h for h in (ah, bh) if isinstance(h, dict)]
             lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
-            lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
+            lbad = any(h.get("alive") is False for h in sides)   # a side whose probe went unanswered
             if lrtt > 0:
                 rtts.append(lrtt)
-            # only a *real* quality problem qualifies: packet loss, or genuinely high ping
-            if lloss > 0 or lrtt > PING_BAD:
+            # only a *real* quality problem qualifies: an unanswered probe, or genuinely high ping
+            if lbad or lrtt > PING_BAD:
                 cand = {"name": L.get("name"),
                         "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
                         "b": nmap.get(L.get("b_node"), L.get("b_name", "")),
@@ -2941,7 +2922,6 @@ def api_fleet(d):
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
         ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
-        ah, bh = _mirror_beat(ah, bh)   # the client's hb verdict is the whole tunnel's — see the helper
         a_ips = _flat_ips(_cached_ping(L["a_node"]))
         b_ips = _flat_ips(_cached_ping(L["b_node"]))
         side = "b" if L.get("view_side") == "b" else "a"
@@ -4549,12 +4529,8 @@ def api_check_link(d):
             return {"online": False, "health": None}
         return {"online": True, "health": None}  # node up but tunnel unknown/error
 
-    a, b = parallel_map(chk, [L["a_node"], L["b_node"]])  # ping both ends at once (halves the wait)
-    # Same mirror the fleet view applies. checkLink writes these straight into the dots the fleet render
-    # owns, so without it the manual check disagreed with the card it sits on: on a half-open tunnel the
-    # server end self-reports alive via live_src "flow" and its dot flipped red→green, then snapped back
-    # on the next refresh.
-    ah, bh = _mirror_beat(a["health"], b["health"])
+    a, b = parallel_map(chk, [L["a_node"], L["b_node"]])  # probe both ends at once (halves the wait)
+    ah, bh = a["health"], b["health"]
     return {"ok": True, "name": L["name"], "a_online": a["online"], "b_online": b["online"],
             "a_health": ah, "b_health": bh}
 
@@ -7729,49 +7705,15 @@ function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','t
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
-// The carrier round trip is the better latency number when the core published one: it is measured on the
-// tunnel itself, through obfs and crypto, while the ICMP figure shares none of that path.
-function pingInfo(h){var p=[];if(h.carrier_rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.carrier_rtt_ms));
- else if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));if(h.loss_pct!=null)p.push(h.loss_pct>0?(T('t_loss')+' '+(Math.round(h.loss_pct*10)/10)+T('pct')):T('t_noloss'));return p.join(' · ')}
-// linkDir: does THIS side's outbound actually reach the peer? No host can answer that about itself —
-// it only knows what it sent — but the panel holds both ends, so `us.tx_live && them.rx_live` settles
-// it directly, with no probe at all. Undetermined (null) whenever either half is unknown or the tunnel
-// is simply idle: silence is not a failure, which is what the probe is still there for.
-// moving reports whether a direction's byte counter advanced inside the node's short "arriving now"
-// window. null when that end never had a baseline to compare against.
-function moving(h,k){var s=h?h[k+'_still']:null;return s==null?null:s<=num(h.live_win||12)}
-function linkDir(us, them){
- // The carrier's own answered keepalive settles this end WITHOUT the far end's help: the pong proves our
- // ping arrived and that the reply came back. It is checked first because it is the stronger evidence —
- // one round trip on the real carrier — and because it works on an IDLE tunnel, where no byte counter
- // moves and the pairing below has nothing to compare. Positive only: the node never sets it false.
- if(us&&us.round_trip===true)return true;
- if(!us||!them)return null;
- if(moving(us,'tx')!==true)return null;         // we are not sending; nothing to conclude
- if(moving(them,'rx')===true)return true;       // our bytes are coming out the far end
- // Broken is the CLAIM, so it needs the long threshold: the peer silent for longer than the tunnel's own
- // dead-window. A short quiet patch in bursty traffic is not evidence of anything — the two ends sample
- // at unsynchronised moments, and treating "quiet for 12s" as proof turned that skew into a red verdict.
- // Between "just moved" and "silent past the death window" there is deliberately NO verdict.
- var dw=num(them.dead_win);
- if(dw>0&&them.rx_still!=null&&them.rx_still>dw)return false;
- return null}
-// oneWay: the probe RAN and every packet was lost, while the side still reports alive. Those two are not
-// in conflict — a peer whose replies still arrive keeps the core heartbeat fresh, and `alive` is decided
-// from that heartbeat before the ping is ever consulted — so the tunnel can carry nothing in one
-// direction and still be called connected. The probe targets the peer's own TUN address, which its
-// kernel answers, so a total loss there is not an ICMP policy: it is packets not crossing. Not proof of
-// death either (one probe), so this reads amber and never a confident green.
-function oneWay(h){return !!(h&&h.alive===true&&h.loss_pct!=null&&h.loss_pct>=100)}
+// The latency shown is the probe's own round trip, measured through the tunnel itself.
+function pingInfo(h){return h&&h.rtt_ms!=null?T('t_ping')+' '+fmtms(h.rtt_ms):''}
 function sideTxt(online,h,peer){
  if(!online)return T('t_side_off');
  if(!h)return T('t_side_notun');
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
- if(h.dead)return T('st_disc');   // frozen core heartbeat = the encrypted session died (peer gone)
- if(linkDir(h,peer)===false||oneWay(h))return T('t_side_oneway')+' · '+pingInfo(h);
- if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}   // alive via heartbeat/traffic-flow (ICMP maybe unrun/filtered)
- if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+(Math.round(h.loss_pct)||100)+T('pct')+')':'');
+ if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}
+ if(h.alive===false)return T('t_side_nopingr');
  return T('t_side_up_unk')}
 // k: dot color class · w: the word to show ONLY when there's a problem · t: the tooltip, ALWAYS.
 // Every cause carries its own tooltip — no answer, no such tunnel, iface down, dead session, and the
@@ -7782,14 +7724,9 @@ function sideState(online,h,peer){
  if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
- if(h.dead)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};           // confirmed dead (frozen core heartbeat) -> red at once
- // Two different findings share this amber, and with no word beside the dot the tooltip is the ONLY
- // explanation — so it must name the one that actually fired. The paired verdict runs passively with
- // no probe at all; quoting lost pings there would state a measurement that never happened.
- if(linkDir(h,peer)===false)return {k:'warn',w:'',t:T('tst_oneway_peer')};
- if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
- if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
- return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
+ if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // the handshake crossed and came back
+ if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  // nothing came back at all
+ return {k:'na',w:'…',t:T('checking')}}                               // no verdict yet
 // boxCls/boxTitle paint the node box's FRAME from the same verdict the header dot uses. The dot itself is
 // gone from inside the box — the card header already carries one per end, and two dots for one fact only
 // competed for a line that also holds the name, the role chip and the protocol.
@@ -7894,12 +7831,9 @@ async function checkLink(id){CHECKING++;
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
   paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
-  var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
-  // the probe this check just ran is part of the verdict, not decoration — and so is the far end's own
-  // view: a direction PROVEN not to land fails the whole tunnel, whichever end noticed.
-  var okAll=aup&&bup&&pinged&&!(d.a_health&&d.a_health.dead)&&!(d.b_health&&d.b_health.dead)&&
-    !oneWay(d.a_health)&&!oneWay(d.b_health)&&
-    linkDir(d.a_health,d.b_health)!==false&&linkDir(d.b_health,d.a_health)!==false;
+  // BOTH ends must have got their handshake back. One end answered is not the tunnel working: it is
+  // half of it working, and the card would be claiming more than was measured.
+  var okAll=aup&&bup&&d.a_health.alive===true&&d.b_health.alive===true;
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health,d.b_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health,d.a_health)));
  }finally{CHECKING--}}
