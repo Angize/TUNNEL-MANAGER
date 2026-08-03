@@ -1781,6 +1781,7 @@ def api_summary(d):
             sides = [h for h in (ah, bh) if isinstance(h, dict)]
             lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
             lbad = any(h.get("alive") is False for h in sides)   # a side whose probe went unanswered
+            lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
             if lrtt > 0:
                 rtts.append(lrtt)
             # only a *real* quality problem qualifies: an unanswered probe, or genuinely high ping
