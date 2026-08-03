@@ -6840,7 +6840,7 @@ var I18N={fa:{
  // word — which is three of its outcomes, two of them YELLOW — so a not-proven-live tunnel told the
  // operator the exact opposite of what its colour meant, while every RED dot (the ones that actually
  // need explaining) had no title at all.
- tst_dead:"سشنِ رمزنگاری مرده — ضربانِ هسته یخ زده، سرِ مقابل جواب نمی‌دهد",
+ tst_dead:"هیچ‌کدام از بسته‌های آزمایشی برنگشت — چیزی از این تونل رد نمی‌شود",
  tst_unproven:"اینترفیس بالاست ولی زنده‌بودنش ثابت نشده — نه ترافیکی آمده نه پروب جواب داده",
  tst_connecting:"در حالِ وصل‌شدن — هنوز هیچ فریمی از سرِ مقابل نرسیده",
  ov_worst_q:"بدترین کیفیت: تونلِ",ov_loss:"اتلاف",ov_ping:"پینگ",ov_all_good:"کیفیتِ همهٔ تونل‌ها خوب است",ov_fleet_ping:"میانگینِ پینگِ فلیت",
@@ -7731,8 +7731,8 @@ function sideState(online,h,peer){
  if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
- if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // most of the probe came back
- if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  // most of it did not
+ if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // something still crosses
+ if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  // nothing does
  return {k:'na',w:'…',t:T('checking')}}                               // no verdict yet
 // boxCls/boxTitle paint the node box's FRAME from the same verdict the header dot uses. The dot itself is
 // gone from inside the box — the card header already carries one per end, and two dots for one fact only
