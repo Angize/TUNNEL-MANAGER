@@ -61,18 +61,25 @@ var __fails = [];
 function want(cond, msg){ if(!cond) __fails.push(msg); }
 
 var __captured = null;
+var __boxes = {};
 setChk = function(id, cls, html){ __captured = {cls: cls, html: html}; };
 toast  = function(){};
-el     = function(){ return null; };
+// Hand out a real object for the box ids so whatever checkLink paints is observable. Anything else
+// stays null, as before.
+el = function(id){
+  if (id && id.indexOf('bx') === 0) { if (!__boxes[id]) __boxes[id] = {className:'', title:''}; return __boxes[id]; }
+  return null;
+};
 
 function run(aHealth, bHealth){
-  __captured = null;
+  __captured = null; __boxes = {};
   FLEET = [{id:'t1', a_name:'IR01', b_name:'DE01'}];
   post = function(){ return Promise.resolve({ok:true, d:{ok:true,
     a_online:true, b_online:true, a_health:aHealth, b_health:bHealth}}); };
   return checkLink('t1').then(function(){ return __captured; });
 }
 
+var A_SENDING, B_DEAF, IDLE;
 var ALIVE_OK  = {up:true, alive:true,  dead:false, rtt_ms:31.2, loss_pct:0};
 var ONE_WAY   = {up:true, alive:true,  dead:false, rtt_ms:null, loss_pct:100};
 var HALF_LOSS = {up:true, alive:true,  dead:false, rtt_ms:80.0, loss_pct:50};
@@ -116,8 +123,8 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
   // ---- pairing the two ends: the only thing that can settle "does what I send arrive" ----
   // A is pushing packets in and B's tunnel delivers none of them. This is the real measured case:
   // 122 out of the Iranian node in 20s, 0 arrived — with A's heartbeat fresh the whole time.
-  var A_SENDING = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:0, live_win:12, dead_win:20};
-  var B_DEAF    = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:600, live_win:12, dead_win:20};
+  A_SENDING = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:0, live_win:12, dead_win:20};
+  B_DEAF    = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:600, live_win:12, dead_win:20};
 
   want(linkDir(A_SENDING, B_DEAF) === false,
     'A is sending and B receives nothing — the direction must read broken with no probe involved');
@@ -132,7 +139,7 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'the side whose traffic DOES land must stay green — the half that works is information');
 
   // Idle is not failure, and one unknown half must never manufacture a verdict.
-  var IDLE = {up:true, alive:true, dead:false, tx_still:999, rx_still:999, live_win:12, dead_win:20};
+  IDLE = {up:true, alive:true, dead:false, tx_still:999, rx_still:999, live_win:12, dead_win:20};
   want(linkDir(IDLE, IDLE) === null, 'an idle tunnel must stay undetermined, not fail');
   want(linkDir(A_SENDING, {up:true, alive:true}) === null,
     'a peer that reports no direction at all must not produce a verdict');
@@ -186,6 +193,22 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'no dot may be rendered inside the box any more — the card header already has one per end');
   want(sideDot(true, {up:true, alive:true, dead:true}, IDLE).indexOf(T('st_disc')) >= 0,
     'the WORD stays: a red frame alone does not say whether it is disconnected or dead');
+
+  return run(A_SENDING, B_DEAF);
+}).then(function(r){
+  // Pressing the check must repaint IMMEDIATELY — from the continuous data it just fetched, never from
+  // the probe. Driving checkLink itself, not paintBox: the whole point is that the CHECK does this.
+  want(__boxes['bxa_t1'] && __boxes['bxa_t1'].className === 'tnnode st-warn',
+    'a direction the continuous counters prove broken must repaint the frame the moment the check ' +
+    'returns, not two poll hops later — got ' +
+    JSON.stringify(__boxes['bxa_t1'] && __boxes['bxa_t1'].className));
+
+  return run(ONE_WAY, ONE_WAY);
+}).then(function(r){
+  want(__boxes['bxa_t1'] && __boxes['bxa_t1'].className === 'tnnode st-ok',
+    'but a 100%-loss PROBE on a side every continuous signal calls alive must repaint GREEN — the ' +
+    'button refreshes the data, it does not hand the probe a vote; got ' +
+    JSON.stringify(__boxes['bxa_t1'] && __boxes['bxa_t1'].className));
 
   return run(A_SENDING, B_DEAF);
 }).then(function(r){
