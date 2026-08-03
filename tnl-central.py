@@ -7886,11 +7886,13 @@ async function checkLink(id){CHECKING++;
   var r=await post('check-link',{id:id});
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
   if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
-  // The probe REPORTS; it does not decide. Its answer is one sample of one moment, and ICMP can be
-  // filtered or queued inside a tunnel that carries data perfectly — so painting the card from it would
-  // state a verdict the continuous signals never made, and hold it until the next refresh undid it.
-  // The lines below say what this probe found; the colours stay with the data that keeps arriving.
-  var d=r.d;
+  // The probe REPORTS; it does not decide — sideState reads none of its output, so what gets painted
+  // here is the node's CONTINUOUS data, just fetched fresh. Repainting from it is not the probe setting
+  // state; it is skipping the two poll hops the periodic path would have waited for. The lines below
+  // say what the probe measured, and stay separate from the colours.
+  var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
+  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
+  paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
   // the probe this check just ran is part of the verdict, not decoration — and so is the far end's own
