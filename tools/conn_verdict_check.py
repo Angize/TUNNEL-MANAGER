@@ -85,8 +85,10 @@ function run(aHealth, bHealth){
 var ALIVE = {up:true, alive:true,  dead:false, rtt_ms:31.2, loss_pct:0};
 var DEAD  = {up:true, alive:false, dead:true,  rtt_ms:null, loss_pct:100};
 var PEND  = {up:true, alive:null,  dead:false, rtt_ms:null, loss_pct:null};
-var LOSSY = {up:true, alive:true,  dead:false, rtt_ms:81.6, loss_pct:66.7};   // core43, measured
-var NICK  = {up:true, alive:true,  dead:false, rtt_ms:78.2, loss_pct:33.3};   // one sample of three lost
+// The node decides the two states itself, from a majority of its samples, so these are the only
+// shapes it can publish: a side that answered most of the probe, or one that did not.
+var LOSSY = {up:true, alive:false, dead:true,  rtt_ms:81.6, loss_pct:60.0};   // most of it did not cross
+var NICK  = {up:true, alive:true,  dead:false, rtt_ms:78.2, loss_pct:30.0};   // a minority lost: still connected
 
 Promise.resolve().then(function(){
   return run(ALIVE, ALIVE);
@@ -134,18 +136,23 @@ Promise.resolve().then(function(){
     });
   }, Promise.resolve()).then(function(){
 
-  want(sideState(true, LOSSY).k === 'warn',
-    'a tunnel that answers but drops two thirds of what it is asked is neither connected nor down; ' +
-    'calling it either is a lie in one direction');
-  want(sideState(true, LOSSY).w === T('t_side_lossy'),
-    'and the degraded frame keeps its WORD -- an amber frame alone does not say what is wrong');
+  // TWO states. The panel adds no threshold of its own: a second one here could only ever disagree
+  // with the node that did the measuring, which is the exact bug the single threshold was built for.
+  [ALIVE, DEAD, PEND, LOSSY, NICK,
+   {up:true, alive:true, dead:false, rtt_ms:80, loss_pct:49.9},
+   {up:true, alive:true, dead:false, rtt_ms:80, loss_pct:50.0},
+   {up:true, alive:false, dead:true, rtt_ms:80, loss_pct:50.1}].forEach(function(h){
+    want(sideState(true, h).k !== 'warn',
+      'there is no degraded state any more, but loss_pct=' + h.loss_pct + ' painted one');
+  });
+  want(sideState(true, LOSSY).k === 'bad',
+    'a side the node called disconnected must be red whatever its loss reads');
   want(sideState(true, NICK).k === 'ok',
-    'but ONE sample of three lost is jitter, not a broken tunnel: the amber must not flicker on it');
-  want(sideTxt(true, LOSSY).indexOf('67') >= 0 || sideTxt(true, LOSSY).indexOf('66') >= 0,
-    'the degraded side states the loss it measured, got ' + sideTxt(true, LOSSY));
-  want(sideTxt(true, LOSSY).indexOf('82') >= 0,
-    'and the FASTEST reply, not a retransmit: a lost first SYN reports the kernel 1s retry timer, ' +
-    'which is a loss symptom wearing latency clothes');
+    'and a side it called connected must be green -- the panel must not re-judge it on the percentage');
+  want(sideTxt(true, LOSSY).indexOf('60') >= 0,
+    'a red side still STATES the loss it measured, got ' + sideTxt(true, LOSSY));
+  want(sideTxt(true, NICK).indexOf('78') >= 0,
+    'and a green side states its ping, which is a round trip and never a retry timer');
 
   want(sideState(true, ALIVE).k === 'ok', 'answered -> green');
   want(sideState(true, DEAD).k === 'bad', 'unanswered -> red');

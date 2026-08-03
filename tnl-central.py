@@ -6842,7 +6842,6 @@ var I18N={fa:{
  // need explaining) had no title at all.
  tst_dead:"سشنِ رمزنگاری مرده — ضربانِ هسته یخ زده، سرِ مقابل جواب نمی‌دهد",
  tst_unproven:"اینترفیس بالاست ولی زنده‌بودنش ثابت نشده — نه ترافیکی آمده نه پروب جواب داده",
- tst_lossy:"تونل برقرار است ولی بیشترِ بسته‌ها به مقصد نمی‌رسند",
  tst_connecting:"در حالِ وصل‌شدن — هنوز هیچ فریمی از سرِ مقابل نرسیده",
  ov_worst_q:"بدترین کیفیت: تونلِ",ov_loss:"اتلاف",ov_ping:"پینگ",ov_all_good:"کیفیتِ همهٔ تونل‌ها خوب است",ov_fleet_ping:"میانگینِ پینگِ فلیت",
  ov_uptime_lbl:"میانگینِ آپ‌تایمِ",ov_hours_recent:"ساعتِ اخیر",load:"لود",
@@ -6898,7 +6897,7 @@ var I18N={fa:{
  test_testing:"در حال تست…",node_added_online:" · آنلاین",node_added_offline:" · آفلاین: ",
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
- t_side_conn:"متصل",t_side_lossy:"معیوب",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
+ t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
  t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر ۴ پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
@@ -7712,30 +7711,28 @@ function pingInfo(h){if(!h)return '';var p=[];
  if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));
  if(h.loss_pct!=null&&h.loss_pct>0)p.push(T('t_loss')+' '+Math.round(h.loss_pct)+T('pct'));
  return p.join(' · ')}
-// LOSSY_AT is the ONE threshold. The card, the frame and the check header all read it, so the button
-// can no longer call a tunnel connected that the card beside it is drawing as broken.
-var LOSSY_AT=50;
-function lossy(h){return !!(h&&h.alive===true&&h.loss_pct!=null&&h.loss_pct>=LOSSY_AT)}
+// A side is connected or it is not. The node decides that from a majority of its samples and holds the
+// verdict across one unlucky sweep, so `alive` is already the whole answer and the panel adds no
+// threshold of its own — a second one here could only ever disagree with the one that measured.
 function sideTxt(online,h,peer){
  if(!online)return T('t_side_off');
  if(!h)return T('t_side_notun');
  if(h.up==null)return T('checking');
  if(!h.up)return T('t_side_ifdown');
- if(h.alive===true){var e2=pingInfo(h);return (lossy(h)?T('t_side_lossy'):T('t_side_conn'))+(e2?' · '+e2:'')}
+ if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+Math.round(h.loss_pct)+T('pct')+')':'');
  return T('t_side_up_unk')}
 // k: dot color class · w: the word to show ONLY when there's a problem · t: the tooltip, ALWAYS.
-// Every cause carries its own tooltip — no answer, no such tunnel, iface down, dead session, and the
-// two yellow up-but-unproven outcomes. A wordless dot must never inherit title=«متصل» from the
-// "no word means connected" shortcut when that is not what it means.
+// Every cause carries its own tooltip — no answer, no such tunnel, iface down, dead session. A wordless
+// dot must never inherit title=«متصل» from the "no word means connected" shortcut when that is not what
+// it means. Two colours plus the neutral not-yet-measured: there is no degraded state to paint.
 function sideState(online,h,peer){
  if(!online)return {k:'bad',w:T('st_disc'),t:T('t_side_off')};        // the agent itself did not answer
  if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
- if(lossy(h))return {k:'warn',w:T('t_side_lossy'),t:T('tst_lossy')};  // it crosses, but mostly it does not
- if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // the handshake crossed and came back
- if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  // nothing came back at all
+ if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // most of the probe came back
+ if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  // most of it did not
  return {k:'na',w:'…',t:T('checking')}}                               // no verdict yet
 // boxCls/boxTitle paint the node box's FRAME from the same verdict the header dot uses. The dot itself is
 // gone from inside the box — the card header already carries one per end, and two dots for one fact only
@@ -7843,8 +7840,7 @@ async function checkLink(id){CHECKING++;
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   // BOTH ends must have got their handshake back. One end answered is not the tunnel working: it is
   // half of it working, and the card would be claiming more than was measured.
-  var okAll=aup&&bup&&d.a_health.alive===true&&d.b_health.alive===true&&
-    !lossy(d.a_health)&&!lossy(d.b_health);
+  var okAll=aup&&bup&&d.a_health.alive===true&&d.b_health.alive===true;
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health,d.b_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health,d.a_health)));
  }finally{CHECKING--}}
