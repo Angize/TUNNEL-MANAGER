@@ -7737,6 +7737,9 @@ function pingInfo(h){var p=[];if(h.carrier_rtt_ms!=null)p.push(T('t_ping')+' '+f
 // it only knows what it sent — but the panel holds both ends, so `us.tx_live && them.rx_live` settles
 // it directly, with no probe at all. Undetermined (null) whenever either half is unknown or the tunnel
 // is simply idle: silence is not a failure, which is what the probe is still there for.
+// moving reports whether a direction's byte counter advanced inside the node's short "arriving now"
+// window. null when that end never had a baseline to compare against.
+function moving(h,k){var s=h?h[k+'_still']:null;return s==null?null:s<=num(h.live_win||12)}
 function linkDir(us, them){
  // The carrier's own answered keepalive settles this end WITHOUT the far end's help: the pong proves our
  // ping arrived and that the reply came back. It is checked first because it is the stronger evidence —
@@ -7744,9 +7747,14 @@ function linkDir(us, them){
  // moves and the pairing below has nothing to compare. Positive only: the node never sets it false.
  if(us&&us.round_trip===true)return true;
  if(!us||!them)return null;
- if(us.tx_live!==true)return null;              // we are not sending; nothing to conclude
- if(them.rx_live===true)return true;            // our bytes are coming out the far end
- if(them.rx_live===false)return false;          // we are sending and it is arriving nowhere
+ if(moving(us,'tx')!==true)return null;         // we are not sending; nothing to conclude
+ if(moving(them,'rx')===true)return true;       // our bytes are coming out the far end
+ // Broken is the CLAIM, so it needs the long threshold: the peer silent for longer than the tunnel's own
+ // dead-window. A short quiet patch in bursty traffic is not evidence of anything — the two ends sample
+ // at unsynchronised moments, and treating "quiet for 12s" as proof turned that skew into a red verdict.
+ // Between "just moved" and "silent past the death window" there is deliberately NO verdict.
+ var dw=num(them.dead_win);
+ if(dw>0&&them.rx_still!=null&&them.rx_still>dw)return false;
  return null}
 // oneWay: the probe RAN and every packet was lost, while the side still reports alive. Those two are not
 // in conflict — a peer whose replies still arrive keeps the core heartbeat fresh, and `alive` is decided
