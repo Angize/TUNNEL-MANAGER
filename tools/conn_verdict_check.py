@@ -79,143 +79,56 @@ function run(aHealth, bHealth){
   return checkLink('t1').then(function(){ return __captured; });
 }
 
-var A_SENDING, B_DEAF, IDLE;
-var ALIVE_OK  = {up:true, alive:true,  dead:false, rtt_ms:31.2, loss_pct:0};
-var ONE_WAY   = {up:true, alive:true,  dead:false, rtt_ms:null, loss_pct:100};
-var HALF_LOSS = {up:true, alive:true,  dead:false, rtt_ms:80.0, loss_pct:50};
+// One verdict now decides everything: the node sends a TCP handshake out of the tunnel device and
+// reports whether ANYTHING came back. There is no ladder left to get the ordering wrong in, so what
+// these assertions defend is that no OTHER field creeps back into the decision.
+var ALIVE = {up:true, alive:true,  dead:false, rtt_ms:31.2};
+var DEAD  = {up:true, alive:false, dead:true,  rtt_ms:null};
+var PEND  = {up:true, alive:null,  dead:false, rtt_ms:null};
 
-run(ALIVE_OK, ALIVE_OK).then(function(r){
-  want(r && r.cls === 'ok', 'a clean probe on both sides must still report ok, got ' + JSON.stringify(r && r.cls));
+Promise.resolve().then(function(){
+  return run(ALIVE, ALIVE);
+}).then(function(r){
+  want(r && r.cls === 'ok', 'both handshakes answered must read ok, got ' + JSON.stringify(r && r.cls));
   want(r && r.html.indexOf(T('conn_ok')) >= 0, 'the ok header must read ' + T('conn_ok'));
-
-  return run(ONE_WAY, ONE_WAY);
-}).then(function(r){
-  want(r && r.cls === 'err',
-    'BOTH sides measured 100% loss and the verdict was ' + JSON.stringify(r && r.cls) +
-    ' -- a check that watched every probe packet vanish must not report success');
-  want(r && r.html.indexOf(T('conn_bad')) >= 0, 'the failing header must read ' + T('conn_bad'));
-  want(r && r.html.indexOf('100') >= 0,
-    'each side line must still report the measured loss, which is what the probe is for');
-
-  return run(ALIVE_OK, ONE_WAY);
-}).then(function(r){
-  want(r && r.cls === 'err', 'ONE side at 100% loss must still fail the verdict, got ' + JSON.stringify(r && r.cls));
-
-  return run(HALF_LOSS, HALF_LOSS);
-}).then(function(r){
-  want(r && r.cls === 'ok',
-    'partial loss is a lossy tunnel, not a dead one -- it must stay ok, got ' + JSON.stringify(r && r.cls));
-
-  // the dot the dashboard paints, from the same health objects
-  // A probe result must NOT colour the card. It is one sample of one moment, and ICMP can be filtered
-  // inside a tunnel that carries data perfectly — so the dot stays with the continuous signals and the
-  // probe says what it found in its own lines.
-  want(sideState(true, ONE_WAY).k === 'ok',
-    'a 100%-loss probe must NOT repaint the dot: the continuous signals still say this side is alive, ' +
-    'and one ICMP sample does not overrule them — got ' + sideState(true, ONE_WAY).k);
-  want(sideTxt(true, ONE_WAY).indexOf('100') >= 0,
-    'the probe still REPORTS what it measured, in its own line');
-  want(sideState(true, ALIVE_OK).k === 'ok',
-    'a healthy side must still be green, got ' + sideState(true, ALIVE_OK).k);
-  want(sideState(true, {up:true, alive:true, dead:true, loss_pct:100}).k === 'bad',
-    'a confirmed-dead side must stay red, not be downgraded to amber');
-
-  // ---- pairing the two ends: the only thing that can settle "does what I send arrive" ----
-  // A is pushing packets in and B's tunnel delivers none of them. This is the real measured case:
-  // 122 out of the Iranian node in 20s, 0 arrived — with A's heartbeat fresh the whole time.
-  A_SENDING = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:0, live_win:12, dead_win:20};
-  B_DEAF    = {up:true, alive:true, dead:false, rtt_ms:null, loss_pct:null, tx_still:0, rx_still:600, live_win:12, dead_win:20};
-
-  want(linkDir(A_SENDING, B_DEAF) === false,
-    'A is sending and B receives nothing — the direction must read broken with no probe involved');
-  want(linkDir(B_DEAF, A_SENDING) === true,
-    'the OTHER direction is carrying and must not be condemned with it');
-  want(sideState(true, A_SENDING, B_DEAF).k === 'warn',
-    'the side whose traffic lands nowhere must be amber');
-  want(sideState(true, A_SENDING, B_DEAF).t === T('tst_oneway_peer'),
-    'the PAIRED verdict runs with no probe at all, so its tooltip must not cite lost pings — got ' +
-    JSON.stringify(sideState(true, A_SENDING, B_DEAF).t));
-  want(sideState(true, B_DEAF, A_SENDING).k === 'ok',
-    'the side whose traffic DOES land must stay green — the half that works is information');
-
-  // Idle is not failure, and one unknown half must never manufacture a verdict.
-  IDLE = {up:true, alive:true, dead:false, tx_still:999, rx_still:999, live_win:12, dead_win:20};
-  want(linkDir(IDLE, IDLE) === null, 'an idle tunnel must stay undetermined, not fail');
-  want(linkDir(A_SENDING, {up:true, alive:true}) === null,
-    'a peer that reports no direction at all must not produce a verdict');
-
-  // ---- the dead zone: a quiet patch is not a broken direction ----
-  // The two ends sample at unsynchronised moments and real traffic is bursty, so "I just sent" and
-  // "nothing reached me in the last 12s" disagree constantly on a perfectly healthy link. That
-  // disagreement used to come out as a red verdict; between the two thresholds there is now none.
-  var B_QUIET = {up:true, alive:true, dead:false, tx_still:0, rx_still:14, live_win:12, dead_win:20};
-  want(linkDir(A_SENDING, B_QUIET) === null,
-    'the peer quiet for 14s — past the 12s live window but well inside its 20s dead-window — must ' +
-    'produce NO verdict, not a broken one');
-  want(sideState(true, A_SENDING, B_QUIET).k === 'ok',
-    'and that side must stay green rather than flicker amber on an ordinary quiet patch');
-
-  var B_LONG = {up:true, alive:true, dead:false, tx_still:0, rx_still:25, live_win:12, dead_win:20};
-  want(linkDir(A_SENDING, B_LONG) === false,
-    'past the tunnel OWN dead-window the silence is unambiguous and must read broken');
-
-  var B_NO_DW = {up:true, alive:true, dead:false, tx_still:0, rx_still:9999, live_win:12, dead_win:0};
-  want(linkDir(A_SENDING, B_NO_DW) === null,
-    'a tunnel with no core publishes no dead-window, so no negative verdict is available to it');
-  want(linkDir(A_SENDING, null) === null, 'an unreachable peer must not produce a verdict');
-  want(sideState(true, IDLE, IDLE).k === 'ok', 'an idle-but-alive side stays green');
-
-  // ---- the answered keepalive: this end settles its own direction, no far end needed ----
-  var IDLE_RT = {up:true, alive:true, dead:false, tx_still:999, rx_still:999, live_win:12, dead_win:20,
-                 round_trip:true, carrier_rtt_ms:37};
-  want(linkDir(IDLE_RT, IDLE) === true,
-    'an answered keepalive proves our ping got there AND came back — it must settle the direction on an ' +
-    'IDLE tunnel, where no byte counter moves and the pairing has nothing to compare');
-  want(linkDir(IDLE_RT, null) === true,
-    'and it must hold with the far end unreachable, since it needs nothing from it');
-  want(sideState(true, IDLE_RT, IDLE).k === 'ok', 'a proven round trip reads green');
-  want(sideTxt(true, IDLE_RT, IDLE).indexOf('37') >= 0,
-    'the carrier RTT is measured through obfs and crypto — the path the data really takes — so it is ' +
-    'the one to show');
-  // Positive only. A stale round trip must not condemn anything: the TCP family skips the ping when
-  // data just arrived, so "no recent pong" is no news at all.
-  want(linkDir({up:true, alive:true, tx_still:999, rx_still:999, live_win:12, dead_win:20, round_trip:null}, IDLE) === null,
-    'no recent round trip must stay undetermined, never a failure');
-
-  // ---- the node box's FRAME, which replaced the dot inside it ----
-  want(boxCls(true, ALIVE_OK, ALIVE_OK) === 'st-ok', 'a healthy box must be framed green');
-  want(boxCls(true, A_SENDING, B_DEAF) === 'st-warn', 'a one-way box must be framed amber');
-  want(boxCls(true, {up:true, alive:true, dead:true}, IDLE) === 'st-bad', 'a dead box must be framed red');
-  want(boxCls(false, ALIVE_OK, ALIVE_OK) === 'st-bad', 'an offline node must be framed red');
-  want(boxTitle(true, A_SENDING, B_DEAF) === T('tst_oneway_peer'),
-    'the frame carries the reason, since the dot inside the box is gone');
-  want(sideDot(true, ONE_WAY, ONE_WAY).indexOf('sdot') < 0,
-    'no dot may be rendered inside the box any more — the card header already has one per end');
-  want(sideDot(true, {up:true, alive:true, dead:true}, IDLE).indexOf(T('st_disc')) >= 0,
-    'the WORD stays: a red frame alone does not say whether it is disconnected or dead');
-
-  return run(A_SENDING, B_DEAF);
-}).then(function(r){
-  // Pressing the check must repaint IMMEDIATELY — from the continuous data it just fetched, never from
-  // the probe. Driving checkLink itself, not paintBox: the whole point is that the CHECK does this.
-  want(__boxes['bxa_t1'] && __boxes['bxa_t1'].className === 'tnnode st-warn',
-    'a direction the continuous counters prove broken must repaint the frame the moment the check ' +
-    'returns, not two poll hops later — got ' +
-    JSON.stringify(__boxes['bxa_t1'] && __boxes['bxa_t1'].className));
-
-  return run(ONE_WAY, ONE_WAY);
-}).then(function(r){
   want(__boxes['bxa_t1'] && __boxes['bxa_t1'].className === 'tnnode st-ok',
-    'but a 100%-loss PROBE on a side every continuous signal calls alive must repaint GREEN — the ' +
-    'button refreshes the data, it does not hand the probe a vote; got ' +
+    'and the check must repaint the frame itself, not leave it to the next poll — got ' +
     JSON.stringify(__boxes['bxa_t1'] && __boxes['bxa_t1'].className));
 
-  return run(A_SENDING, B_DEAF);
+  return run(ALIVE, DEAD);
 }).then(function(r){
   want(r && r.cls === 'err',
-    'one direction proven not to land must fail the whole check, even with both ends alive and no ' +
-    'probe loss to point at; got ' + JSON.stringify(r && r.cls));
-  want(r && r.html.indexOf(T('t_side_oneway')) >= 0, 'and it must name which state it is');
+    'ONE end whose handshake never came back fails the whole tunnel: half a tunnel is not a tunnel. ' +
+    'got ' + JSON.stringify(r && r.cls));
+  want(__boxes['bxb_t1'] && __boxes['bxb_t1'].className === 'tnnode st-bad',
+    'and that end repaints RED at once, got ' + JSON.stringify(__boxes['bxb_t1'] && __boxes['bxb_t1'].className));
+
+  return run(PEND, ALIVE);
+}).then(function(r){
+  want(r && r.cls === 'err',
+    'no verdict yet is not a pass — the check may only say ok about what was measured');
+
+  // The whole point of the redesign: throughput counters are DISPLAY, never evidence. A side with bytes
+  // pouring through it and an unanswered handshake is red; a totally silent side whose handshake came
+  // back is green. If either of these flips, some counter has crept back into the verdict.
+  want(sideState(true, {up:true, alive:false, dead:true, rx_still:0, tx_still:0}).k === 'bad',
+    'bytes moving in both directions must NOT rescue a side whose handshake went unanswered');
+  want(sideState(true, {up:true, alive:true, dead:false, rx_still:9999, tx_still:9999}).k === 'ok',
+    'and a long-idle side whose handshake DID come back stays green');
+
+  want(sideState(true, ALIVE).k === 'ok', 'answered -> green');
+  want(sideState(true, DEAD).k === 'bad', 'unanswered -> red');
+  want(sideState(true, PEND).k === 'na', 'not yet measured -> neutral, never green');
+  want(sideState(true, {up:false, alive:null}).k === 'bad', 'iface down -> red');
+  want(sideState(false, ALIVE).k === 'bad', 'node offline -> red');
+  want(sideState(true, null).k === 'bad', 'node has no such tunnel -> red');
+
+  want(boxCls(true, ALIVE, ALIVE) === 'st-ok', 'a healthy box is framed green');
+  want(boxCls(true, DEAD, ALIVE) === 'st-bad', 'an unanswered box is framed red');
+  want(boxCls(false, ALIVE, ALIVE) === 'st-bad', 'an offline node is framed red');
+  want(sideDot(true, DEAD, ALIVE).indexOf(T('st_disc')) >= 0,
+    'the WORD stays: a red frame alone does not say what went wrong');
+  want(sideTxt(true, ALIVE).indexOf('31') >= 0, 'the answered side shows the round trip it measured');
 
   console.log(JSON.stringify({fails: __fails}));
 }).catch(function(e){
