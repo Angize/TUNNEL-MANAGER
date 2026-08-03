@@ -7787,7 +7787,6 @@ function sideState(online,h,peer){
  // explanation — so it must name the one that actually fired. The paired verdict runs passively with
  // no probe at all; quoting lost pings there would state a measurement that never happened.
  if(linkDir(h,peer)===false)return {k:'warn',w:'',t:T('tst_oneway_peer')};
- if(oneWay(h))return {k:'warn',w:'',t:T('tst_oneway_ping')};
  if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // PROVEN alive (core heartbeat / real traffic / probe answered) -> green
  if(h.alive===false)return {k:'warn',w:'',t:T('tst_unproven')};       // up but not proven live yet (no traffic + probe failed) -> yellow
  return {k:'warn',w:'',t:T('tst_connecting')}}   // no positive proof of life at all -> yellow, never green by default
@@ -7887,9 +7886,11 @@ async function checkLink(id){CHECKING++;
   var r=await post('check-link',{id:id});
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
   if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
-  var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
-  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
-  paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
+  // The probe REPORTS; it does not decide. Its answer is one sample of one moment, and ICMP can be
+  // filtered or queued inside a tunnel that carries data perfectly — so painting the card from it would
+  // state a verdict the continuous signals never made, and hold it until the next refresh undid it.
+  // The lines below say what this probe found; the colours stay with the data that keeps arriving.
+  var d=r.d;
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
   var pinged=(d.a_health&&d.a_health.alive===true)||(d.b_health&&d.b_health.alive===true);
   // the probe this check just ran is part of the verdict, not decoration — and so is the far end's own

@@ -87,8 +87,8 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'BOTH sides measured 100% loss and the verdict was ' + JSON.stringify(r && r.cls) +
     ' -- a check that watched every probe packet vanish must not report success');
   want(r && r.html.indexOf(T('conn_bad')) >= 0, 'the failing header must read ' + T('conn_bad'));
-  want(r && r.html.indexOf(T('t_side_oneway')) >= 0,
-    'each side line must name the state (' + T('t_side_oneway') + '), not just print the number');
+  want(r && r.html.indexOf('100') >= 0,
+    'each side line must still report the measured loss, which is what the probe is for');
 
   return run(ALIVE_OK, ONE_WAY);
 }).then(function(r){
@@ -100,19 +100,18 @@ run(ALIVE_OK, ALIVE_OK).then(function(r){
     'partial loss is a lossy tunnel, not a dead one -- it must stay ok, got ' + JSON.stringify(r && r.cls));
 
   // the dot the dashboard paints, from the same health objects
-  want(sideState(true, ONE_WAY).k === 'warn',
-    'the dot for a one-way side must be amber, got ' + sideState(true, ONE_WAY).k);
-  want(sideState(true, ONE_WAY).w === '',
-    'the node boxes are tight — the one-way dot carries no word, got ' +
-    JSON.stringify(sideState(true, ONE_WAY).w));
-  want(sideState(true, ONE_WAY).t === T('tst_oneway_ping'),
-    'with no word the tooltip is the ONLY explanation — a probe-driven amber must cite the probe');
+  // A probe result must NOT colour the card. It is one sample of one moment, and ICMP can be filtered
+  // inside a tunnel that carries data perfectly — so the dot stays with the continuous signals and the
+  // probe says what it found in its own lines.
+  want(sideState(true, ONE_WAY).k === 'ok',
+    'a 100%-loss probe must NOT repaint the dot: the continuous signals still say this side is alive, ' +
+    'and one ICMP sample does not overrule them — got ' + sideState(true, ONE_WAY).k);
+  want(sideTxt(true, ONE_WAY).indexOf('100') >= 0,
+    'the probe still REPORTS what it measured, in its own line');
   want(sideState(true, ALIVE_OK).k === 'ok',
     'a healthy side must still be green, got ' + sideState(true, ALIVE_OK).k);
   want(sideState(true, {up:true, alive:true, dead:true, loss_pct:100}).k === 'bad',
     'a confirmed-dead side must stay red, not be downgraded to amber');
-  want(sideTxt(true, ONE_WAY).indexOf(T('t_side_conn')) < 0,
-    'the one-way side text must not still say ' + T('t_side_conn'));
 
   // ---- pairing the two ends: the only thing that can settle "does what I send arrive" ----
   // A is pushing packets in and B's tunnel delivers none of them. This is the real measured case:
