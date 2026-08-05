@@ -8769,7 +8769,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  // where the role is chosen; the IP row two rows down stays keyed to core's src_ips/peer_ips.
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
   '<div id="e_bwrap"><label class="first" id="e_blab"></label>'+ssHTML('e_b',items,items[1].v,T('cli_node'),'onCorNode')+'</div></div>'+
-  '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bare"></div></div>'+
+  '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
   '<div id="e_rotrow"></div>'+rotSetHTML('e_')+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('e_cipher',CORE_CIPHERS(),'auto',T('cipher_ph'),'onCorCipher')+
@@ -8834,6 +8834,9 @@ function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(p
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
+// The container id is BUILT here — px+side+'ip' — so the markup must spell it e_aip/e_bip. Those are
+// `a`+`ip` and `b`+`ip`, nothing to do with any profile name, and renaming them in the HTML alone
+// silently drops the whole side: el() returns null and this returns before rendering anything.
 function renderRotIps(px){var srv=(px=='e_')?_corS.Srv:_eeS.Srv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
  // Role-based label: a node's IPs are the DESTINATION pool when that node is the SERVER (the client dials
  // it) and the SOURCE pool when it's the client. A fixed a=src/b=dst was wrong whenever node A is the
@@ -8877,9 +8880,9 @@ function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
 function corNodeLbls(){var srvA=(_corS.Srv=='a'),la=el('e_alab'),lb=el('e_blab');
  if(la)la.textContent=srvA?T('srv_node'):T('cli_node');
  if(lb)lb.textContent=srvA?T('cli_node'):T('srv_node');
- // The IP field moves with its picker, or the two grids stop lining up. e_aip/e_bare are also what
+ // The IP field moves with its picker, or the two grids stop lining up. e_aip/e_bip are also what
  // renderRotIps fills, so the rotation pool follows.
- var A=[el('e_awrap'),el('e_aip')],B=[el('e_bwrap'),el('e_bare')];
+ var A=[el('e_awrap'),el('e_aip')],B=[el('e_bwrap'),el('e_bip')];
  A.forEach(function(e){if(e)e.style.order=srvA?'0':'1'});
  B.forEach(function(e){if(e)e.style.order=srvA?'1':'0'})}
 function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');corNodeLbls();renderRotIps('e_')}
@@ -8984,7 +8987,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
  if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
  var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
-  '<div class="grid2"><div id="ee_aip"></div><div id="ee_bare"></div></div>'+
+  '<div class="grid2"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
   '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+'<div id="ee_peerlive"></div>'+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
