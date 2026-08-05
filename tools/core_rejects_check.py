@@ -77,6 +77,27 @@ MUST_REJECT = [
      "config.go: fec_data must be at most packet.MaxFecData"),
 ]
 
+# EDITS of a STORED tunnel. The list above passes an empty `cur`, so it cannot express the thing that
+# actually broke: a per-profile field the tunnel carries from its PREVIOUS profile must not block the
+# change. raw_port did — every raw tunnel that had ever been udp/tcp became unable to move to any other
+# profile, because _core_extra fell back to the stored port and refused it against the new profile. A
+# field asked for in THIS request is a different thing and is still refused (see MUST_REJECT).
+#   (name, stored link, edit request, keys that must be GONE from the result)
+MUST_ACCEPT_EDIT = [
+    ("stored udp+port -> %s drops the port" % prof,
+     {"transport": "raw", "raw_profile": "udp", "raw_port": 443, "cipher": "auto"},
+     {"transport": "raw", "cipher": "auto", "raw_profile": prof},
+     ["raw_port"])
+    for prof in ("bare", "gre", "icmp", "ipip", "esp", "l2tpv3", "ah", "ipcomp", "etherip")
+] + [
+    ("stored bare+proto -> gre drops the proto",
+     {"transport": "raw", "raw_profile": "bare", "raw_proto": 252, "cipher": "auto"},
+     {"transport": "raw", "cipher": "auto", "raw_profile": "gre"}, ["raw_proto"]),
+    ("stored udp+port -> tcp KEEPS it (tcp forges ports too)",
+     {"transport": "raw", "raw_profile": "udp", "raw_port": 51820, "cipher": "auto"},
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp"}, []),
+]
+
 # The other half of the contract: these are all LEGAL and must go straight through. Without them a
 # panel that raised on everything would score a perfect pass here.
 MUST_ACCEPT = [
@@ -131,13 +152,25 @@ def main():
         except Exception as e:
             failures.append("[%s] REFUSED a legal configuration: %s" % (name, e))
 
+    for name, cur, req, gone in MUST_ACCEPT_EDIT:
+        try:
+            ce, _ = P._core_extra(dict(req), dict(cur), A_IP, B_IP, A_IPS, B_IPS)
+        except Exception as e:
+            failures.append("[%s] REFUSED a legal edit: %s" % (name, e))
+            continue
+        left = [k for k in gone if k in ce]
+        if left:
+            failures.append("[%s] kept %s from the previous profile" % (name, left))
+        else:
+            print("  ok  edit     %s" % name)
+
     if failures:
         print("\nFAILURES (%d):" % len(failures))
         for f in failures:
             print("  - %s" % f)
         return 1
     print("\nthe panel refuses all %d configurations the core refuses, and allows all %d it accepts"
-          % (len(MUST_REJECT), len(MUST_ACCEPT)))
+          % (len(MUST_REJECT), len(MUST_ACCEPT) + len(MUST_ACCEPT_EDIT)))
     return 0
 
 
