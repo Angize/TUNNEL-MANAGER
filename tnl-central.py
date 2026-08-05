@@ -63,10 +63,10 @@ IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (lo
 # choice so both ends match; "none" disables encryption. Kept in sync with the core's crypto factory.
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
 # raw-transport encapsulation profiles and the IP protocol number each one OWNS. A copy of the core's
-# rawprofile.go map, guarded by tools/tuning_consistency.py. The numbers are what makes bip's raw_proto
-# refusable: bip (and the bip-like spoof carrier) writes no L4 header, so borrowing an owned number puts
+# rawprofile.go map, guarded by tools/tuning_consistency.py. The numbers are what makes bare's raw_proto
+# refusable: bare (and the bare-like spoof carrier) writes no L4 header, so borrowing an owned number puts
 # ciphertext where a middlebox expects that protocol's header and the flow is dropped in the path.
-CORE_RAW_PROFILE_PROTOS = {"bip": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 17, "tcp": 6, "esp": 50,
+CORE_RAW_PROFILE_PROTOS = {"bare": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 17, "tcp": 6, "esp": 50,
                            "ah": 51, "etherip": 97, "ipcomp": 108, "l2tpv3": 115}
 CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
 # Core transport carriers + the capability sub-families used across validation AND the browser UI
@@ -222,16 +222,16 @@ _TUNING_RANGES = {
 
 
 def _raw_proto_owner(proto):
-    """The profile that owns this IP protocol number, or "" — bip's own 253 does not count as borrowed."""
+    """The profile that owns this IP protocol number, or "" — bare's own 253 does not count as borrowed."""
     for name, num in CORE_RAW_PROFILE_PROTOS.items():
-        if num == int(proto) and name != "bip":
+        if num == int(proto) and name != "bare":
             return name
     return ""
 
 
 def _check_raw_proto(proto):
     """Refuse an outer IP protocol number that a raw PROFILE owns, for the two headerless carriers that
-    can set one (bip and spoof). Mirrors config.go's rawProtoBorrowed — without this the operator saves
+    can set one (bare and spoof). Mirrors config.go's rawProtoBorrowed — without this the operator saves
     a form, the node stores it, and the core exits on validate() with nothing in between saying why."""
     if not 1 <= int(proto) <= 255:
         raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
@@ -1367,8 +1367,10 @@ def _tunnel_extra(src, refetch_ech=True):
             e["cover_sni"] = src["cover_sni"]
     if src.get("raw_profile"):           # raw-IP carrier encapsulation (transport=raw only)
         e["raw_profile"] = src["raw_profile"]
-    if src.get("raw_proto"):             # bip custom outer IP protocol number (whitelist evasion; bip only)
+    if src.get("raw_proto"):             # bare custom outer IP protocol number (whitelist evasion; bare only)
         e["raw_proto"] = src["raw_proto"]
+    if src.get("raw_port"):              # udp/tcp forged server port
+        e["raw_port"] = src["raw_port"]
     if src.get("dns_zone"):              # dns-tunnel carrier: delegated zone + client resolver list
         e["dns_zone"] = src["dns_zone"]
         if src.get("dns_resolvers"):
@@ -1464,9 +1466,9 @@ def _tunnel_extra(src, refetch_ech=True):
         e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
-    if src.get("spoof_src"):             # forge the outer source (raw bip; client only, node applies by role)
+    if src.get("spoof_src"):             # forge the outer source (raw bare; client only, node applies by role)
         e["spoof_src"] = src["spoof_src"]
-    if src.get("spoof_dst"):             # decoy destination (raw bip; the node wires the AF_PACKET side by role)
+    if src.get("spoof_dst"):             # decoy destination (raw bare; the node wires the AF_PACKET side by role)
         e["spoof_dst"] = src["spoof_dst"]
     # Through the SAME funnel create and edit use, so a name-to-numbers expansion can never again exist
     # on one path only. The rebuild callers splat this straight into the node body (`**extra`) and so
@@ -3030,7 +3032,7 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
     freeness must be verified before building. The core server binds its self_ip:port, so the
     bind IP is carried too: two ws tunnels on one host but different IPs share a port without a
     false conflict. Scope per the tunnel model:
-      core (bip): only the server node binds; the client dials from a random ephemeral port, so it
+      core (bare): only the server node binds; the client dials from a random ephemeral port, so it
                     is never checked. proto follows transport (udp|tcp). A UNpooled server binds its
                     single self_ip; a udp/tcp server UNDER a destination pool binds EACH of its
                     selected pool IPs explicitly (one socket/listener per IP), so every one is a
@@ -3121,7 +3123,7 @@ def _flux_drop_points(rec):
     it can also swallow an UNRELATED tunnel's traffic from the same peer.
     Both ends install it: the client at dial, the server on the first authenticated frame.
     The `raw` flux carrier is exempt: it rotates IP PROTOCOL numbers, and that pool already excludes
-    253 so a co-located raw/bip tunnel survives — the guard this one was missing."""
+    253 so a co-located raw/bare tunnel survives — the guard this one was missing."""
     if str(rec.get("type") or "") != "core" or str(rec.get("transport") or "").lower() != "flux":
         return []
     carrier = str(rec.get("flux_carrier") or "udp").lower()
@@ -3133,10 +3135,10 @@ def _flux_drop_points(rec):
         # Every peer address, not just the anchor. Under IP rotation the peer reaches us from any IP in
         # its pool, so the node installs a DROP per pool IP — a guard that only knew the anchor missed
         # every collision on the other pool members and let the panel build a tunnel it would black-hole.
-        for bip in _peer_addrs(rec, "b"):
-            out.append((rec.get("a_node"), bip, p))   # on A, dropping traffic from B
-        for aip in _peer_addrs(rec, "a"):
-            out.append((rec.get("b_node"), aip, p))   # on B, dropping traffic from A
+        for b_addr in _peer_addrs(rec, "b"):
+            out.append((rec.get("a_node"), b_addr, p))   # on A, dropping traffic from B
+        for a_addr in _peer_addrs(rec, "a"):
+            out.append((rec.get("b_node"), a_addr, p))   # on B, dropping traffic from A
     return out
 
 
@@ -3154,12 +3156,12 @@ def _udp_recv_points(rec):
     # a DROP rule could swallow is not limited to the anchor. Comparing anchor-to-anchor made the guard
     # blind to every collision that involved a non-anchor pool member on either side.
     if ttype in ("fou", "l2tpv3", "vxlan"):
-        return ([(rec.get("a_node"), bip, p) for bip in _peer_addrs(rec, "b")] +
-                [(rec.get("b_node"), aip, p) for aip in _peer_addrs(rec, "a")])
+        return ([(rec.get("a_node"), b_addr, p) for b_addr in _peer_addrs(rec, "b")] +
+                [(rec.get("b_node"), a_addr, p) for a_addr in _peer_addrs(rec, "a")])
     if ttype == "core" and str(rec.get("transport") or "udp").lower() == "udp":
         if (rec.get("server_side") or "a") == "a":
-            return [(rec.get("a_node"), bip, p) for bip in _peer_addrs(rec, "b")]
-        return [(rec.get("b_node"), aip, p) for aip in _peer_addrs(rec, "a")]
+            return [(rec.get("a_node"), b_addr, p) for b_addr in _peer_addrs(rec, "b")]
+        return [(rec.get("b_node"), a_addr, p) for a_addr in _peer_addrs(rec, "a")]
     return []
 
 
@@ -3222,7 +3224,7 @@ def _spoof_fields(d, transport, cur=None):
     Both forge a field of the outer IPv4 header so an on-path censor sees something other than the
     real flow: spoof_dst is the decoy destination, spoof_src the forged source. raw_proto overrides
     the carrier's native protocol number (1..255, e.g. 58) to slip past a protocol-whitelist filter.
-    At least one forged field is required — a spoof carrier that forges nothing is just raw/bip, and
+    At least one forged field is required — a spoof carrier that forges nothing is just raw/bare, and
     both the node and the core reject it. The node applies these per role (see tnl-node _core_config).
     cur (the existing link) supplies edit defaults so an edit that omits the fields keeps the stored
     values (mirroring _flux_fields/_ws_fields/_fec_fields) instead of silently wiping the config."""
@@ -3247,7 +3249,7 @@ def _spoof_fields(d, transport, cur=None):
     except (TypeError, ValueError):
         proto = 0
     if proto:
-        _check_raw_proto(proto)   # spoof is bip-like and headerless: the same numbers are unusable
+        _check_raw_proto(proto)   # spoof is bare-like and headerless: the same numbers are unusable
         out["raw_proto"] = proto
     return out
 
@@ -3874,19 +3876,31 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
         if cipher == "none":
             raise ValueError("حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-        profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bip").strip().lower()
+        profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bare").strip().lower()
         if profile not in CORE_RAW_PROFILES:
             raise ValueError("پروفایلِ raw نامعتبر است")
         ce["raw_profile"] = profile
-        # bip-only: the outer IP protocol-number override (the spoof carrier carries its own copy).
+        # bare-only: the outer IP protocol-number override (the spoof carrier carries its own copy).
         try:
             _rp = int((d["raw_proto"] if "raw_proto" in d else cur.get("raw_proto")) or 0)
         except (TypeError, ValueError):
             _rp = 0
-        if profile == "bip" and _rp:
+        if profile == "bare" and _rp:
             _check_raw_proto(_rp)
             ce["raw_proto"] = _rp
-    if transport == "spoof":                   # standalone IP-spoofing carrier (bip-like, never rotates)
+        # udp/tcp only: the SERVER port stamped on the forged L4 header. No socket binds it — the raw
+        # carrier's socket is opened on a PROTOCOL NUMBER — so this only changes what a middlebox reads.
+        try:
+            _rport = int((d["raw_port"] if "raw_port" in d else cur.get("raw_port")) or 0)
+        except (TypeError, ValueError):
+            _rport = 0
+        if _rport:
+            if profile not in ("udp", "tcp"):
+                raise ValueError(f"«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
+            if not 1 <= _rport <= 65535:
+                raise ValueError("پورتِ حامل باید بینِ 1 تا 65535 باشد")
+            ce["raw_port"] = _rport
+    if transport == "spoof":                   # standalone IP-spoofing carrier (bare-like, never rotates)
         if cipher == "none":
             raise ValueError("حاملِ جعل به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
         ce.update(_spoof_fields(d, transport, cur))   # forged source / decoy destination + raw_proto
@@ -4519,7 +4533,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "raw_port", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -5493,7 +5507,7 @@ def _events_once():
                         prev = _ev_state["rotip"].get(rk)
                         if ip:
                             _ev_state["rotip"][rk] = ip
-                        # The destination is also in the status file's `active` («raw:bip · 1.2.3.4»), which
+                        # The destination is also in the status file's `active` («raw:bare · 1.2.3.4»), which
                         # is how the FIRST source rotation can name one — the destination axis may not have
                         # rotated yet, and until it does the ring says nothing about it.
                         other_k = lid + ":" + ("dst" if axis == "src" else "src")
@@ -7118,7 +7132,7 @@ var I18N={fa:{
  // subnet ranges
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
- rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
+ rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
  // the CDN carrier tiles + the http profile
  cdn_prof_lbl:"CDNِ روبه‌رو",
  cdnp_cf_n:"کلودفلر",cdnp_cf_m:"8 کارگر × 256KB (پیش‌فرض)",
@@ -7180,8 +7194,8 @@ var I18N={fa:{
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
- raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
- raw_proto_lbl:"شمارهٔ پروتکلِ IP (bip)",raw_proto_native:"نیتیو",raw_proto_hint:"bip هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+ raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
+ raw_port_lbl:"پورتِ حاملِ جعلی",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"این عدد فقط داخلِ هدرِ جعلی نوشته می‌شود؛ هیچ پورتی باز نمی‌شود و سوکتِ حامل روی شمارهٔ پروتکل باز است نه پورت. پیش‌فرض 443 است که همان پورتِ QUIC است و بعضی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -8030,7 +8044,7 @@ async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];v
 function onSubnetRange(){var w=el('c_snc_wrap');if(w)w.style.display=(ssVal('c_snr')=='custom')?'block':'none'}
 function onCreateSrc(){renderSrcIp()}
 function onCreateDst(){renderDstIp()}
-function renderDstIp(){var w=el('c_dstip');if(!w)return;w.innerHTML=ipField('c_bip',nodeIps(ssVal('c_b')),T('dst_ip'))}
+function renderDstIp(){var w=el('c_dstip');if(!w)return;w.innerHTML=ipField('c_bare',nodeIps(ssVal('c_b')),T('dst_ip'))}
 function renderSrcIp(){var w=el('c_srcip');if(!w)return;w.innerHTML=ipField('c_aip',nodeIps(ssVal('c_a')),T('src_ip'))}
 function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(ssVal('c_type')=='sit');
   if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
@@ -8044,8 +8058,8 @@ function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a'),b=ssVal('c_b');
  if(a==b){m.className='msg err';m.textContent=T('two_diff_nodes');return}
  var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet');
- var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bip=el('ssb_c_bip')?ssVal('c_bip'):'';   // only send an IP when its picker exists (multi-IP node)
- var body={a_node:a,b_node:b,type:type,a_ip:aip,b_ip:bip};
+ var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bare=el('ssb_c_bare')?ssVal('c_bare'):'';   // only send an IP when its picker exists (multi-IP node)
+ var body={a_node:a,b_node:b,type:type,a_ip:aip,b_ip:bare};
  if(range=='custom')body.subnet=custom;else body.subnet_base=range;
  if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
  m.textContent=T('creating_tun');
@@ -8154,7 +8168,7 @@ document.addEventListener('pointercancel',reordEnd,true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc((l.raw_profile||'bip').toUpperCase())):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='spoof')?('SPOOF·'+((l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC'))):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?((l.cdn_carrier=='grpc')?'GRPC':(l.cdn_carrier=='http')?'HTTP':'WS'):'UDP';   /* exactly the three names the picker shows; wss has its own tag */
+ var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc(rawProfTag(l))):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='spoof')?('SPOOF·'+((l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC'))):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?((l.cdn_carrier=='grpc')?'GRPC':(l.cdn_carrier=='http')?'HTTP':'WS'):'UDP';   /* exactly the three names the picker shows; wss has its own tag */
  var prt=(l.transport!='raw'&&l.transport!='flux'&&l.transport!='spoof'&&l.transport!='dns'&&l.port)?'<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>'+esc(T('carrier'))+': <b class="mono">'+tr+'</b></div>';
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
@@ -8214,8 +8228,12 @@ function coreCard(l){
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
-_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bip',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.CdnProf='cf',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
-function COR_RAW_PROFILES(){return [{v:'bip',m:T('rawp_bip_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m')},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
+_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.CdnProf='cf',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
+// The card's carrier tag. «bare» forges no header, so its outer IP protocol number is CHOSEN rather
+// than implied by the name — show it. Every other profile's number is fixed and printing it is noise.
+function rawProfTag(l){var p=(l.raw_profile||'bare');
+ return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
+function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m')},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 // The three ways to cross a CDN, as ONE choice. They are three separate transports everywhere
 // else, and only looked like a family here because
@@ -8506,15 +8524,15 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
 // direction — whether a forged source survives the sender's datacenter and whether a decoy routes to
 // the server. It reads the same form fields the tunnel will use, so the answer is about the real config.
 function spoofFormCtx(idp){
-  // aip/bip come from pickedIP, the same helper the create and edit submits use, so the probe really
+  // aip/bare come from pickedIP, the same helper the create and edit submits use, so the probe really
   // does test "the same form fields the tunnel will use" instead of the node's management host.
   if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv,
-                       aip:pickedIP('e_','a',''),bip:pickedIP('e_','b','')};
+                       aip:pickedIP('e_','a',''),bare:pickedIP('e_','b','')};
   // The same source the edit submit (doCoreEdit) reads its anchors from, so the probe and the save
   // cannot disagree about which IP this tunnel is on.
   var l=(FLEET||[]).filter(function(x){return x.id==editingId})[0]||{};
   return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv,
-          aip:pickedIP('ee_','a',l.a_ip||''),bip:pickedIP('ee_','b',l.b_ip||'')};}
+          aip:pickedIP('ee_','a',l.a_ip||''),bare:pickedIP('ee_','b',l.b_ip||'')};}
 function _egrRow(ok,txt){return '<div class="spoofcap '+(ok?'ok':'no')+'" style="margin-top:6px">'+(ok?ic('okc'):ic('xc'))+'<span>'+esc(txt)+'</span></div>';}
 async function spoofEgressTest(idp){
   var ctx=spoofFormCtx(idp),out=el(idp+'egr'),btn=el(idp+'egrbtn');if(!out)return;
@@ -8534,15 +8552,28 @@ async function spoofEgressTest(idp){
   html+=_egrRow(d.src, d.src?(T('spoof_egr_src_ok')+(d.tested_src?(' ('+d.tested_src+')'):'')):T('spoof_egr_src_no'));
   if(d.tested_dst)html+=_egrRow(d.dst, d.dst?T('spoof_egr_dst_ok'):T('spoof_egr_dst_no'));
   out.innerHTML=html;}
-// protoSection: the bip-only outer-IP protocol-number picker. bip carries no L4 header, so only the
+// protoSection: the bare-only outer-IP protocol-number picker. bare carries no L4 header, so only the
 // outer protocol number changes — set it to slip past a protocol-number filter. Revealed by
-// {cor,ce}ProtoVis on raw+bip.
+// {cor,ce}ProtoVis on raw+bare.
 function protoSection(idp,fnp){return '<div id="'+idp+'protorow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('raw_proto_lbl'))+'</label>'
  +'<div class="seg2" id="'+idp+'ppg" style="margin-bottom:8px"><button type="button" class="segopt on" id="'+idp+'pp_253" onclick="'+fnp+'SetProto(253)"><b>253</b><span>'+esc(T('raw_proto_native'))+'</span></button><button type="button" class="segopt" id="'+idp+'pp_252" onclick="'+fnp+'SetProto(252)"><b>252</b><span>'+esc(T('raw_proto_free'))+'</span></button></div>'
  +'<input id="'+idp+'rawproto" class="mono" inputmode="numeric" maxlength="3" placeholder="253" oninput="'+fnp+'ProtoWarn()" style="text-align:center;direction:ltr">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_proto_hint')+'</div>'
  +'<div class="spoofcap no" id="'+idp+'protowarn" style="display:none;margin-top:8px"></div></div>'}
+// portSection: the udp/tcp profiles' forged SERVER port. Nothing binds it — the raw socket is opened on
+// a protocol number — so this only moves the number a middlebox reads. Revealed by {cor,ce}PortVis.
+function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:none;margin-top:11px">'
+ +'<label class="first">'+esc(T('raw_port_lbl'))+'</label>'
+ +'<div class="seg2" id="'+idp+'rpg" style="margin-bottom:8px">'
+   +'<button type="button" class="segopt on" id="'+idp+'rp_443" onclick="'+fnp+'SetPort(443)"><b>443</b><span>'+esc(T('raw_port_quic'))+'</span></button>'
+   +'<button type="button" class="segopt" id="'+idp+'rp_51820" onclick="'+fnp+'SetPort(51820)"><b>51820</b><span>WireGuard</span></button>'
+   +'<button type="button" class="segopt" id="'+idp+'rp_4500" onclick="'+fnp+'SetPort(4500)"><b>4500</b><span>IPsec</span></button></div>'
+ +'<input id="'+idp+'rawport" class="mono" inputmode="numeric" maxlength="5" placeholder="443" oninput="'+fnp+'PortWarn()" style="text-align:center;direction:ltr">'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_port_hint')+'</div></div>'}
+function portErr(idp){var e=el(idp+'rawport');if(!e)return '';
+ var s=(e.value||'').trim();if(!s)return '';
+ var n=parseInt(s,10);return (n>=1&&n<=65535)?'':T('raw_port_bad')}
 // The number a raw PROFILE owns is the one thing a headerless carrier must not borrow: the packet goes
 // out announcing that protocol with ciphertext where its header belongs, and the path drops it. Injected
 // from CORE_RAW_PROFILE_PROTOS, so this cannot drift from what the server and the core refuse.
@@ -8707,12 +8738,17 @@ function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none
  +'<input id="'+idp+'dnsresolvers" class="mono" placeholder="10.202.10.202, 10.202.10.102" style="direction:ltr">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:5px">'+T('dns_resolvers_note')+'</div>'
  +'<div class="autonote" style="margin-top:11px">'+ic('warn')+'<span>'+T('dns_delegation_note')+'</span></div></div>'}
-function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis()}
+function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis();corPortVis()}
 function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('e_',val)}
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
-/* The outer-IP protocol-number picker serves raw+bip AND the spoof carrier (which is bip-like: a bare
+/* The outer-IP protocol-number picker serves raw+bare AND the spoof carrier (which is bare-like: a bare
    header with no L4, so only the protocol number identifies it on the wire). */
-function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bip')||S.Tr=='spoof'}
+function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bare')||S.Tr=='spoof'}
+function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
+function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('e_rpg');
+ if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_rp_'+n)})}
+function corPortVis(){var w=el('e_portrow');if(!w)return;
+ var on=(_corS.Tr=='raw'&&(_corS.RawProfile=='udp'||_corS.RawProfile=='tcp'));w.style.display=on?'':'none';if(on)corPortWarn()}
 function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='253';corProtoWarn()}}
 function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.toggle('on',_corS.Gso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
@@ -8728,17 +8764,17 @@ function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(
 function onCorCipher(){_obfsGate('e_',_corS)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bip';_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.CdnProf='cf';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bare';_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.CdnProf='cf';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  // Pickers are labelled and ordered by role (corNodeLbls), not by slot. The roles segment below is
  // where the role is chosen; the IP row two rows down stays keyed to core's src_ips/peer_ips.
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
   '<div id="e_bwrap"><label class="first" id="e_blab"></label>'+ssHTML('e_b',items,items[1].v,T('cli_node'),'onCorNode')+'</div></div>'+
-  '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
+  '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bare"></div></div>'+
   '<div id="e_rotrow"></div>'+rotSetHTML('e_')+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('e_cipher',CORE_CIPHERS(),'auto',T('cipher_ph'),'onCorCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt" id="e_tr_spoof" onclick="corSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt" id="e_tr_dns" onclick="corSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bip')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('e_','cor')+'</div>'+
+  '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
   fluxSection('e_','cor','udp',600,'random',null)+
   wsSection('e_','cor','','',false,'',false,'ws','','cf')+
   dnsSection('e_','cor')+
@@ -8841,9 +8877,9 @@ function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
 function corNodeLbls(){var srvA=(_corS.Srv=='a'),la=el('e_alab'),lb=el('e_blab');
  if(la)la.textContent=srvA?T('srv_node'):T('cli_node');
  if(lb)lb.textContent=srvA?T('cli_node'):T('srv_node');
- // The IP field moves with its picker, or the two grids stop lining up. e_aip/e_bip are also what
+ // The IP field moves with its picker, or the two grids stop lining up. e_aip/e_bare are also what
  // renderRotIps fills, so the rotation pool follows.
- var A=[el('e_awrap'),el('e_aip')],B=[el('e_bwrap'),el('e_bip')];
+ var A=[el('e_awrap'),el('e_aip')],B=[el('e_bwrap'),el('e_bare')];
  A.forEach(function(e){if(e)e.style.order=srvA?'0':'1'});
  B.forEach(function(e){if(e)e.style.order=srvA?'1':'0'})}
 function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');corNodeLbls();renderRotIps('e_')}
@@ -8851,8 +8887,10 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 // fec/desync/ws branches — identical in both modulo the _corS/_eeS state + e_/ee_ DOM prefix).
 // Mutates `body`; on a validation error it sets `m` and returns true so the caller bails out.
 function _collectCoreBody(S,px,m,body){
- if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bip'){var _pe=rawProtoErr(px);if(_pe){m.className='msg err';m.textContent=_pe;return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}}
- /* The spoof carrier is bip-like: no profile, just the outer protocol number plus the forged field(s).
+ if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){m.className='msg err';m.textContent=_pe;return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
+  if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){m.className='msg err';m.textContent=_po;return true}
+   var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt}}
+ /* The spoof carrier is bare-like: no profile, just the outer protocol number plus the forged field(s).
     Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
     go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
     empty value legitimately CLEARS one; pending or NOT-ok they are OMITTED and an edit preserves. */
@@ -8876,7 +8914,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
  var _rverr=rotValidate('e_');if(_rverr){m.className='msg err';m.textContent=_rverr;return}
  var aip=pickedIP('e_','a','');if(aip)body.a_ip=aip;
- var bip=pickedIP('e_','b','');if(bip)body.b_ip=bip;
+ var bare=pickedIP('e_','b','');if(bare)body.b_ip=bare;
  var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs;body.auto_burn=_rc.auto_burn}
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
  var port=v('e_port');if(port)body.port=port;
@@ -8885,8 +8923,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
  else{m.className='msg err';m.textContent=perr(r)}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bip',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.CdnProf='cf',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();ceDesyncGate();ceCdnProfGate();corRotVis('ee_');onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
+_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.CdnProf='cf',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
+function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnProfGate();corRotVis('ee_');onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
@@ -8923,6 +8961,11 @@ function cePortGate(){var p=el('ee_port');if(!p)return;if(_eeS.Tr=='ws'){p.disab
 function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis();ceProtoVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
+function ceSetPort(v){var i=el('ee_rawport');if(i)i.value=v;cePortWarn()}
+function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('ee_rpg');
+ if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_rp_'+n)})}
+function cePortVis(){var w=el('ee_portrow');if(!w)return;
+ var on=(_eeS.Tr=='raw'&&(_eeS.RawProfile=='udp'||_eeS.RawProfile=='tcp'));w.style.display=on?'':'none';if(on)cePortWarn()}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
@@ -8931,7 +8974,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bip';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.CdnProf=(l.cdn_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.CdnProf=(l.cdn_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
  var aips=l.a_ips||[],bips=l.b_ips||[];
  // rotate_secs=0 is «فقط هنگامِ قطع», a real stored value the backend clamps to (0..86400) — not an
  // absent field. `||600` treated it as absent because 0 is falsy in JS, so opening the edit form on a
@@ -8941,12 +8984,12 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
  if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
  var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
-  '<div class="grid2"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
+  '<div class="grid2"><div id="ee_aip"></div><div id="ee_bare"></div></div>'+
   '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+'<div id="ee_peerlive"></div>'+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='spoof'?' on':'')+'" id="ee_tr_spoof" onclick="ceSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+'</div>'+
+  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
   fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,_eeS.CdnProf)+
   dnsSection('ee_','ce')+
@@ -8977,7 +9020,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  // pool IP each edit (which churns the server bind and used to trip a false self port-conflict) — that is
  // what the `stored` argument does.
  var aip=pickedIP('ee_','a',l.a_ip||'');if(aip)body.a_ip=aip;
- var bip=pickedIP('ee_','b',l.b_ip||'');if(bip)body.b_ip=bip;
+ var bare=pickedIP('ee_','b',l.b_ip||'');if(bare)body.b_ip=bare;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs;body.auto_burn=_rc2.auto_burn}
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
@@ -9518,7 +9561,7 @@ INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, 
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
      # profile -> owned IP protocol number, so the browser blocks exactly what _check_raw_proto does
-     "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bip"}},
+     "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"}},
     separators=(",", ":")))
 # the split_ttl input's ceiling, from the same constant the submit validator uses
 INDEX_HTML = INDEX_HTML.replace("__SPLITTTLMAX__", str(SPLIT_TTL_MAX))

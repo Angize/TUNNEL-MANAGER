@@ -184,7 +184,7 @@ def main():
         check(panel_ports == core_ports, f"{panel_name}: panel={panel_ports} core={core_ports}")
 
     print("== 2c) raw encapsulation profiles: panel vs core (rawprofile.go) ==")
-    # The panel needs the NUMBER each profile owns, to refuse a bip/spoof raw_proto that borrows one.
+    # The panel needs the NUMBER each profile owns, to refuse a bare/spoof raw_proto that borrows one.
     # Another copy of a core constant, so guard it like the flux port pools above.
     rawprofile_go = (Path(a.core) / "internal" / "packet" / "rawprofile.go").read_text(encoding="utf-8")
     # The const names are mixed-case (protoEtherIP, protoL2TPv3), so [A-Z0-9] silently captured only some

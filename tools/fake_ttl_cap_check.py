@@ -65,7 +65,7 @@ def base_req(transport):
     if transport == "ws":
         req.update(ws_host="cdn.example.com", ws_path="/", ws_tls=True)
     if transport in ("raw", "spoof"):
-        req.update(raw_profile="bip")
+        req.update(raw_profile="bare")
     if transport == "flux":
         req.update(flux_carrier="udp")
     if transport == "spoof":

@@ -35,7 +35,7 @@ def install():
     m.load_links = lambda: [LINK]
     m.load_events = lambda: []
     m.log_event = lambda level, kind, fa, dfa="": CARDS.append({"fa": fa, "dfa": dfa})
-    m.api_edge_status = lambda d: {"ok": True, "pool": False, "active": "raw:bip · 78.47.72.179",
+    m.api_edge_status = lambda d: {"ok": True, "pool": False, "active": "raw:bare · 78.47.72.179",
                                    "health": [], "events": list(RING), "now": 0, "ts": 0}
     m.api_peer_status = lambda d: {"ok": True, "pool": True, "now": 0,
                                    "dst": {"active": "78.47.72.179", "addrs": [], "health": [], "pin": "", "ts": 0},
