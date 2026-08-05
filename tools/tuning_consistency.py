@@ -187,15 +187,22 @@ def main():
     # The panel needs the NUMBER each profile owns, to refuse a bip/spoof raw_proto that borrows one.
     # Another copy of a core constant, so guard it like the flux port pools above.
     rawprofile_go = (Path(a.core) / "internal" / "packet" / "rawprofile.go").read_text(encoding="utf-8")
-    consts = dict(re.findall(r"proto([A-Z0-9]+)\s*=\s*(\d+)", rawprofile_go))
-    m = re.search(r"var\s+rawProfiles\s*=\s*map\[string\]int\{(.*?)\}", rawprofile_go, re.S)
+    # The const names are mixed-case (protoEtherIP, protoL2TPv3), so [A-Z0-9] silently captured only some
+    # of them and the comparison ran against half a table. Match the whole identifier.
+    consts = dict(re.findall(r"\bproto([A-Za-z0-9]+)\s*=\s*(\d+)", rawprofile_go))
+    m = re.search(r"var\s+rawProfiles\s*=\s*map\[string\]int\{(.*?)\n\}", rawprofile_go, re.S)
     if not m or not consts:
         check(False, "CANNOT PARSE rawProfiles/proto consts in rawprofile.go -- THIS SCRIPT is out of date")
     else:
-        core_map = {}
-        for name, sym in re.findall(r'"(\w+)":\s*proto([A-Z0-9]+)', m.group(1)):
+        core_map, unresolved = {}, []
+        for name, sym in re.findall(r'"(\w+)":\s*proto([A-Za-z0-9]+)', m.group(1)):
             if sym in consts:
                 core_map[name] = int(consts[sym])
+            else:
+                unresolved.append(sym)
+        # A symbol we cannot resolve means the table read here is INCOMPLETE, and an incomplete table
+        # compares equal to nothing useful -- say so instead of reporting a diff nobody can act on.
+        check(not unresolved, f"every profile's proto const resolved (unresolved: {unresolved})")
         try:
             panel_map = panel_const(panel_src, "CORE_RAW_PROFILE_PROTOS")
         except KeyError:
@@ -203,6 +210,24 @@ def main():
             check(False, "CORE_RAW_PROFILE_PROTOS: missing from the panel")
         if panel_map is not None:
             check(panel_map == core_map, f"profile->proto: panel={panel_map} core={core_map}")
+
+    # The NODE's copy of the same profiles, as carrier-header BYTES: it is the MTU arithmetic. A profile
+    # missing there under-counts the overhead and every full-size packet fragments, silently.
+    hm = re.search(r"var\s+rawHeaderLens\s*=\s*map\[string\]int\{(.*?)\n\}", rawprofile_go, re.S)
+    if not hm:
+        check(False, "CANNOT PARSE rawHeaderLens in rawprofile.go -- THIS SCRIPT is out of date")
+    else:
+        core_hdr = {n: int(v) for n, v in re.findall(r'"(\w+)":\s*(\d+)', hm.group(1))}
+        try:
+            node_hdr = panel_const(node_src, "RAW_HEADER_LEN")
+        except KeyError:
+            node_hdr = None
+            check(False, "RAW_HEADER_LEN: missing from the node")
+        if node_hdr is not None:
+            check(node_hdr == core_hdr, f"profile->header bytes: node={node_hdr} core={core_hdr}")
+        if panel_map is not None:
+            check(set(core_hdr) == set(panel_map),
+                  f"the two core tables cover the same profiles: sizes={sorted(core_hdr)} protos={sorted(panel_map)}")
 
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
