@@ -3894,12 +3894,18 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             _rport = int((d["raw_port"] if "raw_port" in d else cur.get("raw_port")) or 0)
         except (TypeError, ValueError):
             _rport = 0
-        if _rport:
-            if profile not in ("udp", "tcp"):
-                raise ValueError(f"«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
+        if _rport and profile in ("udp", "tcp"):
             if not 1 <= _rport <= 65535:
                 raise ValueError("پورتِ حامل باید بینِ 1 تا 65535 باشد")
             ce["raw_port"] = _rport
+        elif _rport and "raw_port" in d:
+            # Asked for HERE, on a profile that forges no ports -- refuse, or it persists and reads as
+            # set while the wire ignores it. A port inherited from `cur` is a different thing entirely:
+            # it is what the tunnel used under its PREVIOUS profile, and the operator switching profile
+            # is exactly the request to leave it behind. Raising on that made a profile change
+            # impossible on any tunnel that had ever been udp/tcp -- which is every one of them, since
+            # the form fills in the effective 443.
+            raise ValueError(f"«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
     if transport == "spoof":                   # standalone IP-spoofing carrier (bare-like, never rotates)
         if cipher == "none":
             raise ValueError("حاملِ جعل به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
