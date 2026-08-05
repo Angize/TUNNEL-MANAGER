@@ -84,18 +84,18 @@ RING[:] = [ev(1, "peer-rotate", "78.47.72.179"), ev(2, "peer-rotate", "49.13.34.
 cards = sweep()
 show("cards", cards)
 want(len(cards) == 1, f"exactly one card, got {len(cards)}")
-want(cards and "94.183.210.128 → 78.47.72.179" in cards[0]["dfa"],
-     "«از» must carry the source the tunnel was really on")
-want(cards and "94.183.210.128 → 49.13.34.234" in cards[0]["dfa"],
+want(cards and "78.47.72.179 ← 94.183.210.128" in cards[0]["dfa"],
+     "«از» must carry the source the tunnel was really on, destination-first for an RTL read")
+want(cards and "49.13.34.234 ← 94.183.210.128" in cards[0]["dfa"],
      "«به» must carry it too — this is the whole bug")
 
 print("\n=== then a SOURCE rotation: the destination half comes from the ring ===")
 RING.append(ev(3, "src-rotate", "94.183.210.129"))
 cards = sweep()
 show("cards", cards)
-want(cards and "94.183.210.128 → 49.13.34.234" in cards[0]["dfa"],
+want(cards and "49.13.34.234 ← 94.183.210.128" in cards[0]["dfa"],
      "«از» = the old source against the current destination")
-want(cards and "94.183.210.129 → 49.13.34.234" in cards[0]["dfa"], "«به» = the new source, same destination")
+want(cards and "49.13.34.234 ← 94.183.210.129" in cards[0]["dfa"], "«به» = the new source, same destination")
 
 print("\n=== a node that cannot answer must not lose the card ===")
 m._ev_state["rotip"].clear()
@@ -105,7 +105,7 @@ cards = sweep()
 show("cards", cards)
 want(cards and cards[0]["dfa"].strip().endswith("78.47.72.179"),
      "with no source known it degrades to the single endpoint, as before")
-want(cards and "→" not in cards[0]["dfa"], "and it must not print a half-empty arrow")
+want(cards and "←" not in cards[0]["dfa"], "and it must not print a half-empty arrow")
 
 print(f"\n{len(fails)} failure(s)" if fails else "\nthe pair survives a fresh panel")
 sys.exit(1 if fails else 0)
