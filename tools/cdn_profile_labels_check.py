@@ -30,7 +30,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Persian-Indic digits, which is what the UI is written in (CLAUDE.md §2: the panel is Persian-only).
-FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+FA_DIGITS = str.maketrans("0123456789", "0123456789")
 
 # The core's own defaults, for a profile that deliberately carries no override. Kept here rather than
 # read from tuning.go because these two are top-level config.go defaults, not tuning knobs, and
@@ -46,7 +46,7 @@ def load_panel():
 
 
 def tile_numbers(src, key):
-    """Pull (workers, batch_kb) out of a tile's summary string, e.g. «۸ کارگر × ۲۵۶KB (پیش‌فرض)»."""
+    """Pull (workers, batch_kb) out of a tile's summary string, e.g. «8 کارگر × 256KB (پیش‌فرض)»."""
     m = re.search(r'%s:"([^"]*)"' % re.escape(key), src)
     if not m:
         return None, "no such I18N key"
@@ -59,7 +59,7 @@ def tile_numbers(src, key):
 
 
 def pct_of(src, key):
-    """Pull the percentage out of an overhead label, e.g. «۳۰٪ سربار» -> 30."""
+    """Pull the percentage out of an overhead label, e.g. «30٪ سربار» -> 30."""
     m = re.search(r'%s:"([^"]*)"' % re.escape(key), src)
     if not m:
         return None, "no such I18N key"
@@ -118,9 +118,9 @@ def main():
         note = re.search(r'fec_note:"([^"]*)"', src)
         if not note:
             failures.append("fec_note was not found")
-        elif "۱۰۰٪" not in note.group(1):
+        elif "100٪" not in note.group(1):
             failures.append("fec_note does not say the tile percentage is the SATURATED-block figure "
-                            "(a single-packet block costs ۱۰۰٪) — on its own the tile reads as a "
+                            "(a single-packet block costs 100٪) — on its own the tile reads as a "
                             "promise the encoder only keeps on a busy tunnel")
         else:
             print("  ok  fec_note says the tile percentage is the saturated-block figure")

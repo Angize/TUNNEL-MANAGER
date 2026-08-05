@@ -75,13 +75,6 @@ DESYNC_INJECT_TTL_MAX = 8   # core's injectMaxTTL (internal/packet/desync.go): t
 # MaxHopBudget, which is injectMaxTTL under the name both knobs share. Above it the head reaches the
 # server and sni_mode=disorder is a no-op every layer still reports as active.
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
-_FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
-
-
-def _fa_digits(n):
-    """A number as the UI writes it. A message that quotes a limit must quote the CONSTANT, or it
-    goes stale the moment the limit moves — the class cdn_profile_labels_check.py exists for."""
-    return str(n).translate(_FA_DIGITS)
 STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # carriers that write a precise status ring (the direct tcp/cover client writes one too)
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _pending_lock = threading.Lock()   # serialize pending_del.json read-modify-write (deferred teardowns)
@@ -3225,7 +3218,7 @@ def _spoof_fields(d, transport, cur=None):
         proto = 0
     if proto:
         if not 1 <= proto <= 255:
-            raise ValueError("شمارهٔ پروتکلِ IP باید بینِ ۱ تا ۲۵۵ باشد")
+            raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
         out["raw_proto"] = proto
     return out
 
@@ -3256,7 +3249,7 @@ def _dns_fields(d, transport, cipher, cur=None):
         if rs.count(":") == 1:                       # ip:port — validate BOTH halves, not just the host
             host, _, port = rs.partition(":")
             if not (port.isdigit() and 1 <= int(port) <= 65535):
-                raise ValueError("پورتِ resolverِ dns نامعتبر است — باید ۱ تا ۶۵۵۳۵ باشد: " + rs)
+                raise ValueError("پورتِ resolverِ dns نامعتبر است — باید 1 تا 65535 باشد: " + rs)
         else:
             host = rs
         if not is_ipv4(host):
@@ -3285,7 +3278,7 @@ def _flux_fields(d, transport, cipher, cur=None):
     out["flux_carrier"] = carrier
     rot = int(d.get("flux_rotate_secs") or cur.get("flux_rotate_secs") or 600)
     if rot < 10 or rot > 86400:
-        raise ValueError("بازهٔ چرخشِ flux باید بین ۱۰ تا ۸۶۴۰۰ ثانیه باشد")
+        raise ValueError("بازهٔ چرخشِ flux باید بین 10 تا 86400 ثانیه باشد")
     out["flux_rotate_secs"] = rot
     shape = str(d.get("flux_shape") or cur.get("flux_shape") or "random").strip().lower()
     if shape not in ("random", "quic", "video", "webrtc"):
@@ -3313,13 +3306,13 @@ def _fec_fields(d, transport, cur=None):
     fd = int(d.get("fec_data") or cur.get("fec_data") or 10)
     fp = int(d.get("fec_parity") or cur.get("fec_parity") or 3)
     if fd < 1 or fp < 1 or fd + fp > 255:
-        raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥۱، مجموع ≤۲۵۵)")
+        raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥1، مجموع ≤255)")
     # ...and the RECEIVER has to be able to repair the block, which the sum rule says nothing about. The
     # core's decoder hands intact shards over on arrival and parity-recovered ones last, so a repaired
     # frame reaches the AEAD up to blocksize-1 sequences behind the newest — and its 64-slot replay window
     # refuses anything a full window behind. Past that the parity costs full bandwidth and repairs nothing.
     if fd > 64:
-        raise ValueError("دادهٔ FEC حداکثر ۶۴ است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)")
+        raise ValueError("دادهٔ FEC حداکثر 64 است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)")
     out["fec_data"] = fd
     out["fec_parity"] = fp
     return out
@@ -3346,7 +3339,7 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     out["fake_desync"] = True
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
-        raise ValueError("TTLِ طعمه باید بین ۱ تا ۲۵۵ باشد")
+        raise ValueError("TTLِ طعمه باید بین 1 تا 255 باشد")
     # On tcp/ws the decoy rides the REAL connection's 4-tuple, so the core clamps it to injectMaxTTL — a
     # well-formed segment reaching the server would draw an RST. raw/flux/spoof forge a whole IPv4 header
     # toward a peer we hold no kernel connection to, so there the full 1..255 is honoured. This is the one
@@ -3356,7 +3349,7 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     out["fake_ttl"] = ttl
     cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
     if cnt < 1 or cnt > 64:
-        raise ValueError("تعدادِ طعمه باید بین ۱ تا ۶۴ باشد")
+        raise ValueError("تعدادِ طعمه باید بین 1 تا 64 باشد")
     out["fake_count"] = cnt
     mode = str(d.get("fake_mode") or cur.get("fake_mode") or "ttl").strip().lower()
     if mode not in ("ttl", "badsum", "both"):
@@ -3366,7 +3359,7 @@ def _desync_fields(d, transport, cur=None, is_http=False):
         # and REFUSES the config (config.go: `fake_mode "both" needs fake_count >= 2`), so letting it
         # through here means both ends of a live tunnel die on the next core-update — with the panel
         # reporting the edit as saved.
-        raise ValueError("حالتِ «هر دو» به حداقل ۲ طعمه نیاز دارد (یک طعمه نمی‌تواند هم‌زمان TTL‌پایین و چک‌سام‌خراب باشد)")
+        raise ValueError("حالتِ «هر دو» به حداقل 2 طعمه نیاز دارد (یک طعمه نمی‌تواند هم‌زمان TTL‌پایین و چک‌سام‌خراب باشد)")
     out["fake_mode"] = mode
     return out
 
@@ -3561,7 +3554,7 @@ def _sni_split_fields(d, cur):
         return {}
     sp = int((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0)
     if sp < 0 or sp > 1400:
-        raise ValueError("split_pos باید بین ۰ تا ۱۴۰۰ باشد (۰ = خودکار، وسطِ دامنه)")
+        raise ValueError("split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)")
     out = {"sni_split": True}
     if sp:
         out["split_pos"] = sp
@@ -3579,8 +3572,8 @@ def _sni_split_fields(d, cur):
     if mode == "disorder":
         st = int((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0)
         if st < 0 or st > SPLIT_TTL_MAX:
-            raise ValueError("split_ttl باید بین ۰ تا " + _fa_digits(SPLIT_TTL_MAX)
-                             + " باشد (۰ = پیش‌فرض)؛ بالاتر از آن سگمنتِ سرْ به سرور می‌رسد و disorder بی‌اثر می‌شود")
+            raise ValueError("split_ttl باید بین 0 تا " + str(SPLIT_TTL_MAX)
+                             + " باشد (0 = پیش‌فرض)؛ بالاتر از آن سگمنتِ سرْ به سرور می‌رسد و disorder بی‌اثر می‌شود")
         if st:
             out["split_ttl"] = st
     return out
@@ -3608,7 +3601,7 @@ def _edge_port_ok(port, tls):
             "پورتِ %d قبول نیست. (یا wss را خاموش کن و پورتِ HTTP بگذار.)" % (lst, port))
     raise ValueError(
         "wss خاموش است، پس پورتِ لبه باید یکی از پورت‌های HTTP باشد: %s — "
-        "پورتِ %d قبول نیست. (یا wss را روشن کن و ۴۴۳ بگذار.)" % (lst, port))
+        "پورتِ %d قبول نیست. (یا wss را روشن کن و 443 بگذار.)" % (lst, port))
 
 
 def _cdn_profile_field(d, cur, cdn):
@@ -3780,11 +3773,11 @@ def _ws_pool_fields(d, cur=None):
     clean_ips, burned_ips = _ips("ws_edge_ips"), _ips("ws_edge_ips_burned")
     clean_hosts, burned_hosts = _hosts("ws_edge_snis"), _hosts("ws_edge_snis_burned")
     if len(clean_ips) < 2:
-        raise ValueError("استخرِ لبه به حداقل ۲ آی‌پیِ فعال (تمیز) نیاز دارد تا بچرخد — سوخته‌ها حساب نمی‌شوند")
+        raise ValueError("استخرِ لبه به حداقل 2 آی‌پیِ فعال (تمیز) نیاز دارد تا بچرخد — سوخته‌ها حساب نمی‌شوند")
     if not clean_hosts:
         raise ValueError("استخر به حداقل یک دامنهٔ (SNI) تمیز نیاز دارد (سوخته‌ها کافی نیستند)")
     if len(clean_ips) + len(burned_ips) > 64 or len(clean_hosts) + len(burned_hosts) > 64:
-        raise ValueError("استخر خیلی بزرگ است (حداکثر ۶۴)")
+        raise ValueError("استخر خیلی بزرگ است (حداکثر 64)")
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise ValueError("مسیر (path) نامعتبر است")
@@ -3863,7 +3856,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             _rp = 0
         if profile == "bip" and _rp:
             if not 1 <= _rp <= 255:
-                raise ValueError("شمارهٔ پروتکلِ IP باید بینِ ۱ تا ۲۵۵ باشد")
+                raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
             ce["raw_proto"] = _rp
     if transport == "spoof":                   # standalone IP-spoofing carrier (bip-like, never rotates)
         if cipher == "none":
@@ -3965,7 +3958,7 @@ def _create_tunnel_impl(d):
                 pass
     explicit = int(d.get("id") or 0)
     if explicit and not 1 <= explicit <= 254:
-        raise ValueError("شناسهٔ تونل خارج از محدوده است (۱ تا ۲۵۴)")
+        raise ValueError("شناسهٔ تونل خارج از محدوده است (1 تا 254)")
     if explicit and explicit in used:
         raise ValueError(f"tunnel id {explicit} is already in use on one of the nodes")
     tid = explicit or next((i for i in range(42, 255) if i not in used), 0)
@@ -3980,12 +3973,12 @@ def _create_tunnel_impl(d):
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or (20000 + tid)
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
     if ttype == "vxlan":   # VXLAN UDP port is settable (default 4789) — stored so edit/rebuild replay it
         port = int(d.get("port") or 4789)
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = secrets.token_hex(32)   # shared ESP key material for both sides
@@ -4424,12 +4417,12 @@ def _edit_link_impl(d):
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0) or (20000 + tid)
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
     if ttype == "vxlan":
         port = int(d.get("port") or 0) or (L.get("port") if L.get("type") == "vxlan" else 0) or 4789
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (۱ تا ۶۵۵۳۵)")
+            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
@@ -5085,7 +5078,12 @@ _EV_ROT_CODE = {
 
 
 def _rot_pair(axis, prev, cur, other):
-    """The «از»/«به» detail for one rotation, as the SOURCE → DESTINATION pair on each side.
+    """The «از»/«به» detail for one rotation, as the pair the tunnel was on.
+
+    Written DESTINATION first with a LEFT arrow — «49.13.34.234 ← 94.183.210.128». The page is read
+    right to left, so that order puts the SOURCE under the reader's eye first and the arrow carries it to
+    the destination. Source-first with a right arrow is the same fact written for the wrong reading
+    direction, and on this page it lands as «destination, then source».
 
     axis says which half moved; `other` is the half that did not, and may be unknown — the two axes
     rotate on separate beats, so the ring can report one before it has ever reported the other. With no
@@ -5093,8 +5091,8 @@ def _rot_pair(axis, prev, cur, other):
     (a core that sent no IP) there is nothing to say and the card stays title-only."""
     if not cur:
         return ""
-    pair = (lambda one: f"{one} → {other}" if other else one) if axis == "src" \
-        else (lambda one: f"{other} → {one}" if other else one)
+    pair = (lambda one: f"{other} ← {one}" if other else one) if axis == "src" \
+        else (lambda one: f"{one} ← {other}" if other else one)
     if prev and prev != cur:
         return f"از: {pair(prev)}\nبه: {pair(cur)}"
     return f"به: {pair(cur)}"
@@ -5136,7 +5134,7 @@ def _ev_core_text(kind, code, detail, nm):
         rf = _EV_BURN_CODE.get(code, "سوخته شد")
         # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
         # carried two sentences for one fact. The endpoint is the useful part; keep only that.
-        return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
+        return ("warn", "burn", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "cfg":
         # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
         # opens its sockets, and they used to reach only the core unit's journal, which the node reads on
@@ -5160,12 +5158,12 @@ def _ev_core_text(kind, code, detail, nm):
         # data plane; the default (ws edge pool) is a background probe recovery. Distinct from the
         # active-carrier up/reconnect above.
         if code == "peer-retest":
-            return ("ok", "edge", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
+            return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
                     f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
         if code == "src-retest":
-            return ("ok", "edge", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
+            return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
                     f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
-        return ("ok", "edge", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
+        return ("ok", "heal", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
                 "بازآزماییِ پس‌زمینه موفق شد")
     if kind == "pool":
         # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 healthy
@@ -5496,7 +5494,7 @@ def _events_once():
                 if active:
                     _ev_state["edge"][lid] = active
                 if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
-                    log_event("warn", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
+                    log_event("ok", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
         except Exception:
             continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
@@ -5582,7 +5580,7 @@ def _pf_name(v):
     identifier; raises a clear Persian ValueError on anything malformed; returns the stripped name."""
     s = str(v).strip()
     if not re.match(r"^[A-Za-z0-9_.-]{1,40}$", s):
-        raise ValueError("نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «._-» (۱ تا ۴۰ کاراکتر) مجاز است")
+        raise ValueError("نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «._-» (1 تا 40 کاراکتر) مجاز است")
     return s
 
 
@@ -6319,6 +6317,10 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .logcard .lmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
 /* The title carries the whole reason, on its own line. */
 .logcard .ltitle{font-size:13px;font-weight:800;line-height:1.6;overflow-wrap:anywhere;color:var(--tx)}
+/* The timestamp shares the TITLE's line, not the whole card's. It never shrinks (a Persian date is wide
+   and must not wrap), so as a sibling of the detail column it took a third of a phone's width away from
+   it — and an endpoint pair that no longer fits wraps, which is the one thing these boxes must not do. */
+.logcard .lhead{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
 .logcard .ltime{flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;margin-top:2px}
 /* from -> to: one row per side, the label fixed-width so the two values line up under each other. */
 .lfromto{display:flex;flex-direction:column;gap:5px}
@@ -6337,14 +6339,21 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
   border:1px solid var(--bord);color:var(--tx);overflow-wrap:anywhere;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .lft.to .v{color:var(--acc);background:var(--accw);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
+/* An endpoint is one word. The pair may wrap, but only at the arrow — an address split across two
+   lines reads as two addresses. */
+.ep{white-space:nowrap}
+.ep-a{padding:0 5px;opacity:.65}
 .lnote{font-size:11.5px;color:var(--sub);line-height:1.85;overflow-wrap:anywhere}
 /* The fold. Collapsed is the default so the reason line is what a glance lands on; the endpoints are
    one tap away. Height is not animated — the body's height depends on how many rows and how far each
    value wraps, so a fixed max-height either clips a long pair or leaves a gap under a short one. */
 .lfold .lfbody{display:none;margin-top:7px}
 .lfold.open .lfbody{display:block}
-.lftog{display:inline-flex;align-items:center;gap:5px;background:none;border:0;padding:2px 0;margin:0;
-  cursor:pointer;color:var(--sub);font:inherit;font-size:11px;line-height:1.7}
+/* The toggle sits on its own line under the reason, so it goes to the inline END — the left edge on an
+   RTL page — where a chevron alone is the whole control. A word beside it said nothing the arrow
+   does not, on every card. Padded out to a real tap target, since the glyph is 13px. */
+.lftog{display:flex;align-items:center;justify-content:center;width:30px;height:26px;
+  margin-inline-start:auto;background:none;border:0;padding:0;cursor:pointer;color:var(--sub)}
 .lftog:hover{color:var(--acc)}
 .lfic{display:inline-grid;place-items:center;width:13px;height:13px;transition:transform .16s ease}
 .lfic .ic{width:13px;height:13px}
@@ -6889,7 +6898,7 @@ var I18N={fa:{
  disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
  // overview
  ov_sub:"آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده",ov_health:"سلامتِ فلیت",ov_attention:"نیازمندِ توجه",ov_allnodes:"همهٔ نودها یک‌نگاه",
- st_healthy:"سالم",st_warn:"هشدار (>۶۰٪)",st_crit:"بحرانی (>۸۵٪)",ov_central:"سرورِ مرکزی (این پنل)",ov_worst:"پرمصرف‌ترین نودها",
+ st_healthy:"سالم",st_warn:"هشدار (>60٪)",st_crit:"بحرانی (>85٪)",ov_central:"سرورِ مرکزی (این پنل)",ov_worst:"پرمصرف‌ترین نودها",
  ov_tunbreak:"وضعیتِ تفکیکیِ تونل‌ها",ov_traffic:"ترافیکِ فلیت",ov_uptime:"آپ‌تایم",ov_rxtot:"↓ ورودیِ کل",ov_txtot:"↑ خروجیِ کل",
  ov_uptime_avg:"میانگینِ آپ‌تایم",ov_down_nodes:"نود قطعی داشته",ov_chip_node:"نود",ov_chip_uplink:"لینکِ سالم",ov_chip_tunnel:"تونل",ov_chip_alert:"هشدار",ov_chip_noalert:"بدونِ هشدار",
  ov_noalert:"همه‌چیز مرتب است — هشداری نیست",ov_no_nodes:"نودی نیست",ov_no_online:"نودِ آنلاینی نیست",ov_no_tunnel:"تونلی نیست",
@@ -6910,7 +6919,7 @@ var I18N={fa:{
  tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",tip_tune:"تیونینگِ شبکه",
  kt_title:"تیونینگِ کرنل (BBR)",kt_sub:"شتاب‌دهیِ شبکه‌ی سرور",kt_desc:"BBR + fq + بافرهای بزرگ‌تر را روی این سرور روشن می‌کند. روی مسیرِ پرتلفات و پرتأخیرِ ایران، سرعتِ حامل‌های TCP را بالا می‌برد. اختیاری و برگشت‌پذیر.",kt_state:"وضعیت",kt_cc:"کنترلِ ازدحام",kt_qdisc:"صف‌بندی",kt_on:"روشن",kt_off:"خاموش",kt_enable:"روشن کردن",kt_disable:"خاموش کردن",kt_nobbr:"کرنلِ این سرور BBR ندارد — روشن‌کردن ممکن نیست.",kt_working:"در حال اعمال…",kt_enabled:"تیونینگ روشن شد",kt_disabled:"تیونینگ خاموش شد",kt_close:"بستن",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
- uptime_bar:"آپتایم",node_min2:"حداقل ۲ نودِ آنلاین لازم است",
+ uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
@@ -6957,7 +6966,7 @@ var I18N={fa:{
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",t_noloss:"بدون اتلاف",
- t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر ۴ پینگِ آزمایشی گم شد",
+ t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر 4 پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
@@ -6973,8 +6982,8 @@ var I18N={fa:{
  create_tun_btn:"ساخت تونل",two_diff_nodes:"دو نودِ متفاوت انتخاب کن",creating_tun:"در حال ساختِ تونل…",tun_created:"تونل ساخته شد",
  src_ip:"آی‌پیِ نودِ مبدأ",dst_ip:"آی‌پیِ نودِ مقصد",
  rot_t:"چرخشِ آی‌پی",rot_d:"بینِ آی‌پی‌های هر نود می‌چرخد و آی‌پیِ بلاک‌شده را کنار می‌گذارد (مسیرِ مستقیم، بدونِ CDN)",
- rot_interval:"بازهٔ چرخش",rot_onfail:"فقط هنگامِ قطع",rot_1m:"هر ۱ دقیقه",rot_5m:"هر ۵ دقیقه",rot_10m:"هر ۱۰ دقیقه",
- rot_min2:"برای چرخش باید حداقل ۲ آی‌پی در هر استخر انتخاب شود",
+ rot_interval:"بازهٔ چرخش",rot_onfail:"فقط هنگامِ قطع",rot_1m:"هر 1 دقیقه",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",
+ rot_min2:"برای چرخش باید حداقل 2 آی‌پی در هر استخر انتخاب شود",
  
  
  // rebuild picker
@@ -6993,56 +7002,56 @@ var I18N={fa:{
  pf_add_t:"افزودنِ پورت‌فوروارد",pf_edit_t:"ویرایشِ پورت‌فوروارد",pf_node:"نود",pf_listen_port:"پورتِ ورودی",pf_dst_port:"پورتِ مقصد",
  pf_dst_ips:"آی‌پی(های) مقصد — با کاما جدا کن",pf_rot_min:"چرخش هر (دقیقه) — اگر چند آی‌پی دادی",pf_rot_between:"چرخش بینِ مقصدها",
  pf_rot_interval:"بازهٔ چرخش (دقیقه)",pf_lip:"آی‌پیِ ورودی (شنود)",pf_lip_note:"پورت فقط روی این آی‌پی فوروارد می‌شود",
- pf_lip_full:"آی‌پیِ ورودی (شنود) — پورت فقط روی این آی‌پی فوروارد می‌شود",pf_rot_note:"چرخش فقط با ۲ آی‌پیِ مقصد یا بیشتر فعال می‌شود.",
+ pf_lip_full:"آی‌پیِ ورودی (شنود) — پورت فقط روی این آی‌پی فوروارد می‌شود",pf_rot_note:"چرخش فقط با 2 آی‌پیِ مقصد یا بیشتر فعال می‌شود.",
  pf_need_ports:"پورت‌ها و آی‌پیِ مقصد لازم است",pf_need_all:"نود، پورتِ ورودی/مقصد و آی‌پی لازم است",creating_dots:"در حال ساخت…",
  pf_created:"پورت‌فوروارد ساخته شد: ",pf_del_confirm:"این پورت‌فوروارد حذف شود؟",pf_active_now:"هم‌اکنون روی: ",pf_targets:"مقصدها: ",
  pf_iface:"اینترفیس: ",pf_lip_lbl:"آی‌پیِ ورودی: ",pf_lp_lbl:"پورتِ ورودی: ",pf_dp_lbl:"پورتِ مقصد: ",pf_active_badge:"فعال · مقصد",
  pf_disabled:"غیرفعال",pf_rule:"قانون",pf_rotate_now:"چرخش الان",pf_rotate_done:"چرخش انجام شد ← ",pf_rotate_failed:"چرخش ناموفق",
  // settings
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
- set_rec_range:"۵ تا ۳۶۰۰",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"۰٫۳ تا ۶۰ — زیرِ ۱ هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"۰٫۳ تا ۶۰ — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"۰ = خاموش، وگرنه ۱ تا ۱۴۴۰ — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
- set_upwin_d:"۶۰ خانه؛ هر خانه = پنجره ÷ ۶۰",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
+ set_rec_range:"5 تا 3600",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"0٫3 تا 60 — زیرِ 1 هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"0٫3 تا 60 — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"0 = خاموش، وگرنه 1 تا 1440 — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
+ set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
- set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، با کاما جدا. یعنی: بار اول ۳۰ ثانیه صبر کن و دوباره امتحان کن؛ باز نشد، ۶۰ ثانیه؛ بعد ۱۲۰… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
+ set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، با کاما جدا. یعنی: بار اول 30 ثانیه صبر کن و دوباره امتحان کن؛ باز نشد، 60 ثانیه؛ بعد 120… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (ثانیه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر ثانیه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
  set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"وقتی خودت روی یک آی‌پی دکمهٔ «این را فعال کن» را می‌زنی، تونل سعی می‌کند برود روی همان. ولی اگر آن آی‌پی خراب باشد، تا ابد منتظر نمی‌ماند — بعد از این‌قدر ثانیه بی‌خیال می‌شود و می‌رود سراغ بقیه. یعنی یک انتخابِ اشتباه، تونلت را قطع نگه نمی‌دارد.",
  set_t_datafail:"آستانهٔ سشنِ کوتاه",set_t_datafail_d:"بعضی وقت‌ها یک آی‌پیِ CDN وصل می‌شود ولی چند ثانیه بعد می‌افتد. این عدد می‌گوید چند بارِ پشتِ‌هم این اتفاق بیفتد تا آن آی‌پی را کنار بگذارد. کمترش کنی زودتر کنار می‌گذارد، ولی ممکن است آی‌پیِ سالم را هم بی‌گناه کنار بگذارد.",
  set_t_datagood:"پنجرهٔ گاردِ قطعی (ثانیه)",set_t_datagood_d:"یک محافظ، تا بی‌خود همه‌چیز را خراب علامت نزند. اگر اینترنتِ خودِ سرور قطع شود، همهٔ آی‌پی‌ها با هم می‌افتند — تقصیرِ آن‌ها نیست. برای همین یک آی‌پی فقط وقتی مقصر شناخته می‌شود که در این چند ثانیهٔ اخیر، لااقل یکی از بقیه سالم کار کرده باشد. اگر هیچ‌کدام سالم نبوده، یعنی مشکل از خودِ سرور است و هیچ آی‌پی‌ای علامت نمی‌خورد.",
- set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"برای تونل‌های ws و tcp. چند برابرِ keepalive سکوت را تحمل کند تا بگوید اتصال مرده است. مثلاً اگر keepalive ۱۰ ثانیه باشد و این عدد ۴، بعد از ۴۰ ثانیه بی‌خبری اتصال را می‌بندد و از نو وصل می‌شود.",
+ set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"برای تونل‌های ws و tcp. چند برابرِ keepalive سکوت را تحمل کند تا بگوید اتصال مرده است. مثلاً اگر keepalive 10 ثانیه باشد و این عدد 4، بعد از 40 ثانیه بی‌خبری اتصال را می‌بندد و از نو وصل می‌شود.",
  set_t_idlemin:"کفِ idle (ثانیه)",set_t_idlemin_d:"کفِ همان محاسبهٔ بالا. اگر ضرب‌کردن عددِ کوچکی درآورد، از این پایین‌تر نرود. جلوی این را می‌گیرد که یک کندیِ چندثانیه‌ایِ اینترنت، الکی قطعیِ تونل خوانده شود.",
  set_t_ssmult:"ضریبِ کهنگیِ سشن (×keepalive)",set_t_ssmult_d:"برای تونل‌های udp و raw و flux. این‌ها ارتباطِ دائمیِ برقرارشده ندارند، پس تنها نشانهٔ سالم‌بودنشان این است که داده می‌رسد. چند برابرِ keepalive سکوت را تحمل کند تا ارتباط را از نو برقرار کند.",
  set_t_ssmin:"کفِ کهنگیِ سشن (ثانیه)",set_t_ssmin_d:"کفِ همان محاسبه برای udp و raw و flux — از این کمتر، سکوت را به حسابِ قطعی نگذار.",
  set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"چند تا از آن بسته‌های «زنده‌ای؟» پشتِ‌هم بی‌جواب بماند تا اتصال را ببندد و دوباره وصل شود. کم که باشد سریع‌تر واکنش نشان می‌دهد، ولی روی اینترنتِ ناپایدار ممکن است بی‌خود قطع و وصل کند.",
  set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک قطعیِ عادی حساب نمی‌شود — به پای خرابیِ همان آی‌پی نوشته می‌شود. این‌طوری آی‌پی‌ای که مدام وصل می‌شود و فوری می‌افتد، شناسایی و کنار گذاشته می‌شود.",
  set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"برای اینکه بفهمد یک آی‌پیِ خراب دوباره سالم شده یا نه، یک اتصالِ آزمایشی می‌زند. این می‌گوید چند ثانیه منتظرِ جوابش بماند. اگر اینترنتت کند است این عدد را زیاد کن، وگرنه آی‌پیِ سالم را هم رد می‌کند.",
- set_g1:"۱) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
- set_g2:"۱) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
- set_g3:"۲) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/http",set_g3c:"فقط WS-CDN",
- set_g4:"۴) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
- set_g7:"۵) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
- set_g5:"۵) دیتاگرام: کهنگیِ سشن و کارایی",set_g5h:"بی‌هندشیک، به‌علاوهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
- set_g6:"۷) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
- set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود ۲٫۷ برابر شد). <b>۰</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
+ set_g1:"1) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
+ set_g2:"1) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
+ set_g3:"2) سوزاندنِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/http",set_g3c:"فقط WS-CDN",
+ set_g4:"4) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
+ set_g7:"5) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
+ set_g5:"5) دیتاگرام: کهنگیِ سشن و کارایی",set_g5h:"بی‌هندشیک، به‌علاوهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
+ set_g6:"7) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
+ set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود 2٫7 برابر شد). <b>0</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
- set_x_rec:"<b>۱۵</b> = هر ۱۵ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
- set_x_poll:"<b>۰٫۹</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
- set_x_ui:"<b>۱</b> = اعداد و نمودارها هر ثانیه به‌روز می‌شوند (فقط مرورگر، نه بارِ شبکه).",
- set_x_ech:"<b>۱۵</b> = هر ۱۵ دقیقه کلید تازه؛ <b>۰</b> = خاموش (توصیه نمی‌شود).",
- set_x_upwin:"<b>۲۴ ساعت</b> = هر خانه ۲۴ دقیقه؛ <b>۱ ساعت</b> = هر خانه ۱ دقیقه (ریزتر).",
- set_x_suspect:"IP مشکوک شد → ۳۰ث بعد امتحان، باز مرد → ۶۰ث، بعد ۱۲۰… بعد از <b>۶۰۰</b> → مرده.",
- set_x_deadretest:"<b>۱۸۰۰</b> = IPِ مرده هر ۳۰ دقیقه یک شانسِ دوباره می‌گیرد.",
- set_x_pinttl:"<b>۵</b> = پین کردی؛ اگر ۵ثانیه وصل نشد، پین آزاد و چرخشِ عادی برمی‌گردد.",
- set_x_datafail:"<b>۳</b> = سه بارِ پیاپی اتصال زود قطع شد → لبه مشکوک می‌شود.",
- set_x_datagood:"<b>۱۲۰</b> = اگر در ۱۲۰ثانیهٔ اخیر هیچ لبه‌ای سالم نبوده، مشکل عمومی است نه این لبه → نمی‌سوزد.",
- set_x_idlemult:"keepalive=۱۰ث و ضریب=<b>۴</b> ← ۴۰ثانیه سکوت = اتصال مرده.",
- set_x_idlemin:"ضریب×keepalive شد ۴۰ث، ولی کف=<b>۶۰</b> ← مهلت ۶۰ثانیه می‌شود.",
- set_x_ssmult:"keepalive=۱۰ و ضریب=<b>۳</b> ← ۳۰ثانیه سکوت ← سشنِ نو ساخته می‌شود.",
- set_x_ssmin:"<b>۱۰</b> = کمتر از ۱۰ثانیه سکوت، سشن را کهنه حساب نکن.",
- set_x_pingloss:"<b>۳</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
- set_x_minlive:"<b>۲۰</b> = اتصال بعد از ۵ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
- set_x_probeto:"<b>۵</b> = لبه در ۵ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
- set_x_sockbuf:"<b>۴</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود ۲٫۷ برابر شد). <b>۰</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
- h1:"ساعت",h3:"۳ ساعت",h6:"۶ ساعت",h8:"۸ ساعت",h12:"۱۲ ساعت",h24:"۲۴ ساعت",
+ set_x_rec:"<b>15</b> = هر 15ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
+ set_x_poll:"<b>0٫9</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
+ set_x_ui:"<b>1</b> = اعداد و نمودارها هر ثانیه به‌روز می‌شوند (فقط مرورگر، نه بارِ شبکه).",
+ set_x_ech:"<b>15</b> = هر 15 دقیقه کلید تازه؛ <b>0</b> = خاموش (توصیه نمی‌شود).",
+ set_x_upwin:"<b>24 ساعت</b> = هر خانه 24 دقیقه؛ <b>1 ساعت</b> = هر خانه 1 دقیقه (ریزتر).",
+ set_x_suspect:"IP مشکوک شد → 30ث بعد امتحان، باز مرد → 60ث، بعد 120… بعد از <b>600</b> → مرده.",
+ set_x_deadretest:"<b>1800</b> = IPِ مرده هر 30 دقیقه یک شانسِ دوباره می‌گیرد.",
+ set_x_pinttl:"<b>5</b> = پین کردی؛ اگر 5ثانیه وصل نشد، پین آزاد و چرخشِ عادی برمی‌گردد.",
+ set_x_datafail:"<b>3</b> = سه بارِ پیاپی اتصال زود قطع شد → لبه مشکوک می‌شود.",
+ set_x_datagood:"<b>120</b> = اگر در 120ثانیهٔ اخیر هیچ لبه‌ای سالم نبوده، مشکل عمومی است نه این لبه → نمی‌سوزد.",
+ set_x_idlemult:"keepalive=10ث و ضریب=<b>4</b> ← 40ثانیه سکوت = اتصال مرده.",
+ set_x_idlemin:"ضریب×keepalive شد 40ث، ولی کف=<b>60</b> ← مهلت 60ثانیه می‌شود.",
+ set_x_ssmult:"keepalive=10 و ضریب=<b>3</b> ← 30ثانیه سکوت ← سشنِ نو ساخته می‌شود.",
+ set_x_ssmin:"<b>10</b> = کمتر از 10ثانیه سکوت، سشن را کهنه حساب نکن.",
+ set_x_pingloss:"<b>3</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
+ set_x_minlive:"<b>20</b> = اتصال بعد از 5ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
+ set_x_probeto:"<b>5</b> = لبه در 5ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
+ set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
+ h1:"ساعت",h3:"3 ساعت",h6:"6 ساعت",h8:"8 ساعت",h12:"12 ساعت",h24:"24 ساعت",
  // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
 }});
@@ -7081,18 +7090,18 @@ var I18N={fa:{
  // subnet ranges
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
- rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ ۵۸",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
+ rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bip_m:"proto دلخواه · پیش‌فرضِ 58",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",
  // the CDN carrier tiles + the http profile
  cdn_prof_lbl:"CDNِ روبه‌رو",
- cdnp_cf_n:"کلودفلر",cdnp_cf_m:"۸ کارگر × ۲۵۶KB (پیش‌فرض)",
- cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"۸ کارگر × ۵۱۲KB · ~۳× سریع‌تر",
+ cdnp_cf_n:"کلودفلر",cdnp_cf_m:"8 کارگر × 256KB (پیش‌فرض)",
+ cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"8 کارگر × 512KB · ~3× سریع‌تر",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
- grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با ۴۰۳ رد می‌کند و تونل اصلاً بالا نمی‌آید.",
+ grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
  // flux rotation presets + shapes
- frot_180:"هر ۳ دقیقه",frot_300:"هر ۵ دقیقه",frot_600:"هر ۱۰ دقیقه (پیش‌فرض)",frot_900:"هر ۱۵ دقیقه",frot_1800:"هر ۳۰ دقیقه",frot_3600:"هر ۱ ساعت",
+ frot_180:"هر 3 دقیقه",frot_300:"هر 5 دقیقه",frot_600:"هر 10 دقیقه (پیش‌فرض)",frot_900:"هر 15 دقیقه",frot_1800:"هر 30 دقیقه",frot_3600:"هر 1 ساعت",
  fsh_random_n:"تصادفی",fsh_random_m:"بدونِ تقلید",fsh_quic_m:"شبیهِ HTTP/3",fsh_video_n:"ویدیوکال",fsh_video_m:"بسته‌های بزرگ",fsh_webrtc_m:"RTPِ کوچک",
  // fec presets
- fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"۲۰٪ سربار",fec_ov30:"۳۰٪ سربار",fec_ov50:"۵۰٪ سربار",
+ fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"20٪ سربار",fec_ov30:"30٪ سربار",fec_ov50:"50٪ سربار",
  // flux section
  flux_carrier_lbl:"حاملِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",flux_raw_warn:"فقط هم‌سگمنت / L2",flux_raw_m:"protoِ IP خام · فقط L2",
  flux_shape_lbl:"پروفایلِ شکل — شبیهِ چه ترافیکی",flux_rot_lbl:"بازهٔ چرخش",flux_rot_ph:"بازه",flux_rotate_btn:"چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)",
@@ -7120,42 +7129,42 @@ var I18N={fa:{
  spoof_cap_bad_pre:"<b>غیرفعال — روی نودِ «",spoof_cap_bad_mid:"» نمی‌شود.</b> علت: ",spoof_reason_unknown:"نامشخص",spoof_cap_err:"<b>بررسی ناموفق بود.</b> نتوانستم امکانِ جعل را از نودها بپرسم.",
  // fec section
  fec_t:"تصحیحِ خطا (FEC)",fec_d:"بسته‌های گم‌شده را خودش بازمی‌سازد بدون اینکه دوباره بفرستد — برای خطِ پُرافت. کمی پهنای‌باند بیشتر می‌خورد. فقط روی حامل‌های دیتاگرامی.",fec_rate_lbl:"نرخِ افزونگیِ FEC",
- fec_note:"«۱۰+۳» یعنی هر ۱۰ پکتِ داده، ۳ پکتِ پریتی؛ گیرنده تا ۳ تا از هر ۱۳ تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند. درصدِ روی کاشی برای بلوکِ پُر است: روی تونلِ کم‌ترافیک بلوک با پکتِ کمتری بسته می‌شود و همیشه دستِ‌کم یک پکتِ پریتی می‌رود، پس سربارِ لحظه‌ای بالاتر می‌رود (برای بلوکِ تک‌پکتی تا ۱۰۰٪). نسبتِ محافظت هرگز از عددِ انتخابی کمتر نمی‌شود.",
+ fec_note:"«10+3» یعنی هر 10 پکتِ داده، 3 پکتِ پریتی؛ گیرنده تا 3 تا از هر 13 تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند. درصدِ روی کاشی برای بلوکِ پُر است: روی تونلِ کم‌ترافیک بلوک با پکتِ کمتری بسته می‌شود و همیشه دستِ‌کم یک پکتِ پریتی می‌رود، پس سربارِ لحظه‌ای بالاتر می‌رود (برای بلوکِ تک‌پکتی تا 100٪). نسبتِ محافظت هرگز از عددِ انتخابی کمتر نمی‌شود.",
  ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"چند بستهٔ قلابی می‌فرستد تا فیلترچی ردِ اتصالِ واقعی را گم کند؛ خودِ تونل دست‌نخورده می‌ماند. روی حاملِ UDP و HTTP در دسترس نیست.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
- ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (۱ برای رله‌ٔ کوتاه، ۳ تا ۵ برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
- ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ ۸ دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به ۸ کم می‌شود. روی raw/flux/spoof کلِ ۱ تا ۲۵۵ اعمال می‌شود.",
+ ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (1 برای رله‌ٔ کوتاه، 3 تا 5 برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
+ ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود. روی raw/flux/spoof کلِ 1 تا 255 اعمال می‌شود.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  // ws toggle rows
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
- ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — ۰ = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — ۰ = پیش‌فرض (۴)، بیشترین ۸",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
+ ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
  // ws section
  ws_prof_lbl:"حاملِ رویِ CDN",
  ws_pool_t:"استخرِ لبه (چرخش + بلک‌لیست)",ws_pool_d:"چند IP و چند دامنه؛ هسته می‌چرخد و سوخته‌ها را کنار می‌گذارد. خاموش = یک لبهٔ ثابت.",
  ws_host_lbl:"دامنهٔ فرانت (Host / SNI)",ph_cdn_domain:"مثلاً cdn.example.com",ws_edge_lbl:"آی‌پیِ لبهٔ CDN (اختیاری) — کلاینت به‌جای مبدأ به این وصل می‌شود",ph_edge_ip:"مثلاً 104.16.0.1 یا 104.16.0.1:443",ws_path_lbl:"مسیر (path)",
- ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ ۸۰. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
+ ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ 80. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
  // ws pool inner
- rot_3m:"هر ۳ دقیقه",rot_5m:"هر ۵ دقیقه",rot_10m:"هر ۱۰ دقیقه",rot_15m:"هر ۱۵ دقیقه",rot_30m:"هر ۳۰ دقیقه",rot_1h:"هر ۱ ساعت",rot_4h:"هر ۴ ساعت",rot_8h:"هر ۸ ساعت",rot_off_fo:"خاموش (فقط failover)",
- pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل ۲ آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",pool_ab_t:"سوختهٔ خودکار",pool_ab_d:"لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.",
+ rot_3m:"هر 3 دقیقه",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",rot_15m:"هر 15 دقیقه",rot_30m:"هر 30 دقیقه",rot_1h:"هر 1 ساعت",rot_4h:"هر 4 ساعت",rot_8h:"هر 8 ساعت",rot_off_fo:"خاموش (فقط failover)",
+ pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل 2 آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",pool_ab_t:"سوختهٔ خودکار",pool_ab_d:"لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.",
  pool_warm_t:"لبهٔ یدکیِ گرم",pool_warm_d:"یک لبهٔ دومِ آماده در پس‌زمینه نگه می‌دارد؛ لبهٔ فعال که بمیرد، آنی و بدونِ قطعیِ محسوس سوییچ می‌شود. کمی ترافیکِ اضافهٔ ناچیز (فقط keepalive).",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
  // core modal general
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
- dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ ۵۳ سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (۵۳)",
+ dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
- raw_proto_lbl:"شمارهٔ پروتکلِ IP (bip)",raw_proto_native:"نیتیو",raw_proto_hint:"bip بدونِ هدرِ L4 است؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ لیستِ‌سفیدِ پروتکل رد شود. پیش‌فرض ۵۸ (ICMPv6) که کرنلِ IPv4 نادیده می‌گیرد. بازهٔ ۱ تا ۲۵۵.",raw_proto_warn:"این شماره پروتکلی است که خودِ سیستم هم به‌کار می‌برد (ICMP/TCP/UDP/ESP/AH) و ممکن است تداخل کند — ۵۸ یا ۲۵۳ امن‌ترند.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ ۱ تا ۲۵۵ باشد",
+ raw_proto_lbl:"شمارهٔ پروتکلِ IP (bip)",raw_proto_native:"نیتیو",raw_proto_hint:"bip بدونِ هدرِ L4 است؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ لیستِ‌سفیدِ پروتکل رد شود. پیش‌فرض 58 (ICMPv6) که کرنلِ IPv4 نادیده می‌گیرد. بازهٔ 1 تا 255.",raw_proto_warn:"این شماره پروتکلی است که خودِ سیستم هم به‌کار می‌برد (ICMP/TCP/UDP/ESP/AH) و ممکن است تداخل کند — 58 یا 253 امن‌ترند.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"۳) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>۱۰</b> ← هر ۱۰ث یک پینگ؛ پنجرهٔ خودکار ~۳۰ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>۰ بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت کارت‌های ۴ و ۵ بی‌اثر می‌شوند.",set_x_deadafter:"۰ ← خودکار (~۳×keepalive). ۲۰ ← همهٔ تونل‌ها پس از ۲۰ث سکوت مرده.",set_da_auto:"۰ = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های ۴ و ۵ حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ ۲×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = ۰ باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
+ set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>0 بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت کارت‌های 4 و 5 بی‌اثر می‌شوند.",set_x_deadafter:"0 ← خودکار (~3×keepalive). 20 ← همهٔ تونل‌ها پس از 20ث سکوت مرده.",set_da_auto:"0 = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های 4 و 5 حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ 2×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = 0 باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
- port_flux_ph:"flux پورت ثابت ندارد",port_raw_ph:"raw پورت ندارد",port_ws_ph:"۸۰ (کلادفلر Flexible)",
+ port_flux_ph:"flux پورت ثابت ندارد",port_raw_ph:"raw پورت ندارد",port_ws_ph:"80 (کلادفلر Flexible)",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  pct:"٪",list_sep:"، ",unit_kb:"کیلوبایت",unit_mb_full:"مگابایت",app_title:"tnl · کنترل فلیت",
@@ -7164,7 +7173,7 @@ var I18N={fa:{
  nadd_auto:"خودکار",nadd_manual:"دستی",nadd_title:"افزودنِ نود",
  nadd_autonote:"مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.",
  nadd_node_name:"نامِ نود",nadd_srv_ip:"آی‌پیِ سرور",nadd_ssh_port:"پورتِ SSH",nadd_ssh_user:"کاربرِ SSH",
- nadd_agent_port:"پورتِ ایجنت",nadd_ctrl_proxy:"پروکسیِ کنترل (اختیاری)",px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پنل از این پروکسی هم برای SSHِ نصب و هم برای کنترلِ نود استفاده می‌کند.",px_need_ipport:"آی‌پی و پورتِ پروکسی لازم است",px_bad_port:"پورتِ پروکسی نامعتبر است (۱ تا ۶۵۵۳۵)",px_bad_cred:"یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد",nadd_ssh_auth:"احرازِ هویتِ SSH",
+ nadd_agent_port:"پورتِ ایجنت",nadd_ctrl_proxy:"پروکسیِ کنترل (اختیاری)",px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پنل از این پروکسی هم برای SSHِ نصب و هم برای کنترلِ نود استفاده می‌کند.",px_need_ipport:"آی‌پی و پورتِ پروکسی لازم است",px_bad_port:"پورتِ پروکسی نامعتبر است (1 تا 65535)",px_bad_cred:"یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد",nadd_ssh_auth:"احرازِ هویتِ SSH",
  nadd_pass:"رمز",nadd_privkey:"کلیدِ خصوصی",nadd_pass_ph:"رمزِ SSH سرور",
  nadd_pass_hint:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",
  nadd_key_hint:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
@@ -9156,7 +9165,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
  setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
-function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
+function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML=vhead('activity','logs_title','logs_sub')+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  '<div id="logChips"></div>'+
@@ -9174,10 +9183,19 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
 // ech, node, else sys. Kept in one place so the chips and the per-card badge always agree.
 function logCat(e){var k=e.kind;
  if(k=='link')return 'tunnel';
- if(k=='rot'||k=='edge')return 'rot';
+ if(k=='rot'||k=='edge'||k=='burn'||k=='heal')return 'rot';
  if(k=='ech')return 'ech';
  if(k=='node')return 'node';
  return 'sys';}
+// The badge says WHAT HAPPENED, not how alarming it is. A destination rotation and a CDN edge switch are
+// the same move on different carriers, so both wear the swap arrows; a burn keeps the warning triangle,
+// because it is the one thing here that took an endpoint out; and an endpoint coming back is a tick.
+// Everything else still falls back to the level, which is all those events carry.
+function logIco(e){var k=e.kind;
+ if(k=='rot'||k=='edge')return 'swap';
+ if(k=='burn')return 'warn';
+ if(k=='heal')return 'check';
+ return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
 var LOGEVS=[],LOGFILTER='all';
 // The horizontal, sideways-scrolling category filter row. Counts are live; empty categories are hidden
 // (but the active one always stays visible). "errors only" spans every category.
@@ -9193,7 +9211,7 @@ function logListHTML(){
  var evs=LOGEVS.filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':logCat(e)==LOGFILTER;});
  if(!evs.length)return '<div class="card muted">'+esc(T('logc_none'))+'</div>';
  return evs.map(function(e){
-   var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
+   var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
    var p=evParts(e);
    return '<div class="card logcard">'+
@@ -9201,9 +9219,9 @@ function logListHTML(){
      '<div class="lbody">'+
        '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
        '<div class="lmain">'+
-         '<span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
+         '<div class="lhead"><span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
+           '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span></div>'+
          evDetail(p.lines,evKey(e))+'</div>'+
-       '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';}).join('');}
 // A stable per-card key for the fold state. Events carry no id and the list is rebuilt from scratch on
 // every poll, so the key has to come from the content — which never changes once logged. Hashed to a
@@ -9223,6 +9241,12 @@ function evParts(e){
  var det=e.dfa||'';
  return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
+// A «dst ← src» value, marked up so the pill breaks only AT the arrow. Left to itself the pill is
+// narrower than the pair on a phone and overflow-wrap:anywhere splits wherever it runs out — mid-address,
+// so one endpoint arrived over two lines and read as two. Anything that is not a pair passes untouched.
+function evEndpoints(v){var p=v.split(' ← ');
+ if(p.length!=2)return esc(v);
+ return '<span class="ep">'+esc(p[0])+'</span><span class="ep-a">←</span><span class="ep">'+esc(p[1])+'</span>';}
 // A detail line is one of two things: «key: value» becomes a labelled pill («از» / «به» / «لبه» /
 // «دامنه» / «کلیدِ ECH» …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
 // of sentence punctuation — that is the whole test, and it must allow spaces, since the backend emits
@@ -9236,7 +9260,7 @@ function evDetail(lines,id){if(!lines||!lines.length)return '';
  var out='';
  if(rows.length)out+='<div class="lfromto">'+rows.map(function(m){
    return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
-          '<span class="v">'+esc(m.v)+'</span></div>'}).join('')+'</div>';
+          '<span class="v">'+evEndpoints(m.v)+'</span></div>'}).join('')+'</div>';
  for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
  // Endpoint rows FOLD; a plain sentence does not. The endpoints are the bulk of a card \u2014 several lines
  // of addresses under a reason that already named the tunnel and what happened to it \u2014 while a note like
@@ -9245,7 +9269,7 @@ function evDetail(lines,id){if(!lines||!lines.length)return '';
  if(!rows.length)return out;
  return '<div class="lfold'+(LOGOPEN[id]?' open':'')+'" id="lf'+id+'">'+
    '<button type="button" class="lftog" onclick="logFold(\\''+id+'\\')" aria-label="'+esc(T('log_details'))+'">'+
-     '<span class="lfic">'+ic('chev')+'</span><span class="lflab">'+esc(T('log_details'))+'</span>'+
+     '<span class="lfic">'+ic('chev')+'</span>'+
    '</button><div class="lfbody">'+out+'</div></div>';}
 // Which cards the operator opened, keyed by event id. Kept OUT of the DOM because refreshLogs rebuilds
 // the whole list on every poll \u2014 state read back off the elements would be wiped a few seconds later.
