@@ -1198,6 +1198,31 @@ def _paginate(d, default_limit=25, max_limit=100):
     return off, lim, str(d.get("q") or "").strip().lower()
 
 
+# A tunnel id is unique across the WHOLE fleet, 1..255, and everything else about the tunnel's identity
+# is read off it: the interface name, the overlay subnet (192.168.<id>.0/24) and the default UDP port
+# (20000+id). 255 is the ceiling because the id is an IP octet.
+TID_MIN, TID_MAX = 1, 255
+
+
+def tunnel_name(ttype, tid):
+    """The interface name — from the id alone, so create / edit / rebuild cannot disagree on it.
+
+    Every kernel type shares one `native<id>` spelling: nothing anywhere reads the type back out of the
+    name, and a per-type prefix meant a type change was also a rename, which is a second thing to get
+    right for no gain. Ids being unique fleet-wide is what makes the name unique too."""
+    return f"core{tid}" if ttype == "core" else f"native{tid}"
+
+
+def overlay_host(ttype, server_side, is_a):
+    """Which host number this end takes inside the overlay subnet: the SERVER is always .1 and the client
+    .2, so a glance at either end says which role it is. A kernel tunnel has no server, so side A takes
+    .1. The panel decides — the two ends used to derive it themselves by comparing their PUBLIC IPs,
+    which made the overlay address depend on which provider handed out the larger address."""
+    if ttype == "core":
+        return 1 if (server_side == "a") == bool(is_a) else 2
+    return 1 if is_a else 2
+
+
 def subnet_default(ttype, tid, base=None):
     if ttype == "sit":
         return f"fd00:{tid}::/64"
@@ -3997,26 +4022,30 @@ def _create_tunnel_impl(d):
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
         raise ValueError("could not read existing tunnels from a node (busy/offline); aborted to avoid an id collision")
-    used = set()
-    for L in (la, lb):
+    # The id space is the PANEL's, not the pair's. Scoping it to the two nodes let every pair start over
+    # at the same number, so three unrelated links could all be called core42 — and the id is also the
+    # overlay subnet, so those three shared 192.168.42.0/24 too.
+    used = {int(x["tunnel_id"]) for x in load_links() if str(x.get("tunnel_id", "")).isdigit()}
+    for L in (la, lb):   # plus whatever is already on either node, so a hand-built tunnel is not overrun
         for c in L.get("configs", []):
             try:
                 used.add(int(c.get("id")))
             except Exception:
                 pass
     explicit = int(d.get("id") or 0)
-    if explicit and not 1 <= explicit <= 254:
-        raise ValueError("شناسهٔ تونل خارج از محدوده است (1 تا 254)")
+    if explicit and not TID_MIN <= explicit <= TID_MAX:
+        raise ValueError(f"شناسهٔ تونل خارج از محدوده است ({TID_MIN} تا {TID_MAX})")
     if explicit and explicit in used:
-        raise ValueError(f"tunnel id {explicit} is already in use on one of the nodes")
-    tid = explicit or next((i for i in range(42, 255) if i not in used), 0)
+        raise ValueError(f"شناسهٔ {explicit} از قبل روی این فلیت استفاده شده است")
+    tid = explicit or next((i for i in range(TID_MIN, TID_MAX + 1) if i not in used), 0)
     if not tid:
-        raise ValueError("no free tunnel id on the pair")
+        raise ValueError(f"شناسهٔ آزادی نمانده است — سقفِ فلیت {TID_MAX} تونل است")
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
-    name = f"core{tid}" if ttype == "core" else f"{ttype}{tid}"   # core interface is core<id>
+    _guard_subnet_overlap(A, B, subnet)
+    name = tunnel_name(ttype, tid)
     extra = {}   # values generated ONCE here so both ends match and edit/rebuild can replay them
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or (20000 + tid)
@@ -4052,8 +4081,10 @@ def _create_tunnel_impl(d):
     # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
     node_extra = _node_extra(extra)
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, **node_extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, **node_extra}
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
+              "host": overlay_host(ttype, server_side, True), **node_extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
+              "host": overlay_host(ttype, server_side, False), **node_extra}
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
@@ -4195,7 +4226,8 @@ def _restore_link(A, B, L, extra=None):
     _rot = L.get("ip_rotate") and L.get("transport") in DIRECT_TRANSPORTS
     _ap, _bp = list(L.get("a_ip_pool") or []), list(L.get("b_ip_pool") or [])
     _rs, _ab = max(0, min(86400, int(L.get("rotate_secs") or 0))), bool(L.get("auto_burn"))
-    for N, self_ip, peer_ip, own, peer in ((A, L["a_ip"], L["b_ip"], _ap, _bp), (B, L["b_ip"], L["a_ip"], _bp, _ap)):
+    for N, self_ip, peer_ip, own, peer, is_a in ((A, L["a_ip"], L["b_ip"], _ap, _bp, True),
+                                                 (B, L["b_ip"], L["a_ip"], _bp, _ap, False)):
         if N:
             # `enabled` must be explicit. The rebuild path op_delete's both ends BEFORE it builds, and op_delete
             # removes the persisted config — so by the time a rollback runs there is no stored value left for the
@@ -4203,6 +4235,7 @@ def _restore_link(A, B, L, extra=None):
             # deliberately switched OFF would come back ON after any failed edit. All three real build paths pass it.
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
                     "subnet": L["subnet"], "id": tid, "name": L["name"],
+                    "host": overlay_host(L["type"], L.get("server_side"), is_a),
                     "enabled": L.get("enabled", True), **extra}
             role = _core_role(L, N["id"])
             if role:
@@ -4458,9 +4491,11 @@ def _edit_link_impl(d):
     # "rotate now", which sends only the epoch offset) doesn't silently reset a custom overlay
     # subnet to the type default and renumber both ends of the tunnel.
     subnet = norm_subnet(ttype, tid, d.get("subnet") or L.get("subnet"))
+    _guard_subnet_overlap(A, B, subnet, exclude_id=L["id"])
     old_name = L["name"]
-    name_changed = ttype != L["type"]  # the interface name encodes the type (vxlanNN vs greNN)
-    new_name = (f"core{tid}" if ttype == "core" else f"{ttype}{tid}") if name_changed else old_name
+    new_name = tunnel_name(ttype, tid)
+    name_changed = new_name != old_name
+    type_changed = ttype != L["type"]   # kernel types share one name, so a type change is no longer a rename
     extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0) or (20000 + tid)
@@ -4508,16 +4543,19 @@ def _edit_link_impl(d):
                          f"({', '.join(str(x) for x in FLUX_UDP_DPORTS)}) ترافیکِ UDPِ ورودی از همان نود را "
                          f"می‌اندازد و آن تونل بی‌صدا می‌میرد؛ پورتِ دیگری برای یکی از این دو انتخاب کن")
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
-    # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids) OR for any
-    # core link. Core needs it because an in-place, one-end-at-a-time restart leaves the peer running its
-    # old crypto session: the freshly restarted server latches onto the stale still-live client and never
-    # re-handshakes, so the tunnel stays wedged. Tearing both ends down forces a clean re-handshake.
-    if name_changed or ttype == "core":
+    # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids), when the
+    # netdev KIND changed under an unchanged name, OR for any core link. Core needs it because an
+    # in-place, one-end-at-a-time restart leaves the peer running its old crypto session: the freshly
+    # restarted server latches onto the stale still-live client and never re-handshakes, so the tunnel
+    # stays wedged. Tearing both ends down forces a clean re-handshake.
+    if name_changed or type_changed or ttype == "core":
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
     node_extra = _node_extra(extra)
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **node_extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name, "enabled": L.get("enabled", True), **node_extra}
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
+              "host": overlay_host(ttype, server_side, True), "enabled": L.get("enabled", True), **node_extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name,
+              "host": overlay_host(ttype, server_side, False), "enabled": L.get("enabled", True), **node_extra}
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
@@ -4613,8 +4651,10 @@ def _rebuild_link_impl(d):
                                # MAY RAISE — do it BEFORE teardown so a fetch failure leaves the tunnel intact
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name, "enabled": L.get("enabled", True), **extra}
+    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
+              "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
+    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
+              "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
     if ttype == "core":   # role is per-node, replayed from the stored server_side
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
         _core_rotation_bodies(L, a_body, b_body)   # replay the stored IP-rotation pools
@@ -5786,6 +5826,32 @@ def _ping_both(A, B):
     if not pb.get("ok"):
         raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     return pa, pb
+
+
+def _guard_subnet_overlap(A, B, subnet, exclude_id=None):
+    """Refuse an overlay subnet that overlaps another tunnel's ON A NODE THE TWO SHARE.
+
+    Unique ids already give unique DEFAULT subnets — this is for the custom one the operator can type.
+    Two tunnels on unrelated pairs may reuse a range (the addresses live on different machines), but two
+    that meet on one node both `ip addr add` out of it, and the kernel then sends the peer's address down
+    whichever device it picked. Nothing anywhere reports it; the tunnel is simply wrong."""
+    try:
+        want = ipaddress.ip_network(subnet, strict=False)
+    except ValueError:
+        return
+    nodes = {A["id"], B["id"]}
+    for L in load_links():
+        if exclude_id is not None and L.get("id") == exclude_id:
+            continue
+        if not nodes & {L.get("a_node"), L.get("b_node")}:
+            continue
+        try:
+            other = ipaddress.ip_network(str(L.get("subnet") or ""), strict=False)
+        except ValueError:
+            continue
+        if want.version == other.version and want.overlaps(other):
+            raise ValueError(f"سابنتِ «{subnet}» با تونلِ «{L.get('name')}» ({other}) روی یک نودِ مشترک "
+                             f"هم‌پوشانی دارد؛ بازهٔ دیگری انتخاب کن")
 
 
 def _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=None):
