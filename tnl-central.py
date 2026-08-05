@@ -180,8 +180,10 @@ def save_bytes(path, data, mode=0o644):
 # again, so this is convenience-validation, not the authority. Grouped by category for the UI.
 _TUNING_DEFAULTS = {
     # 1 - pool health FSM
-    "suspect_backoff": [30, 60, 120, 300, 600],
-    "dead_retest_secs": 1800,
+    # suspect_backoff / dead_retest_secs are stored and stamped in SECONDS; the Settings form takes them
+    # in MINUTES and converts, the way sock_buf_mb does for MiB.
+    "suspect_backoff": [600, 1800, 3600],
+    "dead_retest_secs": 21600,
     "pin_ttl_secs": 30,
     "data_fail_threshold": 2,
     "data_good_window_secs": 120,
@@ -7012,8 +7014,8 @@ var I18N={fa:{
  set_rec_range:"5 تا 3600",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"0٫3 تا 60 — زیرِ 1 هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"0٫3 تا 60 — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"0 = خاموش، وگرنه 1 تا 1440 — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
- set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (ثانیه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، با کاما جدا. یعنی: بار اول 30 ثانیه صبر کن و دوباره امتحان کن؛ باز نشد، 60 ثانیه؛ بعد 120… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
- set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (ثانیه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر ثانیه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
+ set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
+ set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
  set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"وقتی خودت روی یک آی‌پی دکمهٔ «این را فعال کن» را می‌زنی، تونل سعی می‌کند برود روی همان. ولی اگر آن آی‌پی خراب باشد، تا ابد منتظر نمی‌ماند — بعد از این‌قدر ثانیه بی‌خیال می‌شود و می‌رود سراغ بقیه. یعنی یک انتخابِ اشتباه، تونلت را قطع نگه نمی‌دارد.",
  set_t_datafail:"آستانهٔ سشنِ کوتاه",set_t_datafail_d:"بعضی وقت‌ها یک آی‌پیِ CDN وصل می‌شود ولی چند ثانیه بعد می‌افتد. این عدد می‌گوید چند بارِ پشتِ‌هم این اتفاق بیفتد تا آن آی‌پی را کنار بگذارد. کمترش کنی زودتر کنار می‌گذارد، ولی ممکن است آی‌پیِ سالم را هم بی‌گناه کنار بگذارد.",
  set_t_datagood:"پنجرهٔ گاردِ قطعی (ثانیه)",set_t_datagood_d:"یک محافظ، تا بی‌خود همه‌چیز را خراب علامت نزند. اگر اینترنتِ خودِ سرور قطع شود، همهٔ آی‌پی‌ها با هم می‌افتند — تقصیرِ آن‌ها نیست. برای همین یک آی‌پی فقط وقتی مقصر شناخته می‌شود که در این چند ثانیهٔ اخیر، لااقل یکی از بقیه سالم کار کرده باشد. اگر هیچ‌کدام سالم نبوده، یعنی مشکل از خودِ سرور است و هیچ آی‌پی‌ای علامت نمی‌خورد.",
@@ -7038,8 +7040,8 @@ var I18N={fa:{
  set_x_ui:"<b>1</b> = اعداد و نمودارها هر ثانیه به‌روز می‌شوند (فقط مرورگر، نه بارِ شبکه).",
  set_x_ech:"<b>15</b> = هر 15 دقیقه کلید تازه؛ <b>0</b> = خاموش (توصیه نمی‌شود).",
  set_x_upwin:"<b>24 ساعت</b> = هر خانه 24 دقیقه؛ <b>1 ساعت</b> = هر خانه 1 دقیقه (ریزتر).",
- set_x_suspect:"IP مشکوک شد → 30ث بعد امتحان، باز مرد → 60ث، بعد 120… بعد از <b>600</b> → مرده.",
- set_x_deadretest:"<b>1800</b> = IPِ مرده هر 30 دقیقه یک شانسِ دوباره می‌گیرد.",
+ set_x_suspect:"IP مشکوک شد → 10 دقیقه بعد امتحان، باز مرد → 30 دقیقه، بعد <b>60</b> → مرده.",
+ set_x_deadretest:"<b>360</b> = IPِ مرده هر 6 ساعت یک شانسِ دوباره می‌گیرد.",
  set_x_pinttl:"<b>5</b> = پین کردی؛ اگر 5ثانیه وصل نشد، پین آزاد و چرخشِ عادی برمی‌گردد.",
  set_x_datafail:"<b>3</b> = سه بارِ پیاپی اتصال زود قطع شد → لبه مشکوک می‌شود.",
  set_x_datagood:"<b>120</b> = اگر در 120ثانیهٔ اخیر هیچ لبه‌ای سالم نبوده، مشکل عمومی است نه این لبه → نمی‌سوزد.",
@@ -7080,7 +7082,7 @@ var I18N={fa:{
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"سالم یا سوخته‌بودنِ آی‌پی‌ها را فقط پروبِ tunِ نود تعیین می‌کند — همان چیزی که رد شدنِ ترافیک را از داخلِ خودِ تونل اندازه می‌گیرد. هیچ نشانهٔ دیگری کافی نیست: آی‌پیِ فیلترشده می‌تواند به هر چیزی که ما بفرستیم جواب بدهد و باز هم چیزی از آن رد نشود. آی‌پیِ سوخته وقتی صبرش تمام شد دوباره انتخاب می‌شود و همان پروب قضاوتش می‌کند؛ هر بار که رد شود، صبرِ بعدی طولانی‌تر می‌شود. «الان تست کن» چیزی را سالم اعلام نمی‌کند — فقط صبرِ همه را صفر می‌کند تا زودتر امتحان شوند. با «این را فعال کن» هم می‌توانید دستی روی یک آی‌پی بپرید.",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"سلامتِ هر آی‌پی را تنها پروبِ tunِ نود تعیین می‌کند؛ معیار، عبورِ واقعیِ ترافیک از داخلِ تونل است. آی‌پیِ سوخته پس از پایانِ مهلت دوباره انتخاب و با همان پروب سنجیده می‌شود، و هر شکست مهلتِ بعدی را طولانی‌تر می‌کند. «الان تست کن» مهلت‌ها را صفر می‌کند؛ «این را فعال کن» به‌صورت دستی روی یک آی‌پی می‌پرد.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخشِ بعدی امتحان می‌شوند و پروبِ tun قضاوتشان می‌کند",pool_edge_active:"این لبه فعال شد",
@@ -7304,6 +7306,7 @@ function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
+var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){return [{v:'192.168',label:T('snr_192')},{v:'10',label:T('snr_10')},{v:'172.16',label:T('snr_172')},{v:'custom',label:T('snr_custom')}]}
@@ -8252,11 +8255,14 @@ function _cdTick(host,now,polledMs){if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=_cdRemain(now,polledMs,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=_cdRemain(now,polledMs,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
 function poolRemain(d,next){return _cdRemain(d.srvNow,d.polledMs,next);}
-function poolCdTxt(r){var m=Math.floor(r/60),s=r%60;return m+':'+(s<10?'0'+s:s);}
+// h:mm:ss once the wait passes an hour — the dead-retest step is hours long, and a bare minute count
+// there reads as a clock ("330:00").
+function poolCdTxt(r){var h=Math.floor(r/3600),m=Math.floor(r%3600/60),s=r%60;
+ return (h?h+':'+(m<10?'0'+m:m):m)+':'+(s<10?'0'+s:s);}
 function poolCd(d,next){var r=poolRemain(d,next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
 // Backoff schedule (must mirror the core): a suspect entry's current step length by fail count;
 // a dead entry retests slowly. Used to draw the fill bar (elapsed / step) like the mockup.
-var _poolBackoff=[30,60,120,300,600],_poolDeadStep=1800;
+var _poolBackoff=_TUNDEF.suspect_backoff.slice(),_poolDeadStep=_TUNDEF.dead_retest_secs;
 function poolStepTotal(h){return h.state=='dead'?_poolDeadStep:(_poolBackoff[Math.min(h.fails||0,_poolBackoff.length-1)]||600);}
 function poolBarPct(d,h){var tot=poolStepTotal(h),rem=poolRemain(d,h.next);if(rem<0)return -1;return Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));}
 function poolBar(d,h){var p=poolBarPct(d,h);if(p<0)return '';return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+poolStepTotal(h)+'"><i style="width:'+p+'%"></i></span>';}
@@ -9332,15 +9338,18 @@ function grp(tk,hk,ck,cls,rows,gk){
   +'<div class="setgrpb" id="sgb_'+gk+'"'+(op?'':' style="display:none"')+'>'+rows+'</div></div>'}
 // Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
 // build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
-var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
+// The two pool-retest knobs are stored and stamped in SECONDS but entered in MINUTES, the way
+// sock_buf_mb is MiB in the form and bytes in the core config.
+function _tvMin(s,k){return Math.max(1,Math.round(num(_tv(s,k))/60))}
+function _minSec(x){var n=parseInt(x);return n>=1?n*60:NaN}
 function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
 function tuningCard(s){
  return '<div class="sec2" style="margin:14px 2px 2px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
   '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
   grp('set_g2','set_g2h','set_g2c','sc-both',
-    qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').join(', '))+'">')+
-    qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tv(s,'dead_retest_secs'),5,86400))+
+    qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
+    qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
     qr(T('set_t_pinttl'),'set_t_pinttl_d','set_x_pinttl',tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600)),'g2')+
   grp('set_g3','set_g3h','set_g3c','sc-ws',
     qr(T('set_t_datafail'),'set_t_datafail_d','set_x_datafail',tNum('set_t_datafail',_tv(s,'data_fail_threshold'),1,100))+
@@ -9367,8 +9376,8 @@ function tuningCard(s){
     qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64)),'g5')+
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
- var sb=(v('set_t_suspect')||'').split(',').map(function(x){return parseInt(x.trim())}).filter(function(n){return n>=1&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:parseInt(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),data_fail_threshold:parseInt(v('set_t_datafail')),data_good_window_secs:parseInt(v('set_t_datagood')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a
