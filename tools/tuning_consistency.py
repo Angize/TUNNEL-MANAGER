@@ -183,6 +183,27 @@ def main():
             continue
         check(panel_ports == core_ports, f"{panel_name}: panel={panel_ports} core={core_ports}")
 
+    print("== 2c) raw encapsulation profiles: panel vs core (rawprofile.go) ==")
+    # The panel needs the NUMBER each profile owns, to refuse a bip/spoof raw_proto that borrows one.
+    # Another copy of a core constant, so guard it like the flux port pools above.
+    rawprofile_go = (Path(a.core) / "internal" / "packet" / "rawprofile.go").read_text(encoding="utf-8")
+    consts = dict(re.findall(r"proto([A-Z0-9]+)\s*=\s*(\d+)", rawprofile_go))
+    m = re.search(r"var\s+rawProfiles\s*=\s*map\[string\]int\{(.*?)\}", rawprofile_go, re.S)
+    if not m or not consts:
+        check(False, "CANNOT PARSE rawProfiles/proto consts in rawprofile.go -- THIS SCRIPT is out of date")
+    else:
+        core_map = {}
+        for name, sym in re.findall(r'"(\w+)":\s*proto([A-Z0-9]+)', m.group(1)):
+            if sym in consts:
+                core_map[name] = int(consts[sym])
+        try:
+            panel_map = panel_const(panel_src, "CORE_RAW_PROFILE_PROTOS")
+        except KeyError:
+            panel_map = None
+            check(False, "CORE_RAW_PROFILE_PROTOS: missing from the panel")
+        if panel_map is not None:
+            check(panel_map == core_map, f"profile->proto: panel={panel_map} core={core_map}")
+
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
     check(n_keys == expected,

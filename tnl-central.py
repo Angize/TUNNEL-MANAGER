@@ -62,7 +62,12 @@ IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (lo
 # Ciphers the custom core accepts (see TUNNEL-MANAGER-CORE). "auto" resolves core-side to a fixed
 # choice so both ends match; "none" disables encryption. Kept in sync with the core's crypto factory.
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
-CORE_RAW_PROFILES = ("bip", "ipip", "gre", "icmp", "udp", "tcp", "esp")   # raw-transport encapsulation profiles
+# raw-transport encapsulation profiles and the IP protocol number each one OWNS. A copy of the core's
+# rawprofile.go map, guarded by tools/tuning_consistency.py. The numbers are what makes bip's raw_proto
+# refusable: bip (and the bip-like spoof carrier) writes no L4 header, so borrowing an owned number puts
+# ciphertext where a middlebox expects that protocol's header and the flow is dropped in the path.
+CORE_RAW_PROFILE_PROTOS = {"bip": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 17, "tcp": 6, "esp": 50}
+CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
 # Core transport carriers + the capability sub-families used across validation AND the browser UI
 # (injected into the page below). Single source of truth so a new carrier lands in ONE place.
 CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # every core carrier
@@ -213,6 +218,28 @@ _TUNING_RANGES = {
     "keepalive": (5, 120), "dead_after_secs": (0, 300),   # dead_after 0 = auto; a positive value is floored to 10 on build
     "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
+
+
+def _raw_proto_owner(proto):
+    """The profile that owns this IP protocol number, or "" — bip's own 253 does not count as borrowed."""
+    for name, num in CORE_RAW_PROFILE_PROTOS.items():
+        if num == int(proto) and name != "bip":
+            return name
+    return ""
+
+
+def _check_raw_proto(proto):
+    """Refuse an outer IP protocol number that a raw PROFILE owns, for the two headerless carriers that
+    can set one (bip and spoof). Mirrors config.go's rawProtoBorrowed — without this the operator saves
+    a form, the node stores it, and the core exits on validate() with nothing in between saying why."""
+    if not 1 <= int(proto) <= 255:
+        raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
+    owner = _raw_proto_owner(proto)
+    if owner:
+        raise ValueError(
+            f"پروتکلِ {int(proto)} مالِ پروفایلِ «{owner}» است. این حامل هیچ هدری نمی‌سازد، پس پاکت با "
+            f"شمارهٔ {int(proto)} بیرون می‌رود ولی جای هدرِ {owner} دادهٔ رمزشده دارد — دستگاه‌های میانِ راه "
+            f"آن را بدشکل می‌بینند و می‌اندازند. پروفایلِ «{owner}» را انتخاب کن که هدرش را هم می‌سازد.")
 
 
 def _validate_tuning(raw, base=None):
@@ -3219,8 +3246,7 @@ def _spoof_fields(d, transport, cur=None):
     except (TypeError, ValueError):
         proto = 0
     if proto:
-        if not 1 <= proto <= 255:
-            raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
+        _check_raw_proto(proto)   # spoof is bip-like and headerless: the same numbers are unusable
         out["raw_proto"] = proto
     return out
 
@@ -3857,8 +3883,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         except (TypeError, ValueError):
             _rp = 0
         if profile == "bip" and _rp:
-            if not 1 <= _rp <= 255:
-                raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
+            _check_raw_proto(_rp)
             ce["raw_proto"] = _rp
     if transport == "spoof":                   # standalone IP-spoofing carrier (bip-like, never rotates)
         if cipher == "none":
@@ -7155,7 +7180,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bip</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
- raw_proto_lbl:"شمارهٔ پروتکلِ IP (bip)",raw_proto_native:"نیتیو",raw_proto_hint:"bip بدونِ هدرِ L4 است؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ لیستِ‌سفیدِ پروتکل رد شود. پیش‌فرض 58 (ICMPv6) که کرنلِ IPv4 نادیده می‌گیرد. بازهٔ 1 تا 255.",raw_proto_warn:"این شماره پروتکلی است که خودِ سیستم هم به‌کار می‌برد (ICMP/TCP/UDP/ESP/AH) و ممکن است تداخل کند — 58 یا 253 امن‌ترند.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+ raw_proto_lbl:"شمارهٔ پروتکلِ IP (bip)",raw_proto_native:"نیتیو",raw_proto_hint:"bip هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -8493,7 +8518,7 @@ function _egrRow(ok,txt){return '<div class="spoofcap '+(ok?'ok':'no')+'" style=
 async function spoofEgressTest(idp){
   var ctx=spoofFormCtx(idp),out=el(idp+'egr'),btn=el(idp+'egrbtn');if(!out)return;
   if(ctx.a==ctx.b||!ctx.a||!ctx.b){out.style.display='';out.innerHTML=_egrRow(false,T('spoof_egr_two_nodes'));return;}
-  var proto=parseInt(v(idp+'rawproto')||'58',10);if(!(proto>=1&&proto<=255))proto=253;
+  var proto=parseInt(v(idp+'rawproto')||'253',10);if(!(proto>=1&&proto<=255))proto=253;
   var body={a_node:ctx.a,b_node:ctx.b,server_side:ctx.srv,proto:proto,
             a_ip:ctx.aip||'',b_ip:ctx.bip||'',
             spoof_src:(v(idp+'srcip')||'').trim(),spoof_dst:(v(idp+'decoyip')||'').trim()};
@@ -8509,20 +8534,30 @@ async function spoofEgressTest(idp){
   if(d.tested_dst)html+=_egrRow(d.dst, d.dst?T('spoof_egr_dst_ok'):T('spoof_egr_dst_no'));
   out.innerHTML=html;}
 // protoSection: the bip-only outer-IP protocol-number picker. bip carries no L4 header, so only the
-// outer protocol number changes — set it to slip past a protocol-whitelist filter. Default 58 (ICMPv6,
-// which the IPv4 kernel ignores); 253 keeps bip's native number. Revealed by {cor,ce}ProtoVis on raw+bip.
+// outer protocol number changes — set it to slip past a protocol-number filter. Revealed by
+// {cor,ce}ProtoVis on raw+bip.
 function protoSection(idp,fnp){return '<div id="'+idp+'protorow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('raw_proto_lbl'))+'</label>'
- +'<div class="seg2" id="'+idp+'ppg" style="margin-bottom:8px"><button type="button" class="segopt on" id="'+idp+'pp_58" onclick="'+fnp+'SetProto(58)"><b>58</b><span>ICMPv6</span></button><button type="button" class="segopt" id="'+idp+'pp_253" onclick="'+fnp+'SetProto(253)"><b>253</b><span>'+esc(T('raw_proto_native'))+'</span></button></div>'
- +'<input id="'+idp+'rawproto" class="mono" inputmode="numeric" maxlength="3" placeholder="58" oninput="'+fnp+'ProtoWarn()" style="text-align:center;direction:ltr">'
+ +'<div class="seg2" id="'+idp+'ppg" style="margin-bottom:8px"><button type="button" class="segopt on" id="'+idp+'pp_253" onclick="'+fnp+'SetProto(253)"><b>253</b><span>'+esc(T('raw_proto_native'))+'</span></button><button type="button" class="segopt" id="'+idp+'pp_252" onclick="'+fnp+'SetProto(252)"><b>252</b><span>'+esc(T('raw_proto_free'))+'</span></button></div>'
+ +'<input id="'+idp+'rawproto" class="mono" inputmode="numeric" maxlength="3" placeholder="253" oninput="'+fnp+'ProtoWarn()" style="text-align:center;direction:ltr">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_proto_hint')+'</div>'
  +'<div class="spoofcap no" id="'+idp+'protowarn" style="display:none;margin-top:8px"></div></div>'}
-// RAW_PROTO_WARN: numbers the local IPv4 stack itself uses (ICMP/TCP/UDP/ESP/AH) — a bip carrier on one
-// of these can contend with real host traffic, so warn. 58 / 253 are safe.
-var RAW_PROTO_WARN=[1,6,17,50,51];
+// The number a raw PROFILE owns is the one thing a headerless carrier must not borrow: the packet goes
+// out announcing that protocol with ciphertext where its header belongs, and the path drops it. Injected
+// from CORE_RAW_PROFILE_PROTOS, so this cannot drift from what the server and the core refuse.
+function rawProtoOwner(n){var m=_ENUMS.raw_protos;for(var k in m){if(m[k]===n)return k}return ''}
 function protoWarnUpd(idp,val){var n=parseInt(val,10);var g=el(idp+'ppg');
  if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id==idp+'pp_'+n)});
- var w=el(idp+'protowarn');if(w){var h=(RAW_PROTO_WARN.indexOf(n)>=0)?(ic('warn')+'<span>'+esc(T('raw_proto_warn'))+'</span>'):'';w.innerHTML=h;w.style.display=h?'':'none'}}
+ var w=el(idp+'protowarn');if(!w)return;
+ var own=rawProtoOwner(n),h=own?(ic('warn')+'<span>'+esc(T('raw_proto_owned').replace('{n}',n).replace(/\\{p\\}/g,own))+'</span>'):'';
+ w.innerHTML=h;w.style.display=h?'':'none'}
+// Save-time gate for the two headerless carriers. Returns the error text, or '' when the number is fine.
+function rawProtoErr(idp){var e=el(idp+'rawproto');if(!e)return '';
+ var s=(e.value||'').trim();if(!s)return '';
+ var n=parseInt(s,10);
+ if(!(n>=1&&n<=255))return T('raw_proto_bad');
+ var own=rawProtoOwner(n);
+ return own?T('raw_proto_owned').replace('{n}',n).replace(/\\{p\\}/g,own):''}
 async function spoofProbePair(a,b){try{
   var ra=await j('spoof-probe?node='+encodeURIComponent(a));
   var rb=(a==b)?ra:await j('spoof-probe?node='+encodeURIComponent(b));
@@ -8677,7 +8712,7 @@ function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
 /* The outer-IP protocol-number picker serves raw+bip AND the spoof carrier (which is bip-like: a bare
    header with no L4, so only the protocol number identifies it on the wire). */
 function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bip')||S.Tr=='spoof'}
-function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='58';corProtoWarn()}}
+function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='253';corProtoWarn()}}
 function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.toggle('on',_corS.Gso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
 function corToggleCover(){if(_corS.Tr!='tcp')return;_corS.Cover=!_corS.Cover;var s=el('e_cover');if(s)s.classList.toggle('on',_corS.Cover);corSniVis()}
@@ -8815,13 +8850,13 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 // fec/desync/ws branches — identical in both modulo the _corS/_eeS state + e_/ee_ DOM prefix).
 // Mutates `body`; on a validation error it sets `m` and returns true so the caller bails out.
 function _collectCoreBody(S,px,m,body){
- if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bip'){var _rp=parseInt(v(px+'rawproto')||'58',10);if(!(_rp>=1&&_rp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return true}body.raw_proto=_rp}}
+ if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bip'){var _pe=rawProtoErr(px);if(_pe){m.className='msg err';m.textContent=_pe;return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}}
  /* The spoof carrier is bip-like: no profile, just the outer protocol number plus the forged field(s).
     Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
     go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
     empty value legitimately CLEARS one; pending or NOT-ok they are OMITTED and an edit preserves. */
  if(S.Tr=='spoof'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('spoof_need_enc');return true}
-  var _sp=parseInt(v(px+'rawproto')||'58',10);if(!(_sp>=1&&_sp<=255)){m.className='msg err';m.textContent=T('raw_proto_bad');return true}body.raw_proto=_sp;
+  var _pe2=rawProtoErr(px);if(_pe2){m.className='msg err';m.textContent=_pe2;return true}var _sp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_sp;
   if(S.SpoofOk){var _dip=S.Decoy?(v(px+'decoyip')||'').trim():'';var _sip=S.Src?(v(px+'srcip')||'').trim():'';
    if(S.Decoy&&!_dip){m.className='msg err';m.textContent=T('decoy_need_ip');return true}
    if(S.Src&&!_sip){m.className='msg err';m.textContent=T('spoof_src_need_ip');return true}
@@ -8887,7 +8922,7 @@ function cePortGate(){var p=el('ee_port');if(!p)return;if(_eeS.Tr=='ws'){p.disab
 function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis();ceProtoVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
-function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='58';ceProtoWarn()}}
+function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
 function ceToggleCover(){if(_eeS.Tr!='tcp')return;_eeS.Cover=!_eeS.Cover;var s=el('ee_cover');if(s)s.classList.toggle('on',_eeS.Cover);ceSniVis()}
@@ -9480,7 +9515,9 @@ render();updateSidebar();TT=setTimeout(tick,6000);
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 # transport families + ciphers -> browser, so the enum lives only in the Python consts above (Track B).
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
-    {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS)},
+    {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
+     # profile -> owned IP protocol number, so the browser blocks exactly what _check_raw_proto does
+     "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bip"}},
     separators=(",", ":")))
 # the split_ttl input's ceiling, from the same constant the submit validator uses
 INDEX_HTML = INDEX_HTML.replace("__SPLITTTLMAX__", str(SPLIT_TTL_MAX))
