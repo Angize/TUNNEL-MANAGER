@@ -1,4 +1,4 @@
-"""Guard: the raw-form conditional rows must re-gate on EVERY profile change, in BOTH forms.
+"""Guard: the raw form's conditional rows, and the IP row's column order, in BOTH forms.
 
 Two rows in the raw block appear only for some profiles:
 
@@ -74,6 +74,39 @@ globalThis.getComputedStyle = () => ({getPropertyValue: () => ''});
 """
 
 HARNESS = r"""
+// The IP row: DESTINATION column first (order 0), which in RTL is the right-hand side. The edit form
+// has no node pickers to hang the old ordering off, so it went unordered for a whole release and the
+// two forms disagreed about which side the destination was on. Both are driven here.
+const ipOrder = {};
+for (const [form, st, px] of [['create', _corS, 'e_'], ['edit', _eeS, 'ee_']]) {
+  ipOrder[form] = {};
+  for (const srv of ['a', 'b']) {
+    st.Srv = srv;
+    _rotS[px] = {on:false, secs:600, aIps:['1.1.1.1'], bIps:['2.2.2.2'], aSel:{}, bSel:{}};
+    renderRotIps(px);
+    ipOrder[form][srv] = {a: document.getElementById(px+'aip').style.order,
+                          b: document.getElementById(px+'bip').style.order};
+  }
+}
+// A stored value must reach the EDIT form's input. raw_proto had a prefill line and raw_port did not,
+// so the operator could not see which port a tunnel was on. Checked by driving the same two statements
+// the open-edit path runs, then the gate that could overwrite them.
+const prefill = {};
+for (const [field, id, stored] of [['raw_proto','ee_rawproto',58], ['raw_port','ee_rawport',51820]]) {
+  document.getElementById(id).value = '';                    // fresh form
+  const l = {}; l[field] = stored;
+  cePrefillFields(l);                                        // the REAL prefill the open path runs
+  _eeS.Tr = 'raw'; _eeS.RawProfile = (field === 'raw_port') ? 'udp' : 'bare';
+  ceProtoVis(); cePortVis();                                 // the gates run AFTER the prefill
+  prefill[field] = document.getElementById(id).value;
+}
+// And with nothing stored, the field must still say what is EFFECTIVE rather than sit blank.
+const dflt = {};
+for (const [id, profile, gate] of [['ee_rawproto','bare',ceProtoVis], ['ee_rawport','udp',cePortVis]]) {
+  document.getElementById(id).value = '';
+  _eeS.Tr = 'raw'; _eeS.RawProfile = profile; gate();
+  dflt[id] = document.getElementById(id).value;
+}
 const PROFILES = %s;
 const out = {};
 for (const [form, st, setter, px] of [['create', _corS, corSetProfile, 'e_'],
@@ -86,7 +119,7 @@ for (const [form, st, setter, px] of [['create', _corS, corSetProfile, 'e_'],
     out[form][p] = {proto: row('protorow'), port: row('portrow')};
   }
 }
-console.log(JSON.stringify(out));
+console.log(JSON.stringify({rows: out, ipOrder, prefill, dflt}));
 """
 
 
@@ -111,9 +144,47 @@ def main():
     if r.returncode != 0:
         print("FAIL: the page's own script would not run:\n" + (r.stderr or "")[:900])
         return 1
-    got = json.loads(r.stdout.strip().splitlines()[-1])
+    payload = json.loads(r.stdout.strip().splitlines()[-1])
+    got, order = payload["rows"], payload["ipOrder"]
 
     fails = []
+    # The harness CALLS cePrefillFields, so it can only prove the function is right — not that the form
+    # still calls it. That half is static on purpose: one definition plus at least one call site.
+    calls = js.count("cePrefillFields(")
+    ok = calls >= 2
+    print(("  ok   " if ok else " FAIL ") +
+          f"cePrefillFields is defined AND called ({calls} mentions; <2 means the open path dropped it)")
+    if not ok:
+        fails.append("prefill/not-called")
+
+    # A stored value must survive into the edit form's input, and an unset one must show the effective
+    # default rather than a blank box.
+    for field, want in (("raw_proto", "58"), ("raw_port", "51820")):
+        ok = str(payload["prefill"][field]) == want
+        print(("  ok   " if ok else " FAIL ") +
+              f"edit   {field}: a stored {want} reaches the input (got {payload['prefill'][field]!r})")
+        if not ok:
+            fails.append(f"prefill/{field}")
+    for el_id, want in (("ee_rawproto", "253"), ("ee_rawport", "443")):
+        ok = str(payload["dflt"][el_id]) == want
+        print(("  ok   " if ok else " FAIL ") +
+              f"edit   {el_id}: unset shows the effective {want} (got {payload['dflt'][el_id]!r})")
+        if not ok:
+            fails.append(f"default/{el_id}")
+
+    # The destination column is the SERVER's side, and it must come first in both forms.
+    for form in ("create", "edit"):
+        for srv in ("a", "b"):
+            dst_side, src_side = (srv, "b" if srv == "a" else "a")
+            got_dst = order[form][srv][dst_side]
+            got_src = order[form][srv][src_side]
+            ok = got_dst == "0" and got_src == "1"
+            print(("  ok   " if ok else " FAIL ") +
+                  f"{form:6} server={srv}: destination column order={got_dst!r}, source order={got_src!r}"
+                  f"{'' if ok else '  <-- destination must be first (order 0 = right in RTL)'}")
+            if not ok:
+                fails.append(f"{form}/srv={srv}/order")
+
     for form in ("create", "edit"):
         for prof in profiles:
             for row, want in (("proto", prof in headerless), ("port", prof in has_ports)):
@@ -129,7 +200,7 @@ def main():
     if fails:
         print(f"{len(fails)} row(s) gated wrong: {', '.join(fails)}")
         return 1
-    print("both forms gate both conditional rows on every registered profile")
+    print("both forms gate both conditional rows, and put the destination column first")
     return 0
 
 
