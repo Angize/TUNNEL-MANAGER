@@ -5084,6 +5084,22 @@ _EV_ROT_CODE = {
 }
 
 
+def _rot_pair(axis, prev, cur, other):
+    """The «از»/«به» detail for one rotation, as the SOURCE → DESTINATION pair on each side.
+
+    axis says which half moved; `other` is the half that did not, and may be unknown — the two axes
+    rotate on separate beats, so the ring can report one before it has ever reported the other. With no
+    other half it degrades to the single endpoint, which is what it always showed. With no `cur` at all
+    (a core that sent no IP) there is nothing to say and the card stays title-only."""
+    if not cur:
+        return ""
+    pair = (lambda one: f"{one} → {other}" if other else one) if axis == "src" \
+        else (lambda one: f"{other} → {one}" if other else one)
+    if prev and prev != cur:
+        return f"از: {pair(prev)}\nبه: {pair(cur)}"
+    return f"به: {pair(cur)}"
+
+
 def _mib(b):
     """Bytes -> a short human size for a log detail. Falls back to the raw string when it is not a
     number, because a core that sends something unexpected must still render as SOMETHING."""
@@ -5420,21 +5436,28 @@ def _events_once():
                         continue
                     ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
                     if ekind == "down" and ecode in _EV_ROT_CODE:
-                        # source/dest IP rotation: show old→new IPs in boxes (like the edge switch), tracking
-                        # the previous IP per link+axis. Falls back to no-detail when the core sends no IP.
+                        # source/dest IP rotation. Show the whole PAIR on each side, like a ws edge switch
+                        # shows «ip · sni»: one endpoint alone does not say what the tunnel became, and the
+                        # two axes rotate on their own beats, so «94.183.210.129 -> 94.183.210.128» left the
+                        # operator to remember which destination that was against. The other axis comes from
+                        # what this same ring already reported, so it stays in step with the event order.
                         ip = _ev_ip(edet)
                         axis = "src" if "src" in ecode else "dst"
                         rk = lid + ":" + axis
                         prev = _ev_state["rotip"].get(rk)
                         if ip:
                             _ev_state["rotip"][rk] = ip
+                        # The destination is also in the status file's `active` («raw:bip · 1.2.3.4»), which
+                        # is how the FIRST source rotation can name one — the destination axis may not have
+                        # rotated yet, and until it does the ring says nothing about it.
+                        other_k = lid + ":" + ("dst" if axis == "src" else "src")
+                        other = _ev_state["rotip"].get(other_k) or ""
+                        if axis == "src" and not other:
+                            other = _ev_ip(str(r.get("active") or ""))
+                            if other:
+                                _ev_state["rotip"][other_k] = other
                         lvl, fa = _EV_ROT_CODE[ecode]
-                        if ip and prev and prev != ip:
-                            dfa = f"از: {prev}\nبه: {ip}"
-                        elif ip:
-                            dfa = f"به: {ip}"
-                        else:
-                            dfa = ""
+                        dfa = _rot_pair(axis, prev, ip, other)
                         log_event(lvl, "rot", f"دلیل: {fa} تونلِ «{nm}»", dfa)
                         continue
                     txt = _ev_core_text(ekind, ecode, edet, nm)
@@ -6295,6 +6318,21 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .lft.to .v{color:var(--acc);background:var(--accw);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
 .lnote{font-size:11.5px;color:var(--sub);line-height:1.85;overflow-wrap:anywhere}
+/* The fold. Collapsed is the default so the reason line is what a glance lands on; the endpoints are
+   one tap away. Height is not animated — the body's height depends on how many rows and how far each
+   value wraps, so a fixed max-height either clips a long pair or leaves a gap under a short one. */
+.lfold .lfbody{display:none;margin-top:7px}
+.lfold.open .lfbody{display:block}
+.lftog{display:inline-flex;align-items:center;gap:5px;background:none;border:0;padding:2px 0;margin:0;
+  cursor:pointer;color:var(--sub);font:inherit;font-size:11px;line-height:1.7}
+.lftog:hover{color:var(--acc)}
+.lfic{display:inline-grid;place-items:center;width:13px;height:13px;transition:transform .16s ease}
+.lfic .ic{width:13px;height:13px}
+/* The chevron points DOWN when closed and UP when open, in both directions — it says "there is more
+   below", which is not a left/right statement, so it must not flip with the page. */
+.lfold .lfic{transform:rotate(90deg)}
+.lfold.open .lfic{transform:rotate(-90deg)}
+.lfold.open .lftog{color:var(--acc)}
 .lcat{font-size:10px;font-weight:700;border-radius:999px;padding:1px 8px;flex:0 0 auto;white-space:nowrap;line-height:1.7}
 .lcat-tunnel{color:#4d80f0;background:color-mix(in srgb,#4d80f0 15%,transparent)}
 .lcat-rot{color:#12a5b8;background:color-mix(in srgb,#12a5b8 16%,transparent)}
@@ -6822,6 +6860,7 @@ var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
+ log_details:"جزئیات",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
@@ -9143,9 +9182,15 @@ function logListHTML(){
        '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
        '<div class="lmain">'+
          '<span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
-         evDetail(p.lines)+'</div>'+
+         evDetail(p.lines,evKey(e))+'</div>'+
        '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span>'+
      '</div></div>';}).join('');}
+// A stable per-card key for the fold state. Events carry no id and the list is rebuilt from scratch on
+// every poll, so the key has to come from the content — which never changes once logged. Hashed to a
+// bare number so it is safe both as a DOM id and inside the onclick's string literal.
+function evKey(e){var s=(e.ts||0)+'|'+(e.fa||'')+'|'+(e.dfa||''),h=0;
+ for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;
+ return 'k'+(h>>>0);}
 // Only toggle the active class on the existing chips (do NOT rebuild the row) — rebuilding resets the
 // horizontal scrollLeft, which snapped the row back to the start when picking a scrolled-to tab. Counts
 // don't change on a filter pick, so an in-place highlight is enough; a full refreshLogs still rebuilds.
@@ -9162,7 +9207,7 @@ function evParts(e){
 // «دامنه» / «کلیدِ ECH» …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
 // of sentence punctuation — that is the whole test, and it must allow spaces, since the backend emits
 // multi-word labels. tools/log_labels_check.py pins this gate against the labels it really emits.
-function evDetail(lines){if(!lines||!lines.length)return '';
+function evDetail(lines,id){if(!lines||!lines.length)return '';
  var rows=[],notes=[];
  for(var i=0;i<lines.length;i++){var l=lines[i],c=l.indexOf(': ');
   var k=c>0?l.slice(0,c):'';
@@ -9173,7 +9218,19 @@ function evDetail(lines){if(!lines||!lines.length)return '';
    return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
           '<span class="v">'+esc(m.v)+'</span></div>'}).join('')+'</div>';
  for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
- return out}
+ // Endpoint rows FOLD; a plain sentence does not. The endpoints are the bulk of a card \u2014 several lines
+ // of addresses under a reason that already named the tunnel and what happened to it \u2014 while a note like
+ // \u00AB\u0627\u062A\u0635\u0627\u0644 \u0642\u0637\u0639 \u0634\u062F\u00BB IS that reason said once more, so hiding it behind a control costs a tap and reveals
+ // nothing. The test is the same one that split them: labelled rows fold, notes stay.
+ if(!rows.length)return out;
+ return '<div class="lfold'+(LOGOPEN[id]?' open':'')+'" id="lf'+id+'">'+
+   '<button type="button" class="lftog" onclick="logFold(\\''+id+'\\')" aria-label="'+esc(T('log_details'))+'">'+
+     '<span class="lfic">'+ic('chev')+'</span><span class="lflab">'+esc(T('log_details'))+'</span>'+
+   '</button><div class="lfbody">'+out+'</div></div>';}
+// Which cards the operator opened, keyed by event id. Kept OUT of the DOM because refreshLogs rebuilds
+// the whole list on every poll \u2014 state read back off the elements would be wiped a few seconds later.
+var LOGOPEN={};
+function logFold(id){LOGOPEN[id]=!LOGOPEN[id];var b=el('lf'+id);if(b)b.classList.toggle('open',!!LOGOPEN[id]);}
 
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
