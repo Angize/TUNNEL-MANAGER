@@ -5134,7 +5134,7 @@ def _ev_core_text(kind, code, detail, nm):
         rf = _EV_BURN_CODE.get(code, "سوخته شد")
         # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
         # carried two sentences for one fact. The endpoint is the useful part; keep only that.
-        return ("warn", "edge", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
+        return ("warn", "burn", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "cfg":
         # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
         # opens its sockets, and they used to reach only the core unit's journal, which the node reads on
@@ -5158,12 +5158,12 @@ def _ev_core_text(kind, code, detail, nm):
         # data plane; the default (ws edge pool) is a background probe recovery. Distinct from the
         # active-carrier up/reconnect above.
         if code == "peer-retest":
-            return ("ok", "edge", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
+            return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
                     f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
         if code == "src-retest":
-            return ("ok", "edge", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
+            return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
                     f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
-        return ("ok", "edge", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
+        return ("ok", "heal", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
                 "بازآزماییِ پس‌زمینه موفق شد")
     if kind == "pool":
         # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 healthy
@@ -5494,7 +5494,7 @@ def _events_once():
                 if active:
                     _ev_state["edge"][lid] = active
                 if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
-                    log_event("warn", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
+                    log_event("ok", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
         except Exception:
             continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
@@ -9183,10 +9183,19 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
 // ech, node, else sys. Kept in one place so the chips and the per-card badge always agree.
 function logCat(e){var k=e.kind;
  if(k=='link')return 'tunnel';
- if(k=='rot'||k=='edge')return 'rot';
+ if(k=='rot'||k=='edge'||k=='burn'||k=='heal')return 'rot';
  if(k=='ech')return 'ech';
  if(k=='node')return 'node';
  return 'sys';}
+// The badge says WHAT HAPPENED, not how alarming it is. A destination rotation and a CDN edge switch are
+// the same move on different carriers, so both wear the swap arrows; a burn keeps the warning triangle,
+// because it is the one thing here that took an endpoint out; and an endpoint coming back is a tick.
+// Everything else still falls back to the level, which is all those events carry.
+function logIco(e){var k=e.kind;
+ if(k=='rot'||k=='edge')return 'swap';
+ if(k=='burn')return 'warn';
+ if(k=='heal')return 'check';
+ return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
 var LOGEVS=[],LOGFILTER='all';
 // The horizontal, sideways-scrolling category filter row. Counts are live; empty categories are hidden
 // (but the active one always stays visible). "errors only" spans every category.
@@ -9202,7 +9211,7 @@ function logListHTML(){
  var evs=LOGEVS.filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':logCat(e)==LOGFILTER;});
  if(!evs.length)return '<div class="card muted">'+esc(T('logc_none'))+'</div>';
  return evs.map(function(e){
-   var lv=e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');
+   var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
    var p=evParts(e);
    return '<div class="card logcard">'+
