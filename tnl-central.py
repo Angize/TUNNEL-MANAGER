@@ -5380,6 +5380,26 @@ def _events_once():
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
             and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)]
 
+    # A rotation card names the src→dst PAIR, and each half is remembered from the ring's own events. The
+    # SOURCE has no other witness: the core's status `active` names only the destination, so a fresh panel
+    # knows no source until one happens to rotate — and the destination rotates far more often, so right
+    # after a restart the cards that matter most are the ones missing it. Seed it from the live pool, in
+    # the SAME parallel prefetch (never serially in the loop below, which is what that cost buys), and
+    # only for the links still missing it — so it is a handful of calls once, not one per sweep.
+    srcneed = [L for L in links if L.get("type") == "core" and L.get("enabled", True) and L.get("ip_rotate")
+               and not _ev_state["rotip"].get(L["id"] + ":src")]
+
+    def _ps(L):
+        try:
+            return api_peer_status({"id": L["id"]})
+        except Exception:
+            return None
+    for L, ps in zip(srcneed, parallel_map(_ps, srcneed)):
+        for ax in ("src", "dst"):
+            a = str(((ps or {}).get(ax) or {}).get("active") or "")
+            if a and not _ev_state["rotip"].get(L["id"] + ":" + ax):
+                _ev_state["rotip"][L["id"] + ":" + ax] = a
+
     def _es(L):
         try:
             return api_edge_status({"id": L["id"]})
