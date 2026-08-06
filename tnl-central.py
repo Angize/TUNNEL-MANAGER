@@ -6465,11 +6465,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tglsw.on::after{inset-inline-start:21px;background:var(--acc)}
 .modalov{position:fixed;inset:0;z-index:58;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);animation:fade .18s ease both}
 .modal{width:344px;max-width:100%;border-radius:20px;padding:20px;background:linear-gradient(180deg,color-mix(in srgb,#fff 5%,color-mix(in srgb,var(--card) 92%,transparent)),color-mix(in srgb,var(--card) 88%,transparent));border:1px solid color-mix(in srgb,var(--tx) 12%,transparent);box-shadow:0 24px 60px -20px rgba(0,0,0,.7),inset 0 1px 0 var(--hi)}
-.errsheet .modal{border:1px solid color-mix(in srgb,var(--bad) 45%,transparent)}
-.errhead{display:flex;align-items:center;gap:9px;color:var(--bad);font-size:14.5px;margin-bottom:11px}
-.errx{margin-inline-start:auto;background:none;border:0;color:var(--sub);font-size:22px;line-height:1;cursor:pointer;padding:0 4px}
-.errx:hover{color:var(--tx)}
-.errtxt{color:var(--tx)}
 .mtext{font-size:14px;line-height:1.85;white-space:pre-line}.mbtns{display:flex;gap:9px;margin-top:17px}
 .mbtns .primary,.mbtns .ghost{margin:0}
 .mbtns .primary{background:linear-gradient(180deg,color-mix(in srgb,var(--bad) 92%,#fff),var(--bad));color:#fff;box-shadow:0 10px 22px -12px color-mix(in srgb,var(--bad) 55%,transparent)}
@@ -7374,7 +7369,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
- err_title:"انجام نشد",got_it:"باشه", raw_sport_lbl:"پورتِ مبدأ",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه یک عدد",raw_sport_rand_n:"رندوم",raw_sport_rand_m:"حینِ تونل عوض می‌شود",raw_sport_hint:"پورتِ مبدأیی که در هدرِ جعلی نوشته می‌شود. «ثابت» همیشه یک عدد است، پس جعبه‌های حالت‌دارِ میانِ راه همیشه با یک چهارتاییِ ثابت (آی‌پی و پورتِ مبدأ و مقصد) طرف‌اند و اگر آن را بسوزانند حامل می‌میرد. «رندوم» پورت را حینِ کارِ تونل مدام از بازهٔ عادیِ لینوکس (32768 تا 60999) عوض می‌کند؛ سرور پورتِ تازه را از فریمِ رمزگشایی‌شده برمی‌دارد، پس نه دست‌دادنِ دوباره لازم است نه بسته‌ای گم می‌شود.", raw_port_lbl:"پورتِ حاملِ جعلی",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"این عدد فقط داخلِ هدرِ جعلی نوشته می‌شود؛ هیچ پورتی باز نمی‌شود و سوکتِ حامل روی شمارهٔ پروتکل باز است نه پورت. پیش‌فرض 443 است که همان پورتِ QUIC است و بعضی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ مبدأ",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه یک عدد",raw_sport_rand_n:"رندوم",raw_sport_rand_m:"حینِ تونل عوض می‌شود",raw_sport_hint:"پورتِ مبدأیی که در هدرِ جعلی نوشته می‌شود. «ثابت» همیشه یک عدد است، پس جعبه‌های حالت‌دارِ میانِ راه همیشه با یک چهارتاییِ ثابت (آی‌پی و پورتِ مبدأ و مقصد) طرف‌اند و اگر آن را بسوزانند حامل می‌میرد. «رندوم» پورت را حینِ کارِ تونل مدام از بازهٔ عادیِ لینوکس (32768 تا 60999) عوض می‌کند؛ سرور پورتِ تازه را از فریمِ رمزگشایی‌شده برمی‌دارد، پس نه دست‌دادنِ دوباره لازم است نه بسته‌ای گم می‌شود.", raw_port_lbl:"پورتِ حاملِ جعلی",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"این عدد فقط داخلِ هدرِ جعلی نوشته می‌شود؛ هیچ پورتی باز نمی‌شود و سوکتِ حامل روی شمارهٔ پروتکل باز است نه پورت. پیش‌فرض 443 است که همان پورتِ QUIC است و بعضی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -7557,7 +7552,7 @@ function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setUnread(0)}  // clear ONL
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
- return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="mssub" id="ssu_'+key+'">'+((cur&&cur.sub)?esc(cur.sub):'')+'</span><span class="cv">'+ic('chev')+'</span></button>'}
+ return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
 function _ssph(ph){return ph||T('select')}
 function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="mssub">'+esc(it.sub)+'</span>':'')+'</div>'}
 var SS_OV={};
@@ -7566,7 +7561,7 @@ function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  // open 
  SS_OV[key]=openModal('<div class="sspop">'+search+'<div class="sspoplist">'+items.map(function(it){return ssRow(key,it)}).join('')+'</div></div>',{cls:'sssheet'})}
 function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
  var items=SSI[key]||[],cur=items.filter(function(x){return String(x.v)==String(val)})[0];
- setT('sst_'+key,cur?cur.label:val);setT('ssu_'+key,(cur&&cur.sub)?cur.sub:'');var b=el('ssb_'+key);if(b)b.classList.remove('ph');
+ setT('sst_'+key,cur?cur.label:val);var b=el('ssb_'+key);if(b)b.classList.remove('ph');
  if(SS_OV[key]){closeModal(SS_OV[key]);SS_OV[key]=null}
  if(SSCB[key]&&window[SSCB[key]])window[SSCB[key]]()}
 function ssVal(key){return SEL[key]||''}
@@ -7594,15 +7589,21 @@ function confirmBox(msg,yes){return new Promise(function(resolve){
 // like it had done nothing. It still goes there (the strip is what stays put while they fix the field)
 // AND it pops, so nothing can be refused silently.
 function formErr(m,txt){if(m){m.className='msg';m.textContent=''}   // the strip below is no longer used
- // A refusal is the one message that must not be missed, so it takes the middle of the screen and STAYS
- // until the operator dismisses it. The strip at the bottom of the sheet was below the fold on a phone,
- // and a toast that fades on its own is the same problem with extra steps.
- openModal('<div class="errhead">'+ic('xc')+'<b>'+esc(T('err_title'))+'</b><button type="button" class="errx" onclick="errClose(this)">&times;</button></div>'
-  +'<div class="mtext errtxt">'+esc(txt)+'</div>'
-  +'<div class="mbtns"><button class="ghost" onclick="errClose(this)">'+esc(T('got_it'))+'</button></div>',
-  {cls:'errsheet'});
+ // A refusal takes the middle of the screen and STAYS until it is dismissed -- the strip at the bottom
+ // of the sheet was below the fold on a phone, and a toast that fades on its own is the same problem
+ // with extra steps. Same shape as confirmBox so the two never look like different products.
+ var ov=document.createElement('div');ov.className='modalov';
+ ov.innerHTML='<div class="modal"><div class="mtext"></div><div class="mbtns"><button class="primary mok"></button></div></div>';
+ ov.querySelector('.mtext').textContent=txt;
+ ov.querySelector('.mok').textContent=T('got_it');
+ document.body.appendChild(ov);
+ function done(){ov.remove();document.removeEventListener('keydown',onk)}
+ function onk(e){if(e.key!='Escape')return;var a=document.querySelectorAll('.modalov');if(a[a.length-1]!==ov)return;e.stopImmediatePropagation();done()}
+ document.addEventListener('keydown',onk);
+ ov.querySelector('.mok').onclick=done;
+ ov.onclick=function(e){if(e.target==ov)done()};
+ try{ov.querySelector('.mok').focus()}catch(e){}
  return true}
-function errClose(b){var ov=b.closest('.modalov');if(ov)closeModal(ov)}
 function toast(msg,kind){var t=document.createElement('div');t.className='toast '+(kind||'');
  t.innerHTML=(kind=='ok'?ic('okc'):kind=='err'?ic('xc'):'')+'<span>'+esc(msg)+'</span>';
  document.body.appendChild(t);setTimeout(function(){t.classList.add('show')},10);
