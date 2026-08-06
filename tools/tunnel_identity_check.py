@@ -53,8 +53,10 @@ def wire(P, links, node_ids=()):
     sent = []
     P.load_links = lambda: [dict(x) for x in links]
     P.get_node = lambda nid: next((n for n in NODES if n["id"] == nid), None)
-    P._ping_both = lambda A, B: ({"ips": [A_IP]}, {"ips": [B_IP]})
-    P._flat_ips = lambda p: list(p.get("ips", []))
+    # The node reports {iface: [ip]}, not a flat list -- this stub said "list" for a long time and the
+    # real _flat_ips was stubbed out beside it, so nothing noticed. Keep the REAL shape and let the real
+    # _flat_ips run on it, or a guard here proves nothing about the panel's own reading of a ping.
+    P._ping_both = lambda A, B: ({"ips": {"eth0": [A_IP]}}, {"ips": {"eth0": [B_IP]}})
     P._refresh_cache = lambda nids: None
     P._push_staged = lambda n: {"ok": True}
 

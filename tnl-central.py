@@ -4105,8 +4105,9 @@ def _create_tunnel_impl(d):
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
-    _guard_subnet_overlap(A, B, subnet)
     name = tunnel_name(ttype, tid)
+    _guard_subnet_overlap(A, B, subnet)
+    _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}   # values generated ONCE here so both ends match and edit/rebuild can replay them
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or free_tunnel_port(A, B)
@@ -4555,6 +4556,7 @@ def _edit_link_impl(d):
     _guard_subnet_overlap(A, B, subnet, exclude_id=L["id"])
     old_name = L["name"]
     new_name = tunnel_name(ttype, tid)
+    _guard_addr_on_another_iface(pa, pb, A, B, subnet, {old_name, new_name})
     name_changed = new_name != old_name
     type_changed = ttype != L["type"]   # kernel types share one name, so a type change is no longer a rename
     extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
@@ -4708,6 +4710,7 @@ def _rebuild_link_impl(d):
             if (x.get("id") != L["id"] and x.get("type") in IPIP_FAMILY
                     and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
                 raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = _tunnel_extra(L)   # same UDP port / key / cipher as before; also re-fetches fresh ECH and
                                # MAY RAISE — do it BEFORE teardown so a fetch failure leaves the tunnel intact
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
@@ -5887,6 +5890,40 @@ def _ping_both(A, B):
     if not pb.get("ok"):
         raise ValueError(f"نودِ «{B['name']}» آفلاین است")
     return pa, pb
+
+
+def _guard_addr_on_another_iface(pa, pb, A, B, subnet, skip_ifaces):
+    """Refuse an overlay subnet a node ALREADY holds on some other network card.
+
+    Linux does not complain when two interfaces carry the same prefix — `ip addr add` succeeds, the
+    netdev exists, and the build reports success. What you get instead is a SECOND route for that
+    prefix, and the kernel then sends the peer's address down whichever device it picked. The tunnel
+    comes up, the dashboard paints it green — the probe is bound to the tun device with SO_BINDTODEVICE,
+    so it still gets through — and real traffic leaves by the other card. Nothing anywhere reports it.
+
+    The panel's other two nets do not catch this: the id union only sees addresses that belong to a
+    TUNNEL, and _guard_subnet_overlap only compares against tunnels the panel itself knows. An address
+    put on eth0 by hand is invisible to both. `skip_ifaces` is this tunnel's own device(s), which is
+    exactly where the address is supposed to be."""
+    try:
+        want = ipaddress.ip_network(subnet, strict=False)
+    except ValueError:
+        return
+    for node, ping in ((A, pa), (B, pb)):
+        for iface, ips in ((ping.get("ips") or {})).items():
+            if iface in skip_ifaces:
+                continue
+            for ip in ips:
+                try:
+                    addr = ipaddress.ip_address(str(ip).split("/")[0])
+                except ValueError:
+                    continue
+                if addr.version == want.version and addr in want:
+                    raise ValueError(
+                        f"نودِ «{node['name']}» همین حالا {addr} را روی کارتِ «{iface}» دارد و با سابنتِ "
+                        f"«{subnet}» هم‌پوشانی می‌کند. لینوکس این را رد نمی‌کند، ولی مسیرِ آن بازه دوتا "
+                        f"می‌شود و ترافیک می‌تواند از همان کارت برود در حالی که تونل سبز نشان داده "
+                        f"می‌شود. بازهٔ دیگری انتخاب کن یا آن آدرس را از «{iface}» بردار.")
 
 
 def _guard_subnet_overlap(A, B, subnet, exclude_id=None):
@@ -7543,6 +7580,11 @@ function confirmBox(msg,yes){return new Promise(function(resolve){
  ov.querySelector('.mno').onclick=function(){done(false)};
  ov.onclick=function(e){if(e.target==ov)done(false)};
  ov.querySelector('.myes').focus()})}
+// Every form error used to be written ONLY into the .msg strip at the bottom of the sheet, which the
+// operator has to scroll to -- so an error could be reported and never seen, and the form just looked
+// like it had done nothing. It still goes there (the strip is what stays put while they fix the field)
+// AND it pops, so nothing can be refused silently.
+function formErr(m,txt){if(m){m.className='msg err';m.textContent=txt}toast(txt,'err');return true}
 function toast(msg,kind){var t=document.createElement('div');t.className='toast '+(kind||'');
  t.innerHTML=(kind=='ok'?ic('okc'):kind=='err'?ic('xc'):'')+'<span>'+esc(msg)+'</span>';
  document.body.appendChild(t);setTimeout(function(){t.classList.add('show')},10);
@@ -7790,15 +7832,15 @@ function agBtnBusy(btn,on,label){if(!btn)return;btn.disabled=on;
 async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go');   // never start a second install while one is live
  var name=v('a_name'),host=v('a_host');
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
- if(!name||!host){m.className='msg err';m.textContent=T('nadd_need_name_ip');return}
- if(!pass&&!key){m.className='msg err';m.textContent=(_authMode=='key'?T('nadd_privkey'):T('nadd_pass_word'))+T('nadd_is_required');return}
- var _px=pxCollect('a_');if(_px&&_px.err){m.className='msg err';m.textContent=_px.err;return}
+ if(!name||!host){formErr(m,T('nadd_need_name_ip'));return}
+ if(!pass&&!key){formErr(m,(_authMode=='key'?T('nadd_privkey'):T('nadd_pass_word'))+T('nadd_is_required'));return}
+ var _px=pxCollect('a_');if(_px&&_px.err){formErr(m,_px.err);return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
  // show the FIRST step (SSH), spinning, the instant install is clicked — no "در حالِ نصب…" placeholder gap
  var _st0=_insteps()[0];
  var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>'+esc(T('inst_installing'))+'</span></div><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">'+esc(_st0.label)+'</div><div class="istep-s">'+esc(_st0.detail)+'</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
  var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:_px}).catch(function(){return{ok:false,d:{}}});
- if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=terr((r.d&&r.d.error))||T('failed');if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+esc(T('nadd_install_connect')));return}
+ if(!(r.ok&&r.d.ok)){formErr(m,terr((r.d&&r.d.error))||T('failed'));if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+esc(T('nadd_install_connect')));return}
  // seed step 0 as revealed+running so the reveal continues seamlessly from the skeleton (no flicker back to the banner)
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
@@ -7900,25 +7942,25 @@ function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), nu
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
  return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+T('pct')+'</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
- if(!name||!host||!port){m.className='msg err';m.textContent=T('need_nhp');return}
- var _px=pxCollect('ne_');if(_px&&_px.err){m.className='msg err';m.textContent=_px.err;return}
+ if(!name||!host||!port){formErr(m,T('need_nhp'));return}
+ var _px=pxCollect('ne_');if(_px&&_px.err){formErr(m,_px.err);return}
  m.className='msg';m.textContent=T('saving');
  var r=await post('node-edit',{id:id,name:name,host:host,port:port,token:tok,proxy:_px});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=terr(r.d.error||T('failed'))}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{formErr(m,terr(r.d.error||T('failed')))}}
 async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host'),port=v('n_port'),tok=v('n_tok');
- if(!name||!host||!port||!tok){m.className='msg err';m.textContent=T('need_all_nhpt');return}
- var _px=pxCollect('n_');if(_px&&_px.err){m.className='msg err';m.textContent=_px.err;return}
+ if(!name||!host||!port||!tok){formErr(m,T('need_all_nhpt'));return}
+ var _px=pxCollect('n_');if(_px&&_px.err){formErr(m,_px.err);return}
  m.className='msg';m.textContent=T('connecting_dots');
  var r=await post('node-add',{name:name,host:host,port:port,token:tok,proxy:_px});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+terr(r.d.error||'')),r.d.online?'ok':'err')}
- else{m.className='msg err';m.textContent=terr(r.d.error||T('failed'))}}
+ else{formErr(m,terr(r.d.error||T('failed')))}}
 async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
  var r=await post('node-test',{id:id});
  var info=(r.d&&r.d.info)||{};if(!m)return;
  // Online: show the SERVER-measured panel->node RTT (the real control-plane ping). Offline: show only the
  // reason — a timed-out request has no latency to report, so no misleading "· 8164ms" on a dead node.
  if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
- else{m.className='msg err';m.textContent=T('offline')+': '+(terr(info.error)||T('not_available'))}}
+ else{formErr(m,T('offline')+': '+(terr(info.error)||T('not_available')))}}
 function kernelTune(id){post('node-kernel-tune',{id:id,action:'status'}).then(function(r){
  if(!(r.ok&&r.d.ok)){toast(terr((r.d&&r.d.error)||T('failed')),'err');return}
  ktShow(id,r.d)})}
@@ -7958,7 +8000,7 @@ async function doDelNode(id,wipe,force){var m=el('del_msg');
   toast(wipe?((r.d.node_wiped===false)?T('node_force_wiped'):T('node_wiped')):T('node_detached'),'ok');
   if(ov)closeModal(ov);else refreshNodes();return}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false});
- if(m){m.className='msg err';m.textContent=terr((r.d&&r.d.error)||T('failed'))}}
+ if(m){formErr(m,terr((r.d&&r.d.error)||T('failed')))}}
 
 // ===== Tunnels
 function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','tun_sub')+
@@ -8074,13 +8116,13 @@ function linkCard(l){
 async function refreshTunnels(){if(editingId||CHECKING||RORD||RSAVE)return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box)return;
  setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>');renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
- if(!type){m.className='msg err';m.textContent=T('tun_type');return}
+ if(!type){formErr(m,T('tun_type'));return}
  var L=FLEET.find(function(x){return x.id==id})||{};
  var a_ip=ssVal('lipa_'+id)||L.a_ip||'',b_ip=ssVal('lipb_'+id)||L.b_ip||'';
  m.className='msg';m.textContent=T('rebuilding_both');
  var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
  var r=await post('edit-link',body);
- if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=perr(r)}}
+ if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{formErr(m,perr(r))}}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
 async function checkLink(id){CHECKING++;
@@ -8204,7 +8246,7 @@ function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type'
  else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a'),b=ssVal('c_b');
- if(a==b){m.className='msg err';m.textContent=T('two_diff_nodes');return}
+ if(a==b){formErr(m,T('two_diff_nodes'));return}
  var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet');
  var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bare=el('ssb_c_bare')?ssVal('c_bare'):'';   // only send an IP when its picker exists (multi-IP node)
  var body={a_node:a,b_node:b,type:type,a_ip:aip,b_ip:bare};
@@ -8213,7 +8255,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
  m.textContent=T('creating_tun');
  var r=await post('create-tunnel',body);
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('tun_created'),'ok');refreshTunnels()}
- else{m.className='msg err';m.textContent=perr(r)}}
+ else{formErr(m,perr(r))}}
 
 // ===== Custom core (packet/core) — its own view, list and create form
 function coreSkel(){CHK={};el('view').innerHTML=vhead('cpu','nav_core','core_sub')+
@@ -9054,33 +9096,33 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 // fec/desync/ws branches — identical in both modulo the _corS/_eeS state + e_/ee_ DOM prefix).
 // Mutates `body`; on a validation error it sets `m` and returns true so the caller bails out.
 function _collectCoreBody(S,px,m,body){
- if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){m.className='msg err';m.textContent=_pe;return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
-  if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){m.className='msg err';m.textContent=_po;return true}
+ if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
+  if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
    body.raw_sport_random=!!S.SportRandom}}
  /* The spoof carrier is bare-like: no profile, just the outer protocol number plus the forged field(s).
     Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
     go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
     empty value legitimately CLEARS one; pending or NOT-ok they are OMITTED and an edit preserves. */
- if(S.Tr=='spoof'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('spoof_need_enc');return true}
-  var _pe2=rawProtoErr(px);if(_pe2){m.className='msg err';m.textContent=_pe2;return true}var _sp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_sp;
+ if(S.Tr=='spoof'){if(ssVal(px+'cipher')=='none'){formErr(m,T('spoof_need_enc'));return true}
+  var _pe2=rawProtoErr(px);if(_pe2){formErr(m,_pe2);return true}var _sp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_sp;
   if(S.SpoofOk){var _dip=S.Decoy?(v(px+'decoyip')||'').trim():'';var _sip=S.Src?(v(px+'srcip')||'').trim():'';
-   if(S.Decoy&&!_dip){m.className='msg err';m.textContent=T('decoy_need_ip');return true}
-   if(S.Src&&!_sip){m.className='msg err';m.textContent=T('spoof_src_need_ip');return true}
-   if(!_dip&&!_sip){m.className='msg err';m.textContent=T('spoof_need_one');return true}
+   if(S.Decoy&&!_dip){formErr(m,T('decoy_need_ip'));return true}
+   if(S.Src&&!_sip){formErr(m,T('spoof_src_need_ip'));return true}
+   if(!_dip&&!_sip){formErr(m,T('spoof_need_one'));return true}
    body.spoof_dst=_dip;body.spoof_src=_sip}}
- if(S.Tr=='flux'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('flux_need_enc');return true}body.flux_carrier=S.FluxCarrier;body.flux_rotate_secs=S.FluxRotate;body.flux_shape=S.FluxShape}
- if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('dns_need_enc');return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){m.className='msg err';m.textContent=T('dns_need_zone');return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){m.className='msg err';m.textContent=T('dns_need_resolvers');return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
+ if(S.Tr=='flux'){if(ssVal(px+'cipher')=='none'){formErr(m,T('flux_need_enc'));return true}body.flux_carrier=S.FluxCarrier;body.flux_rotate_secs=S.FluxRotate;body.flux_shape=S.FluxShape}
+ if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if((S.Tr=='udp'||S.Tr=='raw'||S.Tr=='flux'||S.Tr=='spoof')){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http')body.cdn_profile=S.CdnProf;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){m.className='msg err';m.textContent=pe;return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){m.className='msg err';m.textContent=T('wss_need_host');return true}if(S.Ech&&!S.WsTls){m.className='msg err';m.textContent=T('ech_need_wss');return true}if(S.Cdn=='grpc'&&!S.WsTls){m.className='msg err';m.textContent=T('cdn_need_wss');return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http')body.cdn_profile=S.CdnProf;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
- if(a==bb){m.className='msg err';m.textContent=T('two_diff_nodes');return}
+ if(a==bb){formErr(m,T('two_diff_nodes'));return}
  var body={a_node:a,b_node:bb,type:'core',server_side:_corS.Srv,cipher:ssVal('e_cipher'),transport:_corS.Tr,obfs:_corS.Obfs,cover:(_corS.Cover&&_corS.Tr=='tcp'),gso:_corS.Gso};
  if(_collectCoreBody(_corS,'e_',m,body))return;
- if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
- var _rverr=rotValidate('e_');if(_rverr){m.className='msg err';m.textContent=_rverr;return}
+ if(body.cover){var sni=(v('e_sni')||'').trim();if(!sni){formErr(m,T('cover_need_sni'));return}body.cover_sni=sni}
+ var _rverr=rotValidate('e_');if(_rverr){formErr(m,_rverr);return}
  var aip=pickedIP('e_','a','');if(aip)body.a_ip=aip;
  var bare=pickedIP('e_','b','');if(bare)body.b_ip=bare;
  var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs;body.auto_burn=_rc.auto_burn}
@@ -9089,7 +9131,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  m.textContent=T('creating_core');
  var r=await post('create-tunnel',body);
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
- else{m.className='msg err';m.textContent=perr(r)}}
+ else{formErr(m,perr(r))}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.CdnProf='cf',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
 function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnProfGate();corRotVis('ee_');onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
@@ -9191,8 +9233,8 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  var body={id:id,type:'core',server_side:_eeS.Srv,cipher:ssVal('ee_cipher'),transport:_eeS.Tr,obfs:_eeS.Obfs,cover:(_eeS.Cover&&_eeS.Tr=='tcp'),gso:_eeS.Gso};
  if(_collectCoreBody(_eeS,'ee_',m,body))return;
- if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){m.className='msg err';m.textContent=T('cover_need_sni');return}body.cover_sni=sni}
- var _rverr2=rotValidate('ee_');if(_rverr2){m.className='msg err';m.textContent=_rverr2;return}
+ if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){formErr(m,T('cover_need_sni'));return}body.cover_sni=sni}
+ var _rverr2=rotValidate('ee_');if(_rverr2){formErr(m,_rverr2);return}
  // Keep the stored anchor if it is still in the pool, so the anchor (a_ip/b_ip) doesn't drift to another
  // pool IP each edit (which churns the server bind and used to trip a false self port-conflict) — that is
  // what the `stored` argument does.
@@ -9202,7 +9244,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
  if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
- else{m.className='msg err';m.textContent=perr(r)}}
+ else{formErr(m,perr(r))}}
 
 // ===== Port-forward
 function portfwSkel(){el('view').innerHTML=vhead('globe','nav_portfw','pf_sub')+
@@ -9244,19 +9286,19 @@ function pfCard(p,i){var h=p.health||{};
 function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
  setT('pe_tgllbl_'+i,on?T('on_word'):T('off_word'));var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
 async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=v('pe_lp_'+i),dp=v('pe_dp_'+i),ips=v('pe_ips_'+i);
- if(!lp||!dp||!ips){m.className='msg err';m.textContent=T('pf_need_ports');return}
+ if(!lp||!dp||!ips){formErr(m,T('pf_need_ports'));return}
  var rot=el('pe_tgl_'+i).classList.contains('on'),intv=v('pe_int_'+i);
  m.className='msg';m.textContent=T('saving');
  var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   // only multi-IP nodes expose the picker; empty ⇒ node keeps old pin
  var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5,listen_ip:lip});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{m.className='msg err';m.textContent=perr(r)}}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{formErr(m,perr(r))}}
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
- if(!node||!lp||!dp||!ips){m.className='msg err';m.textContent=T('pf_need_all');return}
+ if(!node||!lp||!dp||!ips){formErr(m,T('pf_need_all'));return}
  m.className='msg';m.textContent=T('creating_dots');
  var lip=el('ssb_pf_lip')?ssVal('pf_lip'):'';   // only when the picker exists (multi-IP node)
  var r=await post('portfw',{node:node,listen_port:lp,dst_port:dp,dst_ips:ips,interval_min:intv||5,listen_ip:lip});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('pf_created')+r.d.name,'ok')}
- else{m.className='msg err';m.textContent=terr(r.d.error||T('failed'))}}
+ else{formErr(m,terr(r.d.error||T('failed')))}}
 async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.textContent:'';if(b)b.textContent='…';
  var r=await post('portfw-next',{node:p.node_id,name:p.name});
  if(r.ok&&r.d.ok){if(b)b.textContent=r.d.active;toast(T('pf_rotate_done')+r.d.active,'ok')}
@@ -9329,7 +9371,7 @@ async function loadCoreVersions(want){
 // dropdown, because "is there a new version" is the actual question being asked.
 async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textContent=T('cor_checking')}
  var res=await post('core-check',{});var d=(res&&res.d)||{};
- if(!(res.ok&&d.ok)){if(m){m.className='msg err';m.textContent=terr(d.error||T('err_github'))}return}
+ if(!(res.ok&&d.ok)){if(m){formErr(m,terr(d.error||T('err_github')))}return}
  await loadCoreVersions();
  if(m){m.className='msg ok';
   m.textContent=!d.count?T('cor_check_none')
@@ -9338,7 +9380,7 @@ async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textCont
 async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';m.textContent=T('cor_downloading');
  var res=await post('core-stage',{version:ver});
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+CK;loadCoreVersions()}
- else{m.className='msg err';m.textContent=terr((res.d&&(res.d.error||res.d.msg))||T('err_github'))}}
+ else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
 async function corPushStaged(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent=T('cor_pushing')}
  var res=await post('core-push',{ids:[id]});var x=((res.d&&res.d.results)||[])[0]||{};
  if(m){if(x.ok){m.className='msg agres ok';m.innerHTML=(x.unchanged?T('ag_core_already'):T('ag_core_updated'))+CK}
@@ -9360,13 +9402,13 @@ function agCorPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
  var m=el('cor_msg');m.className='msg';m.textContent=T('cor_reading_upload');
  var rd=new FileReader();
  rd.onload=function(){var b=String(rd.result||'');var i=b.indexOf(',');agCorUpload(i>=0?b.slice(i+1):b,f.name)};
- rd.onerror=function(){m.className='msg err';m.textContent=T('cor_read_fail')};
+ rd.onerror=function(){formErr(m,T('cor_read_fail'))};
  rd.readAsDataURL(f)}
 async function agCorUpload(b64,name){var m=el('cor_msg');
  var res=await post('core-upload',{data:b64,name:name});
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_bin_saved_pre')+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+T('cor_bin_saved_post');
   await loadCoreVersions('custom')}
- else{m.className='msg err';m.textContent=terr((res.d&&res.d.error))||T('failed')}}
+ else{formErr(m,terr((res.d&&res.d.error))||T('failed'))}}
 function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
  var cinst=!!(i.core_sha&&String(i.core_sha).length);            // core_sha empty => no binary on the node
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
@@ -9399,15 +9441,15 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
    '<div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode;
- if(!code||!code.trim()){m.className='msg err';m.textContent=T('ag_pick_file_first');return}
+ if(!code||!code.trim()){formErr(m,T('ag_pick_file_first'));return}
  m.className='msg';m.textContent=T('ag_checking_saving');
  var r=await post('agent-upload',{code:code});
  if(r.ok&&r.d.ok){m.className='msg ok';m.textContent=T('ag_saved_pre')+r.d.version+' · '+r.d.sha256;window._agCode=null;refreshAgent()}
- else{m.className='msg err';m.textContent=terr(r.d.error)||T('failed')}}
+ else{formErr(m,terr(r.d.error)||T('failed'))}}
 async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg';m.textContent=T('ag_fetching_git');if(btn)btn.disabled=true;
  var r=await post('agent-fetch-git',{});
- if(!(r.ok&&r.d.ok)){m.className='msg err';m.textContent=terr(r.d.error)||T('failed');if(btn)btn.disabled=false;return}
+ if(!(r.ok&&r.d.ok)){formErr(m,terr(r.d.error)||T('failed'));if(btn)btn.disabled=false;return}
  m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
@@ -9664,7 +9706,7 @@ function tunDaBind(){var ids=['set_t_deadafter','set_t_keepalive'];
 async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
- else{if(m){m.className='msg err';m.textContent=perr(r)}}}
+ else{if(m){formErr(m,perr(r))}}}
 async function resetTuning(){if(!await confirmBox(T('set_tun_reset_confirm')))return;
  var r=await post('settings-set',{tuning:_TUNDEF});
  if(r.ok&&r.d.ok){toast(T('set_tun_saved'),'ok');refreshSettings()}
@@ -9675,7 +9717,7 @@ function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){cl
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin')});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
- else{if(m){m.className='msg err';m.textContent=perr(r)}}}
+ else{if(m){formErr(m,perr(r))}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
  updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
