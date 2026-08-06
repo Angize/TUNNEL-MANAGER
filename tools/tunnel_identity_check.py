@@ -179,6 +179,32 @@ def main():
     except ValueError:
         check(True, "a base too small for the id is refused by name")
 
+    print("\n== 2b2) a re-derive picks a base that FITS, instead of dead-ending on the default ==")
+    # A tunnel whose stored subnet is the wrong IP version for its new type gets re-derived with NO base
+    # asked for. Falling back to the default range dead-ended every id above its 255: the type could not
+    # be changed at all, and the message named a range the operator never picked.
+    P = load()
+    for tid in (1, 42, 255):        # everything that fits the default must be UNCHANGED
+        want = "192.168.%d.0/24" % tid
+        got = P.subnet_default("core", tid)
+        check(got == want, "id=%s still derives %s (got %s)" % (tid, want, got))
+    for tid in (256, 4095, 4096, 65535):
+        try:
+            net = ipaddress.ip_network(P.subnet_default("core", tid), strict=False)
+            check(True, "id=%s derives %s instead of refusing" % (tid, net))
+        except ValueError as e:
+            check(False, "id=%s DEAD-ENDS on a re-derive: %s" % (tid, e))
+    # ...but a base the operator DID pick and that cannot hold the id still refuses, loudly.
+    try:
+        P.subnet_default("core", 256, "192.168")
+        check(False, "an explicit 192.168 accepted id 256")
+    except ValueError:
+        check(True, "an EXPLICIT base too small still refuses")
+    # the real path: a sit tunnel at a high id, edited to core
+    got = P.norm_subnet("core", 5000, P.subnet_default("sit", 5000))
+    check(got.endswith("/24") and ":" not in got,
+          "a sit tunnel at id 5000 can be changed to core (got %s)" % got)
+
     print("\n== 2c) the PORT is allocated, not derived from the id ==")
     # 20000+id put a second ceiling on the id at 45535 and coupled two things that never needed it: a
     # port only has to be unique on the IP that BINDS it. An id past that point must still get a usable

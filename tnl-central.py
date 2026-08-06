@@ -1246,7 +1246,13 @@ def subnet_default(ttype, tid, base=None):
     the id is a loud refusal rather than a wrapped address that would quietly collide with another."""
     if ttype == "sit":
         return "fd00:%x:%x::/64" % (tid >> 16, tid & 0xFFFF)
-    net, prefix = SUBNET_BASES.get(str(base or SUBNET_BASE_DEFAULT), SUBNET_BASES[SUBNET_BASE_DEFAULT])
+    if not base:
+        # No base was ASKED for, so this is a re-derive rather than a choice -- a type change on a tunnel
+        # whose stored subnet is the wrong IP version, say. Pick the narrowest range that can still hold
+        # this id: falling back to the default's 255 dead-ends every id above it, with a message naming a
+        # range the operator never picked. An EXPLICIT base that is too small still refuses, below.
+        base = next((b for b in ("192.168", "172.16", "10") if tid <= subnet_cap(b)), "10")
+    net, prefix = SUBNET_BASES.get(str(base), SUBNET_BASES[SUBNET_BASE_DEFAULT])
     cap = subnet_cap(base)
     if not TID_MIN <= tid <= cap:
         raise ValueError(f"شناسهٔ {tid} در بازهٔ «{net}/{prefix}» جا نمی‌شود "
@@ -7626,8 +7632,12 @@ var SUBNET_BASE_NETS={'192.168':[3232235520,16],'172.16':[2886729728,12],'10':[1
 function subnetCap(base){var b=SUBNET_BASE_NETS[base]||SUBNET_BASE_NETS['192.168'];return (1<<(24-b[1]))-1}
 function subnetForBase(type,tid,base){tid=num(tid)||0;
  if(type=='sit')return 'fd00:'+(tid>>16).toString(16)+':'+(tid&0xFFFF).toString(16)+'::/64';
- var b=SUBNET_BASE_NETS[base]||SUBNET_BASE_NETS['192.168'];
- if(tid<1||tid>subnetCap(base))return '';
+ // Same widening subnet_default() does: a range that cannot hold this id would leave the field EMPTY,
+ // which reads as "this tunnel has no subnet" rather than "pick another range".
+ if(tid>subnetCap(base))base=['192.168','172.16','10'].filter(function(x){return tid<=subnetCap(x)})[0];
+ // No range can hold it: say nothing rather than compute an address PAST the end of the last one.
+ if(!base||tid<1||tid>subnetCap(base))return '';
+ var b=SUBNET_BASE_NETS[base];
  var n=(b[0]+tid*256)>>>0;
  return ((n>>>24)&255)+'.'+((n>>>16)&255)+'.'+((n>>>8)&255)+'.'+(n&255)+'/24'}
 // How many ids this range still has. Counted off FLEET, which IS the panel's registry, so the number
