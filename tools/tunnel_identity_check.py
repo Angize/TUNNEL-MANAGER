@@ -1,0 +1,232 @@
+# -*- coding: utf-8 -*-
+"""Guard: a tunnel's identity comes from its id, and every build path says the same thing.
+
+Three facts have to hold together, and the panel is the only place that can hold them:
+
+  * the id is unique across the WHOLE fleet, 1..255. It was scoped to the two nodes of the pair, so
+    every pair restarted at the same number -- three unrelated links were all called core42, and since
+    the id is also the overlay subnet, all three sat on 192.168.42.0/24.
+  * the name is `core<id>` or `native<id>`, from the id alone.
+  * the overlay host is the ROLE: server .1, client .2. The nodes used to derive it themselves by
+    comparing their public IPs, so which end was .1 depended on which provider handed out the bigger
+    address.
+
+The panel has FOUR paths that build a node body -- create, edit, rebuild and the restore/rollback -- and
+this drives all four for real, capturing what each would send. Checking `overlay_host` on its own would
+prove nothing about the path that forgets to call it, which is the failure this exists to prevent.
+
+Exit 1 on any disagreement.
+"""
+import importlib.util
+import json
+import os
+import sys
+import tempfile
+
+sys.dont_write_bytecode = True
+PANEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tnl-central.py")
+
+A_ID, B_ID = 1, 2
+A_IP, B_IP = "203.0.113.5", "198.51.100.7"
+NODES = [{"id": A_ID, "name": "IR01", "host": A_IP}, {"id": B_ID, "name": "DE01", "host": B_IP}]
+
+fails = []
+
+
+def check(ok, msg):
+    print(("  ok   " if ok else " FAIL ") + msg)
+    if not ok:
+        fails.append(msg)
+
+
+def load():
+    spec = importlib.util.spec_from_file_location("tnl_central_identity", PANEL)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def wire(P, links, node_ids=()):
+    """Stub every side effect and record the bodies. `links` is the panel's link registry; `node_ids`
+    are tunnel ids a NODE already carries that the panel does not know about."""
+    sent = []
+    P.load_links = lambda: [dict(x) for x in links]
+    P.get_node = lambda nid: next((n for n in NODES if n["id"] == nid), None)
+    P._ping_both = lambda A, B: ({"ips": [A_IP]}, {"ips": [B_IP]})
+    P._flat_ips = lambda p: list(p.get("ips", []))
+    P._refresh_cache = lambda nids: None
+    P._push_staged = lambda n: {"ok": True}
+
+    def node_call(node, op, method="GET", body=None, timeout=None, **kw):
+        if op == "list":
+            return {"configs": [{"id": i} for i in node_ids]}
+        if op == "tunnel":   # the restore path posts here directly rather than through _node_tunnel
+            sent.append((node["id"], dict(body or {})))
+        return {"ok": True}
+    P.node_call = node_call
+
+    def node_tunnel(node, body):
+        sent.append((node["id"], dict(body)))
+        return {"ok": True, "tunnel_ip": "10.0.0.1/24"}
+    P._node_tunnel = node_tunnel
+
+    def save_json(path, obj):
+        if path == P.LINKS_FILE:
+            links[:] = [dict(x) for x in obj]
+    P.save_json = save_json
+    return sent
+
+
+def core_link(tid, server_side="b", ttype="core"):
+    return {"id": tid, "tunnel_id": tid, "name": P0.tunnel_name(ttype, tid), "type": ttype,
+            "a_node": A_ID, "b_node": B_ID, "a_ip": A_IP, "b_ip": B_IP,
+            "subnet": P0.subnet_default(ttype, tid), "port": 20000 + tid, "server_side": server_side,
+            "cipher": "auto", "transport": "udp", "psk": "x" * 44, "enabled": True}
+
+
+P0 = load()
+
+
+def main():
+    print("== 1) the id space is the fleet's, not the pair's ==")
+    P = load()
+    # Two links between OTHER nodes already hold 1 and 2. A third link on a fresh pair must not reuse them.
+    links = [dict(core_link(1), a_node=3, b_node=4), dict(core_link(2), a_node=5, b_node=6)]
+    sent = wire(P, links)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
+                           "cipher": "auto", "server_side": "b"})
+    got = sent[0][1]["id"]
+    check(got == 3, "a new link on an untouched pair got id %s -- the two links on other pairs hold 1 and 2, "
+                    "and reusing one would put two tunnels on one subnet and one name" % got)
+
+    print("\n== 2) the first free id starts at 1, and the ceiling is 255 ==")
+    P = load()
+    links = []
+    sent = wire(P, links)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
+    check(sent[0][1]["id"] == 1, "an empty fleet allocates id 1, got %s" % sent[0][1]["id"])
+    check(P.TID_MIN == 1 and P.TID_MAX == 255, "the id range is 1..255, got %s..%s" % (P.TID_MIN, P.TID_MAX))
+
+    P = load()
+    links = [core_link(i) for i in range(1, 256)]
+    sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
+        check(False, "a full fleet must refuse rather than allocate id 0 or 256")
+    except ValueError:
+        check(True, "a full fleet refuses with a reason instead of allocating out of range")
+
+    print("\n== 3) an id a NODE already carries is not handed out either ==")
+    P = load()
+    links = []
+    sent = wire(P, links, node_ids=[1, 2, 3])
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
+    check(sent[0][1]["id"] == 4, "skipped 1-3 already on the node, got %s" % sent[0][1]["id"])
+
+    print("\n== 4) the name is the id, and every kernel type shares one spelling ==")
+    P = load()
+    for tt in P.TYPES:
+        links = []
+        sent = wire(P, links)
+        req = {"a_node": A_ID, "b_node": B_ID, "type": tt}
+        if tt == "core":
+            req.update(transport="udp", cipher="auto", server_side="b")
+        P._create_tunnel_impl(req)
+        want = "core1" if tt == "core" else "native1"
+        check(sent[0][1]["name"] == want, "%-7s -> %s" % (tt, sent[0][1]["name"]))
+        check(sent[0][1]["name"] == sent[1][1]["name"], "%-7s both ends agree on the name" % tt)
+
+    print("\n== 5) ALL FOUR build paths stamp the same host, and the SERVER is always .1 ==")
+    for ss in ("a", "b"):
+        bodies = {}
+        # -- create
+        P = load(); links = []; sent = wire(P, links)
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
+                               "cipher": "auto", "server_side": ss})
+        bodies["create"] = {nid: b for nid, b in sent}
+        stored = [dict(x) for x in links] or [core_link(1, ss)]
+        L = stored[0]
+        # -- edit (a partial edit that changes nothing but must still rebuild both ends)
+        P = load(); links2 = [dict(L)]; sent = wire(P, links2)
+        P.api_edit_link({"id": L["id"], "type": "core", "transport": "udp", "cipher": "auto",
+                         "server_side": ss, "a_node": A_ID, "b_node": B_ID})
+        bodies["edit"] = {nid: b for nid, b in sent}
+        # -- rebuild
+        P = load(); links3 = [dict(L)]; sent = wire(P, links3)
+        P._rebuild_link_impl({"id": L["id"]})
+        bodies["rebuild"] = {nid: b for nid, b in sent}
+        # -- restore / rollback
+        P = load(); links4 = [dict(L)]; sent = wire(P, links4)
+        P._restore_link(P.get_node(A_ID), P.get_node(B_ID), dict(L))
+        bodies["restore"] = {nid: b for nid, b in sent}
+
+        for path, byn in bodies.items():
+            ha, hb = byn.get(A_ID, {}).get("host"), byn.get(B_ID, {}).get("host")
+            check({ha, hb} == {1, 2}, "server_side=%s %-8s: A->.%s B->.%s (one .1 and one .2)" % (ss, path, ha, hb))
+            srv = ha if ss == "a" else hb
+            check(srv == 1, "server_side=%s %-8s: the SERVER end is .%s -- it must be .1" % (ss, path, srv))
+        hosts = {p: (b.get(A_ID, {}).get("host"), b.get(B_ID, {}).get("host")) for p, b in bodies.items()}
+        check(len(set(hosts.values())) == 1,
+              "server_side=%s: create/edit/rebuild/restore all agree: %s" % (ss, hosts))
+
+    print("\n== 6) two tunnels that meet on one node may not share an overlay subnet ==")
+    # unique ids make the DEFAULTS unique; the custom subnet the operator can type is the open door.
+    C_ID = 3
+    P = load()
+    links = [dict(core_link(9), a_node=A_ID, b_node=C_ID, subnet="192.168.9.0/24")]
+    NODES.append({"id": C_ID, "name": "DE02", "host": "192.0.2.9"})
+    sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre", "subnet": "192.168.9.0/24"})
+        check(False, "a custom subnet overlapping a tunnel on the SAME node was accepted -- both ends "
+                     "then ip-addr-add out of one range and the kernel routes down whichever device it picked")
+    except ValueError:
+        check(True, "an overlapping custom subnet on a shared node is refused")
+    # a narrower range inside the other one is the same collision
+    P = load(); links = [dict(core_link(9), a_node=A_ID, b_node=C_ID, subnet="192.168.9.0/24")]
+    sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre", "subnet": "192.168.9.128/25"})
+        check(False, "a subnet CONTAINED in another tunnel's was accepted")
+    except ValueError:
+        check(True, "a contained subnet is refused too, not just an exact match")
+    # ...but two tunnels that share NO node may reuse a range: the addresses are on different machines
+    P = load()
+    links = [dict(core_link(9), a_node=5, b_node=6, subnet="192.168.9.0/24")]
+    sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre", "subnet": "192.168.9.0/24"})
+        check(True, "the same range on a pair sharing no node is allowed")
+    except ValueError as e:
+        check(False, "refused a legal reuse on an unrelated pair: %s" % e)
+    NODES.pop()
+
+    print("\n== 7) a kernel tunnel has no server, so side A takes .1 on every path ==")
+    L = core_link(1, "a", "gre")
+    for path, run in (
+        ("create", lambda P, links: P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})),
+        # a non-core edit that changes NOTHING short-circuits as "unchanged" and builds no body at all,
+        # so this one moves the subnet -- otherwise the case proves nothing about the edit path.
+        ("edit", lambda P, links: P.api_edit_link({"id": 1, "type": "gre", "a_node": A_ID, "b_node": B_ID,
+                                                   "subnet": "10.9.0.0/24"})),
+        ("rebuild", lambda P, links: P._rebuild_link_impl({"id": 1})),
+        ("restore", lambda P, links: P._restore_link(P.get_node(A_ID), P.get_node(B_ID), dict(L))),
+    ):
+        P = load()
+        links = [] if path == "create" else [dict(L)]
+        sent = wire(P, links)
+        run(P, links)
+        byn = {nid: b for nid, b in sent}
+        check(byn.get(A_ID, {}).get("host") == 1 and byn.get(B_ID, {}).get("host") == 2,
+              "gre %-8s: A->.%s B->.%s" % (path, byn.get(A_ID, {}).get("host"), byn.get(B_ID, {}).get("host")))
+
+    print()
+    if fails:
+        print("%d failure(s)" % len(fails))
+        return 1
+    print("the id is unique fleet-wide, the name follows it, and all four paths agree on server=.1 / client=.2")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
