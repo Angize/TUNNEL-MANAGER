@@ -5220,11 +5220,6 @@ _EV_DOWN_CODE = {
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
 }
-_EV_BURN_CODE = {
-    "ip_blocked": "آی‌پیِ لبه بلاک است (روی SNIِ سالم هم جواب نداد)",
-    "sni_blocked": "دامنه (SNI) بلاک است (روی آی‌پیِ سالم هم جواب نداد)",
-    "throttle": "آی‌پیِ لبه گلوگاه/کند شد (دست داد ولی دیتا مرد)",
-}
 # Intentional IP MOVES on a datagram rotation pool (udp/raw/flux — tcp is connection-oriented and re-dials
 # instead of emitting these). The core reports these as a
 # "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation
@@ -5289,9 +5284,8 @@ def _ev_core_text(kind, code, detail, nm):
         rf = _EV_UP_CODE.get(code, "تونل وصل شد")
         return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", rf)
     if kind == "burn":
-        rf = _EV_BURN_CODE.get(code, "سوخته شد")
-        # The reason string ("آی‌پیِ لبه بلاک است…") repeated what the title already says, so the card
-        # carried two sentences for one fact. The endpoint is the useful part; keep only that.
+        # The reason string repeated what the title already says, so the card carried two sentences for
+        # one fact. The endpoint is the useful part; keep only that.
         return ("warn", "burn", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
     if kind == "cfg":
         # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
@@ -5311,10 +5305,12 @@ def _ev_core_text(kind, code, detail, nm):
                         f"چاره: net.core.rmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
         return ("warn", "cfg", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
     if kind == "heal":
-        # A previously-sidelined member recovered and is back in the rotation pool. Three flavors:
-        # peer-retest/src-retest are the DIRECT-transport pool's destination/source IP recovering on the
-        # data plane; the default (ws edge pool) is a background probe recovery. Distinct from the
-        # active-carrier up/reconnect above.
+        # A previously-sidelined member recovered and is back in the rotation pool. peer-retest/src-retest
+        # are the DIRECT pool's destination/source IP; tun-probe is either pool's node verdict; the
+        # default is the ws pool's own background retest. Distinct from the active-carrier up/reconnect.
+        if code == "tun-probe":
+            return ("ok", "heal", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
+                    f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
         if code == "peer-retest":
             return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
                     f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
