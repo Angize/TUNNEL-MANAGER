@@ -7252,7 +7252,7 @@ var I18N={fa:{
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  // ---- core create/edit form + shared section builders (Gap 1)
  // subnet ranges
- snr_free_of:"از",snr_free:"آزاد", snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
+ snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
  // the CDN carrier tiles + the http profile
@@ -7471,7 +7471,7 @@ var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the 
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
-function SUBNETRANGES(){function lab(b,k){return T(k)+' — '+subnetFree(b)+' '+T('snr_free_of')+' '+subnetCap(b)+' '+T('snr_free')}
+function SUBNETRANGES(){function lab(b,k){return T(k)+' ('+subnetFree(b)+')'}
  return [{v:'192.168',label:lab('192.168','snr_192')},{v:'10',label:lab('10','snr_10')},{v:'172.16',label:lab('172.16','snr_172')},{v:'custom',label:T('snr_custom')}]}
 var SUBNETRANGES2=[{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'},{v:'192.168',label:'192.168.x'}];
 document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){if(p.dataset.t=='logout'){logout();return}cur=p.dataset.t;drawer(false);render()}});
