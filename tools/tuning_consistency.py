@@ -26,8 +26,6 @@ TUNING_KNOBS = [
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
     ("pin_ttl_secs",           "pinTTL",              "PinTTLSecs",           False),
-    ("data_fail_threshold",    "dataFailThreshold",   "DataFailThreshold",    False),
-    ("data_good_window_secs",  "dataGoodWindow",      "DataGoodWindowSecs",   False),
     ("idle_mult",              "idleMult",            "IdleMult",             False),
     ("idle_min_secs",          "idleMinSecs",         "IdleMinSecs",          False),
     ("session_stale_mult",     "sessionStaleMult",    "SessionStaleMult",     False),
