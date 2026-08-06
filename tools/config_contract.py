@@ -44,6 +44,12 @@ CASES = [
      {"transport": "raw", "raw_profile": "bare", "raw_proto": 58}),
     ("raw/udp+port", {"transport": "raw", "cipher": "auto", "raw_profile": "udp", "raw_port": 51820},
      {"transport": "raw", "raw_profile": "udp", "raw_port": 51820}),
+    # The rolling source port is per-tunnel state like the port beside it: a rebuild that replays
+    # everything BUT this one silently drops the tunnel back to a constant 4-tuple, which is the
+    # condition it was turned on to escape — and nothing anywhere would say so.
+    ("raw/tcp+rolling sport",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_random": True},
+     {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True}),
     ("raw/bare native", {"transport": "raw", "cipher": "auto", "raw_profile": "bare"},
      {"transport": "raw", "raw_profile": "bare"}),
     ("raw/gre", {"transport": "raw", "cipher": "auto", "raw_profile": "gre"},

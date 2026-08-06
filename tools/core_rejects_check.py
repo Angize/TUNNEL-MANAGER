@@ -75,6 +75,12 @@ MUST_REJECT = [
     ("fec_data past the replay window", {"transport": "udp", "cipher": "auto", "fec": True,
                                          "fec_data": 65, "fec_parity": 3},
      "config.go: fec_data must be at most packet.MaxFecData"),
+    ("a rolling source port on a profile that forges none",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "gre", "raw_sport_random": True},
+     "config.go: raw_sport_random rolls the forged SOURCE port of the udp/tcp profiles only"),
+    ("...and on the headerless one",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "bare", "raw_sport_random": True},
+     "config.go: same rule, for every profile with no L4 header"),
 ]
 
 # EDITS of a STORED tunnel. The list above passes an empty `cur`, so it cannot express the thing that
@@ -89,6 +95,14 @@ MUST_ACCEPT_EDIT = [
      {"transport": "raw", "cipher": "auto", "raw_profile": prof},
      ["raw_port"])
     for prof in ("bare", "gre", "icmp", "ipip", "esp", "l2tpv3", "ah", "ipcomp", "etherip")
+] + [
+    # The rolling source port inherits the SAME rule, and for the same reason: refusing a mode the
+    # tunnel carried in from its previous profile is what made a profile change impossible in #356.
+    ("stored tcp+rolling sport -> %s drops the mode" % prof,
+     {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True, "cipher": "auto"},
+     {"transport": "raw", "cipher": "auto", "raw_profile": prof},
+     ["raw_sport_random"])
+    for prof in ("bare", "gre", "icmp", "esp", "l2tpv3", "ipcomp")
 ] + [
     ("stored bare+proto -> gre drops the proto",
      {"transport": "raw", "raw_profile": "bare", "raw_proto": 252, "cipher": "auto"},
@@ -113,6 +127,11 @@ MUST_ACCEPT = [
     ("dns, plain", dict(DNS)),
     ("sni_split with ws_tls", dict(WSS, sni_split=True, sni_mode="disorder", split_ttl=4)),
     ("fec on udp", {"transport": "udp", "cipher": "auto", "fec": True, "fec_data": 10, "fec_parity": 3}),
+    ("a rolling source port on udp", {"transport": "raw", "cipher": "auto", "raw_profile": "udp",
+                                      "raw_sport_random": True}),
+    ("a rolling source port on tcp, beside a custom server port",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_port": 4500,
+      "raw_sport_random": True}),
     # The boundary itself must still be allowed: 64 is the largest block whose parity lands inside the
     # window, measured on the guard, and refusing it would be its own bug.
     ("fec_data exactly at the replay window", {"transport": "udp", "cipher": "auto", "fec": True,
