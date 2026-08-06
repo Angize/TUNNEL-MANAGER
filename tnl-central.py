@@ -5950,7 +5950,10 @@ def _guard_subnet_overlap(A, B, subnet, exclude_id=None):
         except ValueError:
             continue
         if want.version == other.version and want.overlaps(other):
-            raise ValueError(f"سابنتِ «{subnet}» با تونلِ «{L.get('name')}» ({other}) روی یک نودِ مشترک "
+            # The other tunnel's range is worth naming only when it DIFFERS -- an overlap is usually an
+            # exact repeat, and printing the same prefix twice in one sentence reads as a stutter.
+            its = "" if other == want else f" ({other})"
+            raise ValueError(f"سابنتِ «{subnet}» با تونلِ «{L.get('name')}»{its} روی یک نودِ مشترک "
                              f"هم‌پوشانی دارد؛ بازهٔ دیگری انتخاب کن")
 
 
