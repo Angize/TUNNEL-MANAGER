@@ -18,6 +18,7 @@ prove nothing about the path that forgets to call it, which is the failure this 
 Exit 1 on any disagreement.
 """
 import importlib.util
+import ipaddress
 import json
 import os
 import sys
@@ -99,22 +100,102 @@ def main():
     check(got == 3, "a new link on an untouched pair got id %s -- the two links on other pairs hold 1 and 2, "
                     "and reusing one would put two tunnels on one subnet and one name" % got)
 
-    print("\n== 2) the first free id starts at 1, and the ceiling is 255 ==")
+    print("\n== 2) the id starts at 1 and the ceiling is the ADDRESS SPACE, not an octet ==")
     P = load()
     links = []
     sent = wire(P, links)
     P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
     check(sent[0][1]["id"] == 1, "an empty fleet allocates id 1, got %s" % sent[0][1]["id"])
-    check(P.TID_MIN == 1 and P.TID_MAX == 255, "the id range is 1..255, got %s..%s" % (P.TID_MIN, P.TID_MAX))
+    # Each tunnel owns a /30, so the default base holds 2^(30-prefix) of them. Deriving the bound from
+    # the base rather than writing a number down is what keeps the two from drifting apart.
+    check(P.TID_MIN == 1, "ids start at 1")
+    check(P.subnet_cap(P.SUBNET_BASE_DEFAULT) == 255,
+          "the default range (%s) holds 255 tunnels, got %s"
+          % (P.SUBNET_BASE_DEFAULT, P.subnet_cap(P.SUBNET_BASE_DEFAULT)))
+    check(P.subnet_cap("172.16") == 4095 and P.subnet_cap("10") == 65535,
+          "a wider range holds more: 172.16 -> %s, 10 -> %s" % (P.subnet_cap("172.16"), P.subnet_cap("10")))
+    check(P.TID_MAX == 65535, "the widest base (10/8) addresses 65535 tunnels, got %s" % P.TID_MAX)
 
+    P = load(); links = []; sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre",
+                               "id": P.subnet_cap(P.SUBNET_BASE_DEFAULT) + 1})
+        check(False, "an explicit id past the ceiling was ACCEPTED -- it would wrap onto another tunnel")
+    except ValueError:
+        check(True, "an explicit id past the ceiling is refused")
+
+    # Exhaustion, driven for real: shrink the space instead of building four million links.
+    P = load(); P.subnet_cap = lambda base=None: 3
+    links = [core_link(i) for i in (1, 2, 3)]
+    sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
+        check(False, "a full fleet must refuse rather than allocate id 0")
+    except ValueError:
+        check(True, "a full fleet refuses with a reason instead of allocating out of range")
+
+    # The allocator fills HOLES, so a deleted tunnel's id comes back rather than the space marching up.
+    P = load()
+    links = [core_link(i) for i in (1, 2, 4, 5)]
+    sent = wire(P, links)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
+    check(sent[0][1]["id"] == 3, "the lowest free id is reused (want 3, got %s)" % sent[0][1]["id"])
+
+    # A range that is FULL must refuse, even though a wider range still has room: the id IS the /24
+    # inside the chosen base, so handing out 256 here would be an address 192.168 cannot express.
     P = load()
     links = [core_link(i) for i in range(1, 256)]
     sent = wire(P, links)
     try:
-        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
-        check(False, "a full fleet must refuse rather than allocate id 0 or 256")
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre", "subnet_base": "192.168"})
+        check(False, "192.168 was full (1..255 taken) and still allocated id %s"
+              % (sent[0][1]["id"] if sent else "?"))
     except ValueError:
-        check(True, "a full fleet refuses with a reason instead of allocating out of range")
+        check(True, "a full 192.168 refuses instead of allocating an id it cannot address")
+    # ...and the SAME fleet on a wider range keeps going.
+    P = load(); links2 = [core_link(i) for i in range(1, 256)]; sent = wire(P, links2)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre", "subnet_base": "10"})
+    check(sent[0][1]["id"] == 256, "10.x carries on past 255 (got id %s)" % sent[0][1]["id"])
+
+    print("\n== 2b) each id owns a /24, the ends are always .1/.2, and no two ids overlap ==")
+    P = load()
+    seen = {}
+    for tid in (1, 2, 3, 255, 256, 1000, P.TID_MAX):   # across the widest base
+        net = ipaddress.ip_network(P.subnet_default("core", tid, "10"), strict=False)
+        check(net.prefixlen == 24, "id=%s -> %s is a /24" % (tid, net))
+        check(str(net.network_address + 1).endswith(".1") and str(net.network_address + 2).endswith(".2"),
+              "id=%s -> the server is %s and the client %s -- the last octet must ALWAYS be 1 and 2"
+              % (tid, net.network_address + 1, net.network_address + 2))
+        for h in (1, 2):
+            a = str(net.network_address + h)
+            check(a not in seen, "address %s belongs to id %s alone (id %s wanted it too)"
+                  % (a, seen.get(a, tid), tid))
+            seen[a] = tid
+    try:
+        P.subnet_default("core", 256, "192.168")
+        check(False, "192.168 accepted id 256, which does not fit its 255 /24 blocks")
+    except ValueError:
+        check(True, "a base too small for the id is refused by name")
+
+    print("\n== 2c) the PORT is allocated, not derived from the id ==")
+    # 20000+id put a second ceiling on the id at 45535 and coupled two things that never needed it: a
+    # port only has to be unique on the IP that BINDS it. An id past that point must still get a usable
+    # port rather than one out of range.
+    P = load()
+    links = []
+    sent = wire(P, links)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
+                           "cipher": "auto", "server_side": "a", "id": 60000, "subnet_base": "10"})
+    port = sent[0][1].get("port")
+    check(isinstance(port, int) and 1 <= port <= 65535,
+          "id=60000 got port %s -- 20000+id would be 80000, which is not a port" % port)
+    check(port != 80000, "the port is not 20000+id")
+    stored = [dict(x) for x in links]
+    P = load(); links2 = list(stored); sent = wire(P, links2)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
+                           "cipher": "auto", "server_side": "a", "subnet_base": "10"})
+    p2 = sent[0][1].get("port")
+    check(p2 != port, "a second link on the same pair got a different default port (%s vs %s)" % (p2, port))
 
     print("\n== 3) an id a NODE already carries is not handed out either ==")
     P = load()
