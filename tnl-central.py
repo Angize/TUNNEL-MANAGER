@@ -5309,7 +5309,10 @@ def _ev_core_text(kind, code, detail, nm):
         # are the DIRECT pool's destination/source IP; tun-probe is either pool's node verdict; the
         # default is the ws pool's own background retest. Distinct from the active-carrier up/reconnect.
         if code == "tun-probe":
-            return ("ok", "heal", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
+            # The core tags the axis in `detail`; say which one actually recovered. Calling a
+            # DOMAIN an edge is wrong on a two-axis pool, and the generic card below calls both "لبه".
+            what = "دامنه (SNI)" if str(detail or "").startswith("sni:") else "آی‌پیِ لبه"
+            return ("ok", "heal", f"دلیل: بازگشتِ {what} تونلِ «{nm}»",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
         if code == "peer-retest":
             return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
