@@ -18,6 +18,7 @@ prove nothing about the path that forgets to call it, which is the failure this 
 Exit 1 on any disagreement.
 """
 import importlib.util
+import ipaddress
 import json
 import os
 import sys
@@ -99,22 +100,79 @@ def main():
     check(got == 3, "a new link on an untouched pair got id %s -- the two links on other pairs hold 1 and 2, "
                     "and reusing one would put two tunnels on one subnet and one name" % got)
 
-    print("\n== 2) the first free id starts at 1, and the ceiling is 255 ==")
+    print("\n== 2) the id starts at 1 and the ceiling is the ADDRESS SPACE, not an octet ==")
     P = load()
     links = []
     sent = wire(P, links)
     P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
     check(sent[0][1]["id"] == 1, "an empty fleet allocates id 1, got %s" % sent[0][1]["id"])
-    check(P.TID_MIN == 1 and P.TID_MAX == 255, "the id range is 1..255, got %s..%s" % (P.TID_MIN, P.TID_MAX))
+    # Each tunnel owns a /30, so the default base holds 2^(30-prefix) of them. Deriving the bound from
+    # the base rather than writing a number down is what keeps the two from drifting apart.
+    want = (1 << (30 - P.SUBNET_BASES[P.SUBNET_BASE_DEFAULT][1])) - 1
+    check(P.TID_MIN == 1 and P.TID_MAX == want,
+          "the id range is 1..%d (the /30 blocks in %s), got 1..%s" % (want, P.SUBNET_BASE_DEFAULT, P.TID_MAX))
+    check(P.TID_MAX > 255, "the old one-octet ceiling is gone (TID_MAX=%s)" % P.TID_MAX)
 
-    P = load()
-    links = [core_link(i) for i in range(1, 256)]
+    P = load(); links = []; sent = wire(P, links)
+    try:
+        P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre", "id": P.TID_MAX + 1})
+        check(False, "an explicit id past the ceiling was ACCEPTED -- it would wrap onto another tunnel")
+    except ValueError:
+        check(True, "an explicit id past the ceiling is refused")
+
+    # Exhaustion, driven for real: shrink the space instead of building four million links.
+    P = load(); P.TID_MAX = 3
+    links = [core_link(i) for i in (1, 2, 3)]
     sent = wire(P, links)
     try:
         P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
-        check(False, "a full fleet must refuse rather than allocate id 0 or 256")
+        check(False, "a full fleet must refuse rather than allocate id 0")
     except ValueError:
         check(True, "a full fleet refuses with a reason instead of allocating out of range")
+
+    # The allocator fills HOLES, so a deleted tunnel's id comes back rather than the space marching up.
+    P = load()
+    links = [core_link(i) for i in (1, 2, 4, 5)]
+    sent = wire(P, links)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})
+    check(sent[0][1]["id"] == 3, "the lowest free id is reused (want 3, got %s)" % sent[0][1]["id"])
+
+    print("\n== 2b) each id owns a /30, and two ids never share an address ==")
+    P = load()
+    seen = {}
+    for tid in (1, 2, 3, 255, 256, 1000, P.TID_MAX):
+        net = ipaddress.ip_network(P.subnet_default("core", tid), strict=False)
+        check(net.prefixlen == 30, "id=%s -> %s is a /30" % (tid, net))
+        for h in (1, 2):
+            a = str(net.network_address + h)
+            check(a not in seen, "address %s belongs to id %s alone (id %s wanted it too)"
+                  % (a, seen.get(a, tid), tid))
+            seen[a] = tid
+    try:
+        P.subnet_default("core", 1 << 20, "192.168")
+        check(False, "192.168/16 accepted an id that does not fit in it")
+    except ValueError:
+        check(True, "a base too small for the id is refused by name")
+
+    print("\n== 2c) the PORT is allocated, not derived from the id ==")
+    # 20000+id put a second ceiling on the id at 45535 and coupled two things that never needed it: a
+    # port only has to be unique on the IP that BINDS it. An id past that point must still get a usable
+    # port rather than one out of range.
+    P = load()
+    links = []
+    sent = wire(P, links)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
+                           "cipher": "auto", "server_side": "a", "id": 60000})
+    port = sent[0][1].get("port")
+    check(isinstance(port, int) and 1 <= port <= 65535,
+          "id=60000 got port %s -- 20000+id would be 80000, which is not a port" % port)
+    check(port != 80000, "the port is not 20000+id")
+    stored = [dict(x) for x in links]
+    P = load(); links2 = list(stored); sent = wire(P, links2)
+    P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
+                           "cipher": "auto", "server_side": "a"})
+    p2 = sent[0][1].get("port")
+    check(p2 != port, "a second link on the same pair got a different default port (%s vs %s)" % (p2, port))
 
     print("\n== 3) an id a NODE already carries is not handed out either ==")
     P = load()

@@ -1198,10 +1198,17 @@ def _paginate(d, default_limit=25, max_limit=100):
     return off, lim, str(d.get("q") or "").strip().lower()
 
 
-# A tunnel id is unique across the WHOLE fleet, 1..255, and everything else about the tunnel's identity
-# is read off it: the interface name, the overlay subnet (192.168.<id>.0/24) and the default UDP port
-# (20000+id). 255 is the ceiling because the id is an IP octet.
-TID_MIN, TID_MAX = 1, 255
+# A tunnel id is unique across the WHOLE fleet, and the interface name and the overlay addresses are
+# both read off it. Each tunnel gets a /30 — exactly the two addresses it needs. A /24 each wasted 252
+# of them and put the ceiling at one octet; a /30 out of 10/8 puts it past four million, which is no
+# ceiling in practice. The default UDP port is NO LONGER derived from the id: a port only has to be
+# unique on the IP that binds it, and deriving it added a second, lower ceiling for nothing.
+#
+#   base -> (network, prefix). A /30 needs 4 addresses, so a base of prefix p holds 2^(30-p) tunnels:
+#   10/8 -> 4,194,304   172.16/12 -> 262,144   192.168/16 -> 16,384
+SUBNET_BASES = {"10": ("10.0.0.0", 8), "172.16": ("172.16.0.0", 12), "192.168": ("192.168.0.0", 16)}
+SUBNET_BASE_DEFAULT = "10"
+TID_MIN, TID_MAX = 1, (1 << (30 - SUBNET_BASES[SUBNET_BASE_DEFAULT][1])) - 1
 
 
 def tunnel_name(ttype, tid):
@@ -1224,13 +1231,42 @@ def overlay_host(ttype, server_side, is_a):
 
 
 def subnet_default(ttype, tid, base=None):
+    """The tunnel's own /30, from the id alone. Two usable addresses: the server takes the first and the
+    client the second, which is what overlay_host already means. A base too small for the id is a loud
+    refusal rather than a wrapped-around address that would quietly collide with another tunnel."""
     if ttype == "sit":
-        return f"fd00:{tid}::/64"
-    if base == "10":
-        return f"10.{tid}.0.0/24"
-    if base == "172.16":
-        return f"172.16.{tid}.0/24"
-    return f"192.168.{tid}.0/24"
+        return "fd00:%x:%x::/64" % (tid >> 16, tid & 0xFFFF)
+    net, prefix = SUBNET_BASES.get(str(base or SUBNET_BASE_DEFAULT), SUBNET_BASES[SUBNET_BASE_DEFAULT])
+    cap = 1 << (30 - prefix)
+    if not 1 <= tid < cap:
+        raise ValueError(f"شناسهٔ {tid} در بازهٔ «{net}/{prefix}» جا نمی‌شود "
+                         f"(این بازه {cap - 1} تونل می‌گیرد)؛ بازهٔ بزرگ‌تری انتخاب کن")
+    return "%s/30" % (ipaddress.IPv4Address(int(ipaddress.IPv4Address(net)) + tid * 4))
+
+
+def free_tunnel_port(A, B, exclude_id=None, start=20000):
+    """The lowest port at or above `start` that no link touching either node already claims.
+
+    The default used to be 20000+id, which coupled two things that never needed coupling and put a
+    second ceiling on the id at 45535. A port has to be unique on the IP that BINDS it, not fleet-wide,
+    so this only has to pick a sane default — the precise per-binding conflict guard still runs after.
+    Scoping to links that touch either node keeps the number small and readable on a small fleet."""
+    nodes = {A["id"], B["id"]}
+    used = set()
+    for L in load_links():
+        if exclude_id is not None and L.get("id") == exclude_id:
+            continue
+        if nodes & {L.get("a_node"), L.get("b_node")}:
+            try:
+                used.add(int(L.get("port") or 0))
+            except (TypeError, ValueError):
+                pass
+    port = start
+    while port in used:
+        port += 1
+    if port > 65535:
+        raise ValueError("پورتِ آزادی بین این دو نود نمانده است")
+    return port
 
 
 def norm_subnet(ttype, tid, provided, base=None):
@@ -4048,7 +4084,7 @@ def _create_tunnel_impl(d):
     name = tunnel_name(ttype, tid)
     extra = {}   # values generated ONCE here so both ends match and edit/rebuild can replay them
     if ttype in ("l2tpv3", "fou", "core"):
-        port = int(d.get("port") or 0) or (20000 + tid)
+        port = int(d.get("port") or 0) or free_tunnel_port(A, B)
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
@@ -4498,7 +4534,7 @@ def _edit_link_impl(d):
     type_changed = ttype != L["type"]   # kernel types share one name, so a type change is no longer a rename
     extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
     if ttype in ("l2tpv3", "fou", "core"):
-        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0) or (20000 + tid)
+        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0) or free_tunnel_port(A, B, exclude_id=L["id"])
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
@@ -7422,7 +7458,7 @@ var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DE
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){return [{v:'192.168',label:T('snr_192')},{v:'10',label:T('snr_10')},{v:'172.16',label:T('snr_172')},{v:'custom',label:T('snr_custom')}]}
-var SUBNETRANGES2=[{v:'192.168',label:'192.168.x'},{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'}];
+var SUBNETRANGES2=[{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'},{v:'192.168',label:'192.168.x'}];
 document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){if(p.dataset.t=='logout'){logout();return}cur=p.dataset.t;drawer(false);render()}});
 function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.classList.toggle('on',p.dataset.t==cur)})}
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
@@ -7497,7 +7533,14 @@ function goPage(kind,delta){var pages=Math.max(1,Math.ceil((TOT[kind]||0)/LIM));
 function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);PG[kind]=0;refresh()},280)}
 function msFilter(inp){var q=inp.value.trim().toLowerCase(),list=inp.parentNode;
  list.querySelectorAll('.msrow').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().indexOf(q)>=0)?'':'none'})}
-function subnetForBase(type,tid,base){if(type=='sit')return 'fd00:'+tid+'::/64';if(base=='10')return '10.'+tid+'.0.0/24';if(base=='172.16')return '172.16.'+tid+'.0/24';return '192.168.'+tid+'.0/24'}
+// The SAME arithmetic subnet_default() runs server-side: a /30 per tunnel out of the chosen base. A
+// second, drifting copy here would show the operator an address the tunnel never gets.
+var SUBNET_BASE_NETS={'10':[167772160,8],'172.16':[2886729728,12],'192.168':[3232235520,16]};
+function subnetForBase(type,tid,base){tid=num(tid)||0;
+ if(type=='sit')return 'fd00:'+(tid>>16).toString(16)+':'+(tid&0xFFFF).toString(16)+'::/64';
+ var b=SUBNET_BASE_NETS[base]||SUBNET_BASE_NETS['10'],n=b[0]+tid*4;
+ if(tid<1||tid>=(1<<(30-b[1])))return '';
+ return ((n>>>24)&255)+'.'+((n>>>16)&255)+'.'+((n>>>8)&255)+'.'+(n&255)+'/30'}
 function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){return x.id==EDID})[0];if(!L)return;
  var f=el('e_sub_'+EDID);if(f)f.value=subnetForBase(ssVal('lt_'+EDID),L.tunnel_id,ssVal('lsr_'+EDID));renderEditPort(EDID)}
 var LEDTYPE='',LEDPORT='';
