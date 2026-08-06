@@ -4130,7 +4130,7 @@ def _create_tunnel_impl(d):
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
         if _clash:
-            raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن (حامل‌های دیگر/پورت‌های دیگر روی همین آی‌پی مجازند)")
+            raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن — روی یک آی‌پی، حاملِ متفاوت یا پورتِ متفاوت مجاز است.")
     # A flux udp/stun tunnel DROPs inbound UDP from its peer on every rotation port, so it would
     # silently black-hole an unrelated tunnel that receives UDP from that same peer on one of them.
     # Checked for BOTH tunnel types (core and the kernel UDP carriers), in both directions.
@@ -4595,7 +4595,7 @@ def _edit_link_impl(d):
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
         if _clash:
-            raise ValueError(f"تونلِ core «{_clash.get('name')}» از قبل روی همین آی‌پی و پورتِ سرور هست؛ پورت یا حاملِ متفاوت انتخاب کن")
+            raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن.")
     # Same flux anti-leak check as create — an edit can introduce the collision either way round: by
     # switching this tunnel TO flux/udp, or by moving another one ONTO a rotation port.
     _fx = _flux_drop_conflict({**extra, "type": ttype, "a_node": A["id"], "b_node": B["id"],
@@ -6447,6 +6447,10 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .chh{font-weight:700;margin-bottom:3px}.chl{padding:1.5px 0;line-height:1.6}
 .link{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.arrow{color:var(--acc);font-weight:800;font-size:16px}
 .msbtn{width:100%;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13.5px;cursor:pointer;text-align:start;display:flex;align-items:center;justify-content:space-between;font-family:inherit}
+/* The count is its own LTR island so the bidi algorithm cannot pull it into the label -- and the auto
+   margin is PHYSICAL on purpose: margin-inline-start resolves against the ELEMENT's direction, which
+   is ltr here, so it landed on the left and pushed the count right instead of left. */
+.mssub{margin-right:auto;color:var(--sub);font-size:12px;direction:ltr;unicode-bidi:isolate}
 .msbtn.ph{color:var(--sub)}.msbtn .cv{color:var(--sub);transition:.2s;font-size:12px}.msbtn.open .cv{transform:rotate(180deg);color:var(--acc)}
 .mslist{margin-top:7px;border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--card)}
 .msrow{display:flex;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;border-bottom:1px solid var(--bord)}
@@ -6461,6 +6465,11 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tglsw.on::after{inset-inline-start:21px;background:var(--acc)}
 .modalov{position:fixed;inset:0;z-index:58;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);animation:fade .18s ease both}
 .modal{width:344px;max-width:100%;border-radius:20px;padding:20px;background:linear-gradient(180deg,color-mix(in srgb,#fff 5%,color-mix(in srgb,var(--card) 92%,transparent)),color-mix(in srgb,var(--card) 88%,transparent));border:1px solid color-mix(in srgb,var(--tx) 12%,transparent);box-shadow:0 24px 60px -20px rgba(0,0,0,.7),inset 0 1px 0 var(--hi)}
+.errsheet .modal{border:1px solid color-mix(in srgb,var(--bad) 45%,transparent)}
+.errhead{display:flex;align-items:center;gap:9px;color:var(--bad);font-size:14.5px;margin-bottom:11px}
+.errx{margin-inline-start:auto;background:none;border:0;color:var(--sub);font-size:22px;line-height:1;cursor:pointer;padding:0 4px}
+.errx:hover{color:var(--tx)}
+.errtxt{color:var(--tx)}
 .mtext{font-size:14px;line-height:1.85;white-space:pre-line}.mbtns{display:flex;gap:9px;margin-top:17px}
 .mbtns .primary,.mbtns .ghost{margin:0}
 .mbtns .primary{background:linear-gradient(180deg,color-mix(in srgb,var(--bad) 92%,#fff),var(--bad));color:#fff;box-shadow:0 10px 22px -12px color-mix(in srgb,var(--bad) 55%,transparent)}
@@ -7365,7 +7374,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
- raw_sport_lbl:"پورتِ مبدأ",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه یک عدد",raw_sport_rand_n:"رندوم",raw_sport_rand_m:"حینِ تونل عوض می‌شود",raw_sport_hint:"پورتِ مبدأیی که در هدرِ جعلی نوشته می‌شود. «ثابت» همیشه یک عدد است، پس جعبه‌های حالت‌دارِ میانِ راه همیشه با یک چهارتاییِ ثابت (آی‌پی و پورتِ مبدأ و مقصد) طرف‌اند و اگر آن را بسوزانند حامل می‌میرد. «رندوم» پورت را حینِ کارِ تونل مدام از بازهٔ عادیِ لینوکس (32768 تا 60999) عوض می‌کند؛ سرور پورتِ تازه را از فریمِ رمزگشایی‌شده برمی‌دارد، پس نه دست‌دادنِ دوباره لازم است نه بسته‌ای گم می‌شود.", raw_port_lbl:"پورتِ حاملِ جعلی",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"این عدد فقط داخلِ هدرِ جعلی نوشته می‌شود؛ هیچ پورتی باز نمی‌شود و سوکتِ حامل روی شمارهٔ پروتکل باز است نه پورت. پیش‌فرض 443 است که همان پورتِ QUIC است و بعضی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+ err_title:"انجام نشد",got_it:"باشه", raw_sport_lbl:"پورتِ مبدأ",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه یک عدد",raw_sport_rand_n:"رندوم",raw_sport_rand_m:"حینِ تونل عوض می‌شود",raw_sport_hint:"پورتِ مبدأیی که در هدرِ جعلی نوشته می‌شود. «ثابت» همیشه یک عدد است، پس جعبه‌های حالت‌دارِ میانِ راه همیشه با یک چهارتاییِ ثابت (آی‌پی و پورتِ مبدأ و مقصد) طرف‌اند و اگر آن را بسوزانند حامل می‌میرد. «رندوم» پورت را حینِ کارِ تونل مدام از بازهٔ عادیِ لینوکس (32768 تا 60999) عوض می‌کند؛ سرور پورتِ تازه را از فریمِ رمزگشایی‌شده برمی‌دارد، پس نه دست‌دادنِ دوباره لازم است نه بسته‌ای گم می‌شود.", raw_port_lbl:"پورتِ حاملِ جعلی",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"این عدد فقط داخلِ هدرِ جعلی نوشته می‌شود؛ هیچ پورتی باز نمی‌شود و سوکتِ حامل روی شمارهٔ پروتکل باز است نه پورت. پیش‌فرض 443 است که همان پورتِ QUIC است و بعضی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -7519,8 +7528,8 @@ var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the 
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
-function SUBNETRANGES(){function lab(b,k){return T(k)+' ('+subnetFree(b)+')'}
- return [{v:'192.168',label:lab('192.168','snr_192')},{v:'10',label:lab('10','snr_10')},{v:'172.16',label:lab('172.16','snr_172')},{v:'custom',label:T('snr_custom')}]}
+function SUBNETRANGES(){function it(b,k){return {v:b,label:T(k),sub:'('+subnetFree(b)+')'}}
+ return [it('192.168','snr_192'),it('10','snr_10'),it('172.16','snr_172'),{v:'custom',label:T('snr_custom')}]}
 var SUBNETRANGES2=[{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'},{v:'192.168',label:'192.168.x'}];
 document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){if(p.dataset.t=='logout'){logout();return}cur=p.dataset.t;drawer(false);render()}});
 function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.classList.toggle('on',p.dataset.t==cur)})}
@@ -7548,16 +7557,16 @@ function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setUnread(0)}  // clear ONL
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
- return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
+ return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="mssub" id="ssu_'+key+'">'+((cur&&cur.sub)?esc(cur.sub):'')+'</span><span class="cv">'+ic('chev')+'</span></button>'}
 function _ssph(ph){return ph||T('select')}
-function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="muted mono" style="font-size:11px;margin-inline-start:auto">'+esc(it.sub)+'</span>':'')+'</div>'}
+function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="mssub">'+esc(it.sub)+'</span>':'')+'</div>'}
 var SS_OV={};
 function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  // open the list as a centered popup (scrolls; search for long lists)
  var search=items.length>10?'<input class="search sspopq" placeholder="'+esc(T('search'))+'" oninput="msFilter(this)" autocomplete="off">':'';
  SS_OV[key]=openModal('<div class="sspop">'+search+'<div class="sspoplist">'+items.map(function(it){return ssRow(key,it)}).join('')+'</div></div>',{cls:'sssheet'})}
 function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
  var items=SSI[key]||[],cur=items.filter(function(x){return String(x.v)==String(val)})[0];
- setT('sst_'+key,cur?cur.label:val);var b=el('ssb_'+key);if(b)b.classList.remove('ph');
+ setT('sst_'+key,cur?cur.label:val);setT('ssu_'+key,(cur&&cur.sub)?cur.sub:'');var b=el('ssb_'+key);if(b)b.classList.remove('ph');
  if(SS_OV[key]){closeModal(SS_OV[key]);SS_OV[key]=null}
  if(SSCB[key]&&window[SSCB[key]])window[SSCB[key]]()}
 function ssVal(key){return SEL[key]||''}
@@ -7584,7 +7593,16 @@ function confirmBox(msg,yes){return new Promise(function(resolve){
 // operator has to scroll to -- so an error could be reported and never seen, and the form just looked
 // like it had done nothing. It still goes there (the strip is what stays put while they fix the field)
 // AND it pops, so nothing can be refused silently.
-function formErr(m,txt){if(m){m.className='msg err';m.textContent=txt}toast(txt,'err');return true}
+function formErr(m,txt){if(m){m.className='msg';m.textContent=''}   // the strip below is no longer used
+ // A refusal is the one message that must not be missed, so it takes the middle of the screen and STAYS
+ // until the operator dismisses it. The strip at the bottom of the sheet was below the fold on a phone,
+ // and a toast that fades on its own is the same problem with extra steps.
+ openModal('<div class="errhead">'+ic('xc')+'<b>'+esc(T('err_title'))+'</b><button type="button" class="errx" onclick="errClose(this)">&times;</button></div>'
+  +'<div class="mtext errtxt">'+esc(txt)+'</div>'
+  +'<div class="mbtns"><button class="ghost" onclick="errClose(this)">'+esc(T('got_it'))+'</button></div>',
+  {cls:'errsheet'});
+ return true}
+function errClose(b){var ov=b.closest('.modalov');if(ov)closeModal(ov)}
 function toast(msg,kind){var t=document.createElement('div');t.className='toast '+(kind||'');
  t.innerHTML=(kind=='ok'?ic('okc'):kind=='err'?ic('xc'):'')+'<span>'+esc(msg)+'</span>';
  document.body.appendChild(t);setTimeout(function(){t.classList.add('show')},10);

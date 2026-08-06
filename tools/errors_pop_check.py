@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Guard: a form error is never written where only a scroll would reveal it.
+"""Guard: a form error takes the middle of the screen and stays until it is dismissed.
 
-Every refusal used to be written into the `.msg` strip at the BOTTOM of the sheet. On a phone that is
-below the fold, so the operator taps save, nothing appears to happen, and the reason is sitting off
-screen. formErr writes the strip AND pops a toast, so the two can never drift apart.
+It used to be written into the `.msg` strip at the BOTTOM of the sheet. On a phone that is below the
+fold: you tap save, nothing appears to happen, and the reason is off screen. A toast fixed the visibility
+but not the staying -- it fades on its own, so a message read half-way is gone.
 
-Two halves, and both are needed:
-  * STATIC -- no error site writes the strip by hand any more, or that one would be silent again;
-  * DRIVEN -- formErr really does both things, checked by running it.
+So formErr opens a CENTERED box with a close button and leaves it there. The strip is not written at all
+any more; it is CLEARED, or a stale error from a previous attempt would sit under the new one.
 
-Exit 1 if either half slips.
+Exit 1 if either the static or the driven half slips.
 """
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
@@ -21,8 +19,7 @@ import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-HERE = Path(__file__).resolve().parent
-PANEL = HERE.parent / "tnl-central.py"
+PANEL = Path(__file__).resolve().parent.parent / "tnl-central.py"
 
 fails = []
 
@@ -37,54 +34,59 @@ def main():
     spec = importlib.util.spec_from_file_location("tnl_central_errpop", PANEL)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    page = mod.INDEX_HTML
-    js = max(re.findall(r"<script[^>]*>(.*?)</script>", page, re.S), key=len)
+    js = max(re.findall(r"<script[^>]*>(.*?)</script>", mod.INDEX_HTML, re.S), key=len)
 
-    print("== 1) nobody writes the strip by hand any more ==")
-    inline = re.findall(r"className='msg err'", js)
-    check(len(inline) == 1,
-          "exactly one `className='msg err'` remains and it is inside formErr (found %d)" % len(inline))
-    body = re.search(r"function formErr\(.*?\n", js)
-    check(bool(body) and "className='msg err'" in body.group(0),
-          "the one that remains IS formErr's own")
-    calls = len(re.findall(r"\bformErr\(", js)) - 1     # minus the definition
-    check(calls >= 40, "the error sites all go through it (%d call sites)" % calls)
-
-    print("\n== 2) formErr really does BOTH things ==")
-    harness = r"""
-globalThis.__toasts = [];
-globalThis.__el = {className:'', textContent:''};
-function toast(msg,kind){ globalThis.__toasts.push([msg,kind]) }
-__FORMERR__
-formErr(globalThis.__el, 'boom');
-formErr(null, 'no element, still must pop');
-console.log(JSON.stringify({el: globalThis.__el, toasts: globalThis.__toasts}));
-"""
-    fn = re.search(r"function formErr\(m,txt\)\{.*?\n", js)
+    print("== 1) nobody writes the error strip any more ==")
+    check(len(re.findall(r"className='msg err'", js)) == 0,
+          "no `className='msg err'` anywhere -- the bottom strip is not an error channel now")
+    calls = len(re.findall(r"\bformErr\(", js)) - 1
+    check(calls >= 40, "the error sites all go through formErr (%d call sites)" % calls)
+    fn = re.search(r"function formErr\(m,txt\)\{.*?\n(?=function )", js, re.S)
+    check(bool(fn), "formErr is in the page in the shape this guard knows")
     if not fn:
-        check(False, "formErr is not in the page in the shape this guard knows -- THIS GUARD is stale")
         print()
         print("%d failure(s)" % len(fails))
         return 1
+    check("openModal(" in fn.group(0), "it opens a modal rather than a self-dismissing toast")
+    check("toast(" not in fn.group(0), "and it does NOT fall back to a toast that fades on its own")
+
+    print("\n== 2) driven: it clears the strip and opens the box ==")
+    harness = (
+        "globalThis.__modals = [];\n"
+        "globalThis.__el = {className:'msg err', textContent:'a previous error'};\n"
+        "function openModal(html,opts){ globalThis.__modals.push({html:html}); return {} }\n"
+        "function esc(x){ return String(x) }\n"
+        "function ic(x){ return '' }\n"
+        "function T(k){ return k }\n"
+        + fn.group(0) +
+        "formErr(globalThis.__el, 'boom');\n"
+        "formErr(null, 'no strip, still must open');\n"
+        "console.log(JSON.stringify({el: globalThis.__el, modals: globalThis.__modals}));\n")
     with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "e.js"
-        p.write_text(harness.replace("__FORMERR__", fn.group(0)), encoding="utf-8")
-        r = subprocess.run(["node", str(p)], capture_output=True, text=True, encoding="utf-8")
+        f = Path(d) / "e.js"
+        f.write_text(harness, encoding="utf-8")
+        r = subprocess.run(["node", str(f)], capture_output=True, text=True, encoding="utf-8")
     if r.returncode:
         check(False, "formErr would not run: %s" % (r.stderr or "")[:200])
-    else:
-        got = json.loads(r.stdout.strip().splitlines()[-1])
-        check(got["el"]["textContent"] == "boom" and "err" in got["el"]["className"],
-              "it still writes the strip (class=%r text=%r)"
-              % (got["el"]["className"], got["el"]["textContent"]))
-        check(len(got["toasts"]) == 2 and got["toasts"][0] == ["boom", "err"],
-              "and it pops, every time, even with no strip to write to (%s)" % got["toasts"])
+        print()
+        print("%d failure(s)" % len(fails))
+        return 1
+    got = json.loads(r.stdout.strip().splitlines()[-1])
+    check(got["el"]["textContent"] == "" and "err" not in got["el"]["className"],
+          "the stale strip is CLEARED, not left under the box (class=%r text=%r)"
+          % (got["el"]["className"], got["el"]["textContent"]))
+    check(len(got["modals"]) == 2, "it opens one box per call, even with no strip (%d)" % len(got["modals"]))
+    first = got["modals"][0]["html"] if got["modals"] else ""
+    check("boom" in first, "the box carries the message")
+    check("errx" in first and first.count("errClose") >= 2,
+          "BOTH the corner X and the footer button can dismiss it -- it must not vanish on its own "
+          "(errClose handlers found: %d)" % first.count("errClose"))
 
     print()
     if fails:
         print("%d failure(s)" % len(fails))
         return 1
-    print("every form error reaches the operator without a scroll")
+    print("errors land in the middle of the screen and stay until dismissed")
     return 0
 
 
