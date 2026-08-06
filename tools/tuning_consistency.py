@@ -246,6 +246,24 @@ def main():
     check(re.search(r'"tun_name":\s*name\s*,', node_src) is not None,
           "the core config's tun_name IS the tunnel name, which is what makes the sweep find the tag")
 
+    print("== 2e) the edge pool's ACTIVE separator: core joins with it, node splits on it ==")
+    # The core publishes the live combination as "<edge><sep><sni>" and the node splits that string back
+    # apart to key its tun-probe verdict. A mismatch is SILENT and total: str.partition finds nothing, the
+    # node reports the whole label as the edge and an empty SNI, and every verdict then names a
+    # combination the core cannot match -- so it burns nothing and the pool never fails over again.
+    # The character is a MIDDLE DOT, which is exactly the kind of thing a copy-paste turns into a hyphen.
+    ws_pool_go = (Path(a.core) / "internal" / "packet" / "ws_pool.go").read_text(encoding="utf-8")
+    core_sep = re.search(r'const activeSep = "([^"]*)"', ws_pool_go)
+    node_sep = re.search(r'WS_ACTIVE_SEP\s*=\s*"([^"]*)"', node_src)
+    if not core_sep or not node_sep:
+        check(False, "CANNOT PARSE the active separator (core=%s node=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_sep), bool(node_sep)))
+    else:
+        check(core_sep.group(1) == node_sep.group(1),
+              "active separator: core=%r node=%r (codepoints %s vs %s)"
+              % (core_sep.group(1), node_sep.group(1),
+                 [hex(ord(c)) for c in core_sep.group(1)], [hex(ord(c)) for c in node_sep.group(1)]))
+
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
     check(n_keys == expected,
