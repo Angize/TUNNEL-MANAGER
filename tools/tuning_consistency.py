@@ -187,6 +187,7 @@ def main():
     # The panel needs the NUMBER each profile owns, to refuse a bare/spoof raw_proto that borrows one.
     # Another copy of a core constant, so guard it like the flux port pools above.
     rawprofile_go = (Path(a.core) / "internal" / "packet" / "rawprofile.go").read_text(encoding="utf-8")
+    rule_go = (Path(a.core) / "internal" / "packet" / "ruleowner_linux.go").read_text(encoding="utf-8")
     # The const names are mixed-case (protoEtherIP, protoL2TPv3), so [A-Z0-9] silently captured only some
     # of them and the comparison ran against half a table. Match the whole identifier.
     consts = dict(re.findall(r"\bproto([A-Za-z0-9]+)\s*=\s*(\d+)", rawprofile_go))
@@ -228,6 +229,24 @@ def main():
         if panel_map is not None:
             check(set(core_hdr) == set(panel_map),
                   f"the two core tables cover the same profiles: sizes={sorted(core_hdr)} protos={sorted(panel_map)}")
+
+    print("== 2d) the firewall-rule OWNER tag: core writes it, node sweeps by it ==")
+    # Two copies of one string in two repositories, and nothing at runtime notices a mismatch: the core
+    # would keep tagging, the node would keep sweeping, and they would simply never match again. Rules
+    # would then accumulate exactly as they did before the tag existed -- silently, which is the whole
+    # failure mode this was built to end.
+    core_pref = re.search(r'ruleOwnerPrefix\s*=\s*"([^"]*)"', rule_go)
+    node_pref = re.search(r'RULE_OWNER_PREFIX\s*=\s*"([^"]*)"', node_src)
+    if not core_pref or not node_pref:
+        check(False, "CANNOT PARSE the owner prefix (core=%s node=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_pref), bool(node_pref)))
+    else:
+        check(core_pref.group(1) == node_pref.group(1),
+              f"owner prefix: core={core_pref.group(1)!r} node={node_pref.group(1)!r}")
+    # The tag is the TUN device name; the sweep is called with the TUNNEL name. They are the same string
+    # only because _core_config sets tun_name from it -- an implicit contract worth being explicit about.
+    check(re.search(r'"tun_name":\s*name\s*,', node_src) is not None,
+          "the core config's tun_name IS the tunnel name, which is what makes the sweep find the tag")
 
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
