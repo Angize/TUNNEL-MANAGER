@@ -246,6 +246,21 @@ def main():
     check(re.search(r'"tun_name":\s*name\s*,', node_src) is not None,
           "the core config's tun_name IS the tunnel name, which is what makes the sweep find the tag")
 
+    print("== 2f) the raw carrier's FIXED client source port: the core owns it, the panel names it ==")
+    # The tile under «ثابت» tells the operator the exact number the client will stamp. That number is a
+    # core CONSTANT the panel cannot read, so the two can only agree by being checked -- and a tile that
+    # quietly names the wrong port is worse than one that names none, because it is the only place the
+    # operator learns what the choice does.
+    rawprofile_go = (Path(a.core) / "internal" / "packet" / "rawprofile.go").read_text(encoding="utf-8")
+    core_cli = re.search(r"rawClientPort\s*=\s*(\d+)", rawprofile_go)
+    tile = re.search(r'raw_sport_fixed_m:"([^"]*)"', panel_src)
+    if not core_cli or not tile:
+        check(False, "CANNOT PARSE the fixed client port (core=%s panel=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_cli), bool(tile)))
+    else:
+        check(core_cli.group(1) in tile.group(1),
+              "fixed client source port: core=%s panel tile=%r" % (core_cli.group(1), tile.group(1)))
+
     print("== 2e) the edge pool's ACTIVE separator: core joins with it, node splits on it ==")
     # The core publishes the live combination as "<edge><sep><sni>" and the node splits that string back
     # apart to key its tun-probe verdict. A mismatch is SILENT and total: str.partition finds nothing, the
