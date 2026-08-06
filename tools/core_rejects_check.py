@@ -139,6 +139,30 @@ MUST_ACCEPT = [
 ]
 
 
+# EDITS whose point is that a stored value is CLEARED. MUST_ACCEPT_EDIT above covers a key dropped
+# because the profile changed; this covers the operator explicitly turning something OFF while staying
+# on the same profile. Without an explicit false the request simply omits the key, `cur` supplies the
+# stored true, and the feature can never be switched off again -- which is exactly what the first cut of
+# the rolling source port did.
+#   (name, stored link, edit request, keys that must be GONE from the result)
+MUST_CLEAR_EDIT = [
+    ("rolling sport OFF clears the stored ON",
+     {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True, "cipher": "auto"},
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_random": False},
+     ["raw_sport_random"]),
+]
+
+# ...and the mirror: a PARTIAL edit that does not mention the key at all must LEAVE it alone, or every
+# unrelated save (a "rotate now", a port change) would silently switch the mode off.
+#   (name, stored link, edit request, keys that must SURVIVE with their stored value)
+MUST_KEEP_EDIT = [
+    ("a partial edit keeps the stored rolling sport",
+     {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True, "cipher": "auto"},
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_port": 4500},
+     {"raw_sport_random": True}),
+]
+
+
 def load_panel():
     spec = importlib.util.spec_from_file_location("tnl_central", PANEL)
     mod = importlib.util.module_from_spec(spec)
@@ -182,6 +206,31 @@ def main():
             failures.append("[%s] kept %s from the previous profile" % (name, left))
         else:
             print("  ok  edit     %s" % name)
+
+    for name, cur, req, gone in MUST_CLEAR_EDIT:
+        try:
+            ce, _ = P._core_extra(dict(req), dict(cur), A_IP, B_IP, A_IPS, B_IPS)
+        except Exception as e:
+            failures.append("[%s] REFUSED a legal edit: %s" % (name, e))
+            continue
+        left = [k for k in gone if k in ce]
+        if left:
+            failures.append("[%s] kept %s — the operator cannot turn it off; the stored value is "
+                            "resurrected on every save" % (name, left))
+        else:
+            print("  ok  clear    %s" % name)
+
+    for name, cur, req, keep in MUST_KEEP_EDIT:
+        try:
+            ce, _ = P._core_extra(dict(req), dict(cur), A_IP, B_IP, A_IPS, B_IPS)
+        except Exception as e:
+            failures.append("[%s] REFUSED a legal edit: %s" % (name, e))
+            continue
+        bad = {k: (ce.get(k), v) for k, v in keep.items() if ce.get(k) != v}
+        if bad:
+            failures.append("[%s] lost %s — an unrelated save must not switch it off" % (name, bad))
+        else:
+            print("  ok  keep     %s" % name)
 
     if failures:
         print("\nFAILURES (%d):" % len(failures))

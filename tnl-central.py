@@ -8992,7 +8992,7 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){m.className='msg err';m.textContent=T('raw_need_enc');return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){m.className='msg err';m.textContent=_pe;return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){m.className='msg err';m.textContent=_po;return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
-   if(S.SportRandom)body.raw_sport_random=true}}
+   body.raw_sport_random=!!S.SportRandom}}
  /* The spoof carrier is bare-like: no profile, just the outer protocol number plus the forged field(s).
     Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
     go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an

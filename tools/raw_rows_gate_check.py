@@ -131,7 +131,11 @@ for (const [form, st, setter, px] of [['create', _corS, corSetSport, 'e_'],
     document.getElementById(px+'rawport').value = '443';
     const b = {};
     _collectCoreBody(st, px, document.getElementById(px+'msg'), b);
-    sport[form].body[on ? 'random' : 'fixed'] = !!b.raw_sport_random;
+    // The KEY's presence matters as much as its value: an absent key falls back to what the tunnel was
+    // saved with, so a form that simply omits it when the operator picks «ثابت» cannot turn the mode
+    // OFF at all -- the stored true is resurrected on every save.
+    sport[form].body[on ? 'random' : 'fixed'] =
+      ('raw_sport_random' in b) ? (b.raw_sport_random ? 'true' : 'false') : 'ABSENT';
   }
   setter(0);
 }
@@ -143,7 +147,7 @@ for (const [form, st, setter, px] of [['create', _corS, corSetSport, 'e_'],
   document.getElementById('e_rawport').value = '443';
   const b = {};
   _collectCoreBody(st, 'e_', document.getElementById('e_msg'), b);
-  sport.unsetCollectsFixed = !('raw_sport_random' in b);
+  sport.unsetCollectsFixed = (b.raw_sport_random === false);
 }
 const PROFILES = %s;
 const out = {};
@@ -234,7 +238,7 @@ def main():
                   f"{form:6} sport {mode:6}: state={g['state']} fixed-lit={g['fixOn']} random-lit={g['rndOn']}")
             if not ok:
                 fails.append(f"{form}/sport/{mode}")
-        for mode, want in (("fixed", False), ("random", True)):
+        for mode, want in (("fixed", "false"), ("random", "true")):
             sent = sport[form]["body"][mode]
             ok = sent == want
             print(("  ok   " if ok else " FAIL ") +
