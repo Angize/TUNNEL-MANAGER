@@ -107,6 +107,48 @@ for (const [id, profile, gate] of [['ee_rawproto','bare',ceProtoVis], ['ee_rawpo
   _eeS.Tr = 'raw'; _eeS.RawProfile = profile; gate();
   dflt[id] = document.getElementById(id).value;
 }
+// The source-port MODE segment lives inside the port row, so it is gated by the same profile rule --
+// but it has its own per-form setter and its own per-form state field, which is exactly where the
+// "create wired, edit not" defects have always come from. Driven here for both.
+const sport = {};
+for (const [form, st, setter, px] of [['create', _corS, corSetSport, 'e_'],
+                                      ['edit',   _eeS,  ceSetSport,  'ee_']]) {
+  sport[form] = {};
+  for (const on of [1, 0, 1]) {                       // ...and back, so a stuck segment is caught
+    setter(on);
+    sport[form][on ? 'random' : 'fixed'] = {
+      state: !!st.SportRandom,
+      fixOn: document.getElementById(px+'sp_fix').classList.contains('on'),
+      rndOn: document.getElementById(px+'sp_rnd').classList.contains('on'),
+    };
+  }
+  // What the SHARED body builder actually sends for each mode -- the only thing the node ever sees.
+  sport[form].body = {};
+  for (const on of [0, 1]) {
+    setter(on);
+    st.Tr = 'raw'; st.RawProfile = 'tcp';
+    document.getElementById(px+'cipher').value = 'auto';
+    document.getElementById(px+'rawport').value = '443';
+    const b = {};
+    _collectCoreBody(st, px, document.getElementById(px+'msg'), b);
+    // The KEY's presence matters as much as its value: an absent key falls back to what the tunnel was
+    // saved with, so a form that simply omits it when the operator picks «ثابت» cannot turn the mode
+    // OFF at all -- the stored true is resurrected on every save.
+    sport[form].body[on ? 'random' : 'fixed'] =
+      ('raw_sport_random' in b) ? (b.raw_sport_random ? 'true' : 'false') : 'ABSENT';
+  }
+  setter(0);
+}
+// An UNSET state must collect as fixed. This is what "the default is fixed" has to mean at the only
+// place it matters -- the body -- rather than only at the segment the operator sees.
+{
+  const st = {Tr:'raw', RawProfile:'tcp', Srv:'a'};      // no SportRandom field at all
+  document.getElementById('e_cipher').value = 'auto';
+  document.getElementById('e_rawport').value = '443';
+  const b = {};
+  _collectCoreBody(st, 'e_', document.getElementById('e_msg'), b);
+  sport.unsetCollectsFixed = (b.raw_sport_random === false);
+}
 const PROFILES = %s;
 const out = {};
 for (const [form, st, setter, px] of [['create', _corS, corSetProfile, 'e_'],
@@ -119,7 +161,7 @@ for (const [form, st, setter, px] of [['create', _corS, corSetProfile, 'e_'],
     out[form][p] = {proto: row('protorow'), port: row('portrow')};
   }
 }
-console.log(JSON.stringify({rows: out, ipOrder, prefill, dflt}));
+console.log(JSON.stringify({rows: out, ipOrder, prefill, dflt, sport}));
 """
 
 
@@ -184,6 +226,46 @@ def main():
                   f"{'' if ok else '  <-- destination must be first (order 0 = right in RTL)'}")
             if not ok:
                 fails.append(f"{form}/srv={srv}/order")
+
+    # The source-port mode: state, painted segment, and what the shared body builder emits. All three,
+    # in BOTH forms -- a mode that paints but never reaches the body is the failure that ships.
+    sport = payload["sport"]
+    for form in ("create", "edit"):
+        for mode, want_state in (("fixed", False), ("random", True)):
+            g = sport[form][mode]
+            ok = g["state"] == want_state and g["rndOn"] == want_state and g["fixOn"] != want_state
+            print(("  ok   " if ok else " FAIL ") +
+                  f"{form:6} sport {mode:6}: state={g['state']} fixed-lit={g['fixOn']} random-lit={g['rndOn']}")
+            if not ok:
+                fails.append(f"{form}/sport/{mode}")
+        for mode, want in (("fixed", "false"), ("random", "true")):
+            sent = sport[form]["body"][mode]
+            ok = sent == want
+            print(("  ok   " if ok else " FAIL ") +
+                  f"{form:6} sport {mode:6}: body carries raw_sport_random={sent}"
+                  f"{'' if ok else '  <-- want ' + str(want) + '; the mode never reaches the node'}")
+            if not ok:
+                fails.append(f"{form}/sport-body/{mode}")
+
+    # STATIC, and only this one: the edit form's state is initialised inline in openCoreEdit, which the
+    # harness cannot call. Without it the segment would still paint and still collect -- off a state that
+    # never learned what the tunnel was saved with, so every edit would silently reset the mode to fixed.
+    ok = re.search(r"_eeS\.SportRandom\s*=\s*!!\s*l\.raw_sport_random", js) is not None
+    print(("  ok   " if ok else " FAIL ") +
+          "edit   openCoreEdit reads raw_sport_random off the stored link (static check)")
+    if not ok:
+        fails.append("edit/sport-prefill")
+    # The operator chose FIXED as the default: a new tunnel must not start rolling unless asked.
+    ok = re.search(r"_corS\.SportRandom\s*=\s*false", js) is not None
+    print(("  ok   " if ok else " FAIL ") +
+          "create openCoreModal defaults the source port to FIXED (static check)")
+    if not ok:
+        fails.append("create/sport-default")
+    ok = bool(sport.get("unsetCollectsFixed"))
+    print(("  ok   " if ok else " FAIL ") +
+          "both   an unset mode collects as fixed, so the default holds at the BODY too")
+    if not ok:
+        fails.append("default/collect")
 
     for form in ("create", "edit"):
         for prof in profiles:
