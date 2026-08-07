@@ -5302,11 +5302,12 @@ def _ev_core_text(kind, code, detail, nm):
         return ("warn", "cfg", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
     if kind == "heal":
         # A previously-sidelined member recovered and is back in the rotation pool. peer-retest/src-retest
-        # are the DIRECT pool's destination/source IP; tun-probe is either pool's node verdict; the
-        # default is the ws pool's own background retest. Distinct from the active-carrier up/reconnect.
+        # are the DIRECT pool's destination/source IP; tun-probe is either pool's node verdict. Only the
+        # node's tun probe readmits anything now, so those three are the whole set. Distinct from the
+        # active-carrier up/reconnect.
         if code == "tun-probe":
             # The core tags the axis in `detail`; say which one actually recovered. Calling a
-            # DOMAIN an edge is wrong on a two-axis pool, and the generic card below calls both "لبه".
+            # DOMAIN an edge is wrong on a two-axis pool.
             what = "دامنه (SNI)" if str(detail or "").startswith("sni:") else "آی‌پیِ لبه"
             return ("ok", "heal", f"دلیل: بازگشتِ {what} تونلِ «{nm}»",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
@@ -5316,15 +5317,14 @@ def _ev_core_text(kind, code, detail, nm):
         if code == "src-retest":
             return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
                     f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
-        return ("ok", "heal", f"دلیل: بازگشتِ لبه تونلِ «{nm}»",
-                "بازآزماییِ پس‌زمینه موفق شد")
     if kind == "pool":
-        # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 healthy
-        # IPs, so when only one is left the tunnel keeps working but STOPS switching edges (which is why
-        # the rotation log goes quiet). detail is "healthy/total". Surface the pause and its recovery.
+        # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 edges it
+        # can REACH -- healthy, or burned with their backoff elapsed, since the walk spends a live try on
+        # those too -- so when only one is left the tunnel keeps working but STOPS switching edges (which
+        # is why the rotation log goes quiet). detail is "reachable/total".
         if code == "degraded":
-            return ("warn", "edge", f"دلیل: توقفِ چرخش تونلِ «{nm}» — فقط یک لبهٔ سالم مانده",
-                    "تا وقتی لبهٔ دیگری سالم نشود، روی همان یک لبه می‌ماند")
+            return ("warn", "edge", f"دلیل: توقفِ چرخش تونلِ «{nm}» — فقط یک لبه در دسترس مانده",
+                    "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
             # The operator pinned an edge that turned out to be genuinely blocked. Rather than hold the
             # tunnel down for the whole pin window, the pin self-released and rotation moved to a healthy
@@ -5332,7 +5332,7 @@ def _ev_core_text(kind, code, detail, nm):
             return ("warn", "edge", f"دلیل: آزادشدنِ پینِ تونلِ «{nm}» — آن لبه مسدود بود",
                     "لبهٔ پین‌شده واقعاً مسدود بود؛ برای جلوگیری از قطعی، چرخش به لبهٔ سالم برگشت")
         return ("ok", "edge", f"دلیل: ازسرگیریِ چرخش تونلِ «{nm}»",
-                "لبهٔ دیگری سالم شد و به استخر برگشت")
+                "لبهٔ دیگری دوباره در دسترسِ چرخش است")
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
         # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
