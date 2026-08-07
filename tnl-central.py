@@ -6962,7 +6962,7 @@ body.dark .tag.core{color:#a78bfa}
 .rrow .sic svg{width:18px;height:18px}
 .rrow.on{box-shadow:inset -3px 0 0 var(--ok)}
 .rrow.on .sic{color:var(--ok);opacity:1}
-.rrow .rip{flex:1;text-align:center;font-family:var(--mono);font-size:12.5px;direction:ltr;letter-spacing:-.02em}
+.rrow .rip{flex:1;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;direction:ltr;letter-spacing:-.02em}
 .pempty{text-align:center;font-size:11px;color:var(--sub);padding:14px 0}
 .pacc{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--field);margin-top:12px}
 .pacchd{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;gap:10px}
@@ -6972,19 +6972,19 @@ body.dark .tag.core{color:#a78bfa}
 .pbadge{font-size:10px;font-weight:700;border-radius:99px;padding:1px 8px}
 .pbadge.ok{background:rgba(78,201,154,.16);color:var(--ok)}
 .pbadge.bad{background:rgba(240,115,106,.16);color:var(--bad)}
-.pbadge.warn{background:rgba(224,165,92,.18);color:var(--warn,#e0a55c)}
+.pbadge.warn{background:var(--warnw);color:var(--gold)}
 .pchev{color:var(--sub);transition:transform .2s;font-size:12px;flex:0 0 auto}
 .pchev.open{transform:rotate(180deg)}
 .paccbody{padding:0 11px 11px}
 /* edge health rows — colored start-stripe card, right-aligned IP, icon state + icon actions */
 .erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord);flex-wrap:wrap;row-gap:7px}
 .erow.ok{border-inline-start-color:var(--ok)}
-.erow.warn{border-inline-start-color:var(--warn)}
+.erow.warn{border-inline-start-color:var(--gold)}
 .erow.bad{border-inline-start-color:var(--bad)}
 .erow.dead .eip{text-decoration:line-through;color:var(--sub)}
 .estat{flex:0 0 auto;display:grid;place-items:center}
 .estat .ic{width:16px;height:16px}
-.estat.ok{color:var(--ok)}.estat.warn{color:var(--warn)}.estat.bad{color:var(--bad)}.estat.mut{color:var(--sub)}
+.estat.ok{color:var(--ok)}.estat.warn{color:var(--gold)}.estat.bad{color:var(--bad)}.estat.mut{color:var(--sub)}
 /* IP takes the whole first line on narrow screens (basis 150px), so it never truncates and the
    retest + action buttons wrap onto a second line; on a wide row everything stays on one line. */
 .eip{flex:1 1 150px;min-width:0;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;unicode-bidi:isolate;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -6997,7 +6997,7 @@ body.dark .tag.core{color:#a78bfa}
 .eib.on{border-color:var(--ok);color:var(--ok)}
 .pcd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--sub);direction:ltr;font-variant-numeric:tabular-nums;flex:0 0 auto}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
-.pbar>i{display:block;height:100%;background:var(--warn,#e0a55c);transition:width .5s linear}
+.pbar>i{display:block;height:100%;background:var(--gold);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
 /* live peer-pool status (direct-transport rotation): «مقصد» + «مبدأ» boxes of health rows + per-IP pin */
 .peerlive{margin-top:12px;display:flex;flex-direction:column}
@@ -7298,9 +7298,9 @@ var I18N={fa:{
  edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
  link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
- ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_healthy:"سالم",
+ ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"سلامتِ هر آی‌پی را تنها پروبِ tunِ نود تعیین می‌کند؛ معیار، عبورِ واقعیِ ترافیک از داخلِ تونل است. آی‌پیِ سوخته پس از پایانِ مهلت دوباره انتخاب و با همان پروب سنجیده می‌شود، و هر شکست مهلتِ بعدی را طولانی‌تر می‌کند. «الان تست کن» مهلت‌ها را صفر می‌کند؛ «این را فعال کن» به‌صورت دستی روی یک آی‌پی می‌پرد.",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"سلامتِ هر آی‌پی را تنها پروبِ tunِ نود تعیین می‌کند؛ معیار، عبورِ واقعیِ ترافیک از داخلِ تونل است. آی‌پیِ سوخته پس از پایانِ مهلت دوباره انتخاب و با همان پروب سنجیده می‌شود، و هر شکست مهلتِ بعدی را طولانی‌تر می‌کند. «الان تست کن» مهلت‌ها را صفر می‌کند؛ «این را فعال کن» به‌صورت دستی روی یک آی‌پی می‌پرد.",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخشِ بعدی امتحان می‌شوند و پروبِ tun قضاوتشان می‌کند",pool_edge_active:"این لبه فعال شد",
@@ -8534,9 +8534,14 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
     var h=(!dead)?lv[kind+':'+v]:null;
     var rowc,sc,sic,stt;   // row stripe class, state-icon color class, state icon, tooltip
+    // A burned entry that is ALSO the active one is the rotation working, not a contradiction: the walk
+    // hands a member whose backoff has elapsed real traffic, because carrying is the only thing that can
+    // prove it recovered. Health alone won this chain, so that row lost its bolt and read as merely
+    // sidelined — the operator could not tell which entry the tunnel was actually on. Keep the warn/bad
+    // stripe and the countdown (the probation is real), and say BOTH things.
     if(dead){rowc='bad';sc='mut';sic='xc';stt=T('ph_burned_manual');}
-    else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
-    else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
+    else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic=act?'bolt':'xc';stt=act?T('ph_active_retry'):T('ph_dead');}
+    else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic=act?'bolt':'warn';stt=act?T('ph_active_retry'):T('ph_suspect');}
     else if(act){rowc='ok';sc='ok';sic='bolt';stt=T('ph_active');}
     else{rowc='ok';sc='ok';sic='okc';stt=T('ph_healthy');}
     var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+poolCd(d,h.next)+poolBar(d,h)+'</span>':'';
@@ -8649,8 +8654,10 @@ function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span clas
 function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
 function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
   var rowc,sc,sic,stt;
-  if(h&&h.state=='dead'){rowc='bad';sc='bad';sic='xc';stt=T('ph_dead');}
-  else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic='warn';stt=T('ph_suspect');}
+  // Same rule as the CDN rows: the entry the tunnel is on keeps its bolt even while it is on probation,
+  // or the operator cannot tell which IP is carrying. See poolRenderKind.
+  if(h&&h.state=='dead'){rowc='bad';sc='bad';sic=act?'bolt':'xc';stt=act?T('peer_st_active_retry'):T('ph_dead');}
+  else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic=act?'bolt':'warn';stt=act?T('peer_st_active_retry'):T('ph_suspect');}
   else if(act){rowc='ok';sc='ok';sic='bolt';stt=T('peer_st_active');}
   else{rowc='ok';sc='ok';sic='okc';stt=T('peer_st_rot');}
   var burned=(h&&(h.state=='suspect'||h.state=='dead'));
@@ -8851,7 +8858,7 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
 // ---- FEC (forward error correction) — a general feature box shown for every carrier, but
 // active only on the datagram carriers (udp/raw/flux); greyed on tcp/ws (TCP is already reliable).
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
- +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||10)&&r.p==(fp||3));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--warn)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
+ +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||10)&&r.p==(fp||3));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--gold)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
 // fake-packet desync (anti-DPI) — a gated feature box shown on the raw/flux/tcp/ws carriers (raw/flux are the ones
 // the core builds the IPv4 header for). Shared create/edit markup; toggle reveals mode + ttl/count.
 function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
