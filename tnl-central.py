@@ -1538,7 +1538,6 @@ def _tunnel_extra(src, refetch_ech=True):
         _rs = src.get("ws_rotate_secs")   # 0 = rotation off (failover-only); a truthiness `or 600` would force 600
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
         e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
-        e["ws_warm_standby"] = bool(src.get("ws_warm_standby"))   # make-before-break failover
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
     if src.get("spoof_src"):             # forge the outer source (raw bare; client only, node applies by role)
@@ -3912,7 +3911,6 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_snis_burned": burned_hosts,  # host list — panel-side only
         "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),   # 0 (rotation off) preserved, not coerced to 600
         "ws_auto_burn": bool(d.get("ws_auto_burn") if "ws_auto_burn" in d else cur.get("ws_auto_burn")),
-        "ws_warm_standby": bool(d.get("ws_warm_standby") if "ws_warm_standby" in d else cur.get("ws_warm_standby")),
         "ws_path": path,
     }
     # cdn_carrier is stored ALWAYS here (see the dict above), not only when it is non-default. The profile
@@ -4642,7 +4640,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "raw_port", "raw_sport_random", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "ws_warm_standby", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "raw_port", "raw_sport_random", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -7365,7 +7363,6 @@ var I18N={fa:{
  // ws pool inner
  rot_3m:"هر 3 دقیقه",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",rot_15m:"هر 15 دقیقه",rot_30m:"هر 30 دقیقه",rot_1h:"هر 1 ساعت",rot_4h:"هر 4 ساعت",rot_8h:"هر 8 ساعت",rot_off_fo:"خاموش (فقط failover)",
  pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل 2 آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",pool_ab_t:"سوختهٔ خودکار",pool_ab_d:"لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.",
- pool_warm_t:"لبهٔ یدکیِ گرم",pool_warm_d:"یک لبهٔ دومِ آماده در پس‌زمینه نگه می‌دارد؛ لبهٔ فعال که بمیرد، آنی و بدونِ قطعیِ محسوس سوییچ می‌شود. کمی ترافیکِ اضافهٔ ناچیز (فقط keepalive).",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
  // core modal general
@@ -8496,7 +8493,7 @@ function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
 function corEchPxGate(){var vis=(_corS.Tr=='ws'&&_corS.Ech),row=el('e_echpxrow');if(!vis){_corS.EchProxy=false;var s=el('e_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('e_echpxbody');if(b)b.style.display=(vis&&_corS.EchProxy)?'':'none'}
 var _poolData={};
-function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,warm:l?!!l.ws_warm_standby:false,
+function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
   open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return (s&&s.host)||''}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
@@ -8558,15 +8555,14 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   host.innerHTML=html||'<div class="pempty">'+esc(T('pool_empty'))+'</div>';}
 function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(pfx+'chev_'+kind);if(b)b.style.display=d.open[kind]?'':'none';if(c)c.classList.toggle('open',d.open[kind]);}
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
-function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var d=poolGet(pfx);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);var w=el(pfx+'poolwarm');if(w)w.classList.toggle('on',d.warm);}
+function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var d=poolGet(pfx);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?T('pool_bad_ip'):T('pool_bad_dom'));return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
 function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
 function poolDel(pfx,kind,from,val){var d=poolGet(pfx);if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
-function poolToggleWarm(pfx){var d=poolGet(pfx);d.warm=!d.warm;var w=el(pfx+'poolwarm');if(w)w.classList.toggle('on',d.warm);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;body.ws_warm_standby=d.warm;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 function corSetFluxCarrier(c){_corS.FluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
@@ -8929,8 +8925,7 @@ function wsPoolInner(idp,fnp,lid){
  return block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
    +block('sni',T('pool_sni_lbl'),'cdn.example.com')
    +'<label style="margin-top:14px">'+esc(T('flux_rot_lbl'))+'</label>'+sel
-   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_ab_t'))+'</b><small>'+esc(T('pool_ab_d'))+'</small></div></div>'
-   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw" id="'+idp+'poolwarm" onclick="poolToggleWarm(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_warm_t'))+'</b><small>'+esc(T('pool_warm_d'))+'</small></div></div>';}
+   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_ab_t'))+'</b><small>'+esc(T('pool_ab_d'))+'</small></div></div>';}
 // The epoch NUMBER mirrors the core: floor(unixtime/rotate) + flux_epoch_offset. Without the offset
 // «چرخش الان» looked inert — the core moved to the next shape and this box kept the old number. The
 // countdown is unaffected: the offset is added AFTER the division, so it shifts the epoch's name,
