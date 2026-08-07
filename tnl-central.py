@@ -190,7 +190,6 @@ _TUNING_DEFAULTS = {
     # in MINUTES and converts, the way sock_buf_mb does for MiB.
     "suspect_backoff": [600, 1800, 3600],
     "dead_retest_secs": 21600,
-    "pin_ttl_secs": 30,
     # 2 - dead detection / self-heal
     "keepalive": 15,          # fleet-wide keepalive (the base clock every dead-window scales off); was per-tunnel
     "dead_after_secs": 0,     # fleet-wide fixed dead-window (seconds); 0 = auto (derive from the multipliers below)
@@ -208,7 +207,7 @@ _TUNING_DEFAULTS = {
     "sock_buf_mb": 4,
 }
 _TUNING_RANGES = {
-    "dead_retest_secs": (5, 86400), "pin_ttl_secs": (1, 3600),
+    "dead_retest_secs": (5, 86400),
     "idle_mult": (1, 100), "idle_min_secs": (1, 86400),
     "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
@@ -7235,7 +7234,7 @@ var I18N={fa:{
  set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
- set_t_pinttl:"سقفِ پینِ دستی (ثانیه)",set_t_pinttl_d:"وقتی خودت روی یک آی‌پی دکمهٔ «این را فعال کن» را می‌زنی، تونل سعی می‌کند برود روی همان. ولی اگر آن آی‌پی خراب باشد، تا ابد منتظر نمی‌ماند — بعد از این‌قدر ثانیه بی‌خیال می‌شود و می‌رود سراغ بقیه. یعنی یک انتخابِ اشتباه، تونلت را قطع نگه نمی‌دارد.",
+
 
 
  set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"برای تونل‌های ws و tcp. چند برابرِ keepalive سکوت را تحمل کند تا بگوید اتصال مرده است. مثلاً اگر keepalive 10 ثانیه باشد و این عدد 4، بعد از 40 ثانیه بی‌خبری اتصال را می‌بندد و از نو وصل می‌شود.",
@@ -7261,7 +7260,7 @@ var I18N={fa:{
  set_x_upwin:"<b>24 ساعت</b> = هر خانه 24 دقیقه؛ <b>1 ساعت</b> = هر خانه 1 دقیقه (ریزتر).",
  set_x_suspect:"IP مشکوک شد → 10 دقیقه بعد امتحان، باز مرد → 30 دقیقه، بعد <b>60</b> → مرده.",
  set_x_deadretest:"<b>360</b> = IPِ مرده هر 6 ساعت یک شانسِ دوباره می‌گیرد.",
- set_x_pinttl:"<b>5</b> = پین کردی؛ اگر 5ثانیه وصل نشد، پین آزاد و چرخشِ عادی برمی‌گردد.",
+
 
 
  set_x_idlemult:"keepalive=10ث و ضریب=<b>4</b> ← 40ثانیه سکوت = اتصال مرده.",
@@ -9675,8 +9674,7 @@ function tuningCard(s){
   '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
   grp('set_g2','set_g2h','set_g2c','sc-both',
     qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
-    qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
-    qr(T('set_t_pinttl'),'set_t_pinttl_d','set_x_pinttl',tNum('set_t_pinttl',_tv(s,'pin_ttl_secs'),1,3600)),'g2')+
+    qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440)),'g2')+
   grp('set_g3','set_g3h','set_g3c','sc-ws',
     qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)),'g3')+
   /* MERGED: the fixed deadline and the failure thresholds are one subject — both global, both applying
@@ -9701,7 +9699,7 @@ function tuningCard(s){
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),pin_ttl_secs:parseInt(v('set_t_pinttl')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a

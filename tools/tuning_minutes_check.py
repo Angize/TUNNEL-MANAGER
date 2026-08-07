@@ -28,9 +28,12 @@ if hasattr(sys.stdout, "reconfigure"):
 
 PANEL = Path(__file__).resolve().parent.parent / "tnl-central.py"
 
-# The two knobs under test, and the neighbour that must NOT have moved to minutes.
+# The two knobs under test, and the neighbour that must NOT have moved to minutes. The witness has to be
+# a knob in SECONDS sitting beside them -- min_liveness took over when the pin TTL was removed, which is
+# the point of naming it once here rather than spelling it into every assertion.
 MIN_KNOBS = {"set_t_suspect": "suspect_backoff", "set_t_deadretest": "dead_retest_secs"}
-SEC_KNOB = "set_t_pinttl"
+SEC_KNOB = "set_t_minlive"
+SEC_KEY = "min_liveness_secs"
 
 
 def index_html():
@@ -89,11 +92,11 @@ for (const c of %s) {
   globalThis._vals = f.vals;                 // the page's own el()/v() now read this form
   const back = _collectTuning();
   out.cases.push({name: c.name, shown: {suspect: f.vals['set_t_suspect'], dead: f.vals['set_t_deadretest'],
-                                        pin: f.vals['set_t_pinttl']},
+                                        pin: f.vals['set_t_minlive']},
                   back: {suspect_backoff: back.suspect_backoff, dead_retest_secs: back.dead_retest_secs,
-                         pin_ttl_secs: back.pin_ttl_secs}});
+                         min_liveness_secs: back.min_liveness_secs}});
 }
-out.labels = {suspect: T('set_t_suspect'), dead: T('set_t_deadretest'), pin: T('set_t_pinttl')};
+out.labels = {suspect: T('set_t_suspect'), dead: T('set_t_deadretest'), pin: T('set_t_minlive')};
 out.poolDenoms = {backoff: _poolBackoff, dead: _poolDeadStep};
 out.cd = %s.map(r => [r, poolCdTxt(r)]);
 out.defaults = {suspect_backoff: _TUNDEF.suspect_backoff, dead_retest_secs: _TUNDEF.dead_retest_secs};
@@ -156,13 +159,13 @@ def main():
         check(res["shown"]["dead"] == str(round(want_dr / 60)),
               "%s: the dead-retest field shows %s, the minutes of %s" % (case["name"], res["shown"]["dead"], want_dr))
         # The seconds knob beside them must be untouched by any of this.
-        check(res["back"]["pin_ttl_secs"] == int(res["shown"]["pin"]),
-              "%s: pin_ttl_secs stays 1:1 (%s)" % (case["name"], res["shown"]["pin"]))
+        check(res["back"][SEC_KEY] == int(res["shown"]["pin"]),
+              "%s: %s stays 1:1 (%s)" % (case["name"], SEC_KEY, res["shown"]["pin"]))
 
     print("== 2) the labels name the unit the field takes ==")
     check("دقیقه" in got["labels"]["suspect"], "suspect label says دقیقه: %s" % got["labels"]["suspect"])
     check("دقیقه" in got["labels"]["dead"], "dead-retest label says دقیقه: %s" % got["labels"]["dead"])
-    check("ثانیه" in got["labels"]["pin"], "the pin-TTL label still says ثانیه: %s" % got["labels"]["pin"])
+    check("ثانیه" in got["labels"]["pin"], "the seconds neighbour still says ثانیه: %s" % got["labels"]["pin"])
 
     print("== 3) the pool card's retest bar keeps its SECONDS denominators ==")
     check(got["poolDenoms"]["backoff"] == got["defaults"]["suspect_backoff"],
