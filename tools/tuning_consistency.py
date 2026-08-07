@@ -25,7 +25,6 @@ TUNING_KNOBS = [
     # panel key,               go var name,           go ApplyTuning field,   is_list
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
-    ("pin_ttl_secs",           "pinTTL",              "PinTTLSecs",           False),
     ("idle_mult",              "idleMult",            "IdleMult",             False),
     ("idle_min_secs",          "idleMinSecs",         "IdleMinSecs",          False),
     ("session_stale_mult",     "sessionStaleMult",    "SessionStaleMult",     False),
