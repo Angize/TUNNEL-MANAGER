@@ -278,6 +278,57 @@ def main():
               % (core_sep.group(1), node_sep.group(1),
                  [hex(ord(c)) for c in core_sep.group(1)], [hex(ord(c)) for c in node_sep.group(1)]))
 
+    print("== 2g) the tun-probe threshold: panel offers it, the NODE consumes it ==")
+    # The one Settings knob the node reads for itself instead of forwarding to the core, so its default
+    # and range are a panel<->NODE contract with no core side at all. Drift is silent both ways: a panel
+    # default that no longer matches the node's leaves an untouched fleet judged by a different number
+    # than Settings displays (the panel omits a knob that equals its default, so nothing is stamped and
+    # the node's own value decides), and a wider panel range lets the operator save a value the node
+    # then clamps without saying so.
+    n_pmin = re.search(r"^PROBE_MIN_PCT\s*=\s*(\d+)", node_src, re.M)
+    n_rng = re.search(r"^PROBE_MIN_PCT_RANGE\s*=\s*\((\d+),\s*(\d+)\)", node_src, re.M)
+    if not n_pmin or not n_rng:
+        check(False, "CANNOT PARSE the node's PROBE_MIN_PCT/_RANGE (found=%s/%s) -- THIS SCRIPT is out "
+                     "of date" % (bool(n_pmin), bool(n_rng)))
+    else:
+        check(p_def.get("probe_min_pct") == int(n_pmin.group(1)),
+              f"probe_min_pct default: panel={p_def.get('probe_min_pct')} node={n_pmin.group(1)}")
+        check(js_ok("probe_min_pct", p_def.get("probe_min_pct")),
+              f"jsdef  probe_min_pct: _TUNDEF={None if derived else js_def.get('probe_min_pct')} "
+              f"py={p_def.get('probe_min_pct')}")
+        n_pair = (int(n_rng.group(1)), int(n_rng.group(2)))
+        p_pair = tuple(p_rng.get("probe_min_pct")) if p_rng.get("probe_min_pct") else None
+        check(p_pair == n_pair, f"probe_min_pct range: panel={p_pair} node={n_pair}")
+    # It must NOT be a core knob. If it ever appears in tuning.go, the top-level/`tuning`-object split
+    # in _apply_core_tuning is wrong and this guard's whole model of the knob is stale.
+    check("probe_min_pct" not in tuning_go and "ProbeMinPct" not in tuning_go,
+          "probe_min_pct is absent from tuning.go -- it is the node's knob, not the core's")
+    # The SAMPLE COUNT the panel shows the operator ("15% = at least 3 of 20") is the node's PROBE_COUNT
+    # mirrored. Nothing enforces it at runtime -- the percentage travels, not the count -- so if the node
+    # ever samples a different number the panel keeps printing a sentence that is simply false, and the
+    # operator tunes against it. Cheap to state, invisible to lose.
+    n_cnt = re.search(r"^PROBE_COUNT\s*=\s*(\d+)", node_src, re.M)
+    p_cnt = panel_const(panel_src, "_PROBE_SAMPLES")
+    if not n_cnt:
+        check(False, "CANNOT PARSE the node's PROBE_COUNT -- THIS SCRIPT is out of date")
+    else:
+        check(p_cnt == int(n_cnt.group(1)),
+              f"probe sample count: panel _PROBE_SAMPLES={p_cnt} node PROBE_COUNT={n_cnt.group(1)}")
+        # ...and the form's step must divide it evenly, or it offers settings that are not distinct
+        # verdicts (with 20 samples, 11..15 all mean "3 of 20") or skips ones that are.
+        m = re.search(r"tNum\('set_t_probemin',.*?,(\d+),(\d+),(\d+)\)", panel_src)
+        if not m:
+            check(False, "CANNOT PARSE the probe-threshold form control -- THIS SCRIPT is out of date")
+        else:
+            lo, hi, step = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            check(step * p_cnt == 100,
+                  f"the form steps by {step}%, which must equal 100/{p_cnt} so every step is exactly "
+                  f"one more required reply (otherwise it offers settings that are not distinct verdicts)")
+            check((lo, hi) == (step, 100),
+                  f"the form offers {lo}..{hi}%, want {step}..100 -- the lowest real setting is one "
+                  f"step (a single reply), and anything under it is the same verdict wearing a "
+                  f"different number")
+
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
     check(n_keys == expected,
