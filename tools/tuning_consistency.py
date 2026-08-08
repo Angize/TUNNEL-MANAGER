@@ -303,6 +303,31 @@ def main():
     # in _apply_core_tuning is wrong and this guard's whole model of the knob is stale.
     check("probe_min_pct" not in tuning_go and "ProbeMinPct" not in tuning_go,
           "probe_min_pct is absent from tuning.go -- it is the node's knob, not the core's")
+    # The SAMPLE COUNT the panel shows the operator ("15% = at least 3 of 20") is the node's PROBE_COUNT
+    # mirrored. Nothing enforces it at runtime -- the percentage travels, not the count -- so if the node
+    # ever samples a different number the panel keeps printing a sentence that is simply false, and the
+    # operator tunes against it. Cheap to state, invisible to lose.
+    n_cnt = re.search(r"^PROBE_COUNT\s*=\s*(\d+)", node_src, re.M)
+    p_cnt = panel_const(panel_src, "_PROBE_SAMPLES")
+    if not n_cnt:
+        check(False, "CANNOT PARSE the node's PROBE_COUNT -- THIS SCRIPT is out of date")
+    else:
+        check(p_cnt == int(n_cnt.group(1)),
+              f"probe sample count: panel _PROBE_SAMPLES={p_cnt} node PROBE_COUNT={n_cnt.group(1)}")
+        # ...and the form's step must divide it evenly, or it offers settings that are not distinct
+        # verdicts (with 20 samples, 11..15 all mean "3 of 20") or skips ones that are.
+        m = re.search(r"tNum\('set_t_probemin',.*?,(\d+),(\d+),(\d+)\)", panel_src)
+        if not m:
+            check(False, "CANNOT PARSE the probe-threshold form control -- THIS SCRIPT is out of date")
+        else:
+            lo, hi, step = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            check(step * p_cnt == 100,
+                  f"the form steps by {step}%, which must equal 100/{p_cnt} so every step is exactly "
+                  f"one more required reply (otherwise it offers settings that are not distinct verdicts)")
+            check((lo, hi) == (step, 100),
+                  f"the form offers {lo}..{hi}%, want {step}..100 -- the lowest real setting is one "
+                  f"step (a single reply), and anything under it is the same verdict wearing a "
+                  f"different number")
 
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs

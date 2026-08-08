@@ -213,13 +213,21 @@ _TUNING_DEFAULTS = {
     # -1, the core's "leave the kernel default" sentinel. Only the datagram carriers use it.
     "sock_buf_mb": 4,
 }
+# The node's PROBE_COUNT, mirrored so the Settings form can show what a percentage actually BUYS
+# ("15% = at least 3 of 20"). Only the display needs it -- the stored unit stays a percentage, which is
+# what keeps the threshold correct on a sweep that managed fewer sockets than this. Guarded against the
+# node's own constant by tools/tuning_consistency.py; without that this number quietly starts lying.
+_PROBE_SAMPLES = 20
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "idle_mult": (1, 100), "idle_min_secs": (1, 86400),
     "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
     "probe_timeout_secs": (1, 120),
-    "probe_min_pct": (1, 100),   # percent; mirrored by the node's PROBE_MIN_PCT_RANGE
+    # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
+    # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
+    # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
+    "probe_min_pct": (1, 100),
     "keepalive": (5, 120), "dead_after_secs": (0, 300),   # dead_after 0 = auto; a positive value is floored to 10 on build
     "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
@@ -7303,7 +7311,8 @@ var I18N={fa:{
  set_x_ssmin:"<b>10</b> = کمتر از 10ثانیه سکوت، سشن را کهنه حساب نکن.",
  set_x_pingloss:"<b>3</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
  set_x_minlive:"<b>20</b> = اتصال بعد از 5ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
- set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>1</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
+ set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>5</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
+ set_pm_hint:"= حداقل {n} بسته از {c} باید جواب بدهد",
  set_x_probeto:"<b>5</b> = لبه در 5ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
  set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
  h1:"ساعت",h3:"3 ساعت",h6:"6 ساعت",h8:"8 ساعت",h12:"12 ساعت",h24:"24 ساعت",
@@ -7560,6 +7569,7 @@ var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
+var _PROBESAMP=__PROBE_SAMPLES__;   /* the node's PROBE_COUNT, injected; guarded by tools/tuning_consistency.py */
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){function it(b,k){return {v:b,label:T(k),sub:'('+subnetFree(b)+')'}}
@@ -9703,7 +9713,7 @@ function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 // sock_buf_mb is MiB in the form and bytes in the core config.
 function _tvMin(s,k){return Math.max(1,Math.round(num(_tv(s,k))/60))}
 function _minSec(x){var n=parseInt(x);return n>=1?n*60:NaN}
-function tNum(id,val,mn,mx){return '<input id="'+id+'" class="search" type="number" step="1" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
+function tNum(id,val,mn,mx,st){return '<input id="'+id+'" class="search" type="number" step="'+(st||1)+'" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
 function tuningCard(s){
  return '<div class="sec2" style="margin:14px 2px 2px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
   '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
@@ -9721,7 +9731,8 @@ function tuningCard(s){
     '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 6px"></div>'+
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
     qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
-    qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),1,100)),'gkd')+
+    qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
+    '<div class="muted" id="tun_pmhint" style="font-size:11.5px;line-height:1.8;margin:-2px 4px 6px"></div>','gkd')+
   grp('set_g4','set_g4h','set_g4c','sc-both',
     qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100),'tun-auto')+
     qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400),'tun-auto'),'g4')+
@@ -9760,9 +9771,18 @@ function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
    var host=g2.querySelector('.setgrpb')||g2;host.insertBefore(n,host.firstChild)}
   n.textContent=on?T('set_auto_off'):T('set_auto_only');
   n.style.color=on?'var(--gold)':'var(--sub)'}}
+// A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
+// 5th percent is a distinct verdict, so 11..15 all mean "3 of 20" while 15->16 jumps to 4. The form
+// steps by 5 so every step is real; this says what the step actually buys, in the unit the operator
+// thinks in. Must use the SAME ceiling the node's carrying() applies, or the hint describes a rule
+// nothing enforces.
+function tunPmSync(){var p=el('set_t_probemin'),h=el('tun_pmhint');if(!p||!h)return;
+ var v=Math.max(1,Math.min(100,parseInt(p.value)||0));
+ h.textContent=T('set_pm_hint').replace('{n}',Math.ceil(v*_PROBESAMP/100)).replace('{c}',_PROBESAMP)}
 function tunDaBind(){var ids=['set_t_deadafter','set_t_keepalive'];
  for(var i=0;i<ids.length;i++){var e=el(ids[i]);if(e)e.addEventListener('input',tunDaSync)}
- tunDaSync()}
+ var p=el('set_t_probemin');if(p)p.addEventListener('input',tunPmSync);
+ tunDaSync();tunPmSync()}
 async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
@@ -9836,6 +9856,7 @@ render();updateSidebar();TT=setTimeout(tick,6000);
 # as JSON at import time, so there is NO hand-copied JS literal to drift (consolidation Track B). The
 # tools/tuning_consistency.py guard enforces the remaining panel<->core<->node agreement.
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
 # transport families + ciphers -> browser, so the enum lives only in the Python consts above (Track B).
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
