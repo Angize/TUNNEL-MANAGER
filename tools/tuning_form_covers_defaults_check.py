@@ -155,11 +155,21 @@ def main():
 
     print("== 3) every field the card RENDERS is read back by _collectTuning ==")
     src = got["collectSrc"]
-    orphans = [i for i in forms["stored"]["ids"]
-               if i.startswith("set_t_") and ("'%s'" % i) not in src and ('"%s"' % i) not in src]
+    ids = [i for i in forms["stored"]["ids"] if i.startswith("set_t_")]
+    # A floor first: with no ids the orphan scan below is vacuous, and the likeliest cause is this
+    # guard's own <input> regex having stopped matching -- which must read as broken, not as clean.
+    check(len(ids) >= len(defaults),
+          "the card rendered %d set_t_* inputs for %d declared knobs" % (len(ids), len(defaults)))
+    orphans = [i for i in ids if ("'%s'" % i) not in src and ('"%s"' % i) not in src]
     check(not orphans, "no input is rendered and then ignored (orphans=%s)" % (orphans or "none"))
 
     print("== 4) a stored non-default survives the form round-trip ==")
+    # STORED is hand-written, so it rots the moment a knob is added: section 5 would still cover the
+    # new knob, but only against its DEFAULT -- and a knob that round-trips its default while mangling
+    # every other value is exactly the bug this section exists for. Make the rot loud.
+    check(set(STORED) == set(defaults),
+          "STORED covers every declared knob (only-in-STORED=%s only-in-_TUNDEF=%s)"
+          % (sorted(set(STORED) - set(defaults)), sorted(set(defaults) - set(STORED))))
     back = forms["stored"]["back"]
     for k, want in sorted(STORED.items()):
         check(back.get(k) == want, "%s: stored %s -> form -> %s" % (k, want, back.get(k)))

@@ -139,10 +139,12 @@ def main():
     check(p_def.get("keepalive") == ka_def and js_ok("keepalive", ka_def),
           f"keepalive default: panel={p_def.get('keepalive')} core={ka_def}")
     print("  note  keepalive range 5..120 is panel/node-only; the core does not clamp the upper bound")
-    # The absolute dead-window deadline is GONE: dead_mult x keepalive is the only rule, so a config.go
-    # that grows a second one again means the panel is a knob short, not that this guard is stale.
-    check("DeadAfterSecs" not in config_go and "dead_after_secs" not in panel_src,
-          "no absolute dead-window deadline beside dead_mult (core config.go and the panel)")
+    # The absolute dead-window deadline is GONE from all three repos: dead_mult x keepalive is the only
+    # rule. Checked per REPO, not as one boolean -- the panel's CI checks out the core's and the node's
+    # main, so this legitimately fails there until they merge, and the message has to say which one.
+    for who, src in (("core config.go", config_go), ("panel", panel_src), ("node", node_src)):
+        check("DeadAfterSecs" not in src and "dead_after_secs" not in src,
+              f"{who}: no absolute dead-window deadline beside dead_mult")
     # sock_buf is the one knob stored in a DIFFERENT UNIT than the core reads: the panel keeps MiB
     # (sock_buf_mb) and _apply_core_tuning multiplies to bytes, so compare after converting. The core's
     # own default is written as a shift (4 << 20), and its clamp ceiling likewise.
