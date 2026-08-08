@@ -3,7 +3,7 @@
 
 The operator-tunable timing knobs are declared in three places that must agree:
   * core   TUNNEL-MANAGER-CORE/internal/packet/tuning.go  (the AUTHORITY: defaults in the var block,
-           clamps in ApplyTuning) + config.go (keepalive / dead_after_secs top-level fields)
+           clamps in ApplyTuning) + config.go (the keepalive top-level field)
   * panel  TUNNEL-MANAGER/tnl-central.py    (_TUNING_DEFAULTS / _TUNING_RANGES; the browser _TUNDEF is
            now INJECTED from _TUNING_DEFAULTS at import, so it cannot drift -- verified here as "derived")
   * node   TUNNEL-MANAGER-NODE/tnl-node.py  (_TUNING_INT_KEYS -- the pass-through key roster)
@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 
 # panel-name -> how the same knob is spelled in the core's tuning.go var block and its TuningInput struct.
-# suspect_backoff is a list; the rest are scalar. keepalive & dead_after_secs are NOT tuning-object knobs;
-# they are top-level config.go fields, checked separately below.
+# suspect_backoff is a list; the rest are scalar. keepalive is NOT a tuning-object knob; it is a
+# top-level config.go field, checked separately below.
 TUNING_KNOBS = [
     # panel key,               go var name,           go ApplyTuning field,   is_list
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
@@ -134,18 +134,17 @@ def main():
             else:
                 check(pr == c_clamp, f"range   {panel_key}: panel={pr} core={c_clamp}")
 
-    print("== 2) top-level config.go knobs (keepalive / dead_after_secs) ==")
+    print("== 2) top-level config.go knobs (keepalive / sock_buf) ==")
     ka_def = int(re.search(r"c\.Keepalive\s*=\s*(\d+)", config_go).group(1))
     check(p_def.get("keepalive") == ka_def and js_ok("keepalive", ka_def),
           f"keepalive default: panel={p_def.get('keepalive')} core={ka_def}")
     print("  note  keepalive range 5..120 is panel/node-only; the core does not clamp the upper bound")
-    da_m = re.search(r"c\.DeadAfterSecs\s*<\s*(\d+)\s*\|\|\s*c\.DeadAfterSecs\s*>\s*(\d+)", config_go)
-    da_lo, da_hi = int(da_m.group(1)), int(da_m.group(2))
-    check(p_def.get("dead_after_secs") == 0 and js_ok("dead_after_secs", 0),
-          f"dead_after_secs default: panel={p_def.get('dead_after_secs')} core=0")
-    check(tuple(p_rng.get("dead_after_secs"))[1] == da_hi,
-          f"dead_after_secs max: panel={tuple(p_rng.get('dead_after_secs'))[1]} core={da_hi}")
-    check(da_lo == 10, f"dead_after_secs core positive-floor is {da_lo} (panel floors a positive value to 10)")
+    # The absolute dead-window deadline is GONE from all three repos: dead_mult x keepalive is the only
+    # rule. Checked per REPO, not as one boolean -- the panel's CI checks out the core's and the node's
+    # main, so this legitimately fails there until they merge, and the message has to say which one.
+    for who, src in (("core config.go", config_go), ("panel", panel_src), ("node", node_src)):
+        check("DeadAfterSecs" not in src and "dead_after_secs" not in src,
+              f"{who}: no absolute dead-window deadline beside dead_mult")
     # sock_buf is the one knob stored in a DIFFERENT UNIT than the core reads: the panel keeps MiB
     # (sock_buf_mb) and _apply_core_tuning multiplies to bytes, so compare after converting. The core's
     # own default is written as a shift (4 << 20), and its clamp ceiling likewise.

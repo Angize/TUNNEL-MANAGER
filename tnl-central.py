@@ -192,11 +192,10 @@ _TUNING_DEFAULTS = {
     "dead_retest_secs": 21600,
     # 2 - dead detection / self-heal
     "keepalive": 15,          # fleet-wide keepalive (the base clock every dead-window scales off); was per-tunnel
-    "dead_after_secs": 0,     # fleet-wide fixed dead-window (seconds); 0 = auto (derive from the multipliers below)
     # ONE multiplier for every carrier: the dead window is dead_mult × keepalive and nothing else, so
-    # keepalive is the single number that moves them all. It used to be two multipliers and two seconds
-    # FLOORS -- the ws/tcp floor pinned that window at 60s for every keepalive at or under 15, and the
-    # datagram floor could not bind at all (3 × the minimum keepalive of 5 already exceeds it).
+    # keepalive is the single number that moves them all. There is no absolute deadline beside it any
+    # more: two knobs set the same window, one of them could express a self-destructive value, and
+    # setting either greyed the other out.
     "dead_mult": 3,
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
@@ -230,7 +229,7 @@ _TUNING_RANGES = {
     # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
     # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
     "probe_min_pct": (1, 100),
-    "keepalive": (5, 120), "dead_after_secs": (0, 300),   # dead_after 0 = auto; a positive value is floored to 10 on build
+    "keepalive": (5, 120),
     "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
 
@@ -1390,14 +1389,11 @@ def _apply_core_tuning(a_body, b_body):
     rebuild — so a tunnel picks up the current Settings timing on any (re)build, uniformly. Empty diff
     (all knobs at default) leaves both bodies untouched so the core keeps its own defaults."""
     tn = _settings_tuning()
-    # keepalive + dead_after_secs are fleet-wide too, but the core reads them as TOP-LEVEL config fields
-    # (not from the `tuning` object), so inject them there. Only when the operator moved them off the
-    # core's own default, so an all-default fleet still hands the core a body it would build identically.
+    # keepalive is fleet-wide too, but the core reads it as a TOP-LEVEL config field (not from the
+    # `tuning` object), so inject it there. Only when the operator moved it off the core's own default,
+    # so an all-default fleet still hands the core a body it would build identically.
     if tn.get("keepalive"):
         a_body["keepalive"] = b_body["keepalive"] = max(5, min(120, int(tn["keepalive"])))
-    if tn.get("dead_after_secs"):
-        _da = max(10, min(300, int(tn["dead_after_secs"])))
-        a_body["dead_after_secs"] = b_body["dead_after_secs"] = _da
     # sock_buf is a top-level core field, and the one knob the operator sets in a different unit than the
     # core reads: MiB here, BYTES on the wire. 0 means "off", which the core spells as a negative value.
     # _settings_tuning already omits the knob when it equals the panel default, which is the core's own
@@ -1409,7 +1405,7 @@ def _apply_core_tuning(a_body, b_body):
     # they never appear twice on the wire. probe_min_pct is stripped for a different reason: the core
     # has no such knob at all. It is the NODE's, and _apply_probe_tuning stamps it on every type.
     _tn = {k: v for k, v in tn.items()
-           if k not in ("keepalive", "dead_after_secs", "sock_buf_mb", "probe_min_pct")}
+           if k not in ("keepalive", "sock_buf_mb", "probe_min_pct")}
     if _tn:
         a_body["tuning"] = _tn
         b_body["tuning"] = _tn
@@ -4683,7 +4679,7 @@ def _edit_link_impl(d):
         for x in links:
             if x["id"] == L["id"]:
                 x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
-                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "raw_port", "raw_sport_random", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "dead_after_secs", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
+                for k in ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile", "raw_proto", "raw_port", "raw_sport_random", "dns_zone", "dns_resolvers", "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset", "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls", "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile", "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned", "ws_rotate_secs", "ws_auto_burn", "gso", "spoof_src", "spoof_dst", "fake_desync", "fake_ttl", "fake_count", "fake_mode", "keepalive") + _ROTATION_KEYS:   # keep only the extras this type uses (incl. IP-rotation); drop the rest so an edit that turns rotation off actually clears the stored pools
                     if k in extra:
                         x[k] = extra[k]
                     else:
@@ -6521,7 +6517,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok)}
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
-.setrow2.tun-off{opacity:.55}
 /* A settings group is its OWN accordion — hence `sacc`, not `acc`. `.card.acc` zeroes the card padding
    because ITS header and body carry it instead; a settings group's do not, so the padding is restated
    here at .card's own inset, and an open group lines up with every other card on the page. */
@@ -7285,7 +7280,6 @@ var I18N={fa:{
  set_g1:"1) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
  set_g2:"1) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
  set_g3:"2) بازآزماییِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/http",set_g3c:"فقط WS-CDN",
- set_g7:"5) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
  set_g5:"4) کاراییِ دیتاگرام",set_g5h:"اندازهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
  set_g6:"7) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
  set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود 2٫7 برابر شد). <b>0</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
@@ -7414,7 +7408,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>0 بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت «ضریبِ پنجرهٔ مرگ» بی‌اثر می‌شود.",set_x_deadafter:"0 ← خودکار (~3×keepalive). 20 ← همهٔ تونل‌ها پس از 20ث سکوت مرده.",set_da_auto:"0 = خودکار: پنجرهٔ مرگ از keepalive × «ضریبِ پنجرهٔ مرگ» حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ 2×keepalive آن را به {n} برد.)",set_t_deadmult:"ضریبِ پنجرهٔ مرگ (×keepalive)",set_t_deadmult_d:"چند برابرِ keepalive سکوت را تحمل کند تا تونل را مرده حساب کند. <b>یک عدد برای همهٔ حامل‌ها</b> — ws و tcp و udp و raw و flux همه از همین یکی استفاده می‌کنند، پس برای تشخیصِ سریع‌تر یا این را کم کن یا keepalive را. کمتر از 2 نمی‌شود: فاصلهٔ دو پینگ تا 1.3 برابرِ keepalive کش می‌آید و پنجره‌ای کوتاه‌تر از آن وسطِ دو پینگ می‌بُرد و اتصالِ سالم را می‌کشد.",set_x_deadmult:"keepalive=15 و ضریب=<b>3</b> ← 45ثانیه سکوت = مرده. keepalive را 10 کن ← 30ثانیه.",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = 0 باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
+ set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، ضریبِ پنجرهٔ مرگ و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadmult:"ضریبِ پنجرهٔ مرگ (×keepalive)",set_t_deadmult_d:"چند برابرِ keepalive سکوت را تحمل کند تا تونل را مرده حساب کند. <b>یک عدد برای همهٔ حامل‌ها</b> — ws و tcp و udp و raw و flux همه از همین یکی استفاده می‌کنند، پس برای تشخیصِ سریع‌تر یا این را کم کن یا keepalive را. کمتر از 2 نمی‌شود: فاصلهٔ دو پینگ تا 1.3 برابرِ keepalive کش می‌آید و پنجره‌ای کوتاه‌تر از آن وسطِ دو پینگ می‌بُرد و اتصالِ سالم را می‌کشد.",set_x_deadmult:"keepalive=15 و ضریب=<b>3</b> ← 45ثانیه سکوت = مرده. keepalive را 10 کن ← 30ثانیه.",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -9676,10 +9670,10 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
   '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>')+
   tuningCard(s)+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
- tunDaBind();refreshAgent()}
+ tunPmBind();refreshAgent()}
 // A settings row with a "?" that expands a concept + example; grp() wraps a scope-tagged group card.
 function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
-function qr(lbl,ck,xk,ctl,rc){return '<div class="setrow2'+(rc?' '+rc:'')+'"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
+function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
 // A settings group is a COLLAPSIBLE card. These blocks are long — seven of them stacked made the page
 // a scroll marathon on a phone — so each collapses to its header. Open state is per-group and kept in
 // _setOpen, because refreshSettings() rebuilds this HTML wholesale and would otherwise reset it.
@@ -9717,14 +9711,12 @@ function tuningCard(s){
     qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440)),'g2')+
   grp('set_g3','set_g3h','set_g3c','sc-ws',
     qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)),'g3')+
-  /* MERGED: the fixed deadline and the failure thresholds are one subject — both global, both applying
-     to every carrier, neither affected by the auto/fixed switch. ping_loss and min_liveness stay
-     NON-auto: ApplyTuning applies them unconditionally, on paths that never consult the dead window. */
+  /* Dead detection, one subject: keepalive is the clock, the multiplier is how many missed pings the
+     carrier tolerates, and the rest are the failure thresholds beside them. All global, all applying to
+     every carrier. */
   grp('set_gkd','set_gkdh','set_gkdc','sc-both',
     qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
-    qr(T('set_t_deadafter'),'set_t_deadafter_d','set_x_deadafter',tNum('set_t_deadafter',_tv(s,'dead_after_secs'),0,300))+
-    '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 6px"></div>'+
-    qr(T('set_t_deadmult'),'set_t_deadmult_d','set_x_deadmult',tNum('set_t_deadmult',_tv(s,'dead_mult'),2,100),'tun-auto')+
+    qr(T('set_t_deadmult'),'set_t_deadmult_d','set_x_deadmult',tNum('set_t_deadmult',_tv(s,'dead_mult'),2,100))+
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
     qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
     qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
@@ -9736,29 +9728,9 @@ function tuningCard(s){
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),dead_mult:parseInt(v('set_t_deadmult')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_retest_secs:_minSec(v('set_t_deadretest')),dead_mult:parseInt(v('set_t_deadmult')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
-// The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a
-// positive dead_after_secs overrides BOTH families (core deadWindow()), so grey them out and say so
-// instead of leaving the operator tuning knobs that currently have no effect. Disabled inputs keep
-// their .value, so _collectTuning still round-trips them untouched.
-function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
- var v=Math.max(0,parseInt(d.value)||0),k=el('set_t_keepalive'),ka=Math.max(5,parseInt(k&&k.value)||15);
- var on=v>0,eff=Math.max(v,2*ka),h=el('tun_dahint');
- if(h)h.textContent=on?(T('set_da_fixed').replace('{n}',eff)+(eff>v?' '+T('set_da_floored').replace('{v}',v).replace('{n}',eff):'')):T('set_da_auto');
- // Grey out the AUTO-only knobs by ROW, and say so on the ROW. The note used to go on the CARD, which
- // was already only just true and stopped being true when the multiplier became the single auto knob:
- // it now shares a card with keepalive, the fixed deadline, the ping threshold, the session floor and
- // the probe threshold, none of which the fixed deadline touches. A card-level «بی‌اثر» called all six inert.
- var rows=document.querySelectorAll('.setrow2.tun-auto');
- for(var i=0;i<rows.length;i++){var r=rows[i];
-  var ins=r.querySelectorAll('input');for(var q=0;q<ins.length;q++)ins[q].disabled=on;
-  r.classList.toggle('tun-off',on);
-  var n=r.querySelector('.tun-state');
-  if(!n){n=document.createElement('div');n.className='tun-state';n.style.cssText='font-size:11px;line-height:1.7;margin:-2px 4px 4px';r.appendChild(n)}
-  n.textContent=on?T('set_auto_off'):T('set_auto_only');
-  n.style.color=on?'var(--gold)':'var(--sub)'}}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
 // 5th percent is a distinct verdict, so 11..15 all mean "3 of 20" while 15->16 jumps to 4. The form
 // steps by 5 so every step is real; this says what the step actually buys, in the unit the operator
@@ -9767,10 +9739,8 @@ function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
 function tunPmSync(){var p=el('set_t_probemin'),h=el('tun_pmhint');if(!p||!h)return;
  var v=Math.max(1,Math.min(100,parseInt(p.value)||0));
  h.textContent=T('set_pm_hint').replace('{n}',Math.ceil(v*_PROBESAMP/100)).replace('{c}',_PROBESAMP)}
-function tunDaBind(){var ids=['set_t_deadafter','set_t_keepalive'];
- for(var i=0;i<ids.length;i++){var e=el(ids[i]);if(e)e.addEventListener('input',tunDaSync)}
- var p=el('set_t_probemin');if(p)p.addEventListener('input',tunPmSync);
- tunDaSync();tunPmSync()}
+function tunPmBind(){var p=el('set_t_probemin');if(p)p.addEventListener('input',tunPmSync);
+ tunPmSync()}
 async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
  var r=await post('settings-set',{tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
