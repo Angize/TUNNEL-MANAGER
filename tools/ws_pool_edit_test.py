@@ -37,7 +37,7 @@ def main():
         "ws_edge_snis": [{"host": "a.example.com", "ech": "", "path": "/"},
                          {"host": "b.example.com", "ech": "", "path": "/"}],
         "ws_edge_snis_burned": [],
-        "ws_rotate_secs": 600, "ws_auto_burn": True, "ws_warm_standby": False, "ws_path": "/",
+        "ws_rotate_secs": 600, "ws_auto_burn": True, "ws_path": "/",
     }
     # An edit that touches something else and OMITS ws_edge_snis: every pool field must fall back to the
     # stored value, including the SNI list (the documented contract). ech is off, so no key is fetched.
