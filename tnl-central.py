@@ -200,6 +200,13 @@ _TUNING_DEFAULTS = {
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
+    # 2b - the NODE's liveness verdict. Unlike everything else here this knob is consumed by the node
+    # itself (tnl-node.py health_of), not passed through to the core, so it is stamped as a top-level
+    # body field on EVERY tunnel type rather than riding in the `tuning` object. Percent of the tun
+    # probe's sample set that must answer for the tunnel to count as carrying: it colours the dot, and
+    # it decides whether an endpoint is burned or has its burn cleared. 1 = any single reply (what this
+    # was before the knob existed), 100 = every sample must answer.
+    "probe_min_pct": 15,
     # 3 - throughput
     # sock_buf_mb is MiB for the operator; the core's `sock_buf` is BYTES, so _apply_core_tuning converts.
     # 4 matches the core's own default, so an untouched knob stamps nothing. 0 means OFF and is stamped as
@@ -212,6 +219,7 @@ _TUNING_RANGES = {
     "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
     "probe_timeout_secs": (1, 120),
+    "probe_min_pct": (1, 100),   # percent; mirrored by the node's PROBE_MIN_PCT_RANGE
     "keepalive": (5, 120), "dead_after_secs": (0, 300),   # dead_after 0 = auto; a positive value is floored to 10 on build
     "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
@@ -1388,11 +1396,33 @@ def _apply_core_tuning(a_body, b_body):
         _mb = max(0, min(64, int(tn["sock_buf_mb"])))
         a_body["sock_buf"] = b_body["sock_buf"] = -1 if _mb == 0 else _mb * (1 << 20)
     # everything else rides in the `tuning` object (the core clamps it); strip the top-level knobs so
-    # they never appear twice on the wire.
-    _tn = {k: v for k, v in tn.items() if k not in ("keepalive", "dead_after_secs", "sock_buf_mb")}
+    # they never appear twice on the wire. probe_min_pct is stripped for a different reason: the core
+    # has no such knob at all. It is the NODE's, and _apply_probe_tuning stamps it on every type.
+    _tn = {k: v for k, v in tn.items()
+           if k not in ("keepalive", "dead_after_secs", "sock_buf_mb", "probe_min_pct")}
     if _tn:
         a_body["tuning"] = _tn
         b_body["tuning"] = _tn
+
+
+def _apply_probe_tuning(*bodies):
+    """Stamp the node's tun-probe carrying threshold onto every body, whatever the tunnel TYPE.
+
+    Separate from _apply_core_tuning because the scope is different, not just the destination: the tun
+    probe judges every tunnel it can address, so a vxlan and a core tunnel on the same dashboard must be
+    coloured — and have their endpoints burned — by the same rule. _apply_core_tuning is called inside
+    `if ttype == "core"` at every site; this one must not be.
+
+    Only when the operator moved it off the default, so an untouched fleet sends nothing and the node
+    keeps its own PROBE_MIN_PCT. Called from all FOUR paths that build a node body: create, edit,
+    rebuild, and the rollback restore."""
+    tn = _settings_tuning()
+    if "probe_min_pct" not in tn:
+        return
+    lo, hi = _TUNING_RANGES["probe_min_pct"]
+    v = max(lo, min(hi, int(tn["probe_min_pct"])))
+    for b in bodies:
+        b["probe_min_pct"] = v
 
 
 # The upstream POST-ladder shape per CDN. The binding constraint is what the CDN counts per source
@@ -4154,6 +4184,7 @@ def _create_tunnel_impl(d):
         b_body["role"] = "server" if server_side == "b" else "client"
         _core_rotation_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
+    _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
@@ -4311,6 +4342,7 @@ def _restore_link(A, B, L, extra=None):
                 # operator's, silently, on the very path where they are already reading an error about something
                 # else. Both args are this one body; _apply_core_tuning stamps them identically.
                 _apply_core_tuning(body, body)
+            _apply_probe_tuning(body)   # OUTSIDE the role check: the probe judges every type, not just core
             try:
                 node_call(N, "tunnel", "POST", body, timeout=200)
             except Exception:
@@ -4626,6 +4658,7 @@ def _edit_link_impl(d):
         b_body["role"] = "server" if server_side == "b" else "client"
         _core_rotation_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
+    _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L)
@@ -4725,6 +4758,7 @@ def _rebuild_link_impl(d):
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
         _core_rotation_bodies(L, a_body, b_body)   # replay the stored IP-rotation pools
         _apply_core_tuning(a_body, b_body)         # re-stamp current fleet-wide timing on rebuild
+    _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
@@ -7269,6 +7303,7 @@ var I18N={fa:{
  set_x_ssmin:"<b>10</b> = کمتر از 10ثانیه سکوت، سشن را کهنه حساب نکن.",
  set_x_pingloss:"<b>3</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
  set_x_minlive:"<b>20</b> = اتصال بعد از 5ثانیه مرد ← خرابیِ IP، نه یک قطعِ عادی.",
+ set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>1</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
  set_x_probeto:"<b>5</b> = لبه در 5ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
  set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
  h1:"ساعت",h3:"3 ساعت",h6:"6 ساعت",h8:"8 ساعت",h12:"12 ساعت",h24:"24 ساعت",
@@ -7380,7 +7415,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>0 بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت کارت‌های 4 و 5 بی‌اثر می‌شوند.",set_x_deadafter:"0 ← خودکار (~3×keepalive). 20 ← همهٔ تونل‌ها پس از 20ث سکوت مرده.",set_da_auto:"0 = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های 4 و 5 حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ 2×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = 0 باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",
+ set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>0 بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت کارت‌های 4 و 5 بی‌اثر می‌شوند.",set_x_deadafter:"0 ← خودکار (~3×keepalive). 20 ← همهٔ تونل‌ها پس از 20ث سکوت مرده.",set_da_auto:"0 = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های 4 و 5 حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ 2×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = 0 باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -9685,7 +9720,8 @@ function tuningCard(s){
     qr(T('set_t_deadafter'),'set_t_deadafter_d','set_x_deadafter',tNum('set_t_deadafter',_tv(s,'dead_after_secs'),0,300))+
     '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 6px"></div>'+
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
-    qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600)),'gkd')+
+    qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
+    qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),1,100)),'gkd')+
   grp('set_g4','set_g4h','set_g4c','sc-both',
     qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100),'tun-auto')+
     qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400),'tun-auto'),'g4')+
@@ -9699,7 +9735,7 @@ function tuningCard(s){
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a

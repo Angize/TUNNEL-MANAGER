@@ -278,6 +278,32 @@ def main():
               % (core_sep.group(1), node_sep.group(1),
                  [hex(ord(c)) for c in core_sep.group(1)], [hex(ord(c)) for c in node_sep.group(1)]))
 
+    print("== 2g) the tun-probe threshold: panel offers it, the NODE consumes it ==")
+    # The one Settings knob the node reads for itself instead of forwarding to the core, so its default
+    # and range are a panel<->NODE contract with no core side at all. Drift is silent both ways: a panel
+    # default that no longer matches the node's leaves an untouched fleet judged by a different number
+    # than Settings displays (the panel omits a knob that equals its default, so nothing is stamped and
+    # the node's own value decides), and a wider panel range lets the operator save a value the node
+    # then clamps without saying so.
+    n_pmin = re.search(r"^PROBE_MIN_PCT\s*=\s*(\d+)", node_src, re.M)
+    n_rng = re.search(r"^PROBE_MIN_PCT_RANGE\s*=\s*\((\d+),\s*(\d+)\)", node_src, re.M)
+    if not n_pmin or not n_rng:
+        check(False, "CANNOT PARSE the node's PROBE_MIN_PCT/_RANGE (found=%s/%s) -- THIS SCRIPT is out "
+                     "of date" % (bool(n_pmin), bool(n_rng)))
+    else:
+        check(p_def.get("probe_min_pct") == int(n_pmin.group(1)),
+              f"probe_min_pct default: panel={p_def.get('probe_min_pct')} node={n_pmin.group(1)}")
+        check(js_ok("probe_min_pct", p_def.get("probe_min_pct")),
+              f"jsdef  probe_min_pct: _TUNDEF={None if derived else js_def.get('probe_min_pct')} "
+              f"py={p_def.get('probe_min_pct')}")
+        n_pair = (int(n_rng.group(1)), int(n_rng.group(2)))
+        p_pair = tuple(p_rng.get("probe_min_pct")) if p_rng.get("probe_min_pct") else None
+        check(p_pair == n_pair, f"probe_min_pct range: panel={p_pair} node={n_pair}")
+    # It must NOT be a core knob. If it ever appears in tuning.go, the top-level/`tuning`-object split
+    # in _apply_core_tuning is wrong and this guard's whole model of the knob is stale.
+    check("probe_min_pct" not in tuning_go and "ProbeMinPct" not in tuning_go,
+          "probe_min_pct is absent from tuning.go -- it is the node's knob, not the core's")
+
     print("== 3) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
     check(n_keys == expected,
