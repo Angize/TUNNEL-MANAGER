@@ -193,10 +193,11 @@ _TUNING_DEFAULTS = {
     # 2 - dead detection / self-heal
     "keepalive": 15,          # fleet-wide keepalive (the base clock every dead-window scales off); was per-tunnel
     "dead_after_secs": 0,     # fleet-wide fixed dead-window (seconds); 0 = auto (derive from the multipliers below)
-    "idle_mult": 4,
-    "idle_min_secs": 60,
-    "session_stale_mult": 3,
-    "session_stale_min_secs": 10,
+    # ONE multiplier for every carrier: the dead window is dead_mult × keepalive and nothing else, so
+    # keepalive is the single number that moves them all. It used to be two multipliers and two seconds
+    # FLOORS -- the ws/tcp floor pinned that window at 60s for every keepalive at or under 15, and the
+    # datagram floor could not bind at all (3 × the minimum keepalive of 5 already exceeds it).
+    "dead_mult": 3,
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
@@ -220,8 +221,9 @@ _TUNING_DEFAULTS = {
 _PROBE_SAMPLES = 20
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
-    "idle_mult": (1, 100), "idle_min_secs": (1, 86400),
-    "session_stale_mult": (1, 100), "session_stale_min_secs": (1, 86400),
+    # min 2: keepaliveInterval is clamped to [0.6,1.3]×keepalive, so a 1× window would expire BETWEEN
+    # two pings and tear down a healthy idle carrier.
+    "dead_mult": (2, 100),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
     "probe_timeout_secs": (1, 120),
     # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
@@ -7277,19 +7279,14 @@ var I18N={fa:{
 
 
 
- set_t_idlemult:"ضریبِ idle (×keepalive)",set_t_idlemult_d:"برای تونل‌های ws و tcp. چند برابرِ keepalive سکوت را تحمل کند تا بگوید اتصال مرده است. مثلاً اگر keepalive 10 ثانیه باشد و این عدد 4، بعد از 40 ثانیه بی‌خبری اتصال را می‌بندد و از نو وصل می‌شود.",
- set_t_idlemin:"کفِ idle (ثانیه)",set_t_idlemin_d:"کفِ همان محاسبهٔ بالا. اگر ضرب‌کردن عددِ کوچکی درآورد، از این پایین‌تر نرود. جلوی این را می‌گیرد که یک کندیِ چندثانیه‌ایِ اینترنت، الکی قطعیِ تونل خوانده شود.",
- set_t_ssmult:"ضریبِ کهنگیِ سشن (×keepalive)",set_t_ssmult_d:"برای تونل‌های udp و raw و flux. این‌ها ارتباطِ دائمیِ برقرارشده ندارند، پس تنها نشانهٔ سالم‌بودنشان این است که داده می‌رسد. چند برابرِ keepalive سکوت را تحمل کند تا ارتباط را از نو برقرار کند.",
- set_t_ssmin:"کفِ کهنگیِ سشن (ثانیه)",set_t_ssmin_d:"کفِ همان محاسبه برای udp و raw و flux — از این کمتر، سکوت را به حسابِ قطعی نگذار.",
  set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"چند تا از آن بسته‌های «زنده‌ای؟» پشتِ‌هم بی‌جواب بماند تا اتصال را ببندد و دوباره وصل شود. کم که باشد سریع‌تر واکنش نشان می‌دهد، ولی روی اینترنتِ ناپایدار ممکن است بی‌خود قطع و وصل کند.",
  set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"برای اینکه بفهمد یک آی‌پیِ خراب دوباره سالم شده یا نه، یک اتصالِ آزمایشی می‌زند. این می‌گوید چند ثانیه منتظرِ جوابش بماند. اگر اینترنتت کند است این عدد را زیاد کن، وگرنه آی‌پیِ سالم را هم رد می‌کند.",
  set_g1:"1) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
  set_g2:"1) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
  set_g3:"2) بازآزماییِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/http",set_g3c:"فقط WS-CDN",
- set_g4:"4) تشخیصِ مرگِ استریم",set_g4h:"بر پایهٔ keepalive",set_g4c:"ws / tcp",
  set_g7:"5) آستانه‌های خرابی",set_g7h:"مستقل از مهلتِ ثابت",set_g7c:"همهٔ حامل‌ها",
- set_g5:"5) دیتاگرام: کهنگیِ سشن و کارایی",set_g5h:"بی‌هندشیک، به‌علاوهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
+ set_g5:"4) کاراییِ دیتاگرام",set_g5h:"اندازهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
  set_g6:"7) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
  set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود 2٫7 برابر شد). <b>0</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
@@ -7303,10 +7300,6 @@ var I18N={fa:{
 
 
 
- set_x_idlemult:"keepalive=10ث و ضریب=<b>4</b> ← 40ثانیه سکوت = اتصال مرده.",
- set_x_idlemin:"ضریب×keepalive شد 40ث، ولی کف=<b>60</b> ← مهلت 60ثانیه می‌شود.",
- set_x_ssmult:"keepalive=10 و ضریب=<b>3</b> ← 30ثانیه سکوت ← سشنِ نو ساخته می‌شود.",
- set_x_ssmin:"<b>10</b> = کمتر از 10ثانیه سکوت، سشن را کهنه حساب نکن.",
  set_x_pingloss:"<b>3</b> = سه پینگِ پشتِ‌هم بی‌جواب ← بستن و reconnect.",
  set_x_minlive:"<b>20</b> = اتصالی که بعد از 5ثانیه افتاد سشنِ واقعی نبود ← از آن لبه کنار برو، ولی متهمش نکن.",
  set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>5</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
@@ -7421,7 +7414,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>0 بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت کارت‌های 4 و 5 بی‌اثر می‌شوند.",set_x_deadafter:"0 ← خودکار (~3×keepalive). 20 ← همهٔ تونل‌ها پس از 20ث سکوت مرده.",set_da_auto:"0 = خودکار: پنجرهٔ مرگ از keepalive × ضریب‌های گروه‌های 4 و 5 حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ 2×keepalive آن را به {n} برد.)",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = 0 باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
+ set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، مهلتِ ثابت و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadafter:"مهلتِ قطعیِ ثابت (ثانیه)",set_t_deadafter_d:"اگر این‌قدر ثانیه هیچ داده‌ای از آن طرف نیاید، تونل را مرده حساب می‌کند و از نو وصل می‌شود. <b>0 بگذاری خودش حساب می‌کند</b> — همان که توصیه می‌شود. اگر عددی بگذاری، همان عدد برای همهٔ تونل‌ها استفاده می‌شود و آن‌وقت «ضریبِ پنجرهٔ مرگ» بی‌اثر می‌شود.",set_x_deadafter:"0 ← خودکار (~3×keepalive). 20 ← همهٔ تونل‌ها پس از 20ث سکوت مرده.",set_da_auto:"0 = خودکار: پنجرهٔ مرگ از keepalive × «ضریبِ پنجرهٔ مرگ» حساب می‌شود.",set_da_fixed:"یک عدد برای همهٔ حامل‌ها: هر تونل پس از {n} ثانیه سکوت مرده است.",set_da_floored:"({v} را نوشتی، ولی کفِ 2×keepalive آن را به {n} برد.)",set_t_deadmult:"ضریبِ پنجرهٔ مرگ (×keepalive)",set_t_deadmult_d:"چند برابرِ keepalive سکوت را تحمل کند تا تونل را مرده حساب کند. <b>یک عدد برای همهٔ حامل‌ها</b> — ws و tcp و udp و raw و flux همه از همین یکی استفاده می‌کنند، پس برای تشخیصِ سریع‌تر یا این را کم کن یا keepalive را. کمتر از 2 نمی‌شود: فاصلهٔ دو پینگ تا 1.3 برابرِ keepalive کش می‌آید و پنجره‌ای کوتاه‌تر از آن وسطِ دو پینگ می‌بُرد و اتصالِ سالم را می‌کشد.",set_x_deadmult:"keepalive=15 و ضریب=<b>3</b> ← 45ثانیه سکوت = مرده. keepalive را 10 کن ← 30ثانیه.",set_auto_only:"فقط در حالتِ خودکار — وقتی مهلتِ ثابت = 0 باشد",set_auto_off:"بی‌اثر — مهلتِ ثابت روشن است",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -9731,24 +9724,19 @@ function tuningCard(s){
     qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
     qr(T('set_t_deadafter'),'set_t_deadafter_d','set_x_deadafter',tNum('set_t_deadafter',_tv(s,'dead_after_secs'),0,300))+
     '<div class="muted" id="tun_dahint" style="font-size:11.5px;line-height:1.8;margin:8px 4px 6px"></div>'+
+    qr(T('set_t_deadmult'),'set_t_deadmult_d','set_x_deadmult',tNum('set_t_deadmult',_tv(s,'dead_mult'),2,100),'tun-auto')+
     qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
     qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
     qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
     '<div class="muted" id="tun_pmhint" style="font-size:11.5px;line-height:1.8;margin:-2px 4px 6px"></div>','gkd')+
-  grp('set_g4','set_g4h','set_g4c','sc-both',
-    qr(T('set_t_idlemult'),'set_t_idlemult_d','set_x_idlemult',tNum('set_t_idlemult',_tv(s,'idle_mult'),1,100),'tun-auto')+
-    qr(T('set_t_idlemin'),'set_t_idlemin_d','set_x_idlemin',tNum('set_t_idlemin',_tv(s,'idle_min_secs'),1,86400),'tun-auto'),'g4')+
-  /* MERGED: datagram staleness and the socket buffer are the same audience (udp/raw/flux). Safe only
-     because tun-auto moved to the ROW: the staleness knobs are greyed by a positive fixed deadline, the
-     socket buffer never is. Marking the whole CARD auto would grey out sock_buf and label it inert. */
+  /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier moved up
+     into card 3, because there is now ONE of it for every carrier. */
   grp('set_g5','set_g5h','set_g5c','sc-dgram',
-    qr(T('set_t_ssmult'),'set_t_ssmult_d','set_x_ssmult',tNum('set_t_ssmult',_tv(s,'session_stale_mult'),1,100),'tun-auto')+
-    qr(T('set_t_ssmin'),'set_t_ssmin_d','set_x_ssmin',tNum('set_t_ssmin',_tv(s,'session_stale_min_secs'),1,86400),'tun-auto')+
     qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64)),'g5')+
   '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),idle_mult:parseInt(v('set_t_idlemult')),idle_min_secs:parseInt(v('set_t_idlemin')),session_stale_mult:parseInt(v('set_t_ssmult')),session_stale_min_secs:parseInt(v('set_t_ssmin')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={keepalive:parseInt(v('set_t_keepalive')),dead_after_secs:parseInt(v('set_t_deadafter')),dead_retest_secs:_minSec(v('set_t_deadretest')),dead_mult:parseInt(v('set_t_deadmult')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // The stream/datagram multiplier groups only decide the dead window while the fixed deadline is 0: a
@@ -9759,18 +9747,16 @@ function tunDaSync(){var d=el('set_t_deadafter');if(!d)return;
  var v=Math.max(0,parseInt(d.value)||0),k=el('set_t_keepalive'),ka=Math.max(5,parseInt(k&&k.value)||15);
  var on=v>0,eff=Math.max(v,2*ka),h=el('tun_dahint');
  if(h)h.textContent=on?(T('set_da_fixed').replace('{n}',eff)+(eff>v?' '+T('set_da_floored').replace('{v}',v).replace('{n}',eff):'')):T('set_da_auto');
- // Grey out the AUTO-only knobs by ROW, not by card: a card can mix auto rows with manual ones (the
- // socket buffer shares a card with datagram staleness), and a card-level sweep would disable the
- // manual ones too and label them inert. One note per card that CONTAINS auto rows, placed under the
- // header so a collapsed card still reads correctly when opened.
- var rows=document.querySelectorAll('.setrow2.tun-auto'),seen=[];
+ // Grey out the AUTO-only knobs by ROW, and say so on the ROW. The note used to go on the CARD, which
+ // was already only just true and stopped being true when the multiplier became the single auto knob:
+ // it now shares a card with keepalive, the fixed deadline, the ping threshold, the session floor and
+ // the probe threshold, none of which the fixed deadline touches. A card-level «بی‌اثر» called all six inert.
+ var rows=document.querySelectorAll('.setrow2.tun-auto');
  for(var i=0;i<rows.length;i++){var r=rows[i];
   var ins=r.querySelectorAll('input');for(var q=0;q<ins.length;q++)ins[q].disabled=on;
   r.classList.toggle('tun-off',on);
-  var g=r.closest('.setgrp');if(g&&seen.indexOf(g)<0)seen.push(g)}
- for(var j=0;j<seen.length;j++){var g2=seen[j],n=g2.querySelector('.tun-state');
-  if(!n){n=document.createElement('div');n.className='tun-state';n.style.cssText='font-size:11px;line-height:1.7;margin:-2px 4px 8px';
-   var host=g2.querySelector('.setgrpb')||g2;host.insertBefore(n,host.firstChild)}
+  var n=r.querySelector('.tun-state');
+  if(!n){n=document.createElement('div');n.className='tun-state';n.style.cssText='font-size:11px;line-height:1.7;margin:-2px 4px 4px';r.appendChild(n)}
   n.textContent=on?T('set_auto_off'):T('set_auto_only');
   n.style.color=on?'var(--gold)':'var(--sub)'}}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
