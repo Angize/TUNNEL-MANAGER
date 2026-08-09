@@ -4281,18 +4281,29 @@ def api_delete_link(d):
         return {"ok": True}
 
 
+# The client sends the WHOLE chain a drag crossed, in order, and it is applied under one lock. One
+# request per crossed neighbour meant a three-place drag was three round-trips, and a failure part way
+# through persisted a PREFIX of a move the browser had already finished drawing.
+REORDER_MAX = 256
+
+
 def api_reorder(d):
     # Manual card ordering. For nodes/core/tunnels we swap the two items' positions in the persisted array,
     # which api_fleet/api_nodes iterate in order, so a raw swap moves the cards in every browser
     # permanently — no extra "ord" field and no migration. Port-forwards have no central array and use a
-    # key-order overlay instead. The client sends a card id and its visible neighbour, which are adjacent.
-    _require(d, ["kind", "id", "target"])
+    # key-order overlay instead. Each target was a VISIBLE neighbour at the moment it was crossed, so
+    # replaying them in order reproduces exactly what the operator saw.
+    _require(d, ["kind", "id", "targets"])
     kind = d["kind"]
-    aid, bid = str(d["id"]), str(d["target"])
-    if aid == bid:
+    aid = str(d["id"])
+    targets = d["targets"]
+    if not isinstance(targets, list) or len(targets) > REORDER_MAX:
+        raise ValueError("targets must be a list of at most %d ids" % REORDER_MAX)
+    targets = [str(t) for t in targets if str(t) != aid]
+    if not targets:
         return {"ok": True}
     if kind == "portfw":                   # no central array -> reorder via the key overlay (see _reorder_portfw)
-        return _reorder_portfw(aid, bid)
+        return _reorder_portfw(aid, targets)
     if kind == "nodes":
         path, loader = NODES_FILE, load_nodes
     elif kind in ("core", "tunnels"):
@@ -4302,10 +4313,14 @@ def api_reorder(d):
     with _reg_lock:  # same RMW lock as every other nodes.json / links.json write
         items = loader()
         pos = {str(it.get("id")): i for i, it in enumerate(items)}
-        if aid not in pos or bid not in pos:
+        # Validate the WHOLE chain before touching anything: a bad id half way through would otherwise
+        # save a partial order, which is the failure this function stopped having.
+        if aid not in pos or any(t not in pos for t in targets):
             raise ValueError("item not found")
-        i, jx = pos[aid], pos[bid]
-        items[i], items[jx] = items[jx], items[i]
+        for bid in targets:
+            i, jx = pos[aid], pos[bid]
+            items[i], items[jx] = items[jx], items[i]
+            pos[aid], pos[bid] = jx, i
         save_json(path, items)
     return {"ok": True}
 
@@ -5839,14 +5854,15 @@ def _pf_natural_keys():
     return keys
 
 
-def _reorder_portfw(a, b):
+def _reorder_portfw(a, targets):
     natural = _pf_natural_keys()          # RAM-cache read; do it BEFORE taking _reg_lock (no lock nesting)
     with _reg_lock:
         cur = _pf_sorted(natural, lambda k: k)   # current full order = natural set under the existing overlay
-        if a not in cur or b not in cur:
+        if a not in cur or any(b not in cur for b in targets):
             raise ValueError("item not found")
-        ia, ib = cur.index(a), cur.index(b)
-        cur[ia], cur[ib] = cur[ib], cur[ia]
+        for b in targets:
+            ia, ib = cur.index(a), cur.index(b)
+            cur[ia], cur[ib] = cur[ib], cur[ia]
         save_json(PORTFW_ORDER_FILE, cur)         # persist the whole order so later swaps are always well-defined
     return {"ok": True}
 
@@ -7459,8 +7475,23 @@ function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=
 function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
 (function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
 var H={'Content-Type':'application/json','X-Requested-With':'tnl-central'};
-function j(u){return fetch('/api/'+u).then(function(r){return r.json()})}
-function post(u,b){return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{})}).then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})}
+// fetch has NO timeout of its own, so a stalled request never settles and whatever guard flag its
+// caller is holding stays held forever: one hung `reorder` left RSAVE true, which kills every list
+// refresh AND every later drag until a reload, and a hung GET stalls tick()'s whole reschedule chain.
+var NET_TIMEOUT=20000;
+function _abo(){var ac=window.AbortController?new AbortController():null;
+ return{s:ac?ac.signal:undefined,t:ac?setTimeout(function(){ac.abort()},NET_TIMEOUT):0}}
+// j REJECTS on failure on purpose: refreshX aborts before setHTML, so a blip leaves the list as it is
+// rather than blanking it. Only the hang becomes bounded.
+function j(u){var g=_abo();return fetch('/api/'+u,{signal:g.s}).then(function(r){return r.json()})
+ .then(function(v){clearTimeout(g.t);return v},function(e){clearTimeout(g.t);throw e})}
+// post RESOLVES {ok:false} instead: all but one of its callers await it with no try, so a rejection
+// took the whole handler down silently and left its flag set.
+function post(u,b){var g=_abo();
+ return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{}),signal:g.s})
+  .then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})
+  .catch(function(){return{ok:false,d:{}}})
+  .then(function(v){clearTimeout(g.t);return v})}
 function logout(){post('logout').then(function(){location.href='/'})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function el(id){return document.getElementById(id)}
@@ -8393,24 +8424,35 @@ function reordShift(nb,up){
  if(dy){nb.style.transition='none';nb.style.transform='translateY('+dy+'px)';void nb.offsetHeight;nb.style.transition='';nb.style.transform=''}
  RORD.swaps.push(nb.getAttribute('data-rid'));
 }
-function reordEnd(){
- if(!RORD)return;var d=RORD;RORD=null;
+function reordEnd(e){
+ if(!RORD)return;
+ // Only THIS drag's pointer ends it. Any other pointer's up — a second finger, a palm — used to end a
+ // drag the real finger was still holding, and the card then followed nothing.
+ if(e&&e.pointerId!=null&&e.pointerId!==RORD.pid)return;
+ var d=RORD;RORD=null;
  if(RORD_AS){cancelAnimationFrame(RORD_AS);RORD_AS=0;}
  try{d.card.releasePointerCapture(d.pid)}catch(_){}
  d.card.classList.remove('rdrag');d.card.style.transform='';document.body.classList.remove('rdragging');
  if(d.swaps.length)reordPersist(d.kind,d.id,d.swaps);
 }
-async function reordPersist(kind,id,swaps){
+// ONE request for the whole chain. It used to be one per crossed neighbour, awaited in sequence: a
+// three-place drag was three round-trips with RSAVE held across all of them, and a failure half way
+// left the server holding a PREFIX of a move the screen had already finished drawing.
+async function reordPersist(kind,id,targets){
  RSAVE=true;
- try{for(var i=0;i<swaps.length;i++){var r=await post('reorder',{kind:kind,id:id,target:swaps[i]});if(!r.ok||!r.d.ok){toast((r.d&&r.d.error)||T('reorder_err'),'err');break}}}
+ try{var r=await post('reorder',{kind:kind,id:id,targets:targets});
+  if(!r.ok||!r.d.ok)toast((r.d&&r.d.error)||T('reorder_err'),'err');}
  catch(_){toast(T('reorder_err'),'err')}
- RSAVE=false;
+ finally{RSAVE=false}
  if(kind==='nodes')refreshNodes();else if(kind==='core')refreshCore();else if(kind==='portfw')refreshPortfw();else refreshTunnels();
 }
 document.addEventListener('pointerdown',reordDown,true);
 document.addEventListener('pointermove',reordMove,true);
 document.addEventListener('pointerup',reordEnd,true);
 document.addEventListener('pointercancel',reordEnd,true);
+// The capture can be taken away without a pointerup — the card removed, the view swapped — and RORD
+// left set blocks every refresh and every later drag exactly like a stuck RSAVE did.
+document.addEventListener('lostpointercapture',reordEnd,true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
