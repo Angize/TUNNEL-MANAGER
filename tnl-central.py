@@ -816,26 +816,29 @@ def node_push(node, endpoint, body, on_progress=None, timeout=200, chunk=64 * 10
             sent += n
             if on_progress:
                 on_progress(sent, total)
-        raw = b""
-        while b"\r\n\r\n" not in raw:            # headers first, then the body the node replied with
+        # ONE read loop, so all three framings land correctly: headers split across recv calls, a
+        # Content-Length body, and a close-framed body with no Content-Length at all -- which the earlier
+        # two-loop version truncated to whatever the first recv happened to hold.
+        raw, head_blob, rest, clen = b"", b"", b"", None
+        while True:
             b = sock.recv(65536)
             if not b:
-                break
+                break                            # EOF: close-framed reply is complete
             raw += b
             if len(raw) > 1048576:
                 raise OSError("response too large")
-        head_blob, _, rest = raw.partition(b"\r\n\r\n")
-        clen = next((int(l.split(b":")[1]) for l in head_blob.split(b"\r\n")
-                     if l.lower().startswith(b"content-length:")), None)
-        while clen is not None and len(rest) < clen:
-            b = sock.recv(65536)
-            if not b:
+            head_blob, sep, rest = raw.partition(b"\r\n\r\n")
+            if not sep:
+                continue
+            clen = next((int(l.split(b":", 1)[1]) for l in head_blob.split(b"\r\n")
+                         if l.lower().startswith(b"content-length:")), None)
+            if clen is not None and len(rest) >= clen:
                 break
-            rest += b
         try:
             out = json.loads(rest.decode())
         except Exception:
-            return {"ok": False, "error": "پاسخِ نامعتبر از نود"}
+            st = head_blob.split(b" ")
+            return {"ok": False, "error": "HTTP %s از نود" % (st[1].decode() if len(st) > 1 else "?")}
         return out if isinstance(out, dict) else {"ok": False, "error": "non-dict node response"}
     except Exception as e:
         return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:90]}
@@ -1058,17 +1061,78 @@ _px = {}          # proxy id -> {ok, ms, error, end_to_end, ts}
 
 
 def _proxy_probe(p, timeout=6):
-    """A proxy's health is the PROXY's own reachability, and its latency is the proxy's own.
+    """Is this proxy WILLING to work? Speak its protocol, do not just open a socket.
 
-    Deliberately not measured through a node: borrowing a node's ping made the verdict depend on which
-    node happened to be listed first, so a healthy proxy read as down because one node behind it was,
-    and the number shown was that node's round trip rather than the proxy's.
+    A TCP connect only proves something is listening: a proxy that has been blocked, or whose account is
+    disabled, still accepts the connection and then refuses to relay -- so a bare connect reported it
+    GREEN while every node behind it was cut off (measured by the operator).
+
+    So the probe runs the real negotiation: SOCKS5 greeting plus user/pass auth, or an HTTP CONNECT, and
+    reads the proxy's own answer. Still the proxy alone -- no node is involved, and no third-party
+    destination whose reachability would be misreported as the proxy's.
+
+    Remaining limit, stated: a proxy that authenticates us and then refuses one particular destination
+    cannot be caught without naming a destination, so that case still reads as up.
     """
     t0 = time.monotonic()
+    host, port = p["host"], int(p["port"])
+    user, pw = p.get("user") or "", p.get("pass") or ""
+    s = None
     try:
-        socket.create_connection((p["host"], int(p["port"])), timeout).close()
+        s = socket.create_connection((host, port), timeout)
+        s.settimeout(timeout)
+        if p["scheme"] == "socks5":
+            s.sendall(b"\x05\x02\x00\x02" if user else b"\x05\x01\x00")
+            head = b""
+            while len(head) < 2:
+                c = s.recv(2 - len(head))
+                if not c:
+                    raise OSError("پروکسی اتصال را بست")
+                head += c
+            if head[0:1] != b"\x05":
+                raise OSError("پاسخِ پروکسی SOCKS5 نیست")
+            method = head[1]
+            if method == 0xFF:
+                raise OSError("پروکسی روشِ احرازِ ما را نپذیرفت")
+            if method == 2:
+                if not user:
+                    raise OSError("پروکسی یوزر/پسورد می‌خواهد")
+                u, w = user.encode(), pw.encode()
+                s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
+                ares = b""
+                while len(ares) < 2:
+                    c = s.recv(2 - len(ares))
+                    if not c:
+                        raise OSError("پروکسی هنگامِ احراز اتصال را بست")
+                    ares += c
+                if ares[1] != 0:
+                    raise OSError("یوزر/پسوردِ پروکسی پذیرفته نشد")
+        else:                                   # http: the CONNECT verb is the only thing that answers
+            s.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n" % (host, port, host, port)).encode()
+                      + ((b"Proxy-Authorization: Basic "
+                          + base64.b64encode(("%s:%s" % (user, pw)).encode()) + b"\r\n") if user else b"")
+                      + b"\r\n")
+            line = b""
+            while b"\r\n" not in line:
+                c = s.recv(256)
+                if not c:
+                    raise OSError("پروکسی بدونِ پاسخ اتصال را بست")
+                line += c
+                if len(line) > 8192:
+                    break
+            if not line.startswith(b"HTTP/"):
+                raise OSError("پاسخِ پروکسی HTTP نیست")
+            code = line.split(b" ")[1].decode(errors="replace") if b" " in line else "?"
+            if code == "407":
+                raise OSError("یوزر/پسوردِ پروکسی پذیرفته نشد (407)")
     except Exception as e:
         return {"ok": False, "ms": None, "error": str(e).split("] ")[-1][:90], "ts": time.time()}
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
     return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
 
 
@@ -2838,9 +2902,22 @@ def _push_job_new(kind, nodes):
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
             _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
+                           "cancel": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
                                                "error": ""} for n in nodes}}
     return jid
+
+
+def _push_active():
+    """(jid, job) of the upload still running, or (None, None).
+
+    The worker runs on the panel and never depended on the browser -- this is what lets a freshly loaded
+    page find the upload again instead of the operator being told the process is gone."""
+    with _push_lock:
+        for jid, j in sorted(_push_jobs.items(), key=lambda kv: kv[1].get("ts", 0), reverse=True):
+            if not j["done"]:
+                return jid, j
+    return None, None
 
 
 def _push_set(jid, nid, **kw):
@@ -2855,9 +2932,20 @@ def _push_worker(jid, kind, nodes, payload):
     on -- the whole point is that one dead node cannot cancel the rest of the fleet's upload."""
     for n in nodes:
         nid = n["id"]
+        with _push_lock:                       # cancel is honoured BETWEEN nodes: a node already
+            j = _push_jobs.get(jid)            # mid-upload finishes or times out on its own
+            if j and j.get("cancel"):
+                # from THIS node onward -- everything before it already has its own verdict, and the
+                # queue is strictly sequential so nothing from here on has been touched yet
+                for rest in j["order"][j["order"].index(nid):]:
+                    j["nodes"][rest].update(state="skip", pct=0)
+                break
         try:
+            fresh = get_node(nid)
+            if not fresh:                      # deleted while the queue was working through the fleet
+                _push_set(jid, nid, state="err", error="نود حذف شد")
+                continue
             _push_set(jid, nid, state="send", pct=0)
-            fresh = get_node(nid) or n
             _ensure_update_key(fresh)          # fail-closed verification needs the key before the push
             body, endpoint, timeout = payload(fresh)
             if body is None:                   # nothing pushable for this node (e.g. unknown arch)
@@ -2886,13 +2974,35 @@ def _push_worker(jid, kind, nodes, payload):
 
 
 def api_push_status(d):
-    _require(d, ["job"])
+    """With a job id: that job. WITHOUT one: whichever upload is still running, so a page that was just
+    reloaded reattaches to it instead of being told the upload is gone."""
+    jid = str((d or {}).get("job") or "")
+    if not jid:
+        jid, j = _push_active()
+        if not jid:
+            return {"ok": True, "job": "", "idle": True}
     with _push_lock:
-        j = _push_jobs.get(str(d["job"]))
+        j = _push_jobs.get(jid)
         if not j:
             raise ValueError("job not found")
-        return {"ok": True, "kind": j["kind"], "done": j["done"], "order": list(j["order"]),
+        return {"ok": True, "job": jid, "kind": j["kind"], "done": j["done"],
+                "cancel": bool(j.get("cancel")), "order": list(j["order"]),
                 "nodes": {k: dict(v) for k, v in j["nodes"].items()}}
+
+
+def api_push_cancel(d):
+    """Stop before the NEXT node. The one already uploading cannot be torn off mid-socket, so it finishes
+    or times out; the queue behind it is marked skipped."""
+    jid = str((d or {}).get("job") or "") or _push_active()[0]
+    with _push_lock:
+        j = _push_jobs.get(jid or "")
+        if not j:
+            raise ValueError("job not found")
+        if j["done"]:
+            return {"ok": True, "already_done": True}
+        j["cancel"] = True
+    log_event("warn", "node", "دلیل: لغوِ آپلود به فلیت توسطِ اپراتور")
+    return {"ok": True, "job": jid}
 
 
 def api_agent_push(d):
@@ -3205,6 +3315,31 @@ def api_core_stage(d):
     return {"ok": True, **info}
 
 
+def _staged_payload():
+    """A payload callable for the staged core, memoized PER ARCHITECTURE.
+
+    The push asks per node, and the bytes only vary by arch -- so without this a 12-node fleet
+    base64-encoded and json-dumped the same 10MB binary twelve times (~86ms of CPU and ~28MB of garbage
+    each) and spawned openssl twelve times to sign the same hash. At most two encodings now, whatever the
+    fleet size."""
+    cache = {}
+
+    def payload(n):
+        arch = _node_arch(n)
+        if not arch:
+            return None, "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", 0
+        if arch not in cache:
+            b = _staged_bytes(arch)
+            if not b:
+                return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
+            raw, sha, ver = b
+            cache[arch] = ({"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver,
+                            "sig": _sign_sha(sha)}, "core-install", 300)
+        return cache[arch]
+
+    return payload
+
+
 def _core_job(ids, payload):
     nodes = [n for n in (get_node(i) for i in ids) if n]
     if not nodes:
@@ -3241,18 +3376,7 @@ def api_core_update(d):
 
     _stage_core(version)   # download the chosen version onto the panel first (raises if the panel is offline)
 
-    def payload_staged(n):
-        arch = _node_arch(n)
-        if not arch:
-            return None, "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", 0
-        b = _staged_bytes(arch)
-        if not b:
-            return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
-        raw, sha, ver = b
-        return ({"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver,
-                 "sig": _sign_sha(sha)}, "core-install", 300)
-
-    return _core_job(ids, payload_staged)
+    return _core_job(ids, _staged_payload())
 
 
 def api_core_push(d):
@@ -3265,18 +3389,7 @@ def api_core_push(d):
         raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
-    def payload(n):
-        arch = _node_arch(n)
-        if not arch:
-            return None, "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", 0
-        b = _staged_bytes(arch)
-        if not b:
-            return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
-        raw, sha, ver = b
-        return ({"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver,
-                 "sig": _sign_sha(sha)}, "core-install", 300)
-
-    return _core_job(ids, payload)
+    return _core_job(ids, _staged_payload())
 
 
 def api_fleet(d):
@@ -6589,10 +6702,10 @@ API = {
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-check": api_core_check, "core-update": api_core_update,
-    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status,
+    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status, "push-cancel": api_push_cancel,
     "reorder": api_reorder,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -7594,8 +7707,10 @@ var I18N={fa:{
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",ag_p_send:"در حالِ آپلود…",ag_p_apply:"نود دارد اعمال می‌کند…",
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
- ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",ag_p_lost:"ارتباط با پنل در حینِ آپلود قطع شد",
- px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",px_rtt:"پینگِ خودِ پروکسی:",
+ ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",
+ ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
+ ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود به بقیهٔ نودها لغو شود؟ نودی که همین حالا در حالِ آپلود است تمام می‌شود.",
+ px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
@@ -7604,7 +7719,7 @@ var I18N={fa:{
  log_details:"جزئیات",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
- online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",sending:"در حال ارسال…",loading:"در حال بارگذاری…",
+ online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
  no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
  prev:"قبلی",next:"بعدی",page:"صفحه",of:"از",items:"مورد",search:"جستجو…",
  disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
@@ -7770,10 +7885,10 @@ var I18N={fa:{
  ag_binary:"باینری",ag_install_all:"نصبِ هسته روی همهٔ نودها",ag_search:"جستجوی نود…",ag_ready:"آمادهٔ پوش",ag_empty:"خالی",ag_no_item:"موردی نیست",
  ag_core_hint:"⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.",
  ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",
- ag_no_online:"نودِ آنلاینی نیست",ag_skipped_off:"آفلاین — رد شد",ag_fail:"ناموفق: ",ag_already:"از قبل به‌روز",ag_updated:"به‌روز شد",ag_restarting:" · در حال ری‌استارت…",
- ag_nodes_updated:" نود بروزرسانی شد",ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
+ ag_no_online:"نودِ آنلاینی نیست",
+ ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
- ag_installing_core:"در حال نصبِ هسته…",ag_core_already:"هسته از قبل به‌روز بود",ag_core_updated:"هسته به‌روز شد",
+ 
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  fmt_day:"روز",fmt_hr:"ساعت",fmt_min:"دقیقه",fmt_sec:"ثانیه",fmt_and:"و",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
@@ -7897,7 +8012,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  ag_no_agent_loaded:"هنوز ایجنتی بارگذاری نشده — «دریافت از گیت‌هاب» یا «فایلِ ایجنت».",
  ag_no_core_staged:"هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.",
  cor_downloading:"در حال دانلودِ هسته روی پنل…",cor_staged_pre:"هستهٔ «",cor_staged_post:"» روی پنل آماده شد",
- cor_pushing:"در حال پوشِ هستهٔ آماده…",cor_reading_upload:"در حال خواندن و آپلودِ باینری…",cor_read_fail:"خواندنِ فایل ناموفق",
+ cor_reading_upload:"در حال خواندن و آپلودِ باینری…",cor_read_fail:"خواندنِ فایل ناموفق",
  cor_bin_saved_pre:"باینری ذخیره شد: ",cor_bin_saved_post:" — «نصبِ همه» را بزن یا از منوی هر نود",
  ag_pick_file_first:"اول فایلِ ایجنت را انتخاب کن",ag_checking_saving:"در حال بررسی و ذخیره…",ag_saved_pre:"ذخیره شد: v",
  ag_fetching_git:"در حال دریافت از گیت‌هاب…",ag_fetched_pre:"دریافت شد: v",ag_fetched_post:" — حالا «پوشِ همه» را بزن",
@@ -8721,7 +8836,7 @@ function openRebuildPicker(id){
    secs+='<div class="nd-sec">'+esc(side.node)+' — '+esc(T('rb_newip'))+'</div><div class="rbsec">'+
      (side.ips&&side.ips.length?side.ips.map(function(x){return rbRow(key,x)}).join(''):'<div class="muted" style="font-size:12px;padding:4px 2px">'+esc(T('rb_no_ip'))+'</div>')+'</div>'});
   if(!secs){toast(T('rb_no_drift'),'ok');refreshTunnels();return}
-  var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">'+esc(T('rb_info'))+'</div>'+secs;
+  var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">'+esc(T('rb_info'))+'</div>'+secs+'<div class="msg" id="rb_msg"></div>';
   _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>'+esc(T('rb_title'))+'</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="doRebuildPick(\\''+id+'\\')">'+ic('redo')+esc(T('tip_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
  }).catch(function(){toast(T('rb_fetch_err'),'err')})}
 function rbRow(key,x){var sel=_rbSel[key]==x.ip;
@@ -8730,9 +8845,12 @@ function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
  var sec=row.closest('.rbsec')||row.parentNode;sec.querySelectorAll('.rbrow').forEach(function(r){r.classList.remove('sel')});
  row.classList.add('sel')}
 async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
- toast(T('rebuilding'));
+ var m=el('rb_msg');if(m){m.className='msg';m.textContent=T('rebuilding')}
  var r=await post('rebuild-link',body);
  if(r.ok&&r.d.ok){toast(T('t_rebuilt'),'ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
+ // A rebuild can fail for a reason only the node knows. A toast fades, and on a phone that reads as
+ // "the button does nothing" -- so the reason goes in the sheet, the way every other form reports one.
+ else if(m)formErr(m,terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')));
  else toast(terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')),'err')}
 async function delLink(id){
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
@@ -9825,7 +9943,7 @@ function pxCard(p,i){var open=!!TOPEN[p.id];
  var dotk=p.online?'on':(p.pending?'':'off');
  var st=p.status||{};
  var ttl=p.pending?T('pending_check'):(p.online?T('online'):T('offline'))
-  +(st.error?' — '+terr(st.error):'')+(st.ms!=null?' · '+num(st.ms)+'ms':'');
+  +(st.error?' — '+terr(st.error):'');
  var used=p.nodes&&p.nodes.length?esc(T('px_used_by'))+esc(p.nodes.join('، ')):'<span class="muted">'+esc(T('px_used_none'))+'</span>';
  var head='<div class="chead" onclick="cardTogFromEl(this)"><span class="grow"></span>'
   +'<div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0">'
@@ -9833,7 +9951,6 @@ function pxCard(p,i){var open=!!TOPEN[p.id];
   +'<div class="muted mono" style="font-size:12px">'+esc(p.addr)+'</div></div>'
   +'<span class="ndot '+dotk+'" title="'+esc(ttl)+'"></span>'+CHEVI+'</div>';
  var meta='<div class="pxused">'+used+'</div>'
-  +(st.ms!=null?'<div class="pxused">'+esc(T('px_rtt')+' '+num(st.ms)+'ms')+'</div>':'')
   +(st.error?'<div class="pxused" style="color:var(--bad)">'+esc(terr(st.error))+'</div>':'');
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" onclick="testPx('+i+')">'+ic('bolt')+'</button>'
   +'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
@@ -9961,6 +10078,7 @@ function agentBody(){return ''+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
   '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
+  pushCancelRow()+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
  '</div>'+
@@ -9974,6 +10092,7 @@ function agentBody(){return ''+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
   '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
+  pushCancelRow()+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+
   '<div class="msg" id="cor_msg"></div>'+
@@ -9991,7 +10110,11 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  loadCoreVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
- box.innerHTML=nodes.length?nodes.map(agRow).join(''):'<div class="card muted">'+esc(T('ag_no_item'))+'</div>';renderPager('agent')}
+ // setHTML, not innerHTML=: it skips the rebuild when nothing changed. Then the LIVE upload's bars are
+ // re-applied, because this list refreshes every ui_interval and used to wipe them off the screen.
+ setHTML(box,nodes.length?nodes.map(agRow).join(''):'<div class="card muted">'+esc(T('ag_no_item'))+'</div>');renderPager('agent');
+ if(PUSHSTATE)pushPaint(PUSHSTATE);
+ if(!PUSHJOB)pushAdopt()}
 var CORVERS=[],STAGED=null;
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[]}});
@@ -10090,34 +10213,53 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  await refreshAgent()}
 // One push job at a time, drawn per node under its own card. The panel uploads to ONE node at a time, so
 // the bars fill in turn; a node that fails or times out stays red and the queue moves on without it.
-var PUSHJOB=null;
+var PUSHJOB=null,PUSHSTATE=null;
+// The worker runs on the PANEL, not in this page: reloading the browser, or losing it entirely, does not
+// stop the upload. pushAdopt reattaches to whatever is still running, which is why a manual refresh shows
+// the continuation instead of an empty page.
+async function pushAdopt(){if(PUSHJOB)return;
+ var r=await j('push-status').catch(function(){return null});
+ if(!r||!r.ok||r.idle||!r.job||r.done)return;
+ PUSHJOB=r.job;pushCancelShow(true);pushPaint(r);pushPoll(r.job)}
+async function pushCancel(){if(!PUSHJOB)return;
+ if(!await confirmBox(T('ag_p_cancel_q'),T('ag_p_cancel')))return;
+ var r=await post('push-cancel',{job:PUSHJOB});
+ if(!(r.ok&&r.d&&r.d.ok))toast(perr(r),'err')}
+// Shown only while an upload is live. It stops the queue before the NEXT node -- the one already
+// uploading cannot be torn off its socket, so it finishes or times out.
+function pushCancelRow(){return '<div id="ag_cancel" style="display:none;margin-top:7px">'
+ +'<button class="ghost" style="width:100%" onclick="pushCancel()">'+ic('xc')+esc(T('ag_p_cancel'))+'</button></div>'}
+function pushCancelShow(on){document.querySelectorAll('#ag_cancel').forEach(function(e){e.style.display=on?'':'none'})}
 function pushBar(st){
  var pct=Math.max(0,Math.min(100,num(st.pct)));
  var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
  var txt={wait:T('ag_p_wait'),send:T('ag_p_send'),apply:T('ag_p_apply'),ok:T('ag_p_ok'),
-          same:T('ag_p_same'),err:terr(st.error||T('ag_p_err'))}[st.state]||'';
+          same:T('ag_p_same'),skip:T('ag_p_skip'),err:terr(st.error||T('ag_p_err'))}[st.state]||'';
  return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
   +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
-function pushPaint(d){var ns=d.nodes||{};
+function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
  (d.order||[]).forEach(function(nid){var m=el('agres_'+nid),st=ns[nid];if(!m||!st)return;
    m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
    setHTML(m,pushBar(st))})}
-async function pushPoll(job){
- for(;;){
-   var r=await j('push-status?job='+encodeURIComponent(job)+'&_='+Date.now()).catch(function(){return null});
-   if(!r||!r.ok){toast(T('ag_p_lost'),'err');PUSHJOB=null;return}
-   pushPaint(r);
-   if(r.done)break;
-   await new Promise(function(res){setTimeout(res,400)})}
- PUSHJOB=null;
- setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
+// A core push is megabytes per node and takes minutes; one blip must not end the tracking while the panel
+// is still uploading. Tolerate consecutive failures the way the install poller does, and release PUSHJOB
+// in a finally -- a throw in here used to leave the button unusable until a reload.
+async function pushPoll(job){var fails=0;
+ try{
+  for(;;){
+    var r=await j('push-status?job='+encodeURIComponent(job)+'&_='+Date.now()).catch(function(){return null});
+    if(!r||!r.ok){if(++fails>=45){toast(T('ag_p_lost'),'err');return}}
+    else{fails=0;pushPaint(r);if(r.done)break}
+    await new Promise(function(res){setTimeout(res,400)})}
+  setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
+ finally{PUSHJOB=null;PUSHSTATE=null;pushCancelShow(false)}}
 async function pushStart(cmd,body,ids){
  if(PUSHJOB){toast(T('ag_p_busy'),'err');return}
  ids.forEach(function(id){var m=el('agres_'+id);
    if(m){m.className='msg agres';setHTML(m,pushBar({state:'wait',pct:0}))}});
  var res=await post(cmd,body);
  if(!(res.ok&&res.d&&res.d.job)){toast(perr(res),'err');return}
- PUSHJOB=res.d.job;await pushPoll(PUSHJOB)}
+ PUSHJOB=res.d.job;pushCancelShow(true);await pushPoll(PUSHJOB)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});

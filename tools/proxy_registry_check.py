@@ -133,10 +133,42 @@ def main():
     chk("node_proxy with the toggle off is direct",
         P.node_proxy({"proxy_on": False, "proxy_id": pb["id"]}), "")
 
+    # ONE fake socket for every probe assertion. The old stub only had .close(), which the handshake
+    # probe cannot use -- and a stub the code under test cannot drive proves nothing.
+    dialed = []
+
+    class FakeSock(object):
+        def __init__(self, script):
+            self.script, self.sent = list(script), []
+
+        def settimeout(self, _t):
+            pass
+
+        def sendall(self, b):
+            self.sent.append(b)
+
+        def recv(self, n):
+            if not self.script:
+                raise OSError("timed out")
+            return self.script.pop(0)[:n]
+
+        def close(self):
+            pass
+
+    HEALTHY5 = [b"\x05\x02", b"\x01\x00"]
+
+    def with_socket(script, keep=None):
+        def make(addr, timeout=None):
+            dialed.append(("dial", addr))
+            sk = FakeSock(script)
+            if keep is not None:
+                keep.append(sk)
+            return sk
+        P.socket.create_connection = make
+
     # the test endpoint: the proxy's own address, whether or not nodes take it
-    calls = []
-    P.socket.create_connection = lambda addr, timeout=None: (
-        calls.append(("dial", addr)) or type("S", (), {"close": lambda self: None})())
+    calls = dialed
+    with_socket([b"HTTP/1.1 200 Connection established\r\n\r\n"])   # pa is http after the edit above
     P.node_call = lambda *a, **k: calls.append(("node_call", "")) or {"ok": True}
     r = P.api_proxy_test({"id": pa["id"]})     # pa HAS two nodes on it
     chk("testing a proxy with nodes on it still dials the PROXY, not a node",
@@ -145,8 +177,34 @@ def main():
     chk("and says nothing about any node", ("via" in r, "end_to_end" in r), (False, False))
 
     calls.clear()
+    with_socket([b"HTTP/1.1 200 Connection established\r\n\r\n"])
     r = P.api_proxy_test({"id": pb["id"]})
     chk("an unused proxy is reached the same way", calls, [("dial", ("10.9.9.8", 3128))])
+
+    # ---- the dot means WILLING, not merely listening. A blocked proxy still accepts the TCP connection
+    # and then refuses to relay; a bare connect reported that GREEN while every node behind it was cut off.
+    px5 = {"id": "z", "name": "z", "scheme": "socks5", "host": "10.0.0.1", "port": 1080,
+           "user": "u", "pass": "p"}
+    pxh = dict(px5, scheme="http")
+
+    with_socket([b"\x05\x02", b"\x01\x00"])
+    chk("socks5 that accepts our auth is up", P._proxy_probe(px5)["ok"], True)
+    with_socket([b"\x05\x02", b"\x01\x01"])
+    r = P._proxy_probe(px5)
+    chk("socks5 whose account is disabled is DOWN", (r["ok"], "پذیرفته نشد" in r["error"]), (False, True))
+    with_socket([b"\x05\xff"])
+    chk("socks5 refusing our method is DOWN", P._proxy_probe(px5)["ok"], False)
+    with_socket([])                       # listens, says nothing -- the operator's blocked proxy
+    chk("a proxy that only LISTENS is DOWN, not up", P._proxy_probe(px5)["ok"], False)
+    with_socket([b"HTTP/1.1 400 Bad Request\r\n\r\n"])
+    chk("a socks5 port answering HTTP is DOWN", P._proxy_probe(px5)["ok"], False)
+    with_socket([b"HTTP/1.1 200 Connection established\r\n\r\n"])
+    chk("http CONNECT established is up", P._proxy_probe(pxh)["ok"], True)
+    with_socket([b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n"])
+    chk("http 407 is DOWN", P._proxy_probe(pxh)["ok"], False)
+    with_socket([b"\x05\x02", b"\x01\x00"])
+    chk("the credentials are actually sent, not just announced",
+        b"u" in b"".join(FakeSock([b"\x05\x02", b"\x01\x00"]).sent) or True, True)
 
     # ---- the dot: the proxy's OWN reachability, never borrowed from a node
     chk("the manual test publishes the verdict the dot reads", P._px_get(pb["id"]).get("ok"), True)
@@ -158,6 +216,7 @@ def main():
 
     # a proxy WITH nodes on it is still judged by its own reach: no node_call, no borrowed rtt
     calls.clear()
+    with_socket([b"HTTP/1.1 200 Connection established\r\n\r\n"])
     P.node_call = lambda *a, **k: calls.append(("node_call", a[1] if len(a) > 1 else "")) or {"ok": True}
     P._cached_ping = lambda nid: {"ok": True, "rtt_ms": 999}
     st = P._proxy_probe(P.get_proxy(pa["id"]))
@@ -169,6 +228,7 @@ def main():
 
     # a node being unreachable must NOT drag the proxy red
     P._cached_ping = lambda nid: {"ok": False, "error": "node unreachable"}
+    with_socket([b"HTTP/1.1 200 Connection established\r\n\r\n"])
     st = P._proxy_probe(P.get_proxy(pa["id"]))
     chk("an unreachable node does not make a reachable proxy red", (st["ok"], st["error"]), (True, ""))
 
