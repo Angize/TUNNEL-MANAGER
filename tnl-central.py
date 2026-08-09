@@ -500,7 +500,7 @@ def node_proxy(node):
     if not (node or {}).get("proxy_on"):
         return ""
     p = get_proxy(str(node.get("proxy_id") or ""))
-    return (p or {}).get("url") or ""
+    return proxy_url(p) if p else ""
 
 
 # --------------------------------------------------------------------------- deferred teardown queue
@@ -6198,8 +6198,19 @@ def _proxy_users():
     return users
 
 
+def proxy_url(p):
+    """Compose the dial string from the stored fields. THE one place a proxy becomes a URL."""
+    auth = ""
+    if p.get("user"):
+        auth = "%s:%s@" % (p["user"], p.get("pass") or "")
+    return "%s://%s%s:%d" % (p["scheme"], auth, p["host"], int(p["port"]))
+
+
 def _proxy_row(p, users=None):
-    return {"id": p["id"], "name": p["name"], "url": _redact_proxy(p.get("url")),
+    """What the browser is allowed to see. The password never appears — only whether one is set."""
+    return {"id": p["id"], "name": p["name"], "scheme": p["scheme"], "host": p["host"],
+            "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
+            "addr": "%s://%s:%d" % (p["scheme"], p["host"], int(p["port"])),
             "nodes": (users if users is not None else _proxy_users()).get(p["id"], [])}
 
 
@@ -6217,35 +6228,95 @@ def _proxy_name(d, taken):
     return name
 
 
+def _proxy_fields(d):
+    """Validate {scheme, host, port, user, pass} off a request body. Returns them, pass possibly None.
+
+    A credential carrying @ : / or whitespace would compose into a URL that parses as a different host
+    entirely, so it is refused here rather than silently misdialled later."""
+    scheme = str(d.get("scheme") or "socks5").strip().lower()
+    if scheme not in ("socks5", "http"):
+        raise ValueError("نوعِ پروکسی باید socks5 یا http باشد")
+    host = str(d.get("host") or "").strip()
+    if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
+        raise ValueError("آی‌پی یا هاستِ پروکسی نامعتبر است")
+    try:
+        port = int(str(d.get("port") or "").strip())
+    except ValueError:
+        raise ValueError("پورتِ پروکسی نامعتبر است (1 تا 65535)")
+    if not 1 <= port <= 65535:
+        raise ValueError("پورتِ پروکسی نامعتبر است (1 تا 65535)")
+    user = str(d.get("user") or "").strip()
+    pw = d.get("pass")
+    pw = None if pw is None else str(pw)
+    for v in (user, pw or ""):
+        if re.search(r"[@:/\s]", v):
+            raise ValueError("یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد")
+    return scheme, host, port, user, pw
+
+
 def api_proxy_add(d):
-    url = valid_proxy(d.get("url"))
-    if not url:
-        raise ValueError("آدرسِ پروکسی لازم است")
+    scheme, host, port, user, pw = _proxy_fields(d)
     with _reg_lock:
         ps = load_proxies()
-        p = {"id": secrets.token_hex(5), "name": _proxy_name(d, {x["name"].lower() for x in ps}), "url": url}
+        p = {"id": secrets.token_hex(5), "name": _proxy_name(d, {x["name"].lower() for x in ps}),
+             "scheme": scheme, "host": host, "port": port, "user": user, "pass": pw or ""}
         ps.append(p)
         save_json(PROXIES_FILE, ps)
-    log_event("ok", "node", f"دلیل: افزودنِ پروکسیِ «{p['name']}»", _redact_proxy(url))
+    log_event("ok", "node", f"دلیل: افزودنِ پروکسیِ «{p['name']}»", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
 def api_proxy_edit(d):
     _require(d, ["id"])
-    raw = str(d.get("url") or "").strip()
+    scheme, host, port, user, pw = _proxy_fields(d)
     with _reg_lock:
         ps = load_proxies()
         p = next((x for x in ps if x["id"] == d["id"]), None)
         if not p:
             raise ValueError("پروکسی پیدا نشد")
         p["name"] = _proxy_name(d, {x["name"].lower() for x in ps if x["id"] != p["id"]})
-        # An empty url means "keep the stored one", the way an empty node token does — the browser only
-        # ever held a redacted copy, so submitting what it was shown would strip the credentials.
-        if raw:
-            p["url"] = valid_proxy(raw)
+        p["scheme"], p["host"], p["port"], p["user"] = scheme, host, port, user
+        # A blank password means "keep the stored one", the way a blank node token does: the browser is
+        # never sent the password, so submitting the form it was shown must not wipe it.
+        if pw:
+            p["pass"] = pw
+        elif not user:
+            p["pass"] = ""      # no user means no auth at all; a kept password would be dead weight
         save_json(PROXIES_FILE, ps)
-    log_event("ok", "node", f"دلیل: ویرایشِ پروکسیِ «{p['name']}»", _redact_proxy(p["url"]))
+    log_event("ok", "node", f"دلیل: ویرایشِ پروکسیِ «{p['name']}»", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
+
+
+def api_proxy_test(d):
+    """Answer «is this proxy usable?» with a number.
+
+    When a node already takes this proxy, the honest test is the PRODUCTION path: node_call's own ping,
+    through the proxy, to that node -- it exercises the handshake, the credentials and the node in one
+    go. With no node on it yet there is nothing to reach through it, so this falls back to a plain TCP
+    connect to the proxy itself and says so, rather than inventing an external target whose own
+    reachability would be reported as the proxy's.
+    """
+    _require(d, ["id"])
+    p = get_proxy(str(d["id"]))
+    if not p:
+        raise ValueError("پروکسی پیدا نشد")
+    node = next((n for n in load_nodes()
+                 if n.get("proxy_on") and str(n.get("proxy_id") or "") == p["id"]), None)
+    t0 = time.monotonic()
+    if node:
+        r = node_call(node, "ping", "GET", timeout=8)
+        ms = int((time.monotonic() - t0) * 1000)
+        if r.get("ok"):
+            return {"ok": True, "ms": ms, "via": node["name"], "end_to_end": True}
+        return {"ok": False, "ms": ms, "via": node["name"], "end_to_end": True,
+                "error": r.get("error") or "پاسخی از نود نیامد"}
+    try:
+        s = socket.create_connection((p["host"], int(p["port"])), 8)
+        s.close()
+    except Exception as e:
+        return {"ok": False, "ms": int((time.monotonic() - t0) * 1000), "end_to_end": False,
+                "error": str(e).split("] ")[-1][:90]}
+    return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "end_to_end": False}
 
 
 def api_proxy_del(d):
@@ -6323,7 +6394,7 @@ API = {
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,
-    "proxy-del": api_proxy_del,
+    "proxy-del": api_proxy_del, "proxy-test": api_proxy_test,
     "rebuild-link": api_rebuild_link, "restart-link": api_restart_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
@@ -6338,7 +6409,7 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
     "reorder": api_reorder,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -7326,11 +7397,14 @@ var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_ee
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_proxies:"پروکسی‌ها",
  px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
- px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",px_url:"آدرس",
- px_url_ph:"socks5://user:pass@host:1080",px_url_keep:"خالی = آدرسِ فعلی بماند",
+ px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",
+ px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",
+ px_pass_keep:"خالی = پسوردِ فعلی بماند",
+ px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پسورد روی مرکزی می‌ماند و هیچ‌وقت به مرورگر فرستاده نمی‌شود.",
  px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
- px_note:"آدرس با یوزر و پسورد روی مرکزی می‌ماند و هیچ‌وقت به مرورگر فرستاده نمی‌شود.",
+ px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
+ px_via:"پینگِ سرتاسری از طریقِ ",px_reach_only:"فقط رسیدن به خودِ پروکسی (هنوز نودی روی آن نیست)",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
@@ -8002,11 +8076,11 @@ async function openNodeAddModal(){await pxLoad();   // proxyBlock renders off PX
    '<div class="grid2"><div><label class="first">'+esc(T('nadd_node_name'))+'</label><input id="a_name" placeholder="DE02"></div><div><label class="first">'+esc(T('nadd_srv_ip'))+'</label><input id="a_host" placeholder="5.75.197.55"></div></div>'+
    '<div class="grid2"><div><label>'+esc(T('nadd_ssh_port'))+'</label><input id="a_sshport" placeholder="22"></div><div><label>'+esc(T('nadd_ssh_user'))+'</label><input id="a_user" placeholder="root"></div></div>'+
    '<div class="grid2"><div><label>'+esc(T('nadd_agent_port'))+'</label><input id="a_aport" placeholder="8099"></div><div></div></div>'+
-   proxyBlock('a_')+
    '<div class="authbox"><div class="authhd"><span class="t">'+esc(T('nadd_ssh_auth'))+'</span><span class="authseg" id="a_authseg"><button type="button" data-am="pass" class="on" onclick="authMode(\\'pass\\')">'+esc(T('nadd_pass'))+'</button><button type="button" data-am="key" onclick="authMode(\\'key\\')">'+esc(T('nadd_privkey'))+'</button></span></div>'+
     '<input id="a_pass" class="fld2" type="password" placeholder="'+esc(T('nadd_pass_ph'))+'" autocomplete="new-password">'+
     '<textarea id="a_key" class="fld2" rows="3" style="display:none" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>'+
     '<div class="muted" id="a_authhint" style="font-size:11px;margin-top:7px">'+esc(T('nadd_pass_hint'))+'</div></div>'+
+   proxyBlock('a_')+
    '<div id="nadd_prog"></div></div>';
  var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(T('nadd_agent_port2'))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div>'+proxyBlock('n_')+'</div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
@@ -9549,17 +9623,39 @@ async function refreshProxies(){if(listBusy())return;await pxLoad();
 function pxCard(p,i){
  var used=p.nodes&&p.nodes.length?esc(T('px_used_by'))+esc(p.nodes.join('، ')):'<span class="muted">'+esc(T('px_used_none'))+'</span>';
  return '<div class="card"><div class="pxhd"><b>'+esc(p.name)+'</b>'
-  +'<div class="nact iconly"><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
+  +'<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" onclick="testPx('+i+')">'+ic('bolt')+'</button>'
+  +'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
   +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div></div>'
-  +'<div class="mono pxurl">'+esc(p.url)+'</div><div class="pxused">'+used+'</div></div>'}
+  +'<div class="mono pxurl">'+esc(p.addr)+(p.user?' · '+esc(p.user)+(p.has_pass?':•••':''):'')+'</div>'
+  +'<div class="pxused">'+used+'</div><div class="msg" id="pxm_'+esc(p.id)+'"></div></div>'}
+async function testPx(i){var p=PX[i];if(!p)return;var m=el('pxm_'+p.id);
+ if(m){m.className='msg';m.textContent=T('px_testing')}
+ var r=await post('proxy-test',{id:p.id});var d=r.d||{};
+ if(!m)return;
+ // Say WHICH question was answered: a node on this proxy gets the real control ping end to end, an
+ // unused proxy only gets a TCP connect, and reporting both as one number would overstate the second.
+ var how=d.end_to_end?(T('px_via')+(d.via||'')):T('px_reach_only');
+ if(r.ok&&d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('px_up')+' · '+num(d.ms)+'ms — '+how)}
+ else{formErr(m,terr(d.error||T('failed'))+' — '+how)}}
 function openPxModal(i){var p=(i==null)?null:PX[i];
+ var sc=(p&&p.scheme)||'socks5';
+ var seg=function(s,lbl){return '<button type="button" data-s="'+s+'"'+(sc==s?' class="on"':'')+' onclick="pxScheme(\\''+s+'\\')">'+lbl+'</button>'};
  var body='<label class="first">'+esc(T('px_name'))+'</label><input id="px_name" maxlength="40" value="'+esc(p?p.name:'')+'">'
-  +'<label>'+esc(T('px_url'))+'</label><input id="px_url" class="mono" placeholder="'+esc(p?T('px_url_keep'):T('px_url_ph'))+'" value="">'
-  +'<div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:6px">'+esc(T('px_note'))+'</div>'
+  +'<div class="authhd" style="margin-top:16px"><span class="t">'+esc(T('px_type'))+'</span><span class="authseg" id="px_seg">'+seg('socks5','SOCKS5')+seg('http','HTTP')+'</span></div>'
+  +'<div class="grid2"><div><label class="first">'+esc(T('px_ip'))+'</label><input id="px_host" class="mono" value="'+esc(p?p.host:'')+'"></div>'
+  +'<div><label class="first">'+esc(T('px_port'))+'</label><input id="px_port" class="mono" inputmode="numeric" value="'+esc(p?String(p.port):'')+'"></div></div>'
+  +'<div class="grid2"><div><label>'+esc(T('px_user'))+'</label><input id="px_user" placeholder="'+esc(T('px_opt'))+'" value="'+esc(p?p.user:'')+'"></div>'
+  +'<div><label>'+esc(T('px_pass'))+'</label><input id="px_pass" type="password" autocomplete="new-password" placeholder="'+esc((p&&p.has_pass)?T('px_pass_keep'):T('px_opt'))+'" value=""></div></div>'
+  +'<div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:6px">'+esc(T('px_hint'))+'</div>'
   +'<div class="msg" id="px_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic(p?'pen':'plus')+'</span><div class="ttl"><h3>'+esc(T(p?'px_edit_t':'px_add_t'))+'</h3>'+(p?'<div class="sb">'+esc(p.name)+'</div>':'')+'</div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="savePx('+(i==null?'null':i)+')">'+esc(T(p?'save':'add'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+function pxScheme(s){document.querySelectorAll('#px_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.s==s)})}
+function pxSchemeVal(){var b=document.querySelector('#px_seg button.on');return b?b.dataset.s:'socks5'}
 async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
- var b={name:v('px_name'),url:v('px_url')};if(p)b.id=p.id;
+ // pass is sent ONLY when the operator typed one; blank means keep the stored one, which the browser
+ // was never given in the first place.
+ var b={name:v('px_name'),scheme:pxSchemeVal(),host:v('px_host'),port:v('px_port'),
+        user:v('px_user'),pass:v('px_pass')};if(p)b.id=p.id;
  var r=await post(p?'proxy-edit':'proxy-add',b);
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('px_saved'),'ok');refreshProxies()}
  else{formErr(m,perr(r))}}
