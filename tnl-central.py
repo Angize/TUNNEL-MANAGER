@@ -6440,7 +6440,7 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .hrow1{display:flex;align-items:center;gap:8px;min-width:0}
 .hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
-.ctag.core{background:var(--accw);color:var(--acc)}
+.ctag.core{background:var(--accw);color:var(--acc)}.ctag.c-udp{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}.ctag.c-tcp{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}.ctag.c-raw{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}.ctag.c-flux{color:#8b5cf6;background:color-mix(in srgb,#8b5cf6 14%,transparent)}.ctag.c-ws{color:#0ea5e9;background:color-mix(in srgb,#0ea5e9 14%,transparent)}.ctag.c-http{color:#14b8a6;background:color-mix(in srgb,#14b8a6 14%,transparent)}.ctag.c-grpc{color:#ec4899;background:color-mix(in srgb,#ec4899 14%,transparent)}.ctag.c-dns{color:#f97316;background:color-mix(in srgb,#f97316 14%,transparent)}.ctag.c-spoof{color:#e0564f;background:color-mix(in srgb,#e0564f 14%,transparent)}
 .ctag.vxlan{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}
 .ctag.gre{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
 .ctag.sit{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}
@@ -8176,7 +8176,10 @@ function srvIsA(l){return l.server_side!='b'}
 function sideOrder(l,isCore){return (isCore&&srvIsA(l))?['b','a']:['a','b']}
 function accHead(l,isCore){var on=l.enabled!==false;
  var so=sideOrder(l,isCore),sl=so[0],sr=so[1];
- var typ=isCore?'<span class="ctag core">Core</span>':'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
+ // Every card on the core page is a core tunnel, so the word "Core" said nothing; the carrier is what
+// differs between them. System cards have always named their type here — this is the same idea.
+var typ=isCore?'<span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l,false))+'</span>'
+              :'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+grip()+
   '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
@@ -8466,7 +8469,7 @@ document.addEventListener('lostpointercapture',function(e){
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=(l.transport=='tcp')?'TCP':(l.transport=='raw')?('RAW·'+esc(rawProfTag(l))):(l.transport=='flux')?('FLUX·'+esc((l.flux_carrier||'udp').toUpperCase())):(l.transport=='spoof')?('SPOOF·'+((l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC'))):(l.transport=='dns')?('DNS·'+esc((l.dns_zone||'').toUpperCase())):(l.transport=='ws')?((l.cdn_carrier=='grpc')?'GRPC':(l.cdn_carrier=='http')?'HTTP':'WS'):'UDP';   /* exactly the three names the picker shows; wss has its own tag */
+ var tr=carrierLabel(l,true);   /* exactly the three names the picker shows; wss has its own tag */
  var prt=(l.transport!='raw'&&l.transport!='flux'&&l.transport!='spoof'&&l.transport!='dns'&&l.port)?'<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>':'';
  var car='<div>'+esc(T('carrier'))+': <b class="mono">'+tr+'</b></div>';
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
@@ -8529,6 +8532,17 @@ function coreCard(l){
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.CdnProf='cf',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 // The card's carrier tag. «bare» forges no header, so its outer IP protocol number is CHOSEN rather
 // than implied by the name — show it. Every other profile's number is fixed and printing it is noise.
+// A core tunnel's CARRIER, in one place: the header chip and the body row must never disagree about what
+// this tunnel actually rides on. `full` adds the detail the body has room for (the raw profile, the flux
+// shape, the dns zone); the header takes the short form so a narrow phone header still fits.
+function carrierFamily(l){var t=l.transport||'udp';
+ return (t=='ws')?((l.cdn_carrier=='grpc')?'grpc':(l.cdn_carrier=='http')?'http':'ws'):t}
+function carrierLabel(l,full){var t=l.transport||'udp',f=carrierFamily(l);
+ if(t=='raw')return full?('RAW·'+rawProfTag(l)):'RAW';
+ if(t=='flux')return full?('FLUX·'+(l.flux_carrier||'udp').toUpperCase()):'FLUX';
+ if(t=='spoof')return full?('SPOOF·'+((l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC'))):'SPOOF';
+ if(t=='dns')return full?('DNS·'+(l.dns_zone||'').toUpperCase()):'DNS';
+ return f.toUpperCase()}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
 function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m')},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
