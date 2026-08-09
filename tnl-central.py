@@ -7379,9 +7379,9 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="nodes"><span class="ic" data-ic="server"></span> <span class="nlbl">نودها</span><span class="ct" id="ct_nodes"></span></a>
    <a class="navi" data-t="proxies"><span class="ic" data-ic="globe"></span> <span class="nlbl">پروکسی‌ها</span><span class="ct" id="ct_proxies"></span></a>
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
-   <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
+   <a class="navi" data-t="portfw"><span class="ic" data-ic="fwd"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
-   <a class="navi" data-t="logs"><span class="ic" data-ic="activity"></span> <span class="nlbl">لاگ</span><span class="ctwrap"><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></span></a>
+   <a class="navi" data-t="logs"><span class="ic" data-ic="list"></span> <span class="nlbl">لاگ</span><span class="ctwrap"><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
   </nav>
@@ -7776,6 +7776,8 @@ var IC={
  globe:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>',
  activity:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
  gauge:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3.5 18a9 9 0 1 1 17 0"/><path d="M12 18l4.2-5.2"/><circle cx="12" cy="18" r="1.5"/></svg>',
+ fwd:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12h11"/><path d="M10 8l4 4-4 4"/><path d="M19 5v14"/></svg>',
+ list:'<svg viewBox="0 0 24 24" '+_S+'><path d="M9 6h11M9 12h11M9 18h8"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>',
  plus:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 5v14M5 12h14"/></svg>',
  pen:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
  trash:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
@@ -8273,13 +8275,19 @@ async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host')
  var r=await post('node-add',Object.assign({name:name,host:host,port:port,token:tok},pxBody('n_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+terr(r.d.error||'')),r.d.online?'ok':'err')}
  else{formErr(m,terr(r.d.error||T('failed')))}}
-async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
+// CHECKING is held for the whole test, the way checkLink holds it: refreshNodes replaces EVERY card, so
+// a repaint landing mid-test detaches the strip this writes into -- «در حال تست…» vanishes and the answer
+// is painted into an orphan.
+async function testNode(id){CHECKING++;
+ try{
+ var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
  var r=await post('node-test',{id:id});
  var info=(r.d&&r.d.info)||{};if(!m)return;
  // Online: show the SERVER-measured panel->node RTT (the real control-plane ping). Offline: show only the
  // reason — a timed-out request has no latency to report, so no misleading "· 8164ms" on a dead node.
  if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
- else{formErr(m,T('offline')+': '+(terr(info.error)||T('not_available')))}}
+ else{formErr(m,T('offline')+': '+(terr(info.error)||T('not_available')))}
+ }finally{CHECKING--}}
 function kernelTune(id){post('node-kernel-tune',{id:id,action:'status'}).then(function(r){
  if(!(r.ok&&r.d.ok)){toast(terr((r.d&&r.d.error)||T('failed')),'err');return}
  ktShow(id,r.d)})}
@@ -9628,7 +9636,9 @@ function pxCard(p,i){
   +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div></div>'
   +'<div class="mono pxurl">'+esc(p.addr)+(p.user?' · '+esc(p.user)+(p.has_pass?':•••':''):'')+'</div>'
   +'<div class="pxused">'+used+'</div><div class="msg" id="pxm_'+esc(p.id)+'"></div></div>'}
-async function testPx(i){var p=PX[i];if(!p)return;var m=el('pxm_'+p.id);
+async function testPx(i){var p=PX[i];if(!p)return;CHECKING++;   // same repaint race as testNode
+ try{
+ var m=el('pxm_'+p.id);
  if(m){m.className='msg';m.textContent=T('px_testing')}
  var r=await post('proxy-test',{id:p.id});var d=r.d||{};
  if(!m)return;
@@ -9636,7 +9646,8 @@ async function testPx(i){var p=PX[i];if(!p)return;var m=el('pxm_'+p.id);
  // unused proxy only gets a TCP connect, and reporting both as one number would overstate the second.
  var how=d.end_to_end?(T('px_via')+(d.via||'')):T('px_reach_only');
  if(r.ok&&d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('px_up')+' · '+num(d.ms)+'ms — '+how)}
- else{formErr(m,terr(d.error||T('failed'))+' — '+how)}}
+ else{formErr(m,terr(d.error||T('failed'))+' — '+how)}
+ }finally{CHECKING--}}
 function openPxModal(i){var p=(i==null)?null:PX[i];
  var sc=(p&&p.scheme)||'socks5';
  var seg=function(s,lbl){return '<button type="button" data-s="'+s+'"'+(sc==s?' class="on"':'')+' onclick="pxScheme(\\''+s+'\\')">'+lbl+'</button>'};
@@ -9679,7 +9690,7 @@ function pxBody(pre){var sw=el(pre+'proxy_tgl');var on=!!(sw&&sw.classList.conta
  return {proxy_on:on,proxy_id:on?ssVal(pre+'proxy_id'):''}}
 
 // ===== Port-forward
-function portfwSkel(){el('view').innerHTML=vhead('globe','nav_portfw','pf_sub')+
+function portfwSkel(){el('view').innerHTML=vhead('fwd','nav_portfw','pf_sub')+
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
  '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList">'+skCards('portfw')+'</div>'+pagerBottom('portfw');
  refreshPortfw()}
@@ -9903,7 +9914,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
-function logsSkel(){el('view').innerHTML=vhead('activity','logs_title','logs_sub')+
+function logsSkel(){el('view').innerHTML=vhead('list','logs_title','logs_sub')+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';markLogsSeen();refreshLogs();}
