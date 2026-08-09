@@ -6678,8 +6678,14 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .mbody label.first{margin-top:2px}
 .mfoot{flex:0 0 auto;padding:12px 18px 15px;border-top:1px solid var(--bord);background:var(--card);display:flex;gap:10px}
 .mfoot .primary,.mfoot .ghost{flex:1;margin:0}
+/* hug = buttons sized to their text, sitting at the start edge (the right, in RTL) like confirmBox */
+.mfoot.hug .primary,.mfoot.hug .ghost{flex:0 0 auto}
 .lpill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--ok);background:var(--okw);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent);border-radius:20px;padding:2px 8px}
 .lpill .pd{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:lpulse 1.4s infinite}
+.lpill.off{color:var(--sub);background:transparent;border-color:var(--bord)}
+.lpill.off .pd{background:var(--sub);animation:none}
+/* a pill sitting in a tile is a VALUE, not the tile's label -- outrank .nd-tile>span */
+.nd-tile>.lpill{color:var(--ok)}.nd-tile>.lpill.off{color:var(--sub)}
 @keyframes lpulse{0%,100%{opacity:1}50%{opacity:.25}}
 /* node-details content */
 .nd-head{display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--bord);margin-bottom:14px}
@@ -6701,6 +6707,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .gc b i{font-size:11px;font-weight:700;font-style:normal;color:var(--sub)}
 .gl{margin-top:8px;font-size:12px;font-weight:700;color:var(--tx)}
 .gsub{font-size:10.5px;color:var(--sub);margin-top:2px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kt-desc{font-size:12.5px;line-height:1.85;color:var(--sub);margin-bottom:13px}
 .nd-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .nd-tile{display:flex;flex-direction:column;gap:2px;background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:9px 10px;min-width:0}
 .nd-tile.nd-wide{grid-column:1/-1}
@@ -7206,7 +7213,7 @@ var I18N={fa:{
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
  nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
  tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",tip_tune:"تیونینگِ شبکه",
- kt_title:"تیونینگِ کرنل (BBR)",kt_sub:"شتاب‌دهیِ شبکه‌ی سرور",kt_desc:"BBR + fq + بافرهای بزرگ‌تر را روی این سرور روشن می‌کند. روی مسیرِ پرتلفات و پرتأخیرِ ایران، سرعتِ حامل‌های TCP را بالا می‌برد. اختیاری و برگشت‌پذیر.",kt_state:"وضعیت",kt_cc:"کنترلِ ازدحام",kt_qdisc:"صف‌بندی",kt_on:"روشن",kt_off:"خاموش",kt_enable:"روشن کردن",kt_disable:"خاموش کردن",kt_nobbr:"کرنلِ این سرور BBR ندارد — روشن‌کردن ممکن نیست.",kt_working:"در حال اعمال…",kt_enabled:"تیونینگ روشن شد",kt_disabled:"تیونینگ خاموش شد",kt_close:"بستن",
+ kt_title:"تیونینگِ کرنل (BBR)",kt_sub:"شتاب‌دهیِ شبکه‌ی سرور",kt_desc:"BBR + fq + بافرهای بزرگ‌تر را روی این سرور روشن می‌کند. روی مسیرِ پرتلفات و پرتأخیرِ ایران، سرعتِ حامل‌های TCP را بالا می‌برد. اختیاری و برگشت‌پذیر.",kt_state:"وضعیت",kt_cc:"کنترلِ ازدحام",kt_qdisc:"صف‌بندی",kt_on:"روشن",kt_off:"خاموش",kt_enable:"روشن کردن",kt_disable:"خاموش کردن",kt_nobbr:"کرنلِ این سرور BBR ندارد — روشن‌کردن ممکن نیست.",kt_working:"در حال اعمال…",kt_enabled:"تیونینگ روشن شد",kt_disabled:"تیونینگ خاموش شد",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  // tunnels
@@ -7543,6 +7550,7 @@ var IC={
  bolt:'<svg viewBox="0 0 24 24" '+_S+'><path d="M13 3L4 14h7l-1 7 9-11h-7z"/></svg>',
  globe:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>',
  activity:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
+ gauge:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3.5 18a9 9 0 1 1 17 0"/><path d="M12 18l4.2-5.2"/><circle cx="12" cy="18" r="1.5"/></svg>',
  plus:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 5v14M5 12h14"/></svg>',
  pen:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
  trash:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
@@ -8040,7 +8048,7 @@ function nodeCard(n){var i=n.info||{};
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('activity')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
@@ -8075,16 +8083,18 @@ async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textCo
 function kernelTune(id){post('node-kernel-tune',{id:id,action:'status'}).then(function(r){
  if(!(r.ok&&r.d.ok)){toast(terr((r.d&&r.d.error)||T('failed')),'err');return}
  ktShow(id,r.d)})}
-function ktRows(s){var active=!!s.active,cc=esc(s.cc||'?'),qd=esc(s.qdisc||'?');
- var chip=active?'<span class="tag" style="background:color-mix(in srgb,#3fb984 20%,transparent);color:#3fb984">'+esc(T('kt_on'))+'</span>':'<span class="tag" style="color:var(--sub)">'+esc(T('kt_off'))+'</span>';
- var row=function(lbl,val){return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span class="muted" style="font-size:12.5px">'+esc(lbl)+'</span>'+val+'</div>'};
- return '<div style="display:flex;flex-direction:column;gap:9px;padding:11px 13px;border:1px solid rgba(255,255,255,.08);border-radius:11px">'+row(T('kt_state'),chip)+row(T('kt_cc'),'<b class="mono">'+cc+'</b>')+row(T('kt_qdisc'),'<b class="mono">'+qd+'</b>')+'</div>'}
+function ktRows(s){var active=!!s.active;
+ var pill='<span class="lpill'+(active?'':' off')+'"><span class="pd"></span>'+esc(T(active?'kt_on':'kt_off'))+'</span>';
+ var tile=function(lbl,val,wide){return '<div class="nd-tile'+(wide?' nd-wide':'')+'"><span>'+esc(lbl)+'</span>'+val+'</div>'};
+ var mono=function(v){return '<b class="ltr">'+esc(v||'?')+'</b>'};
+ return '<div class="nd-grid">'+tile(T('kt_state'),pill,true)+tile(T('kt_cc'),mono(s.cc))+tile(T('kt_qdisc'),mono(s.qdisc))+'</div>'}
 function ktShow(id,s){var ex=document.querySelector('.modal.ktmodal');if(ex)closeModal(ex.closest('.modalov'));  // never stack two kt modals (double-click / re-render)
  var bbr=!!s.bbr_available,active=!!s.active;
  var note=bbr?'':'<div class="msg err" style="margin-top:9px">'+esc(T('kt_nobbr'))+'</div>';
- var btn=active?'<button class="ghost" onclick="ktDo(this,\\''+id+'\\',\\'revert\\')">'+ic('reset')+esc(T('kt_disable'))+'</button>'
-  :'<button class="primary"'+(bbr?'':' disabled')+' onclick="ktDo(this,\\''+id+'\\',\\'apply\\')">'+ic('activity')+esc(T('kt_enable'))+'</button>';
- openModal('<div class="msticky"><span class="medi">'+ic('activity')+'</span><div class="ttl"><h3>'+esc(T('kt_title'))+'</h3><div class="sb">'+esc(T('kt_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody"><div class="muted" style="font-size:12.5px;line-height:1.75;margin-bottom:12px">'+esc(T('kt_desc'))+'</div>'+ktRows(s)+note+'<div class="msg kt_msg"></div></div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('kt_close'))+'</button>'+btn+'</div>',{cls:'ktmodal'})}
+ // one filled action + one ghost cancel in BOTH states -- two ghosts side by side hide which one acts
+ var btn=active?'<button class="primary" onclick="ktDo(this,\\''+id+'\\',\\'revert\\')">'+esc(T('kt_disable'))+'</button>'
+  :'<button class="primary"'+(bbr?'':' disabled')+' onclick="ktDo(this,\\''+id+'\\',\\'apply\\')">'+esc(T('kt_enable'))+'</button>';
+ openModal('<div class="msticky"><span class="medi">'+ic('gauge')+'</span><div class="ttl"><h3>'+esc(T('kt_title'))+'</h3><div class="sb">'+esc(T('kt_sub'))+'</div></div></div><div class="mbody"><div class="kt-desc">'+esc(T('kt_desc'))+'</div>'+ktRows(s)+note+'<div class="msg kt_msg"></div></div><div class="mfoot hug">'+btn+'<button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'ktmodal'})}
 async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('.kt_msg'):null;  // resolve controls from THIS modal, not a global id (two kt modals could share it)
  btn.disabled=true;if(m){m.className='msg kt_msg';m.textContent=T('kt_working')}
  var r=await post('node-kernel-tune',{id:id,action:action});
