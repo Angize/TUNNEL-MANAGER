@@ -6684,8 +6684,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .lpill .pd{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:lpulse 1.4s infinite}
 .lpill.off{color:var(--sub);background:transparent;border-color:var(--bord)}
 .lpill.off .pd{background:var(--sub);animation:none}
-/* a pill sitting in a tile is a VALUE, not the tile's label -- outrank .nd-tile>span */
-.nd-tile>.lpill{color:var(--ok)}.nd-tile>.lpill.off{color:var(--sub)}
 @keyframes lpulse{0%,100%{opacity:1}50%{opacity:.25}}
 /* node-details content */
 .nd-head{display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--bord);margin-bottom:14px}
@@ -8085,9 +8083,9 @@ function kernelTune(id){post('node-kernel-tune',{id:id,action:'status'}).then(fu
  ktShow(id,r.d)})}
 function ktRows(s){var active=!!s.active;
  var pill='<span class="lpill'+(active?'':' off')+'"><span class="pd"></span>'+esc(T(active?'kt_on':'kt_off'))+'</span>';
- var tile=function(lbl,val,wide){return '<div class="nd-tile'+(wide?' nd-wide':'')+'"><span>'+esc(lbl)+'</span>'+val+'</div>'};
- var mono=function(v){return '<b class="ltr">'+esc(v||'?')+'</b>'};
- return '<div class="nd-grid">'+tile(T('kt_state'),pill,true)+tile(T('kt_cc'),mono(s.cc))+tile(T('kt_qdisc'),mono(s.qdisc))+'</div>'}
+ var val=function(v){return '<span class="mono">'+esc(v||'?')+'</span>'};
+ return '<div class="nd-grid">'+ndTile('activity',T('kt_state'),pill,true)
+  +ndTile('traf',T('kt_cc'),val(s.cc))+ndTile('swap',T('kt_qdisc'),val(s.qdisc))+'</div>'}
 function ktShow(id,s){var ex=document.querySelector('.modal.ktmodal');if(ex)closeModal(ex.closest('.modalov'));  // never stack two kt modals (double-click / re-render)
  var bbr=!!s.bbr_available,active=!!s.active;
  var note=bbr?'':'<div class="msg err" style="margin-top:9px">'+esc(T('kt_nobbr'))+'</div>';
