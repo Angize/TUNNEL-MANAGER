@@ -842,7 +842,10 @@ def _pending_drain(n):
 
 
 def _poll_node(n):
+    _t0 = time.perf_counter()
     ping = node_call(n, "ping", "GET", timeout=6)
+    if ping.get("ok"):   # the control-plane RTT, measured around the call the way api_node_test does, so
+        ping = {**ping, "rtt_ms": int((time.perf_counter() - _t0) * 1000)}   # the CACHE carries it too
     t_ping = time.time()   # stamp the rate at ping-return time, not after the slower list call
     # Publish traffic + uptime from the ping IMMEDIATELY — don't make the live rate wait for the
     # (slower) list call. The rate's dt uses this accurate ping timestamp, so it's correct even at a

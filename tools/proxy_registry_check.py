@@ -158,6 +158,17 @@ def main():
     chk("never probed -> pending, so a fresh proxy is grey and not red",
         (row["pending"], row["online"]), (True, False))
 
+    # The latency the dot shows comes from what the POLLER caches, not from a fixture. rtt_ms used to be
+    # stamped only by the manual test button, so a used proxy's dot was green with no number for ever --
+    # and a hand-written {"rtt_ms": 31} in this file hid it. Drive the real _poll_node.
+    P.node_call = lambda n, ep, m="POST", body=None, timeout=8: {"ok": True, "hostname": "H", "stats": {}}
+    P._tombed = lambda *args: False
+    P._tf_ingest = P._tf_zero_rates = P._uh_sample = lambda *args, **kw: None
+    P._pending_drain = lambda *args: None
+    P._poll_node({"id": "n2", "name": "DE01", "host": "2.2.2.2", "port": 8099, "token": "t"})
+    chk("the POLLER's cached ping carries the rtt the dot reads",
+        isinstance(P._cached_ping("n2").get("rtt_ms"), int), True)
+
     # a proxy nodes take is judged BY those nodes' cached ping -- no dial of its own
     calls.clear()
     P._cached_ping = lambda nid: {"ok": True, "rtt_ms": 31} if nid == "n2" else {}
