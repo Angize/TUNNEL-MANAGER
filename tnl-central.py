@@ -9553,11 +9553,11 @@ function pxCard(p,i){
   +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div></div>'
   +'<div class="mono pxurl">'+esc(p.url)+'</div><div class="pxused">'+used+'</div></div>'}
 function openPxModal(i){var p=(i==null)?null:PX[i];
- var body='<div class="frow"><label>'+esc(T('px_name'))+'</label><input id="px_name" class="search" maxlength="40" value="'+esc(p?p.name:'')+'"></div>'
-  +'<div class="frow"><label>'+esc(T('px_url'))+'</label><input id="px_url" class="search" placeholder="'+esc(p?T('px_url_keep'):T('px_url_ph'))+'" value=""></div>'
+ var body='<label class="first">'+esc(T('px_name'))+'</label><input id="px_name" maxlength="40" value="'+esc(p?p.name:'')+'">'
+  +'<label>'+esc(T('px_url'))+'</label><input id="px_url" class="mono" placeholder="'+esc(p?T('px_url_keep'):T('px_url_ph'))+'" value="">'
   +'<div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:6px">'+esc(T('px_note'))+'</div>'
   +'<div class="msg" id="px_msg"></div>';
- openModal(modalShell(T(p?'px_edit_t':'px_add_t'),body,'savePx('+(i==null?'null':i)+')'))}
+ openModal('<div class="msticky"><span class="medi">'+ic(p?'pen':'plus')+'</span><div class="ttl"><h3>'+esc(T(p?'px_edit_t':'px_add_t'))+'</h3>'+(p?'<div class="sb">'+esc(p.name)+'</div>':'')+'</div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="savePx('+(i==null?'null':i)+')">'+esc(T(p?'save':'add'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
  var b={name:v('px_name'),url:v('px_url')};if(p)b.id=p.id;
  var r=await post(p?'proxy-edit':'proxy-add',b);
@@ -9573,14 +9573,13 @@ function pxFields(pre,node){
  var pick=opts.length
   ?ssHTML(pre+'proxy_id',opts,sel||opts[0].v,'','')
   :'<div class="muted" style="font-size:12px">'+esc(T('nd_proxy_none'))+'</div>';
- return '<div class="card" style="margin-top:10px"><div class="setrow2"><div class="setrow2-top">'
-  +'<b class="setlbl2">'+esc(T('nd_proxy_on'))+'</b>'
-  +'<label class="sw"><input type="checkbox" id="'+pre+'proxy_on"'+(on?' checked':'')+' onchange="pxToggle(\\''+pre+'\\')"><span></span></label></div></div>'
+ return '<div class="tglbox"><div class="tglsw'+(on?' on':'')+'" id="'+pre+'proxy_tgl" onclick="pxToggle(\\''+pre+'\\')"></div>'
+  +'<div class="tt"><b>'+esc(T('nd_proxy_on'))+'</b><small>'+esc(T('nd_proxy_all'))+'</small></div></div>'
   +'<div id="'+pre+'proxy_box"'+(on?'':' style="display:none"')+'>'
-  +'<div class="frow" style="margin-top:8px"><label>'+esc(T('nd_proxy_pick'))+'</label>'+pick+'</div>'
-  +'<div class="muted" style="font-size:11.5px;line-height:1.9">'+esc(T('nd_proxy_all'))+'</div></div></div>'}
-function pxToggle(pre){var c=el(pre+'proxy_on'),b=el(pre+'proxy_box');if(b)b.style.display=(c&&c.checked)?'':'none'}
-function pxBody(pre){var c=el(pre+'proxy_on');var on=!!(c&&c.checked);
+  +'<label>'+esc(T('nd_proxy_pick'))+'</label>'+pick+'</div>'}
+function pxToggle(pre){var sw=el(pre+'proxy_tgl');if(!sw)return;var on=!sw.classList.contains('on');
+ sw.classList.toggle('on',on);var b=el(pre+'proxy_box');if(b)b.style.display=on?'':'none'}
+function pxBody(pre){var sw=el(pre+'proxy_tgl');var on=!!(sw&&sw.classList.contains('on'));
  return {proxy_on:on,proxy_id:on?ssVal(pre+'proxy_id'):''}}
 
 // ===== Port-forward
