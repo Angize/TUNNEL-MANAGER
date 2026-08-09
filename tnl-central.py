@@ -4732,6 +4732,39 @@ def api_check_link(d):
             "a_health": ah, "b_health": bh}
 
 
+def api_restart_link(d):
+    """Bounce both ends' core process on the config they already hold.
+
+    Deliberately NOT a rebuild: nothing is torn down, no config is rewritten, no ECH is re-fetched and
+    the node IPs are not re-picked, so the stored pool survives verbatim. It is the cheap remedy for a
+    core that is alive but stuck in state it cannot clear itself."""
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    if not L:
+        raise ValueError("link not found")
+    if L["type"] != "core":
+        raise ValueError("فقط تونلِ هسته پروسه‌ای دارد که ری‌استارت شود")
+    A, B = get_node(L["a_node"]), get_node(L["b_node"])
+    if not A or not B:
+        raise ValueError("a node of this link is no longer registered")
+    a, b = _link_nodes(d)
+    with _PairLock(a, b):
+        # Both ends: which one holds the stuck state is not knowable from here, and a bounce is cheap.
+        # Report per node rather than a single ok — one end coming back and the other not is the case
+        # the operator has to see.
+        out = {}
+        for N in (A, B):
+            r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=20)
+            out[N["name"]] = bool(r.get("ok"))
+            if not r.get("ok"):
+                out.setdefault("errors", []).append(f"{N['name']}: {r.get('error') or r.get('msg') or '?'}")
+    if out.get("errors"):
+        log_event("bad", "link", f"دلیل: ری‌استارتِ ناموفقِ هستهٔ تونلِ «{L['name']}»", "؛ ".join(out["errors"]))
+        raise ValueError("؛ ".join(out["errors"]))
+    log_event("ok", "link", f"دلیل: ری‌استارتِ هستهٔ تونلِ «{L['name']}»", "پروسه روی هر دو نود تازه شد؛ کانفیگ دست‌نخورده")
+    return {"ok": True, "nodes": {k: v for k, v in out.items() if k != "errors"}}
+
+
 def api_rebuild_link(d):
     a, b = _link_nodes(d)
     with _PairLock(a, b):
@@ -6145,7 +6178,7 @@ API = {
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
-    "rebuild-link": api_rebuild_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
+    "rebuild-link": api_rebuild_link, "restart-link": api_restart_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
     "peer-status": api_peer_status, "peer-probe-now": api_peer_probe_now, "peer-select": api_peer_select,
@@ -6159,7 +6192,7 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
     "reorder": api_reorder,
 }
-MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link",
+MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -7170,7 +7203,7 @@ var I18N={fa:{
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarting:"در حال ری‌استارتِ هسته روی دو نود…",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -7503,7 +7536,8 @@ var IC={
  trash:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
  redo:'<svg viewBox="0 0 24 24" '+_S+'><path d="M21 12a9 9 0 11-2.64-6.36M21 4v4h-4"/></svg>',
  swap:'<svg viewBox="0 0 24 24" '+_S+'><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg>',
- reset:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 8v4l3 2"/></svg>',
+ reset:'<svg viewBox="0 0 24 24" '+_S+'><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/><path d="M10 16v-4M14 16v-7"/></svg>',
+ restart:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 3v8"/><path d="M7.5 5.8a8 8 0 1 0 9 0"/></svg>',
  moon:'<svg viewBox="0 0 24 24" '+_S+'><path d="M20 14a8 8 0 01-10-10 8 8 0 1010 10z"/></svg>',
  sun:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>',
  logout:'<svg viewBox="0 0 24 24" '+_S+'><path d="M15 12H4M9 7l-5 5 5 5M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4"/></svg>',
@@ -8169,7 +8203,7 @@ function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
 function linkFooter(l,editFn){
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  return {drift:drift,acts:acts,msg:msg}}
 function linkCard(l){
@@ -8227,6 +8261,13 @@ async function rebuildLink(id){
   var r=await post('rebuild-link',{id:id});
   if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('rebuilt_test')));toast(T('t_rebuilt'),'ok')}
   else setChk(id,'err',esc(terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed'))));
+ }finally{CHECKING--}}
+async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('restart_yes')))return;
+ CHECKING++;
+ try{setChk(id,'',esc(T('restarting')));
+  var r=await post('restart-link',{id:id});
+  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('restarted')));toast(T('restarted'),'ok');refreshFleet()}
+  else setChk(id,'err',esc(terr((r.d&&(r.d.error||r.d.msg))||T('restart_failed'))));
  }finally{CHECKING--}}
 async function flipView(id){var r=await post('link-view',{id:id});
  if(r.ok&&r.d.ok){var L=FLEET.filter(function(x){return x.id==id})[0];var nm=L?(r.d.view_side=='b'?L.b_name:L.a_name):'';
