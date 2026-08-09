@@ -22,9 +22,10 @@ from pathlib import Path
 # Functions whose `n` IS a _node_view row. Each must exist, or this check has gone blind.
 NODE_RENDERERS = ["nodeCard", "nodeDetails", "openNodeEdit", "upBar"]
 
-# Read off the row but never sent by _node_view: the browser adds these itself.
-BROWSER_OWNED = {
-    "proxy",          # placeholder so a re-added n.proxy is a FAILURE, not a silent revival
+# Fields the node view USED to send. Listed so that reading one again fails with a pointed message
+# instead of the generic "never sends" one -- these are the reads that already went stale once.
+RETIRED_FIELDS = {
+    "proxy",          # the per-node proxy URL, replaced by proxy_on / proxy_id / proxy_name
 }
 
 
@@ -36,18 +37,29 @@ def load_panel(path):
 
 
 def view_keys(panel_text):
-    """Every string key any `return {...}` in _node_view can put on the wire."""
+    """The TOP-LEVEL keys _node_view puts on a node row.
+
+    Only the `base` literal and each returned literal count. Recursing into every nested dict would
+    also collect the keys of values -- `info`'s own {"error": ...} -- and then wave through a browser
+    read of `n.error`, a field that only ever exists one level down.
+    """
     tree = ast.parse(panel_text)
     fn = next((f for f in ast.walk(tree)
                if isinstance(f, ast.FunctionDef) and f.name == "_node_view"), None)
     if fn is None:
         return None
+
+    def top_keys(dct):
+        return {k.value for k in dct.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+
     keys = set()
     for node in ast.walk(fn):
-        if isinstance(node, ast.Dict):
-            for k in node.keys:
-                if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                    keys.add(k.value)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict) \
+                and any(isinstance(t, ast.Name) and t.id == "base" for t in node.targets):
+            keys |= top_keys(node.value)
+        elif isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+            keys |= top_keys(node.value)
     return keys
 
 
@@ -108,11 +120,11 @@ def main():
                             "brace inside a string literal has broken this check's reader" % fname)
             continue
         read = set(re.findall(r"\bn\.([A-Za-z_][A-Za-z0-9_]*)", body))
-        unknown = sorted(read - sent - BROWSER_OWNED)
+        unknown = sorted(read - sent - RETIRED_FIELDS)
         for key in unknown:
             failures.append("%s() reads n.%s, which _node_view never sends — it is `undefined` at "
                             "runtime, so that piece of UI silently renders nothing" % (fname, key))
-        for key in sorted(read & BROWSER_OWNED):
+        for key in sorted(read & RETIRED_FIELDS):
             failures.append("%s() reads n.%s, a field that was DELETED from the node view — this is the "
                             "exact drift this check exists to catch" % (fname, key))
         print("  ok  %-14s reads %d node field(s), all of them sent" % (fname + "()", len(read)))
