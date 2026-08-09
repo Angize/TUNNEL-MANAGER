@@ -24,24 +24,27 @@ PX = {"id": "px1", "name": "P1", "url": "socks5://pu:pw@10.9.9.9:1080"}
 PX_HTTP = {"id": "px2", "name": "P2", "url": "http://10.9.9.8:3128"}
 RELAY = "/tmp/relay-sentinel.py"
 
-# Outbound primitives, by the function that owns the call site. A node's traffic may only leave from
-# the first three (all under node_proxy); the rest talk to GitHub or a DoH resolver, never to a node.
+# Outbound primitives, mapped to {owning function: how many call sites it may hold}. The COUNT is the
+# point: keying on the function name alone lets a second, unproxied dial hide inside a function that is
+# already allowed -- measured, it slipped through silently.
+# A node's traffic may only leave via node_call / _node_call_proxied / the SSH relay, all of which
+# resolve through node_proxy; every other entry here talks to GitHub or a DoH resolver, never to a node.
 ALLOWED_EGRESS = {
     "urlopen": {
-        "node_call",                 # DIRECT agent HTTP -- reached only when node_proxy returned ''
-        "api_agent_fetch_git",       # GitHub: the node agent source
-        "_fetch_core_versions",      # GitHub: the core release list
-        "_dl",                       # GitHub: a core release asset
-        "via_doh",                   # public DoH resolver, for an ECH key
+        "node_call": 1,              # DIRECT agent HTTP -- reached only when node_proxy returned ''
+        "api_agent_fetch_git": 1,    # GitHub: the node agent source
+        "_fetch_core_versions": 1,   # GitHub: the core release list
+        "_dl": 1,                    # GitHub: a core release asset
+        "via_doh": 1,                # public DoH resolver, for an ECH key
     },
     "create_connection": {
-        "_socks5_socket",            # to the PROXY, on node_call's and via_doh_proxy's behalf
-        "_http_connect_socket",      # to the PROXY, on node_call's and via_doh_proxy's behalf
+        "_socks5_socket": 1,         # to the PROXY, on node_call's and via_doh_proxy's behalf
+        "_http_connect_socket": 1,   # to the PROXY, on node_call's and via_doh_proxy's behalf
     },
     # Neither dials: an already-tunneled socket is assigned to conn.sock, so conn.connect() never runs.
     "HTTPConnection": {
-        "_node_call_proxied",
-        "via_doh_proxy",             # a DoH resolver over the proxy, for an ECH key
+        "_node_call_proxied": 1,
+        "via_doh_proxy": 1,          # a DoH resolver over the proxy, for an ECH key
     },
 }
 
@@ -55,6 +58,10 @@ def load_panel(path):
 
 # --------------------------------------------------------------- part 1: the agent HTTP (node_call)
 def wire_node_call(P, seen):
+    """Fake ONLY the connect primitives. Returns a restore callable -- urllib is a process-wide module,
+    and leaving it patched would silently poison whatever the next part drives."""
+    real_urlopen = P.urllib.request.urlopen
+
     def direct(req, timeout=None):
         seen.append(("DIRECT", getattr(req, "full_url", str(req))))
         raise OSError("blocked by the guard")
@@ -71,10 +78,15 @@ def wire_node_call(P, seen):
     P._socks5_socket = socks
     P._http_connect_socket = connect
 
+    def restore():
+        P.urllib.request.urlopen = real_urlopen
+
+    return restore
+
 
 def part1(P, failures):
     seen = []
-    wire_node_call(P, seen)
+    restore = wire_node_call(P, seen)
     proxies = [PX, PX_HTTP]
     P.load_proxies = lambda: list(proxies)
 
@@ -100,14 +112,16 @@ def part1(P, failures):
             continue
         print("  ok  node_call — %-52s %s" % (label, seen[0][0]))
 
-    # The class in one line: a proxied node must NEVER produce a direct dial, whatever the endpoint.
+    # The class in one line: EVERY endpoint of a proxied node leaves through the proxy. Asserting the
+    # whole dial, not just "no DIRECT" -- the negative form also passes when nothing is dialled at all.
+    want = [("socks5", "10.9.9.9:1080", "91.107.190.159:8099", "pu", "pw")]
     for endpoint in ("ping", "status", "tunnel", "delete", "core-install", "kernel-tune"):
         seen.clear()
         P.node_call(dict(node, proxy_on=True, proxy_id="px1"), endpoint, "POST", {"x": 1})
-        if any(s[0] == "DIRECT" for s in seen):
-            failures.append("[node_call: endpoint %r] a proxied node reached its host DIRECTLY: %r"
-                            % (endpoint, seen))
-    print("  ok  node_call — no endpoint escapes the proxy (6 endpoints)")
+        if seen != want:
+            failures.append("[node_call: endpoint %r] dialled %r, expected %r" % (endpoint, seen, want))
+    print("  ok  node_call — every endpoint leaves through the proxy (6 endpoints)")
+    restore()
 
 
 # ------------------------------------------------------- part 2: the SSH leg (real api_node_install)
@@ -123,7 +137,7 @@ class _InlineThread:
 
 def part2(P, failures):
     argvs, saved = [], {}
-    real_ssh_argv = P._ssh_argv
+    real_ssh_argv, real_thread = P._ssh_argv, P.threading.Thread
 
     def ssh_run(cfg, remote_cmd, timeout):
         argv, env = real_ssh_argv(cfg, remote_cmd)   # the REAL builder, on the REAL cfg
@@ -202,11 +216,12 @@ def part2(P, failures):
                         "believe is proxied, installed in the clear")
     except ValueError:
         print("  ok  install  — %-52s refused" % "proxy_on with an id that names nothing")
+    P.threading.Thread = real_thread   # threading is process-wide; do not leave it inlined
 
 
 # ------------------------------------------------------------------- part 3: no third egress appears
 def egress_sites(tree):
-    """{primitive: {enclosing function: lineno}} — the INNERMOST function owns the call, so a nested
+    """{primitive: {enclosing function: [linenos]}} — the INNERMOST function owns the call, so a nested
     helper is never filed under the function that happens to contain it."""
     found = {k: {} for k in ALLOWED_EGRESS}
 
@@ -215,7 +230,7 @@ def egress_sites(tree):
             f = node.func
             name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
             if name in found:
-                found[name].setdefault(fname, node.lineno)
+                found[name].setdefault(fname, []).append(node.lineno)
         for child in ast.iter_child_nodes(node):
             inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else fname
             visit(child, inner)
@@ -228,16 +243,25 @@ def part3(P, panel_path, failures):
     text = panel_path.read_text(encoding="utf-8")
     found = egress_sites(ast.parse(text))
 
+    total = 0
     for prim, allowed in sorted(ALLOWED_EGRESS.items()):
-        for fname in sorted(set(found[prim]) - allowed):
-            failures.append("a NEW %s() call site in %s() (line %d) — if it can reach a node it must go "
-                            "through node_proxy(); if it cannot, add it to ALLOWED_EGRESS here and say why"
-                            % (prim, fname, found[prim][fname]))
-        for fname in sorted(allowed - set(found[prim])):
-            failures.append("%s() no longer calls %s() — this allowlist has gone stale, so the tripwire "
-                            "is watching code that moved" % (fname, prim))
-    print("  ok  tripwire — %d outbound call sites, all accounted for"
-          % sum(len(v) for v in found.values()))
+        for fname in sorted(set(found[prim]) | set(allowed)):
+            got, want = found[prim].get(fname, []), allowed.get(fname, 0)
+            total += len(got)
+            if len(got) == want:
+                continue
+            if not want:
+                failures.append("a NEW %s() call site in %s() (line %s) — if it can reach a node it must "
+                                "go through node_proxy(); if it cannot, add it to ALLOWED_EGRESS and say "
+                                "why" % (prim, fname, got[0]))
+            elif not got:
+                failures.append("%s() no longer calls %s() — this allowlist has gone stale, so the "
+                                "tripwire is watching code that moved" % (fname, prim))
+            else:
+                failures.append("%s() holds %d %s() call site(s), expected %d (lines %s) — an ADDED dial "
+                                "inside an already-allowed function is exactly what hides an unproxied "
+                                "egress" % (fname, len(got), prim, want, got))
+    print("  ok  tripwire — %d outbound call sites, all accounted for" % total)
 
     # The SSH exit's other half is a STRING in the panel, so the AST above cannot see it. The relay must
     # dial the PROXY (ph, pp) -- a relay that dialled the destination would leave SSH unproxied while
