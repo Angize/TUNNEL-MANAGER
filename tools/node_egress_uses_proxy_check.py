@@ -42,9 +42,10 @@ ALLOWED_EGRESS = {
     "create_connection": {
         "_socks5_socket": 1,         # to the PROXY, on node_call's and via_doh_proxy's behalf
         "_http_connect_socket": 1,   # to the PROXY, on node_call's and via_doh_proxy's behalf
-        # Reaches the PROXY's own host:port, never a node. It is the fallback for «تستِ اتصال» when no
-        # node takes that proxy yet, so there is nothing to reach THROUGH it.
+        # Both reach the PROXY's own host:port, never a node: the fallback for «تستِ اتصال» and for the
+        # poller's dot when no node takes that proxy yet, so there is nothing to reach THROUGH it.
         "api_proxy_test": 1,
+        "_proxy_probe": 1,
     },
     # Neither dials: an already-tunneled socket is assigned to conn.sock, so conn.connect() never runs.
     "HTTPConnection": {

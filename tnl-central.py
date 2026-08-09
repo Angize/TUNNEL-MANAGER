@@ -914,6 +914,13 @@ def poller_loop():
             with inflight_lock:
                 inflight.discard(n["id"])
 
+    def _run_px(p, users):
+        try:
+            _px_publish(p["id"], _proxy_probe(p, users))
+        finally:
+            with inflight_lock:
+                inflight.discard("px:" + p["id"])
+
     while True:
         try:
             nodes = load_nodes()
@@ -950,6 +957,24 @@ def poller_loop():
                 # rates stay fresh even while part of the fleet is unreachable.
                 for n in todo:
                     ex.submit(_run, n)
+            # Proxies ride the same sweep, so their dot refreshes on the same poll_interval as a node's
+            # and there is no second loop to keep alive. The ones nodes take cost nothing (a cache read);
+            # only an unused proxy dials, and its probe goes on the pool with the same in-flight rule.
+            pxs = load_proxies()
+            with _px_lock:
+                for pid in [k for k in _px if k not in {p["id"] for p in pxs}]:
+                    _px.pop(pid, None)
+            pxn = _proxy_nodes(nodes)
+            for p in pxs:
+                users = pxn.get(p["id"], [])
+                if any(_cached_ping(n["id"]) for n in users):
+                    _px_publish(p["id"], _proxy_probe(p, users))   # cache read only, no dial
+                    continue
+                with inflight_lock:
+                    if ("px:" + p["id"]) in inflight:
+                        continue
+                    inflight.add("px:" + p["id"])
+                ex.submit(_run_px, p, users)
         except Exception:
             pass
         try:
@@ -957,6 +982,45 @@ def poller_loop():
         except Exception:
             gap = POLL_GAP   # a hand-edited settings.json with a non-numeric poll_interval must not kill the poller thread
         time.sleep(gap)
+
+
+_px_lock = threading.Lock()
+_px = {}          # proxy id -> {ok, ms, error, end_to_end, ts}
+
+
+def _proxy_probe(p, nodes):
+    """One proxy's health, the same two ways «تستِ اتصال» answers it.
+
+    A proxy that nodes take is measured BY those nodes: every node_call already goes through it, so its
+    cached ping answers «can I reach anything through this proxy» with NO extra traffic and no second
+    opinion to disagree with. Only a proxy nothing uses needs a probe of its own, and then a TCP connect
+    is all that is honest -- there is nothing behind it to reach.
+    """
+    for n in nodes:
+        pg = _cached_ping(n["id"])
+        if not pg:
+            continue                      # that node has not been polled yet; try the next one
+        ok = bool(pg.get("ok"))
+        return {"ok": ok, "ms": pg.get("rtt_ms") if ok else None, "via": n["name"],
+                "error": "" if ok else (pg.get("error") or ""), "end_to_end": True, "ts": time.time()}
+    t0 = time.monotonic()
+    try:
+        socket.create_connection((p["host"], int(p["port"])), 6).close()
+    except Exception as e:
+        return {"ok": False, "ms": None, "error": str(e).split("] ")[-1][:90],
+                "end_to_end": False, "ts": time.time()}
+    return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "",
+            "end_to_end": False, "ts": time.time()}
+
+
+def _px_publish(pid, st):
+    with _px_lock:
+        _px[pid] = st
+
+
+def _px_get(pid):
+    with _px_lock:
+        return dict(_px.get(pid) or {})
 
 
 def _cached_ping(nid):
@@ -6189,13 +6253,17 @@ def api_link_rebuild_info(d):
 # the server: every read path redacts the userinfo, so the browser sees scheme://host:port and the
 # operator re-types a password only when they mean to change it.
 
-def _proxy_users():
-    """{proxy_id: [node names]} — THE one definition of "which nodes take this proxy"."""
-    users = {}
-    for n in load_nodes():
+def _proxy_nodes(nodes=None):
+    """{proxy_id: [node, …]} — THE one definition of "which nodes take this proxy"."""
+    out = {}
+    for n in (load_nodes() if nodes is None else nodes):
         if n.get("proxy_on"):
-            users.setdefault(str(n.get("proxy_id") or ""), []).append(n["name"])
-    return users
+            out.setdefault(str(n.get("proxy_id") or ""), []).append(n)
+    return out
+
+
+def _proxy_users(nodes=None):
+    return {pid: [n["name"] for n in ns] for pid, ns in _proxy_nodes(nodes).items()}
 
 
 def proxy_url(p):
@@ -6208,10 +6276,13 @@ def proxy_url(p):
 
 def _proxy_row(p, users=None):
     """What the browser is allowed to see. The password never appears — only whether one is set."""
+    st = _px_get(p["id"])
     return {"id": p["id"], "name": p["name"], "scheme": p["scheme"], "host": p["host"],
             "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
             "addr": "%s://%s:%d" % (p["scheme"], p["host"], int(p["port"])),
-            "nodes": (users if users is not None else _proxy_users()).get(p["id"], [])}
+            "nodes": (users if users is not None else _proxy_users()).get(p["id"], []),
+            # the dot: pending until the poller has judged it once, so a fresh proxy is grey, not red
+            "online": bool(st.get("ok")), "pending": not st, "status": st}
 
 
 def api_proxies(d):
@@ -6300,23 +6371,24 @@ def api_proxy_test(d):
     p = get_proxy(str(d["id"]))
     if not p:
         raise ValueError("پروکسی پیدا نشد")
-    node = next((n for n in load_nodes()
-                 if n.get("proxy_on") and str(n.get("proxy_id") or "") == p["id"]), None)
+    node = next(iter(_proxy_nodes().get(p["id"], [])), None)
     t0 = time.monotonic()
     if node:
         r = node_call(node, "ping", "GET", timeout=8)
         ms = int((time.monotonic() - t0) * 1000)
-        if r.get("ok"):
-            return {"ok": True, "ms": ms, "via": node["name"], "end_to_end": True}
-        return {"ok": False, "ms": ms, "via": node["name"], "end_to_end": True,
-                "error": r.get("error") or "پاسخی از نود نیامد"}
-    try:
-        s = socket.create_connection((p["host"], int(p["port"])), 8)
-        s.close()
-    except Exception as e:
-        return {"ok": False, "ms": int((time.monotonic() - t0) * 1000), "end_to_end": False,
-                "error": str(e).split("] ")[-1][:90]}
-    return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "end_to_end": False}
+        out = {"ok": bool(r.get("ok")), "ms": ms, "via": node["name"], "end_to_end": True,
+               "error": "" if r.get("ok") else (r.get("error") or "پاسخی از نود نیامد")}
+    else:
+        try:
+            socket.create_connection((p["host"], int(p["port"])), 8).close()
+            out = {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "",
+                   "end_to_end": False}
+        except Exception as e:
+            out = {"ok": False, "ms": None, "end_to_end": False,
+                   "error": str(e).split("] ")[-1][:90]}
+    # the button and the dot must never disagree: this measurement IS the new cached verdict
+    _px_publish(p["id"], dict(out, ts=time.time()))
+    return out
 
 
 def api_proxy_del(d):
@@ -9628,14 +9700,28 @@ function proxiesSkel(){el('view').innerHTML=vhead('globe','nav_proxies','px_sub'
 async function refreshProxies(){if(listBusy())return;await pxLoad();
  var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
  setHTML(box,PX.length?PX.map(pxCard).join(''):'<div class="card muted">'+esc(T('px_empty'))+'</div>')}
-function pxCard(p,i){
+// Built like nodeCard: the header carries the dot and folds, the body holds the rest. The dot is the
+// POLLER's verdict, not this button's -- the panel probes every proxy on the same sweep as the nodes.
+function pxCard(p,i){var open=!!TOPEN[p.id];
+ var dotk=p.online?'on':(p.pending?'':'off');
+ var st=p.status||{};
+ var ttl=p.pending?T('pending_check'):(p.online?T('online'):T('offline'))
+  +(st.error?' — '+terr(st.error):'')+(st.ms!=null?' · '+num(st.ms)+'ms':'');
  var used=p.nodes&&p.nodes.length?esc(T('px_used_by'))+esc(p.nodes.join('، ')):'<span class="muted">'+esc(T('px_used_none'))+'</span>';
- return '<div class="card"><div class="pxhd"><b>'+esc(p.name)+'</b>'
-  +'<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" onclick="testPx('+i+')">'+ic('bolt')+'</button>'
+ var head='<div class="chead" onclick="cardTogFromEl(this)"><span class="grow"></span>'
+  +'<div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0">'
+  +'<div class="name" style="text-align:left">'+esc(p.name)+'</div>'
+  +'<div class="muted mono" style="font-size:12px">'+esc(p.addr)+'</div></div>'
+  +'<span class="ndot '+dotk+'" title="'+esc(ttl)+'"></span>'+CHEVI+'</div>';
+ var meta='<div class="pxused">'+used+'</div>'
+  +(st.ms!=null?'<div class="pxused">'+esc((st.end_to_end?T('px_via')+(st.via||''):T('px_reach_only'))+' · '+num(st.ms)+'ms')+'</div>':'')
+  +(st.error?'<div class="pxused" style="color:var(--bad)">'+esc(terr(st.error))+'</div>':'');
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" onclick="testPx('+i+')">'+ic('bolt')+'</button>'
   +'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
-  +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div></div>'
-  +'<div class="mono pxurl">'+esc(p.addr)+(p.user?' · '+esc(p.user)+(p.has_pass?':•••':''):'')+'</div>'
-  +'<div class="pxused">'+used+'</div><div class="msg" id="pxm_'+esc(p.id)+'"></div></div>'}
+  +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div>';
+ return '<div class="card node acc'+(open?' open':'')+'" id="c_'+esc(p.id)+'" data-rid="'+esc(p.id)+'">'
+  +head+'<div class="cbody"><div class="cbody-in">'+meta+acts
+  +'<div class="msg" id="pxm_'+esc(p.id)+'"></div></div></div></div>'}
 async function testPx(i){var p=PX[i];if(!p)return;CHECKING++;   // same repaint race as testNode
  try{
  var m=el('pxm_'+p.id);
