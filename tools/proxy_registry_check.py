@@ -133,63 +133,53 @@ def main():
     chk("node_proxy with the toggle off is direct",
         P.node_proxy({"proxy_on": False, "proxy_id": pb["id"]}), "")
 
-    # the test endpoint: end-to-end through a node when one takes it, reachability only when none does
+    # the test endpoint: the proxy's own address, whether or not nodes take it
     calls = []
-    P.node_call = lambda n, ep, m="POST", body=None, timeout=8: (
-        calls.append((n["name"], ep)) or {"ok": True})
-    r = P.api_proxy_test({"id": pa["id"]})
-    chk("testing a proxy a node uses pings THAT node", calls, [("DE01", "ping")])
-    chk("and reports it as end to end", (r["ok"], r["end_to_end"], r["via"]), (True, True, "DE01"))
-    chk("it reports a latency", isinstance(r.get("ms"), int), True)
-
-    calls.clear()
     P.socket.create_connection = lambda addr, timeout=None: (
         calls.append(("dial", addr)) or type("S", (), {"close": lambda self: None})())
-    r = P.api_proxy_test({"id": pb["id"]})
-    chk("an unused proxy is only reached, not traversed", calls, [("dial", ("10.9.9.8", 3128))])
-    chk("and says so", (r["ok"], r["end_to_end"]), (True, False))
+    P.node_call = lambda *a, **k: calls.append(("node_call", "")) or {"ok": True}
+    r = P.api_proxy_test({"id": pa["id"]})     # pa HAS two nodes on it
+    chk("testing a proxy with nodes on it still dials the PROXY, not a node",
+        calls, [("dial", ("10.9.9.7", 8080))])
+    chk("it reports the proxy's own latency", isinstance(r.get("ms"), int), True)
+    chk("and says nothing about any node", ("via" in r, "end_to_end" in r), (False, False))
 
-    # ---- the dot: the poller's verdict, and the button must not disagree with it
-    chk("the manual test publishes the verdict the dot reads",
-        (P._px_get(pb["id"]).get("ok"), P._px_get(pb["id"]).get("end_to_end")), (True, False))
+    calls.clear()
+    r = P.api_proxy_test({"id": pb["id"]})
+    chk("an unused proxy is reached the same way", calls, [("dial", ("10.9.9.8", 3128))])
+
+    # ---- the dot: the proxy's OWN reachability, never borrowed from a node
+    chk("the manual test publishes the verdict the dot reads", P._px_get(pb["id"]).get("ok"), True)
 
     P._px.clear()
     row = {r["name"]: r for r in P.api_proxies({})["proxies"]}["hetzner-2"]
     chk("never probed -> pending, so a fresh proxy is grey and not red",
         (row["pending"], row["online"]), (True, False))
 
-    # The latency the dot shows comes from what the POLLER caches, not from a fixture. rtt_ms used to be
-    # stamped only by the manual test button, so a used proxy's dot was green with no number for ever --
-    # and a hand-written {"rtt_ms": 31} in this file hid it. Drive the real _poll_node.
-    P.node_call = lambda n, ep, m="POST", body=None, timeout=8: {"ok": True, "hostname": "H", "stats": {}}
-    P._tombed = lambda *args: False
-    P._tf_ingest = P._tf_zero_rates = P._uh_sample = lambda *args, **kw: None
-    P._pending_drain = lambda *args: None
-    P._poll_node({"id": "n2", "name": "DE01", "host": "2.2.2.2", "port": 8099, "token": "t"})
-    chk("the POLLER's cached ping carries the rtt the dot reads",
-        isinstance(P._cached_ping("n2").get("rtt_ms"), int), True)
-
-    # a proxy nodes take is judged BY those nodes' cached ping -- no dial of its own
+    # a proxy WITH nodes on it is still judged by its own reach: no node_call, no borrowed rtt
     calls.clear()
-    P._cached_ping = lambda nid: {"ok": True, "rtt_ms": 31} if nid == "n2" else {}
-    st = P._proxy_probe(P.get_proxy(pa["id"]), P._proxy_nodes().get(pa["id"], []))
-    chk("a used proxy is judged by its node's cached ping, with no dial of its own",
-        (st["ok"], st["ms"], st["via"], st["end_to_end"], calls), (True, 31, "DE01", True, []))
-    P._px_publish(pa["id"], st)
-    row = {r["name"]: r for r in P.api_proxies({})["proxies"]}["hetzner-2"]
-    chk("and the row turns the verdict into a green dot", (row["online"], row["pending"]), (True, False))
+    P.node_call = lambda *a, **k: calls.append(("node_call", a[1] if len(a) > 1 else "")) or {"ok": True}
+    P._cached_ping = lambda nid: {"ok": True, "rtt_ms": 999}
+    st = P._proxy_probe(P.get_proxy(pa["id"]))
+    chk("a proxy with nodes on it is still judged by its OWN reach",
+        (st["ok"], calls, "via" in st, "end_to_end" in st),
+        (True, [("dial", ("10.9.9.7", 8080))], False, False))
+    chk("and the latency is the proxy's own, not a node's 999",
+        st["ms"] != 999 and isinstance(st["ms"], int), True)
 
-    P._cached_ping = lambda nid: {"ok": False, "error": "unreachable"} if nid == "n2" else {}
-    st = P._proxy_probe(P.get_proxy(pa["id"]), P._proxy_nodes().get(pa["id"], []))
-    chk("a node that cannot be reached through it makes it red, with the reason",
-        (st["ok"], st["ms"], st["error"]), (False, None, "unreachable"))
+    # a node being unreachable must NOT drag the proxy red
+    P._cached_ping = lambda nid: {"ok": False, "error": "node unreachable"}
+    st = P._proxy_probe(P.get_proxy(pa["id"]))
+    chk("an unreachable node does not make a reachable proxy red", (st["ok"], st["error"]), (True, ""))
 
-    # an UNPOLLED node must not be read as a verdict -- fall through to the proxy's own dial
-    calls.clear()
-    P._cached_ping = lambda nid: {}
-    st = P._proxy_probe(P.get_proxy(pa["id"]), P._proxy_nodes().get(pa["id"], []))
-    chk("nodes with no poll yet fall through to the proxy's own dial",
-        (st["ok"], st["end_to_end"], calls), (True, False, [("dial", ("10.9.9.7", 8080))]))
+    # and a proxy that cannot be reached is red, with its own reason
+    def boom(addr, timeout=None):
+        raise OSError("[Errno 111] Connection refused")
+
+    P.socket.create_connection = boom
+    st = P._proxy_probe(P.get_proxy(pa["id"]))
+    chk("a proxy that refuses the connection is red, with its own reason",
+        (st["ok"], st["ms"], "refused" in st["error"]), (False, None, True))
 
     if failures:
         print("\nFAILURES (%d):" % len(failures))
