@@ -41,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CENTRAL_DIR = "/opt/tnl-central"
 WEB_CONF = os.path.join(CENTRAL_DIR, "web.conf")
 NODES_FILE = os.path.join(CENTRAL_DIR, "nodes.json")
+PROXIES_FILE = os.path.join(CENTRAL_DIR, "proxies.json")
 LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
 TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
 SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable panel settings (reconcile mode, intervals, …)
@@ -476,6 +477,32 @@ def get_node(nid):
     return next((n for n in load_nodes() if n["id"] == nid), None)
 
 
+def load_proxies():
+    try:
+        with open(PROXIES_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def get_proxy(pid):
+    return next((p for p in load_proxies() if p["id"] == pid), None)
+
+
+def node_proxy(node):
+    """The proxy URL a node's traffic must take, or '' for a direct connection.
+
+    THE single resolution point. Both ways out to a node go through it -- node_call for every agent
+    HTTP request and the SSH ProxyCommand at install time -- so a node either has all of its traffic
+    proxied or none of it. A proxy_id naming a deleted entry resolves to '' (direct) rather than
+    failing the call: the operator sees the node go offline, which is the honest symptom.
+    """
+    if not (node or {}).get("proxy_on"):
+        return ""
+    p = get_proxy(str(node.get("proxy_id") or ""))
+    return (p or {}).get("url") or ""
+
+
 # --------------------------------------------------------------------------- deferred teardown queue
 # When a force-delete or a best-effort wipe cannot reach a node, the panel record is removed anyway and
 # the owed teardown is parked here as {node_id: [names]}. The poller drains it the moment that node
@@ -724,7 +751,7 @@ def _ensure_update_key(node):
 
 
 def node_call(node, endpoint, method="POST", body=None, timeout=8):
-    proxy = (node.get("proxy") or "").strip()
+    proxy = node_proxy(node)
     if proxy:  # route this node's control traffic through its SOCKS5/HTTP proxy
         return _node_call_proxied(node, proxy, endpoint, method, body, timeout)
     url = f"http://{node['host']}:{int(node['port'])}/api/{endpoint}"
@@ -1603,6 +1630,21 @@ def _require(d, keys):
             raise ValueError(f"missing field: {k}")
 
 
+def valid_proxy_ref(d):
+    """Read {proxy_on, proxy_id} off a request body and check the id resolves. Returns the pair.
+
+    An id that names nothing is refused HERE rather than silently falling back to a direct connection:
+    a node the operator believes is proxied, quietly reaching out in the clear, is the one failure this
+    whole feature exists to prevent."""
+    on = bool(d.get("proxy_on"))
+    pid = str(d.get("proxy_id") or "").strip()
+    if not on:
+        return False, ""
+    if not pid or not get_proxy(pid):
+        raise ValueError("پروکسی انتخاب نشده — از بخشِ «پروکسی‌ها» یکی بساز و انتخابش کن")
+    return True, pid
+
+
 def valid_proxy(p):
     """Accept '' or a scheme://[user:pass@]host:port proxy (socks5/http). Returns the normalized value."""
     p = str(p or "").strip()
@@ -1620,9 +1662,19 @@ def _redact_proxy(proxy):
     return re.sub(r"://[^/@]*@", "://", str(proxy or "").strip())
 
 
-def _node_view(n, pend=None):
+def _proxy_names():
+    return {p["id"]: p["name"] for p in load_proxies()}
+
+
+def _node_view(n, pend=None, pxn=None):
     _uw = get_settings().get("uptime_window", 1)
-    base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"], "proxy": _redact_proxy(n.get("proxy")),
+    # proxy_name is what the card and the details sheet SHOW; resolving it here means the browser never
+    # needs the registry to say which proxy a node takes, and cannot disagree with node_proxy about it.
+    _pon = bool(n.get("proxy_on"))
+    _pid = str(n.get("proxy_id") or "")
+    base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"],
+            "proxy_on": _pon, "proxy_id": _pid,
+            "proxy_name": (pxn if pxn is not None else _proxy_names()).get(_pid, "") if _pon else "",
             "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
             "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),   # teardowns owed to this node, waiting for it to reconnect
             "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
@@ -1643,7 +1695,8 @@ def api_nodes(d):
     page = nodes[off:off + lim]
     _ensure_cached(page)  # bounded to one page — warms cold-start without touching the whole fleet
     _pend = _pending_counts()   # read the deferred-teardown queue once for the whole page
-    return {"nodes": [_node_view(n, _pend) for n in page], "total": total, "offset": off, "limit": lim,
+    _pxn = _proxy_names()       # and the proxy registry once, not once per node
+    return {"nodes": [_node_view(n, _pend, _pxn) for n in page], "total": total, "offset": off, "limit": lim,
             "uptime_window": get_settings().get("uptime_window", 1)}
 
 
@@ -2008,8 +2061,9 @@ def api_node_add(d):
         raise ValueError("token required")
     if len(token) < 16:   # token-strength floor: reject weak manual tokens (auto-provisioned ones are long)
         raise ValueError("token too short — use at least 16 characters")
-    proxy = valid_proxy(d.get("proxy"))
-    node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token, "proxy": proxy}
+    pon, pid = valid_proxy_ref(d)
+    node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
+            "proxy_on": pon, "proxy_id": pid}
     with _reg_lock:
         nodes = load_nodes()
         if _name_taken(nodes, name):
@@ -2248,7 +2302,7 @@ def _ssh_run(cfg, remote_cmd, timeout):
         return 124, "", "SSH timeout"
 
 
-def _install_worker(jid, cfg, name, agent_port, proxy):
+def _install_worker(jid, cfg, name, agent_port, pon, pid):
     def fail(key, msg, log=""):
         _install_step(jid, key, "err", msg, log)
         _install_finish(jid, False, f"نصب در مرحلهٔ «{_INSTALL_LABELS[key]}» متوقف شد")
@@ -2284,7 +2338,7 @@ def _install_worker(jid, cfg, name, agent_port, proxy):
 
         _install_step(jid, "register", "run")
         node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"],
-                "port": agent_port, "token": token, "proxy": proxy}
+                "port": agent_port, "token": token, "proxy_on": pon, "proxy_id": pid}
         with _reg_lock:
             nodes = load_nodes()
             if _name_taken(nodes, name):  # a same-name node was added during the (minutes-long) install
@@ -2340,12 +2394,14 @@ def api_node_install(d):
     agent_port = int(d.get("agent_port") or 8099)
     if not 1 <= agent_port <= 65535:
         raise ValueError("bad agent port")
-    proxy = valid_proxy(d.get("proxy"))
+    pon, pid = valid_proxy_ref(d)
     password = str(d.get("ssh_pass") or "")
     key = str(d.get("ssh_key") or "").strip()
     if not password and not key:
         raise ValueError("رمزِ SSH یا کلیدِ خصوصی لازم است")
-    cfg = {"host": host, "port": ssh_port, "user": user, "password": password, "proxy": proxy}
+    # the SSH leg takes the SAME resolved URL as the agent HTTP, so install and control never disagree
+    cfg = {"host": host, "port": ssh_port, "user": user, "password": password,
+           "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
     if key:
         fd, kp = tempfile.mkstemp(prefix="tnlkey_")
         with os.fdopen(fd, "w") as f:
@@ -2360,7 +2416,7 @@ def api_node_install(d):
         _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
                                         for k, l in _INSTALL_STEPS],
                               "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
-    threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, proxy), daemon=True).start()
+    threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, pon, pid), daemon=True).start()
     return {"ok": True, "job": jid}
 
 
@@ -2387,7 +2443,7 @@ def api_node_edit(d):
     if not 1 <= port <= 65535:
         raise ValueError("bad port")
     token = str(d.get("token") or "").strip()
-    proxy = valid_proxy(d.get("proxy"))  # validated here so a bad value never reaches the registry
+    pon, pid = valid_proxy_ref(d)  # validated here so a dangling id never reaches the registry
     with _reg_lock:
         nodes = load_nodes()
         n = next((x for x in nodes if x["id"] == d["id"]), None)
@@ -2397,7 +2453,8 @@ def api_node_edit(d):
             raise ValueError(f"نودِ دیگری با نامِ «{name}» وجود دارد — نام باید یکتا باشد")
         if _host_taken(nodes, host, exclude_id=d["id"]):  # can't move onto another node's IP
             raise ValueError(f"نودِ دیگری با آی‌پیِ «{host}» وجود دارد")
-        n["name"], n["host"], n["port"], n["proxy"] = name, host, port, proxy
+        n["name"], n["host"], n["port"] = name, host, port
+        n["proxy_on"], n["proxy_id"] = pon, pid
         if token:
             n["token"] = token  # blank = keep the existing token
         save_json(NODES_FILE, nodes)
@@ -6126,6 +6183,86 @@ def api_link_rebuild_info(d):
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
 
 
+# ----------------------------------------------------------------------------- proxies registry
+# One named proxy, reusable by any number of nodes. The URL carries the credentials and NEVER leaves
+# the server: every read path redacts the userinfo, so the browser sees scheme://host:port and the
+# operator re-types a password only when they mean to change it.
+
+def _proxy_users():
+    """{proxy_id: [node names]} — THE one definition of "which nodes take this proxy"."""
+    users = {}
+    for n in load_nodes():
+        if n.get("proxy_on"):
+            users.setdefault(str(n.get("proxy_id") or ""), []).append(n["name"])
+    return users
+
+
+def _proxy_row(p, users=None):
+    return {"id": p["id"], "name": p["name"], "url": _redact_proxy(p.get("url")),
+            "nodes": (users if users is not None else _proxy_users()).get(p["id"], [])}
+
+
+def api_proxies(d):
+    users = _proxy_users()   # read the node list once for the page, not once per proxy
+    return {"proxies": [_proxy_row(p, users) for p in load_proxies()]}
+
+
+def _proxy_name(d, taken):
+    name = str(d.get("name") or "").strip()
+    if not 1 <= len(name) <= 40:
+        raise ValueError("نامِ پروکسی لازم است (حداکثر ۴۰ نویسه)")
+    if name.lower() in taken:
+        raise ValueError("پروکسیِ دیگری با همین نام هست")
+    return name
+
+
+def api_proxy_add(d):
+    url = valid_proxy(d.get("url"))
+    if not url:
+        raise ValueError("آدرسِ پروکسی لازم است")
+    with _reg_lock:
+        ps = load_proxies()
+        p = {"id": secrets.token_hex(5), "name": _proxy_name(d, {x["name"].lower() for x in ps}), "url": url}
+        ps.append(p)
+        save_json(PROXIES_FILE, ps)
+    log_event("ok", "node", f"دلیل: افزودنِ پروکسیِ «{p['name']}»", _redact_proxy(url))
+    return {"ok": True, "proxy": _proxy_row(p)}
+
+
+def api_proxy_edit(d):
+    _require(d, ["id"])
+    raw = str(d.get("url") or "").strip()
+    with _reg_lock:
+        ps = load_proxies()
+        p = next((x for x in ps if x["id"] == d["id"]), None)
+        if not p:
+            raise ValueError("پروکسی پیدا نشد")
+        p["name"] = _proxy_name(d, {x["name"].lower() for x in ps if x["id"] != p["id"]})
+        # An empty url means "keep the stored one", the way an empty node token does — the browser only
+        # ever held a redacted copy, so submitting what it was shown would strip the credentials.
+        if raw:
+            p["url"] = valid_proxy(raw)
+        save_json(PROXIES_FILE, ps)
+    log_event("ok", "node", f"دلیل: ویرایشِ پروکسیِ «{p['name']}»", _redact_proxy(p["url"]))
+    return {"ok": True, "proxy": _proxy_row(p)}
+
+
+def api_proxy_del(d):
+    _require(d, ["id"])
+    with _reg_lock:
+        ps = load_proxies()
+        p = next((x for x in ps if x["id"] == d["id"]), None)
+        if not p:
+            raise ValueError("پروکسی پیدا نشد")
+        used = _proxy_users().get(p["id"], [])
+        if used:
+            # Deleting it would drop those nodes back to a DIRECT connection without anyone saying so.
+            raise ValueError("این پروکسی روی این نودها فعال است: " + "، ".join(used))
+        save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
+    log_event("ok", "node", f"دلیل: حذفِ پروکسیِ «{p['name']}»")
+    return {"ok": True}
+
+
 def api_settings(d):
     return get_settings()
 
@@ -6184,6 +6321,8 @@ API = {
     "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
+    "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,
+    "proxy-del": api_proxy_del,
     "rebuild-link": api_rebuild_link, "restart-link": api_restart_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
     "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
@@ -6198,7 +6337,7 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
     "reorder": api_reorder,
 }
-MUTATIONS = {"node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -6977,6 +7116,9 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .setctl .setfield{padding:8px 12px;font-size:13px}
 .setctl input.search{padding:8px 12px}
 .setgrp{margin-top:8px}
+.pxhd{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pxurl{font-size:12.5px;color:var(--sub);margin-top:6px;word-break:break-all}
+.pxused{font-size:11.5px;color:var(--sub);margin-top:6px}
 .sc-panel{--sc:#4f6ef7;--scbg:#4f6ef722}.sc-conn{--sc:#0891b2;--scbg:#0891b222}.sc-pool{--sc:#c2410c;--scbg:#c2410c22}.sc-perf{--sc:#8b5cf6;--scbg:#8b5cf622}
 .grphd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 2px 8px;font-weight:800;font-size:14px;color:var(--tx)}
 .grphd .gdot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--sc)}
@@ -7158,6 +7300,7 @@ body.dark .tag.core{color:#a78bfa}
   <nav class="nav" id="nav">
    <a class="navi" data-t="overview"><span class="ic" data-ic="dash"></span> <span class="nlbl">نمای کلی</span></a>
    <a class="navi" data-t="nodes"><span class="ic" data-ic="server"></span> <span class="nlbl">نودها</span><span class="ct" id="ct_nodes"></span></a>
+   <a class="navi" data-t="proxies"><span class="ic" data-ic="globe"></span> <span class="nlbl">پروکسی‌ها</span><span class="ct" id="ct_proxies"></span></a>
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="globe"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
@@ -7175,7 +7318,16 @@ body.dark .tag.core{color:#a78bfa}
 // ===== i18n — Persian only (the English layer + language toggle were removed). =====
 var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
 var I18N={fa:{
- nav_overview:"نمای کلی",nav_nodes:"نودها",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
+ nav_overview:"نمای کلی",nav_nodes:"نودها",nav_proxies:"پروکسی‌ها",
+ px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
+ px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",px_url:"آدرس",
+ px_url_ph:"socks5://user:pass@host:1080",px_url_keep:"خالی = آدرسِ فعلی بماند",
+ px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
+ px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
+ px_note:"آدرس با یوزر و پسورد روی مرکزی می‌ماند و هیچ‌وقت به مرورگر فرستاده نمی‌شود.",
+ nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
+ nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
+ nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
  log_details:"جزئیات",
@@ -7451,7 +7603,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  nadd_auto:"خودکار",nadd_manual:"دستی",nadd_title:"افزودنِ نود",
  nadd_autonote:"مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.",
  nadd_node_name:"نامِ نود",nadd_srv_ip:"آی‌پیِ سرور",nadd_ssh_port:"پورتِ SSH",nadd_ssh_user:"کاربرِ SSH",
- nadd_agent_port:"پورتِ ایجنت",nadd_ctrl_proxy:"پروکسیِ کنترل (اختیاری)",px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پنل از این پروکسی هم برای SSHِ نصب و هم برای کنترلِ نود استفاده می‌کند.",px_need_ipport:"آی‌پی و پورتِ پروکسی لازم است",px_bad_port:"پورتِ پروکسی نامعتبر است (1 تا 65535)",px_bad_cred:"یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد",nadd_ssh_auth:"احرازِ هویتِ SSH",
+ nadd_agent_port:"پورتِ ایجنت",nadd_ssh_auth:"احرازِ هویتِ SSH",
  nadd_pass:"رمز",nadd_privkey:"کلیدِ خصوصی",nadd_pass_ph:"رمزِ SSH سرور",
  nadd_pass_hint:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",
  nadd_key_hint:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
@@ -7835,7 +7987,8 @@ function nodesSkel(){el('view').innerHTML=vhead('server','nav_nodes','nodes_sub'
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'+pagerBottom('nodes')}
 var _naddMode='auto';
-function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;_instStop();
+async function openNodeAddModal(){await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
+ _naddMode='auto';_authMode='pass';_installDone=null;_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+esc(T('nadd_auto'))+'</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+esc(T('nadd_manual'))+'</button></div>';
  var auto='<div id="nadd_auto">'+
    '<div class="autonote">'+ic('bolt')+'<span>'+esc(T('nadd_autonote'))+'</span></div>'+
@@ -7849,7 +8002,7 @@ function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;
     '<div class="muted" id="a_authhint" style="font-size:11px;margin-top:7px">'+esc(T('nadd_pass_hint'))+'</div></div>'+
    '<div id="nadd_prog"></div></div>';
  var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(T('nadd_agent_port2'))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div>'+proxyBlock('n_')+'</div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');pxReset('a_',false,'socks5');pxReset('n_',false,'socks5')}
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function naddSwitch(m){_naddMode=m;_installDone=null;_instStop();
  var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
  document.querySelectorAll('#nadd_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.m==m)});
@@ -7898,34 +8051,10 @@ function _instTick(){var c=_inst;if(!c)return;
  if(c.revealIdx<started&&now-c.lastReveal>=_MINSPIN&&curTerm){c.revealIdx++;c.lastReveal=now}  // advance one step per beat, never past the backend
  if(!c.finished&&c.bDone&&c.revealIdx>=started&&now-c.lastReveal>=_MINSPIN&&(started>0||c.err)){_instFinish(c);return}
  _instRender(c);c.timer=setTimeout(_instTick,150)}
-// ---- control-proxy toggle (add/manual/edit share this). Stored as a scheme://[user:pass@]host:port
-// URL (so the backend parser, redaction and SSH-ProxyCommand relay stay unchanged); the fields are UI.
-var _pxOn={},_pxSch={};
-function proxyBlock(pfx){return '<div class="authbox" style="margin-top:14px"><div class="authhd"><span class="t">'+esc(T('nadd_ctrl_proxy'))+'</span><span class="tglsw" id="'+pfx+'pxsw" style="margin-inline-start:auto" onclick="pxTgl(\\''+pfx+'\\')"></span></div>'
- +'<div id="'+pfx+'pxbody" style="display:none">'
- +'<div class="authhd" style="margin-bottom:11px"><span class="t" style="font-size:11.5px;font-weight:700;color:var(--sub)">'+esc(T('px_type'))+'</span><span class="authseg" id="'+pfx+'pxseg"><button type="button" data-ps="socks5" class="on" onclick="pxSch(\\''+pfx+'\\',\\'socks5\\')">SOCKS5</button><button type="button" data-ps="http" onclick="pxSch(\\''+pfx+'\\',\\'http\\')">HTTP</button></span></div>'
- +'<div class="grid2"><div><label>'+esc(T('px_ip'))+'</label><input id="'+pfx+'pxip" dir="ltr" placeholder="10.202.10.202"></div><div><label>'+esc(T('px_port'))+'</label><input id="'+pfx+'pxport" dir="ltr" placeholder="1080"></div></div>'
- +'<div class="grid2" style="margin-top:11px"><div><label>'+esc(T('px_user'))+'</label><input id="'+pfx+'pxuser" dir="ltr" placeholder="'+esc(T('px_opt'))+'" autocomplete="off"></div><div><label>'+esc(T('px_pass'))+'</label><input id="'+pfx+'pxpass" dir="ltr" type="password" placeholder="'+esc(T('px_opt'))+'" autocomplete="new-password"></div></div>'
- +'<div class="muted" style="font-size:11px;margin-top:8px">'+esc(T('px_hint'))+'</div></div></div>';}
-function pxTgl(pfx){var on=!_pxOn[pfx];_pxOn[pfx]=on;var s=el(pfx+'pxsw');if(s)s.classList.toggle('on',on);var b=el(pfx+'pxbody');if(b)b.style.display=on?'':'none';}
-function pxSch(pfx,val){_pxSch[pfx]=val;var seg=el(pfx+'pxseg');if(seg)Array.prototype.forEach.call(seg.querySelectorAll('button'),function(x){x.classList.toggle('on',x.getAttribute('data-ps')==val);});}
-function pxReset(pfx,on,scheme){_pxOn[pfx]=!!on;var s=el(pfx+'pxsw');if(s)s.classList.toggle('on',!!on);var b=el(pfx+'pxbody');if(b)b.style.display=on?'':'none';pxSch(pfx,scheme||'socks5');}
-// returns '' (off), a scheme://[user:pass@]ip:port URL, or {err} on bad input
-function pxCollect(pfx){if(!_pxOn[pfx])return '';var ip=(v(pfx+'pxip')||'').trim(),port=(v(pfx+'pxport')||'').trim();
- if(!ip||!port)return {err:T('px_need_ipport')};
- if(!/^[0-9]{1,5}$/.test(port)||+port<1||+port>65535)return {err:T('px_bad_port')};
- var u=(v(pfx+'pxuser')||'').trim(),w=(v(pfx+'pxpass')||'');
- if(/[@:\\/\\s]/.test(u)||/[@\\/\\s]/.test(w))return {err:T('px_bad_cred')};
- var auth=u?(u+(w?':'+w:'')+'@'):'';var h=ip.indexOf(':')>=0?('['+ip.replace(/^\\[|\\]$/g,'')+']'):ip;return (_pxSch[pfx]||'socks5')+'://'+auth+h+':'+port;}
-// prefill fields from a stored (possibly credential-redacted) URL
-function pxPrefill(pfx,url){url=(url||'').trim();if(!url){pxReset(pfx,false,'socks5');return;}
- var m=url.match(/^(socks5h?|http|https|connect):\\/\\/(?:([^:@\\/]*)(?::([^@\\/]*))?@)?(\\[[^\\]]+\\]|[^:\\/]+):([0-9]+)/i);
- if(!m){pxReset(pfx,true,'socks5');if(el(pfx+'pxip'))el(pfx+'pxip').value=url;return;}
- pxReset(pfx,true,/^socks/i.test(m[1])?'socks5':'http');
- if(el(pfx+'pxip'))el(pfx+'pxip').value=(m[4]||'').replace(/^\\[|\\]$/g,'');
- if(el(pfx+'pxport'))el(pfx+'pxport').value=m[5]||'';
- if(el(pfx+'pxuser'))el(pfx+'pxuser').value=m[2]||'';
- if(el(pfx+'pxpass'))el(pfx+'pxpass').value=m[3]||'';}
+// proxyBlock is the node forms' half of the proxy feature: a toggle, and the registry list only when
+// it is on. The proxy itself is defined once on the Proxies page — a node only ever names one.
+function proxyBlock(pfx){return pxFields(pfx, _pxNode[pfx]||null)}
+var _pxNode={};
 var _authMode='pass';
 function authMode(m){_authMode=m;
  var pf=el('a_pass'),kf=el('a_key'),h=el('a_authhint');
@@ -7940,12 +8069,11 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){formErr(m,T('nadd_need_name_ip'));return}
  if(!pass&&!key){formErr(m,(_authMode=='key'?T('nadd_privkey'):T('nadd_pass_word'))+T('nadd_is_required'));return}
- var _px=pxCollect('a_');if(_px&&_px.err){formErr(m,_px.err);return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
  // show the FIRST step (SSH), spinning, the instant install is clicked — no "در حالِ نصب…" placeholder gap
  var _st0=_insteps()[0];
  var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>'+esc(T('inst_installing'))+'</span></div><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">'+esc(_st0.label)+'</div><div class="istep-s">'+esc(_st0.detail)+'</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
- var r=await post('node-install',{name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key,proxy:_px}).catch(function(){return{ok:false,d:{}}});
+ var r=await post('node-install',Object.assign({name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key},pxBody('a_'))).catch(function(){return{ok:false,d:{}}});
  if(!(r.ok&&r.d.ok)){formErr(m,terr((r.d&&r.d.error))||T('failed'));if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+esc(T('nadd_install_connect')));return}
  // seed step 0 as revealed+running so the reveal continues seamlessly from the skeleton (no flicker back to the banner)
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
@@ -7958,7 +8086,6 @@ function listBusy(){return !!(editingId||CHECKING||RORD||RSAVE)}
 async function refreshNodes(){if(listBusy())return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
  setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>');renderPager('nodes')}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
-function proxyScheme(p){if(!p)return '';var i=p.indexOf('://');return (i>0?p.slice(0,i):'socks5').toLowerCase()}
 // ===== popup modal shell (edit forms + node-details) =====
 function openModal(html,opts){opts=opts||{};
  var ov=document.createElement('div');ov.className='modalov';
@@ -7992,11 +8119,11 @@ function ndSetHead(ov,online){var dot=ov.querySelector('.nd-head .dot');if(dot)d
  var bd=ov.querySelector('.nd-head .nd-ping');if(bd){bd.className='badge '+(online?'ok':'bad')+' nd-ping';bd.textContent=online?T('online'):T('offline')}
  var sb=ov.querySelector('.msticky .sb');if(sb)sb.innerHTML=online?'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span> '+esc(T('refresh2s')):esc(T('nd_off_last'))}
 function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;var i=n.info||{},s=i.stats||{};
- var head='<div class="nd-head"><span class="dot '+(n.online?'ok':'bad')+'"></span><div class="nd-id"><b class="nd-name">'+esc(n.name)+'</b><span class="nd-hp">'+esc(n.host)+':'+esc(n.port)+'</span></div>'+(n.proxy?'<span class="tag" style="margin-inline-start:6px">'+esc(T('proxy'))+'</span>':'')+'<span class="badge '+(n.online?'ok':'bad')+' nd-ping">'+(n.online?T('online'):T('offline'))+'</span></div>';
+ var head='<div class="nd-head"><span class="dot '+(n.online?'ok':'bad')+'"></span><div class="nd-id"><b class="nd-name">'+esc(n.name)+'</b><span class="nd-hp">'+esc(n.host)+':'+esc(n.port)+'</span></div>'+(n.proxy_on?'<span class="tag" style="margin-inline-start:6px">'+esc(T('proxy'))+'</span>':'')+'<span class="badge '+(n.online?'ok':'bad')+' nd-ping">'+(n.online?T('online'):T('offline'))+'</span></div>';
  var mb;
  if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk',T('disk'))+'</div>';
   var traf='<div class="nd-sec">'+ic('traf')+' '+esc(T('nd_traffic'))+'<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>'+esc(T('live'))+'</span></div><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="tf_rin">—</b></span><span class="dout iso">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">'+esc(T('ov_rxtot'))+'</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">'+esc(T('ov_txtot'))+'</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
-  var tiles='<div class="nd-grid">'+ndTile('os',T('os'),esc(s.os||'?'),false,true)+ndTile('clock',T('uptime'),s.uptime?fmtup(s.uptime):'?')+ndTile('cores',T('cpu_cores'),num(s.cpus)||'?')+ndTile('link',T('nd_tunnels'),num(i.tunnels))+ndTile('globe',T('nd_portfw'),num(i.portfw))+ndTile('shield',T('nd_ctrlproxy'),n.proxy?esc(proxyScheme(n.proxy)):'—')+ndTile('server',T('host'),esc(i.hostname||'?'),true,true)+ndTile('pin',T('ip'),esc(n.host),true,true)+'</div>';
+  var tiles='<div class="nd-grid">'+ndTile('os',T('os'),esc(s.os||'?'),false,true)+ndTile('clock',T('uptime'),s.uptime?fmtup(s.uptime):'?')+ndTile('cores',T('cpu_cores'),num(s.cpus)||'?')+ndTile('link',T('nd_tunnels'),num(i.tunnels))+ndTile('globe',T('nd_portfw'),num(i.portfw))+ndTile('shield',T('nd_ctrlproxy'),n.proxy_on?esc(n.proxy_name||'?'):'—')+ndTile('server',T('host'),esc(i.hostname||'?'),true,true)+ndTile('pin',T('ip'),esc(n.host),true,true)+'</div>';
   mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' '+esc(T('nd_ips'))+'<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">'+esc(T('ip_leg'))+'</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
  else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
  var sub=n.online?'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span> '+esc(T('refresh2s')):esc(T('nd_status'));
@@ -8013,9 +8140,11 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
     var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">'+esc(T('nd_no_tp'))+'</div>'}).catch(function(){})};
   poll();ov._iv=setInterval(poll,UIV)}}   // live CPU/RAM/disk + traffic, at the settings-driven cadence
 function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast(T('online'),'ok')}else{toast(T('offline')+': '+((r&&r.error)||T('not_available')),'err')}}).catch(function(){toast(T('err_check'),'err')})}
-function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
+async function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
+ await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
+ _pxNode['ne_']=n;
  var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div>'+proxyBlock('ne_')+'<div class="msg" id="em_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');pxPrefill('ne_',n.proxy||'')}
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">'+esc(T('ip_of'))+esc(nm)+'</label>';
  ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
  if(ips.length>1)return '<div>'+lab+ssHTML('lip'+side+'_'+id,ips.map(function(x){return{v:x,label:x}}),(cur&&ips.indexOf(cur)>=0)?cur:ips[0],T('ip'),'')+'</div>';
@@ -8038,7 +8167,7 @@ function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
  var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('activity')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
@@ -8054,15 +8183,13 @@ function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), nu
  return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+T('pct')+'</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
  if(!name||!host||!port){formErr(m,T('need_nhp'));return}
- var _px=pxCollect('ne_');if(_px&&_px.err){formErr(m,_px.err);return}
  m.className='msg';m.textContent=T('saving');
- var r=await post('node-edit',{id:id,name:name,host:host,port:port,token:tok,proxy:_px});
+ var r=await post('node-edit',Object.assign({id:id,name:name,host:host,port:port,token:tok},pxBody('ne_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{formErr(m,terr(r.d.error||T('failed')))}}
 async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host'),port=v('n_port'),tok=v('n_tok');
  if(!name||!host||!port||!tok){formErr(m,T('need_all_nhpt'));return}
- var _px=pxCollect('n_');if(_px&&_px.err){formErr(m,_px.err);return}
  m.className='msg';m.textContent=T('connecting_dots');
- var r=await post('node-add',{name:name,host:host,port:port,token:tok,proxy:_px});
+ var r=await post('node-add',Object.assign({name:name,host:host,port:port,token:tok},pxBody('n_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+terr(r.d.error||'')),r.d.online?'ok':'err')}
  else{formErr(m,terr(r.d.error||T('failed')))}}
 async function testNode(id){var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
@@ -9399,6 +9526,55 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
  else{formErr(m,perr(r))}}
 
+// ===== Proxies: one named proxy, reusable by any number of nodes.
+var PX=[];
+// Fills PX and nothing else, so the node forms can wait for the registry without touching the page.
+async function pxLoad(){var r=await j('proxies').catch(function(){return{}});PX=r.proxies||[]}
+function proxiesSkel(){el('view').innerHTML=vhead('globe','nav_proxies','px_sub')+
+ '<button class="primary" onclick="openPxModal(null)" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('px_add'))+'</button>'+
+ '<div id="pxList">'+skCards('proxies')+'</div>';
+ refreshProxies()}
+async function refreshProxies(){if(listBusy())return;await pxLoad();
+ var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+ setT('ct_proxies',PX.length?String(PX.length):'');
+ setHTML(box,PX.length?PX.map(pxCard).join(''):'<div class="card muted">'+esc(T('px_empty'))+'</div>')}
+function pxCard(p,i){
+ var used=p.nodes&&p.nodes.length?esc(T('px_used_by'))+esc(p.nodes.join('، ')):'<span class="muted">'+esc(T('px_used_none'))+'</span>';
+ return '<div class="card"><div class="pxhd"><b>'+esc(p.name)+'</b>'
+  +'<div class="nact iconly"><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
+  +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div></div>'
+  +'<div class="mono pxurl">'+esc(p.url)+'</div><div class="pxused">'+used+'</div></div>'}
+function openPxModal(i){var p=(i==null)?null:PX[i];
+ var body='<div class="frow"><label>'+esc(T('px_name'))+'</label><input id="px_name" class="search" maxlength="40" value="'+esc(p?p.name:'')+'"></div>'
+  +'<div class="frow"><label>'+esc(T('px_url'))+'</label><input id="px_url" class="search" placeholder="'+esc(p?T('px_url_keep'):T('px_url_ph'))+'" value=""></div>'
+  +'<div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:6px">'+esc(T('px_note'))+'</div>'
+  +'<div class="msg" id="px_msg"></div>';
+ openModal(modalShell(T(p?'px_edit_t':'px_add_t'),body,'savePx('+(i==null?'null':i)+')'))}
+async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
+ var b={name:v('px_name'),url:v('px_url')};if(p)b.id=p.id;
+ var r=await post(p?'proxy-edit':'proxy-add',b);
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('px_saved'),'ok');refreshProxies()}
+ else{formErr(m,perr(r))}}
+async function delPx(i){var p=PX[i];if(!p)return;if(!await confirmBox(T('px_del_confirm')))return;
+ var r=await post('proxy-del',{id:p.id});
+ if(r.ok&&r.d.ok){toast(T('px_deleted'),'ok');refreshProxies()}else{toast(perr(r),'err')}}
+// The node form's half: a toggle, and the list only when it is on.
+function pxFields(pre,node){
+ var on=!!(node&&node.proxy_on),sel=(node&&node.proxy_id)||'';
+ var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.url}});
+ var pick=opts.length
+  ?ssHTML(pre+'proxy_id',opts,sel||opts[0].v,'','')
+  :'<div class="muted" style="font-size:12px">'+esc(T('nd_proxy_none'))+'</div>';
+ return '<div class="card" style="margin-top:10px"><div class="setrow2"><div class="setrow2-top">'
+  +'<b class="setlbl2">'+esc(T('nd_proxy_on'))+'</b>'
+  +'<label class="sw"><input type="checkbox" id="'+pre+'proxy_on"'+(on?' checked':'')+' onchange="pxToggle(\\''+pre+'\\')"><span></span></label></div></div>'
+  +'<div id="'+pre+'proxy_box"'+(on?'':' style="display:none"')+'>'
+  +'<div class="frow" style="margin-top:8px"><label>'+esc(T('nd_proxy_pick'))+'</label>'+pick+'</div>'
+  +'<div class="muted" style="font-size:11.5px;line-height:1.9">'+esc(T('nd_proxy_all'))+'</div></div></div>'}
+function pxToggle(pre){var c=el(pre+'proxy_on'),b=el(pre+'proxy_box');if(b)b.style.display=(c&&c.checked)?'':'none'}
+function pxBody(pre){var c=el(pre+'proxy_on');var on=!!(c&&c.checked);
+ return {proxy_on:on,proxy_id:on?ssVal(pre+'proxy_id'):''}}
+
 // ===== Port-forward
 function portfwSkel(){el('view').innerHTML=vhead('globe','nav_portfw','pf_sub')+
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
@@ -9621,7 +9797,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
   else{if(m){m.className='msg agres err';m.textContent=T('ag_fail')+terr(x.error||'')}}});
  if(target=='all')toast(ok+'/'+rs.length+T('ag_nodes_updated'),ok?'ok':'err');
  setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
-function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
+function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML=vhead('activity','logs_title','logs_sub')+
@@ -9761,7 +9937,7 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
  setHTML(box,logListHTML());}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
- if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
+ if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
 // ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
@@ -9895,7 +10071,7 @@ function palKey(e){if(e.key=='ArrowDown'){e.preventDefault();PALIDX=Math.min(PAL
  else if(e.key=='Enter'){e.preventDefault();palGo(PALIDX)}else if(e.key=='Escape'){e.preventDefault();closePal()}}
 function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if(r)r.scrollIntoView({block:'nearest'})}
 (function(){var p=getLS('tnl_page');   // restore the last page on reload (fall back to overview)
- if(['overview','nodes','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;})();
+ if(['overview','nodes','proxies','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;})();
 render();updateSidebar();TT=setTimeout(tick,6000);
 </script></body></html>"""
 
