@@ -149,6 +149,37 @@ def main():
     chk("an unused proxy is only reached, not traversed", calls, [("dial", ("10.9.9.8", 3128))])
     chk("and says so", (r["ok"], r["end_to_end"]), (True, False))
 
+    # ---- the dot: the poller's verdict, and the button must not disagree with it
+    chk("the manual test publishes the verdict the dot reads",
+        (P._px_get(pb["id"]).get("ok"), P._px_get(pb["id"]).get("end_to_end")), (True, False))
+
+    P._px.clear()
+    row = {r["name"]: r for r in P.api_proxies({})["proxies"]}["hetzner-2"]
+    chk("never probed -> pending, so a fresh proxy is grey and not red",
+        (row["pending"], row["online"]), (True, False))
+
+    # a proxy nodes take is judged BY those nodes' cached ping -- no dial of its own
+    calls.clear()
+    P._cached_ping = lambda nid: {"ok": True, "rtt_ms": 31} if nid == "n2" else {}
+    st = P._proxy_probe(P.get_proxy(pa["id"]), P._proxy_nodes().get(pa["id"], []))
+    chk("a used proxy is judged by its node's cached ping, with no dial of its own",
+        (st["ok"], st["ms"], st["via"], st["end_to_end"], calls), (True, 31, "DE01", True, []))
+    P._px_publish(pa["id"], st)
+    row = {r["name"]: r for r in P.api_proxies({})["proxies"]}["hetzner-2"]
+    chk("and the row turns the verdict into a green dot", (row["online"], row["pending"]), (True, False))
+
+    P._cached_ping = lambda nid: {"ok": False, "error": "unreachable"} if nid == "n2" else {}
+    st = P._proxy_probe(P.get_proxy(pa["id"]), P._proxy_nodes().get(pa["id"], []))
+    chk("a node that cannot be reached through it makes it red, with the reason",
+        (st["ok"], st["ms"], st["error"]), (False, None, "unreachable"))
+
+    # an UNPOLLED node must not be read as a verdict -- fall through to the proxy's own dial
+    calls.clear()
+    P._cached_ping = lambda nid: {}
+    st = P._proxy_probe(P.get_proxy(pa["id"]), P._proxy_nodes().get(pa["id"], []))
+    chk("nodes with no poll yet fall through to the proxy's own dial",
+        (st["ok"], st["end_to_end"], calls), (True, False, [("dial", ("10.9.9.7", 8080))]))
+
     if failures:
         print("\nFAILURES (%d):" % len(failures))
         for f in failures:
