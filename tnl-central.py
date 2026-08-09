@@ -4733,11 +4733,20 @@ def api_check_link(d):
 
 
 def api_restart_link(d):
+    a, b = _link_nodes(d)
+    with _PairLock(a, b):
+        return _restart_link_impl(d)
+
+
+def _restart_link_impl(d):
     """Bounce both ends' core process on the config they already hold.
 
     Deliberately NOT a rebuild: nothing is torn down, no config is rewritten, no ECH is re-fetched and
     the node IPs are not re-picked, so the stored pool survives verbatim. It is the cheap remedy for a
-    core that is alive but stuck in state it cannot clear itself."""
+    core that is alive but stuck in state it cannot clear itself.
+
+    Reports per END, keyed by side rather than by node name: two nodes may share a name, and one end
+    coming back while the other does not is exactly the case the operator has to see."""
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -4747,22 +4756,19 @@ def api_restart_link(d):
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
         raise ValueError("a node of this link is no longer registered")
-    a, b = _link_nodes(d)
-    with _PairLock(a, b):
-        # Both ends: which one holds the stuck state is not knowable from here, and a bounce is cheap.
-        # Report per node rather than a single ok — one end coming back and the other not is the case
-        # the operator has to see.
-        out = {}
-        for N in (A, B):
-            r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=20)
-            out[N["name"]] = bool(r.get("ok"))
-            if not r.get("ok"):
-                out.setdefault("errors", []).append(f"{N['name']}: {r.get('error') or r.get('msg') or '?'}")
-    if out.get("errors"):
-        log_event("bad", "link", f"دلیل: ری‌استارتِ ناموفقِ هستهٔ تونلِ «{L['name']}»", "؛ ".join(out["errors"]))
-        raise ValueError("؛ ".join(out["errors"]))
-    log_event("ok", "link", f"دلیل: ری‌استارتِ هستهٔ تونلِ «{L['name']}»", "پروسه روی هر دو نود تازه شد؛ کانفیگ دست‌نخورده")
-    return {"ok": True, "nodes": {k: v for k, v in out.items() if k != "errors"}}
+    ends, errs = [], []
+    for side, N in (("a", A), ("b", B)):
+        r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=30)
+        ok = bool(r.get("ok"))
+        ends.append({"side": side, "node": N["name"], "ok": ok})
+        if not ok:
+            errs.append(f"{N['name']}: {r.get('error') or r.get('msg') or '?'}")
+    if errs:
+        log_event("bad", "link", f"دلیل: ری‌استارتِ ناموفقِ هستهٔ تونلِ «{L['name']}»", "؛ ".join(errs))
+        raise ValueError("؛ ".join(errs))
+    log_event("ok", "link", f"دلیل: ری‌استارتِ هستهٔ تونلِ «{L['name']}»",
+              "پروسه روی هر دو نود تازه شد؛ کانفیگ دست‌نخورده")
+    return {"ok": True, "ends": ends}
 
 
 def api_rebuild_link(d):
@@ -7484,18 +7490,21 @@ function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.g
 (function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
 var H={'Content-Type':'application/json','X-Requested-With':'tnl-central'};
 // fetch has NO timeout of its own, so a stalled request never settles and whatever guard flag its
-// caller is holding stays held forever: one hung `reorder` left RSAVE true, which kills every list
-// refresh AND every later drag until a reload, and a hung GET stalls tick()'s whole reschedule chain.
-var NET_TIMEOUT=20000;
-function _abo(){var ac=window.AbortController?new AbortController():null;
- return{s:ac?ac.signal:undefined,t:ac?setTimeout(function(){ac.abort()},NET_TIMEOUT):0}}
+// caller holds stays held forever: one hung `reorder` left RSAVE true, killing every list refresh and
+// every later drag until a reload. Two bounds, because the two kinds of request differ: a GET is a list
+// read, while a POST is work the operator waits on — the panel budgets 200s for ONE node's build op
+// alone (_node_tunnel), so a 20s bound there would abort rebuilds and pushes and call them failures.
+var NET_TIMEOUT=20000,NET_POST_TIMEOUT=300000;
+function _abo(ms){var ac=window.AbortController?new AbortController():null;
+ return{s:ac?ac.signal:undefined,t:ac?setTimeout(function(){ac.abort()},ms||NET_TIMEOUT):0}}
 // j REJECTS on failure on purpose: refreshX aborts before setHTML, so a blip leaves the list as it is
 // rather than blanking it. Only the hang becomes bounded.
 function j(u){var g=_abo();return fetch('/api/'+u,{signal:g.s}).then(function(r){return r.json()})
  .then(function(v){clearTimeout(g.t);return v},function(e){clearTimeout(g.t);throw e})}
 // post RESOLVES {ok:false} instead: all but one of its callers await it with no try, so a rejection
-// took the whole handler down silently and left its flag set.
-function post(u,b){var g=_abo();
+// took the whole handler down silently and left its flag set. ms overrides the bound, for a caller
+// holding a flag the UI needs back promptly.
+function post(u,b,ms){var g=_abo(ms||NET_POST_TIMEOUT);
  return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{}),signal:g.s})
   .then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})
   .catch(function(){return{ok:false,d:{}}})
@@ -8269,7 +8278,7 @@ async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('rest
  CHECKING++;
  try{setChk(id,'',esc(T('restarting')));
   var r=await post('restart-link',{id:id});
-  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('restarted')));toast(T('restarted'),'ok');refreshFleet()}
+  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('restarted')));toast(T('restarted'),'ok')}
   else setChk(id,'err',esc(terr((r.d&&(r.d.error||r.d.msg))||T('restart_failed'))));
  }finally{CHECKING--}}
 async function flipView(id){var r=await post('link-view',{id:id});
@@ -8469,7 +8478,7 @@ function reordEnd(e){
 // left the server holding a PREFIX of a move the screen had already finished drawing.
 async function reordPersist(kind,id,targets){
  RSAVE=true;
- try{var r=await post('reorder',{kind:kind,id:id,targets:targets});
+ try{var r=await post('reorder',{kind:kind,id:id,targets:targets},NET_TIMEOUT);   // RSAVE gates every list refresh AND the next drag: bound this one tight
   if(!r.ok||!r.d.ok)toast((r.d&&r.d.error)||T('reorder_err'),'err');}
  catch(_){toast(T('reorder_err'),'err')}
  finally{RSAVE=false}

@@ -76,11 +76,15 @@ globalThis.toast = (m, k) => { (out.toasts = out.toasts || []).push(String(k) + 
 refreshNodes = refreshTunnels = refreshCore = refreshPortfw = () => {};
 
 (async () => {
-  // ---- 1) the REAL post against a fetch that never settles
-  NET_TIMEOUT = 300;                                  // the shipped 20s, shortened so the guard is quick
+  // ---- 1) the REAL post against a fetch that never settles.
+  // TWO bounds ship: a POST is work the operator waits on (the panel budgets 200s for one node's build
+  // alone), a GET and a latency-sensitive POST get the tight one. Both shortened so the guard is quick,
+  // and kept an order of magnitude apart so section 2 can tell WHICH one reorder used.
+  NET_TIMEOUT = 300;
+  NET_POST_TIMEOUT = 3000;
   globalThis.fetch = globalThis.stalledFetch;         // hangs, exactly like a stalled connection
   const t0 = Date.now();
-  const r = await post('reorder', {kind:'core', id:'1', targets:['2']});
+  const r = await post('some-mutation', {});
   out.postSettled = {ms: Date.now() - t0, value: r};
 
   // ---- 2) the REAL j against the same fetch: bounded REJECTION, so refreshX aborts before setHTML
@@ -91,10 +95,12 @@ refreshNodes = refreshTunnels = refreshCore = refreshPortfw = () => {};
 
   // ---- 3) the REAL reordPersist: RSAVE must come back on its own
   RSAVE = false;
+  const t2 = Date.now();
   const p = reordPersist('core', '1', ['2','3','4']);
   out.rsaveWhileInFlight = RSAVE;
   await p;
   out.rsaveAfter = RSAVE;
+  out.reordMs = Date.now() - t2;
 
   // ---- 4) ONE request for the whole chain, carrying every crossed neighbour
   const sent = [];
@@ -169,7 +175,7 @@ def main():
     ps = got["postSettled"]
     check(ps["value"] is not None and ps["value"].get("ok") is False,
           "post resolves {ok:false} on a dead request (got %s)" % json.dumps(ps["value"]))
-    check(ps["ms"] < 5000, "it settles in %dms, not never" % ps["ms"])
+    check(ps["ms"] < 30000, "it settles in %dms, not never" % ps["ms"])
     jr = got["jRejected"]
     check(jr["rejected"], "j REJECTS rather than resolving empty -- a blip must not blank a list")
     check(jr["ms"] < 5000, "and it rejects in %dms, not never" % jr["ms"])
@@ -179,6 +185,13 @@ def main():
     check(got["rsaveAfter"] is False,
           "RSAVE is released after a request that never answered -- this is the wedge: while it is held, "
           "all four list refreshes AND every further drag are dead")
+    # RSAVE gates every list refresh and the next drag, so reorder must take the TIGHT bound, not the
+    # long one a mutation gets by default. The two are 10x apart in this harness, so the elapsed time
+    # says which one it used -- a bare post() here would sit on the long bound and read as a wedge.
+    check(got["reordMs"] < 1500,
+          "reorder used the tight bound: it gave RSAVE back after %dms (the long POST bound is 3000ms "
+          "here -- inheriting it would freeze every list and the next drag for minutes in production)"
+          % got["reordMs"])
 
     print("== 3) one request carries the whole chain ==")
     one = got["oneRequest"]
