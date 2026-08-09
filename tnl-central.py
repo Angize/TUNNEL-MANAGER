@@ -3434,7 +3434,7 @@ def api_fleet(d):
                "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
-               "drift": link_drift(L["id"]), **tfl.get(L["id"], {})}
+               "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), **tfl.get(L["id"], {})}
         # Live active pool IP: the CLIENT node writes .peerpool (active destination) and .srcpool (active
         # source), surfaced per side. `*_ip_rot` is a property of the POOL, not of the status file — a
         # one-entry source pool exists to PIN a source IP and writes a status file like a real one — so
@@ -5139,10 +5139,37 @@ def _restart_link_impl(d):
     return {"ok": True, "ends": ends}
 
 
+_rb_lock = threading.Lock()
+_rb_last = {}          # link id -> {"ok", "error", "ts"} — the last rebuild verdict, kept so a lost answer
+RB_KEEP = 900          # cannot erase it: the browser can be gone and the reason still reaches the card
+
+
+def _rb_note(lid, ok, error=""):
+    with _rb_lock:
+        for k in [k for k, v in _rb_last.items() if time.time() - v["ts"] > RB_KEEP]:
+            _rb_last.pop(k, None)
+        _rb_last[lid] = {"ok": ok, "error": str(error)[:200], "ts": int(time.time())}
+
+
+def rb_last(lid):
+    with _rb_lock:
+        v = _rb_last.get(lid)
+        return dict(v) if v and time.time() - v["ts"] <= RB_KEEP else None
+
+
 def api_rebuild_link(d):
     a, b = _link_nodes(d)
     with _PairLock(a, b):
-        return _rebuild_link_impl(d)
+        # A rebuild can outlive the request that asked for it: it deletes and rebuilds BOTH ends, and each
+        # node call is allowed 200s. When the operator's connection dies first the browser only knows the
+        # answer never came, so the verdict is recorded here and served with the link.
+        try:
+            r = _rebuild_link_impl(d)
+        except Exception as e:
+            _rb_note(str(d.get("id") or ""), False, e)
+            raise
+        _rb_note(str(d.get("id") or ""), bool(r.get("ok")))
+        return r
 
 
 def _rebuild_link_impl(d):
@@ -7193,8 +7220,11 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pushbar{height:6px;border-radius:4px;background:var(--field);border:1px solid var(--bord);overflow:hidden;margin-top:6px}
 .pushbar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s linear}
 .pushbar.ok>i{background:var(--ok)}.pushbar.err>i{background:var(--bad)}
-.plbl{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--sub);margin-top:5px}
-.plbl b{font-variant-numeric:tabular-nums;font-weight:700}
+.plbl{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--sub);margin-top:5px}
+.plbl b{font-variant-numeric:tabular-nums;font-weight:700;margin-inline-start:auto}
+.plbl>.pxc{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border-radius:8px;background:transparent;border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);color:var(--bad);cursor:pointer}
+.plbl>.pxc svg{width:13px;height:13px;stroke:var(--bad);fill:none;stroke-width:2.2}
+.plbl>.pxc:active{transform:scale(.94)}
 .lpill.off{color:var(--sub);background:transparent;border-color:var(--bord)}
 .lpill.off .pd{background:var(--sub);animation:none}
 @keyframes lpulse{0%,100%{opacity:1}50%{opacity:.25}}
@@ -7796,7 +7826,7 @@ var I18N={fa:{
  t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر 4 پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
- rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
+ rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
  conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
  pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",del_partial:"حذف ناقص: ",
  view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
@@ -8021,7 +8051,8 @@ function T(k){return (k in I18N.fa)?I18N.fa[k]:k}
 // ---- backend error translator (Gap 2): backend raises Persian; translate the STATIC ones on the
 // client for the EN locale. Unmatched messages (interpolated / dynamic) fall back to the original.
 function terr(msg){return msg}
-function perr(r){return terr((r.d&&(r.d.error||r.d.msg))||T('failed'))}   // canonical server-error message: error, then msg, then a generic fallback
+function perr(r,fbk){return r&&r.net?T(r.net=='timeout'?'net_timeout':'net_drop')
+ :terr((r.d&&(r.d.error||r.d.msg))||T(fbk||'failed'))}   // no answer, then error, then msg, then a fallback
 function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1><p class="sub">'+esc(T(subK))+'</p>'}   // page header shared by every *Skel view
 function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
 function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
@@ -8042,10 +8073,12 @@ function j(u){var g=_abo();return fetch('/api/'+u,{signal:g.s}).then(function(r)
 // post RESOLVES {ok:false} instead: all but one of its callers await it with no try, so a rejection
 // took the whole handler down silently and left its flag set. ms overrides the bound, for a caller
 // holding a flag the UI needs back promptly.
+// `net` marks a request that never got an answer -- a dropped connection or our own abort. That is NOT
+// the same as the panel refusing, and saying "failed" for it is a lie: the work may have finished.
 function post(u,b,ms){var g=_abo(ms||NET_POST_TIMEOUT);
  return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{}),signal:g.s})
   .then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})
-  .catch(function(){return{ok:false,d:{}}})
+  .catch(function(e){return{ok:false,d:{},net:(e&&e.name=='AbortError')?'timeout':'drop'}})
   .then(function(v){clearTimeout(g.t);return v})}
 function logout(){post('logout').then(function(){location.href='/'})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -8741,6 +8774,9 @@ function linkFooter(l,editFn){
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
+ // The panel's own verdict on the last rebuild. It is here because the reason cannot ride the reply the
+ // operator lost: a rebuild allows each node 200s, so the request can outlive the connection that asked.
+ if(l.rb&&!l.rb.ok)drift+='<div class="msg err" style="margin:0 0 9px">'+esc(T('rb_last_fail'))+esc(terr(l.rb.error||T('rebuild_failed')))+'</div>';
  return {drift:drift,acts:acts,msg:msg}}
 function linkCard(l){
  var body='<div class="tninfo">'+
@@ -8796,7 +8832,8 @@ async function rebuildLink(id){
  try{setChk(id,'',esc(T('rebuilding_both')));
   var r=await post('rebuild-link',{id:id});
   if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('rebuilt_test')));toast(T('t_rebuilt'),'ok')}
-  else setChk(id,'err',esc(terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed'))));
+  else setChk(id,r.net?'':'err',esc(perr(r,'rebuild_failed')));
+  if(r.net)refreshFleet();   // the panel may have finished it -- pull its own verdict instead of guessing
  }finally{CHECKING--}}
 async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('restart_yes')))return;
  CHECKING++;
@@ -8850,8 +8887,8 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
  if(r.ok&&r.d.ok){toast(T('t_rebuilt'),'ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
  // A rebuild can fail for a reason only the node knows. A toast fades, and on a phone that reads as
  // "the button does nothing" -- so the reason goes in the sheet, the way every other form reports one.
- else if(m)formErr(m,terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')));
- else toast(terr((r.d&&(r.d.error||r.d.msg))||T('rebuild_failed')),'err')}
+ else if(m)formErr(m,perr(r,'rebuild_failed'));
+ else toast(perr(r,'rebuild_failed'),'err')}
 async function delLink(id){
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  if(l.a_online===false||l.b_online===false){          // an endpoint is KNOWN-offline -> straight to force: one dialog, no wait
@@ -10078,7 +10115,6 @@ function agentBody(){return ''+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
   '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
-  pushCancelRow()+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
  '</div>'+
@@ -10092,7 +10128,6 @@ function agentBody(){return ''+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
   '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
-  pushCancelRow()+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+
   '<div class="msg" id="cor_msg"></div>'+
@@ -10220,27 +10255,27 @@ var PUSHJOB=null,PUSHSTATE=null;
 async function pushAdopt(){if(PUSHJOB)return;
  var r=await j('push-status').catch(function(){return null});
  if(!r||!r.ok||r.idle||!r.job||r.done)return;
- PUSHJOB=r.job;pushCancelShow(true);pushPaint(r);pushPoll(r.job)}
+ PUSHJOB=r.job;pushPaint(r);pushPoll(r.job)}
 async function pushCancel(){if(!PUSHJOB)return;
  if(!await confirmBox(T('ag_p_cancel_q'),T('ag_p_cancel')))return;
  var r=await post('push-cancel',{job:PUSHJOB});
  if(!(r.ok&&r.d&&r.d.ok))toast(perr(r),'err')}
-// Shown only while an upload is live. It stops the queue before the NEXT node -- the one already
-// uploading cannot be torn off its socket, so it finishes or times out.
-function pushCancelRow(){return '<div id="ag_cancel" style="display:none;margin-top:7px">'
- +'<button class="ghost" style="width:100%" onclick="pushCancel()">'+ic('xc')+esc(T('ag_p_cancel'))+'</button></div>'}
-function pushCancelShow(on){document.querySelectorAll('#ag_cancel').forEach(function(e){e.style.display=on?'':'none'})}
-function pushBar(st){
+// The cancel sits on the bar of the node being uploaded to, because that is the bar the operator is
+// watching -- the two page-top cards are scrolled away by then. It stops the queue before the NEXT node;
+// the one already uploading cannot be torn off its socket, so it finishes or times out.
+function pushBar(st,live){
  var pct=Math.max(0,Math.min(100,num(st.pct)));
  var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
  var txt={wait:T('ag_p_wait'),send:T('ag_p_send'),apply:T('ag_p_apply'),ok:T('ag_p_ok'),
           same:T('ag_p_same'),skip:T('ag_p_skip'),err:terr(st.error||T('ag_p_err'))}[st.state]||'';
+ live=live&&(st.state=='send'||st.state=='apply');   // a finished job must not leave a button that does nothing
+ var xb=live?'<button class="pxc" title="'+esc(T('ag_p_cancel'))+'" onclick="pushCancel()">'+ic('xc')+'</button>':'';
  return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
-  +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
+  +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b>'+xb+'</div>'}
 function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
  (d.order||[]).forEach(function(nid){var m=el('agres_'+nid),st=ns[nid];if(!m||!st)return;
    m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
-   setHTML(m,pushBar(st))})}
+   setHTML(m,pushBar(st,!d.done))})}
 // A core push is megabytes per node and takes minutes; one blip must not end the tracking while the panel
 // is still uploading. Tolerate consecutive failures the way the install poller does, and release PUSHJOB
 // in a finally -- a throw in here used to leave the button unusable until a reload.
@@ -10252,14 +10287,14 @@ async function pushPoll(job){var fails=0;
     else{fails=0;pushPaint(r);if(r.done)break}
     await new Promise(function(res){setTimeout(res,400)})}
   setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
- finally{PUSHJOB=null;PUSHSTATE=null;pushCancelShow(false)}}
+ finally{PUSHJOB=null;PUSHSTATE=null}}
 async function pushStart(cmd,body,ids){
  if(PUSHJOB){toast(T('ag_p_busy'),'err');return}
  ids.forEach(function(id){var m=el('agres_'+id);
    if(m){m.className='msg agres';setHTML(m,pushBar({state:'wait',pct:0}))}});
  var res=await post(cmd,body);
  if(!(res.ok&&res.d&&res.d.job)){toast(perr(res),'err');return}
- PUSHJOB=res.d.job;pushCancelShow(true);await pushPoll(PUSHJOB)}
+ PUSHJOB=res.d.job;await pushPoll(PUSHJOB)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
