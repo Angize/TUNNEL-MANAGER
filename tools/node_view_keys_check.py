@@ -52,7 +52,13 @@ def view_keys(panel_text):
 
 
 def js_body(js, fname):
-    """The source of one browser function, brace-matched from its `function <name>(`."""
+    """The source of one browser function, brace-matched from its `function <name>(`.
+
+    The counter does not know about string literals, so an unbalanced brace inside one would run the
+    cut past the end of the function. That is checked for rather than assumed: every top-level function
+    here starts at column 0, so finding one INSIDE the cut means the cut over-ran. Returns the body, or
+    ('over-ran', text) so the caller fails loudly instead of silently reading another function's fields.
+    """
     m = re.search(r"\b(?:async\s+)?function\s+%s\s*\(" % re.escape(fname), js)
     if not m:
         return None
@@ -64,9 +70,12 @@ def js_body(js, fname):
         elif js[j] == "}":
             depth -= 1
             if depth == 0:
-                return js[i:j + 1]
+                body = js[i:j + 1]
+                if re.search(r"\n(?:async\s+)?function\s+\w+\s*\(", body):
+                    return ("over-ran", body)
+                return body
         j += 1
-    return None
+    return ("over-ran", js[i:])
 
 
 def main():
@@ -93,6 +102,10 @@ def main():
         if body is None:
             failures.append("%s() is gone (or renamed) — this check was watching it and is now blind "
                             "there; point NODE_RENDERERS at whatever replaced it" % fname)
+            continue
+        if isinstance(body, tuple):
+            failures.append("%s(): could not tell where the function ends — the cut ran past it, so a "
+                            "brace inside a string literal has broken this check's reader" % fname)
             continue
         read = set(re.findall(r"\bn\.([A-Za-z_][A-Za-z0-9_]*)", body))
         unknown = sorted(read - sent - BROWSER_OWNED)

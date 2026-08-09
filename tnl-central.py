@@ -6188,14 +6188,23 @@ def api_link_rebuild_info(d):
 # the server: every read path redacts the userinfo, so the browser sees scheme://host:port and the
 # operator re-types a password only when they mean to change it.
 
-def _proxy_row(p):
+def _proxy_users():
+    """{proxy_id: [node names]} — THE one definition of "which nodes take this proxy"."""
+    users = {}
+    for n in load_nodes():
+        if n.get("proxy_on"):
+            users.setdefault(str(n.get("proxy_id") or ""), []).append(n["name"])
+    return users
+
+
+def _proxy_row(p, users=None):
     return {"id": p["id"], "name": p["name"], "url": _redact_proxy(p.get("url")),
-            "nodes": [n["name"] for n in load_nodes()
-                      if n.get("proxy_on") and str(n.get("proxy_id") or "") == p["id"]]}
+            "nodes": (users if users is not None else _proxy_users()).get(p["id"], [])}
 
 
 def api_proxies(d):
-    return {"proxies": [_proxy_row(p) for p in load_proxies()]}
+    users = _proxy_users()   # read the node list once for the page, not once per proxy
+    return {"proxies": [_proxy_row(p, users) for p in load_proxies()]}
 
 
 def _proxy_name(d, taken):
@@ -6245,8 +6254,7 @@ def api_proxy_del(d):
         p = next((x for x in ps if x["id"] == d["id"]), None)
         if not p:
             raise ValueError("پروکسی پیدا نشد")
-        used = [n["name"] for n in load_nodes()
-                if n.get("proxy_on") and str(n.get("proxy_id") or "") == p["id"]]
+        used = _proxy_users().get(p["id"], [])
         if used:
             # Deleting it would drop those nodes back to a DIRECT connection without anyone saying so.
             raise ValueError("این پروکسی روی این نودها فعال است: " + "، ".join(used))
