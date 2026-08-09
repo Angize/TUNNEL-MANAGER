@@ -6622,19 +6622,12 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
    value wraps, so a fixed max-height either clips a long pair or leaves a gap under a short one. */
 .lfold .lfbody{display:none;margin-top:7px}
 .lfold.open .lfbody{display:block}
-/* The toggle sits on its own line under the reason, so it goes to the inline END — the left edge on an
-   RTL page — where a chevron alone is the whole control. A word beside it said nothing the arrow
-   does not, on every card. Padded out to a real tap target, since the glyph is 13px. */
-.lftog{display:flex;align-items:center;justify-content:center;width:30px;height:26px;
-  margin-inline-start:auto;background:none;border:0;padding:0;cursor:pointer;color:var(--sub)}
-.lftog:hover{color:var(--acc)}
-.lfic{display:inline-grid;place-items:center;width:13px;height:13px;transition:transform .16s ease}
-.lfic .ic{width:13px;height:13px}
-/* The chevron points DOWN when closed and UP when open, in both directions — it says "there is more
-   below", which is not a left/right statement, so it must not flip with the page. */
-.lfold .lfic{transform:rotate(90deg)}
-.lfold.open .lfic{transform:rotate(-90deg)}
-.lfold.open .lftog{color:var(--acc)}
+/* The whole card is the control now, so it has to LOOK like one — there is no chevron left to say so.
+   Only a card with something to open gets this; the rest stay plain, which is the difference an
+   operator reads before tapping. */
+.logcard.logtap{cursor:pointer}
+.logcard.logtap:hover{border-color:color-mix(in srgb,var(--acc) 38%,transparent)}
+.logcard.logtap:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .lcat{font-size:10px;font-weight:700;border-radius:999px;padding:1px 8px;flex:0 0 auto;white-space:nowrap;line-height:1.7}
 .lcat-tunnel{color:#4d80f0;background:color-mix(in srgb,#4d80f0 15%,transparent)}
 .lcat-rot{color:#12a5b8;background:color-mix(in srgb,#12a5b8 16%,transparent)}
@@ -9646,7 +9639,12 @@ function logListHTML(){
    var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
    var p=evParts(e);
-   return '<div class="card logcard">'+
+   // Only a card with something behind it answers a tap, and it says so to a screen reader. A card whose
+   // whole detail is one sentence has nothing to open, so it stays inert instead of blinking at a tap.
+   var k=evKey(e);
+   var tap=evFolds(p.lines)?(' logtap" role="button" tabindex="0" aria-expanded="'+(LOGOPEN[k]?'true':'false')+
+     '" onclick="logFold(\\''+k+'\\',event)" onkeydown="logKey(event,\\''+k+'\\')'):'';
+   return '<div class="card logcard'+tap+'">'+
      '<span class="lstripe" style="background:'+col+'"></span>'+
      '<div class="lbody">'+
        '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
@@ -9683,12 +9681,18 @@ function evEndpoints(v){var p=v.split(' ← ');
 // «دامنه» / «کلیدِ ECH» …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
 // of sentence punctuation — that is the whole test, and it must allow spaces, since the backend emits
 // multi-word labels. tools/log_labels_check.py pins this gate against the labels it really emits.
-function evDetail(lines,id){if(!lines||!lines.length)return '';
- var rows=[],notes=[];
- for(var i=0;i<lines.length;i++){var l=lines[i],c=l.indexOf(': ');
+// The row/note split, in ONE place: the CARD has to know whether there is anything to open before it
+// makes itself tappable, and evDetail needs the same answer to decide whether to wrap. Two copies of
+// this test would let a card that opens nothing still answer a tap.
+function evSplit(lines){var rows=[],notes=[];
+ for(var i=0;i<(lines||[]).length;i++){var l=lines[i],c=l.indexOf(': ');
   var k=c>0?l.slice(0,c):'';
   if(k&&k.length<=16&&!/[\u060C\u061B\u061F.!?()\u00AB\u00BB\u2014]/.test(k))rows.push({k:k,v:l.slice(c+2)});
   else notes.push(l);}
+ return {rows:rows,notes:notes}}
+function evFolds(lines){return evSplit(lines).rows.length>0}
+function evDetail(lines,id){if(!lines||!lines.length)return '';
+ var sp=evSplit(lines),rows=sp.rows,notes=sp.notes;
  var out='';
  if(rows.length)out+='<div class="lfromto">'+rows.map(function(m){
    return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
@@ -9699,14 +9703,21 @@ function evDetail(lines,id){if(!lines||!lines.length)return '';
  // \u00AB\u0627\u062A\u0635\u0627\u0644 \u0642\u0637\u0639 \u0634\u062F\u00BB IS that reason said once more, so hiding it behind a control costs a tap and reveals
  // nothing. The test is the same one that split them: labelled rows fold, notes stay.
  if(!rows.length)return out;
+ // No chevron: the CARD is the control. A separate little button was a second thing to aim at on a
+ // phone, on a card whose whole body is already the target.
  return '<div class="lfold'+(LOGOPEN[id]?' open':'')+'" id="lf'+id+'">'+
-   '<button type="button" class="lftog" onclick="logFold(\\''+id+'\\')" aria-label="'+esc(T('log_details'))+'">'+
-     '<span class="lfic">'+ic('chev')+'</span>'+
-   '</button><div class="lfbody">'+out+'</div></div>';}
+   '<div class="lfbody">'+out+'</div></div>';}
 // Which cards the operator opened, keyed by event id. Kept OUT of the DOM because refreshLogs rebuilds
 // the whole list on every poll \u2014 state read back off the elements would be wiped a few seconds later.
 var LOGOPEN={};
-function logFold(id){LOGOPEN[id]=!LOGOPEN[id];var b=el('lf'+id);if(b)b.classList.toggle('open',!!LOGOPEN[id]);}
+// A tap that ends a text selection is not a tap: the log is full of addresses the operator copies, and
+// collapsing the card out from under a selection loses it.
+function logFold(id,e){
+ try{if(window.getSelection&&String(window.getSelection())!=='')return}catch(_){}
+ LOGOPEN[id]=!LOGOPEN[id];
+ var b=el('lf'+id);if(b)b.classList.toggle('open',!!LOGOPEN[id]);
+ var c=e&&e.currentTarget;if(c&&c.setAttribute)c.setAttribute('aria-expanded',LOGOPEN[id]?'true':'false');}
+function logKey(e,id){if(e.key===' '||e.key==='Enter'){e.preventDefault();logFold(id,e)}}
 
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
