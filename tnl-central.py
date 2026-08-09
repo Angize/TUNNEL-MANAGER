@@ -2292,7 +2292,7 @@ def _ssh_run(cfg, remote_cmd, timeout):
         return 124, "", "SSH timeout"
 
 
-def _install_worker(jid, cfg, name, agent_port, proxy):
+def _install_worker(jid, cfg, name, agent_port, pon, pid):
     def fail(key, msg, log=""):
         _install_step(jid, key, "err", msg, log)
         _install_finish(jid, False, f"نصب در مرحلهٔ «{_INSTALL_LABELS[key]}» متوقف شد")
@@ -2406,7 +2406,7 @@ def api_node_install(d):
         _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
                                         for k, l in _INSTALL_STEPS],
                               "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
-    threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, proxy), daemon=True).start()
+    threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, pon, pid), daemon=True).start()
     return {"ok": True, "job": jid}
 
 
@@ -7585,7 +7585,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  nadd_auto:"خودکار",nadd_manual:"دستی",nadd_title:"افزودنِ نود",
  nadd_autonote:"مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.",
  nadd_node_name:"نامِ نود",nadd_srv_ip:"آی‌پیِ سرور",nadd_ssh_port:"پورتِ SSH",nadd_ssh_user:"کاربرِ SSH",
- nadd_agent_port:"پورتِ ایجنت",nadd_ctrl_proxy:"پروکسیِ کنترل (اختیاری)",px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پنل از این پروکسی هم برای SSHِ نصب و هم برای کنترلِ نود استفاده می‌کند.",px_need_ipport:"آی‌پی و پورتِ پروکسی لازم است",px_bad_port:"پورتِ پروکسی نامعتبر است (1 تا 65535)",px_bad_cred:"یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد",nadd_ssh_auth:"احرازِ هویتِ SSH",
+ nadd_agent_port:"پورتِ ایجنت",nadd_ssh_auth:"احرازِ هویتِ SSH",
  nadd_pass:"رمز",nadd_privkey:"کلیدِ خصوصی",nadd_pass_ph:"رمزِ SSH سرور",
  nadd_pass_hint:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",
  nadd_key_hint:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
@@ -7969,7 +7969,8 @@ function nodesSkel(){el('view').innerHTML=vhead('server','nav_nodes','nodes_sub'
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'+pagerBottom('nodes')}
 var _naddMode='auto';
-function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;_instStop();
+async function openNodeAddModal(){await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
+ _naddMode='auto';_authMode='pass';_installDone=null;_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+esc(T('nadd_auto'))+'</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+esc(T('nadd_manual'))+'</button></div>';
  var auto='<div id="nadd_auto">'+
    '<div class="autonote">'+ic('bolt')+'<span>'+esc(T('nadd_autonote'))+'</span></div>'+
@@ -7983,7 +7984,7 @@ function openNodeAddModal(){_naddMode='auto';_authMode='pass';_installDone=null;
     '<div class="muted" id="a_authhint" style="font-size:11px;margin-top:7px">'+esc(T('nadd_pass_hint'))+'</div></div>'+
    '<div id="nadd_prog"></div></div>';
  var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(T('nadd_agent_port2'))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div>'+proxyBlock('n_')+'</div>';
- openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');pxReset('a_',false,'socks5');pxReset('n_',false,'socks5')}
+ openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function naddSwitch(m){_naddMode=m;_installDone=null;_instStop();
  var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
  document.querySelectorAll('#nadd_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.m==m)});
@@ -8032,9 +8033,6 @@ function _instTick(){var c=_inst;if(!c)return;
  if(c.revealIdx<started&&now-c.lastReveal>=_MINSPIN&&curTerm){c.revealIdx++;c.lastReveal=now}  // advance one step per beat, never past the backend
  if(!c.finished&&c.bDone&&c.revealIdx>=started&&now-c.lastReveal>=_MINSPIN&&(started>0||c.err)){_instFinish(c);return}
  _instRender(c);c.timer=setTimeout(_instTick,150)}
-// ---- control-proxy toggle (add/manual/edit share this). Stored as a scheme://[user:pass@]host:port
-// URL (so the backend parser, redaction and SSH-ProxyCommand relay stay unchanged); the fields are UI.
-var _pxOn={},_pxSch={};
 // proxyBlock is the node forms' half of the proxy feature: a toggle, and the registry list only when
 // it is on. The proxy itself is defined once on the Proxies page — a node only ever names one.
 function proxyBlock(pfx){return pxFields(pfx, _pxNode[pfx]||null)}
@@ -8125,7 +8123,8 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
     var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">'+esc(T('nd_no_tp'))+'</div>'}).catch(function(){})};
   poll();ov._iv=setInterval(poll,UIV)}}   // live CPU/RAM/disk + traffic, at the settings-driven cadence
 function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast(T('online'),'ok')}else{toast(T('offline')+': '+((r&&r.error)||T('not_available')),'err')}}).catch(function(){toast(T('err_check'),'err')})}
-function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
+async function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
+ await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
  _pxNode['ne_']=n;
  var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div>'+proxyBlock('ne_')+'<div class="msg" id="em_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
@@ -9512,12 +9511,14 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
 
 // ===== Proxies: one named proxy, reusable by any number of nodes.
 var PX=[];
+// Fills PX and nothing else, so the node forms can wait for the registry without touching the page.
+async function pxLoad(){var r=await j('proxies').catch(function(){return{}});PX=r.proxies||[]}
 function proxiesSkel(){el('view').innerHTML=vhead('globe','nav_proxies','px_sub')+
  '<button class="primary" onclick="openPxModal(null)" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('px_add'))+'</button>'+
  '<div id="pxList">'+skCards('proxies')+'</div>';
  refreshProxies()}
-async function refreshProxies(){if(listBusy())return;var r=await j('proxies').catch(function(){return{}});
- PX=r.proxies||[];var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+async function refreshProxies(){if(listBusy())return;await pxLoad();
+ var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
  setT('ct_proxies',PX.length?String(PX.length):'');
  setHTML(box,PX.length?PX.map(pxCard).join(''):'<div class="card muted">'+esc(T('px_empty'))+'</div>')}
 function pxCard(p,i){
