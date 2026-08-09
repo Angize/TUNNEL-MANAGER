@@ -106,6 +106,62 @@ def main():
     chk("the last 5% belong to the node's own verify+swap",
         P.api_push_status({"job": j2})["nodes"]["n1"]["pct"], 100)
 
+    # ---- cancel: stops before the NEXT node, marks the rest skipped, and the running one is not torn off
+    reached2 = []
+    P.node_push = lambda node, ep, body, on_progress=None, timeout=200: (
+        reached2.append(node["id"])
+        or (P.api_push_cancel({"job": jc}) if node["id"] == "n2" else None)
+        or (on_progress(1, 1) if on_progress else None) or {"ok": True})
+    jc = P._push_job_new("agent", NODES)
+    P._push_worker(jc, "agent", NODES, lambda n: ({"code": "x"}, "update", 60))
+    sc = P.api_push_status({"job": jc})
+    chk("cancelling during n2 lets n2 FINISH and stops before n3", reached2, ["n1", "n2"])
+    chk("the node that was mid-upload still reports its result", sc["nodes"]["n2"]["state"], "ok")
+    chk("the queue behind it is marked skipped, not failed",
+        [sc["nodes"][k]["state"] for k in ("n3", "n4")], ["skip", "skip"])
+    chk("and the job still reports itself finished", sc["done"], True)
+    chk("a cancelled job is no longer the active one", P._push_active()[0], None)
+
+    # ---- resume: a page that lost its job id must be able to find the running upload again
+    jr = P._push_job_new("core", NODES)
+    chk("push-status with NO job returns the running one", P.api_push_status({})["job"], jr)
+    chk("and reports it as unfinished, so the page reattaches", P.api_push_status({})["done"], False)
+    with P._push_lock:
+        P._push_jobs[jr]["done"] = True
+    chk("once finished, nothing is offered to reattach to", P.api_push_status({}).get("idle"), True)
+
+    # a node deleted while the queue was working must be reported, not pushed to
+    P.get_node = lambda nid: None if nid == "n3" else next((n for n in NODES if n["id"] == nid), None)
+    reached = []
+    P.node_push = lambda node, ep, body, on_progress=None, timeout=200: (
+        reached.append(node["id"]) or (on_progress(1, 1) if on_progress else None) or {"ok": True})
+    j3 = P._push_job_new("agent", NODES)
+    P._push_worker(j3, "agent", NODES, lambda n: ({"code": "x"}, "update", 60))
+    s3 = P.api_push_status({"job": j3})
+    chk("a node deleted mid-job is not pushed to", reached, ["n1", "n2", "n4"])
+    chk("and it is reported rather than skipped silently",
+        (s3["nodes"]["n3"]["state"], s3["nodes"]["n3"]["error"]), ("err", "نود حذف شد"))
+    P.get_node = lambda nid: next((n for n in NODES if n["id"] == nid), None)
+
+    # The push asks for a payload PER NODE, and the core bytes only vary by architecture. Without a memo
+    # a 12-node fleet base64-encoded and json-dumped the same 10MB binary twelve times and spawned openssl
+    # twelve times to sign one hash.
+    seen = {"bytes": 0, "sign": 0}
+    P._staged_bytes = lambda arch: (seen.__setitem__("bytes", seen["bytes"] + 1)
+                                    or (b"\x7fELF" + b"\0" * 200000, "a" * 64, "v1"))
+    P._sign_sha = lambda sha: seen.__setitem__("sign", seen["sign"] + 1) or "SIG"
+    P._node_arch = lambda n: n["arch"]
+    mixed = [{"id": "m%d" % i, "name": "M%d" % i, "arch": "amd64" if i % 4 else "arm64"}
+             for i in range(12)]
+    pay = P._staged_payload()
+    outs = [pay(n) for n in mixed]
+    chk("12 nodes, 2 architectures -> the binary is encoded twice, not twelve times",
+        (seen["bytes"], seen["sign"]), (2, 2))
+    chk("nodes of the same arch share the payload object", outs[1][0] is outs[2][0], True)
+    chk("the two architectures get DIFFERENT payloads", outs[0][0] is not outs[1][0], True)
+    P._node_arch = lambda n: ""
+    chk("an unknown arch refuses instead of guessing", P._staged_payload()(mixed[0])[0], None)
+
     if failures:
         print("\nFAILURES (%d):" % len(failures))
         for f in failures:

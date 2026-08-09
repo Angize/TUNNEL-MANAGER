@@ -56,15 +56,21 @@ def bodies(js, want_async=True):
     return out
 
 
+ROW_RENDERER = re.compile(r"(Card|Row)$")
+
+
 def card_id_prefixes(js):
-    """Prefixes of per-row ids emitted by a CARD renderer -- the ones a list rebuild destroys.
+    """Prefixes of per-row ids emitted by a row renderer -- the ones a list rebuild destroys.
 
     Derived, not listed: a `id="ntm_'+n.id` inside nodeCard() is at risk, the same shape inside a modal
     builder is not, because an open modal sets editingId and listBusy() already holds.
+
+    `Row` as well as `Card`: watching only *Card missed `agRow`, and the upload bars written into its
+    `agres_` strips were wiped off the screen by refreshAgent on every tick. Same bug, one suffix away.
     """
     out = set()
     for name, body, _ in bodies(js, want_async=False) + bodies(js, want_async=True):
-        if not name.endswith("Card"):
+        if not ROW_RENDERER.search(name):
             continue
         for m in re.finditer(r"""id="([A-Za-z_][\w]*_)'\s*\+""", body):
             out.add(m.group(1))
@@ -117,8 +123,40 @@ def main():
     for _n, b, _l in bodies(js, want_async=False) + bodies(js, want_async=True):
         emitted |= set(re.findall(r"""id="([A-Za-z_][\w]*_)'\s*\+""", b))
 
-    failures, checked = [], 0
+    failures0 = []
+    # Who paints into each at-risk strip -- async or not. Two mitigations are legitimate and this derives
+    # both rather than listing exceptions:
+    #   (1) the writer holds CHECKING across its await, so the refresh bails (testNode, testPx);
+    #   (2) the refresh REBUILDS and then re-applies the state through one of these painters, which is
+    #       what a minutes-long upload needs -- freezing the whole page for it would be worse.
     per_row = re.compile(r"el\('(%s)'\s*\+" % "|".join(re.escape(p) for p in sorted(prefixes)))
+    painters = {}
+    for name, body, _l in bodies(js, want_async=False) + bodies(js, want_async=True):
+        for m in per_row.finditer(body):
+            if "className='msg" in body or "setHTML(" in body:
+                painters.setdefault(m.group(1), set()).add(name)
+    # Mitigation (2) has to be a REAL re-apply, so the shape is pinned: the refresh must rebuild with
+    # setHTML (the house pattern, which also skips an unchanged repaint) and then call the painter with
+    # the SAME remembered state it just tested -- `if(S)paint(S)`. A bare mention of the painter is not
+    # enough: `if(false)pushPaint(PUSHSTATE)` mentions it and re-applies nothing.
+    reapplied = set()
+    for name, body, _l in bodies(js, want_async=False) + bodies(js, want_async=True):
+        if not name.startswith("refresh"):
+            continue
+        for pfx, who in painters.items():
+            for w in sorted(who):
+                m = re.search(r"if\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*%s\s*\(\s*\1\s*\)"
+                              % re.escape(w), body)
+                if not m:
+                    continue
+                if "setHTML(" not in body:
+                    failures0.append("%s() re-applies %s but rebuilds with a raw innerHTML= — that "
+                                     "repaints on every tick even when nothing changed, so the strips are "
+                                     "destroyed far more often than they need to be" % (name, w))
+                    continue
+                reapplied.add(pfx)
+
+    failures, checked = list(failures0), 0
     any_row = re.compile(r"el\('([A-Za-z_][\w]*_)'\s*\+")
     for name, body, line in bodies(js):
         if "className='msg" not in body or body.find("await ") < 0:
@@ -138,6 +176,11 @@ def main():
         if not per_row.search(head) or "className='msg" not in body:
             continue
         checked += 1
+        pfx = per_row.search(head).group(1)
+        if pfx in reapplied:
+            print("  ok   %-16s its strips are re-applied after a rebuild, by %s"
+                  % (name + "()", "/".join(sorted(painters.get(pfx, ())))))
+            continue
         if "CHECKING++" not in body:
             failures.append("%s() (line %d) captures a per-card element before its await and writes a "
                             ".msg into it afterwards, without raising CHECKING — a list refresh landing "
