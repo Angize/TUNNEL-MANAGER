@@ -665,20 +665,25 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
         raise
 
 
-def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
-    dh, dp = node["host"], int(node["port"])
+def _proxy_socket(proxy, dh, dp, timeout):
+    """A socket to dh:dp through `proxy`. THE one place a proxy tunnel is opened, so node_call and the
+    chunked push cannot end up honouring the proxy differently."""
     pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
     scheme = (pu.scheme or "socks5").lower()
     if not pu.hostname or not pu.port:
-        return {"ok": False, "offline": True, "error": "bad proxy address"}
+        raise OSError("bad proxy address")
+    if scheme.startswith("socks"):
+        return _socks5_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
+    if scheme in ("http", "https", "connect"):
+        return _http_connect_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
+    raise OSError(f"bad proxy scheme '{scheme}'")
+
+
+def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
+    dh, dp = node["host"], int(node["port"])
     sock = None
     try:
-        if scheme.startswith("socks"):
-            sock = _socks5_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
-        elif scheme in ("http", "https", "connect"):
-            sock = _http_connect_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
-        else:
-            return {"ok": False, "offline": True, "error": f"bad proxy scheme '{scheme}'"}
+        sock = _proxy_socket(proxy, dh, dp, timeout)
         conn = http.client.HTTPConnection(dh, dp, timeout=timeout)
         conn.sock = sock  # reuse the proxy-tunneled socket (skips conn.connect())
         data = json.dumps(body or {}).encode() if method == "POST" else None
@@ -774,6 +779,72 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
             return {"ok": False, "error": f"HTTP {e.code}"}
     except Exception as e:
         return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:80]}
+
+
+def node_push(node, endpoint, body, on_progress=None, timeout=200, chunk=64 * 1024):
+    """POST a large body to a node, reporting REAL bytes sent as it goes.
+
+    node_call cannot do this: urllib hands the whole body to the kernel and returns, so there is nothing
+    to report until the answer arrives. Here the request line and headers go first, then the body in
+    chunks, and on_progress(sent, total) fires per chunk -- that is what the per-node bar shows.
+
+    Goes through the node's proxy when it has one, because it uses the same _proxy_socket() node_call
+    does: a push must not fall out to a direct connection that the control plane would never take.
+    """
+    dh, dp = node["host"], int(node["port"])
+    data = json.dumps(body or {}).encode()
+    total = len(data)
+    proxy = node_proxy(node)
+    sock = None
+    try:
+        sock = _proxy_socket(proxy, dh, dp, timeout) if proxy \
+            else socket.create_connection((dh, dp), timeout)
+        sock.settimeout(timeout)
+        head = ["POST /api/%s HTTP/1.1" % endpoint, "Host: %s:%d" % (dh, dp),
+                "Content-Type: application/json", "Content-Length: %d" % total,
+                "X-Node-Token: %s" % node.get("token", ""), "Connection: close"]
+        if _CENTRAL_PORT:
+            head.append("X-Central-Port: %s" % _CENTRAL_PORT)
+        sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
+        sent = 0
+        if on_progress:
+            on_progress(0, total)
+        while sent < total:
+            n = sock.send(data[sent:sent + chunk])
+            if not n:
+                raise OSError("connection closed while sending")
+            sent += n
+            if on_progress:
+                on_progress(sent, total)
+        raw = b""
+        while b"\r\n\r\n" not in raw:            # headers first, then the body the node replied with
+            b = sock.recv(65536)
+            if not b:
+                break
+            raw += b
+            if len(raw) > 1048576:
+                raise OSError("response too large")
+        head_blob, _, rest = raw.partition(b"\r\n\r\n")
+        clen = next((int(l.split(b":")[1]) for l in head_blob.split(b"\r\n")
+                     if l.lower().startswith(b"content-length:")), None)
+        while clen is not None and len(rest) < clen:
+            b = sock.recv(65536)
+            if not b:
+                break
+            rest += b
+        try:
+            out = json.loads(rest.decode())
+        except Exception:
+            return {"ok": False, "error": "پاسخِ نامعتبر از نود"}
+        return out if isinstance(out, dict) else {"ok": False, "error": "non-dict node response"}
+    except Exception as e:
+        return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:90]}
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
 
 def parallel_map(fn, items, workers=32):
@@ -1706,12 +1777,6 @@ def valid_proxy(p):
     if u.scheme.lower() not in ("socks5", "socks5h", "http", "https", "connect") or not u.hostname or not u.port:
         raise ValueError("پروکسی نامعتبر — نمونه: socks5://host:1080 یا http://user:pass@host:8080")
     return p if "://" in p else "socks5://" + p
-
-
-def _redact_proxy(proxy):
-    """Strip any user:pass@ userinfo from a proxy URL before it is serialized toward the browser —
-    a node's control-proxy credentials must never leave the server (they also ride plain HTTP)."""
-    return re.sub(r"://[^/@]*@", "://", str(proxy or "").strip())
 
 
 def _proxy_names():
@@ -2761,6 +2826,75 @@ def api_agent_info(d):
         return {"none": True}
 
 
+_push_lock = threading.Lock()
+_push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts}
+PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err")
+
+
+def _push_job_new(kind, nodes):
+    jid = secrets.token_hex(6)
+    now = int(time.time())
+    with _push_lock:
+        for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
+            _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
+        _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
+                           "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
+                                               "error": ""} for n in nodes}}
+    return jid
+
+
+def _push_set(jid, nid, **kw):
+    with _push_lock:
+        j = _push_jobs.get(jid)
+        if j and nid in j["nodes"]:
+            j["nodes"][nid].update(kw)
+
+
+def _push_worker(jid, kind, nodes, payload):
+    """Push to the nodes ONE AT A TIME. A node that fails or times out is recorded and the queue moves
+    on -- the whole point is that one dead node cannot cancel the rest of the fleet's upload."""
+    for n in nodes:
+        nid = n["id"]
+        try:
+            _push_set(jid, nid, state="send", pct=0)
+            fresh = get_node(nid) or n
+            _ensure_update_key(fresh)          # fail-closed verification needs the key before the push
+            body, endpoint, timeout = payload(fresh)
+            if body is None:                   # nothing pushable for this node (e.g. unknown arch)
+                _push_set(jid, nid, state="err", pct=0, error=endpoint)
+                continue
+
+            def prog(sent, total, _nid=nid):
+                # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap
+                _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
+
+            r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout)
+            _push_set(jid, nid, state="apply", pct=97)
+            if r.get("ok") and (r.get("already") or r.get("unchanged")):
+                _push_set(jid, nid, state="same", pct=100)
+            elif r.get("ok"):
+                _push_set(jid, nid, state="ok", pct=100)
+            else:
+                _push_set(jid, nid, state="err", pct=100 if not r.get("offline") else 0,
+                          error=r.get("error") or r.get("msg") or "ناموفق")
+        except Exception as e:                 # never let one node's surprise end the sweep
+            _push_set(jid, nid, state="err", error=str(e)[:120])
+    with _push_lock:
+        j = _push_jobs.get(jid)
+        if j:
+            j["done"] = True
+
+
+def api_push_status(d):
+    _require(d, ["job"])
+    with _push_lock:
+        j = _push_jobs.get(str(d["job"]))
+        if not j:
+            raise ValueError("job not found")
+        return {"ok": True, "kind": j["kind"], "done": j["done"], "order": list(j["order"]),
+                "nodes": {k: dict(v) for k, v in j["nodes"].items()}}
+
+
 def api_agent_push(d):
     """Push the stored agent to the given node ids; each node validates + swaps + self-restarts."""
     _require(d, ["ids"])
@@ -2774,18 +2908,17 @@ def api_agent_push(d):
         raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
     if not isinstance(d.get("ids"), list):
         raise ValueError("ids must be a list")
-    ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
+    nodes = [n for n in (get_node(i) for i in dict.fromkeys(d["ids"])) if n]
+    if not nodes:
+        raise ValueError("نودی برای پوش انتخاب نشده")
+    sig = _sign_sha(meta["sha256"])
 
-    def push_one(nid):
-        n = get_node(nid)
-        if not n:                                        # deleted between the filter and here -> report it, don't crash the whole push
-            return {"id": nid, "ok": False, "offline": True, "restarting": False, "already": False, "error": "node removed"}
-        _ensure_update_key(n)   # provision the verify key before the signed agent-code push (node verifies fail-closed)
-        r = node_call(n, "update", "POST", {"code": src, "sha256": meta["sha256"], "sig": _sign_sha(meta["sha256"])}, timeout=30)
-        return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")),
-                "restarting": bool(r.get("restarting")), "already": bool(r.get("already")), "error": r.get("error") or r.get("msg") or ""}
+    def payload(_n):
+        return {"code": src, "sha256": meta["sha256"], "sig": sig}, "update", 60
 
-    return {"results": parallel_map(push_one, ids)}  # poller re-reads each node's version within ~2s after it bounces
+    jid = _push_job_new("agent", nodes)
+    threading.Thread(target=_push_worker, args=(jid, "agent", nodes, payload), daemon=True).start()
+    return {"ok": True, "job": jid}  # poller re-reads each node's version within ~2s after it bounces
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
@@ -3072,19 +3205,13 @@ def api_core_stage(d):
     return {"ok": True, **info}
 
 
-def _core_result(nid, r):
-    """Normalize a node core-push/install reply into the per-node result dict the UI renders."""
-    err = r.get("error") or r.get("msg") or ("; ".join(r["errors"]) if r.get("errors") else "")
-    return {"id": nid, "ok": bool(r.get("ok")), "offline": bool(r.get("offline")), "version": r.get("version"),
-            "restarted": r.get("restarted"), "core_sha": r.get("core_sha"), "unchanged": bool(r.get("unchanged")), "error": err}
-
-def _core_push_result(nid):
-    """Push the panel's staged core to one node and return its normalized result. Shared by
-    api_core_update (stock version) and api_core_push."""
-    n = get_node(nid)
-    if not n:
-        return {"id": nid, "ok": False, "error": "node removed"}
-    return _core_result(nid, _push_staged(n))
+def _core_job(ids, payload):
+    nodes = [n for n in (get_node(i) for i in ids) if n]
+    if not nodes:
+        raise ValueError("نودی برای نصب انتخاب نشده")
+    jid = _push_job_new("core", nodes)
+    threading.Thread(target=_push_worker, args=(jid, "core", nodes, payload), daemon=True).start()
+    return {"ok": True, "job": jid}
 
 
 def api_core_update(d):
@@ -3105,20 +3232,27 @@ def api_core_update(d):
             with open(CORE_BLOB, "rb") as f:
                 raw = f.read()
         b64, sha = base64.b64encode(raw).decode(), info["sha256"]
+        sig = _sign_sha(sha)
 
-        def one_custom(nid):
-            n = get_node(nid)
-            if not n:
-                return {"id": nid, "ok": False, "error": "node removed"}
-            _ensure_update_key(n)   # provision the verify key before the signed push (node verifies fail-closed)
-            r = node_call(n, "core-install", "POST", {"data": b64, "sha256": sha, "version": "custom", "sig": _sign_sha(sha)}, timeout=200)
-            return _core_result(nid, r)
+        def payload_custom(_n):
+            return {"data": b64, "sha256": sha, "version": "custom", "sig": sig}, "core-install", 300
 
-        return {"results": parallel_map(one_custom, ids)}
+        return _core_job(ids, payload_custom)
 
     _stage_core(version)   # download the chosen version onto the panel first (raises if the panel is offline)
 
-    return {"results": parallel_map(_core_push_result, ids)}
+    def payload_staged(n):
+        arch = _node_arch(n)
+        if not arch:
+            return None, "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", 0
+        b = _staged_bytes(arch)
+        if not b:
+            return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
+        raw, sha, ver = b
+        return ({"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver,
+                 "sig": _sign_sha(sha)}, "core-install", 300)
+
+    return _core_job(ids, payload_staged)
 
 
 def api_core_push(d):
@@ -3131,7 +3265,18 @@ def api_core_push(d):
         raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
-    return {"results": parallel_map(_core_push_result, ids)}
+    def payload(n):
+        arch = _node_arch(n)
+        if not arch:
+            return None, "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", 0
+        b = _staged_bytes(arch)
+        if not b:
+            return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
+        raw, sha, ver = b
+        return ({"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver,
+                 "sig": _sign_sha(sha)}, "core-install", 300)
+
+    return _core_job(ids, payload)
 
 
 def api_fleet(d):
@@ -6444,7 +6589,7 @@ API = {
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-check": api_core_check, "core-update": api_core_update,
-    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push,
+    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status,
     "reorder": api_reorder,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
@@ -6931,6 +7076,12 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .mfoot.hug .primary,.mfoot.hug .ghost{flex:0 0 auto}
 .lpill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--ok);background:var(--okw);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent);border-radius:20px;padding:2px 8px}
 .lpill .pd{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:lpulse 1.4s infinite}
+/* per-node upload bar: one push at a time, so this is the only place the fleet's progress is drawn */
+.pushbar{height:6px;border-radius:4px;background:var(--field);border:1px solid var(--bord);overflow:hidden;margin-top:6px}
+.pushbar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s linear}
+.pushbar.ok>i{background:var(--ok)}.pushbar.err>i{background:var(--bad)}
+.plbl{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--sub);margin-top:5px}
+.plbl b{font-variant-numeric:tabular-nums;font-weight:700}
 .lpill.off{color:var(--sub);background:transparent;border-color:var(--bord)}
 .lpill.off .pd{background:var(--sub);animation:none}
 @keyframes lpulse{0%,100%{opacity:1}50%{opacity:.25}}
@@ -7441,6 +7592,9 @@ var I18N={fa:{
  px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پسورد روی مرکزی می‌ماند و هیچ‌وقت به مرورگر فرستاده نمی‌شود.",
  px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
+ ag_p_wait:"در نوبت",ag_p_send:"در حالِ آپلود…",ag_p_apply:"نود دارد اعمال می‌کند…",
+ ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
+ ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",ag_p_lost:"ارتباط با پنل در حینِ آپلود قطع شد",
  px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",px_rtt:"پینگِ خودِ پروکسی:",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
@@ -9873,23 +10027,12 @@ async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');
  var res=await post('core-stage',{version:ver});
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+CK;loadCoreVersions()}
  else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
-async function corPushStaged(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent=T('cor_pushing')}
- var res=await post('core-push',{ids:[id]});var x=((res.d&&res.d.results)||[])[0]||{};
- if(m){if(x.ok){m.className='msg agres ok';m.innerHTML=(x.unchanged?T('ag_core_already'):T('ag_core_updated'))+CK}
-  else{m.className='msg agres err';m.textContent=T('ag_fail')+terr(x.error||'')}}
- setTimeout(refreshAgent,4000)}
+async function corPushStaged(id){await pushStart('core-push',{ids:[id]},[id])}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ver'),'err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast(T('ag_no_online'),'err');return}
  if(!await confirmBox(T('ag_confirm_core')+ver+T('ag_confirm_core2')+ids.length+T('ag_confirm_core3'),T('yes_all')))return;
- ids.forEach(function(id){var m=el('agres_'+id);if(m){m.className='msg agres';m.textContent=T('ag_installing_core')}});   // per-node status, like «پوشِ همه»
- var res=await post('core-update',{ids:ids,version:ver});var rs=(res.d&&res.d.results)||[];var ok=0;
- rs.forEach(function(x){var m=el('agres_'+x.id);
-  if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=(x.unchanged?T('ag_core_already'):T('ag_core_updated'))+CK}}
-  else if(x.offline){if(m){m.className='msg agres';m.textContent=T('ag_skipped_off')}}
-  else{if(m){m.className='msg agres err';m.textContent=T('ag_fail')+terr(x.error||'')}}});
- toast(ok+'/'+rs.length+T('ag_nodes_updated'),ok?'ok':'err');
- setTimeout(refreshAgent,4500)}
+ await pushStart('core-update',{ids:ids,version:ver},ids)}
 function agCorPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
  var m=el('cor_msg');m.className='msg';m.textContent=T('cor_reading_upload');
  var rd=new FileReader();
@@ -9945,20 +10088,43 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
+// One push job at a time, drawn per node under its own card. The panel uploads to ONE node at a time, so
+// the bars fill in turn; a node that fails or times out stays red and the queue moves on without it.
+var PUSHJOB=null;
+function pushBar(st){
+ var pct=Math.max(0,Math.min(100,num(st.pct)));
+ var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
+ var txt={wait:T('ag_p_wait'),send:T('ag_p_send'),apply:T('ag_p_apply'),ok:T('ag_p_ok'),
+          same:T('ag_p_same'),err:terr(st.error||T('ag_p_err'))}[st.state]||'';
+ return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
+  +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
+function pushPaint(d){var ns=d.nodes||{};
+ (d.order||[]).forEach(function(nid){var m=el('agres_'+nid),st=ns[nid];if(!m||!st)return;
+   m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
+   setHTML(m,pushBar(st))})}
+async function pushPoll(job){
+ for(;;){
+   var r=await j('push-status?job='+encodeURIComponent(job)+'&_='+Date.now()).catch(function(){return null});
+   if(!r||!r.ok){toast(T('ag_p_lost'),'err');PUSHJOB=null;return}
+   pushPaint(r);
+   if(r.done)break;
+   await new Promise(function(res){setTimeout(res,400)})}
+ PUSHJOB=null;
+ setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
+async function pushStart(cmd,body,ids){
+ if(PUSHJOB){toast(T('ag_p_busy'),'err');return}
+ ids.forEach(function(id){var m=el('agres_'+id);
+   if(m){m.className='msg agres';setHTML(m,pushBar({state:'wait',pct:0}))}});
+ var res=await post(cmd,body);
+ if(!(res.ok&&res.d&&res.d.job)){toast(perr(res),'err');return}
+ PUSHJOB=res.d.job;await pushPoll(PUSHJOB)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
   if(!ids.length){toast(T('ag_no_online'),'err');return}
   if(!await confirmBox(T('ag_confirm_all')+ids.length+T('ag_confirm_all2'),T('yes_all')))return}
- else{ids=[target];var mm=el('agres_'+target);if(mm){mm.className='msg agres';mm.textContent=T('sending')}}
- var res=await post('agent-push',{ids:ids});var rs=(res.d&&res.d.results)||[];var ok=0;
- rs.forEach(function(x){var m=el('agres_'+x.id);
-  if(x.ok&&x.already){ok++;if(m){m.className='msg agres ok';m.innerHTML=T('ag_already')+CK}}
-  else if(x.ok){ok++;if(m){m.className='msg agres ok';m.innerHTML=T('ag_updated')+CK+T('ag_restarting')}}
-  else if(x.offline){if(m){m.className='msg agres';m.textContent=T('ag_skipped_off')}}
-  else{if(m){m.className='msg agres err';m.textContent=T('ag_fail')+terr(x.error||'')}}});
- if(target=='all')toast(ok+'/'+rs.length+T('ag_nodes_updated'),ok?'ok':'err');
- setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
+ else{ids=[target]}
+ await pushStart('agent-push',{ids:ids},ids)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}

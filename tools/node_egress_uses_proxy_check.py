@@ -42,6 +42,7 @@ ALLOWED_EGRESS = {
     "create_connection": {
         "_socks5_socket": 1,         # to the PROXY, on node_call's and via_doh_proxy's behalf
         "_http_connect_socket": 1,   # to the PROXY, on node_call's and via_doh_proxy's behalf
+        "node_push": 1,              # DIRECT chunked push -- reached only when node_proxy returned ''
         # Reaches the PROXY's own host:port, never a node -- it IS the proxy's health, for both the dot
         # and «تستِ اتصال», which delegates here rather than measuring anything itself.
         "_proxy_probe": 1,
@@ -66,10 +67,17 @@ def wire_node_call(P, seen):
     """Fake ONLY the connect primitives. Returns a restore callable -- urllib is a process-wide module,
     and leaving it patched would silently poison whatever the next part drives."""
     real_urlopen = P.urllib.request.urlopen
+    real_conn = P.socket.create_connection
 
     def direct(req, timeout=None):
         seen.append(("DIRECT", getattr(req, "full_url", str(req))))
         raise OSError("blocked by the guard")
+
+    def raw_dial(addr, timeout=None):     # node_push's direct branch lands here
+        seen.append(("DIRECT-SOCKET", "%s:%s" % (addr[0], addr[1])))
+        raise OSError("blocked by the guard")
+
+    P.socket.create_connection = raw_dial
 
     def socks(ph, pp, pu, pw, dh, dp, timeout):
         seen.append(("socks5", "%s:%s" % (ph, pp), "%s:%s" % (dh, dp), pu, pw))
@@ -85,6 +93,7 @@ def wire_node_call(P, seen):
 
     def restore():
         P.urllib.request.urlopen = real_urlopen
+        P.socket.create_connection = real_conn
 
     return restore
 
@@ -126,6 +135,22 @@ def part1(P, failures):
         if seen != want:
             failures.append("[node_call: endpoint %r] dialled %r, expected %r" % (endpoint, seen, want))
     print("  ok  node_call — every endpoint leaves through the proxy (6 endpoints)")
+
+    # The agent/core upload is a SECOND way out to a node -- a big one -- and it must take the same proxy
+    # the control plane does. A push that fell out to a direct connection would reach a node the panel
+    # can only otherwise talk to through the proxy, from an address the censor sees.
+    for label, ref, want in (
+        ("a proxied node's push goes through the proxy", {"proxy_on": True, "proxy_id": "px1"},
+         [("socks5", "10.9.9.9:1080", "91.107.190.159:8099", "pu", "pw")]),
+        ("an unproxied node's push dials it directly", {},
+         [("DIRECT-SOCKET", "91.107.190.159:8099")]),
+    ):
+        seen.clear()
+        P.node_push(dict(node, **ref), "update", {"code": "x" * 5000}, timeout=5)
+        if seen != want:
+            failures.append("[node_push: %s] dialled %r, expected %r" % (label, seen, want))
+        else:
+            print("  ok  node_push — %-52s %s" % (label, seen[0][0]))
     restore()
 
 
