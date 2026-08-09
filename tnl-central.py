@@ -8417,7 +8417,11 @@ function reordAutoScroll(){   // touch-action:none means the browser won't scrol
 function reordShift(nb,up){
  var c=RORD.card;
  var cBefore=c.getBoundingClientRect().top,nBefore=nb.getBoundingClientRect().top;
- if(up)RORD.box.insertBefore(c,nb);else RORD.box.insertBefore(nb,c);
+ // NEVER move the dragged card. It holds the pointer capture, and moving a node is a remove+insert,
+ // so the browser releases the capture and the gesture ends — one row per swap. Moving the NEIGHBOUR
+ // to the card's other side gives the identical order and leaves the capture alone. The downward
+ // branch always did this, which is why only dragging UP let go.
+ RORD.box.insertBefore(nb,up?c.nextSibling:c);
  RORD.grabY+=(c.getBoundingClientRect().top-cBefore);          // keep the card pinned under the finger
  c.style.transform='translateY('+(RORD.lastY-RORD.grabY)+'px)';
  var dy=nBefore-nb.getBoundingClientRect().top;                 // FLIP the neighbour so it glides, not jumps
@@ -8450,9 +8454,10 @@ document.addEventListener('pointerdown',reordDown,true);
 document.addEventListener('pointermove',reordMove,true);
 document.addEventListener('pointerup',reordEnd,true);
 document.addEventListener('pointercancel',reordEnd,true);
-// The capture can be taken away without a pointerup — the card removed, the view swapped — and RORD
-// left set blocks every refresh and every later drag exactly like a stuck RSAVE did.
-document.addEventListener('lostpointercapture',reordEnd,true);
+// A capture that goes away must NOT end the drag — that is the bug above wearing a different hat. Take it
+// back and carry on; the document-level listeners deliver the moves either way.
+document.addEventListener('lostpointercapture',function(e){
+ if(RORD&&e.pointerId===RORD.pid){try{RORD.card.setPointerCapture(e.pointerId)}catch(_){}}},true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
