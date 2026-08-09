@@ -2012,6 +2012,7 @@ def api_summary(d):
     score = max(0, min(100, 100 - offline * 8 - len(crit) * 6 - down * 10 - drift_n * 4 - noping * 3))
     n_core = sum(1 for L in links if L.get("type") == "core")
     return {"nodes_online": on, "nodes_total": len(nodes),
+            "proxies": len(load_proxies()),   # the nav counter, from the same place as every other one
             "links": len(links) - n_core, "core": n_core, "link_total": len(links),
             "links_healthy": up, "tunnels": tun, "portfw": pf,
             "health_score": score,
@@ -7771,7 +7772,7 @@ document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function()
 function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.classList.toggle('on',p.dataset.t==cur)})}
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
- setT('ct_nodes',num(s.nodes_total));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
+ setT('ct_nodes',num(s.nodes_total));setT('ct_proxies',num(s.proxies));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
  setT('ct_logs',num(s.log_count));   // ALWAYS the total number of logs (like the other nav counts)
  if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   // live-refresh cadence, from settings
  // Pool/peer retest-bar denominator must mirror the core's TUNED schedule, not the literals: the summary
@@ -9544,7 +9545,6 @@ function proxiesSkel(){el('view').innerHTML=vhead('globe','nav_proxies','px_sub'
  refreshProxies()}
 async function refreshProxies(){if(listBusy())return;await pxLoad();
  var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setT('ct_proxies',PX.length?String(PX.length):'');
  setHTML(box,PX.length?PX.map(pxCard).join(''):'<div class="card muted">'+esc(T('px_empty'))+'</div>')}
 function pxCard(p,i){
  var used=p.nodes&&p.nodes.length?esc(T('px_used_by'))+esc(p.nodes.join('، ')):'<span class="muted">'+esc(T('px_used_none'))+'</span>';
