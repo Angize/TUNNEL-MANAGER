@@ -42,9 +42,8 @@ ALLOWED_EGRESS = {
     "create_connection": {
         "_socks5_socket": 1,         # to the PROXY, on node_call's and via_doh_proxy's behalf
         "_http_connect_socket": 1,   # to the PROXY, on node_call's and via_doh_proxy's behalf
-        # Both reach the PROXY's own host:port, never a node: the fallback for «تستِ اتصال» and for the
-        # poller's dot when no node takes that proxy yet, so there is nothing to reach THROUGH it.
-        "api_proxy_test": 1,
+        # Reaches the PROXY's own host:port, never a node -- it IS the proxy's health, for both the dot
+        # and «تستِ اتصال», which delegates here rather than measuring anything itself.
         "_proxy_probe": 1,
     },
     # Neither dials: an already-tunneled socket is assigned to conn.sock, so conn.connect() never runs.

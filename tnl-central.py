@@ -917,9 +917,9 @@ def poller_loop():
             with inflight_lock:
                 inflight.discard(n["id"])
 
-    def _run_px(p, users):
+    def _run_px(p):
         try:
-            _px_publish(p["id"], _proxy_probe(p, users))
+            _px_publish(p["id"], _proxy_probe(p))
         finally:
             with inflight_lock:
                 inflight.discard("px:" + p["id"])
@@ -961,23 +961,18 @@ def poller_loop():
                 for n in todo:
                     ex.submit(_run, n)
             # Proxies ride the same sweep, so their dot refreshes on the same poll_interval as a node's
-            # and there is no second loop to keep alive. The ones nodes take cost nothing (a cache read);
-            # only an unused proxy dials, and its probe goes on the pool with the same in-flight rule.
+            # and there is no second loop to keep alive. Each one is reached on its own, and takes the
+            # same in-flight slot rule as a node so a slow proxy cannot pile up copies of itself.
             pxs = load_proxies()
             with _px_lock:
                 for pid in [k for k in _px if k not in {p["id"] for p in pxs}]:
                     _px.pop(pid, None)
-            pxn = _proxy_nodes(nodes)
             for p in pxs:
-                users = pxn.get(p["id"], [])
-                if any(_cached_ping(n["id"]) for n in users):
-                    _px_publish(p["id"], _proxy_probe(p, users))   # cache read only, no dial
-                    continue
                 with inflight_lock:
                     if ("px:" + p["id"]) in inflight:
                         continue
                     inflight.add("px:" + p["id"])
-                ex.submit(_run_px, p, users)
+                ex.submit(_run_px, p)
         except Exception:
             pass
         try:
@@ -991,29 +986,19 @@ _px_lock = threading.Lock()
 _px = {}          # proxy id -> {ok, ms, error, end_to_end, ts}
 
 
-def _proxy_probe(p, nodes):
-    """One proxy's health, the same two ways «تستِ اتصال» answers it.
+def _proxy_probe(p, timeout=6):
+    """A proxy's health is the PROXY's own reachability, and its latency is the proxy's own.
 
-    A proxy that nodes take is measured BY those nodes: every node_call already goes through it, so its
-    cached ping answers «can I reach anything through this proxy» with NO extra traffic and no second
-    opinion to disagree with. Only a proxy nothing uses needs a probe of its own, and then a TCP connect
-    is all that is honest -- there is nothing behind it to reach.
+    Deliberately not measured through a node: borrowing a node's ping made the verdict depend on which
+    node happened to be listed first, so a healthy proxy read as down because one node behind it was,
+    and the number shown was that node's round trip rather than the proxy's.
     """
-    for n in nodes:
-        pg = _cached_ping(n["id"])
-        if not pg:
-            continue                      # that node has not been polled yet; try the next one
-        ok = bool(pg.get("ok"))
-        return {"ok": ok, "ms": pg.get("rtt_ms") if ok else None, "via": n["name"],
-                "error": "" if ok else (pg.get("error") or ""), "end_to_end": True, "ts": time.time()}
     t0 = time.monotonic()
     try:
-        socket.create_connection((p["host"], int(p["port"])), 6).close()
+        socket.create_connection((p["host"], int(p["port"])), timeout).close()
     except Exception as e:
-        return {"ok": False, "ms": None, "error": str(e).split("] ")[-1][:90],
-                "end_to_end": False, "ts": time.time()}
-    return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "",
-            "end_to_end": False, "ts": time.time()}
+        return {"ok": False, "ms": None, "error": str(e).split("] ")[-1][:90], "ts": time.time()}
+    return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
 
 
 def _px_publish(pid, st):
@@ -6362,35 +6347,13 @@ def api_proxy_edit(d):
 
 
 def api_proxy_test(d):
-    """Answer «is this proxy usable?» with a number.
-
-    When a node already takes this proxy, the honest test is the PRODUCTION path: node_call's own ping,
-    through the proxy, to that node -- it exercises the handshake, the credentials and the node in one
-    go. With no node on it yet there is nothing to reach through it, so this falls back to a plain TCP
-    connect to the proxy itself and says so, rather than inventing an external target whose own
-    reachability would be reported as the proxy's.
-    """
+    """Reach the proxy itself, now, and report its own latency. Same measurement as the dot's."""
     _require(d, ["id"])
     p = get_proxy(str(d["id"]))
     if not p:
         raise ValueError("پروکسی پیدا نشد")
-    node = next(iter(_proxy_nodes().get(p["id"], [])), None)
-    t0 = time.monotonic()
-    if node:
-        r = node_call(node, "ping", "GET", timeout=8)
-        ms = int((time.monotonic() - t0) * 1000)
-        out = {"ok": bool(r.get("ok")), "ms": ms, "via": node["name"], "end_to_end": True,
-               "error": "" if r.get("ok") else (r.get("error") or "پاسخی از نود نیامد")}
-    else:
-        try:
-            socket.create_connection((p["host"], int(p["port"])), 8).close()
-            out = {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "",
-                   "end_to_end": False}
-        except Exception as e:
-            out = {"ok": False, "ms": None, "end_to_end": False,
-                   "error": str(e).split("] ")[-1][:90]}
-    # the button and the dot must never disagree: this measurement IS the new cached verdict
-    _px_publish(p["id"], dict(out, ts=time.time()))
+    out = _proxy_probe(p, timeout=8)
+    _px_publish(p["id"], out)   # the button and the dot must never disagree
     return out
 
 
@@ -7478,8 +7441,7 @@ var I18N={fa:{
  px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پسورد روی مرکزی می‌ماند و هیچ‌وقت به مرورگر فرستاده نمی‌شود.",
  px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
- px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
- px_via:"پینگِ سرتاسری از طریقِ ",px_reach_only:"فقط رسیدن به خودِ پروکسی (هنوز نودی روی آن نیست)",
+ px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",px_rtt:"پینگِ خودِ پروکسی:",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
@@ -9717,7 +9679,7 @@ function pxCard(p,i){var open=!!TOPEN[p.id];
   +'<div class="muted mono" style="font-size:12px">'+esc(p.addr)+'</div></div>'
   +'<span class="ndot '+dotk+'" title="'+esc(ttl)+'"></span>'+CHEVI+'</div>';
  var meta='<div class="pxused">'+used+'</div>'
-  +(st.ms!=null?'<div class="pxused">'+esc((st.end_to_end?T('px_via')+(st.via||''):T('px_reach_only'))+' · '+num(st.ms)+'ms')+'</div>':'')
+  +(st.ms!=null?'<div class="pxused">'+esc(T('px_rtt')+' '+num(st.ms)+'ms')+'</div>':'')
   +(st.error?'<div class="pxused" style="color:var(--bad)">'+esc(terr(st.error))+'</div>':'');
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" onclick="testPx('+i+')">'+ic('bolt')+'</button>'
   +'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
@@ -9731,11 +9693,8 @@ async function testPx(i){var p=PX[i];if(!p)return;CHECKING++;   // same repaint 
  if(m){m.className='msg';m.textContent=T('px_testing')}
  var r=await post('proxy-test',{id:p.id});var d=r.d||{};
  if(!m)return;
- // Say WHICH question was answered: a node on this proxy gets the real control ping end to end, an
- // unused proxy only gets a TCP connect, and reporting both as one number would overstate the second.
- var how=d.end_to_end?(T('px_via')+(d.via||'')):T('px_reach_only');
- if(r.ok&&d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('px_up')+' · '+num(d.ms)+'ms — '+how)}
- else{formErr(m,terr(d.error||T('failed'))+' — '+how)}
+ if(r.ok&&d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('px_up')+' · '+num(d.ms)+'ms')}
+ else{formErr(m,terr(d.error||T('failed')))}
  }finally{CHECKING--}}
 function openPxModal(i){var p=(i==null)?null:PX[i];
  var sc=(p&&p.scheme)||'socks5';
