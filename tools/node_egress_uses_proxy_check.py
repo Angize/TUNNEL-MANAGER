@@ -20,8 +20,10 @@ import importlib.util
 import sys
 from pathlib import Path
 
-PX = {"id": "px1", "name": "P1", "url": "socks5://pu:pw@10.9.9.9:1080"}
-PX_HTTP = {"id": "px2", "name": "P2", "url": "http://10.9.9.8:3128"}
+PX = {"id": "px1", "name": "P1", "scheme": "socks5", "host": "10.9.9.9", "port": 1080,
+      "user": "pu", "pass": "pw"}
+PX_HTTP = {"id": "px2", "name": "P2", "scheme": "http", "host": "10.9.9.8", "port": 3128,
+           "user": "", "pass": ""}
 RELAY = "/tmp/relay-sentinel.py"
 
 # Outbound primitives, mapped to {owning function: how many call sites it may hold}. The COUNT is the
@@ -40,6 +42,9 @@ ALLOWED_EGRESS = {
     "create_connection": {
         "_socks5_socket": 1,         # to the PROXY, on node_call's and via_doh_proxy's behalf
         "_http_connect_socket": 1,   # to the PROXY, on node_call's and via_doh_proxy's behalf
+        # Reaches the PROXY's own host:port, never a node. It is the fallback for «تستِ اتصال» when no
+        # node takes that proxy yet, so there is nothing to reach THROUGH it.
+        "api_proxy_test": 1,
     },
     # Neither dials: an already-tunneled socket is assigned to conn.sock, so conn.connect() never runs.
     "HTTPConnection": {
