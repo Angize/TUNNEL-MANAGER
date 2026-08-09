@@ -6823,6 +6823,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ico.offl{background:color-mix(in srgb,var(--sub) 18%,transparent);color:var(--sub)}
 .agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 /* icon-only card action buttons */
+/* A core card carries SEVEN of these and the row is 315px on a 375px phone: at gap 8 the seventh
+   wraps onto a line of its own. Six is what fits, so the icon-only row takes a tighter gap. */
+.nact.iconly{gap:6px}
 .nact.iconly .act{padding:8px 11px}
 .nact.iconly .act .ic{width:15px;height:15px}
 /* prominent check-all button */
