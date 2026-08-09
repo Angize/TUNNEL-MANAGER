@@ -6533,23 +6533,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok)}
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
-/* A settings group is its OWN accordion — hence `sacc`, not `acc`. `.card.acc` zeroes the card padding
-   because ITS header and body carry it instead; a settings group's do not, so the padding is restated
-   here at .card's own inset, and an open group lines up with every other card on the page. */
-.setgrp.sacc{padding:0}
-.setgrp.sacc .grphd.acch{margin:0;padding:12px 14px;gap:8px;flex-wrap:nowrap;align-items:center;
-  cursor:pointer;user-select:none}
-/* nowrap on the header itself, wrap INSIDE the title box: a long title pushes the chip onto a second
-   line but can never push the chevron off it, so the control stays at the card's far edge — the same
-   place on every card, open or closed. */
-.setgrp.sacc .grphd.acch .grphdl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
-/* The chevron sits at the far end of the header — in this RTL page that is the LEFT edge. */
-.setgrp.sacc .grphd.acch .pchev{margin-inline-start:auto;flex:0 0 auto;line-height:1;
-  color:var(--sub);font-size:12px;transition:transform .2s}
-.setgrp.sacc .grphd.acch .pchev.open{transform:rotate(180deg)}
-/* inset + the card's own radius: .card is overflow:hidden, so an outward ring gets clipped away. */
-.setgrp.sacc .grphd.acch:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;border-radius:15px}
-.setgrp.sacc .setgrpb{padding:0 14px 12px}
+/* Settings is ONE card with four subject groups. Every group but the first gets air above it; the rows
+   already carry hairlines, so the gap plus the bold header is the whole separation. */
+.setgrp .grphd~.grphd{margin-top:20px}
 .search:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0 2px;flex-wrap:wrap}
 .pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
@@ -6944,20 +6930,15 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
 /* compact settings rows (option B) */
-.setrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bord)}
-.setrow:last-of-type{border-bottom:0}
-.setlbl b{font-size:13px;font-weight:700;color:var(--tx)}
-.setlbl span{display:block;font-size:11px;color:var(--sub);margin-top:1px}
 .setctl{flex:0 0 auto;min-width:118px;max-width:150px}
 .setctl>*{width:100%}
 .setctl .setfield{padding:8px 12px;font-size:13px}
 .setctl input.search{padding:8px 12px}
 .setgrp{margin-top:8px}
-.sc-panel{--sc:#4f6ef7;--scbg:#4f6ef722}.sc-both{--sc:#0891b2;--scbg:#0891b222}.sc-ws{--sc:#c2410c;--scbg:#c2410c22}.sc-dgram{--sc:#8b5cf6;--scbg:#8b5cf622}
+.sc-panel{--sc:#4f6ef7;--scbg:#4f6ef722}.sc-conn{--sc:#0891b2;--scbg:#0891b222}.sc-pool{--sc:#c2410c;--scbg:#c2410c22}.sc-perf{--sc:#8b5cf6;--scbg:#8b5cf622}
 .grphd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 2px 8px;font-weight:800;font-size:14px;color:var(--tx)}
 .grphd .gdot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--sc)}
 .grphd .schip{font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:20px;background:var(--scbg);color:var(--sc)}
-.grphd small{width:100%;font-weight:600;color:var(--sub);font-size:11px;margin-top:-2px;padding-inline-start:17px}
 .setrow2{padding:10px 0;border-bottom:1px solid var(--bord)}
 .setrow2:last-of-type{border-bottom:0}
 .setrow2-top{display:flex;align-items:center;gap:10px}
@@ -7277,7 +7258,7 @@ var I18N={fa:{
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
  set_rec_range:"5 تا 3600",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"0٫3 تا 60 — زیرِ 1 هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"0٫3 تا 60 — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"0 = خاموش، وگرنه 1 تا 1440 — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
- set_tun_hd:"زمان‌بندیِ پیشرفتهٔ self-heal",set_tun_note:"این زمان‌ها روی همهٔ تونل‌ها اعمال می‌شوند و روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند. برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_tun_reset:"بازگردانی به پیش‌فرض",set_tun_saved:"زمان‌بندی ذخیره شد",set_tun_reset_confirm:"همهٔ زمان‌ها به پیش‌فرض برگردند؟",
+ set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ این کارت به پیش‌فرض برگردند؟",set_reset_yes:"بازگردان",
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
 
@@ -7286,11 +7267,9 @@ var I18N={fa:{
  set_t_pingloss:"آستانهٔ پینگِ ازدست‌رفته",set_t_pingloss_d:"چند تا از آن بسته‌های «زنده‌ای؟» پشتِ‌هم بی‌جواب بماند تا اتصال را ببندد و دوباره وصل شود. کم که باشد سریع‌تر واکنش نشان می‌دهد، ولی روی اینترنتِ ناپایدار ممکن است بی‌خود قطع و وصل کند.",
  set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"برای اینکه بفهمد یک آی‌پیِ خراب دوباره سالم شده یا نه، یک اتصالِ آزمایشی می‌زند. این می‌گوید چند ثانیه منتظرِ جوابش بماند. اگر اینترنتت کند است این عدد را زیاد کن، وگرنه آی‌پیِ سالم را هم رد می‌کند.",
- set_g1:"1) زمان‌بندیِ پنل",set_g1h:"روی مرکزی اجرا می‌شود",set_g1c:"پنل",
- set_g2:"1) سلامتِ استخر و چرخشِ IP",set_g2h:"هستهٔ کلاینت",set_g2c:"هر دو استخر",
- set_g3:"2) بازآزماییِ لبهٔ WS-CDN",set_g3h:"تونل‌های ws/http",set_g3c:"فقط WS-CDN",
- set_g5:"4) کاراییِ دیتاگرام",set_g5h:"اندازهٔ بافرِ سوکت",set_g5c:"udp / raw / flux",
- set_g6:"7) کارایی",set_g6h:"پهنای‌باند",set_g6c:"udp / raw / flux",
+ set_g1:"1) پنل",set_g1c:"فقط مرکزی",
+ set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
+ set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
  set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود 2٫7 برابر شد). <b>0</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
  set_x_rec:"<b>15</b> = هر 15ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
@@ -7417,7 +7396,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"3) تشخیصِ مرگ و آستانه‌های خرابی",set_gkdh:"keepalive، ضریبِ پنجرهٔ مرگ و آستانه‌ها — روی همهٔ تونل‌ها",set_gkdc:"همه",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadmult:"ضریبِ پنجرهٔ مرگ (×keepalive)",set_t_deadmult_d:"چند برابرِ keepalive سکوت را تحمل کند تا تونل را مرده حساب کند. <b>یک عدد برای همهٔ حامل‌ها</b> — ws و tcp و udp و raw و flux همه از همین یکی استفاده می‌کنند، پس برای تشخیصِ سریع‌تر یا این را کم کن یا keepalive را. کمتر از 2 نمی‌شود: فاصلهٔ دو پینگ تا 1.3 برابرِ keepalive کش می‌آید و پنجره‌ای کوتاه‌تر از آن وسطِ دو پینگ می‌بُرد و اتصالِ سالم را می‌کشد.",set_x_deadmult:"keepalive=15 و ضریب=<b>3</b> ← 45ثانیه سکوت = مرده. keepalive را 10 کن ← 30ثانیه.",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
+ set_gkd:"2) اتصال و تشخیصِ مرگ",set_gkdc:"همهٔ تونل‌ها",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadmult:"ضریبِ پنجرهٔ مرگ (×keepalive)",set_t_deadmult_d:"چند برابرِ keepalive سکوت را تحمل کند تا تونل را مرده حساب کند. <b>یک عدد برای همهٔ حامل‌ها</b> — ws و tcp و udp و raw و flux همه از همین یکی استفاده می‌کنند، پس برای تشخیصِ سریع‌تر یا این را کم کن یا keepalive را. کمتر از 2 نمی‌شود: فاصلهٔ دو پینگ تا 1.3 برابرِ keepalive کش می‌آید و پنجره‌ای کوتاه‌تر از آن وسطِ دو پینگ می‌بُرد و اتصالِ سالم را می‌کشد.",set_x_deadmult:"keepalive=15 و ضریب=<b>3</b> ← 45ثانیه سکوت = مرده. keepalive را 10 کن ← 30ثانیه.",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -7577,6 +7556,7 @@ var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=
 var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
+var _SETDEF=__SETDEF_JSON__;   /* injected from settings_defaults() minus tuning; feeds the form AND the reset */
 var _PROBESAMP=__PROBE_SAMPLES__;   /* the node's PROBE_COUNT, injected; guarded by tools/tuning_consistency.py */
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
@@ -9737,73 +9717,54 @@ var _setMode='alert',_modeOv=null;
 function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
- var row=function(t,d,ctl){return '<div class="setrow"><div class="setlbl"><b>'+t+'</b><span>'+d+'</span></div><div class="setctl">'+ctl+'</div></div>'};
- box.innerHTML=grp('set_g1','set_g1h','set_g1c','sc-panel',
-  qr(T('set_on_ipchange'),'set_on_ipchange_d','set_x_ipchange','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
-  qr(T('set_rec_int'),'set_rec_range','set_x_rec','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+(num(s.reconcile_interval)||15)+'">')+
-  qr(T('set_poll_int'),'set_poll_range','set_x_poll','<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.poll_interval)||2)+'">')+
-  qr(T('set_ui_int'),'set_ui_range','set_x_ui','<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+(num(s.ui_interval)||2)+'">')+
-  qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+(s.ech_refresh_mins!=null?num(s.ech_refresh_mins):15)+'">')+
-  qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(num(s.uptime_window)||1),'',''))+
-  '<div class="tbtnrow" style="margin:14px 0 0;align-items:center"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>')+
-  tuningCard(s)+
+ box.innerHTML=settingsCard(s)+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  tunPmBind();refreshAgent()}
-// A settings row with a "?" that expands a concept + example; grp() wraps a scope-tagged group card.
+// A settings row with a "?" that expands a concept + example; gh() heads a subject group.
 function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
 function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
-// A settings group is a COLLAPSIBLE card. These blocks are long — seven of them stacked made the page
-// a scroll marathon on a phone — so each collapses to its header. Open state is per-group and kept in
-// _setOpen, because refreshSettings() rebuilds this HTML wholesale and would otherwise reset it.
-// gk is a stable key; pass gk='' for a card that must never collapse (the panel-wide group).
-var _setOpen={};
-function setAcc(k){_setOpen[k]=!_setOpen[k];var b=el('sgb_'+k),c=el('sgc_'+k),h=el('sgh_'+k);
- if(b)b.style.display=_setOpen[k]?'':'none';if(c)c.classList.toggle('open',!!_setOpen[k]);
- // aria was written once at render time and never touched again, so the FIRST interaction made it
- // say the opposite of the truth for the rest of the session.
- if(h)h.setAttribute('aria-expanded',_setOpen[k]?'true':'false')}
-function grp(tk,hk,ck,cls,rows,gk){
- // The <small> sub-header is gone: it restated the scope chip next to it («تونل‌های ws/http» beside
- // «فقط WS-CDN»), so it cost a line of height per card and told the operator nothing new.
- var hd='<div class="grphd"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>';
- if(!gk)return '<div class="card setgrp '+cls+'">'+hd+rows+'</div>';
- var op=!!_setOpen[gk];
- return '<div class="card setgrp sacc '+cls+'">'
-  +'<div class="grphd acch" id="sgh_'+gk+'" data-acc onclick="setAcc(\\''+gk+'\\')" role="button" tabindex="0" aria-expanded="'+(op?'true':'false')+'">'
-  +'<span class="grphdl"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></span>'
-  +'<span class="pchev'+(op?' open':'')+'" id="sgc_'+gk+'">&#9662;</span></div>'
-  +'<div class="setgrpb" id="sgb_'+gk+'"'+(op?'':' style="display:none"')+'>'+rows+'</div></div>'}
-// Operational self-heal / pool-health timings, grouped by category. Applies to a tunnel on its next
-// build/rebuild (stamped into the core config), so changing a value here + rebuilding heals with it.
+// A subject header inside the settings card. The dot and the chip take their colour from cls.
+function gh(tk,ck,cls){return '<div class="grphd '+cls+'"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>'}
+function _sv(s,k){return (s&&s[k]!=null&&s[k]!=='')?s[k]:_SETDEF[k]}
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 // The two pool-retest knobs are stored and stamped in SECONDS but entered in MINUTES, the way
 // sock_buf_mb is MiB in the form and bytes in the core config.
 function _tvMin(s,k){return Math.max(1,Math.round(num(_tv(s,k))/60))}
 function _minSec(x){var n=parseInt(x);return n>=1?n*60:NaN}
 function tNum(id,val,mn,mx,st){return '<input id="'+id+'" class="search" type="number" step="'+(st||1)+'" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
-function tuningCard(s){
- return '<div class="sec2" style="margin:14px 2px 2px">'+ic('activity','var(--acc)')+' '+esc(T('set_tun_hd'))+'</div>'+
-  '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px 4px">'+esc(T('set_tun_note'))+'</div>'+
-  grp('set_g2','set_g2h','set_g2c','sc-both',
-    qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
-    qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440)),'g2')+
-  grp('set_g3','set_g3h','set_g3c','sc-ws',
-    qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120)),'g3')+
+/* ONE card, four subjects in the order the operator thinks about them: what the panel itself does, then
+   the connection, then the IP pool, then throughput. The panel rows take effect the moment they are
+   saved; the three tuning groups are stamped into the core config and take effect on a tunnel's next
+   build/rebuild. That split is what the note under the button says. */
+function settingsCard(s){
+ return '<div class="card setgrp">'+
+  gh('set_g1','set_g1c','sc-panel')+
+  qr(T('set_on_ipchange'),'set_on_ipchange_d','set_x_ipchange','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
+  qr(T('set_rec_int'),'set_rec_range','set_x_rec','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+esc(String(_sv(s,'reconcile_interval')))+'">')+
+  qr(T('set_poll_int'),'set_poll_range','set_x_poll','<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'poll_interval')))+'">')+
+  qr(T('set_ui_int'),'set_ui_range','set_x_ui','<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'ui_interval')))+'">')+
+  qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+esc(String(_sv(s,'ech_refresh_mins')))+'">')+
+  qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(_sv(s,'uptime_window')),'',''))+
   /* Dead detection, one subject: keepalive is the clock, the multiplier is how many missed pings the
-     carrier tolerates, and the rest are the failure thresholds beside them. All global, all applying to
-     every carrier. */
-  grp('set_gkd','set_gkdh','set_gkdc','sc-both',
-    qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
-    qr(T('set_t_deadmult'),'set_t_deadmult_d','set_x_deadmult',tNum('set_t_deadmult',_tv(s,'dead_mult'),2,100))+
-    qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
-    qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
-    qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
-    '<div class="muted" id="tun_pmhint" style="font-size:11.5px;line-height:1.8;margin:-2px 4px 6px"></div>','gkd')+
-  /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier moved up
-     into card 3, because there is now ONE of it for every carrier. */
-  grp('set_g5','set_g5h','set_g5c','sc-dgram',
-    qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64)),'g5')+
-  '<div class="tbtnrow" style="margin:12px 2px 0;align-items:center;gap:8px"><button class="primary" onclick="saveTuning()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetTuning()">'+ic('reset')+esc(T('set_tun_reset'))+'</button><span class="msg" id="tun_msg" style="align-self:center"></span></div>'}
+     carrier tolerates, and the rest are the failure thresholds beside them. */
+  gh('set_gkd','set_gkdc','sc-conn')+
+  qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
+  qr(T('set_t_deadmult'),'set_t_deadmult_d','set_x_deadmult',tNum('set_t_deadmult',_tv(s,'dead_mult'),2,100))+
+  qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
+  qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
+  qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
+  '<div class="muted" id="tun_pmhint" style="font-size:11.5px;line-height:1.8;margin:-2px 4px 6px"></div>'+
+  gh('set_g2','set_g2c','sc-pool')+
+  qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
+  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
+  qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120))+
+  /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
+     the connection group, because there is now ONE of it for every carrier. */
+  gh('set_g5','set_g5c','sc-perf')+
+  qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64))+
+  '<div class="tbtnrow" style="margin:14px 0 6px;align-items:center;gap:8px"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetSettings()">'+ic('reset')+esc(T('set_reset'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
+  '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px">'+esc(T('set_apply_note'))+'</div>'+
+  '</div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
  var t={keepalive:parseInt(v('set_t_keepalive')),dead_retest_secs:_minSec(v('set_t_deadretest')),dead_mult:parseInt(v('set_t_deadmult')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
@@ -9819,19 +9780,16 @@ function tunPmSync(){var p=el('set_t_probemin'),h=el('tun_pmhint');if(!p||!h)ret
  h.textContent=T('set_pm_hint').replace('{n}',Math.ceil(v*_PROBESAMP/100)).replace('{c}',_PROBESAMP)}
 function tunPmBind(){var p=el('set_t_probemin');if(p)p.addEventListener('input',tunPmSync);
  tunPmSync()}
-async function saveTuning(){var m=el('tun_msg');if(m){m.className='msg';m.textContent=T('saving')}
- var r=await post('settings-set',{tuning:_collectTuning()});
- if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_tun_saved'),'ok')}
- else{if(m){formErr(m,perr(r))}}}
-async function resetTuning(){if(!await confirmBox(T('set_tun_reset_confirm')))return;
- var r=await post('settings-set',{tuning:_TUNDEF});
- if(r.ok&&r.d.ok){toast(T('set_tun_saved'),'ok');refreshSettings()}
+async function resetSettings(){if(!await confirmBox(T('set_reset_confirm'),T('set_reset_yes')))return;
+ var b={tuning:_TUNDEF};for(var k in _SETDEF)b[k]=_SETDEF[k];
+ var r=await post('settings-set',b);
+ if(r.ok&&r.d.ok){toast(T('set_saved'),'ok');refreshSettings()}
  else{toast(perr(r),'err')}}
 function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
- var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin')});
+ var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin'),tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){formErr(m,perr(r))}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
@@ -9893,6 +9851,9 @@ render();updateSidebar();TT=setTimeout(tick,6000);
 # tools/tuning_consistency.py guard enforces the remaining panel<->core<->node agreement.
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
+# The panel-side half of the same card. `tuning` is already injected above as _TUNDEF.
+INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
+    {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
 # transport families + ciphers -> browser, so the enum lives only in the Python consts above (Track B).
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
