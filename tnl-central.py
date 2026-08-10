@@ -318,8 +318,10 @@ def _settings_tuning():
 
 def settings_defaults():
     return {
-        "reconcile_mode": "alert",  # default. "alert" = only flag a drifted tunnel; the operator clicks
-                                    # rebuild on the affected one. "auto" = panel rebuilds it itself (single-IP).
+        "reconcile_mode": "alert",  # default. Governs the WHOLE self-heal chain, not just the rebuild:
+                                    # "alert" = a node that moved is only reported, and the operator fixes
+                                    # its address and rebuilds. "auto" = the panel adopts the new address
+                                    # from the check-in and rebuilds the drifted tunnel itself (single-IP).
         "reconcile_interval": 15,   # seconds between reconcile sweeps (5–3600)
         "poll_interval": 2,         # seconds the fleet poller rests between sweeps (0.3–60, fractional OK)
         "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
@@ -375,6 +377,30 @@ def validate_settings(d):
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
+
+
+_moved = {}                      # node id -> {"name", "from", "to"}: it phoned home from a new address and
+_moved_lock = threading.Lock()   # the panel was told not to adopt it, so the operator has to be shown where
+
+
+def _moved_note(nid, name, old, new):
+    """Record a node that moved. Returns True the first time this destination is seen, so the log gets one
+    line per move and not one per check-in (the node keeps calling every 20s until it is acknowledged)."""
+    with _moved_lock:
+        prev = _moved.get(nid)
+        _moved[nid] = {"name": name, "from": old, "to": new}
+        return not prev or prev.get("to") != new
+
+
+def _moved_clear(nid):
+    with _moved_lock:
+        _moved.pop(nid, None)
+
+
+def moved_to(nid):
+    with _moved_lock:
+        v = _moved.get(nid)
+        return v["to"] if v else ""
 
 
 def _set_drift(lid, val):
@@ -1960,6 +1986,7 @@ def _node_view(n, pend=None, pxn=None):
             "proxy_name": (pxn if pxn is not None else _proxy_names()).get(_pid, "") if _pon else "",
             "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
             "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),   # teardowns owed to this node, waiting for it to reconnect
+            "moved_to": moved_to(n["id"]),   # it checked in from another address and manual mode did not adopt it
             "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -2179,6 +2206,10 @@ def api_summary(d):
             heat.append({"id": nid, "name": nm, "pct": None, "online": False})
             if _cache_get(nid):  # actually probed and found offline (not merely un-probed yet)
                 alerts.append({"level": "bad", "kind": "node", "id": nid, "msg": f"نودِ «{nm}» آفلاین است"})
+            mv = moved_to(nid)
+            if mv:   # unreachable at its stored host, but it told us where it went — the operator must move it
+                alerts.append({"level": "warn", "kind": "node", "id": nid,
+                               "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
             continue
         on += 1
         tun += _sint(p.get("tunnels")); pf += _sint(p.get("portfw"))
@@ -6777,7 +6808,10 @@ def api_checkin_impl(source_ip, d):
     """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
     whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
     reconciler then heals the tunnels. We only adopt the new address when the panel currently CAN'T reach
-    the node at its stored host, so a working DNS name / static host is never clobbered."""
+    the node at its stored host, so a working DNS name / static host is never clobbered.
+
+    Adopting is the first step of the self-heal chain, so it obeys the same `reconcile_mode` as the rebuild
+    at the end of it: on "alert" the panel reports where the node moved to and changes nothing."""
     tok = str((d or {}).get("token") or "")
     if not tok:
         return {"ok": False, "error": "token required"}
@@ -6791,11 +6825,20 @@ def api_checkin_impl(source_ip, d):
     # probe the CONFIGURED host LIVE (not the cached poll, which may have transiently failed); a working
     # DNS/static host must never be clobbered on a blip. node_call runs outside _reg_lock (no network in-lock).
     if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
+        _moved_clear(n_snap["id"])
         return {"ok": True, "updated": False, "host": host}
     probe = dict(n_snap)
     probe["host"] = source_ip
     if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
         return {"ok": True, "updated": False, "host": host}  # old host down but new addr doesn't reach us -> reject
+    if get_settings().get("reconcile_mode") != "auto":
+        # manual: the operator moves it. Say WHERE it moved to, or they have no way to know the new address.
+        if _moved_note(n_snap["id"], n_snap.get("name") or "", host, source_ip):
+            log_event("warn", "node", f"دلیل: جابه‌جاییِ آی‌پیِ نودِ «{n_snap.get('name')}»",
+                      f"از {host} به {source_ip} رفته و از آدرسِ تازه جواب می‌دهد — در ویرایشِ نود هوستش را عوض کن،"
+                      " بعد تونل‌هایش را بازسازی کن. (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
+        return {"ok": True, "updated": False, "host": host, "moved_to": source_ip}
+    _moved_clear(n_snap["id"])
     with _reg_lock:  # re-find under lock (registry may have changed during the probes) and persist
         nodes = load_nodes()
         n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
@@ -7928,7 +7971,7 @@ var I18N={fa:{
  t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر 4 پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
- rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
+ rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",nd_moved:"این نود از آدرسِ تازه جواب می‌دهد: ",nd_moved2:" — هوستش را در ویرایش عوض کن، بعد تونل‌هایش را بازسازی کن.",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
  conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
  pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",del_partial:"حذف ناقص: ",
  view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
@@ -7967,7 +8010,7 @@ var I18N={fa:{
  pf_iface:"اینترفیس: ",pf_lip_lbl:"آی‌پیِ ورودی: ",pf_lp_lbl:"پورتِ ورودی: ",pf_dp_lbl:"پورتِ مقصد: ",pf_active_badge:"فعال · مقصد",
  pf_disabled:"غیرفعال",pf_rule:"قانون",pf_rotate_now:"چرخش الان",pf_rotate_done:"چرخش انجام شد ← ",pf_rotate_failed:"چرخش ناموفق",
  // settings
- set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"هشدار بده یا خودکار ترمیم کن",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
+ set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"«خودکار»: هوستِ نود و بازسازیِ تونل، هر دو خودکار. «هشدار»: پنل فقط می‌گوید نود کجا رفته و خودت انجام می‌دهی",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
  set_rec_range:"5 تا 3600",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"0٫3 تا 60 — زیرِ 1 هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"0٫3 تا 60 — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"0 = خاموش، وگرنه 1 تا 1440 — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ این کارت به پیش‌فرض برگردند؟",set_reset_yes:"بازگردان",
@@ -8694,7 +8737,10 @@ function nodeCard(n){var i=n.info||{};
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+ // It answered from somewhere else and the panel was told not to adopt it (manual mode), so the address
+ // it moved to has to be visible -- otherwise the operator has no way to learn the new IP.
+ var mv=n.moved_to?'<div class="msg err" style="margin:7px 0 0">'+esc(T('nd_moved'))+'<span class="mono" style="direction:ltr">'+esc(n.moved_to)+'</span>'+esc(T('nd_moved2'))+'</div>':'';
+ return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+mv+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
