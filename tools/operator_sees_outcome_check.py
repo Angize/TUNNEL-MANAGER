@@ -79,6 +79,17 @@ def main():
         P._rb_last["L1"]["ts"] -= P.RB_KEEP + 5
     chk("a stale verdict is dropped", fleet_rb(), None)
 
+    # ---- nobody waits three minutes for a dead path. A config write is milliseconds of work on the node,
+    # so only the calls that carry megabytes may take a long timeout, and each one must say so by name.
+    src = Path(a.panel).read_text(encoding="utf-8")
+    chk("a node op gets a short timeout", P.NODE_OP_TIMEOUT <= 30, True)
+    chk("long enough for the node's own build lock", P.NODE_OP_TIMEOUT >= 20, True)
+    numeric = sorted(set(re.findall(r"timeout=(\d+)", src)))
+    chk("no call hard-codes a timeout longer than that",
+        [t for t in numeric if int(t) > P.NODE_OP_TIMEOUT], [])
+    uploads = [ln.strip()[:60] for ln in src.splitlines() if "NODE_UPLOAD_TIMEOUT" in ln]
+    chk("only the byte-carrying calls take the long one", len(uploads), 3)
+
     # ---- the browser half, read from the decoded page the browser runs
     js = P.INDEX_HTML
 

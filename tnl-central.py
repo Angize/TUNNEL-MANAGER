@@ -708,6 +708,14 @@ NODE_WIRE = {
 }
 
 
+# How long a node gets to answer. A config write is milliseconds of work on the node (measured: 0.14 s to
+# build a core tunnel, and its own lock is held ~8-16 s at worst), so 30 s is generous and a dead path
+# fails while the operator is still watching instead of three minutes later. Only the two calls that carry
+# MEGABYTES keep a long one -- a 15 MB base64 core over a slow link needs it.
+NODE_OP_TIMEOUT = 30
+NODE_UPLOAD_TIMEOUT = 200
+
+
 def wire(endpoint):
     """The path this endpoint takes on the wire. Unknown names are a programming error, not a request to
     invent a path: a typo must fail here rather than reach a node as a 404 nobody reads."""
@@ -833,7 +841,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
         return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:80]}
 
 
-def node_push(node, endpoint, body, on_progress=None, timeout=200, chunk=64 * 1024):
+def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024):
     """POST a large body to a node, reporting REAL bytes sent as it goes.
 
     node_call cannot do this: urllib hands the whole body to the kernel and returns, so there is nothing
@@ -2853,7 +2861,7 @@ def api_node_del(d):
             # (a reachable node reads online, so it takes the normal-wipe branch below instead).
             node_ok = False
         else:
-            r = node_call(n, "wipe", "POST", {}, timeout=60)
+            r = node_call(n, "wipe", "POST", {}, timeout=NODE_OP_TIMEOUT)
             node_ok = bool(r.get("ok"))
             if not node_ok:
                 # The poller saw this node as UP (or never polled it) yet the wipe failed — it may be a LIVE
@@ -3439,7 +3447,8 @@ def _push_staged(node):
     raw, sha, ver = b
     _ensure_update_key(node)   # guarantee the node holds the verify key before a signed root-binary push (fail-closed on the node side)
     return node_call(node, "core-install", "POST",
-                     {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver, "sig": _sign_sha(sha)}, timeout=200)
+                     {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver, "sig": _sign_sha(sha)},
+                     timeout=NODE_UPLOAD_TIMEOUT)
 
 
 def _push_staged_on_add(node):
@@ -3456,14 +3465,14 @@ def _node_tunnel(node, body):
     """node_call the tunnel op; if a core tunnel fails because the node has no core binary (it never
     downloads its own), push the staged binary from the panel and retry once — so building a core tunnel
     on an internet-less node just works. If the panel has nothing staged, surface a clear message."""
-    r = node_call(node, "tunnel", "POST", body, timeout=200)
+    r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
     err = str(r.get("error") or r.get("msg") or "")
     if not r.get("ok") and "core not installed" in err:
         pr = _push_staged(node)
         if not pr.get("ok"):
             r["error"] = f"هسته روی نودِ «{node.get('name', '?')}» نصب نیست و پنل هم چیزی برای پوش ندارد — اول یک نسخه دانلود کن"
             return r
-        r = node_call(node, "tunnel", "POST", body, timeout=200)
+        r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
     return r
 
 
@@ -4890,7 +4899,7 @@ def _restore_link(A, B, L, extra=None):
                 _apply_core_tuning(body, body)
             _apply_probe_tuning(body)   # OUTSIDE the role check: the probe judges every type, not just core
             try:
-                node_call(N, "tunnel", "POST", body, timeout=200)
+                node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
             except Exception:
                 pass   # best-effort; swallow so restore never masks the original failure
 
@@ -5416,7 +5425,8 @@ def api_link_toggle(d):
         for tag, nid in (("a", L["a_node"]), ("b", L["b_node"])):
             N = get_node(nid)
             if N:
-                sides[tag] = node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled}, timeout=90)
+                sides[tag] = node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled},
+                                          timeout=NODE_OP_TIMEOUT)
         _refresh_cache([L["a_node"], L["b_node"]])
     both = len(sides) == 2 and all((sides.get(t) or {}).get("ok") for t in ("a", "b"))
     return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
@@ -6383,7 +6393,7 @@ def _pf_name(v):
     return s
 
 
-def _pf_push(n, endpoint, body, timeout=120, ret="name"):
+def _pf_push(n, endpoint, body, timeout=NODE_OP_TIMEOUT, ret="name"):
     """Push a port-forward op to node n and normalize the reply: raise its Persian/error text on failure,
     refresh n's cache, and return {ok, <ret>: r[ret]}. Shared by portfw / portfw-edit / portfw-next
     (portfw-del is intentionally NOT routed here — it doesn't raise on !ok and also drops its byte
@@ -6508,7 +6518,7 @@ def api_portfw_next(d):
     n = get_node(d["node"])
     if not n:
         raise ValueError("node not found")
-    return _pf_push(n, "portfw-next", {"name": _pf_name(d["name"])}, timeout=60, ret="active")
+    return _pf_push(n, "portfw-next", {"name": _pf_name(d["name"])}, timeout=NODE_OP_TIMEOUT, ret="active")
 
 
 def api_portfw_del(d):
