@@ -46,6 +46,9 @@ ALLOWED_EGRESS = {
         # Reaches the PROXY's own host:port, never a node -- it IS the proxy's health, for both the dot
         # and «تستِ اتصال», which delegates here rather than measuring anything itself.
         "_proxy_probe": 1,
+        # Reaches the PANEL's OWN address, to check it can get its own answer back before asking a proxy
+        # to carry the same request. No node is involved, so there is nothing for node_proxy to resolve.
+        "_panel_echo_addr": 1,
     },
     # Neither dials: an already-tunneled socket is assigned to conn.sock, so conn.connect() never runs.
     "HTTPConnection": {

@@ -993,7 +993,7 @@ def poller_loop():
 
     def _run_px(p):
         try:
-            _px_publish(p["id"], _proxy_probe(p))
+            _px_sweep(p)
         finally:
             with inflight_lock:
                 inflight.discard("px:" + p["id"])
@@ -1038,9 +1038,12 @@ def poller_loop():
             # and there is no second loop to keep alive. Each one is reached on its own, and takes the
             # same in-flight slot rule as a node so a slow proxy cannot pile up copies of itself.
             pxs = load_proxies()
+            live_px = {p["id"] for p in pxs}
             with _px_lock:
-                for pid in [k for k in _px if k not in {p["id"] for p in pxs}]:
+                for pid in [k for k in _px if k not in live_px]:
                     _px.pop(pid, None)
+                for pid in [k for k in _px_relay if k not in live_px]:
+                    _px_relay.pop(pid, None)
             for p in pxs:
                 with inflight_lock:
                     if ("px:" + p["id"]) in inflight:
@@ -1134,6 +1137,105 @@ def _proxy_probe(p, timeout=6):
             except Exception:
                 pass
     return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
+
+
+PX_RELAY_GAP = 15        # seconds between deep (does it actually CARRY anything?) checks per proxy
+PX_ECHO_TTL = 120        # how long the panel's "can I get my own answer back?" result is trusted
+_px_relay = {}           # proxy id -> {"ok", "error", "skipped", "ts"} — last deep check
+_px_echo = {"ts": 0.0, "addr": None}
+
+
+def _echo_over(sock, host, port, timeout):
+    """Push one tiny request and demand an HTTP status line back.
+
+    This is the ONLY thing that proves a proxy relays. Measured on a live xray whose routing was set to
+    `block`: it answers a full SOCKS5 CONNECT with REP=0x00 succeeded -- it replies before it dials -- and
+    then drops the payload. So the handshake and the CONNECT code both read healthy, and only bytes tell
+    the difference (that proxy closed 14 ms after the request, no answer)."""
+    sock.settimeout(timeout)
+    sock.sendall(("GET /px-echo HTTP/1.0\r\nHost: %s:%d\r\nConnection: close\r\n\r\n"
+                  % (host, port)).encode())
+    line = b""
+    while b"\r\n" not in line:
+        c = sock.recv(128)
+        if not c:
+            raise OSError("چیزی برنگشت")
+        line += c
+        if len(line) > 4096:
+            break
+    if not line.startswith(b"HTTP/"):
+        raise OSError("پاسخِ عبوری HTTP نیست")
+
+
+def _panel_echo_addr():
+    """The panel's own address — but only if the panel can get its OWN answer back from it.
+
+    A TLS-terminated panel, a NATed one or a closed port fails this, and then the deep check is skipped
+    instead of painting every proxy red for something that is not the proxy's fault. Any status line will
+    do (an unknown path answers 404 with no session), so this needs no route of its own."""
+    now = time.time()
+    if now - _px_echo["ts"] < PX_ECHO_TTL:
+        return _px_echo["addr"]
+    addr, ip, port = None, central_ip(), _CENTRAL_PORT
+    if is_ipv4(ip) and port:
+        s = None
+        try:
+            s = socket.create_connection((ip, int(port)), 3)
+            _echo_over(s, ip, int(port), 3)
+            addr = (ip, int(port))
+        except Exception:
+            addr = None
+        finally:
+            if s is not None:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+    _px_echo.update(ts=now, addr=addr)
+    return addr
+
+
+def _proxy_relay(p, timeout=6):
+    """Does this proxy actually carry a stream? No node is involved — the far end is the panel itself."""
+    addr = _panel_echo_addr()
+    if not addr:
+        return {"ok": True, "skipped": True, "error": "", "ts": time.time()}
+    s = None
+    try:
+        s = _proxy_socket(proxy_url(p), addr[0], addr[1], timeout)
+        _echo_over(s, addr[0], addr[1], timeout)
+    except Exception as e:
+        return {"ok": False, "skipped": False, "ts": time.time(),
+                "error": "پروکسی عبور نمی‌دهد — " + str(e).split("] ")[-1][:60]}
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
+    return {"ok": True, "skipped": False, "error": "", "ts": time.time()}
+
+
+def _px_deep(p, st):
+    """Fold the deep check into a handshake verdict. It runs on its own, slower cadence: the handshake is
+    cheap enough for every sweep, a relayed request is not."""
+    if not st.get("ok"):
+        return st                      # already red — nothing to add, and no reason to dial again
+    with _px_lock:
+        prev = _px_relay.get(p["id"])
+    if not prev or time.time() - prev["ts"] >= PX_RELAY_GAP:
+        prev = _proxy_relay(p)          # dialled OUTSIDE the lock — it can take seconds
+        with _px_lock:
+            _px_relay[p["id"]] = prev
+    if prev.get("skipped") or prev.get("ok"):
+        return st
+    return {**st, "ok": False, "error": prev["error"]}
+
+
+def _px_sweep(p):
+    """One proxy's whole verdict: the handshake every sweep, the deep check on its own cadence. The poller
+    calls THIS and nothing else, so a test that drives it is testing what the poller really does."""
+    _px_publish(p["id"], _px_deep(p, _proxy_probe(p)))
 
 
 def _px_publish(pid, st):
@@ -6637,7 +6739,7 @@ def api_proxy_test(d):
     p = get_proxy(str(d["id"]))
     if not p:
         raise ValueError("پروکسی پیدا نشد")
-    out = _proxy_probe(p, timeout=8)
+    out = _px_deep(p, _proxy_probe(p, timeout=8))
     _px_publish(p["id"], out)   # the button and the dot must never disagree
     return out
 
