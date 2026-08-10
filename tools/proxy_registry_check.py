@@ -241,6 +241,108 @@ def main():
     chk("a proxy that refuses the connection is red, with its own reason",
         (st["ok"], st["ms"], "refused" in st["error"]), (False, None, True))
 
+    # ---- WILLING is still not CARRYING. Measured on the operator's live xray with routing set to
+    # `block`: it answers a full SOCKS5 CONNECT with REP=0x00 succeeded (it replies before it dials) and
+    # then drops the payload. So only pushing bytes and demanding an answer can tell it apart.
+    GREEN = {"ok": True, "ms": 3, "error": "", "ts": 0}
+    pxz = {"id": "z", "name": "z", "scheme": "socks5", "host": "10.0.0.1", "port": 1080,
+           "user": "", "pass": ""}
+    opened = []
+
+    def relay(script, fail=None):
+        """Drive the DEEP check only: the handshake has its own ten cases above."""
+        P._px_relay.clear()
+
+        def mk(url, dh, dp, timeout):
+            opened.append((url, dh, dp))
+            if fail:
+                raise OSError(fail)
+            return FakeSock(list(script))
+
+        P._proxy_socket = mk
+        return P._px_deep(pxz, dict(GREEN))
+
+    REAL_ECHO_ADDR = P._panel_echo_addr      # keep the real one: the last two cases must drive IT
+    P._panel_echo_addr = lambda: ("10.1.1.1", 2053)
+    opened.clear()
+    st = relay([b"HTTP/1.0 404 Not Found\r\n\r\n"])
+    chk("a proxy that CARRIES a request stays green", (st["ok"], st["error"]), (True, ""))
+    chk("and the far end is the panel itself, never a node", opened, [("socks5://10.0.0.1:1080", "10.1.1.1", 2053)])
+
+    st = relay([])            # answers the handshake, then carries nothing -- the operator's case
+    chk("a proxy that answers CONNECT and then drops the payload is RED",
+        (st["ok"], "عبور نمی‌دهد" in st["error"]), (False, True))
+    # a COMPLETE line that is not an HTTP answer: the read loop is satisfied, so only the status-line
+    # check can reject it. Bytes with no CRLF would time out instead and prove nothing about that check.
+    st = relay([b"garbage not http\r\n"])
+    chk("a complete answer that is not HTTP is RED too", st["ok"], False)
+
+    # a relay that CLOSES instead of answering: recv returns b"", which is not the same as a timeout
+    class ClosingSock(FakeSock):
+        def recv(self, n):
+            return b""
+
+    P._px_relay.clear()
+    P._proxy_socket = lambda url, dh, dp, t: ClosingSock([])
+    st = P._px_deep(pxz, dict(GREEN))
+    chk("a relay that closes without answering is RED", st["ok"], False)
+    st = relay(None, fail="proxy CONNECT refused: 403")
+    chk("a refused CONNECT is RED", st["ok"], False)
+
+    # a handshake that already failed must not be dialled a second time
+    opened.clear()
+    P._px_relay.clear()
+    st = P._px_deep(pxz, {"ok": False, "ms": None, "error": "timed out", "ts": 0})
+    chk("a red proxy is not dialled again by the deep check", (opened, st["error"]), ([], "timed out"))
+
+    # the deep check runs on its OWN cadence -- a relayed request every 2 s sweep is not free
+    opened.clear()
+    P._px_relay.clear()
+    for _ in range(5):
+        P._proxy_socket = lambda url, dh, dp, t: opened.append(1) or FakeSock([b"HTTP/1.0 404 x\r\n\r\n"])
+        P._px_deep(pxz, dict(GREEN))
+    chk("five sweeps inside the window cost ONE relayed request", len(opened), 1)
+    chk("and the window is not so long a blocked proxy stays green for minutes",
+        P.PX_RELAY_GAP <= 30, True)
+
+    # ---- the two PATHS, not the helper: the poller's own step, and the manual test button. A guard that
+    # only drives _px_deep says nothing about a sweep that stopped calling it.
+    P._px.clear()
+    P._px_relay.clear()
+    with_socket([b"\x05\x00"])                      # handshake: fine
+    P._proxy_socket = lambda url, dh, dp, t: FakeSock([])    # relay: carries nothing
+    P._px_sweep(dict(pxz, user="", **{"pass": ""}))
+    st = P._px_get("z")
+    chk("the poller's own step publishes the deep verdict",
+        (st.get("ok"), "عبور نمی‌دهد" in st.get("error", "")), (False, True))
+
+    P._px_relay.clear()
+    with_socket([b"HTTP/1.1 200 Connection established\r\n\r\n"])   # pa is http, handshake fine
+    P._proxy_socket = lambda url, dh, dp, t: FakeSock([])
+    r = P.api_proxy_test({"id": pa["id"]})
+    chk("«تستِ اتصال» reports the same failure, so it cannot disagree with the dot",
+        (r.get("ok"), "عبور نمی‌دهد" in (r.get("error") or "")), (False, True))
+    chk("and it publishes that verdict for the dot to read", P._px_get(pa["id"]).get("ok"), False)
+
+    # if the panel cannot get its own answer back, the deep check is SKIPPED, never turned into a red
+    P._panel_echo_addr = lambda: None
+    opened.clear()
+    P._px_relay.clear()
+    st = P._px_deep(pxz, dict(GREEN))
+    chk("no echo target -> the verdict stays the handshake's, not a false red",
+        (st["ok"], st["error"], opened), (True, "", []))
+
+    # and that gate is itself a real echo, so a TLS panel (which never answers plain HTTP) fails it
+    P._panel_echo_addr = REAL_ECHO_ADDR       # stop testing the stub and test the code
+    P._px_echo.update(ts=0.0, addr=None)
+    P.central_ip = lambda: "10.1.1.1"
+    P._CENTRAL_PORT = 2053
+    P.socket.create_connection = lambda addr, timeout=None: FakeSock([b"HTTP/1.0 404 Not Found\r\n\r\n"])
+    chk("the panel accepts an address it can echo off", P._panel_echo_addr(), ("10.1.1.1", 2053))
+    P._px_echo.update(ts=0.0, addr=None)
+    P.socket.create_connection = lambda addr, timeout=None: FakeSock([b"\x16\x03\x01\x00\x02\x02\x28"])
+    chk("but not one that answers with TLS bytes", P._panel_echo_addr(), None)
+
     if failures:
         print("\nFAILURES (%d):" % len(failures))
         for f in failures:
