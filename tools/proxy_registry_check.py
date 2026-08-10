@@ -22,6 +22,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 NODES = [
@@ -342,6 +344,75 @@ def main():
     P._px_echo.update(ts=0.0, addr=None)
     P.socket.create_connection = lambda addr, timeout=None: FakeSock([b"\x16\x03\x01\x00\x02\x02\x28"])
     chk("but not one that answers with TLS bytes", P._panel_echo_addr(), None)
+
+    # ---- the poller probes every proxy CONCURRENTLY, and a cache miss here costs a five-process shell
+    # pipeline (central_ip, measured 10.2 ms on the panel) plus a dial. One thread may pay it, not N.
+    spent = []
+
+    def slow_ip():
+        spent.append(1)
+        time.sleep(0.2)
+        return "10.1.1.1"
+
+    P.central_ip = slow_ip
+    P.socket.create_connection = lambda addr, timeout=None: FakeSock([b"HTTP/1.0 404 Not Found\r\n\r\n"])
+    P._px_echo.update(ts=0.0, addr=None)
+    got = []
+    th = [threading.Thread(target=lambda: got.append(P._panel_echo_addr())) for _ in range(12)]
+    t0 = time.perf_counter()
+    for t in th:
+        t.start()
+    for t in th:
+        t.join()
+    span = time.perf_counter() - t0
+    chk("12 concurrent callers recompute the echo address ONCE", len(spent), 1)
+    chk("and every one of them gets the same answer", len({str(g) for g in got}), 1)
+    chk("so the sweep pays for one recompute, not twelve", span < 1.2, True)
+    P._px_echo.update(ts=0.0, addr=None)
+    spent.clear()
+    P._panel_echo_addr()
+    P._panel_echo_addr()
+    chk("and a warm cache recomputes nothing", len(spent), 1)
+
+    # ---- one deadline for the WHOLE read. Per-recv timeouts let a peer that dribbles bytes without a
+    # newline stretch it to 32x the budget -- the same shape node_push had before it was fixed.
+    class Dribble:
+        """Behaves like a socket: honours the last settimeout and raises when that budget is gone. A fake
+        that ignores the timeout would test nothing -- it would just read to the 4096-byte cap."""
+
+        def __init__(self):
+            self.n, self.tos, self.budget = 0, [], None
+
+        def settimeout(self, t):
+            self.tos.append(t)
+            self.budget = t
+
+        def sendall(self, b):
+            pass
+
+        def recv(self, n):
+            self.n += 1
+            # A hard stop, so a MISSING deadline fails fast and says why. Without it this fake dribbles to
+            # the 4096-byte cap: ~8 minutes, which reads as a hung guard rather than a red one.
+            if self.n > 12:
+                raise AssertionError("no overall deadline: %d recvs and still reading" % self.n)
+            if self.budget is not None and 0.12 > self.budget:
+                time.sleep(max(0.0, self.budget))
+                raise TimeoutError("timed out")
+            time.sleep(0.12)
+            return b"x"
+
+    dr = Dribble()
+    t0 = time.perf_counter()
+    try:
+        P._echo_over(dr, "1.2.3.4", 80, 0.5)
+        cut = "returned"
+    except Exception as e:
+        cut = type(e).__name__
+    span = time.perf_counter() - t0
+    chk("a dribbling peer is cut off", cut != "returned", True)
+    chk("within the budget it was given, not a multiple of it", span < 1.3, True)
+    chk("because the remaining deadline shrinks on every recv", dr.tos[1] > dr.tos[-1], True)
 
     if failures:
         print("\nFAILURES (%d):" % len(failures))

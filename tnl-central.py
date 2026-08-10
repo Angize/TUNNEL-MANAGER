@@ -1039,6 +1039,31 @@ def _ensure_cached(nodes):
     threading.Thread(target=_warm, daemon=True).start()
 
 
+# Every store keyed by node id, in ONE place. It was six stanzas inline in the poller, and the store added
+# last (_moved) was simply left out of them -- a deleted node kept its entry for the life of the process.
+# A named list is also drivable: a test can delete a node and assert nothing survives anywhere.
+NODE_STATE = ("_pc", "_tf", "_uh", "_moved")
+
+
+def _prune_node_state(valid):
+    """Drop per-node transient state for ids that are no longer registered."""
+    g = globals()
+    for name in NODE_STATE:
+        with g[name + "_lock"]:
+            store = g[name]
+            for nid in [k for k in store if k not in valid]:
+                store.pop(nid, None)
+    with _tomb_lock:      # tombstones expire by TIME, not by whether the node still exists
+        for nid in [k for k, exp in _tomb.items() if time.time() > exp]:
+            _tomb.pop(nid, None)
+    with _node_locks_guard:   # a build lock may only be dropped while nobody holds it
+        for nid in [k for k in _node_locks if k not in valid]:
+            lk = _node_locks.get(nid)
+            if lk is not None and not lk.locked():
+                _node_locks.pop(nid, None)
+    _pending_gc(valid)    # deferred teardowns owed to a node that is gone
+
+
 def poller_loop():
     ex = ThreadPoolExecutor(max_workers=POLL_WORKERS)  # persistent; stragglers can't block the next sweep
     inflight = set()            # node ids whose poll from a previous sweep hasn't finished yet
@@ -1062,24 +1087,7 @@ def poller_loop():
         try:
             nodes = load_nodes()
             valid = {n["id"] for n in nodes}
-            with _pc_lock:
-                for nid in [k for k in _pc if k not in valid]:
-                    _pc.pop(nid, None)
-            with _tf_lock:
-                for nid in [k for k in _tf if k not in valid]:
-                    _tf.pop(nid, None)
-            with _uh_lock:
-                for nid in [k for k in _uh if k not in valid]:
-                    _uh.pop(nid, None)
-            with _tomb_lock:  # expire delete-tombstones (their in-flight poll has long finished)
-                for nid in [k for k, exp in _tomb.items() if time.time() > exp]:
-                    _tomb.pop(nid, None)
-            with _node_locks_guard:  # drop per-node build locks for removed nodes (skip any currently held)
-                for nid in [k for k in _node_locks if k not in valid]:
-                    lk = _node_locks.get(nid)
-                    if lk is not None and not lk.locked():
-                        _node_locks.pop(nid, None)
-            _pending_gc(valid)   # drop deferred teardowns owed to removed nodes (add-after-prune race / stale keys)
+            _prune_node_state(valid)
             if nodes:
                 # Only submit nodes that are not still being polled from an earlier sweep. Otherwise a
                 # fleet of slow or unreachable nodes piles a fresh copy of every node onto the unbounded
@@ -1120,7 +1128,7 @@ def poller_loop():
 
 
 _px_lock = threading.Lock()
-_px = {}          # proxy id -> {ok, ms, error, end_to_end, ts}
+_px = {}          # proxy id -> {ok, ms, error, ts}
 
 
 def _proxy_probe(p, timeout=6):
@@ -1203,6 +1211,7 @@ PX_RELAY_GAP = 15        # seconds between deep (does it actually CARRY anything
 PX_ECHO_TTL = 120        # how long the panel's "can I get my own answer back?" result is trusted
 _px_relay = {}           # proxy id -> {"ok", "error", "skipped", "ts"} — last deep check
 _px_echo = {"ts": 0.0, "addr": None}
+_px_echo_lock = threading.Lock()
 
 
 def _echo_over(sock, host, port, timeout):
@@ -1212,11 +1221,13 @@ def _echo_over(sock, host, port, timeout):
     `block`: it answers a full SOCKS5 CONNECT with REP=0x00 succeeded -- it replies before it dials -- and
     then drops the payload. So the handshake and the CONNECT code both read healthy, and only bytes tell
     the difference (that proxy closed 14 ms after the request, no answer)."""
+    end = time.monotonic() + timeout
     sock.settimeout(timeout)
     sock.sendall(("GET /px-echo HTTP/1.0\r\nHost: %s:%d\r\nConnection: close\r\n\r\n"
                   % (host, port)).encode())
     line = b""
     while b"\r\n" not in line:
+        sock.settimeout(max(0.05, end - time.monotonic()))   # ONE deadline for the whole read, not per recv
         c = sock.recv(128)
         if not c:
             raise OSError("چیزی برنگشت")
@@ -1233,9 +1244,16 @@ def _panel_echo_addr():
     A TLS-terminated panel, a NATed one or a closed port fails this, and then the deep check is skipped
     instead of painting every proxy red for something that is not the proxy's fault. Any status line will
     do (an unknown path answers 404 with no session), so this needs no route of its own."""
-    now = time.time()
-    if now - _px_echo["ts"] < PX_ECHO_TTL:
-        return _px_echo["addr"]
+    with _px_echo_lock:
+        now = time.time()
+        if now - _px_echo["ts"] < PX_ECHO_TTL:
+            return _px_echo["addr"]
+        return _panel_echo_probe(now)
+
+
+def _panel_echo_probe(now):
+    """Recompute it. Called only with _px_echo_lock held, so ONE thread pays for the shell pipeline
+    central_ip() spawns (measured 10.2 ms) and the dial, instead of every proxy's thread paying it at once."""
     addr, ip, port = None, central_ip(), _CENTRAL_PORT
     if is_ipv4(ip) and port:
         s = None
@@ -2939,6 +2957,10 @@ def api_node_adopt_ip(d):
     probe = dict(n)
     probe["host"] = new
     if not node_call(probe, "ping", "GET", timeout=8).get("ok"):
+        pid = str(n.get("proxy_id") or "") if n.get("proxy_on") else ""
+        px = _px_get(pid) if pid else {}
+        if px and not px.get("ok"):
+            raise ValueError("پروکسیِ این نود قطع است، پس هیچ آدرسی از آن رد نمی‌شود — اول پروکسی را درست کن")
         raise ValueError(f"آدرسِ {new} همین حالا جواب نمی‌دهد — هوست عوض نشد")
     with _reg_lock:
         nodes = load_nodes()
@@ -6159,7 +6181,7 @@ def _events_once():
         b_probed = _cache_get(L.get("b_node")) is not None
         if not (a_probed and b_probed):
             continue
-        # "Probed" is not the same as "judged". A node that has just restarted its agent answers /api/list
+        # "Probed" is not the same as "judged". A node that has just restarted its agent answers the list op
         # immediately, but its background health sweep publishes only at the END of its first round, so every
         # config comes back as {"up": None} for a couple of seconds — and _link_up reads that None as falsy,
         # i.e. as DOWN. None means unknown: hold the state we have.
@@ -6901,8 +6923,9 @@ def api_checkin_impl(source_ip, d):
         # manual: the operator moves it. Say WHERE it moved to, or they have no way to know the new address.
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, source_ip):
             log_event("warn", "node", f"دلیل: جابه‌جاییِ آی‌پیِ نودِ «{n_snap.get('name')}»",
-                      f"از {host} به {source_ip} رفته و از آدرسِ تازه جواب می‌دهد — در ویرایشِ نود هوستش را عوض کن،"
-                      " بعد تونل‌هایش را بازسازی کن. (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
+                      f"از {host} به {source_ip} رفته و از آدرسِ تازه جواب می‌دهد — روی کارتِ نود نشانِ هشدار"
+                      " را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
+                      " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
         return {"ok": True, "updated": False, "host": host, "moved_to": source_ip}
     _moved_clear(n_snap["id"])
     with _reg_lock:  # re-find under lock (registry may have changed during the probes) and persist
