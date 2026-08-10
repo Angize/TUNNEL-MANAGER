@@ -90,6 +90,52 @@ def main():
         [m for m in alerts if NEW in m and "IR02" in m] != [], True)
     chk("as a warning, not an outage", [alerts[m]["level"] for m in alerts if NEW in m], ["warn"])
 
+    # ---- the one-click adopt. It writes the host, so it must re-prove the address FIRST: the check-in
+    # that reported it can be minutes old, and a host nobody can reach is worse than the warning it replaces.
+    reach(set())                      # nothing answers now
+    try:
+        P.api_node_adopt_ip({"id": "n1"})
+        chk("adopt refuses an address that stopped answering", "wrote it", "ValueError")
+    except ValueError as e:
+        chk("adopt refuses an address that stopped answering", NEW in str(e), True)
+    chk("and the host is untouched", host_of("n1"), "94.183.210.131")
+    chk("and the warning is still there to try again", P.moved_to("n1"), NEW)
+
+    reach({NEW})
+    r = P.api_node_adopt_ip({"id": "n1"})
+    chk("adopt takes the reported address", (r["ok"], r["host"], host_of("n1")), (True, NEW, NEW))
+    chk("and clears the warning", P.moved_to("n1"), "")
+    chk("and says so in the log", any(NEW in (e[3] or "") and "تنظیمِ آی‌پی" in e[2] for e in logged), True)
+    try:
+        P.api_node_adopt_ip({"id": "n1"})
+        chk("adopt with nothing reported is refused", "accepted", "ValueError")
+    except ValueError as e:
+        # the REASON matters: refusing because a fabricated address happened not to answer would pass a
+        # check that only asks "did it raise", while the code had invented an address to write.
+        chk("adopt with nothing reported says THAT, not 'it did not answer'", "ثبت نشده" in str(e), True)
+    try:
+        P.api_node_adopt_ip({"id": "nope"})
+        chk("adopt on an unknown node is refused", "accepted", "ValueError")
+    except ValueError:
+        print("  ok   %-60s %r" % ("adopt on an unknown node is refused", "ValueError"))
+
+    # the browser must be able to reach it: the endpoint is registered and CSRF-gated like every mutation
+    chk("the endpoint is wired", P.API.get("node-adopt-ip") is P.api_node_adopt_ip, True)
+    chk("and gated as a mutation", "node-adopt-ip" in P.MUTATIONS, True)
+    js = P.INDEX_HTML
+    chk("the card shows a control, not a paragraph, when a node moved",
+        "n.moved_to?'<button class=\"mvwarn\"" in js, True)
+    head = next((ln for ln in js.splitlines() if 'class="chead"' in ln and "mvwarn" in ln), "")
+    chk("the chip is in the card HEAD, not the body", bool(head), True)
+    chk("and it sits between the toggle and the spacer",
+        head.index("tsw") < head.index("mvwarn") < head.index('class="grow"'), True)
+    chk("tapping it cannot fold the card instead", "function openMovedIp(el,e){if(e)e.stopPropagation();" in js, True)
+    chk("the popup's button posts the adopt", "post('node-adopt-ip',{id:btn.getAttribute('data-nid')})" in js, True)
+
+    # restore the fixture for the checks below
+    json.dump([dict(n) for n in NODES], io.open(P.NODES_FILE, "w"))
+    P._moved_note("n1", "IR02", "94.183.210.131", NEW)
+
     # a node that is reachable again at its stored host must stop being reported
     reach({"94.183.210.131", NEW})
     P.api_checkin_impl(NEW, {"token": "tok1"})

@@ -2916,6 +2916,36 @@ def api_node_test(d):
     return {"ok": bool(p.get("ok")), "info": p}
 
 
+def api_node_adopt_ip(d):
+    """Take the address the node checked in FROM and make it the node's host. One button instead of
+    retyping an IP the operator can only read off a warning. It re-proves the address answers first: the
+    check-in that reported it may be minutes old, and writing a host nobody can reach is worse than the
+    warning it replaces."""
+    _require(d, ["id"])
+    n = get_node(str(d["id"]))
+    if not n:
+        raise ValueError("نود پیدا نشد")
+    new = moved_to(n["id"])
+    if not new:
+        raise ValueError("آدرسِ تازه‌ای برای این نود ثبت نشده")
+    probe = dict(n)
+    probe["host"] = new
+    if not node_call(probe, "ping", "GET", timeout=8).get("ok"):
+        raise ValueError(f"آدرسِ {new} همین حالا جواب نمی‌دهد — هوست عوض نشد")
+    with _reg_lock:
+        nodes = load_nodes()
+        t = next((x for x in nodes if x["id"] == n["id"]), None)
+        if not t:
+            raise ValueError("نود پیدا نشد")
+        old, t["host"] = t["host"], new
+        save_json(NODES_FILE, nodes)
+    _moved_clear(n["id"])
+    log_event("ok", "node", f"دلیل: تنظیمِ آی‌پیِ تازهٔ نودِ «{n['name']}»",
+              f"هوست از {old} به {new} عوض شد — تونل‌هایش را بازسازی کن")
+    _refresh_cache([n["id"]])
+    return {"ok": True, "host": new}
+
+
 def api_node_kernel_tune(d):
     """Host network tuning (part ب) on one node: apply / revert BBR+fq+buffer-ceilings, or read
     status. Operator-triggered from the node card; apply and revert mutate host-wide sysctls on the
@@ -6884,7 +6914,7 @@ API = {
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
-    "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
+    "node-adopt-ip": api_node_adopt_ip, "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,
@@ -6903,7 +6933,7 @@ API = {
     "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status, "push-cancel": api_push_cancel,
     "reorder": api_reorder,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -7391,6 +7421,12 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pushbar{height:6px;border-radius:4px;background:var(--field);border:1px solid var(--bord);overflow:hidden;margin-top:6px}
 .pushbar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s linear}
 .pushbar.ok>i{background:var(--ok)}.pushbar.err>i{background:var(--bad)}
+.mvwarn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;padding:0;margin-inline-start:7px;border-radius:9px;cursor:pointer;background:color-mix(in srgb,#e0894f 16%,transparent);border:1px solid color-mix(in srgb,#e0894f 45%,transparent);animation:mvpulse 1.7s ease-in-out infinite}
+.mvwarn svg{width:15px;height:15px;stroke:#e0894f;fill:none;stroke-width:2.1}
+.mvwarn:active{transform:scale(.94)}
+@keyframes mvpulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,#e0894f 42%,transparent)}50%{box-shadow:0 0 0 5px transparent}}
+.medi.warn{background:color-mix(in srgb,#e0894f 16%,transparent);border-color:color-mix(in srgb,#e0894f 38%,transparent)}
+.medi.warn svg{stroke:#e0894f}
 .plbl{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--sub);margin-top:5px}
 .plbl b{font-variant-numeric:tabular-nums;font-weight:700;margin-inline-start:auto}
 .plbl>.pxc{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border-radius:8px;background:transparent;border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);color:var(--bad);cursor:pointer}
@@ -7997,7 +8033,7 @@ var I18N={fa:{
  t_side_oneway:"یک‌طرفه",tst_oneway_peer:"آنچه این سر می‌فرستد به آن سر نمی‌رسد — سرِ مقابل هیچ بسته‌ای از تونل تحویل نمی‌دهد. جهتِ برگشت سالم است.",tst_oneway_ping:"سشن زنده است ولی هیچ بسته‌ای از تونل رد نمی‌شود — هر 4 پینگِ آزمایشی گم شد",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
- rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",nd_moved:"این نود از آدرسِ تازه جواب می‌دهد: ",nd_moved2:" — هوستش را در ویرایش عوض کن، بعد تونل‌هایش را بازسازی کن.",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
+ rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",nd_moved_t:"این نود آی‌پیِ جدیدی گرفته — بزن ببین",mv_title:"آی‌پیِ تازهٔ نود",mv_desc:"این نود آی‌پیِ جدیدی دریافت کرده است و از همان آدرس جواب می‌دهد. با «تنظیم» هوستِ نود روی آن عوض می‌شود؛ بعدش تونل‌هایش را بازسازی کن.",mv_new:"آی‌پیِ تازه",mv_old:"هوستِ فعلی",mv_set:"تنظیم به‌عنوانِ آی‌پیِ نود",mv_setting:"در حالِ تنظیم…",mv_done:"هوستِ نود عوض شد: ",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
  conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
  pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",del_partial:"حذف ناقص: ",
  view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
@@ -8760,19 +8796,34 @@ function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
  var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div><span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- // It answered from somewhere else and the panel was told not to adopt it (manual mode), so the address
- // it moved to has to be visible -- otherwise the operator has no way to learn the new IP.
- var mv=n.moved_to?'<div class="msg err" style="margin:7px 0 0">'+esc(T('nd_moved'))+'<span class="mono" style="direction:ltr">'+esc(n.moved_to)+'</span>'+esc(T('nd_moved2'))+'</div>':'';
- return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+mv+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+ return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
  var r=await post('node-toggle',{id:id,disabled:dis});
  if(!(r.ok&&r.d.ok)){n.disabled=!dis;if(c){var s2=c.querySelector('.tsw');if(s2)s2.classList.toggle('on',dis);c.classList.toggle('off',!dis)}toast(T('failed'),'err')}
  else{toast(dis?T('nd_hidden'):T('nd_shown'),'ok')}}
+// The address the node reported, and one button that takes it. This used to be a line of prose inside a
+// folded card body: the operator had to read an IP out of a sentence and retype it in the edit form.
+function openMovedIp(el,e){if(e)e.stopPropagation();
+ var id=(el&&el.getAttribute)?el.getAttribute('data-nid'):el;
+ var n=NODES.filter(function(x){return x.id==id})[0]||{};
+ if(!n.moved_to)return;
+ openModal('<div class="msticky"><span class="medi warn">'+ic('warn')+'</span><div class="ttl"><h3>'+esc(T('mv_title'))+'</h3><div class="sb">'+esc(n.name||'')+'</div></div></div>'
+  +'<div class="mbody"><div class="kt-desc">'+esc(T('mv_desc'))+'</div>'
+  +'<div class="nd-grid">'+ndTile('globe',T('mv_new'),'<span class="mono" style="direction:ltr">'+esc(n.moved_to)+'</span>')
+  +ndTile('server',T('mv_old'),'<span class="mono" style="direction:ltr">'+esc(n.host)+'</span>')+'</div>'
+  +'<div class="msg" data-mv></div></div>'
+  +'<div class="mfoot hug"><button class="primary" data-nid="'+esc(id)+'" onclick="adoptMovedIp(this)">'+ic('check')+esc(T('mv_set'))+'</button>'
+  +'<button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('close'))+'</button></div>')}
+async function adoptMovedIp(btn){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('[data-mv]'):null;   // a data hook, not a class: formErr resets className and would strip it
+ btn.disabled=true;if(m){m.className='msg';m.textContent=T('mv_setting')}
+ var r=await post('node-adopt-ip',{id:btn.getAttribute('data-nid')});
+ if(r.ok&&r.d.ok){if(ov)closeModal(ov);toast(T('mv_done')+r.d.host,'ok');refreshNodes()}
+ else{if(m)formErr(m,perr(r));btn.disabled=false}}
 function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
  var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  // TIME-WEIGHTED % from the server (a 5s blip != a whole red cell)
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
