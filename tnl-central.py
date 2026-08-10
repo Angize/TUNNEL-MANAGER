@@ -691,6 +691,32 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
         raise
 
 
+# The name on the WIRE, which is not the name in the code. The panel->node control channel is plain
+# HTTP, so the request line crosses the border in the clear — and MEASURED on the Iran→Germany path, a URI
+# containing the string "tunnel" is dropped (5/5 lost, while `tunne1` and `xunnel` arrive 5/5). Every other
+# op got through, which is why only BUILDING a tunnel on a foreign node ever timed out, for 200s, while
+# ping/delete/kernel-tune worked. So every call site keeps its readable name and only the URL is opaque.
+# Node side: WIRE in tnl-node.py, kept in step by tools/wire_names_check.py.
+NODE_WIRE = {
+    "ping": "pg", "list": "ls", "check": "ck", "tunnel": "mk", "delete": "dl", "apply": "ap",
+    "update": "up", "wipe": "wz", "portfw": "pf", "portfw-edit": "pe", "portfw-next": "pn",
+    "portcheck": "pc", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
+    "peer-probe-now": "pp", "pool-probe-now": "qp", "pool-select": "qs", "ech-update": "eu",
+    "core-install": "ci", "spoof-probe": "sp", "spoof-egress-listen": "sl", "spoof-egress-send": "ss",
+    "spoof-egress-result": "sr", "set-update-key": "sk", "kernel-tune": "kt", "link-enable": "le",
+    "core-restart": "cr",
+}
+
+
+def wire(endpoint):
+    """The path this endpoint takes on the wire. Unknown names are a programming error, not a request to
+    invent a path: a typo must fail here rather than reach a node as a 404 nobody reads."""
+    try:
+        return NODE_WIRE[endpoint]
+    except KeyError:
+        raise ValueError("unknown node endpoint %r" % endpoint)
+
+
 def _proxy_socket(proxy, dh, dp, timeout):
     """A socket to dh:dp through `proxy`. THE one place a proxy tunnel is opened, so node_call and the
     chunked push cannot end up honouring the proxy differently."""
@@ -718,7 +744,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
             headers["X-Central-Port"] = str(_CENTRAL_PORT)  # teach the node our callback port for /api/checkin
         if data is not None:
             headers["Content-Type"] = "application/json"
-        conn.request(method, f"/api/{endpoint}", body=data, headers=headers)
+        conn.request(method, f"/api/{wire(endpoint)}", body=data, headers=headers)
         r = conn.getresponse()
         raw = r.read()
         conn.close()
@@ -785,7 +811,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
     proxy = node_proxy(node)
     if proxy:  # route this node's control traffic through its SOCKS5/HTTP proxy
         return _node_call_proxied(node, proxy, endpoint, method, body, timeout)
-    url = f"http://{node['host']}:{int(node['port'])}/api/{endpoint}"
+    url = f"http://{node['host']}:{int(node['port'])}/api/{wire(endpoint)}"
     data = json.dumps(body or {}).encode() if method == "POST" else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("X-Node-Token", node.get("token", ""))
@@ -826,7 +852,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=200, chunk=64 * 10
         sock = _proxy_socket(proxy, dh, dp, timeout) if proxy \
             else socket.create_connection((dh, dp), timeout)
         sock.settimeout(timeout)
-        head = ["POST /api/%s HTTP/1.1" % endpoint, "Host: %s:%d" % (dh, dp),
+        head = ["POST /api/%s HTTP/1.1" % wire(endpoint), "Host: %s:%d" % (dh, dp),
                 "Content-Type: application/json", "Content-Length: %d" % total,
                 "X-Node-Token: %s" % node.get("token", ""), "Connection: close"]
         if _CENTRAL_PORT:
