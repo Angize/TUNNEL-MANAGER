@@ -114,11 +114,11 @@ def part1(P, failures):
         ("proxy_on with an http entry", {"proxy_on": True, "proxy_id": "px2"},
          [("http", "10.9.9.8:3128", "91.107.190.159:8099", None, None)]),
         ("no proxy at all — a direct dial is correct here", {},
-         [("DIRECT", "http://91.107.190.159:8099/api/ping")]),
+         [("DIRECT", "http://91.107.190.159:8099/api/%s" % P.wire("ping"))]),
         ("proxy_on with an id that names nothing — node_proxy says direct", {"proxy_on": True, "proxy_id": "gone"},
-         [("DIRECT", "http://91.107.190.159:8099/api/ping")]),
+         [("DIRECT", "http://91.107.190.159:8099/api/%s" % P.wire("ping"))]),
         ("an id is stored but the toggle is off", {"proxy_on": False, "proxy_id": "px1"},
-         [("DIRECT", "http://91.107.190.159:8099/api/ping")]),
+         [("DIRECT", "http://91.107.190.159:8099/api/%s" % P.wire("ping"))]),
     ]
     for label, ref, want in cases:
         seen.clear()
