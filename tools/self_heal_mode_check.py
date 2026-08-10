@@ -132,6 +132,56 @@ def main():
     chk("tapping it cannot fold the card instead", "function openMovedIp(el,e){if(e)e.stopPropagation();" in js, True)
     chk("the popup's button posts the adopt", "post('node-adopt-ip',{id:btn.getAttribute('data-nid')})" in js, True)
 
+    # ---- a node deleted while it was reported as moved must leave nothing behind. _moved was the one
+    # per-node store the poller's prune did not cover, so it leaked for the life of the process.
+    for st in P.NODE_STATE:
+        getattr(P, st)["ghost"] = {"seeded": True}
+        getattr(P, st)["n1"] = {"seeded": True}     # a LIVE node, seeded in the same stores
+    P._pending_gc = lambda valid: None
+    P._prune_node_state({n["id"] for n in NODES})
+    chk("a vanished node is dropped from EVERY per-node store",
+        sorted(st for st in P.NODE_STATE if "ghost" in getattr(P, st)), [])
+    # and the other half of the same property: an over-eager prune would wipe every LIVE node's traffic
+    # counters, uptime history and moved state on every sweep, which no assertion above would notice.
+    chk("and a registered node keeps its state in all of them",
+        sorted(st for st in P.NODE_STATE if "n1" in getattr(P, st)), sorted(P.NODE_STATE))
+    chk("and _moved is one of those stores", "_moved" in P.NODE_STATE, True)
+    src = Path(a.panel).read_text(encoding="utf-8")
+    chk("the poller uses that one function, not its own copy of it",
+        len([ln for ln in src.splitlines()
+             if "_prune_node_state(valid)" in ln and not ln.lstrip().startswith("def ")]), 1)
+
+    # ---- the refusal must name the real obstacle: a node whose proxy is down is unreachable at EVERY
+    # address, so blaming the address sends the operator hunting the wrong thing.
+    json.dump([{**NODES[0], "proxy_on": True, "proxy_id": "px9"}, dict(NODES[1])],
+              io.open(P.NODES_FILE, "w"))
+    json.dump([{"id": "px9", "name": "IR-DE", "scheme": "socks5", "host": "9.9.9.9", "port": 1080}],
+              io.open(P.PROXIES_FILE, "w"))
+    P._moved_note("n1", "IR02", "94.183.210.131", NEW)
+    reach(set())
+    P._px_publish("px9", {"ok": False, "ms": None, "error": "timed out"})
+    try:
+        P.api_node_adopt_ip({"id": "n1"})
+        chk("adopt refuses while the proxy is down", "wrote it", "ValueError")
+    except ValueError as e:
+        chk("a down proxy is blamed on the PROXY", "پروکسیِ این نود قطع است" in str(e), True)
+        chk("and the address is not accused", NEW in str(e), False)
+    P._px_publish("px9", {"ok": True, "ms": 12, "error": ""})
+    try:
+        P.api_node_adopt_ip({"id": "n1"})
+        chk("adopt still refuses a dead address", "wrote it", "ValueError")
+    except ValueError as e:
+        chk("a healthy proxy leaves the address to blame", NEW in str(e), True)
+
+    # the log line must describe the control that exists now, not the edit form it replaced
+    P._moved_clear("n1")          # _moved_note logs only on CHANGE; a primed value would silence this
+    logged.clear()
+    reach({NEW})
+    P.api_checkin_impl(NEW, {"token": "tok1"})
+    line = logged[0][3] if logged else ""
+    chk("the log points at the chip, not the edit form",
+        "نشانِ هشدار" in line and "ویرایشِ نود" not in line, True)
+
     # restore the fixture for the checks below
     json.dump([dict(n) for n in NODES], io.open(P.NODES_FILE, "w"))
     P._moved_note("n1", "IR02", "94.183.210.131", NEW)
