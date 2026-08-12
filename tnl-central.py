@@ -858,7 +858,9 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
     does: a push must not fall out to a direct connection that the control plane would never take.
     """
     dh, dp = node["host"], int(node["port"])
-    data = json.dumps(body or {}).encode()
+    # bytes = already serialised by the caller. json.dumps of a 20MB base64 body costs ~87ms and holds
+    # the GIL, which with PUSH_WORKERS threads stalls every OTHER node's progress for that long.
+    data = bytes(body) if isinstance(body, (bytes, bytearray)) else json.dumps(body or {}).encode()
     total = len(data)
     proxy = node_proxy(node)
     sock = None
@@ -3123,16 +3125,53 @@ PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err", "skip")
 PUSH_WORKERS = 4      # nodes pushed CONCURRENTLY per job (operator's choice: bounded, not all-at-once)
 
 
-def _push_job_new(kind, nodes):
+def _push_job_new(kind, nodes, current=()):
+    """Create the job, refusing if one is already running. ONE AT A TIME is not a nicety: PUSH_WORKERS is
+    per job, so two jobs would put 2x that many uploads on the panel's uplink and defeat the bound, and
+    _push_active/push-status/the pill are all single-job -- a second job would be invisible and
+    uncancellable. Checked under the lock, so two simultaneous POSTs cannot both win.
+
+    Ids in `current` already run exactly what is being pushed, so they start settled at «همین نسخه بود»
+    and the pool never hands them out. The node would have answered `unchanged` anyway -- but only after
+    receiving the whole body, which for a core is ~20MB of the operator's uplink per node."""
     jid = secrets.token_hex(6)
     now = int(time.time())
+    cur = set(current)
     with _push_lock:
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
             _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
+        if any(not v["done"] for v in _push_jobs.values()):
+            raise ValueError("یک آپلود در جریان است — تا تمام‌شدنش صبر کن")   # same sentence as ag_p_busy
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
-                           "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
+                           "nodes": {n["id"]: {"name": n["name"],
+                                               "state": "same" if n["id"] in cur else "wait",
+                                               "pct": 100 if n["id"] in cur else 0,
                                                "error": ""} for n in nodes}}
+    return jid
+
+
+def _push_current(nodes, field, want):
+    """The ids among `nodes` that already run exactly what is about to be pushed.
+
+    `field` is the ping key the node reports it under ("sha256" for the agent, "core_sha" for the core);
+    `want(node)` is the value to match, or "" when it cannot be established. Read from the poll cache --
+    the same ping field the row's «به‌روز» state is drawn from. Only a POSITIVE match skips: a node whose
+    ping is missing or stale is pushed to, because a needlessly-pushed node merely wastes bandwidth and
+    answers `unchanged`, while a wrongly-skipped one never gets the update at all."""
+    out = set()
+    for n in nodes:
+        w = str(want(n) or "")
+        got = str(_cached_ping(n.get("id") or "").get(field) or "")
+        if w and got and got == w:
+            out.add(n["id"])
+    return out
+
+
+def _push_start(kind, nodes, payload, current=()):
+    """Create the job and run it. The ONE way a push job is launched."""
+    jid = _push_job_new(kind, nodes, current)
+    threading.Thread(target=_push_worker, args=(jid, kind, nodes, payload), daemon=True).start()
     return jid
 
 
@@ -3155,6 +3194,13 @@ def _push_set(jid, nid, **kw):
         j = _push_jobs.get(jid)
         if j and nid in j["nodes"]:
             j["nodes"][nid].update(kw)
+
+
+def _skip_waiting(j):
+    """Mark every node still queued in `j` as skipped. Caller holds _push_lock."""
+    for nid in j["order"]:
+        if j["nodes"][nid]["state"] == "wait":
+            j["nodes"][nid].update(state="skip", pct=0)
 
 
 def _push_cancelled(jid):
@@ -3210,10 +3256,7 @@ def _push_next(jid):
         if not j:
             return None
         if j.get("cancel"):
-            for nid in j["order"]:
-                if j["nodes"][nid]["state"] == "wait":
-                    j["nodes"][nid].update(state="skip", pct=0)
-            return None
+            return None                         # api_push_cancel already skipped the queue, under this lock
         if j.get("paused"):
             return "wait" if any(v["state"] == "wait" for v in j["nodes"].values()) else None
         for nid in j["order"]:
@@ -3237,16 +3280,20 @@ def _push_worker(jid, kind, nodes, payload):
                 continue
             _push_one(jid, nid, payload)
 
-    n = min(PUSH_WORKERS, max(1, len(nodes)))
-    workers = [threading.Thread(target=loop, daemon=True) for _ in range(n)]
-    for w in workers:
-        w.start()
-    for w in workers:
-        w.join()
-    with _push_lock:
-        j = _push_jobs.get(jid)
-        if j:
-            j["done"] = True
+    try:
+        n = min(PUSH_WORKERS, max(1, len(nodes)))
+        workers = [threading.Thread(target=loop, daemon=True) for _ in range(n)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+    finally:
+        # unconditional: a job left not-done blocks every later push until the 1h prune, because only one
+        # job may run at a time
+        with _push_lock:
+            j = _push_jobs.get(jid)
+            if j:
+                j["done"] = True
 
 
 def api_push_status(d):
@@ -3279,9 +3326,7 @@ def api_push_cancel(d):
         if j["done"]:
             return {"ok": True, "already_done": True}
         j["cancel"] = True
-        for nid in j["order"]:
-            if j["nodes"][nid]["state"] == "wait":
-                j["nodes"][nid].update(state="skip", pct=0)
+        _skip_waiting(j)
     log_event("warn", "node", "دلیل: لغوِ آپلود به فلیت توسطِ اپراتور")
     return {"ok": True, "job": jid}
 
@@ -3320,11 +3365,13 @@ def api_agent_push(d):
         raise ValueError("نودی برای پوش انتخاب نشده")
     sig = _sign_sha(meta["sha256"])
 
-    def payload(_n):
-        return {"code": src, "sha256": meta["sha256"], "sig": sig}, "update", 60
+    enc = json.dumps({"code": src, "sha256": meta["sha256"], "sig": sig}).encode()   # once, not per node
 
-    jid = _push_job_new("agent", nodes)
-    threading.Thread(target=_push_worker, args=(jid, "agent", nodes, payload), daemon=True).start()
+    def payload(_n):
+        return enc, "update", 60
+
+    jid = _push_start("agent", nodes, payload,
+                      _push_current(nodes, "sha256", lambda _n: meta["sha256"]))
     return {"ok": True, "job": jid}  # poller re-reads each node's version within ~2s after it bounces
 
 
@@ -3617,9 +3664,9 @@ def _staged_payload():
     """A payload callable for the staged core, memoized PER ARCHITECTURE.
 
     The push asks per node, and the bytes only vary by arch -- so without this a 12-node fleet
-    base64-encoded and json-dumped the same 10MB binary twelve times (~86ms of CPU and ~28MB of garbage
-    each) and spawned openssl twelve times to sign the same hash. At most two encodings now, whatever the
-    fleet size."""
+    base64-encoded and json-dumped the same 10MB binary twelve times and spawned openssl twelve times to
+    sign the same hash. At most two encodings now, whatever the fleet size. The cached value is the
+    ENCODED body: caching only the dict still left json.dumps running per node."""
     cache = {}
 
     def payload(n):
@@ -3631,8 +3678,9 @@ def _staged_payload():
             if not b:
                 return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
             raw, sha, ver = b
-            cache[arch] = ({"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver,
-                            "sig": _sign_sha(sha)}, "core-install", 300)
+            cache[arch] = (json.dumps({"data": base64.b64encode(raw).decode(), "sha256": sha,
+                                       "version": ver, "sig": _sign_sha(sha)}).encode(),
+                           "core-install", 300)
         return cache[arch]
 
     return payload
@@ -3642,8 +3690,21 @@ def _core_job(ids, payload):
     nodes = [n for n in (get_node(i) for i in ids) if n]
     if not nodes:
         raise ValueError("نودی برای نصب انتخاب نشده")
-    jid = _push_job_new("core", nodes)
-    threading.Thread(target=_push_worker, args=(jid, "core", nodes, payload), daemon=True).start()
+    shas = {}
+
+    def want(n):
+        # CACHED arch only: _node_arch falls back to a live 10s ping, and this runs inside the request --
+        # an unpolled fleet would stall the operator for 10s per node before the job even started. No arch
+        # cached simply means no skip, which is the safe direction.
+        arch = str(_cached_ping(n.get("id") or "").get("arch") or "")
+        if arch not in ("amd64", "arm64"):
+            return ""
+        if arch not in shas:                       # per arch, not per node
+            st = _staged_bytes(arch)
+            shas[arch] = (st[1][:12] if st else "")   # the node reports its core sha truncated to 12
+        return shas[arch]
+
+    jid = _push_start("core", nodes, payload, _push_current(nodes, "core_sha", want))
     return {"ok": True, "job": jid}
 
 
@@ -8454,7 +8515,6 @@ var IC={
  logout:'<svg viewBox="0 0 24 24" '+_S+'><path d="M15 12H4M9 7l-5 5 5 5M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4"/></svg>',
  menu:'<svg viewBox="0 0 24 24" '+_S+'><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
  check:'<svg viewBox="0 0 24 24" '+_S+'><path d="M20 6 9 17l-5-5"/></svg>',
- dl:'<svg viewBox="0 0 24 24" '+_S+'><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>',
  info:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
  plugoff:'<svg viewBox="0 0 24 24" '+_S+'><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 01-12 0zM12 17v5"/><path d="M3 3l18 18"/></svg>',
  cpu:'<svg viewBox="0 0 24 24" '+_S+'><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>',
@@ -10548,10 +10608,11 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_bin_saved_pre')+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+T('cor_bin_saved_post');
   await loadCoreVersions('custom')}
  else{formErr(m,terr((res.d&&res.d.error))||T('failed'))}}
-// One glyph per component, everywhere on this page: the agent is a service (cog), the core is the dataplane
-// (bolt). The same glyph names the version, tints itself to say the state, and labels the button that pushes
-// it -- which is why the row needs no «ایجنت»/«هسته» text at all.
-var AG_IC='cog',COR_IC='bolt';
+// One glyph per component, everywhere on this page, and BORROWED FROM THE SIDEBAR so the same thing never
+// wears two icons: the agent is what runs on a node («نودها» = server), the core is «هستهٔ اختصاصی» = cpu.
+// The glyph names the version, tints itself to say the state, and labels the button that pushes it -- which
+// is why the row needs no «ایجنت»/«هسته» text. Do NOT use cog here: that is «تنظیمات» in the same nav.
+var AG_IC='server',COR_IC='cpu';
 function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
  var cinst=!!(i.core_sha&&String(i.core_sha).length);            // core_sha empty => no binary on the node
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
