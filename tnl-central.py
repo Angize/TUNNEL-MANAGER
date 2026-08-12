@@ -3979,14 +3979,10 @@ def _flux_drop_points(rec):
     raw-PREROUTING DROP silences that. The rule covers EVERY pool port at once rather than the current
     epoch's, deliberately, so an epoch rotation never has to touch iptables — and that is exactly why
     it can also swallow an UNRELATED tunnel's traffic from the same peer.
-    Both ends install it: the client at dial, the server on the first authenticated frame.
-    The `raw` flux carrier is exempt: it rotates IP PROTOCOL numbers, and that pool already excludes
-    253 so a co-located raw/bare tunnel survives — the guard this one was missing."""
+    Both ends install it: the client at dial, the server on the first authenticated frame."""
     if str(rec.get("type") or "") != "core" or str(rec.get("transport") or "").lower() != "flux":
         return []
     carrier = str(rec.get("flux_carrier") or "udp").lower()
-    if carrier == "raw":
-        return []
     ports = FLUX_STUN_DPORTS if carrier == "stun" else FLUX_UDP_DPORTS
     out = []
     for p in ports:
@@ -4162,8 +4158,8 @@ def _flux_fields(d, transport, cipher, cur=None):
         raise ValueError("حاملِ flux به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
     cur = cur or {}
     carrier = str(d.get("flux_carrier") or cur.get("flux_carrier") or "udp").strip().lower()
-    if carrier not in ("udp", "raw", "stun"):
-        raise ValueError("حاملِ flux نامعتبر است (udp / stun / raw)")
+    if carrier not in ("udp", "stun"):
+        raise ValueError("حاملِ flux نامعتبر است (udp / stun)")
     out["flux_carrier"] = carrier
     rot = int(d.get("flux_rotate_secs") or cur.get("flux_rotate_secs") or 600)
     if rot < 10 or rot > 86400:
@@ -4778,7 +4774,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         ce.update(_spoof_fields(d, transport, cur))   # forged source / decoy destination + raw_proto
     if transport == "dns":                     # DNS-tunnel carrier (last resort), crypto required
         ce.update(_dns_fields(d, transport, cipher, cur))
-    if transport == "flux":                    # polymorphic moving-target carrier (udp|raw), crypto required
+    if transport == "flux":                    # polymorphic moving-target carrier (udp|stun), crypto required
         ce.update(_flux_fields(d, transport, cipher, cur))
     if transport == "ws":                      # WebSocket carrier (CDN-frontable)
         ce.update(_ws_fields(d, transport, cur))
@@ -8359,9 +8355,9 @@ var I18N={fa:{
  // fec presets
  fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"20٪ سربار",fec_ov30:"30٪ سربار",fec_ov50:"50٪ سربار",
  // flux section
- flux_carrier_lbl:"حاملِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",flux_raw_warn:"فقط هم‌سگمنت / L2",flux_raw_m:"protoِ IP خام · فقط L2",
+ flux_carrier_lbl:"حاملِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",
  flux_shape_lbl:"پروفایلِ شکل — شبیهِ چه ترافیکی",flux_rot_lbl:"بازهٔ چرخش",flux_rot_ph:"بازه",flux_rotate_btn:"چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)",
- flux_note:"شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. <b>udp/stun</b> رویِ اینترنت رد می‌شوند؛ <b>raw</b> فقط هم‌سگمنت. رمزنگاری الزامی است.",
+ flux_note:"شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. هر دو حامل UDPِ واقعی‌اند و رویِ اینترنت رد می‌شوند. رمزنگاری الزامی است.",
  flux_live:"شکلِ زنده",flux_carrier_word:"حامل",flux_next_pre:"چرخشِ بعدی تا",flux_next_post:"دیگر",
  // spoof section
  spoof_hd:"جعلِ آی‌پی (استتار)",spoof_decoy_t:"جعلِ مقصد (Decoy)",spoof_decoy_d:"روی سیم وانمود می‌شود ترافیک به آی‌پیِ زیر می‌رود، ولی واقعاً به سرورت می‌رسد.",spoof_decoy_ph:"آی‌پیِ طُعمه (مقصدِ جعلی) — مثلاً 185.51.200.10",
@@ -9959,7 +9955,6 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
  +'<div class="pgrid">'
  +'<button type="button" class="ptile'+(fc=='udp'?' on':'')+'" data-fc="udp" onclick="'+fnp+'SetFluxCarrier(\\'udp\\')"><span class="best">'+esc(T('flux_udp_best'))+'</span><div class="pn">udp</div><div class="pmeta">'+esc(T('flux_udp_m'))+'</div></button>'
  +'<button type="button" class="ptile'+(fc=='stun'?' on':'')+'" data-fc="stun" onclick="'+fnp+'SetFluxCarrier(\\'stun\\')"><span class="best">WebRTC</span><div class="pn">stun</div><div class="pmeta">'+esc(T('flux_stun_m'))+'</div></button>'
- +'<button type="button" class="ptile'+(fc=='raw'?' on':'')+'" data-fc="raw" onclick="'+fnp+'SetFluxCarrier(\\'raw\\')"><span class="pwarn" title="'+esc(T('flux_raw_warn'))+'"></span><div class="pn">raw</div><div class="pmeta">'+esc(T('flux_raw_m'))+'</div></button>'
  +'</div>'
  +'<label>'+esc(T('flux_shape_lbl'))+'</label>'
  +'<div class="pgrid">'+FLUX_SHAPES().map(function(p){return '<button type="button" class="ptile'+(p.v==(shp||'random')?' on':'')+'" data-fs="'+p.v+'" onclick="'+fnp+'SetFluxShape(\\''+p.v+'\\')"><div class="pn">'+esc(p.n)+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')+'</div>'
