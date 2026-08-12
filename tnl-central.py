@@ -3247,8 +3247,10 @@ def api_push_status(d):
 
 
 def api_push_cancel(d):
-    """Stop before the NEXT node. The one already uploading cannot be torn off mid-socket, so it finishes
-    or times out; the queue behind it is marked skipped."""
+    """Hand out no more nodes. The ones already uploading cannot be torn off mid-socket, so they finish or
+    time out; everything still queued is marked skipped HERE rather than waiting for a worker to come ask.
+    Leaving it to _push_next means the queue keeps reading «در نوبت» until an upload finishes, which on a
+    core push is tens of seconds -- long enough to look like the button did nothing."""
     jid = str((d or {}).get("job") or "") or _push_active()[0]
     with _push_lock:
         j = _push_jobs.get(jid or "")
@@ -3257,6 +3259,9 @@ def api_push_cancel(d):
         if j["done"]:
             return {"ok": True, "already_done": True}
         j["cancel"] = True
+        for nid in j["order"]:
+            if j["nodes"][nid]["state"] == "wait":
+                j["nodes"][nid].update(state="skip", pct=0)
     log_event("warn", "node", "دلیل: لغوِ آپلود به فلیت توسطِ اپراتور")
     return {"ok": True, "job": jid}
 

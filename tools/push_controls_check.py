@@ -56,6 +56,10 @@ nxt = body("_push_next")
 need("with _push_lock:" in nxt, "_push_next must claim a node under the lock or two workers take the same one")
 need('j["nodes"][nid]["state"] = "send"' in nxt, "_push_next must claim the node it returns")
 need('j.get("cancel")' in nxt and 'state="skip"' in nxt, "_push_next must skip the rest on cancel")
+c = body("api_push_cancel")
+need('state="skip"' in c,
+     "api_push_cancel must skip the queue ITSELF -- leaving it to _push_next keeps the rows reading "
+     "«در نوبت» until an upload finishes, which reads as a dead button")
 need('j.get("paused")' in nxt and '"wait"' in nxt, "_push_next must hold the queue while paused")
 
 # ---- 4. pause is an explicit want and is reported back
