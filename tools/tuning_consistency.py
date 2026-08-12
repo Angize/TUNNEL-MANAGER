@@ -135,9 +135,25 @@ def main():
                 check(pr == c_clamp, f"range   {panel_key}: panel={pr} core={c_clamp}")
 
     print("== 2) top-level config.go knobs (keepalive / sock_buf) ==")
-    ka_def = int(re.search(r"c\.Keepalive\s*=\s*(\d+)", config_go).group(1))
-    check(p_def.get("keepalive") == ka_def and js_ok("keepalive", ka_def),
-          f"keepalive default: panel={p_def.get('keepalive')} core={ka_def}")
+    # The core assigns its keepalive default through a NAMED constant, so resolve the name rather than
+    # expecting a literal. Matching only `c.Keepalive = <digits>` made this line crash with a traceback the
+    # moment the constant was introduced -- and a crash reads as "the guard is broken", not "the repos
+    # disagree", which is the failure mode every message in this script is written to avoid.
+    ka_m = re.search(r"c\.Keepalive\s*=\s*(\w+)", config_go)
+    ka_def = None
+    if ka_m:
+        tok = ka_m.group(1)
+        if tok.isdigit():
+            ka_def = int(tok)
+        else:
+            named = re.search(r"\b%s\s*=\s*(\d+)" % re.escape(tok), config_go)
+            ka_def = int(named.group(1)) if named else None
+    if ka_def is None:
+        check(False, "keepalive default: CANNOT RESOLVE c.Keepalive's default in config.go -- "
+                     f"THIS SCRIPT is out of date (matched {ka_m.group(1) if ka_m else 'nothing'!r})")
+    else:
+        check(p_def.get("keepalive") == ka_def and js_ok("keepalive", ka_def),
+              f"keepalive default: panel={p_def.get('keepalive')} core={ka_def}")
     print("  note  keepalive range 5..120 is panel/node-only; the core does not clamp the upper bound")
     # The absolute dead-window deadline is GONE from all three repos: dead_mult x keepalive is the only
     # rule. Checked per REPO, not as one boolean -- the panel's CI checks out the core's and the node's
@@ -222,6 +238,39 @@ def main():
         if panel_map is not None:
             check(set(core_hdr) == set(panel_map),
                   f"the two core tables cover the same profiles: sizes={sorted(core_hdr)} protos={sorted(panel_map)}")
+
+    print("== 2c-bis) the MTU overhead constants the node MIRRORS from the core ==")
+    # The node computes every tunnel's TUN MTU as base_mtu - overhead, and that arithmetic re-implements
+    # core constants by VALUE. Under-count by one byte and every full-size packet fragments on a datagram
+    # carrier -- or is dropped outright, since an oversize IP_HDRINCL send is refused with EMSGSIZE. The
+    # RAW header table above is checked; these were not, so a core-side change could not be noticed here.
+    obfs_go = (Path(a.core) / "internal" / "packet" / "obfs.go").read_text(encoding="utf-8")
+    fec_go = (Path(a.core) / "internal" / "packet" / "fec_stream.go").read_text(encoding="utf-8")
+
+    cm = re.search(r"obfsDataPadMax\s*=\s*(\d+)", obfs_go)
+    nm = re.search(r"OBFS_DATA_PAD_MAX\s*=\s*(\d+)", node_src)
+    if not cm or not nm:
+        check(False, "CANNOT FIND the obfs pad max on both sides -- THIS SCRIPT is out of date "
+                     f"(core={bool(cm)} node={bool(nm)})")
+    else:
+        check(cm.group(1) == nm.group(1),
+              f"obfs data pad max: core={cm.group(1)} node={nm.group(1)}")
+
+    # The node subtracts a single literal for FEC; the core builds it from named parts, so compare the SUM:
+    # fecHdrLen (its own expression) + the 2-byte shard length. BOTH numbers are extracted -- an earlier
+    # version matched the node's literal `13` and compared the core against a 13 baked into this script,
+    # which looks like a two-way check but is really a three-way pin: consistent change on both sides would
+    # still fail here, and the failure would name the guard's own constant rather than the drift.
+    fm = re.search(r"fecHdrLen\s*=\s*([0-9+ ]+)", fec_go)
+    nf = re.search(r'if transport in \("udp", "raw", "flux", "spoof"\) and bool\(cfg\.get\("fec"\)\):\s*\n'
+                   r"\s*overhead \+= (\d+)", node_src)
+    if not fm or not nf:
+        check(False, "CANNOT FIND the FEC per-packet overhead on both sides -- THIS SCRIPT is out of date "
+                     f"(core={bool(fm)} node={bool(nf)})")
+    else:
+        core_fec = sum(int(x) for x in re.findall(r"\d+", fm.group(1))) + 2
+        check(core_fec == int(nf.group(1)),
+              f"FEC per-packet overhead: core={core_fec} node={nf.group(1)}")
 
     print("== 2d) the firewall-rule OWNER tag: core writes it, node sweeps by it ==")
     # Two copies of one string in two repositories, and nothing at runtime notices a mismatch: the core
