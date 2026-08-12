@@ -10,8 +10,9 @@ Properties, all operator-stated, all easy to lose in a refactor:
   * a node that FAILS or TIMES OUT is recorded and the pool KEEPS GOING. One dead node must not take the
     whole sweep's result with it.
   * the progress a node reports is the bytes actually sent, not a phase guess, and it only moves forward.
-  * PAUSE holds the nodes still waiting and lets the in-flight ones finish; RESUME drains the rest; CANCEL
-    marks the waiting ones skipped. A node mid-upload can never be torn off its socket.
+  * PAUSE is the gentle stop: the nodes still waiting are held, the in-flight ones finish, RESUME drains
+    the rest. CANCEL is the immediate one: the queue is skipped the instant it returns AND the in-flight
+    sockets are dropped mid-body. Safe, because the node parses and checksums before it touches disk.
 
 Driven against the real _push_worker with node_push faked, so what is tested is what the panel performs.
 
@@ -55,7 +56,7 @@ def main():
     starts, peak = [], {"cur": 0, "max": 0}
     lock = threading.Lock()
 
-    def wide_push(node, endpoint, body, on_progress=None, timeout=200):
+    def wide_push(node, endpoint, body, on_progress=None, timeout=200, should_abort=None):
         with lock:
             starts.append(node["id"])
             peak["cur"] += 1
@@ -80,7 +81,7 @@ def main():
     # ---- a failure is charged to its own node only
     timeline = []
 
-    def fake_push(node, endpoint, body, on_progress=None, timeout=200):
+    def fake_push(node, endpoint, body, on_progress=None, timeout=200, should_abort=None):
         nid = node["id"]
         timeline.append(("start", nid))
         for sent in (0, 250, 500, 1000):     # a real push reports bytes as they go
@@ -110,7 +111,7 @@ def main():
 
     # progress must be real and monotonic: replay ONE node and watch the published pct
     seen = []
-    P.node_push = lambda node, ep, body, on_progress=None, timeout=200: (
+    P.node_push = lambda node, ep, body, on_progress=None, timeout=200, should_abort=None: (
         [on_progress(s, 1000) or seen.append(P.api_push_status({"job": j2})["nodes"]["n1"]["pct"])
          for s in (0, 100, 500, 900, 1000)] and {"ok": True})
     j2 = P._push_job_new("agent", [NODES[0]])
@@ -120,14 +121,17 @@ def main():
     chk("the last 5% belong to the node's own verify+swap",
         P.api_push_status({"job": j2})["nodes"]["n1"]["pct"], 100)
 
-    # ---- cancel: the in-flight nodes finish, the WAITING ones are skipped. Needs a fleet bigger than the
-    # pool, or every node is already in flight and there is nothing left to skip.
+    # ---- cancel means NOW: the queue is skipped AND the in-flight sockets are dropped mid-body. The fake
+    # honours should_abort the way the real node_push does, so what is tested is _push_one's wiring of it.
     gate = threading.Event()
-    reached = []
+    reached, aborted = [], []
 
-    def cancel_push(node, endpoint, body, on_progress=None, timeout=200):
+    def cancel_push(node, endpoint, body, on_progress=None, timeout=200, should_abort=None):
         reached.append(node["id"])
         gate.wait(2)                          # hold the first PUSH_WORKERS nodes in flight
+        if should_abort and should_abort():    # a real push checks this between 64K chunks
+            aborted.append(node["id"])
+            return {"ok": False, "cancelled": True}
         on_progress and on_progress(1, 1)
         return {"ok": True}
 
@@ -139,22 +143,29 @@ def main():
     while len(reached) < P.PUSH_WORKERS:
         time.sleep(0.01)
     P.api_push_cancel({"job": jc})
+    sc_mid = P.api_push_status({"job": jc})
+    chk("the queue is skipped the INSTANT cancel returns, not when a worker next asks",
+        sorted({v["state"] for nid, v in sc_mid["nodes"].items() if nid not in reached}), ["skip"])
     gate.set()
     tc.join(timeout=8)
     sc = P.api_push_status({"job": jc})
-    chk("the nodes already uploading were not torn off",
-        sorted({sc["nodes"][nid]["state"] for nid in reached}), ["ok"])
+    chk("_push_one really passes should_abort down", sorted(aborted), sorted(reached))
+    chk("the nodes that were mid-upload are cut off and read skip",
+        sorted({sc["nodes"][nid]["state"] for nid in reached}), ["skip"])
     chk("no node past the pool was ever started", len(reached), P.PUSH_WORKERS)
-    chk("the queue behind them is skipped, not failed",
-        sorted({v["state"] for v in sc["nodes"].values()}), ["ok", "skip"])
+    chk("so after a cancel nothing reads ok", sorted({v["state"] for v in sc["nodes"].values()}), ["skip"])
     chk("and the job still reports itself finished", sc["done"], True)
     chk("a cancelled job is no longer the active one", P._push_active()[0], None)
+
+    # a cut-off node must never be charged an error: it was the operator's choice, not a failure
+    chk("a cut-off node carries no error text",
+        sorted({sc["nodes"][nid].get("error") or "" for nid in reached}), [""])
 
     # ---- pause holds the waiting nodes; resume drains them
     gate2 = threading.Event()
     seen2 = []
 
-    def slow_push(node, endpoint, body, on_progress=None, timeout=200):
+    def slow_push(node, endpoint, body, on_progress=None, timeout=200, should_abort=None):
         seen2.append(node["id"])
         gate2.wait(2)
         on_progress and on_progress(1, 1)
@@ -195,7 +206,7 @@ def main():
     # a node deleted while the queue was working must be reported, not pushed to
     P.get_node = lambda nid: None if nid == "n3" else next((n for n in NODES if n["id"] == nid), None)
     reached3 = []
-    P.node_push = lambda node, ep, body, on_progress=None, timeout=200: (
+    P.node_push = lambda node, ep, body, on_progress=None, timeout=200, should_abort=None: (
         reached3.append(node["id"]) or (on_progress(1, 1) if on_progress else None) or {"ok": True})
     j3 = P._push_job_new("agent", NODES)
     P._push_worker(j3, "agent", NODES, lambda n: ({"code": "x"}, "update", 60))

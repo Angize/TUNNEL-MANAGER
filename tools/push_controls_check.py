@@ -51,6 +51,21 @@ need("except Exception" in one and 'state="err"' in one,
      "_push_one must swallow a node's exception into that node's own err state")
 need("raise" not in one, "_push_one must not re-raise -- a raise would end that worker")
 
+# ---- 2b. cancel reaches a LIVE upload, and a cut-off node is not called a failure
+need("should_abort=lambda: _push_cancelled(jid)" in one,
+     "_push_one must hand node_push an abort hook or cancel cannot touch an upload in flight")
+need('r.get("cancelled")' in one and 'state="skip"' in one,
+     "a cut-off node must read skip -- «err» would blame the node for the operator's choice")
+np = body("node_push")
+need("should_abort and should_abort()" in np and '"cancelled": True' in np,
+     "node_push must consult the hook between chunks and report that it aborted")
+need(re.search(r"while sent < total:\s*\n\s*if should_abort", np),
+     "the check must sit INSIDE the send loop -- once before it only catches an already-cancelled job")
+need('if "state" in kw and kw["state"] not in PUSH_STATES' in body("_push_set"),
+     "_push_set must reject an unknown state; PUSH_STATES is otherwise dead documentation")
+need('"skip"' in re.search(r"^PUSH_STATES = \((.*?)\)", SRC, re.M).group(1),
+     "PUSH_STATES must list skip, which cancel actually sets")
+
 # ---- 3. handing out work is locked, and respects pause + cancel
 nxt = body("_push_next")
 need("with _push_lock:" in nxt, "_push_next must claim a node under the lock or two workers take the same one")

@@ -841,12 +841,18 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
         return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:80]}
 
 
-def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024):
+def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024,
+              should_abort=None):
     """POST a large body to a node, reporting REAL bytes sent as it goes.
 
     node_call cannot do this: urllib hands the whole body to the kernel and returns, so there is nothing
     to report until the answer arrives. Here the request line and headers go first, then the body in
     chunks, and on_progress(sent, total) fires per chunk -- that is what the per-node bar shows.
+
+    should_abort() is consulted between chunks; when it goes true the socket is dropped mid-body and
+    {"cancelled": True} comes back. Safe because the node parses the JSON before it touches disk: a body
+    cut short fails json.loads, and even one that parsed would fail the sha256 gate. Nothing partial is
+    ever installed.
 
     Goes through the node's proxy when it has one, because it uses the same _proxy_socket() node_call
     does: a push must not fall out to a direct connection that the control plane would never take.
@@ -870,6 +876,8 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         if on_progress:
             on_progress(0, total)
         while sent < total:
+            if should_abort and should_abort():
+                return {"ok": False, "cancelled": True}     # the finally below closes the socket mid-body
             n = sock.send(data[sent:sent + chunk])
             if not n:
                 raise OSError("connection closed while sending")
@@ -3111,7 +3119,7 @@ def api_agent_info(d):
 
 _push_lock = threading.Lock()
 _push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts, cancel, paused}
-PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err")
+PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err", "skip")
 PUSH_WORKERS = 4      # nodes pushed CONCURRENTLY per job (operator's choice: bounded, not all-at-once)
 
 
@@ -3141,10 +3149,18 @@ def _push_active():
 
 
 def _push_set(jid, nid, **kw):
+    if "state" in kw and kw["state"] not in PUSH_STATES:
+        raise ValueError("unknown push state: %r" % kw["state"])   # a typo'd state paints a blank bar
     with _push_lock:
         j = _push_jobs.get(jid)
         if j and nid in j["nodes"]:
             j["nodes"][nid].update(kw)
+
+
+def _push_cancelled(jid):
+    with _push_lock:
+        j = _push_jobs.get(jid)
+        return bool(j and j.get("cancel"))
 
 
 def _push_one(jid, nid, payload):
@@ -3166,7 +3182,11 @@ def _push_one(jid, nid, payload):
             # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap
             _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
 
-        r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout)
+        r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
+                      should_abort=lambda: _push_cancelled(jid))
+        if r.get("cancelled"):                 # dropped mid-body: the node installed nothing
+            _push_set(jid, nid, state="skip", pct=0)
+            return
         _push_set(jid, nid, state="apply", pct=97)
         if r.get("ok") and (r.get("already") or r.get("unchanged")):
             _push_set(jid, nid, state="same", pct=100)
@@ -3247,10 +3267,10 @@ def api_push_status(d):
 
 
 def api_push_cancel(d):
-    """Hand out no more nodes. The ones already uploading cannot be torn off mid-socket, so they finish or
-    time out; everything still queued is marked skipped HERE rather than waiting for a worker to come ask.
-    Leaving it to _push_next means the queue keeps reading «در نوبت» until an upload finishes, which on a
-    core push is tens of seconds -- long enough to look like the button did nothing."""
+    """Stop the whole job NOW. Everything still queued is marked skipped here rather than waiting for a
+    worker to come ask -- leaving it to _push_next means the queue keeps reading «در نوبت» until an upload
+    finishes, which on a core push is tens of seconds, long enough to look like the button did nothing.
+    The uploads already in flight see the flag between chunks and drop their sockets mid-body."""
     jid = str((d or {}).get("job") or "") or _push_active()[0]
     with _push_lock:
         j = _push_jobs.get(jid or "")
@@ -8043,8 +8063,8 @@ var I18N={fa:{
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
  ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
- ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود به بقیهٔ نودها لغو شود؟ نودهایی که همین حالا در حالِ آپلودند تمام می‌شوند.",
- ag_p_pause:"توقفِ آپلود — نودهای در نوبت می‌مانند",ag_p_resume:"ازسرگیریِ آپلود",
+ ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود همین حالا قطع شود؟ نودهایی که وسطِ آپلودند هم نیمه‌کاره بریده می‌شوند — نسخهٔ فعلی‌شان دست‌نخورده می‌ماند، چون نود چیزی را که کامل نرسیده نصب نمی‌کند. برای اینکه فقط نودهای بعدی نروند و آپلودهای جاری تمام شوند، «توقف» را بزن.",
+ ag_p_pause:"توقفِ آپلود — آپلودهای جاری تمام می‌شوند، نودهای بعدی نمی‌روند",ag_p_resume:"ازسرگیریِ آپلود",
  px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
@@ -10575,8 +10595,8 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
-// One push job at a time, drawn per node under its own card. The panel uploads to ONE node at a time, so
-// the bars fill in turn; a node that fails or times out stays red and the queue moves on without it.
+// One push job at a time, drawn per node under its own card. PUSH_WORKERS nodes upload at once, so that
+// many bars move together; a node that fails stays red and the pool carries on without it.
 var PUSHJOB=null,PUSHSTATE=null;
 // The worker runs on the PANEL, not in this page: reloading the browser, or losing it entirely, does not
 // stop the upload. pushAdopt reattaches to whatever is still running, which is why a manual refresh shows
@@ -10589,8 +10609,8 @@ async function pushCancel(){if(!PUSHJOB)return;
  if(!await confirmBox(T('ag_p_cancel_q'),T('ag_p_cancel')))return;
  var r=await post('push-cancel',{job:PUSHJOB});
  if(!(r.ok&&r.d&&r.d.ok))toast(perr(r),'err')}
-// Pause stops handing out NEW nodes; the ones already uploading cannot be torn off their socket, so they
-// finish or time out. want is explicit -- a toggle would race two quick taps into the wrong state.
+// Pause is the gentle one: it stops handing out NEW nodes and lets the uploads in flight finish. Cancel is
+// the immediate one -- it drops them mid-body too. want is explicit: a toggle races two quick taps.
 async function pushPause(want){if(!PUSHJOB)return;
  var r=await post('push-pause',{job:PUSHJOB,paused:!!want});
  if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
