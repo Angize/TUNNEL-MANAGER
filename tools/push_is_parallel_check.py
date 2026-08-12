@@ -116,7 +116,11 @@ def main():
          for s in (0, 100, 500, 900, 1000)] and {"ok": True})
     j2 = P._push_job_new("agent", [NODES[0]])
     P._push_worker(j2, "agent", [NODES[0]], lambda n: ({"code": "x"}, "update", 60))
-    chk("the bar tracks bytes, not phases", seen, [0, 9, 47, 85, 95])
+    # the last sample is 96, not 95: the final byte flips the node to «apply», because past that point
+    # the node holds the whole body and installs it whatever the panel does
+    chk("the bar tracks bytes, not phases", seen, [0, 9, 47, 85, 96])
+    chk("and the last byte flips the state to apply, before the reply arrives",
+        P.api_push_status({"job": j2})["nodes"]["n1"]["state"] in ("apply", "ok", "same"), True)
     chk("it never goes backwards", seen == sorted(seen), True)
     chk("the last 5% belong to the node's own verify+swap",
         P.api_push_status({"job": j2})["nodes"]["n1"]["pct"], 100)
