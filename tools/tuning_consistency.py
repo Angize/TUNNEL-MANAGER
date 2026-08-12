@@ -223,6 +223,34 @@ def main():
             check(set(core_hdr) == set(panel_map),
                   f"the two core tables cover the same profiles: sizes={sorted(core_hdr)} protos={sorted(panel_map)}")
 
+    print("== 2c-bis) the MTU overhead constants the node MIRRORS from the core ==")
+    # The node computes every tunnel's TUN MTU as base_mtu - overhead, and that arithmetic re-implements
+    # core constants by VALUE. Under-count by one byte and every full-size packet fragments on a datagram
+    # carrier -- or is dropped outright, since an oversize IP_HDRINCL send is refused with EMSGSIZE. The
+    # RAW header table above is checked; these were not, so a core-side change could not be noticed here.
+    obfs_go = (Path(a.core) / "internal" / "packet" / "obfs.go").read_text(encoding="utf-8")
+    fec_go = (Path(a.core) / "internal" / "packet" / "fec_stream.go").read_text(encoding="utf-8")
+
+    cm = re.search(r"obfsDataPadMax\s*=\s*(\d+)", obfs_go)
+    nm = re.search(r"OBFS_DATA_PAD_MAX\s*=\s*(\d+)", node_src)
+    if not cm or not nm:
+        check(False, "CANNOT FIND the obfs pad max on both sides -- THIS SCRIPT is out of date "
+                     f"(core={bool(cm)} node={bool(nm)})")
+    else:
+        check(cm.group(1) == nm.group(1),
+              f"obfs data pad max: core={cm.group(1)} node={nm.group(1)}")
+
+    # The node subtracts a single literal for FEC. The core builds it from named parts, so compare the SUM:
+    # fecHdrLen (its own expression) + the 2-byte shard length the node's comment names.
+    fm = re.search(r"fecHdrLen\s*=\s*([0-9+ ]+)", fec_go)
+    node_fec = re.search(r"overhead \+= 13\b", node_src)
+    if not fm:
+        check(False, "CANNOT FIND fecHdrLen in fec_stream.go -- THIS SCRIPT is out of date")
+    else:
+        core_fec = sum(int(x) for x in re.findall(r"\d+", fm.group(1))) + 2
+        check(bool(node_fec) and core_fec == 13,
+              f"FEC per-packet overhead: core={core_fec} node={'13' if node_fec else 'MISSING'}")
+
     print("== 2d) the firewall-rule OWNER tag: core writes it, node sweeps by it ==")
     # Two copies of one string in two repositories, and nothing at runtime notices a mismatch: the core
     # would keep tagging, the node would keep sweeping, and they would simply never match again. Rules
