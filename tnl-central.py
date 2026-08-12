@@ -3233,8 +3233,16 @@ def _push_one(jid, nid, payload):
             return
 
         def prog(sent, total, _nid=nid):
-            # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap
-            _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
+            # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap.
+            # The LAST byte flips the state to «apply» here rather than after the reply: past that point the
+            # node holds the whole body and installs it whatever the panel does, and the wait for its answer
+            # is the node compiling+swapping+restarting. For a 226KB agent that send is ~6ms and the wait is
+            # ~3s, so labelling the wait «در حالِ آپلود» described 99.8% of the visible time wrongly -- and
+            # invited a cancel that could not possibly land.
+            if total and sent >= total:
+                _push_set(jid, _nid, state="apply", pct=96)
+            else:
+                _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
 
         r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
                       should_abort=lambda: _push_cancelled(jid))
@@ -8137,7 +8145,8 @@ var I18N={fa:{
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
  ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
- ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود همین حالا قطع شود؟ نودهایی که وسطِ آپلودند هم نیمه‌کاره بریده می‌شوند — نسخهٔ فعلی‌شان دست‌نخورده می‌ماند، چون نود چیزی را که کامل نرسیده نصب نمی‌کند. برای اینکه فقط نودهای بعدی نروند و آپلودهای جاری تمام شوند، «توقف» را بزن.",
+ ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود لغو شود؟ نودهای در نوبت اصلاً نمی‌روند و نودی که همین حالا وسطِ فرستادنِ بایت‌هاست نیمه‌کاره بریده می‌شود — نسخهٔ فعلی‌اش دست‌نخورده می‌ماند، چون نود چیزی را که کامل نرسیده نصب نمی‌کند. ولی نودی که بایت‌هایش کامل رسیده و دارد اعمال می‌کند برگشت‌پذیر نیست: آن کارش را تمام می‌کند. برای اینکه فقط نودهای بعدی نروند، «توقف» را بزن.",
+ ag_p_cancel_none:"چیزی برای لغو نمانده — بایت‌ها رسیده‌اند و نودها دارند اعمال می‌کنند؛ این مرحله برگشت‌پذیر نیست",
  ag_p_pause:"توقفِ آپلود — آپلودهای جاری تمام می‌شوند، نودهای بعدی نمی‌روند",ag_p_resume:"ازسرگیریِ آپلود",
  ag_p_none:"همهٔ نودها همین نسخه را دارند — چیزی فرستاده نشد",
  px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
@@ -8992,7 +9001,7 @@ function nodeCard(n){var i=n.info||{};
  var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
- var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic('cpu')+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic('cpu')+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
+ var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic(AG_IC)+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
@@ -9363,7 +9372,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
  else{formErr(m,perr(r))}}
 
 // ===== Custom core (packet/core) — its own view, list and create form
-function coreSkel(){CHK={};el('view').innerHTML=vhead('cpu','nav_core','core_sub')+
+function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
@@ -10129,14 +10138,14 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('e_snr',SUBNETRANGES(),'192.168',T('range'),'onCorSubRange')+'<div id="e_snc"></div>'+
   '<label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050"></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('cpu')+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
+ openModal('<div class="msticky"><span class="medi">'+ic(COR_IC)+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnProfGate();trFade(el('e_trbar'))}
 function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='spoof')corSpoofProbe()}
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
 var _rotS={};
 function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
-function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+esc(T('cor_tab_ips'))+'</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cpu')+esc(T('cor_tab_set'))+'</button></div>'}
+function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+esc(T('cor_tab_ips'))+'</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cog')+esc(T('cor_tab_set'))+'</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0;var _tb=box.querySelector('.trbar');if(_tb)trFade(_tb)}
 // Rotation-interval presets — the same minute-scale set the flux epoch and the ws edge pool offer, so
 // every rotation control in the panel reads identically. Nothing sub-minute: each destination hop
@@ -10555,7 +10564,7 @@ function agentBody(){return ''+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
  '<div id="agList">'+skCards('agent')+'</div>'+pagerBottom('agent')}
-function agentSkel(){el('view').innerHTML=vhead('cpu','ag_title','ag_sub')+agentBody();refreshAgent()}
+function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
  var st=el('ag_status'),mt=el('ag_meta');
  if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
@@ -10707,10 +10716,14 @@ function pushFab(d){var box=el('pushFab');if(!box)return;
  order.forEach(function(nid){var s=(ns[nid]||{}).state;
    if(s=='ok'||s=='same'||s=='err'||s=='skip')done++});
  var pz=!!d.paused;
+ // Cancel can only reach a node still QUEUED or still sending bytes. Once a node's body is fully delivered
+ // it holds the whole thing and installs it no matter what the panel does, so offering «لغو» then promises
+ // something impossible -- which is exactly how it read as broken.
+ var stoppable=order.some(function(nid){var s=(ns[nid]||{}).state;return s=='wait'||s=='send'});
  setHTML(box,'<div class="pfab"><span class="pfn">'+num(done)+'<s>/'+num(order.length)+'</s></span>'+
    '<button class="pfb"'+(pz?' disabled':'')+' title="'+esc(T('ag_p_pause'))+'" onclick="pushPause(true)">'+ic('pause')+'</button>'+
    '<button class="pfb"'+(pz?'':' disabled')+' title="'+esc(T('ag_p_resume'))+'" onclick="pushPause(false)">'+ic('play')+'</button>'+
-   '<button class="pfb stop" title="'+esc(T('ag_p_cancel'))+'" onclick="pushCancel()">'+ic('xc')+'</button></div>')}
+   '<button class="pfb stop"'+(stoppable?'':' disabled')+' title="'+esc(T(stoppable?'ag_p_cancel':'ag_p_cancel_none'))+'" onclick="pushCancel()">'+ic('xc')+'</button></div>')}
 function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
  (d.order||[]).forEach(function(nid){var m=el('agres_'+nid),st=ns[nid];if(!m||!st)return;
    m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));

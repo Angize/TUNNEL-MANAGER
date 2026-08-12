@@ -100,6 +100,18 @@ need("if not todo:\n        return None" in sp,
 need('"same"' not in jn, "_push_job_new must not pre-settle any node; the job holds work only")
 for fn in ("api_agent_push", "_core_job"):
     need('"none": True' in body(fn), "%s must tell the page when nothing was sent" % fn)
+# the long wait after the last byte must be called «apply», not «send» -- mislabelling it invited a cancel
+# that could not land (a 226KB agent sends in ~6ms then waits ~3s for the node to compile and swap)
+po = body("_push_one")
+need("if total and sent >= total:" in po and 'state="apply", pct=96' in po,
+     "_push_one must flip to «apply» on the LAST BYTE, not when the reply arrives: past that point the node "
+     "holds the whole body and installs it whatever the panel does")
+pf = jsfn("pushFab")
+need("s=='wait'||s=='send'" in pf and "stoppable" in pf,
+     "the pill must disable «لغو» when no node is queued or still sending -- nothing else is reachable")
+need("ag_p_cancel_none" in pf, "...and say why it is disabled")
+need("برگشت‌پذیر نیست" in SRC,
+     "ag_p_cancel_q must admit that a node already applying cannot be recalled")
 need("res.d.none" in jsfn("pushStart") and "ag_p_none" in jsfn("pushStart"),
      "pushStart must say «nothing was sent» instead of starting a phantom job")
 need("pushBar({state:'wait'" not in CODE,
@@ -114,11 +126,30 @@ vt = body("_validate_tuning")
 need("if step and v % step:" in vt and "raise ValueError" in vt,
      "_validate_tuning must REFUSE a non-multiple, not silently round it to a number the core never used")
 
-# the agent and the core must not wear the same glyph anywhere on the page
-ab = jsfn("agentBody")
-need("ic(AG_IC," in ab and "ic(COR_IC," in ab,
-     "the two cards must take the one pair of constants -- both used to draw cpu")
-need("ic('cpu'" not in ab and "ic('cog'" not in ab, "no hardcoded glyph may remain in agentBody")
+# The agent and the core must not wear the same glyph ANYWHERE -- not just on the agent page. Scoping this
+# to agentBody is how the node card's chips were missed: they drew «ایجنت» and «هسته» with one cpu, and the
+# operator found it in a screenshot. So: no ic('cpu') call may exist at all, and every agent/core label must
+# be preceded by the matching constant.
+need("ic('cpu'" not in CODE,
+     "no ic('cpu') anywhere -- the core's glyph comes from COR_IC so it cannot drift from the nav")
+pairs = re.findall(r"ic\((AG_IC|COR_IC|'[a-z]+')(?:,[^)]*)?\)\s*\+\s*esc\(T\('([a-z_]+)'\)\)", CODE)
+want_glyph = {"nd_agent": "AG_IC", "ag_node_agent": "AG_IC", "ag_lbl_agent": "AG_IC",
+              "nd_core": "COR_IC", "ag_data_core": "COR_IC", "ag_lbl_core": "COR_IC"}
+for glyph, key in pairs:
+    if key in want_glyph:
+        need(glyph == want_glyph[key],
+             "the «%s» label must be drawn with %s, found %s" % (key, want_glyph[key], glyph))
+need(len([1 for _g, k in pairs if k in want_glyph]) >= 3,
+     "the label/glyph scan found almost nothing -- the regex has gone stale, not the code")
+# The two CARD chips are invisible to the pair scan above: their markup is ic(...)+'</span> '+esc(T(...)),
+# so the regex cannot pair them. Check them by name -- a mutation that swapped the card's glyph escaped
+# precisely through this hole.
+for glyph, label in (("AG_IC,'var(--acc)'", "ag_node_agent"), ("COR_IC,'#8b5cf6'", "ag_data_core")):
+    i = CODE.find("ic(%s)" % glyph)
+    need(i >= 0 and label in CODE[i:i + 120],
+         "the «%s» card must be drawn with ic(%s)" % (label, glyph))
+need("vhead(AG_IC,'ag_title'" in CODE and "vhead(COR_IC,'nav_core'" in CODE,
+     "both page headers must come from the constants; 'cpu' made «ایجنت و هسته» read as the core page")
 # and the overview note must use an icon, not an emoji
 need("✅" not in SRC, "the overview note must use ic('okc'), not a ✅ emoji")
 need("ic('okc','var(--ok)')" in SRC and "ov_all_good" in SRC, "…tinted with the ok colour")
