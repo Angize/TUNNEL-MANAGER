@@ -219,6 +219,10 @@ _TUNING_DEFAULTS = {
 # what keeps the threshold correct on a sweep that managed fewer sockets than this. Guarded against the
 # node's own constant by tools/tuning_consistency.py; without that this number quietly starts lying.
 _PROBE_SAMPLES = 20
+# Knobs whose value is only meaningful in steps: the probe sends 20 packets, so each 5% is exactly one
+# more packet that must come back. 16/18/21 cannot be expressed and are refused rather than silently
+# rounded, which would show the operator a number the core never used.
+_TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشتی")}   # (step, the label the operator sees)
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     # min 2: keepaliveInterval is clamped to [0.6,1.3]×keepalive, so a 1× window would expire BETWEEN
@@ -229,7 +233,7 @@ _TUNING_RANGES = {
     # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
     # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
     # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
-    "probe_min_pct": (1, 100),
+    "probe_min_pct": (5, 100),   # steps of 5; see _TUNING_STEPS
     "keepalive": (5, 120),
     "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
@@ -270,9 +274,13 @@ def _validate_tuning(raw, base=None):
     for k, (lo, hi) in _TUNING_RANGES.items():
         if k in raw and raw[k] not in (None, ""):
             try:
-                out[k] = max(lo, min(hi, int(raw[k])))
+                v = int(raw[k])
             except (TypeError, ValueError):
-                pass
+                continue
+            step, label = _TUNING_STEPS.get(k, (0, ""))
+            if step and v % step:
+                raise ValueError("«%s» باید مضربی از %d باشد — %d پذیرفته نیست" % (label, step, v))
+            out[k] = max(lo, min(hi, v))
     if "suspect_backoff" in raw:
         sb = raw["suspect_backoff"]
         if isinstance(sb, (list, tuple)):
@@ -3125,18 +3133,13 @@ PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err", "skip")
 PUSH_WORKERS = 4      # nodes pushed CONCURRENTLY per job (operator's choice: bounded, not all-at-once)
 
 
-def _push_job_new(kind, nodes, current=()):
+def _push_job_new(kind, nodes):
     """Create the job, refusing if one is already running. ONE AT A TIME is not a nicety: PUSH_WORKERS is
     per job, so two jobs would put 2x that many uploads on the panel's uplink and defeat the bound, and
     _push_active/push-status/the pill are all single-job -- a second job would be invisible and
-    uncancellable. Checked under the lock, so two simultaneous POSTs cannot both win.
-
-    Ids in `current` already run exactly what is being pushed, so they start settled at «همین نسخه بود»
-    and the pool never hands them out. The node would have answered `unchanged` anyway -- but only after
-    receiving the whole body, which for a core is ~20MB of the operator's uplink per node."""
+    uncancellable. Checked under the lock, so two simultaneous POSTs cannot both win."""
     jid = secrets.token_hex(6)
     now = int(time.time())
-    cur = set(current)
     with _push_lock:
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
             _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
@@ -3144,9 +3147,7 @@ def _push_job_new(kind, nodes, current=()):
             raise ValueError("یک آپلود در جریان است — تا تمام‌شدنش صبر کن")   # same sentence as ag_p_busy
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
-                           "nodes": {n["id"]: {"name": n["name"],
-                                               "state": "same" if n["id"] in cur else "wait",
-                                               "pct": 100 if n["id"] in cur else 0,
+                           "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
                                                "error": ""} for n in nodes}}
     return jid
 
@@ -3169,9 +3170,16 @@ def _push_current(nodes, field, want):
 
 
 def _push_start(kind, nodes, payload, current=()):
-    """Create the job and run it. The ONE way a push job is launched."""
-    jid = _push_job_new(kind, nodes, current)
-    threading.Thread(target=_push_worker, args=(jid, kind, nodes, payload), daemon=True).start()
+    """Create the job and run it. The ONE way a push job is launched.
+
+    Nodes in `current` are DROPPED, not carried as settled entries: nothing is sent to them, so they get no
+    queue slot, no progress bar and no verdict -- a full green bar on a node that was never contacted reads
+    as work that happened. Returns None when there is nothing left to do."""
+    todo = [n for n in nodes if n["id"] not in set(current)]
+    if not todo:
+        return None
+    jid = _push_job_new(kind, todo)
+    threading.Thread(target=_push_worker, args=(jid, kind, todo, payload), daemon=True).start()
     return jid
 
 
@@ -3370,9 +3378,11 @@ def api_agent_push(d):
     def payload(_n):
         return enc, "update", 60
 
-    jid = _push_start("agent", nodes, payload,
-                      _push_current(nodes, "sha256", lambda _n: meta["sha256"]))
-    return {"ok": True, "job": jid}  # poller re-reads each node's version within ~2s after it bounces
+    cur = _push_current(nodes, "sha256", lambda _n: meta["sha256"])
+    jid = _push_start("agent", nodes, payload, cur)
+    if not jid:
+        return {"ok": True, "none": True, "skipped": len(cur)}
+    return {"ok": True, "job": jid, "skipped": sorted(cur)}   # poller re-reads versions ~2s after the bounce
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
@@ -3704,8 +3714,11 @@ def _core_job(ids, payload):
             shas[arch] = (st[1][:12] if st else "")   # the node reports its core sha truncated to 12
         return shas[arch]
 
-    jid = _push_start("core", nodes, payload, _push_current(nodes, "core_sha", want))
-    return {"ok": True, "job": jid}
+    cur = _push_current(nodes, "core_sha", want)
+    jid = _push_start("core", nodes, payload, cur)
+    if not jid:
+        return {"ok": True, "none": True, "skipped": len(cur)}
+    return {"ok": True, "job": jid, "skipped": sorted(cur)}
 
 
 def api_core_update(d):
@@ -8094,7 +8107,7 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="overview"><span class="ic" data-ic="dash"></span> <span class="nlbl">نمای کلی</span></a>
    <a class="navi" data-t="nodes"><span class="ic" data-ic="server"></span> <span class="nlbl">نودها</span><span class="ct" id="ct_nodes"></span></a>
    <a class="navi" data-t="proxies"><span class="ic" data-ic="globe"></span> <span class="nlbl">پروکسی‌ها</span><span class="ct" id="ct_proxies"></span></a>
-   <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تونل‌ها</span><span class="ct" id="ct_tunnels"></span></a>
+   <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تانل‌های سیستمی</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="fwd"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
    <a class="navi" data-t="logs"><span class="ic" data-ic="list"></span> <span class="nlbl">لاگ</span><span class="ctwrap"><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></span></a>
@@ -8126,10 +8139,11 @@ var I18N={fa:{
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
  ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود همین حالا قطع شود؟ نودهایی که وسطِ آپلودند هم نیمه‌کاره بریده می‌شوند — نسخهٔ فعلی‌شان دست‌نخورده می‌ماند، چون نود چیزی را که کامل نرسیده نصب نمی‌کند. برای اینکه فقط نودهای بعدی نروند و آپلودهای جاری تمام شوند، «توقف» را بزن.",
  ag_p_pause:"توقفِ آپلود — آپلودهای جاری تمام می‌شوند، نودهای بعدی نمی‌روند",ag_p_resume:"ازسرگیریِ آپلود",
+ ag_p_none:"همهٔ نودها همین نسخه را دارند — چیزی فرستاده نشد",
  px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
- nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تونل‌ها",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
+ nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
  log_details:"جزئیات",
@@ -8781,7 +8795,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  var wt=s.worst_tunnel;
  if(wt){var pr=(wt.a&&wt.b)?' <span dir="ltr" style="color:var(--tx);font-weight:800">'+esc(wt.a)+' ↔ '+esc(wt.b)+'</span>':'';
   setHTML(el('o_wtun'),'<div class="onote">📡 '+esc(T('ov_worst_q'))+' <b>'+esc(wt.name)+'</b>'+pr+(num(wt.loss)>0?' · '+esc(T('ov_loss'))+' <b style="color:var(--bad)">'+Math.round(num(wt.loss))+T('pct')+'</b>':'')+(wt.rtt!=null?' · '+esc(T('ov_ping'))+' <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+'</div>');}
- else{setHTML(el('o_wtun'),'<div class="onote">✅ '+esc(T('ov_all_good'))+(s.fleet_avg_ping!=null?' · '+esc(T('ov_fleet_ping'))+' <b style="color:var(--tx)">'+num(s.fleet_avg_ping)+'ms</b>':'')+'</div>');}
+ else{setHTML(el('o_wtun'),'<div class="onote">'+ic('okc','var(--ok)')+' '+esc(T('ov_all_good'))+(s.fleet_avg_ping!=null?' · '+esc(T('ov_fleet_ping'))+' <b style="color:var(--tx)">'+num(s.fleet_avg_ping)+'ms</b>':'')+'</div>');}
  // ---- fleet traffic
  var frx=num(s.fleet_rx_bps),ftx=num(s.fleet_tx_bps);
  setT('o_frx',fmtRate(frx));setT('o_ftx',fmtRate(ftx));
@@ -10514,7 +10528,7 @@ async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_
 // ===== agent push-update page =====
 function agentBody(){return ''+
  '<div class="card agx-uni">'+   // AGENT card
-  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic('cpu','var(--acc)')+'</span> '+esc(T('ag_node_agent'))+'<span class="grow"></span><span id="ag_status"></span></div>'+
+  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic(AG_IC,'var(--acc)')+'</span> '+esc(T('ag_node_agent'))+'<span class="grow"></span><span id="ag_status"></span></div>'+
   '<div class="agx-meta" id="ag_meta"></div>'+
   '<div class="agx-act">'+
     '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
@@ -10525,7 +10539,7 @@ function agentBody(){return ''+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
  '</div>'+
  '<div class="card agx-uni">'+   // CORE card — matched to the agent card
-  '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic('cpu','#8b5cf6')+'</span> '+esc(T('ag_data_core'))+'<span class="grow"></span><span id="cor_status"></span></div>'+
+  '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic(COR_IC,'#8b5cf6')+'</span> '+esc(T('ag_data_core'))+'<span class="grow"></span><span id="cor_status"></span></div>'+
   '<div class="agx-meta" id="cor_meta"></div>'+
   '<div class="corverrow"><div id="cor_ver_box"></div>'+
     '<button type="button" class="ghost corcheck" onclick="corCheck()">'+ic('redo')+esc(T('cor_check'))+'</button></div>'+
@@ -10714,12 +10728,15 @@ async function pushPoll(job){var fails=0;
     await new Promise(function(res){setTimeout(res,400)})}
   setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
  finally{PUSHJOB=null;PUSHSTATE=null;pushFab(null)}}   // the pill outlives #view, so it must be cleared here
+// No optimistic pre-paint: the SERVER decides which nodes are in the job, dropping any that already run
+// this exact build. Painting «در نوبت» on every id first put a queue label -- then a full bar -- on nodes
+// that were never contacted. pushPoll's first read is immediate, so nothing is lost by waiting for it.
 async function pushStart(cmd,body,ids){
  if(PUSHJOB){toast(T('ag_p_busy'),'err');return}
- ids.forEach(function(id){var m=el('agres_'+id);
-   if(m){m.className='msg agres';setHTML(m,pushBar({state:'wait',pct:0}))}});
  var res=await post(cmd,body);
- if(!(res.ok&&res.d&&res.d.job)){toast(perr(res),'err');return}
+ if(!(res.ok&&res.d)){toast(perr(res),'err');return}
+ if(res.d.none){toast(T('ag_p_none'),'ok');return}      // every target already runs it: nothing was sent
+ if(!res.d.job){toast(perr(res),'err');return}
  PUSHJOB=res.d.job;await pushPoll(PUSHJOB)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
@@ -10936,7 +10953,7 @@ function _collectTuning(){
 // thinks in. Must use the SAME ceiling the node's carrying() applies, or the hint describes a rule
 // nothing enforces.
 function tunPmSync(){var p=el('set_t_probemin'),h=el('tun_pmhint');if(!p||!h)return;
- var v=Math.max(1,Math.min(100,parseInt(p.value)||0));
+ var v=Math.max(5,Math.min(100,parseInt(p.value)||0));   // same floor the server clamps to
  h.textContent=T('set_pm_hint').replace('{n}',Math.ceil(v*_PROBESAMP/100)).replace('{c}',_PROBESAMP)}
 function tunPmBind(){var p=el('set_t_probemin');if(p)p.addEventListener('input',tunPmSync);
  tunPmSync()}
