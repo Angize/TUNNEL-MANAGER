@@ -107,18 +107,16 @@ def main():
     chk("neither rebuild path re-implements the message", inline, [])
     chk("the card shows the panel's own last verdict", has(r"if\(l\.rb&&!l\.rb\.ok\)"), True)
 
-    # the cancel lives with the bar, not in a card that is scrolled away, and dies with its job
+    # the job's controls live in the floating pill, never in a card or a row that gets rewritten
     chk("the old page-top cancel row is gone", has(r"pushCancelRow|pushCancelShow|ag_cancel"), False)
-    chk("pushBar decides the cancel from the job's liveness", has(r"function pushBar\(st,live\)"), True)
-    chk("and only while that node is really uploading",
-        has(r"live=live&&\(st\.state=='send'\|\|st\.state=='apply'\)"), True)
-    chk("the button itself is gated on that liveness, not on a constant",
-        has(r"var xb=live\?'<button class=\"pxc\""), True)
-    bar = re.search(r"function pushBar\(st,live\)\{(.*?)\n(?:async )?function ", js, re.S)
-    ret = re.search(r"return '<div class=\"pushbar.*", bar.group(1), re.S).group(0) if bar else ""
-    chk("the cancel is emitted inside the bar's own label row",
-        'class="plbl"' in ret and ret.index("plbl") < ret.index("+xb"), True)
-    chk("a finished job paints no cancel", has(r"pushBar\(st,!d\.done\)"), True)
+    chk("the per-node bar no longer carries its own cancel", has(r"class=\"pxc\""), False)
+    chk("the bar draws state and percent only", has(r"function pushBar\(st\)\{"), True)
+    fab = re.search(r"function pushFab\(d\)\{(.*?)\n(?:async )?function ", js, re.S)
+    fab = fab.group(1) if fab else ""
+    chk("the pill carries all three controls",
+        all(s in fab for s in ("pushPause(true)", "pushPause(false)", "pushCancel()")), True)
+    chk("and it disappears with its job", "if(!live){setHTML(box,'');return}" in fab, True)
+    chk("the pill reads paused from the SERVER's job, not a page flag", "d.paused" in fab, True)
     body = re.search(r"function agentBody\(\)\{(.*?)\n(?:async )?function ", js, re.S)
     chk("the top cards carry no cancel of their own",
         bool(body) and "pushCancel" in body.group(1), False)

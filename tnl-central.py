@@ -841,12 +841,18 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
         return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:80]}
 
 
-def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024):
+def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024,
+              should_abort=None):
     """POST a large body to a node, reporting REAL bytes sent as it goes.
 
     node_call cannot do this: urllib hands the whole body to the kernel and returns, so there is nothing
     to report until the answer arrives. Here the request line and headers go first, then the body in
     chunks, and on_progress(sent, total) fires per chunk -- that is what the per-node bar shows.
+
+    should_abort() is consulted between chunks; when it goes true the socket is dropped mid-body and
+    {"cancelled": True} comes back. Safe because the node parses the JSON before it touches disk: a body
+    cut short fails json.loads, and even one that parsed would fail the sha256 gate. Nothing partial is
+    ever installed.
 
     Goes through the node's proxy when it has one, because it uses the same _proxy_socket() node_call
     does: a push must not fall out to a direct connection that the control plane would never take.
@@ -870,6 +876,8 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         if on_progress:
             on_progress(0, total)
         while sent < total:
+            if should_abort and should_abort():
+                return {"ok": False, "cancelled": True}     # the finally below closes the socket mid-body
             n = sock.send(data[sent:sent + chunk])
             if not n:
                 raise OSError("connection closed while sending")
@@ -3110,8 +3118,9 @@ def api_agent_info(d):
 
 
 _push_lock = threading.Lock()
-_push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts}
-PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err")
+_push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts, cancel, paused}
+PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err", "skip")
+PUSH_WORKERS = 4      # nodes pushed CONCURRENTLY per job (operator's choice: bounded, not all-at-once)
 
 
 def _push_job_new(kind, nodes):
@@ -3121,7 +3130,7 @@ def _push_job_new(kind, nodes):
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
             _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
-                           "cancel": False,
+                           "cancel": False, "paused": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
                                                "error": ""} for n in nodes}}
     return jid
@@ -3140,52 +3149,100 @@ def _push_active():
 
 
 def _push_set(jid, nid, **kw):
+    if "state" in kw and kw["state"] not in PUSH_STATES:
+        raise ValueError("unknown push state: %r" % kw["state"])   # a typo'd state paints a blank bar
     with _push_lock:
         j = _push_jobs.get(jid)
         if j and nid in j["nodes"]:
             j["nodes"][nid].update(kw)
 
 
+def _push_cancelled(jid):
+    with _push_lock:
+        j = _push_jobs.get(jid)
+        return bool(j and j.get("cancel"))
+
+
+def _push_one(jid, nid, payload):
+    """Push to ONE node. A failure or timeout is recorded on that node alone -- it never propagates, so a
+    dead node cannot end the sweep. Shared by every pool worker."""
+    try:
+        fresh = get_node(nid)
+        if not fresh:                          # deleted while the queue was working through the fleet
+            _push_set(jid, nid, state="err", error="نود حذف شد")
+            return
+        _push_set(jid, nid, state="send", pct=0)
+        _ensure_update_key(fresh)              # fail-closed verification needs the key before the push
+        body, endpoint, timeout = payload(fresh)
+        if body is None:                       # nothing pushable for this node (e.g. unknown arch)
+            _push_set(jid, nid, state="err", pct=0, error=endpoint)
+            return
+
+        def prog(sent, total, _nid=nid):
+            # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap
+            _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
+
+        r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
+                      should_abort=lambda: _push_cancelled(jid))
+        if r.get("cancelled"):                 # dropped mid-body: the node installed nothing
+            _push_set(jid, nid, state="skip", pct=0)
+            return
+        _push_set(jid, nid, state="apply", pct=97)
+        if r.get("ok") and (r.get("already") or r.get("unchanged")):
+            _push_set(jid, nid, state="same", pct=100)
+        elif r.get("ok"):
+            _push_set(jid, nid, state="ok", pct=100)
+        else:
+            _push_set(jid, nid, state="err", pct=100 if not r.get("offline") else 0,
+                      error=r.get("error") or r.get("msg") or "ناموفق")
+    except Exception as e:                     # never let one node's surprise end the sweep
+        _push_set(jid, nid, state="err", error=str(e)[:120])
+
+
+def _push_next(jid):
+    """Hand out the next node id to a pool worker, honouring pause and cancel. Returns:
+      a node id  -> push it
+      "wait"     -> paused; the worker sleeps briefly and asks again (in-flight pushes keep running)
+      None       -> nothing left to do (cancelled, or every node already has a verdict) -> the worker exits.
+    Cancel marks every still-waiting node skipped so the job can reach done."""
+    with _push_lock:
+        j = _push_jobs.get(jid)
+        if not j:
+            return None
+        if j.get("cancel"):
+            for nid in j["order"]:
+                if j["nodes"][nid]["state"] == "wait":
+                    j["nodes"][nid].update(state="skip", pct=0)
+            return None
+        if j.get("paused"):
+            return "wait" if any(v["state"] == "wait" for v in j["nodes"].values()) else None
+        for nid in j["order"]:
+            if j["nodes"][nid]["state"] == "wait":
+                j["nodes"][nid]["state"] = "send"   # claim it under the lock so no two workers take it
+                return nid
+    return None
+
+
 def _push_worker(jid, kind, nodes, payload):
-    """Push to the nodes ONE AT A TIME. A node that fails or times out is recorded and the queue moves
-    on -- the whole point is that one dead node cannot cancel the rest of the fleet's upload."""
-    for n in nodes:
-        nid = n["id"]
-        with _push_lock:                       # cancel is honoured BETWEEN nodes: a node already
-            j = _push_jobs.get(jid)            # mid-upload finishes or times out on its own
-            if j and j.get("cancel"):
-                # from THIS node onward -- everything before it already has its own verdict, and the
-                # queue is strictly sequential so nothing from here on has been touched yet
-                for rest in j["order"][j["order"].index(nid):]:
-                    j["nodes"][rest].update(state="skip", pct=0)
-                break
-        try:
-            fresh = get_node(nid)
-            if not fresh:                      # deleted while the queue was working through the fleet
-                _push_set(jid, nid, state="err", error="نود حذف شد")
+    """Push to the fleet with a BOUNDED pool (PUSH_WORKERS at once), not one at a time and not all at once.
+    Each worker pulls the next waiting node from _push_next; a node that fails is recorded on itself and the
+    pool keeps going. Pause stops handing out NEW nodes (in-flight ones finish); cancel skips the rest."""
+    def loop():
+        while True:
+            nid = _push_next(jid)
+            if nid is None:
+                return
+            if nid == "wait":
+                time.sleep(0.3)
                 continue
-            _push_set(jid, nid, state="send", pct=0)
-            _ensure_update_key(fresh)          # fail-closed verification needs the key before the push
-            body, endpoint, timeout = payload(fresh)
-            if body is None:                   # nothing pushable for this node (e.g. unknown arch)
-                _push_set(jid, nid, state="err", pct=0, error=endpoint)
-                continue
+            _push_one(jid, nid, payload)
 
-            def prog(sent, total, _nid=nid):
-                # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap
-                _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
-
-            r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout)
-            _push_set(jid, nid, state="apply", pct=97)
-            if r.get("ok") and (r.get("already") or r.get("unchanged")):
-                _push_set(jid, nid, state="same", pct=100)
-            elif r.get("ok"):
-                _push_set(jid, nid, state="ok", pct=100)
-            else:
-                _push_set(jid, nid, state="err", pct=100 if not r.get("offline") else 0,
-                          error=r.get("error") or r.get("msg") or "ناموفق")
-        except Exception as e:                 # never let one node's surprise end the sweep
-            _push_set(jid, nid, state="err", error=str(e)[:120])
+    n = min(PUSH_WORKERS, max(1, len(nodes)))
+    workers = [threading.Thread(target=loop, daemon=True) for _ in range(n)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
     with _push_lock:
         j = _push_jobs.get(jid)
         if j:
@@ -3205,13 +3262,15 @@ def api_push_status(d):
         if not j:
             raise ValueError("job not found")
         return {"ok": True, "job": jid, "kind": j["kind"], "done": j["done"],
-                "cancel": bool(j.get("cancel")), "order": list(j["order"]),
+                "cancel": bool(j.get("cancel")), "paused": bool(j.get("paused")), "order": list(j["order"]),
                 "nodes": {k: dict(v) for k, v in j["nodes"].items()}}
 
 
 def api_push_cancel(d):
-    """Stop before the NEXT node. The one already uploading cannot be torn off mid-socket, so it finishes
-    or times out; the queue behind it is marked skipped."""
+    """Stop the whole job NOW. Everything still queued is marked skipped here rather than waiting for a
+    worker to come ask -- leaving it to _push_next means the queue keeps reading «در نوبت» until an upload
+    finishes, which on a core push is tens of seconds, long enough to look like the button did nothing.
+    The uploads already in flight see the flag between chunks and drop their sockets mid-body."""
     jid = str((d or {}).get("job") or "") or _push_active()[0]
     with _push_lock:
         j = _push_jobs.get(jid or "")
@@ -3220,8 +3279,27 @@ def api_push_cancel(d):
         if j["done"]:
             return {"ok": True, "already_done": True}
         j["cancel"] = True
+        for nid in j["order"]:
+            if j["nodes"][nid]["state"] == "wait":
+                j["nodes"][nid].update(state="skip", pct=0)
     log_event("warn", "node", "دلیل: لغوِ آپلود به فلیت توسطِ اپراتور")
     return {"ok": True, "job": jid}
+
+
+def api_push_pause(d):
+    """Pause = stop handing out NEW nodes; the pool keeps its in-flight pushes and holds the rest at
+    «در نوبت». Resume hands them out again. d.paused sets the state explicitly (a toggle would race two
+    quick taps into the wrong state)."""
+    jid = str((d or {}).get("job") or "") or _push_active()[0]
+    want = bool((d or {}).get("paused", True))
+    with _push_lock:
+        j = _push_jobs.get(jid or "")
+        if not j:
+            raise ValueError("job not found")
+        if j["done"] or j.get("cancel"):
+            return {"ok": True, "done": True}
+        j["paused"] = want
+    return {"ok": True, "job": jid, "paused": want}
 
 
 def api_agent_push(d):
@@ -6963,10 +7041,10 @@ API = {
     "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-check": api_core_check, "core-update": api_core_update,
-    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status, "push-cancel": api_push_cancel,
+    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
              "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -7462,9 +7540,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .medi.warn svg{stroke:#e0894f}
 .plbl{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--sub);margin-top:5px}
 .plbl b{font-variant-numeric:tabular-nums;font-weight:700;margin-inline-start:auto}
-.plbl>.pxc{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border-radius:8px;background:transparent;border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);color:var(--bad);cursor:pointer}
-.plbl>.pxc svg{width:13px;height:13px;stroke:var(--bad);fill:none;stroke-width:2.2}
-.plbl>.pxc:active{transform:scale(.94)}
 .lpill.off{color:var(--sub);background:transparent;border-color:var(--bord)}
 .lpill.off .pd{background:var(--sub);animation:none}
 @keyframes lpulse{0%,100%{opacity:1}50%{opacity:.25}}
@@ -7597,24 +7672,32 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 /* --- compact node row + per-node core picker --- */
 .agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
 .agx-row .nm{font-weight:800;font-size:13px}
-.agx-pill{font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:6px;font-family:ui-monospace,monospace;direction:ltr;background:var(--field);color:var(--sub);border:1px solid var(--bord)}
-.agx-pill.cor{background:color-mix(in srgb,#8b5cf6 12%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 26%,transparent)}
-.agx-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;font-weight:800;font-size:10.5px;padding:5px 10px;border-radius:8px;cursor:pointer;min-width:74px;border:1px solid var(--bord);background:var(--glass);color:var(--tx)}
-.agx-btn .ic{width:13px;height:13px}
-.agx-btn.cor{background:color-mix(in srgb,#8b5cf6 13%,transparent);color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,transparent)}
-.agx-btn.up{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent)}
-.agx-btn:disabled{opacity:.45;cursor:not-allowed}
-.agx-right{display:flex;flex-direction:column;gap:7px;min-width:0}
-.agx-l1{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.agx-l2{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.agx-colb{display:flex;flex-direction:column;gap:5px;flex:0 0 auto;margin-inline-start:auto}
-.stx{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--sub)}
-.ico{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:12px}
-.ico .ic{width:11px;height:11px}
-.ico.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
-.ico.up{background:color-mix(in srgb,var(--gold) 20%,transparent);color:var(--gold)}
-.ico.na{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
-.ico.offl{background:color-mix(in srgb,var(--sub) 18%,transparent);color:var(--sub)}
+.agx-right{display:flex;flex-direction:column;gap:6px;min-width:0}
+.agx-l1{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:20px}
+.agx-colb{display:flex;gap:6px;flex:0 0 auto;margin-inline-start:auto}
+/* «آیکنِ ایجنت: نسخه — آیکنِ هسته: نسخه»: the icon's COLOUR is the whole status, so the row carries no
+   separate status chip and no version pill. */
+.vline{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--sub);font-family:ui-monospace,monospace;direction:ltr}
+.vline .vp{display:inline-flex;align-items:center;gap:4px;background:var(--field);border:1px solid var(--bord);border-radius:7px;padding:2px 6px;font-weight:700}
+.vline .vp .ic{width:12px;height:12px}
+.vline .vp.ok .ic{color:var(--ok)}
+.vline .vp.up .ic{color:var(--gold)}
+.vline .vp.na .ic{color:var(--bad)}
+.vline .vp.offl .ic{color:var(--sub)}
+.vline .vdash{color:var(--bord);font-weight:800}
+.ib{width:32px;height:32px;border-radius:10px;border:1px solid var(--bord);background:var(--glass);color:var(--tx);display:inline-flex;align-items:center;justify-content:center;padding:0;margin:0;cursor:pointer}
+.ib .ic{width:15px;height:15px}
+.ib.up{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent)}
+.ib:disabled{opacity:.42;cursor:not-allowed}
+/* the running job's controls: a floating pill within thumb reach, so they stay put while the list scrolls */
+.pfab{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:999px;background:var(--card);border:1px solid color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:var(--dsh)}
+.pfab .pfn{font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;padding-inline-start:4px}
+.pfab .pfn s{text-decoration:none;color:var(--sub);font-weight:700}
+.pfb{width:30px;height:30px;border-radius:50%;border:1px solid var(--bord);background:var(--glass);color:var(--tx);display:inline-flex;align-items:center;justify-content:center;padding:0;margin:0;flex:0 0 auto;cursor:pointer}
+.pfb .ic{width:14px;height:14px}
+.pfb.stop{border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:var(--bad)}
+.pfb:disabled{opacity:.35;cursor:not-allowed}
+body.pushing .toast{bottom:74px}
 .agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 /* icon-only card action buttons */
 /* A core card carries SEVEN of these and the row is 315px on a 375px phone: at gap 8 the seventh
@@ -7963,6 +8046,7 @@ body.dark .tag.core{color:#a78bfa}
   <div id="view"></div>
  </main>
 </div>
+<div id="pushFab"></div>
 <script>
 // ===== i18n — Persian only (the English layer + language toggle were removed). =====
 var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
@@ -7979,7 +8063,8 @@ var I18N={fa:{
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
  ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
- ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود به بقیهٔ نودها لغو شود؟ نودی که همین حالا در حالِ آپلود است تمام می‌شود.",
+ ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود همین حالا قطع شود؟ نودهایی که وسطِ آپلودند هم نیمه‌کاره بریده می‌شوند — نسخهٔ فعلی‌شان دست‌نخورده می‌ماند، چون نود چیزی را که کامل نرسیده نصب نمی‌کند. برای اینکه فقط نودهای بعدی نروند و آپلودهای جاری تمام شوند، «توقف» را بزن.",
+ ag_p_pause:"توقفِ آپلود — آپلودهای جاری تمام می‌شوند، نودهای بعدی نمی‌روند",ag_p_resume:"ازسرگیریِ آپلود",
  px_test:"تستِ اتصال",px_testing:"در حالِ تست…",px_up:"وصل شد",
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
@@ -8154,7 +8239,7 @@ var I18N={fa:{
  ag_node_agent:"ایجنتِ نودها",ag_data_core:"هستهٔ داده",ag_fetch_git:"دریافت از گیت‌هاب",ag_file_btn:"فایلِ ایجنت",ag_push_all:"پوشِ ایجنت به همهٔ نودها",
  ag_binary:"باینری",ag_install_all:"نصبِ هسته روی همهٔ نودها",ag_search:"جستجوی نود…",ag_ready:"آمادهٔ پوش",ag_empty:"خالی",ag_no_item:"موردی نیست",
  ag_core_hint:"⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.",
- ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",
+ ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",ag_send:"ارسالِ",
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
@@ -8384,7 +8469,9 @@ var IC={
  xc:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
  grid:'<svg viewBox="0 0 24 24" '+_S+'><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>',
  search:'<svg viewBox="0 0 24 24" '+_S+'><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>',
- chev:'<svg viewBox="0 0 24 24" '+_S+'><path d="M6 9l6 6 6-6"/></svg>'
+ chev:'<svg viewBox="0 0 24 24" '+_S+'><path d="M6 9l6 6 6-6"/></svg>',
+ pause:'<svg viewBox="0 0 24 24" '+_S+'><path d="M9 5v14M15 5v14"/></svg>',
+ play:'<svg viewBox="0 0 24 24" '+_S+'><path d="M7 4l13 8-13 8z"/></svg>'
 };
 function ic(n,c){return '<span class="ic"'+(c?' style="color:'+c+'"':'')+'>'+(IC[n]||'')+'</span>'}
 function paintIcons(root){(root||document).querySelectorAll('[data-ic]').forEach(function(e){e.innerHTML=IC[e.dataset.ic]||''})}
@@ -8573,9 +8660,10 @@ function skPfCard(){return '<div class="card acc"><div class="chead">'+     // c
     '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('54px',12)+skb('60px',18,20)+'</span></div></div>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
 function skAgRow(){return '<div class="agx-row">'+             // exact agent/update row
-  '<div class="agx-right"><div class="agx-l1"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+skb('42px',16,6)+'</div>'+
-  '<div class="agx-l2">'+skb('118px',15,7)+skb('118px',15,7)+'</div></div>'+
-  '<div class="agx-colb">'+skb('86px',26,9)+skb('86px',26,9)+'</div></div>'}
+  '<div class="agx-right"><div class="agx-l1"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+'</div>'+
+  '<div class="vline">'+skb('62px',18,7)+skb('62px',18,7)+'</div></div>'+
+  '<div class="agx-colb">'+skb('32px',32,10)+skb('32px',32,10)+'</div>'+
+  '<div class="msg agres"></div></div>'}
 function skCards(kind){
  var arr=(kind=='nodes'?NODES:kind=='portfw'?PF:kind=='agent'?NODES:FLEET)||[];
  var n=Math.max(3,Math.min(8,num(arr.length)||6));
@@ -10460,34 +10548,37 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_bin_saved_pre')+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+T('cor_bin_saved_post');
   await loadCoreVersions('custom')}
  else{formErr(m,terr((res.d&&res.d.error))||T('failed'))}}
+// One glyph per component, everywhere on this page: the agent is a service (cog), the core is the dataplane
+// (bolt). The same glyph names the version, tints itself to say the state, and labels the button that pushes
+// it -- which is why the row needs no «ایجنت»/«هسته» text at all.
+var AG_IC='cog',COR_IC='bolt';
 function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
  var cinst=!!(i.core_sha&&String(i.core_sha).length);            // core_sha empty => no binary on the node
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
  var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    // agent update available
  var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  // core update available/missing
- // status = a colored icon only (no «به‌روز»/«آپدیت» text); full text lives in the tooltip.
- function stx(lbl,cls,icon,tip){return '<span class="stx" title="'+tip+'">'+lbl+' <span class="ico '+cls+'">'+icon+'</span></span>'}
- // agent status + button-enable
- var agbdg,agdis;var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
- if(!n.online){agbdg=stx(LA,'offl','—',T('offline'));agdis=1}
- else if(!AGMETA||AGMETA.none){agbdg='';agdis=1}
- else if(agup){agbdg=stx(LA,'up',ic('redo'),LA+': '+T('ag_up_avail'));agdis=0}
- else{agbdg=stx(LA,'ok',ic('check'),LA+': '+T('ag_uptodate'));agdis=1}
- // core status + button-enable
- var cbdg,cdis;
- if(!n.online){cbdg=stx(LC,'offl','—',T('offline'));cdis=1}
- else if(!cinst){cbdg=stx(LC,'na',ic('dl'),LC+': '+T('ag_not_installed'));cdis=!STAGED}
- else if(cup){cbdg=stx(LC,'up',ic('redo'),LC+': '+T('ag_up_avail'));cdis=0}
- else{cbdg=stx(LC,'ok',ic('check'),LC+': '+T('ag_uptodate'));cdis=1}
- var corpill=cinst?'<span class="agx-pill cor">⚙ '+esc(i.core_ver||'?')+'</span>':'';
+ var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
+ // «آیکن: نسخه» -- the colour IS the status, so the tooltip carries the words
+ function vp(icon,cls,ver,tip){return '<span class="vp '+cls+'" title="'+esc(tip)+'">'+ic(icon)+esc(ver)+'</span>'}
+ var agcls,agtip,agdis;
+ if(!n.online){agcls='offl';agtip=LA+': '+T('offline');agdis=1}
+ else if(!AGMETA||AGMETA.none){agcls='offl';agtip=LA;agdis=1}
+ else if(agup){agcls='up';agtip=LA+': '+T('ag_up_avail');agdis=0}
+ else{agcls='ok';agtip=LA+': '+T('ag_uptodate');agdis=1}
+ var ccls,ctip,cdis;
+ if(!n.online){ccls='offl';ctip=LC+': '+T('offline');cdis=1}
+ else if(!cinst){ccls='na';ctip=LC+': '+T('ag_not_installed');cdis=!STAGED}
+ else if(cup){ccls='up';ctip=LC+': '+T('ag_up_avail');cdis=0}
+ else{ccls='ok';ctip=LC+': '+T('ag_uptodate');cdis=1}
  return '<div class="agx-row">'+
    '<div class="agx-right">'+
-     '<div class="agx-l1"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span><span class="agx-pill">'+agver+'</span>'+corpill+'</div>'+
-     '<div class="agx-l2">'+agbdg+cbdg+'</div>'+
+     '<div class="agx-l1"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span></div>'+
+     '<div class="vline">'+vp(AG_IC,agcls,agver,agtip)+'<span class="vdash">—</span>'+
+       vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   // a label, not a number: may be «custom»
    '</div>'+
    '<div class="agx-colb">'+
-     '<button class="agx-btn'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' onclick="agPush(\\''+n.id+'\\')">'+ic('redo')+esc(LA)+'</button>'+
-     '<button class="agx-btn'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' onclick="corPushStaged(\\''+n.id+'\\')">'+ic('redo')+esc(LC)+'</button>'+
+     '<button class="ib'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LA)+'" onclick="agPush(\\''+n.id+'\\')">'+ic(AG_IC)+'</button>'+
+     '<button class="ib'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LC)+'" onclick="corPushStaged(\\''+n.id+'\\')">'+ic(COR_IC)+'</button>'+
    '</div>'+
    '<div class="msg agres" id="agres_'+n.id+'"></div></div>'}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
@@ -10504,8 +10595,8 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
-// One push job at a time, drawn per node under its own card. The panel uploads to ONE node at a time, so
-// the bars fill in turn; a node that fails or times out stays red and the queue moves on without it.
+// One push job at a time, drawn per node under its own card. PUSH_WORKERS nodes upload at once, so that
+// many bars move together; a node that fails stays red and the pool carries on without it.
 var PUSHJOB=null,PUSHSTATE=null;
 // The worker runs on the PANEL, not in this page: reloading the browser, or losing it entirely, does not
 // stop the upload. pushAdopt reattaches to whatever is still running, which is why a manual refresh shows
@@ -10518,22 +10609,38 @@ async function pushCancel(){if(!PUSHJOB)return;
  if(!await confirmBox(T('ag_p_cancel_q'),T('ag_p_cancel')))return;
  var r=await post('push-cancel',{job:PUSHJOB});
  if(!(r.ok&&r.d&&r.d.ok))toast(perr(r),'err')}
-// The cancel sits on the bar of the node being uploaded to, because that is the bar the operator is
-// watching -- the two page-top cards are scrolled away by then. It stops the queue before the NEXT node;
-// the one already uploading cannot be torn off its socket, so it finishes or times out.
-function pushBar(st,live){
+// Pause is the gentle one: it stops handing out NEW nodes and lets the uploads in flight finish. Cancel is
+// the immediate one -- it drops them mid-body too. want is explicit: a toggle races two quick taps.
+async function pushPause(want){if(!PUSHJOB)return;
+ var r=await post('push-pause',{job:PUSHJOB,paused:!!want});
+ if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
+ if(PUSHSTATE){PUSHSTATE.paused=!!want;pushFab(PUSHSTATE)}}   // no waiting a poll tick to look pressed
+function pushBar(st){
  var pct=Math.max(0,Math.min(100,num(st.pct)));
  var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
  var txt={wait:T('ag_p_wait'),send:T('ag_p_send'),apply:T('ag_p_apply'),ok:T('ag_p_ok'),
           same:T('ag_p_same'),skip:T('ag_p_skip'),err:terr(st.error||T('ag_p_err'))}[st.state]||'';
- live=live&&(st.state=='send'||st.state=='apply');   // a finished job must not leave a button that does nothing
- var xb=live?'<button class="pxc" title="'+esc(T('ag_p_cancel'))+'" onclick="pushCancel()">'+ic('xc')+'</button>':'';
  return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
-  +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b>'+xb+'</div>'}
+  +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
+// The job's controls live in a fixed pill, NOT inside the node list: refreshAgent rewrites that list every
+// 1.5s and would wipe them. It sits outside #view for the same reason.
+function pushFab(d){var box=el('pushFab');if(!box)return;
+ var live=d&&!d.done;
+ document.body.classList.toggle('pushing',!!live);   // lifts the toast so it cannot cover the pill
+ if(!live){setHTML(box,'');return}
+ var ns=d.nodes||{},order=d.order||[],done=0;
+ order.forEach(function(nid){var s=(ns[nid]||{}).state;
+   if(s=='ok'||s=='same'||s=='err'||s=='skip')done++});
+ var pz=!!d.paused;
+ setHTML(box,'<div class="pfab"><span class="pfn">'+num(done)+'<s>/'+num(order.length)+'</s></span>'+
+   '<button class="pfb"'+(pz?' disabled':'')+' title="'+esc(T('ag_p_pause'))+'" onclick="pushPause(true)">'+ic('pause')+'</button>'+
+   '<button class="pfb"'+(pz?'':' disabled')+' title="'+esc(T('ag_p_resume'))+'" onclick="pushPause(false)">'+ic('play')+'</button>'+
+   '<button class="pfb stop" title="'+esc(T('ag_p_cancel'))+'" onclick="pushCancel()">'+ic('xc')+'</button></div>')}
 function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
  (d.order||[]).forEach(function(nid){var m=el('agres_'+nid),st=ns[nid];if(!m||!st)return;
    m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
-   setHTML(m,pushBar(st,!d.done))})}
+   setHTML(m,pushBar(st))});
+ pushFab(d)}
 // A core push is megabytes per node and takes minutes; one blip must not end the tracking while the panel
 // is still uploading. Tolerate consecutive failures the way the install poller does, and release PUSHJOB
 // in a finally -- a throw in here used to leave the button unusable until a reload.
@@ -10545,7 +10652,7 @@ async function pushPoll(job){var fails=0;
     else{fails=0;pushPaint(r);if(r.done)break}
     await new Promise(function(res){setTimeout(res,400)})}
   setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
- finally{PUSHJOB=null;PUSHSTATE=null}}
+ finally{PUSHJOB=null;PUSHSTATE=null;pushFab(null)}}   // the pill outlives #view, so it must be cleared here
 async function pushStart(cmd,body,ids){
  if(PUSHJOB){toast(T('ag_p_busy'),'err');return}
  ids.forEach(function(id){var m=el('agres_'+id);
