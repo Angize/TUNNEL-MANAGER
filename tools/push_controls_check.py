@@ -68,8 +68,8 @@ need("with _push_lock:" in jn.split('if any(not v["done"]')[0],
      "the refusal must be inside the lock or two simultaneous POSTs both win")
 need(SRC.count("target=_push_worker") == 1,
      "_push_worker may be launched from ONE place (_push_start), else the single-job rule is bypassable")
-need("_push_job_new(kind, nodes, current)" in body("_push_start"),
-     "_push_start must forward the already-current set")
+need("_push_job_new(kind, todo)" in body("_push_start"),
+     "_push_start must build the job from the filtered list, not the caller's full one")
 # one condition must not have two wordings
 busy = re.findall(r'raise ValueError\("(یک آپلود[^"]*)"\)', SRC)
 key = re.search(r'ag_p_busy:"([^"]*)"', SRC)
@@ -90,8 +90,38 @@ need('_push_current(nodes, "core_sha", want)' in body("_core_job"),
      "the core push must skip nodes whose reported core_sha already matches the staged one")
 need('_push_current(nodes, "sha256"' in body("api_agent_push"),
      "the agent push must skip nodes whose reported sha256 already matches the stored agent")
-need('"state": "same" if n["id"] in cur else "wait"' in jn,
-     "a skipped node must start settled at «همین نسخه بود», not vanish from the job")
+# an up-to-date node gets NO queue slot and NO bar: it must not be in the job at all
+sp = body("_push_start")
+need('todo = [n for n in nodes if n["id"] not in set(current)]' in sp,
+     "_push_start must DROP already-current nodes, not carry them as settled entries -- a full bar on a "
+     "node that was never contacted reads as work that happened")
+need("if not todo:\n        return None" in sp,
+     "_push_start must report «nothing to do» rather than an empty job")
+need('"same"' not in jn, "_push_job_new must not pre-settle any node; the job holds work only")
+for fn in ("api_agent_push", "_core_job"):
+    need('"none": True' in body(fn), "%s must tell the page when nothing was sent" % fn)
+need("res.d.none" in jsfn("pushStart") and "ag_p_none" in jsfn("pushStart"),
+     "pushStart must say «nothing was sent» instead of starting a phantom job")
+need("pushBar({state:'wait'" not in CODE,
+     "pushStart must not pre-paint «در نوبت»: the SERVER decides which nodes are in the job")
+
+# the probe percentage is a staircase, so only multiples of its step may be stored
+need(re.search(r'_TUNING_STEPS = \{"probe_min_pct": \(5, ', SRC),
+     "probe_min_pct must carry a step of 5 -- each 5% is one more packet of the 20 the probe sends")
+need('"probe_min_pct": (5, 100)' in SRC,
+     "its range must start AT the step, or clamping 0 yields 1, which is not a multiple")
+vt = body("_validate_tuning")
+need("if step and v % step:" in vt and "raise ValueError" in vt,
+     "_validate_tuning must REFUSE a non-multiple, not silently round it to a number the core never used")
+
+# the agent and the core must not wear the same glyph anywhere on the page
+ab = jsfn("agentBody")
+need("ic(AG_IC," in ab and "ic(COR_IC," in ab,
+     "the two cards must take the one pair of constants -- both used to draw cpu")
+need("ic('cpu'" not in ab and "ic('cog'" not in ab, "no hardcoded glyph may remain in agentBody")
+# and the overview note must use an icon, not an emoji
+need("✅" not in SRC, "the overview note must use ic('okc'), not a ✅ emoji")
+need("ic('okc','var(--ok)')" in SRC and "ov_all_good" in SRC, "…tinted with the ok colour")
 
 # ---- 0c. the body is serialised ONCE, not per node
 need('cache[arch] = (json.dumps(' in body("_staged_payload"),
