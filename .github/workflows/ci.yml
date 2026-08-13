@@ -17,6 +17,10 @@ name: ci
 #   core_rejects          the panel refuses every combination the CORE refuses. When it does not, the
 #                         operator saves a form, the node stores it, and the core then exits on
 #                         validate() -- both ends refuse to start with nothing in between saying why.
+#   delivery_mode         the three delivery modes (panel uploads / node fetches from GitHub / node
+#                         fetches from the panel) all install the SAME artifact -- the bytes behind
+#                         every url hash to the sha the panel signed. Drives the real push APIs, the
+#                         ssh install leg and a real GET at the panel Handler, per mode per arch.
 #   config_contract       the panel's THREE independent ways of building a node body (create / edit /
 #                         rebuild) build the SAME body. This is the guard for the defect class that
 #                         shipped three times in a row under "chain verified end to end": a key that
@@ -158,3 +162,6 @@ jobs:
       - name: every declared I18N key is rendered or composed
         working-directory: TUNNEL-MANAGER
         run: python tools/i18n_dead_keys_check.py
+      - name: all three delivery modes deliver the same artifact
+        working-directory: TUNNEL-MANAGER
+        run: python tools/delivery_mode_check.py
