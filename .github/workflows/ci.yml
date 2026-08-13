@@ -42,6 +42,10 @@ name: ci
 #                         instead, and per-IP filtering is this project's documented reality, so a green
 #                         could be about an address the tunnel never touches. A node registered by
 #                         hostname made the button a dead end outright.
+#   i18n_dead_keys        every declared I18N key is rendered somewhere, or composed by a
+#                         T('prefix'+…) builder. Dead keys accumulate silently -- nine survived
+#                         several rounds of feature removal -- and deleting one by hand has the
+#                         opposite trap: `nav_logs` is quoted nowhere and is very much alive.
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -151,3 +155,6 @@ jobs:
       - name: a rotation body carries only keys the core accepts
         working-directory: TUNNEL-MANAGER
         run: python tools/rotation_body_keys_check.py
+      - name: every declared I18N key is rendered or composed
+        working-directory: TUNNEL-MANAGER
+        run: python tools/i18n_dead_keys_check.py
