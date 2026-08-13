@@ -1772,7 +1772,11 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto
         body["peer_auto_burn"] = auto_burn
     else:
         body["pool_listen"] = True                # accept the client dialing any of this server's IPs
-        if own_pool:
+        # ...but listen_ips only where a server READS it. config.go refuses it outright on anything but
+        # udp/tcp ("listen_ips is read only by the udp and tcp servers"), and raw must bind 0.0.0.0
+        # anyway — a concrete bind makes its socket deaf to every other pool IP. Today the node's
+        # whitelist happens to drop it again; the day that widens, both ends exit at startup instead.
+        if own_pool and body.get("transport") in ("udp", "tcp"):
             body["listen_ips"] = list(own_pool)   # bind exactly these (this server's own selected IPs)
         if peer_pool:
             # The CLIENT's source pool — the IPs it sends FROM as it rotates its source. raw/flux servers
