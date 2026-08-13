@@ -148,3 +148,6 @@ jobs:
       - name: a flux tunnel's drop rules cannot black-hole a co-located one
         working-directory: TUNNEL-MANAGER
         run: python tools/flux_drop_conflict_check.py
+      - name: a rotation body carries only keys the core accepts
+        working-directory: TUNNEL-MANAGER
+        run: python tools/rotation_body_keys_check.py
