@@ -278,6 +278,33 @@ def main():
                 if not ok:
                     fails.append(f"{form}/{prof}/{row}")
 
+    # The tile roster is a FOURTH hand-written copy of the profile list, tied to nothing. A profile
+    # added to CORE_RAW_PROFILE_PROTOS but not here simply has no tile: the operator cannot pick it,
+    # and every other check in this file drives the setters directly and so never notices.
+    tiles = re.findall(r"\{v:'([a-z0-9]+)',m:T\('rawp_[a-z0-9]+_m'\)([^}]*)\}", js)
+    tile_set = {v for v, _ in tiles}
+    if tile_set != set(profiles):
+        print(" FAIL the raw tiles and CORE_RAW_PROFILE_PROTOS disagree: "
+              f"only in the tiles {sorted(tile_set - set(profiles))}, "
+              f"only in the roster {sorted(set(profiles) - tile_set)}")
+        fails.append("tiles/roster")
+    else:
+        print(f"  ok   the raw tiles are exactly the {len(profiles)} registered profiles")
+
+    # The NAT warning belongs to every profile a NAT cannot rewrite: no L4 ports to translate and no id
+    # it tracks. udp and tcp forge ports; icmp forges the echo id a NAT follows. Everything else is a
+    # bare IP protocol number.
+    nat_ok = {"udp", "tcp", "icmp"}
+    for v, rest in sorted(tiles):
+        warned = "warn:1" in rest
+        want = v not in nat_ok
+        ok = warned == want
+        print(("  ok   " if ok else " FAIL ") +
+              f"tile   {v:8} NAT warning {'shown' if warned else 'absent'}"
+              + ("" if ok else f"  <-- want {'shown' if want else 'absent'}"))
+        if not ok:
+            fails.append(f"tile/{v}/nat-warning")
+
     print()
     if fails:
         print(f"{len(fails)} row(s) gated wrong: {', '.join(fails)}")
