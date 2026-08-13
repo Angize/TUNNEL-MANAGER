@@ -2801,6 +2801,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
 
 
 def api_node_install(d):
+    _gate_ready(True)   # both: the agent is what gets installed, the core is pushed before any build
     _require(d, ["name", "ssh_host"])
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
@@ -3291,6 +3292,47 @@ def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
     return {"url": url, **body}
 
 
+def _readiness():
+    """What the panel must already hold before a node can be installed or a core tunnel built.
+
+    BOTH architectures count for the core. nodes.json carries no arch and no write path adds one, so the
+    panel cannot know which one the next node will report -- a stage that got only amd64 would read
+    ready and then refuse the first arm64 node it met. Presence on disk is the test, not the `arches`
+    list in the meta: that list records what one stage run managed to fetch, and the files are what a
+    push actually has to send."""
+    try:
+        _staged_agent()
+        agent = True
+    except Exception:
+        agent = False
+    info = _staged_info()
+    missing = [a for a in CORE_ARCHES
+               if not os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-" + a))]
+    core = bool(info) and not missing
+    return {"agent": agent, "core": core, "core_missing": missing,
+            "core_version": (info or {}).get("version", ""), "ok": agent and core}
+
+
+def api_readiness(d):
+    return _readiness()
+
+
+def _gate_ready(need_agent):
+    """Refuse an operation the panel is not equipped for, naming what is missing.
+
+    The disabled button is not the gate: the browser can be stale, and both of these operations end in
+    a half-built state if they start without the artifact. This is the gate."""
+    r = _readiness()
+    miss = []
+    if need_agent and not r["agent"]:
+        miss.append("ایجنتِ نود")
+    if not r["core"]:
+        miss.append("هستهٔ داده" + (" برای معماریِ " + "، ".join(r["core_missing"]) if r["core_version"] else ""))
+    if miss:
+        raise ValueError("این کار به چیزی نیاز دارد که هنوز روی پنل آماده نیست: " + " و ".join(miss)
+                         + " — در «تنظیمات» آن را بگیر و دوباره امتحان کن")
+
+
 def _dl_artifact(kind, arch):
     """The exact bytes a node was told to fetch, or None when the panel holds none. `kind` mirrors what
     _panel_dl_url puts in the URL: ag = the staged agent, co = the staged core for `arch`, cb = the
@@ -3770,7 +3812,8 @@ def _staged_info():
 
 def _stage_core(version):
     """Download the resolved version for amd64 (required) and arm64 (best-effort) and persist it on the
-    panel as the staged core, ready to push to internet-less nodes. Returns {version, arches}. Raises if
+    panel as the staged core. Returns {version, arches, missing} — `missing` is what the operator has to
+    retry for, because readiness needs BOTH arches and a silent partial stage reads as done. Raises if
     the panel itself cannot fetch the amd64 asset (e.g. the panel has no internet)."""
     rel = _resolve_core_version(version)
     os.makedirs(CORE_STAGE_DIR, exist_ok=True)
@@ -3788,7 +3831,7 @@ def _stage_core(version):
             shas[arch] = sha       # per-arch sha lets the panel tell which nodes are out of date
             sizes[arch] = len(raw)
         save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": sizes, "ts": int(time.time())})
-    return {"version": rel, "arches": got}
+    return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
 
 
 def _staged_bytes(arch):
@@ -5063,6 +5106,8 @@ def _create_tunnel_impl(d):
     ttype = d["type"]
     if ttype not in TYPES:
         raise ValueError("bad type")
+    if ttype == "core":
+        _gate_ready(False)   # before any node is touched: a build with nothing to install ends half-made
     pa, pb = _ping_both(A, B)
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
@@ -7322,7 +7367,7 @@ API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
     "spoof-probe": api_spoof_probe,
     "spoof-egress-probe": api_spoof_egress_probe,
-    "settings": api_settings, "settings-set": api_settings_set,
+    "settings": api_settings, "settings-set": api_settings_set, "readiness": api_readiness,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
@@ -8001,6 +8046,15 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
 .agx-act .primary{flex:1;justify-content:center}
 .agx-hint{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.6}
+/* readiness bar: the panel is missing something the install / core-build needs. Above the view, so it
+   is the same warning on whatever page the operator happens to be on. */
+.rdbar{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:11px 13px;border-radius:13px;
+  background:color-mix(in srgb,var(--gold) 12%,var(--card));border:1px solid color-mix(in srgb,var(--gold) 38%,transparent)}
+.rdbar .ic{width:17px;height:17px;flex:0 0 auto;stroke:var(--gold)}
+.rdbar .rdtx{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.rdbar b{font-size:12.5px;font-weight:800}
+.rdbar span{font-size:11px;color:var(--sub);line-height:1.6}
+.rdbar button{margin:0;flex:0 0 auto;padding:8px 12px;font-size:11.5px;border-radius:10px}
 .agx-dlv{margin-top:11px}
 .agx-dlv label{margin:0 2px 7px}
 .agx-dlv .seg2{margin:0}
@@ -8378,6 +8432,7 @@ body.dark .tag.core{color:#a78bfa}
  </aside>
  <main class="main">
   <div class="mtop"><button class="hb" onclick="drawer(true)"><span class="ic" data-ic="menu"></span></button><div class="sbrand"><span class="logo" style="width:28px;height:28px;font-size:14px"><span class="ic" data-ic="shield"></span></span><span>TUNNEL-MANAGER</span></div><button class="hb" id="thbtn2" onclick="toggleTheme()"><span class="ic" data-ic="moon"></span></button></div>
+  <div id="rdbar"></div>
   <div id="view"></div>
  </main>
 </div>
@@ -8576,6 +8631,11 @@ var I18N={fa:{
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
+ rdy_title:"پنل هنوز چیزی برای دادن به نودها ندارد",
+ rdy_agent:"ایجنتِ نود روی پنل نیست",rdy_core:"هستهٔ داده روی پنل نیست",
+ rdy_core_arch:"هستهٔ داده برای معماریِ {a} روی پنل نیست",
+ rdy_why:"تا اینها آماده نشوند، «افزودن نود» و ساختِ تونلِ هسته رد می‌شوند.",
+ rdy_go:"برو به تنظیمات",cor_arch_missing:" — معماریِ {a} نیامد؛ دوباره «دریافت از گیت‌هاب» را بزن",
  dlv_lbl:"فایل چطور به نود برسد",
  dlv_push_t:"پنل آپلود کند",dlv_push_s:"بایت‌ها را پنل می‌فرستد",
  dlv_git_t:"نود از گیت‌هاب",dlv_git_s:"نود خودش دانلود می‌کند",
@@ -10789,6 +10849,25 @@ async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.t
  else{if(b)b.textContent=old;toast(terr((r.d&&(r.d.error||r.d.msg))||T('pf_rotate_failed')),'err')}}
 async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});editingId=null;refreshPortfw()}
 
+// ===== readiness =====
+// The panel cannot install a node or build a core tunnel without an agent file and a core for BOTH
+// architectures. The server refuses those two operations on its own; this is only the telling.
+var RDY=null;
+async function loadReadiness(){try{RDY=await j('readiness')}catch(e){return}paintReady()}
+function paintReady(){var b=el('rdbar');if(!b)return;
+ // Clear through setHTML like every other paint: writing innerHTML directly leaves its _html cache
+ // holding the old bar, and the next identical warning is then skipped as a no-op change.
+ if(!RDY||RDY.ok){setHTML(b,'');return}
+ var miss=[];
+ if(!RDY.agent)miss.push(T('rdy_agent'));
+ // "staged, but only one arch" is a different sentence from "nothing staged": one needs a retry, the
+ // other needs a version picked.
+ if(!RDY.core)miss.push(RDY.core_version?T('rdy_core_arch').replace('{a}',(RDY.core_missing||[]).join('، ')):T('rdy_core'));
+ setHTML(b,'<div class="rdbar">'+ic('warn')+'<div class="rdtx"><b>'+esc(T('rdy_title'))+'</b>'+
+  '<span>'+esc(miss.join(' · ')+' — '+T('rdy_why'))+'</span></div>'+
+  '<button type="button" class="ghost" onclick="goReady()">'+esc(T('rdy_go'))+'</button></div>')}
+function goReady(){cur='settings';render()}
+
 // ===== agent push-update page =====
 // Which end carries the bytes the last hop, per artifact. The panel decides WHAT is installed in all
 // three (it sends the sha and its signature, and the node checks both), so this only moves the traffic.
@@ -10838,6 +10917,7 @@ function agentBody(){return ''+
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
  if(info&&info.delivery){DLV.agent=info.delivery;paintDelivery()}   // rides the poll this page already makes
+ loadReadiness();   // this page IS where a missing artifact gets fixed, so the bar clears as it happens
  var st=el('ag_status'),mt=el('ag_meta');
  if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
  if(mt)mt.innerHTML=(info&&!info.none)?
@@ -10885,7 +10965,13 @@ async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textCont
     :d.newer?T('cor_check_new'):T('cor_check_same')}}
 async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';m.textContent=T('cor_downloading');
  var res=await post('core-stage',{version:ver});
- if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+CK;loadCoreVersions()}
+ if(res.ok&&res.d&&res.d.ok){var mis=res.d.missing||[];
+  // A stage that got only one architecture is NOT done: readiness needs both, and reporting it green
+  // would leave the operator staring at a warning bar with nothing to explain it.
+  m.className=mis.length?'msg':'msg ok';
+  m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+
+   (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
+  loadCoreVersions();loadReadiness()}
  else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
 async function corPushStaged(id){await pushStart('core-push',{ids:[id]},[id])}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ver'),'err');return}
@@ -11304,9 +11390,14 @@ function palKey(e){if(e.key=='ArrowDown'){e.preventDefault();PALIDX=Math.min(PAL
  else if(e.key=='ArrowUp'){e.preventDefault();PALIDX=Math.max(PALIDX-1,0);palHi();palSc()}
  else if(e.key=='Enter'){e.preventDefault();palGo(PALIDX)}else if(e.key=='Escape'){e.preventDefault();closePal()}}
 function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if(r)r.scrollIntoView({block:'nearest'})}
-(function(){var p=getLS('tnl_page');   // restore the last page on reload (fall back to overview)
- if(['overview','nodes','proxies','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;})();
-render();updateSidebar();TT=setTimeout(tick,6000);
+// Restore the last page on reload (fall back to overview) — UNLESS the panel is still missing an agent
+// or a core, in which case land on Settings, where the two of them are staged. Only at load: once the
+// operator has navigated away, nothing yanks them back.
+(async function(){var p=getLS('tnl_page');
+ if(['overview','nodes','proxies','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;
+ await loadReadiness();
+ if(RDY&&!RDY.ok)cur='settings';
+ render();updateSidebar();TT=setTimeout(tick,6000)})();
 </script></body></html>"""
 
 # Keep the browser's tuning defaults in lock-step with the Python source of truth: inject _TUNING_DEFAULTS

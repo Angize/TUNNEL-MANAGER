@@ -57,6 +57,10 @@ def wire(P, links, node_ids=()):
     # real _flat_ips was stubbed out beside it, so nothing noticed. Keep the REAL shape and let the real
     # _flat_ips run on it, or a guard here proves nothing about the panel's own reading of a ping.
     P._ping_both = lambda A, B: ({"ips": {"eth0": [A_IP]}}, {"ips": {"eth0": [B_IP]}})
+    # This guard is not about the readiness gate; give it a panel that already holds both artifacts
+    # so _gate_ready runs for real and passes, instead of stubbing the gate itself away.
+    P._readiness = lambda: {"agent": True, "core": True, "core_missing": [],
+                            "core_version": "v0.0.0", "ok": True}
     P._refresh_cache = lambda nids: None
     P._push_staged = lambda n: {"ok": True}
 

@@ -21,6 +21,10 @@ name: ci
 #                         fetches from the panel) all install the SAME artifact -- the bytes behind
 #                         every url hash to the sha the panel signed. Drives the real push APIs, the
 #                         ssh install leg and a real GET at the panel Handler, per mode per arch.
+#   readiness_gate        adding a node and building a core tunnel are refused server-side while the
+#                         panel holds no agent or no core for BOTH arches. The disabled button is not
+#                         the gate: a stale page walks past it and the operation half-completes on the
+#                         node. Drives the real APIs and the page boot under node.
 #   config_contract       the panel's THREE independent ways of building a node body (create / edit /
 #                         rebuild) build the SAME body. This is the guard for the defect class that
 #                         shipped three times in a row under "chain verified end to end": a key that
@@ -165,3 +169,6 @@ jobs:
       - name: all three delivery modes deliver the same artifact
         working-directory: TUNNEL-MANAGER
         run: python tools/delivery_mode_check.py
+      - name: the panel refuses an install or a core build it cannot finish
+        working-directory: TUNNEL-MANAGER
+        run: python tools/readiness_gate_check.py
