@@ -142,3 +142,9 @@ jobs:
       - name: the panel's prose and toasts agree with what it does
         working-directory: TUNNEL-MANAGER
         run: python tools/panel_says_what_it_does_check.py
+      - name: the FEC switch says the truth on every transport
+        working-directory: TUNNEL-MANAGER
+        run: python tools/fec_gate_check.py
+      - name: a flux tunnel's drop rules cannot black-hole a co-located one
+        working-directory: TUNNEL-MANAGER
+        run: python tools/flux_drop_conflict_check.py
