@@ -7413,7 +7413,16 @@ class Handler(BaseHTTPRequestHandler):
         c = SimpleCookie(self.headers.get("Cookie", ""))
         return check_token(self._conf(), c["tnl_session"].value) if "tnl_session" in c else None
 
-    def _send(self, code, body, ctype="application/json", extra=None):
+    # How much of a response body goes out per write. `self.timeout` is a socket timeout, and a socket
+    # timeout is applied PER BLOCKING CALL -- so one write of the whole body puts a single deadline on
+    # the entire transfer. MEASURED: an 11 MB core to a node on a ~60-140 KB/s link needs 80-190 s, the
+    # write died at its deadline, and the node read a SHORT body behind a full Content-Length and
+    # reported «checksum mismatch». One write per slice gives each slice its own deadline, so a peer
+    # that is merely slow is never cut, while a peer that has actually stalled still trips it inside one
+    # slice -- which is the slowloris protection the timeout is there for.
+    SEND_CHUNK = 64 * 1024
+
+    def _send(self, code, body, ctype="application/json", extra=None, big=False):
         if isinstance(body, (dict, list)):
             body = json.dumps(body)
         data = body.encode() if isinstance(body, str) else body
@@ -7435,7 +7444,12 @@ class Handler(BaseHTTPRequestHandler):
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(data)
+        if not big:
+            self.wfile.write(data)
+            return
+        mv = memoryview(data)   # slice without copying the megabytes
+        for i in range(0, len(mv), self.SEND_CHUNK):
+            self.wfile.write(mv[i:i + self.SEND_CHUNK])
 
     def _body(self, cap=1048576):
         try:
@@ -7545,7 +7559,7 @@ class Handler(BaseHTTPRequestHandler):
         if not raw:
             self._send(404, {"error": "not staged"})
             return
-        self._send(200, raw, "application/octet-stream")
+        self._send(200, raw, "application/octet-stream", big=True)   # megabytes: one deadline per slice
 
     def _checkin(self):
         ip = self._client_ip()
