@@ -36,17 +36,25 @@ def check(name, cond, detail=''):
 
 
 def load_panel(state):
+    """The panel with every path it writes re-pointed into `state`.
+
+    Re-pointed by SWEEPING the module, not by listing the names: a hand-written list missed
+    PROXIES_FILE, and on a machine where /opt/tnl-central happens to exist the guard wrote there and
+    passed anyway. It only surfaced on a runner where that directory does not exist."""
     spec = importlib.util.spec_from_file_location('tnl_delivery_check', PANEL)
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
+    root = m.CENTRAL_DIR
+    for k in dir(m):
+        v = getattr(m, k)
+        if isinstance(v, str) and v.startswith(root):
+            setattr(m, k, os.path.join(state, os.path.relpath(v, root)))
     m.CENTRAL_DIR = state
-    for k in ('NODES_FILE', 'LINKS_FILE', 'SETTINGS_FILE', 'AGENT_FILE', 'AGENT_META',
-              'CORE_BLOB', 'CORE_BLOB_META', 'CORE_STAGE_META', 'EVENTS_FILE'):
-        if hasattr(m, k):
-            setattr(m, k, os.path.join(state, os.path.basename(getattr(m, k))))
-    m.CORE_STAGE_DIR = os.path.join(state, 'core-stage')
     os.makedirs(m.CORE_STAGE_DIR, exist_ok=True)
     m._CENTRAL_PORT = 8080
+    left = sorted(k for k in dir(m) if isinstance(getattr(m, k), str) and getattr(m, k).startswith(root))
+    if left:
+        sys.exit('these panel paths still point at the real state dir: %s' % left)
     return m
 
 
