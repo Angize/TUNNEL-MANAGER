@@ -194,6 +194,10 @@ def part2(P, failures):
     P.node_call = lambda *a, **k: {"ok": True}
     P._refresh_cache = lambda *a, **k: None
     P._push_staged_on_add = lambda *a, **k: None
+    # This guard is not about the readiness gate; give it a panel that already holds both artifacts
+    # so _gate_ready runs for real and passes, instead of stubbing the gate itself away.
+    P._readiness = lambda: {"agent": True, "core": True, "core_missing": [],
+                            "core_version": "v0.0.0", "ok": True}
     P.get_node = lambda nid: None
     P.time.sleep = lambda *_: None
 
