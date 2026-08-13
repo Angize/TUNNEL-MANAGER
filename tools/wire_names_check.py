@@ -79,6 +79,23 @@ def main():
     chk("every line that builds a node path translates it", [p for p in paths if "wire(endpoint)" not in p], [])
     chk("and there are exactly the three known exits", len(paths), 3)
 
+    # ---- the OTHER direction is plaintext too. /api/dl is a node fetching a staged artifact from the
+    # panel, so its URL crosses the same filtered path as a control call and must say just as little.
+    # Built for real rather than grepped: the query keys are what a filter greps, and they only exist
+    # once _panel_dl_url has assembled them.
+    P._CENTRAL_PORT = 8080
+    P._route_src = lambda host: "203.0.113.7"
+    P.node_proxy = lambda n: ""
+    dl = [P._panel_dl_url({"host": "10.0.0.1", "token": "tok"}, k, arch)
+          for k, arch in (("ag", ""), ("co", "amd64"), ("co", "arm64"), ("cb", ""))]
+    chk("the panel's own download URL says nothing either",
+        sorted({b for u in dl for b in BAIT if b in u.lower()}), [])
+    # Every path the panel answers before a session exists — which is every path a NODE can reach.
+    routed = sorted(set(re.findall(r'path == "(/api/[a-z-]+)"', src)))
+    chk("...and that list was found at all", bool(routed), True)   # a regex that matches nothing passes everything
+    chk("no URL the panel answers without a session says what this is",
+        sorted({(p, b) for p in routed for b in BAIT if b in p.lower()}), [])
+
     # ---- and the node answers exactly this set
     N = load(a.node, "tnl_node")
     chk("the node's wire map matches the panel's",
