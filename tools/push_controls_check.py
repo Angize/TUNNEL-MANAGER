@@ -154,12 +154,15 @@ need("vhead(AG_IC,'ag_title'" in CODE and "vhead(COR_IC,'nav_core'" in CODE,
 need("✅" not in SRC, "the overview note must use ic('okc'), not a ✅ emoji")
 need("ic('okc','var(--ok)')" in SRC and "ov_all_good" in SRC, "…tinted with the ok colour")
 
-# ---- 0c. the body is serialised ONCE, not per node
-need('cache[arch] = (json.dumps(' in body("_staged_payload"),
-     "the staged payload must cache the ENCODED body; caching only the dict left json.dumps running per "
-     "node -- ~87ms of GIL-held CPU each, which stalls every other worker's progress")
-need('enc = json.dumps({"code": src' in body("api_agent_push"),
-     "the agent body must be encoded once for the fleet, not per node")
+# ---- 0c. the body is serialised ONCE per distinct body, not per node
+need('_body_cache(' in code("_staged_payload") and '_body_cache(' in code("api_agent_push"),
+     "both payload builders must go through _body_cache; encoding per node is ~87ms of GIL-held CPU "
+     "each, which stalls every other worker's progress")
+need("json.dumps" not in code("_staged_payload") and "json.dumps" not in code("api_agent_push"),
+     "...and neither may json.dumps a body itself — that is exactly how the per-node encode came back")
+need('key = body.get("url") or body["sha256"]' in code("_body_cache"),
+     "_body_cache must key on the artifact, not on a constant: one shared entry would hand the amd64 "
+     "body to an arm64 node and kill every core tunnel there with «Exec format error»")
 need("isinstance(body, (bytes, bytearray))" in body("node_push"),
      "node_push must send an already-encoded body verbatim instead of re-encoding it")
 
