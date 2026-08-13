@@ -150,6 +150,12 @@ def check(ok, msg):
         fails.append(msg)
 
 
+# Two knobs live on the agent and core cards instead of the settings card: they are switches that
+# save themselves the moment they are tapped, so Save must NOT carry them -- a card rendered before
+# the switch was flipped would otherwise post the old value back over it.
+SELF_SAVING = {"agent_delivery", "core_delivery"}
+
+
 def main():
     import importlib.util
     sys.dont_write_bytecode = True
@@ -202,12 +208,25 @@ def main():
             continue
         check((by_name[name]["saved"] or {}).get("url") == "settings-set",
               "%s: posts to settings-set" % name)
-        for k in setdef:
+        for k in [x for x in setdef if x not in SELF_SAVING]:
             want = settings.get(k, setdef[k])
             got_v = body.get(k)
             # v() hands back strings; the server coerces. Compare as text so "42" == 42 but 15 != 33.
             check(got_v is not None and str(got_v) == str(want),
                   "%s: %-18s form -> POST %s (want %s)" % (name, k, json.dumps(got_v, ensure_ascii=False), want))
+
+    print("== 1b) the two delivery switches own themselves; Save must not speak for them ==")
+    for name in [c["name"] for c in CASES]:
+        body = (by_name[name]["saved"] or {}).get("body") or {}
+        for k in sorted(SELF_SAVING):
+            check(k not in body, "%s: Save does not post %s — a stale card would clobber the switch" % (name, k))
+    i = js.find("async function setDelivery(")
+    check(i >= 0, "the delivery switch exists")
+    if i >= 0:
+        check("post('settings-set'" in js[i:i + 400],
+              "...and posts settings-set itself, so the switch is the thing that saves it")
+        check("paintDelivery()" in js[i:i + 400],
+              "...and repaints, so a rejected save does not leave the wrong option lit")
 
     print("== 2) ...and the TUNING half, in the same one request ==")
     for name, settings in [(c["name"], c["settings"]) for c in CASES]:

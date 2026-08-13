@@ -335,8 +335,19 @@ def settings_defaults():
         "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
         "uptime_window": 1,         # uptime-bar span in hours (1/3/6/8/12/24); always 60 cells, each = window/60
         "ech_refresh_mins": 15,     # minutes between background ECH re-fetches for ECH links (0 = off; min 1)
+        "agent_delivery": "push",   # who moves the agent's bytes to a node (see DELIVERY_MODES)
+        "core_delivery": "push",    # the same choice for the core binary, made separately
         "tuning": dict(_TUNING_DEFAULTS),  # operational self-heal / pool-health timings (see _TUNING_DEFAULTS)
     }
+
+
+# Who carries an artifact's bytes the last hop to a node. The panel decides WHAT is installed in all
+# three — it always sends the sha256 and its signature over that sha, and the node verifies both — so
+# these differ only in who pays the bandwidth and which way the connection is opened.
+#   push   = the panel uploads the bytes in the update / core-install call (the original behaviour)
+#   github = the node downloads them from GitHub itself
+#   panel  = the node downloads them from the panel's own HTTP server
+DELIVERY_MODES = ("push", "github", "panel")
 
 
 def load_settings():
@@ -382,6 +393,12 @@ def validate_settings(d):
     if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
         m = round(float(d["ech_refresh_mins"]), 2)
         out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))  # 0 = off; else 1min–24h
+    for k in ("agent_delivery", "core_delivery"):
+        if k in d:
+            m = str(d[k]).strip().lower()
+            if m not in DELIVERY_MODES:
+                raise ValueError("حالتِ تحویل باید یکی از push / github / panel باشد")
+            out[k] = m
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
@@ -2481,7 +2498,7 @@ def api_node_add(d):
 # The panel can SSH into a fresh server, install the (public) node agent non-interactively, read the
 # generated token back and register the node — all steps streamed to the operator via a polling job.
 NODE_RAW_URL = "https://raw.githubusercontent.com/Angize/TUNNEL-MANAGER-NODE/main/tnl-node.py"
-_INSTALL_STEPS = [("ssh", "اتصالِ SSH"), ("download", "دانلودِ ایجنت"),
+_INSTALL_STEPS = [("ssh", "اتصالِ SSH"), ("agent", "رساندنِ ایجنت به نود"),
                   ("install", "نصب و راه‌اندازیِ سرویس"), ("register", "ثبت و اتصال در پنل")]
 _INSTALL_LABELS = dict(_INSTALL_STEPS)
 _install_jobs = {}
@@ -2680,10 +2697,13 @@ def _ssh_argv(cfg, remote_cmd):
     return ["sshpass", "-e", "ssh"] + opts + [target, remote_cmd], env
 
 
-def _ssh_run(cfg, remote_cmd, timeout):
+def _ssh_run(cfg, remote_cmd, timeout, stdin_text=None):
+    """Run remote_cmd over SSH. stdin_text, when given, is fed to the remote command's stdin — which is
+    how the agent source reaches a node that has no agent yet: at install time the SSH session is the
+    only channel that exists."""
     argv, env = _ssh_argv(cfg, remote_cmd)
     try:
-        p = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(argv, env=env, input=stdin_text, capture_output=True, text=True, timeout=timeout)
         return p.returncode, p.stdout, p.stderr
     except FileNotFoundError as e:
         return 127, "", str(e)
@@ -2706,12 +2726,31 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             return fail("ssh", "اتصالِ SSH ناموفق", (err or out).strip())
         _install_step(jid, "ssh", "ok", f"{cfg['user']}@{cfg['host']}:{cfg['port']} — وصل شد")
 
-        _install_step(jid, "download", "run")
-        dl = f"(curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py || wget -qO /tmp/tnl-node.py {NODE_RAW_URL}) && echo TNL_DL_OK"
-        rc, out, err = _ssh_run(cfg, dl, 90)
-        if rc != 0 or "TNL_DL_OK" not in out:
-            return fail("download", "دانلودِ ایجنت ناموفق (curl/wget؟ دسترسیِ اینترنت؟)", (err or out).strip())
-        _install_step(jid, "download", "ok", "tnl-node.py دریافت شد")
+        _install_step(jid, "agent", "run")
+        try:
+            src, ameta = _staged_agent()
+        except OSError:
+            return fail("agent", "ایجنتی روی پنل آماده نیست",
+                        "در «تنظیمات» ایجنت را از گیت‌هاب بگیر یا فایلش را بارگذاری کن، بعد دوباره امتحان کن.")
+        # Whatever the source, the file that gets run is the one the panel staged: its sha256 is checked
+        # on the node before --auto-install ever sees it. There are only TWO sources over this leg -- the
+        # node has no agent yet, so the SSH session is the only channel, and "the node fetches it from the
+        # panel" has no panel URL it could be authenticated at. So "github" curls, and the other two
+        # modes send the bytes down this session.
+        verify = f"echo '{ameta['sha256']}  /tmp/tnl-node.py' | sha256sum -c - >/dev/null; echo TNL_RECV_OK"
+        if _delivery_mode("agent") == "github":
+            recv = (f"set -e; umask 077; (curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py"
+                    f" || wget -qO /tmp/tnl-node.py {NODE_RAW_URL}); echo TNL_DL_OK; {verify}")
+            stdin, how = None, "از گیت‌هاب"
+        else:
+            recv, stdin, how = (f"set -e; umask 077; base64 -d > /tmp/tnl-node.py; echo TNL_DL_OK; {verify}",
+                                base64.b64encode(src.encode()).decode(), "از پنل")
+        rc, out, err = _ssh_run(cfg, recv, 120, stdin_text=stdin)
+        if "TNL_DL_OK" not in out:
+            return fail("agent", "دریافتِ ایجنت روی نود ناموفق (curl/wget؟ دسترسیِ اینترنت؟)", (err or out).strip())
+        if rc != 0 or "TNL_RECV_OK" not in out:
+            return fail("agent", "فایلِ رسیده با ایجنتِ آمادهٔ پنل یکی نیست", (err or out).strip())
+        _install_step(jid, "agent", "ok", f"tnl-node.py نسخهٔ {ameta['version']} {how} رسید")
 
         _install_step(jid, "install", "run", "نصبِ وابستگی‌ها ممکن است چند دقیقه طول بکشد…")
         sudo = "" if cfg["user"] == "root" else "sudo -n "
@@ -3123,12 +3162,169 @@ def api_agent_fetch_git(d):
 
 
 def api_agent_info(d):
-    """The stored agent's metadata (for the banner + per-node outdated badges)."""
+    """The stored agent's metadata (for the banner + per-node outdated badges), plus how it is delivered.
+    The delivery mode rides along because this endpoint is already polled wherever the switch is drawn."""
     try:
         with open(AGENT_META) as f:
-            return json.load(f)
+            meta = json.load(f)
     except Exception:
-        return {"none": True}
+        meta = {"none": True}
+    return {**meta, "delivery": _delivery_mode("agent")}
+
+
+def _staged_agent():
+    """(source, meta) of the agent staged on the panel. Read under _agent_lock so the pair can never be
+    the code of one upload with the metadata of another. Raises OSError when nothing is staged."""
+    with _agent_lock:
+        with open(AGENT_FILE) as f:
+            src = f.read()
+        with open(AGENT_META) as f:
+            meta = json.load(f)
+    return src, meta
+
+
+# ----------------------------------------------------------------------------- delivery mode
+# Which end opens the connection that carries an artifact's bytes. The panel decides WHAT gets installed
+# in every mode: it sends the sha256 and its RSA signature over that sha, and the node refuses anything
+# whose bytes do not hash to that sha or whose signature does not verify. So a URL here is only a
+# shortcut for the bytes, never a second source of authority.
+
+
+def _delivery_mode(kind):
+    """"push" / "github" / "panel" for kind in ("agent", "core")."""
+    m = str(get_settings().get(kind + "_delivery") or "push")
+    return m if m in DELIVERY_MODES else "push"
+
+
+def _route_src(host):
+    """The local address the kernel would send to `host` from — i.e. the source address `host` sees.
+    A UDP connect() only selects the route; no packet leaves. "" when the route cannot be resolved."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((host, 9))
+        return s.getsockname()[0]
+    except OSError:
+        return ""
+    finally:
+        s.close()
+
+
+def _panel_origin_for(node):
+    """"http://ip:port" as THIS node reaches the panel, or "" when the panel cannot know it.
+
+    The node accepts a plaintext fetch from exactly one origin: the (ip, port) our own requests arrive
+    from, which it pins on first contact. The port is what we advertise in X-Central-Port; the address is
+    the source the kernel picks for the route to this node. A node reached through a proxy sees the
+    PROXY's address instead, and the panel has no way to name that, so it reports no origin rather than
+    handing the node a URL it is bound to refuse."""
+    if node_proxy(node) or not _CENTRAL_PORT:
+        return ""
+    ip = _route_src(str(node.get("host") or ""))
+    return f"http://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
+
+
+def _panel_dl_url(node, kind, arch=""):
+    """The panel URL this node fetches a staged artifact from, or "" when there is no reachable origin.
+
+    The node's fetch carries no headers of its own, so the node token — the same one every control call
+    already sends in the clear on this wire — rides in the query string as the credential."""
+    origin = _panel_origin_for(node)
+    if not origin:
+        return ""
+    q = {"t": str(node.get("token") or ""), "k": kind}
+    if arch:
+        q["arch"] = arch
+    return origin + "/api/dl?" + urllib.parse.urlencode(q)
+
+
+_NO_ORIGIN = ("پنل نمی‌داند این نود او را با چه آدرسی می‌بیند (نودِ پروکسی‌دار) — "
+              "حالتِ تحویل را برای این کار روی «پنل آپلود کند» بگذار")
+
+
+def _agent_delivery_check(meta, mode):
+    """Refuse a mode that cannot deliver THIS agent at all, whatever node it is aimed at."""
+    if mode == "github" and meta.get("source") != "git":
+        raise ValueError("این ایجنت از فایل بارگذاری شده و روی گیت‌هاب نیست — یا «دریافت از گیت‌هاب» را بزن، "
+                         "یا حالتِ تحویلِ ایجنت را عوض کن")
+
+
+def _agent_update_body(node, src, meta, sig):
+    """The `update` body for this node in the chosen delivery mode.
+
+    Pure on purpose: the caller reads the agent and signs its sha ONCE for the whole job, because
+    signing spawns openssl and a push asks per node."""
+    mode = _delivery_mode("agent")
+    _agent_delivery_check(meta, mode)
+    body = {"sha256": meta["sha256"], "sig": sig}
+    if mode == "push":
+        return {"code": src, **body}
+    if mode == "github":
+        return {"url": NODE_RAW_URL, **body}
+    url = _panel_dl_url(node, "ag")
+    if not url:
+        raise ValueError(_NO_ORIGIN)
+    return {"url": url, **body}
+
+
+def _core_delivery_check(mode, custom):
+    """Refuse a mode that cannot deliver THIS core binary at all."""
+    if mode == "github" and custom:
+        raise ValueError("این باینری روی پنل بارگذاری شده و روی گیت‌هاب نیست — "
+                         "حالتِ تحویلِ هسته را روی «پنل آپلود کند» یا «نود از پنل بگیرد» بگذار")
+
+
+def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
+    """The `core-install` body for this node: the bytes, or the URL that serves exactly those bytes.
+
+    Pure, for the same reason as _agent_update_body — and here the byte form is a ~14MB base64 string,
+    so the caller encodes it once per architecture and hands it in."""
+    mode = _delivery_mode("core")
+    _core_delivery_check(mode, custom)
+    body = {"sha256": sha, "version": ver, "sig": sig}
+    if mode == "push":
+        return {"data": b64, **body}
+    if mode == "github":
+        return {"url": _release_asset_url(ver, arch), **body}
+    url = _panel_dl_url(node, "cb" if custom else "co", "" if custom else arch)
+    if not url:
+        raise ValueError(_NO_ORIGIN)
+    return {"url": url, **body}
+
+
+def _dl_artifact(kind, arch):
+    """The exact bytes a node was told to fetch, or None when the panel holds none. `kind` mirrors what
+    _panel_dl_url puts in the URL: ag = the staged agent, co = the staged core for `arch`, cb = the
+    core binary the operator uploaded."""
+    if kind == "ag":
+        return _staged_agent()[0].encode()
+    if kind == "co":
+        b = _staged_bytes(arch)
+        return b[0] if b else None
+    if kind == "cb":
+        with _core_blob_lock:
+            with open(CORE_BLOB, "rb") as f:
+                return f.read()
+    return None
+
+
+def _body_cache(build):
+    """Wrap a per-node body builder so identical bodies are json-encoded once for the whole job.
+
+    Only the panel-fetch URL varies per node (it carries that node's token); "push" and "github" produce
+    one body for the whole fleet, and re-encoding it per node is what once made each push worker freeze
+    every other worker for ~350ms on a 20MB agent-sized payload."""
+    cache = {}
+
+    def enc(node):
+        body = build(node)
+        # The sha keys the byte push, so the two architectures of one core release stay two entries --
+        # handing an arm64 node the amd64 body is the failure that kills every core tunnel on it.
+        key = body.get("url") or body["sha256"]
+        if key not in cache:
+            cache[key] = json.dumps(body).encode()
+        return cache[key]
+
+    return enc
 
 
 _push_lock = threading.Lock()
@@ -3368,14 +3564,11 @@ def api_push_pause(d):
 
 
 def api_agent_push(d):
-    """Push the stored agent to the given node ids; each node validates + swaps + self-restarts."""
+    """Deliver the stored agent to the given node ids in the operator's `agent_delivery` mode; each node
+    validates + swaps + self-restarts whichever way the bytes reached it."""
     _require(d, ["ids"])
     try:
-        with _agent_lock:                                # read code+meta atomically vs the locked upload write-pair
-            with open(AGENT_FILE) as f:
-                src = f.read()
-            with open(AGENT_META) as f:
-                meta = json.load(f)
+        src, meta = _staged_agent()
     except OSError:
         raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
     if not isinstance(d.get("ids"), list):
@@ -3383,12 +3576,14 @@ def api_agent_push(d):
     nodes = [n for n in (get_node(i) for i in dict.fromkeys(d["ids"])) if n]
     if not nodes:
         raise ValueError("نودی برای پوش انتخاب نشده")
+    # Refuse a mode that cannot deliver this agent to ANY node HERE, where the operator sees one clear
+    # sentence, instead of letting every row in the job go red carrying the same message.
+    _agent_delivery_check(meta, _delivery_mode("agent"))
     sig = _sign_sha(meta["sha256"])
+    enc = _body_cache(lambda n: _agent_update_body(n, src, meta, sig))
 
-    enc = json.dumps({"code": src, "sha256": meta["sha256"], "sig": sig}).encode()   # once, not per node
-
-    def payload(_n):
-        return enc, "update", 60
+    def payload(n):
+        return enc(n), "update", 60
 
     cur = _push_current(nodes, "sha256", lambda _n: meta["sha256"])
     jid = _push_start("agent", nodes, payload, cur)
@@ -3435,7 +3630,8 @@ def api_core_versions(d):
     if info:                                          # offer the operator-uploaded binary as its own choice
         out.append({"id": "custom", "label": "\u0628\u0627\u06cc\u0646\u0631\u06cc\u0650 \u0622\u067e\u0644\u0648\u062f\u0634\u062f\u0647" + (" \u00b7 " + info["name"] if info.get("name") else ""),
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
-    return {"versions": out, "staged": _staged_info(), "checked_ts": int(_core_versions_cache["ts"] or 0)}
+    return {"versions": out, "staged": _staged_info(), "checked_ts": int(_core_versions_cache["ts"] or 0),
+            "delivery": _delivery_mode("core")}
 
 
 def api_core_check(d):
@@ -3495,12 +3691,13 @@ def api_core_upload(d):
     return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name}
 
 
-# ----------------------------------------------------------------------------- core delivery (panel is the source)
-# The NODE never downloads the core (nodes may have no internet — e.g. an Iran node). The panel is the
-# single source: it stages the binary on its own disk (downloaded from GitHub, per arch) and pushes
-# verified bytes to nodes via core-install. Everything below is that staging + push machinery.
+# ----------------------------------------------------------------------------- core staging
+# The panel always stages the binary on its own disk (downloaded from GitHub, per arch) and decides what
+# may be installed. `core_delivery` then decides who carries those bytes the last hop — the default is
+# still the panel pushing them, because a node may have no internet at all (e.g. an Iran node).
 _CORE_REL_DL = "https://github.com/Angize/TUNNEL-MANAGER-CORE/releases"
 _CORE_TAG_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")  # release-tag charset: forbids "/" and ".." so a version can't traverse the GitHub path
+CORE_ARCHES = ("amd64", "arm64")   # the arches a release publishes; a node must be pushed its own
 CORE_STAGE_DIR = os.path.join(CENTRAL_DIR, "core-stage")            # tnl-core-<arch> binaries, ready to push
 CORE_STAGE_META = os.path.join(CENTRAL_DIR, "core-stage.meta.json")  # {version, arches, ts}
 _core_stage_lock = threading.Lock()
@@ -3537,14 +3734,21 @@ def _dl(url, timeout):
         return r.read()
 
 
+def _release_asset_url(version, arch):
+    """The GitHub download URL for one core release asset. The ONE place that shape is written, so the
+    panel's own fetch and the URL a node is handed in "github" delivery can never point at different
+    assets."""
+    if arch not in CORE_ARCHES:   # never interpolate an unvetted arch into a GitHub asset URL
+        raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
+    asset = f"tnl-core-linux-{arch}"
+    return (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
+            else f"{_CORE_REL_DL}/download/{version}/{asset}")
+
+
 def _fetch_release(version, arch):
     """Download + verify a core release asset (binary + its .sha256) from GitHub. Returns (raw, sha).
     Raises on any failure — this is the ONLY place that talks to GitHub for the core binary."""
-    if arch not in ("amd64", "arm64"):   # never interpolate an unvetted arch into a GitHub asset URL
-        raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
-    asset = f"tnl-core-linux-{arch}"
-    base = (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
-            else f"{_CORE_REL_DL}/download/{version}/{asset}")
+    base = _release_asset_url(version, arch)
     sha = _dl(base + ".sha256", 30).decode().split()[0].strip().lower()
     if len(sha) != 64:
         raise RuntimeError("checksum unavailable from the release")
@@ -3572,7 +3776,7 @@ def _stage_core(version):
     os.makedirs(CORE_STAGE_DIR, exist_ok=True)
     got, shas, sizes = [], {}, {}
     with _core_stage_lock:
-        for arch in ("amd64", "arm64"):
+        for arch in CORE_ARCHES:
             try:
                 raw, sha = _fetch_release(rel, arch)
             except Exception:
@@ -3591,7 +3795,7 @@ def _staged_bytes(arch):
     """(raw, sha, version) for the staged core at arch — fetching+persisting that arch on demand if the
     staged version is set but its file isn't present yet. None if nothing is staged (or the arch can't
     be fetched and isn't cached)."""
-    if arch not in ("amd64", "arm64"):   # arch reaches a local file path + a GitHub asset URL — whitelist
+    if arch not in CORE_ARCHES:   # arch reaches a local file path + a GitHub asset URL — whitelist
         raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
     info = _staged_info()
     if not info:
@@ -3626,17 +3830,19 @@ def _node_arch(node):
     a node that has not been polled yet. Returning "" instead of guessing is deliberate — a wrong-arch
     push is far more damaging than a refused one, and the caller turns it into a clear operator error."""
     a = str(node.get("arch") or "").strip()
-    if a in ("amd64", "arm64"):
+    if a in CORE_ARCHES:
         return a
     a = str(_cached_ping(node.get("id") or "").get("arch") or "").strip()
-    if a in ("amd64", "arm64"):
+    if a in CORE_ARCHES:
         return a
     a = str((node_call(node, "ping", "GET", timeout=10) or {}).get("arch") or "").strip()
-    return a if a in ("amd64", "arm64") else ""
+    return a if a in CORE_ARCHES else ""
 
 
 def _push_staged(node):
-    """Push the staged core to one node via core-install (no node download). Returns a result dict."""
+    """Deliver the staged core to one node via core-install, in the operator's delivery mode. Returns a
+    result dict. Used by the two paths that are NOT the fleet job: the freshly-added node and the
+    core-tunnel build's retry."""
     arch = _node_arch(node)
     if not arch:
         return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
@@ -3644,10 +3850,12 @@ def _push_staged(node):
     if not b:
         return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
     raw, sha, ver = b
+    try:
+        body = _core_install_body(node, base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha), arch)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     _ensure_update_key(node)   # guarantee the node holds the verify key before a signed root-binary push (fail-closed on the node side)
-    return node_call(node, "core-install", "POST",
-                     {"data": base64.b64encode(raw).decode(), "sha256": sha, "version": ver, "sig": _sign_sha(sha)},
-                     timeout=NODE_UPLOAD_TIMEOUT)
+    return node_call(node, "core-install", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
 
 
 def _push_staged_on_add(node):
@@ -3683,27 +3891,32 @@ def api_core_stage(d):
 
 
 def _staged_payload():
-    """A payload callable for the staged core, memoized PER ARCHITECTURE.
+    """A payload callable for the staged core, with the expensive half memoized PER ARCHITECTURE.
 
-    The push asks per node, and the bytes only vary by arch -- so without this a 12-node fleet
-    base64-encoded and json-dumped the same 10MB binary twelve times and spawned openssl twelve times to
-    sign the same hash. At most two encodings now, whatever the fleet size. The cached value is the
-    ENCODED body: caching only the dict still left json.dumps running per node."""
-    cache = {}
+    The push asks per node and the bytes only vary by arch -- so without this a 12-node fleet
+    base64-encoded the same 10MB binary twelve times and spawned openssl twelve times to sign the same
+    hash. _body_cache does the same for the json encode, keyed so the two arches never share a body."""
+    parts = {}
 
-    def payload(n):
+    def build(n):
         arch = _node_arch(n)
         if not arch:
-            return None, "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", 0
-        if arch not in cache:
+            raise ValueError("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود")
+        if arch not in parts:
             b = _staged_bytes(arch)
             if not b:
-                return None, "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", 0
+                raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
             raw, sha, ver = b
-            cache[arch] = (json.dumps({"data": base64.b64encode(raw).decode(), "sha256": sha,
-                                       "version": ver, "sig": _sign_sha(sha)}).encode(),
-                           "core-install", 300)
-        return cache[arch]
+            parts[arch] = (base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha))
+        return _core_install_body(n, *parts[arch], arch=arch)
+
+    enc = _body_cache(build)
+
+    def payload(n):
+        try:
+            return enc(n), "core-install", 300
+        except ValueError as e:                 # unknown arch / nothing staged / no origin for this node
+            return None, str(e), 0
 
     return payload
 
@@ -3719,7 +3932,7 @@ def _core_job(ids, payload):
         # an unpolled fleet would stall the operator for 10s per node before the job even started. No arch
         # cached simply means no skip, which is the safe direction.
         arch = str(_cached_ping(n.get("id") or "").get("arch") or "")
-        if arch not in ("amd64", "arm64"):
+        if arch not in CORE_ARCHES:
             return ""
         if arch not in shas:                       # per arch, not per node
             st = _staged_bytes(arch)
@@ -3734,27 +3947,33 @@ def _core_job(ids, payload):
 
 
 def api_core_update(d):
-    """Install a core version on the given node ids and restart their core tunnels. The panel stages the
-    version (downloads it once) and PUSHES the bytes to each node — nodes never download. `version` is a
-    release tag, "latest", or "custom" (the operator-uploaded binary)."""
+    """Install a core version on the given node ids and restart their core tunnels. The panel always
+    stages the version (downloads it once) and decides what may be installed; `core_delivery` decides
+    who carries the bytes the last hop. `version` is a release tag, "latest", or "custom" (the
+    operator-uploaded binary)."""
     _require(d, ["ids", "version"])
     version = str(d.get("version") or "latest").strip()
     if not isinstance(d.get("ids"), list):
         raise ValueError("ids must be a list")
     ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
 
-    if version == "custom":                          # push the operator-uploaded blob's bytes directly
+    if version == "custom":                          # the operator-uploaded blob, which only the panel has
         info = _core_blob_info()
         if not info:
             raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
+        _core_delivery_check(_delivery_mode("core"), True)   # one clear sentence, not one red row per node
         with _core_blob_lock:
             with open(CORE_BLOB, "rb") as f:
                 raw = f.read()
         b64, sha = base64.b64encode(raw).decode(), info["sha256"]
         sig = _sign_sha(sha)
+        enc = _body_cache(lambda n: _core_install_body(n, b64, sha, "custom", sig, custom=True))
 
-        def payload_custom(_n):
-            return {"data": b64, "sha256": sha, "version": "custom", "sig": sig}, "core-install", 300
+        def payload_custom(n):
+            try:
+                return enc(n), "core-install", 300
+            except ValueError as e:
+                return None, str(e), 0
 
         return _core_job(ids, payload_custom)
 
@@ -7190,6 +7409,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             self._send(200, INDEX_HTML if self._user() else LOGIN_HTML, "text/html; charset=utf-8")
+        elif path == "/api/dl":
+            self._dl()  # node -> central; token-authenticated inside, no panel session required
         elif path.startswith("/api/"):
             self._api(path[5:], "GET")
         else:
@@ -7251,6 +7472,35 @@ class Handler(BaseHTTPRequestHandler):
         else:
             note_fail(ip)
             self._send(401, {"error": "wrong username or password"})
+
+    def _dl(self):
+        """Serve a staged artifact to a NODE — the "node fetches it from the panel" delivery mode.
+
+        Authenticated by the node's own token, like /api/checkin. The node's fetch sends no headers of
+        its own, so the token rides in the query string; that is the same plaintext wire on which every
+        control call already carries it in a header, so it gives nothing away that was not already
+        there. What the node installs is still decided by the sha256 and signature the panel sent it —
+        this endpoint only hands over bytes."""
+        ip = self._client_ip()
+        if rate_limited(ip):   # per-source-IP brute-force cap on token guessing (same limiter as _login)
+            self._send(429, {"error": "too many attempts, wait a few minutes"})
+            return
+        q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        tok = (q.get("t") or [""])[0]
+        node = next((n for n in load_nodes()
+                     if n.get("token") and hmac.compare_digest(str(n["token"]), tok)), None) if tok else None
+        if not node:
+            note_fail(ip)
+            self._send(401, {"error": "unknown node"})
+            return
+        try:
+            raw = _dl_artifact((q.get("k") or [""])[0], (q.get("arch") or [""])[0])
+        except Exception:
+            raw = None
+        if not raw:
+            self._send(404, {"error": "not staged"})
+            return
+        self._send(200, raw, "application/octet-stream")
 
     def _checkin(self):
         ip = self._client_ip()
@@ -7751,6 +8001,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
 .agx-act .primary{flex:1;justify-content:center}
 .agx-hint{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.6}
+.agx-dlv{margin-top:11px}
+.agx-dlv label{margin:0 2px 7px}
+.agx-dlv .seg2{margin:0}
 /* --- compact node row + per-node core picker --- */
 .agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
 .agx-row .nm{font-weight:800;font-size:13px}
@@ -8323,7 +8576,13 @@ var I18N={fa:{
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
- 
+ dlv_lbl:"فایل چطور به نود برسد",
+ dlv_push_t:"پنل آپلود کند",dlv_push_s:"بایت‌ها را پنل می‌فرستد",
+ dlv_git_t:"نود از گیت‌هاب",dlv_git_s:"نود خودش دانلود می‌کند",
+ dlv_pan_t:"نود از پنل",dlv_pan_s:"نود از سرورِ پنل می‌گیرد",
+ dlv_ag_hint:"در هر سه حالت پنل sha و امضای خودش را می‌فرستد و نود پیش از نصب هر دو را چک می‌کند. «نود از گیت‌هاب» فقط ایجنتی را می‌فرستد که با «دریافت از گیت‌هاب» گرفته شده باشد، و «نود از پنل» روی نودِ پروکسی‌دار کار نمی‌کند.",
+ dlv_cor_hint:"همان زنجیرهٔ اعتماد: sha و امضای پنل در هر سه حالت چک می‌شود. باینریِ بارگذاری‌شده روی گیت‌هاب نیست، پس با «نود از گیت‌هاب» فرستاده نمی‌شود؛ و «نود از پنل» روی نودِ پروکسی‌دار کار نمی‌کند.",
+
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  fmt_day:"روز",fmt_hr:"ساعت",fmt_min:"دقیقه",fmt_sec:"ثانیه",fmt_and:"و",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
@@ -8432,7 +8691,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  nadd_install_connect:"نصب و اتصالِ خودکار",nadd_add_connect:"افزودن و اتصال",
  nadd_pass_word:"رمزِ SSH",nadd_is_required:" لازم است",nadd_need_name_ip:"نام و آی‌پیِ سرور لازم است",
  // ---- live install steps
- inst_ssh:"اتصالِ SSH",inst_download:"دانلودِ ایجنت",inst_service:"نصب و راه‌اندازیِ سرویس",inst_register:"ثبت و اتصال در پنل",
+ inst_ssh:"اتصالِ SSH",inst_agent:"رساندنِ ایجنت به نود",inst_service:"نصب و راه‌اندازیِ سرویس",inst_register:"ثبت و اتصال در پنل",
  inst_connecting:"در حالِ اتصال…",inst_waiting:"در انتظار…",inst_installing:"در حالِ نصب…",inst_done:"انجام شد",
  inst_status_notfound:"وضعیتِ نصب یافت نشد",inst_panel_lost:"ارتباط با پنل قطع شد",inst_node_installed:"نود نصب شد",inst_retry:"تلاشِ مجدد",
  // ---- classic tunnel create form
@@ -8845,7 +9104,7 @@ function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':s
 // throttling can't collapse them), clamped to the backend's real progress. ONE self-terminating loop
 // that stops the instant the modal closes — no leaked/duplicate pollers, no infinite retry.
 var _inst=null,_MINSPIN=600;
-function _insteps(){return [{label:T('inst_ssh'),detail:T('inst_connecting')},{label:T('inst_download'),detail:T('inst_waiting')},{label:T('inst_service'),detail:T('inst_waiting')},{label:T('inst_register'),detail:T('inst_waiting')}]}
+function _insteps(){return [{label:T('inst_ssh'),detail:T('inst_connecting')},{label:T('inst_agent'),detail:T('inst_waiting')},{label:T('inst_service'),detail:T('inst_waiting')},{label:T('inst_register'),detail:T('inst_waiting')}]}
 function _instStop(){if(_inst){_inst.cancelled=true;if(_inst.timer)clearTimeout(_inst.timer);_inst=null}}
 function _instPoll(c){j('install-status?job='+encodeURIComponent(c.job)+'&_='+Date.now())
  .then(function(d){c.polling=false;
@@ -10531,6 +10790,20 @@ async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.t
 async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});editingId=null;refreshPortfw()}
 
 // ===== agent push-update page =====
+// Which end carries the bytes the last hop, per artifact. The panel decides WHAT is installed in all
+// three (it sends the sha and its signature, and the node checks both), so this only moves the traffic.
+var DLV={agent:'push',core:'push'};
+var DLV_OPTS=[['push','dlv_push_t','dlv_push_s'],['github','dlv_git_t','dlv_git_s'],['panel','dlv_pan_t','dlv_pan_s']];
+function dlSeg(kind,hintK){
+ return '<div class="agx-dlv"><label>'+esc(T('dlv_lbl'))+'</label><div class="seg2" id="dlseg_'+kind+'">'+
+  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b><span>'+esc(T(o[2]))+'</span></button>'}).join('')+
+  '</div><div class="agx-hint" style="margin-top:-4px">'+esc(T(hintK))+'</div></div>'}
+function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
+ Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})})}
+async function setDelivery(k,v){if(DLV[k]==v)return;var b={};b[k+'_delivery']=v;
+ var was=DLV[k];DLV[k]=v;paintDelivery();          // paint first: a switch that waits for the round-trip reads as dead
+ var r=await post('settings-set',b);
+ if(r.ok&&r.d.ok)toast(T('set_saved'),'ok');else{DLV[k]=was;paintDelivery();toast(perr(r),'err')}}
 function agentBody(){return ''+
  '<div class="card agx-uni">'+   // AGENT card
   '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic(AG_IC,'var(--acc)')+'</span> '+esc(T('ag_node_agent'))+'<span class="grow"></span><span id="ag_status"></span></div>'+
@@ -10539,6 +10812,7 @@ function agentBody(){return ''+
     '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
+  dlSeg('agent','dlv_ag_hint')+
   '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
@@ -10552,6 +10826,7 @@ function agentBody(){return ''+
     '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
+  dlSeg('core','dlv_cor_hint')+
   '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+
@@ -10562,6 +10837,7 @@ function agentBody(){return ''+
  '<div id="agList">'+skCards('agent')+'</div>'+pagerBottom('agent')}
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
+ if(info&&info.delivery){DLV.agent=info.delivery;paintDelivery()}   // rides the poll this page already makes
  var st=el('ag_status'),mt=el('ag_meta');
  if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
  if(mt)mt.innerHTML=(info&&!info.none)?
@@ -10579,6 +10855,7 @@ var CORVERS=[],STAGED=null;
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[]}});
  CORVERS=r.versions||[];STAGED=r.staged||null;
+ if(r.delivery){DLV.core=r.delivery;paintDelivery()}
  var stt=el('cor_status');
  if(stt)stt.innerHTML=STAGED?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
  var mt=el('cor_meta');

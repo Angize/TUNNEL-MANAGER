@@ -173,15 +173,18 @@ def part2(P, failures):
     argvs, saved = [], {}
     real_ssh_argv, real_thread = P._ssh_argv, P.threading.Thread
 
-    def ssh_run(cfg, remote_cmd, timeout):
+    # stdin_text is how the staged agent reaches a node that has no agent yet -- a fake missing it raises
+    # TypeError inside the worker, which is charged to the install as a failure and hides what broke.
+    def ssh_run(cfg, remote_cmd, timeout, stdin_text=None):
         argv, env = real_ssh_argv(cfg, remote_cmd)   # the REAL builder, on the REAL cfg
         argvs.append((argv, env))
         if remote_cmd == "echo TNL_SSH_OK":
             return 0, "TNL_SSH_OK\n", ""
         if "tnl-node.py" in remote_cmd and "--auto-install" in remote_cmd:
             return 0, "TNL_INSTALL_OK\nTNL_NODE_TOKEN=tok123\n", ""
-        return 0, "TNL_DL_OK\n", ""
+        return 0, "TNL_DL_OK\nTNL_RECV_OK\n", ""
 
+    P._staged_agent = lambda: ('{"agent": "tnl-node", "version": 1}', {"sha256": "0" * 64, "version": 1})
     P.load_proxies = lambda: [PX, PX_HTTP]
     P.load_nodes = lambda: []
     P.save_json = lambda path, obj: saved.__setitem__(path, obj)

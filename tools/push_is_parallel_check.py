@@ -20,6 +20,7 @@ Driven against the real _push_worker with node_push faked, so what is tested is 
 """
 import argparse
 import importlib.util
+import json
 import sys
 import threading
 import time
@@ -223,9 +224,13 @@ def main():
     # The push asks for a payload PER NODE, and the core bytes only vary by architecture. Without a memo
     # a 12-node fleet base64-encoded and json-dumped the same 10MB binary twelve times and spawned openssl
     # twelve times to sign one hash.
+    # Two architectures are two different binaries with two different checksums -- modelling them as one
+    # would let a payload cache keyed on the artifact look correct while sharing one body between them.
     seenp = {"bytes": 0, "sign": 0}
+    ARCHBYTES = {a: b"\x7fELF" + bytes([i]) * 200000 for i, a in enumerate(("amd64", "arm64"))}
+    ARCHSHA = {a: chr(ord("a") + i) * 64 for i, a in enumerate(("amd64", "arm64"))}
     P._staged_bytes = lambda arch: (seenp.__setitem__("bytes", seenp["bytes"] + 1)
-                                    or (b"\x7fELF" + b"\0" * 200000, "a" * 64, "v1"))
+                                    or (ARCHBYTES[arch], ARCHSHA[arch], "v1"))
     P._sign_sha = lambda sha: seenp.__setitem__("sign", seenp["sign"] + 1) or "SIG"
     P._node_arch = lambda n: n["arch"]
     mixed = [{"id": "m%d" % i, "name": "M%d" % i, "arch": "amd64" if i % 4 else "arm64"}
@@ -236,6 +241,10 @@ def main():
         (seenp["bytes"], seenp["sign"]), (2, 2))
     chk("nodes of the same arch share the payload object", outs[1][0] is outs[2][0], True)
     chk("the two architectures get DIFFERENT payloads", outs[0][0] is not outs[1][0], True)
+    # …and different is not enough: each node must get ITS OWN arch. A crossed pair chmod-755s the wrong
+    # ELF into place and every core tunnel on that node dies with "Exec format error", forever.
+    got = {n["arch"]: json.loads(o[0].decode())["sha256"] for n, o in zip(mixed, outs)}
+    chk("each architecture is sent its own binary", got, dict(ARCHSHA))
     P._node_arch = lambda n: ""
     chk("an unknown arch refuses instead of guessing", P._staged_payload()(mixed[0])[0], None)
 
