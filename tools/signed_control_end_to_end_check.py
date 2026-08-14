@@ -160,19 +160,104 @@ def main():
         # itself at the clock, so a panel that forgot where it was is already correct on its next
         # request. What can still strand it is a node holding a mark ABOVE the panel's clock -- from a
         # panel whose clock ran fast and was then corrected, or a restored backup.
-        ahead = int(time.time() * 1000) + 10 ** 6
-        with N._req_ctr_lock:
-            N._req_ctr = N._req_ctr_hwm = ahead
+        def strand():
+            """Put the node's mark far above the counter the panel would spend next, so the next
+            request really IS refused.
+
+            Off the PANEL's counter, not the clock: after one resync the panel already runs ahead of
+            the clock, so a mark set from the clock is simply accepted and the check that follows
+            asserts nothing at all. That is not hypothetical -- the second and third of these read
+            green that way until a mutation ran."""
+            with P._ctr_lock:
+                cur = max(P._ctr_next.get(node["id"], 0), int(time.time() * 1000))
+            with N._req_ctr_lock:
+                N._req_ctr = N._req_ctr_hwm = cur + 10 ** 6
+            return cur + 10 ** 6
+
+        def resynced(g):
+            """Refused once, then served. Both halves: served-without-a-409 proves nothing."""
+            return [x["code"] for x in g][:1] == [409] and len(g) == 2 and accepted(g)
+
+        ahead = strand()
         got.clear()
         P.node_call(node, "ping", "GET", timeout=10)
         check("a panel whose counter fell behind recovers by itself", accepted(got),
               " -> ".join(str(g["code"]) for g in got))
-        check("...in exactly two requests: the 409, then the retry",
-              [g["code"] for g in got][:1] == [409] and len(got) == 2,
+        check("...in exactly two requests: the 409, then the retry", resynced(got),
               " -> ".join(str(g["code"]) for g in got))
         with P._ctr_lock:
             after = P._ctr_next[node["id"]]
         check("...by adopting the node's mark, not by retrying blindly", after > ahead, str(after))
+
+        # The resync above is the RARE path. The common one is concurrency: the panel talks to one node
+        # from five background loops plus the operator's own click, so two requests routinely leave
+        # together and arrive in the other order. A node demanding a strict increase refuses whichever
+        # one lost the race -- a first-time request, not a replay. Measured live before the fix: 7 of 8.
+        print("== the ordinary case: several loops talking to one node at once ==")
+        got.clear()
+        codes = {}
+        cl = threading.Lock()
+
+        def hit(i):
+            P.node_call(node, "ping", "GET", timeout=15)
+            with cl:
+                codes[i] = True
+
+        th = [threading.Thread(target=hit, args=(i,)) for i in range(24)]
+        for t in th:
+            t.start()
+        for t in th:
+            t.join()
+        stale = [g for g in got if g["code"] == 409]
+        check("24 concurrent panel calls: the node refused none of them as stale",
+              not stale, "%d of %d were 409" % (len(stale), len(got)))
+
+        print("== and the two senders that used to have no way back ==")
+        # node_call was the only one that resynced. A proxied node and a push had no retry at all, so a
+        # single 409 stranded them -- and two nodes in this fleet are proxied.
+        real_psock = P._proxy_socket
+        P._proxy_socket = lambda proxy, dh, dp, t: socket.create_connection((dh, dp), t)
+        # Proxied THE WAY THE PANEL DECIDES IT: a registry entry plus proxy_on/proxy_id, so node_proxy
+        # really resolves and node_call really dispatches to the proxied sender. A node carrying a bare
+        # "proxy" key is NOT proxied any more -- that key is dead -- and a check built on one silently
+        # exercises the direct path instead, proving nothing about the sender it names.
+        P.save_json(P.PROXIES_FILE, [{"id": "px1", "name": "p", "scheme": "socks5",
+                                      "host": "127.0.0.1", "port": 1}])
+        pnode = dict(node, proxy_on=True, proxy_id="px1")
+        P.save_json(P.NODES_FILE, [pnode])
+        check("...and the node under test really does resolve to the proxied sender",
+              bool(P.node_proxy(pnode)), "node_proxy returned %r" % P.node_proxy(pnode))
+        try:
+            strand()
+            got.clear()
+            P.node_call(pnode, "ping", "GET", timeout=10)
+            check("a PROXIED node whose counter fell behind is refused once, then gets through",
+                  resynced(got), " -> ".join(str(g["code"]) for g in got))
+
+            # A MEGABYTE body, not a small one. A node refusing from the headers stops reading, so on a
+            # small push the answer is already waiting and any implementation finds it -- while a real
+            # core push fills the socket, earns a broken pipe, and loses the answer. Then the operator
+            # is told the node is OFFLINE by a node that just answered, and goes hunting the network.
+            strand()
+            got.clear()
+            # core-install, because it is the one op whose body cap admits megabytes -- and it is the
+            # real megabyte push: the core binary going out to a node.
+            huge = json.dumps({"bin": "x" * (2 << 20), "sha256": "0" * 64, "sig": ""}).encode()
+            res = P.node_push(node, "core-install", huge, timeout=30)
+            if sys.platform == "win32":
+                # Measured: Windows discards the receive buffer on the reset, so the answer is gone
+                # before any code can read it. The panel runs on Linux and so does CI; this is the
+                # platform's behaviour, not the panel's, and calling it a pass here would be a lie.
+                print("  SKIP  a megabyte push that is refused reports the refusal  -- win32 loses it "
+                      "in the reset; run this on Linux")
+            else:
+                check("a MEGABYTE push that is refused reports the refusal, not 'offline'",
+                      not res.get("offline"), json.dumps(res, ensure_ascii=False)[:120])
+                check("...and it resyncs and gets through, like the other two senders", resynced(got),
+                      " -> ".join(str(g["code"]) for g in got))
+        finally:
+            P._proxy_socket = real_psock
+            P.save_json(P.NODES_FILE, [dict(node)])
 
         print("== the other direction: the node's check-in, verified by the panel ==")
         # Same drift risk as the request signature, and worse consequences if it goes unnoticed: a

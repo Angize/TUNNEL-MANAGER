@@ -24,6 +24,7 @@ import json
 import os
 import re
 import secrets
+import select
 import shutil
 import socket
 import subprocess
@@ -781,7 +782,7 @@ def _proxy_socket(proxy, dh, dp, timeout):
     raise OSError(f"bad proxy scheme '{scheme}'")
 
 
-def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
+def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True):
     dh, dp = node["host"], int(node["port"])
     sock = None
     try:
@@ -802,9 +803,12 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
         conn.close()
         sock = None  # conn.close() closed the tunneled socket; nothing left to clean up
         try:
-            return json.loads(raw.decode())
+            out = json.loads(raw.decode())
         except Exception:
             return {"ok": False, "error": f"HTTP {r.status}"}
+        if _retry and _stale_ctr(node, out):        # resynced; one more go, never a loop
+            return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
+        return out
     except Exception as e:
         return {"ok": False, "offline": True, "error": ("proxy: " + str(e).split("] ")[-1])[:90]}
     finally:
@@ -952,7 +956,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
 
 
 def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024,
-              should_abort=None):
+              should_abort=None, _retry=True):
     """POST a large body to a node, reporting REAL bytes sent as it goes.
 
     node_call cannot do this: urllib hands the whole body to the kernel and returns, so there is nothing
@@ -989,12 +993,21 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             head.append("X-Central-Port: %s" % _CENTRAL_PORT)
             head.append("X-Central-TLS: %s" % ("1" if _CENTRAL_TLS else "0"))
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
-        sent = 0
+        sent, pre = 0, b""
         if on_progress:
             on_progress(0, total)
         while sent < total:
             if should_abort and should_abort():
                 return {"ok": False, "cancelled": True}     # the finally below closes the socket mid-body
+            # An answer arriving mid-body is a refusal decided from the HEADERS alone -- an unproven
+            # signature, a stale counter. Take it NOW. The node has stopped reading, so the rest of a
+            # large body earns nothing but a broken pipe, and the answer is lost with it: the operator
+            # is told the node is offline by a node that just answered.
+            if select.select([sock], [], [], 0)[0]:
+                pre = sock.recv(65536)
+                if not pre:
+                    raise OSError("connection closed while sending")
+                break
             n = sock.send(data[sent:sent + chunk])
             if not n:
                 raise OSError("connection closed while sending")
@@ -1004,27 +1017,34 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         # ONE read loop, so all three framings land correctly: headers split across recv calls, a
         # Content-Length body, and a close-framed body with no Content-Length at all -- which the earlier
         # two-loop version truncated to whatever the first recv happened to hold.
-        raw, head_blob, rest, clen = b"", b"", b"", None
+        raw, head_blob, rest, clen = pre, b"", b"", None
         while True:
+            head_blob, sep, rest = raw.partition(b"\r\n\r\n")
+            if sep:
+                clen = next((int(l.split(b":", 1)[1]) for l in head_blob.split(b"\r\n")
+                             if l.lower().startswith(b"content-length:")), None)
+                if clen is not None and len(rest) >= clen:
+                    break
             b = sock.recv(65536)
             if not b:
                 break                            # EOF: close-framed reply is complete
             raw += b
             if len(raw) > 1048576:
                 raise OSError("response too large")
-            head_blob, sep, rest = raw.partition(b"\r\n\r\n")
-            if not sep:
-                continue
-            clen = next((int(l.split(b":", 1)[1]) for l in head_blob.split(b"\r\n")
-                         if l.lower().startswith(b"content-length:")), None)
-            if clen is not None and len(rest) >= clen:
-                break
         try:
             out = json.loads(rest.decode())
         except Exception:
             st = head_blob.split(b" ")
             return {"ok": False, "error": "HTTP %s از نود" % (st[1].decode() if len(st) > 1 else "?")}
-        return out if isinstance(out, dict) else {"ok": False, "error": "non-dict node response"}
+        if not isinstance(out, dict):
+            return {"ok": False, "error": "non-dict node response"}
+        if _retry and _stale_ctr(node, out):
+            # The counter is refused from the HEADERS, before a byte of the body is read, so the whole
+            # upload is still ahead of us and resending it is the only way through. The bar restarts,
+            # which is the truth: those bytes are being sent again.
+            return node_push(node, endpoint, body, on_progress, timeout, chunk, should_abort,
+                             _retry=False)
+        return out
     except Exception as e:
         return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:90]}
     finally:
