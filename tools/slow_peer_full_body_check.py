@@ -136,7 +136,13 @@ def main():
         srv.conf = {'user': 'x', 'secret': '00' * 32}
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         port = srv.server_address[1]
-        path = '/api/dl?t=%s&k=co&arch=amd64' % TOKEN
+        # Minted by the panel itself: /api/dl takes a signed ticket now, and a hand-built query string
+        # would be refused before a single byte of the body was written -- which this guard would then
+        # report as a truncation.
+        m._CENTRAL_PORT = port
+        m._route_src = lambda h: '127.0.0.1'
+        path = m._panel_dl_url({'id': 'n1', 'host': '127.0.0.1', 'token': TOKEN},
+                               'co', 'amd64').split(str(port), 1)[1]
         want = hashlib.sha256(raw).hexdigest()
 
         print('== 1) a peer that reads slowly but never stops gets every byte ==')

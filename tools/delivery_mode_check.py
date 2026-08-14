@@ -162,8 +162,11 @@ def case_agent(m, mode, shas):
             check('agent/%s: %s points at the agent repo' % (mode, nid), b.get('url') == m.NODE_RAW_URL)
         if mode == 'panel':
             tok = [n['token'] for n in NODES if n['id'] == nid][0]
-            check('agent/%s: %s url carries ITS OWN token' % (mode, nid),
-                  't=' + tok in (b.get('url') or ''), b.get('url', ''))
+            u = b.get('url') or ''
+            # The url used to carry the token itself. It was the last place the secret still travelled.
+            check('agent/%s: %s url carries NO token' % (mode, nid), tok not in u, u)
+            check('agent/%s: %s url is a signed ticket for ITS node' % (mode, nid),
+                  hashlib.sha256(tok.encode()).hexdigest() in u and 'sig=' in u and 'exp=' in u, u)
     if mode == 'panel':
         us = [bodies(sent, n)[0]['url'] for n in ('n1', 'n2') if bodies(sent, n)]
         check('agent/panel: the two nodes get two different urls', len(set(us)) == 2)
@@ -287,15 +290,47 @@ def case_endpoint(m, shas):
             check('...and its bytes hash to the sha the panel signed (%s)' % key,
                   hashlib.sha256(body).hexdigest() == sha,
                   '%s vs %s' % (hashlib.sha256(body).hexdigest()[:12], sha[:12]))
-        any_url = sorted(urls.values())[0][0]
-        base = any_url.split(str(m._CENTRAL_PORT), 1)[1]
-        st, _ = get(base.replace('t=tok-', 't=nope-'))
-        check('a wrong node token gets 401', st == 401, str(st))
-        st, _ = get(base.split('?')[0] + '?k=ag')
-        check('no token at all gets 401', st == 401, str(st))
-        st, _ = get(base.split('?')[0] + '?t=tok-one&k=zz')
-        check('an unknown artifact kind gets 404', st == 404, str(st))
-        st, _ = get(base.split('?')[0] + '?t=tok-one&k=co&arch=../etc')
+        # ---- the ticket is the whole authorisation, so every way of not having a good one is refused
+        import urllib.parse as _up
+        agent_url = m._panel_dl_url({'id': 'n1', 'host': '10.0.0.1', 'token': 'tok-one'}, 'ag')
+        base, qs = agent_url.split(str(m._CENTRAL_PORT), 1)[1].split('?', 1)
+        q = dict(_up.parse_qsl(qs))
+
+        def ticket(**over):
+            d = dict(q)
+            d.update(over)
+            return base + '?' + _up.urlencode(d)
+
+        st, _ = get(ticket())
+        check('a good ticket is served', st == 200, str(st))
+        st, _ = get(ticket(sig='x' * 43))
+        check('a forged signature gets 401', st == 401, str(st))
+        st, _ = get(ticket(fp='0' * 64))
+        check('an unknown fingerprint gets 401', st == 401, str(st))
+        st, _ = get(ticket(k='co'))
+        check('...and asking for a DIFFERENT artifact with this ticket gets 401',
+              st == 401, 'the signature covers what was asked for: %s' % st)
+        # Minted properly, with a past expiry -- NOT the same as editing `exp` on a good ticket, which
+        # only breaks the signature and would pass this whether the expiry is checked or not.
+        m.DL_TICKET_TTL = -5
+        try:
+            stale = m._panel_dl_url({'id': 'n1', 'host': '10.0.0.1', 'token': 'tok-one'}, 'ag')
+        finally:
+            m.DL_TICKET_TTL = 3600
+        st, _ = get(stale.split(str(m._CENTRAL_PORT), 1)[1])
+        check('a correctly signed but EXPIRED ticket gets 401', st == 401, str(st))
+        st, _ = get(ticket(exp=str(int(time.time()) - 5)))
+        check('...and one whose expiry was edited afterwards too', st == 401, str(st))
+        st, _ = get(base + '?k=ag')
+        check('no ticket at all gets 401', st == 401, str(st))
+        # ...and a good ticket still cannot name something that is not there, or a path
+        core_url = m._panel_dl_url({'id': 'n1', 'host': '10.0.0.1', 'token': 'tok-one'}, 'co', 'amd64')
+        cb, cq = core_url.split(str(m._CENTRAL_PORT), 1)[1].split('?', 1)
+        cd = dict(_up.parse_qsl(cq))
+        st, _ = get(cb + '?' + _up.urlencode(cd))
+        check('a good core ticket is served', st == 200, str(st))
+        bad = m._panel_dl_url({'id': 'n1', 'host': '10.0.0.1', 'token': 'tok-one'}, 'co', '../etc')
+        st, _ = get(bad.split(str(m._CENTRAL_PORT), 1)[1])
         check('a bogus arch gets 404, never a file path', st == 404, str(st))
     finally:
         httpd.shutdown()
