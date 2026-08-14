@@ -94,6 +94,7 @@ _settings_lock = threading.RLock()  # reentrant: api_settings_set holds it acros
 _drift = {}                      # link_id -> True when a node IP has drifted and a rebuild is pending/needed
 _drift_lock = threading.Lock()
 _CENTRAL_PORT = 0                # panel port, advertised to nodes (X-Central-Port) so they can call back /api/checkin
+_CENTRAL_TLS = False             # ...and whether that port speaks TLS, so a node follows the scheme too
 
 
 class _PairLock:
@@ -408,13 +409,15 @@ _moved = {}                      # node id -> {"name", "from", "to"}: it phoned 
 _moved_lock = threading.Lock()   # the panel was told not to adopt it, so the operator has to be shown where
 
 
-def _moved_note(nid, name, old, new):
+def _moved_note(nid, name, old, new, new_port):
     """Record a node that moved. Returns True the first time this destination is seen, so the log gets one
-    line per move and not one per check-in (the node keeps calling every 20s until it is acknowledged)."""
+    line per move and not one per check-in (the node keeps calling every 20s until it is acknowledged).
+    The PORT is part of the destination: a node can move one without the other, and adopting the host
+    alone would leave the panel dialling the old port."""
     with _moved_lock:
         prev = _moved.get(nid)
-        _moved[nid] = {"name": name, "from": old, "to": new}
-        return not prev or prev.get("to") != new
+        _moved[nid] = {"name": name, "from": old, "to": new, "to_port": new_port}
+        return not prev or (prev.get("to"), prev.get("to_port")) != (new, new_port)
 
 
 def _moved_clear(nid):
@@ -423,9 +426,23 @@ def _moved_clear(nid):
 
 
 def moved_to(nid):
+    """The HOST it moved to — bare, because api_node_adopt_ip writes it straight into node["host"]."""
     with _moved_lock:
         v = _moved.get(nid)
         return v["to"] if v else ""
+
+
+def moved_port(nid):
+    with _moved_lock:
+        v = _moved.get(nid)
+        return int(v.get("to_port") or 0) if v else 0
+
+
+def moved_addr(nid):
+    """"host:port" for the operator to read. Display only — never the value anything adopts."""
+    with _moved_lock:
+        v = _moved.get(nid)
+        return ("%s:%d" % (v["to"], int(v.get("to_port") or 0))) if v else ""
 
 
 def _set_drift(lid, val):
@@ -774,7 +791,8 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout):
         data = json.dumps(body or {}).encode() if method == "POST" else None
         headers = {"X-Node-Token": node.get("token", "")}
         if _CENTRAL_PORT:
-            headers["X-Central-Port"] = str(_CENTRAL_PORT)  # teach the node our callback port for /api/checkin
+            headers["X-Central-Port"] = str(_CENTRAL_PORT)  # teach the node our callback origin
+            headers["X-Central-TLS"] = "1" if _CENTRAL_TLS else "0"
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, f"/api/{wire(endpoint)}", body=data, headers=headers)
@@ -849,7 +867,8 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8):
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("X-Node-Token", node.get("token", ""))
     if _CENTRAL_PORT:
-        req.add_header("X-Central-Port", str(_CENTRAL_PORT))  # teach the node our callback port for /api/checkin
+        req.add_header("X-Central-Port", str(_CENTRAL_PORT))  # teach the node our callback origin
+        req.add_header("X-Central-TLS", "1" if _CENTRAL_TLS else "0")
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
@@ -898,6 +917,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
                 "X-Node-Token: %s" % node.get("token", ""), "Connection: close"]
         if _CENTRAL_PORT:
             head.append("X-Central-Port: %s" % _CENTRAL_PORT)
+            head.append("X-Central-TLS: %s" % ("1" if _CENTRAL_TLS else "0"))
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent = 0
         if on_progress:
@@ -2077,7 +2097,7 @@ def _node_view(n, pend=None, pxn=None):
             "proxy_name": (pxn if pxn is not None else _proxy_names()).get(_pid, "") if _pon else "",
             "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
             "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),   # teardowns owed to this node, waiting for it to reconnect
-            "moved_to": moved_to(n["id"]),   # it checked in from another address and manual mode did not adopt it
+            "moved_to": moved_addr(n["id"]),   # DISPLAY only ("host:port"); adopt reads the stored pair
             "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -3013,29 +3033,30 @@ def api_node_adopt_ip(d):
     n = get_node(str(d["id"]))
     if not n:
         raise ValueError("نود پیدا نشد")
-    new = moved_to(n["id"])
+    new, newp = moved_to(n["id"]), moved_port(n["id"]) or int(n.get("port") or 0)
     if not new:
         raise ValueError("آدرسِ تازه‌ای برای این نود ثبت نشده")
     probe = dict(n)
-    probe["host"] = new
+    probe["host"], probe["port"] = new, newp
     if not node_call(probe, "ping", "GET", timeout=8).get("ok"):
         pid = str(n.get("proxy_id") or "") if n.get("proxy_on") else ""
         px = _px_get(pid) if pid else {}
         if px and not px.get("ok"):
             raise ValueError("پروکسیِ این نود قطع است، پس هیچ آدرسی از آن رد نمی‌شود — اول پروکسی را درست کن")
-        raise ValueError(f"آدرسِ {new} همین حالا جواب نمی‌دهد — هوست عوض نشد")
+        raise ValueError(f"نشانیِ {new}:{newp} همین حالا جواب نمی‌دهد — چیزی عوض نشد")
     with _reg_lock:
         nodes = load_nodes()
         t = next((x for x in nodes if x["id"] == n["id"]), None)
         if not t:
             raise ValueError("نود پیدا نشد")
-        old, t["host"] = t["host"], new
+        old, oldp = t["host"], int(t.get("port") or 0)
+        t["host"], t["port"] = new, newp
         save_json(NODES_FILE, nodes)
     _moved_clear(n["id"])
-    log_event("ok", "node", f"دلیل: تنظیمِ آی‌پیِ تازهٔ نودِ «{n['name']}»",
-              f"هوست از {old} به {new} عوض شد — تونل‌هایش را بازسازی کن")
+    log_event("ok", "node", f"دلیل: تنظیمِ نشانیِ تازهٔ نودِ «{n['name']}»",
+              f"نشانی از {old}:{oldp} به {new}:{newp} عوض شد — تونل‌هایش را بازسازی کن")
     _refresh_cache([n["id"]])
-    return {"ok": True, "host": new}
+    return {"ok": True, "host": new, "port": newp}
 
 
 def api_node_kernel_tune(d):
@@ -7331,36 +7352,46 @@ def api_checkin_impl(source_ip, d):
         n = next((x for x in load_nodes() if hmac.compare_digest(str(x.get("token", "")), tok)), None)
         if not n:
             return {"ok": False, "error": "unknown node"}
-        n_snap, host = dict(n), n.get("host")
-    if not (source_ip and is_ipv4(source_ip) and host != source_ip):
-        return {"ok": True, "updated": False, "host": host}
-    # probe the CONFIGURED host LIVE (not the cached poll, which may have transiently failed); a working
-    # DNS/static host must never be clobbered on a blip. node_call runs outside _reg_lock (no network in-lock).
+        n_snap, host, port = dict(n), n.get("host"), int(n.get("port") or 0)
+    # Where the node says it is now: the address this request arrived from, and the agent port it
+    # reports. Either can move without the other, so what is compared and adopted is the PAIR.
+    want_host = source_ip if (source_ip and is_ipv4(source_ip)) else host
+    try:
+        want_port = int((d or {}).get("port") or 0)
+    except (TypeError, ValueError):
+        want_port = 0
+    if not 1 <= want_port <= 65535:
+        want_port = port
+    if (want_host, want_port) == (host, port):
+        return {"ok": True, "updated": False, "host": host, "port": port}
+    # probe the CONFIGURED address LIVE (not the cached poll, which may have transiently failed); a
+    # working DNS/static host must never be clobbered on a blip. node_call runs outside _reg_lock.
     if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
         _moved_clear(n_snap["id"])
-        return {"ok": True, "updated": False, "host": host}
+        return {"ok": True, "updated": False, "host": host, "port": port}
     probe = dict(n_snap)
-    probe["host"] = source_ip
+    probe["host"], probe["port"] = want_host, want_port
     if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
-        return {"ok": True, "updated": False, "host": host}  # old host down but new addr doesn't reach us -> reject
+        return {"ok": True, "updated": False, "host": host, "port": port}  # old address down but the new one does not reach us -> reject
     if get_settings().get("reconcile_mode") != "auto":
-        # manual: the operator moves it. Say WHERE it moved to, or they have no way to know the new address.
-        if _moved_note(n_snap["id"], n_snap.get("name") or "", host, source_ip):
-            log_event("warn", "node", f"دلیل: جابه‌جاییِ آی‌پیِ نودِ «{n_snap.get('name')}»",
-                      f"از {host} به {source_ip} رفته و از آدرسِ تازه جواب می‌دهد — روی کارتِ نود نشانِ هشدار"
-                      " را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
+        # manual: the operator moves it. Say WHERE it moved to, or they have no way to know the address.
+        if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
+            log_event("warn", "node", f"دلیل: جابه‌جاییِ نشانیِ نودِ «{n_snap.get('name')}»",
+                      f"از {host}:{port} به {want_host}:{want_port} رفته و از نشانیِ تازه جواب می‌دهد — روی"
+                      " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
                       " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
-        return {"ok": True, "updated": False, "host": host, "moved_to": source_ip}
+        return {"ok": True, "updated": False, "host": host, "port": port, "moved_to": want_host}
     _moved_clear(n_snap["id"])
     with _reg_lock:  # re-find under lock (registry may have changed during the probes) and persist
         nodes = load_nodes()
         n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
         if not n:
             return {"ok": False, "error": "unknown node"}
-        n["host"], host, nid = source_ip, source_ip, n["id"]
+        n["host"], n["port"] = want_host, want_port
+        host, port, nid = want_host, want_port, n["id"]
         save_json(NODES_FILE, nodes)
     _refresh_cache([nid])  # re-probe at the new address at once so the fleet view + reconciler catch up
-    return {"ok": True, "updated": True, "host": host}
+    return {"ok": True, "updated": True, "host": host, "port": port}
 
 
 API = {
@@ -11637,8 +11668,11 @@ def serve():
         print("Not configured. Run the setup menu:  sudo python3 tnl-central.py")
         sys.exit(1)
     conf = load_conf()
-    global _CENTRAL_PORT
+    global _CENTRAL_PORT, _CENTRAL_TLS
     _CENTRAL_PORT = int(conf.get("port", 8080))  # advertised to nodes so they can call back /api/checkin
+    # conf["tls"] is the panel's own declaration that it is TLS-fronted. The node needs it: without the
+    # scheme it can only assume http, and a check-in posted in the clear at a TLS port goes nowhere.
+    _CENTRAL_TLS = bool(conf.get("tls"))
     _seed_settings()  # load settings.json into memory (defaults if absent) for the loops
     try:
         _signing_keys()  # generate the update-signing keypair on first boot so pushes can be signed
