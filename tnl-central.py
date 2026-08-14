@@ -3334,18 +3334,59 @@ def _panel_origin_for(node):
     return f"{'https' if _CENTRAL_TLS else 'http'}://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
 
 
+DL_TICKET_TTL = 3600    # seconds a download URL stays valid
+
+
+def _dl_ticket_msg(q):
+    """The canonical string a download ticket is signed over: every field except the signature."""
+    return "&".join("%s=%s" % (k, q[k]) for k in sorted(q) if k != "sig")
+
+
 def _panel_dl_url(node, kind, arch=""):
     """The panel URL this node fetches a staged artifact from, or "" when there is no reachable origin.
 
-    The node's fetch carries no headers of its own, so the node token — the same one every control call
-    already sends in the clear on this wire — rides in the query string as the credential."""
+    The node's fetch carries no headers of its own, so everything that authorises it has to be in the
+    query string. It used to be the node's TOKEN. That was defensible while the token also rode in a
+    header on every control call -- it gave nothing away that was not already given -- and it stopped
+    being defensible the moment the token left the wire everywhere else, because this was then the one
+    place it still travelled.
+
+    So it carries a signed TICKET instead: a fingerprint of the token, which identifies without
+    proving, the artifact being asked for, an expiry, and an HMAC over all of it. Stateless, so nothing
+    has to be remembered between minting and serving. A captured ticket is worth only what it was
+    minted for -- one artifact, for one hour -- and the artifacts themselves are a public agent source
+    and a published release binary."""
     origin = _panel_origin_for(node)
     if not origin:
         return ""
-    q = {"t": str(node.get("token") or ""), "k": kind}
+    tok = str(node.get("token") or "")
+    q = {"fp": hashlib.sha256(tok.encode()).hexdigest(), "k": kind,
+         "exp": str(int(time.time()) + DL_TICKET_TTL)}
     if arch:
         q["arch"] = arch
+    q["sig"] = base64.urlsafe_b64encode(
+        hmac.new(tok.encode(), _dl_ticket_msg(q).encode(), hashlib.sha256).digest()).decode()
     return origin + "/api/dl?" + urllib.parse.urlencode(q)
+
+
+def _dl_ticket_node(q):
+    """The node a download ticket was minted for, or None if it does not verify or has expired."""
+    fp, sig = str(q.get("fp") or ""), str(q.get("sig") or "")
+    if len(fp) != 64 or not sig:
+        return None
+    try:
+        if int(q.get("exp") or 0) < time.time():
+            return None
+        got = base64.urlsafe_b64decode(sig)
+    except Exception:
+        return None
+    msg = _dl_ticket_msg(q).encode()
+    for n in load_nodes():
+        tok = str(n.get("token") or "")
+        if not tok or not hmac.compare_digest(hashlib.sha256(tok.encode()).hexdigest(), fp):
+            continue
+        return n if hmac.compare_digest(hmac.new(tok.encode(), msg, hashlib.sha256).digest(), got) else None
+    return None
 
 
 _NO_ORIGIN = ("پنل نمی‌داند این نود او را با چه آدرسی می‌بیند (نودِ پروکسی‌دار) — "
@@ -7698,25 +7739,22 @@ class Handler(BaseHTTPRequestHandler):
     def _dl(self):
         """Serve a staged artifact to a NODE — the "node fetches it from the panel" delivery mode.
 
-        Authenticated by the node's own token, like /api/checkin. The node's fetch sends no headers of
-        its own, so the token rides in the query string; that is the same plaintext wire on which every
-        control call already carries it in a header, so it gives nothing away that was not already
-        there. What the node installs is still decided by the sha256 and signature the panel sent it —
-        this endpoint only hands over bytes."""
+        Authorised by a signed TICKET in the query string, because the node's fetch sends no headers of
+        its own. The ticket names the artifact and expires; it is not a credential for anything else,
+        and no secret of the node's appears in it. What the node installs is still decided by the
+        sha256 and the RSA signature the panel sent it — this endpoint only hands over bytes."""
         ip = self._client_ip()
-        if rate_limited(ip):   # per-source-IP brute-force cap on token guessing (same limiter as _login)
+        if rate_limited(ip):   # per-source-IP brute-force cap on guessing (same limiter as _login)
             self._send(429, {"error": "too many attempts, wait a few minutes"})
             return
-        q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-        tok = (q.get("t") or [""])[0]
-        node = next((n for n in load_nodes()
-                     if n.get("token") and hmac.compare_digest(str(n["token"]), tok)), None) if tok else None
-        if not node:
+        q = {k: v[0] for k, v in
+             urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "").items()}
+        if not _dl_ticket_node(q):
             note_fail(ip)
-            self._send(401, {"error": "unknown node"})
+            self._send(401, {"error": "bad or expired ticket"})
             return
         try:
-            raw = _dl_artifact((q.get("k") or [""])[0], (q.get("arch") or [""])[0])
+            raw = _dl_artifact(q.get("k", ""), q.get("arch", ""))
         except Exception:
             raw = None
         if not raw:
