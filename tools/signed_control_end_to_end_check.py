@@ -8,11 +8,11 @@ refused at once — the panel loses the whole fleet and the way back is ssh.
 
 So this drives the real panel senders against the real node handler over a real socket:
 
-  1. token mode still works, and puts the token on the wire — the state the fleet is in today;
-  2. sign mode is accepted by the node, and the token appears NOWHERE in the request;
-  3. all three senders that reach a node agree: node_call, the proxied variant, and node_push;
-  4. a replay is refused, and a panel whose counter fell behind RESYNCS instead of locking itself out;
-  5. flipping the setting back is a real way out — the point of it being a setting.
+  1. every request the panel makes is signed, and the token appears NOWHERE in it;
+  2. all three senders that reach a node agree: node_call, the proxied variant, and node_push;
+  3. a replay is refused, and a panel whose counter fell behind RESYNCS instead of locking itself out;
+  4. there is no way back to sending the token — it was removed rather than left behind a switch,
+     because every node refuses it now and a switch could only ever brick the fleet.
 
 Needs the node repo. Set NODE_REPO, or have TUNNEL-MANAGER-NODE beside this one.
 
@@ -130,15 +130,7 @@ def main():
               all(b > a for a, b in zip(seq, seq[1:])),
               "%d repeats in 5000" % sum(1 for a, b in zip(seq, seq[1:]) if b <= a))
 
-        print("== token mode: what the fleet runs today ==")
-        P.api_settings_set({"control_auth": "token"})
-        got.clear()
-        P.node_call(node, "ping", "GET", timeout=10)
-        check("a token-mode call is accepted", accepted(got), str(got[-1]["code"]) if got else "no request")
-        check("...and the token really is on the wire", token_on_wire(got, TOKEN))
-
-        print("== sign mode: accepted, and the secret never travels ==")
-        P.api_settings_set({"control_auth": "sign"})
+        print("== every request is signed, and the secret never travels ==")
         got.clear()
         P.node_call(node, "ping", "GET", timeout=10)
         check("a signed call is accepted by the node's own handler", accepted(got),
@@ -182,13 +174,18 @@ def main():
             after = P._ctr_next[node["id"]]
         check("...by adopting the node's mark, not by retrying blindly", after > ahead, str(after))
 
-        print("== the way back is a setting, because a bad signature loses every node at once ==")
-        P.api_settings_set({"control_auth": "token"})
+        print("== and there is no way back to sending the token ==")
+        # The switch is gone, not merely defaulted: every node refuses a bearer token now, so a way back
+        # could only ever brick the fleet -- and the tokens were never rotated, so anyone who watched
+        # this wire before the changeover still holds one.
+        check("the panel has no token mode left", not hasattr(P, "_control_auth"),
+              "_control_auth still exists")
+        P.api_settings_set({"control_auth": "token"})     # an unknown key: accepted and ignored
         got.clear()
         P.node_call(node, "ping", "GET", timeout=10)
-        check("flipping back to token works immediately", accepted(got),
-              str(got[-1]["code"]) if got else "no request")
-        check("...and the token is what proves it again", token_on_wire(got, TOKEN))
+        check("...so asking for one changes nothing, and the request is still signed",
+              not token_on_wire(got, TOKEN) and any("X-Sig" in g["hdr"] for g in got),
+              json.dumps(got[-1]["hdr"]) if got else "no request")
     finally:
         srv.shutdown()
         srv.server_close()
