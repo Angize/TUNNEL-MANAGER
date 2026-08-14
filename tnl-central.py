@@ -8958,11 +8958,7 @@ var I18N={fa:{
  rdy_why:"تا اینها آماده نشوند، «افزودن نود» و ساختِ تونلِ هسته رد می‌شوند.",
  rdy_go:"برو به تنظیمات",cor_arch_missing:" — معماریِ {a} نیامد؛ دوباره «دریافت از گیت‌هاب» را بزن",
  dlv_lbl:"فایل چطور به نود برسد",
- dlv_push_t:"پنل آپلود کند",dlv_push_s:"بایت‌ها را پنل می‌فرستد",
- dlv_git_t:"نود از گیت‌هاب",dlv_git_s:"نود خودش دانلود می‌کند",
- dlv_pan_t:"نود از پنل",dlv_pan_s:"نود از سرورِ پنل می‌گیرد",
- dlv_ag_hint:"در هر سه حالت پنل sha و امضای خودش را می‌فرستد و نود پیش از نصب هر دو را چک می‌کند. «نود از گیت‌هاب» فقط ایجنتی را می‌فرستد که با «دریافت از گیت‌هاب» گرفته شده باشد، و «نود از پنل» روی نودِ پروکسی‌دار کار نمی‌کند.",
- dlv_cor_hint:"همان زنجیرهٔ اعتماد: sha و امضای پنل در هر سه حالت چک می‌شود. باینریِ بارگذاری‌شده روی گیت‌هاب نیست، پس با «نود از گیت‌هاب» فرستاده نمی‌شود؛ و «نود از پنل» روی نودِ پروکسی‌دار کار نمی‌کند.",
+ dlv_push_t:"پنل آپلود کند",dlv_git_t:"نود از گیت‌هاب",dlv_pan_t:"نود از پنل",
 
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
@@ -11214,11 +11210,11 @@ function goReady(){cur='settings';render()}
 // Which end carries the bytes the last hop, per artifact. The panel decides WHAT is installed in all
 // three (it sends the sha and its signature, and the node checks both), so this only moves the traffic.
 var DLV={agent:'push',core:'push'};
-var DLV_OPTS=[['push','dlv_push_t','dlv_push_s'],['github','dlv_git_t','dlv_git_s'],['panel','dlv_pan_t','dlv_pan_s']];
-function dlSeg(kind,hintK){
+var DLV_OPTS=[['push','dlv_push_t'],['github','dlv_git_t'],['panel','dlv_pan_t']];
+function dlSeg(kind){
  return '<div class="agx-dlv"><label>'+esc(T('dlv_lbl'))+'</label><div class="seg2" id="dlseg_'+kind+'">'+
-  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b><span>'+esc(T(o[2]))+'</span></button>'}).join('')+
-  '</div><div class="agx-hint" style="margin-top:-4px">'+esc(T(hintK))+'</div></div>'}
+  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b></button>'}).join('')+
+  '</div></div>'}
 function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
  Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})})}
 async function setDelivery(k,v){if(DLV[k]==v)return;var b={};b[k+'_delivery']=v;
@@ -11233,7 +11229,7 @@ function agentBody(){return ''+
     '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
-  dlSeg('agent','dlv_ag_hint')+
+  dlSeg('agent')+
   '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
@@ -11247,7 +11243,7 @@ function agentBody(){return ''+
     '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
-  dlSeg('core','dlv_cor_hint')+
+  dlSeg('core')+
   '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+
