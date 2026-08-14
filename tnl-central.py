@@ -2098,6 +2098,9 @@ def _node_view(n, pend=None, pxn=None):
             "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
             "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),   # teardowns owed to this node, waiting for it to reconnect
             "moved_to": moved_addr(n["id"]),   # DISPLAY only ("host:port"); adopt reads the stored pair
+            # The origin this node SHOULD have learned. Beside info.central (what it actually believes)
+            # this is what makes a fleet being moved to a new address watchable instead of guessed at.
+            "central_want": _panel_origin_for(n),
             "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -3218,17 +3221,30 @@ def _delivery_mode(kind):
     return m if m in DELIVERY_MODES else "push"
 
 
+_route_src_cache = {}      # host -> (ts, ip)
+ROUTE_SRC_TTL = 60
+
+
 def _route_src(host):
     """The local address the kernel would send to `host` from — i.e. the source address `host` sees.
-    A UDP connect() only selects the route; no packet leaves. "" when the route cannot be resolved."""
+    A UDP connect() only selects the route; no packet leaves. "" when the route cannot be resolved.
+
+    Cached: this is asked once per node per fleet poll now that the node view shows it, and a `host`
+    that is a NAME makes connect() resolve DNS. A route change takes up to the TTL to show, which is
+    well inside the time anything acts on it."""
+    now = time.time()
+    hit = _route_src_cache.get(host)
+    if hit and now - hit[0] < ROUTE_SRC_TTL:
+        return hit[1]
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect((host, 9))
-        return s.getsockname()[0]
+        ip = s.getsockname()[0] if s.connect((host, 9)) is None else ""
     except OSError:
-        return ""
+        ip = ""
     finally:
         s.close()
+    _route_src_cache[host] = (now, ip)
+    return ip
 
 
 def _panel_origin_for(node):
@@ -8103,6 +8119,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .rdbar b{font-size:12.5px;font-weight:800}
 .rdbar span{font-size:11px;color:var(--sub);line-height:1.6}
 .rdbar button{margin:0;flex:0 0 auto;padding:8px 12px;font-size:11.5px;border-radius:10px}
+.cn-stale{color:var(--gold)}
 .agx-dlv{margin-top:11px}
 .agx-dlv label{margin:0 2px 7px}
 .agx-dlv .seg2{margin:0}
@@ -8679,6 +8696,10 @@ var I18N={fa:{
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
+ nd_central:"پنل را کجا می‌داند",nd_central_none:"هنوز نمی‌داند",
+ cn_stale_one:"۱ نود هنوز پنل را در نشانیِ قدیمی می‌داند",
+ cn_stale_n:"{n} نود هنوز پنل را در نشانیِ قدیمی می‌دانند",
+ cn_stale_sub:"تا وقتی پنل به آن‌ها برسد خودشان به‌روز می‌شوند. اگر نشانیِ قدیمی را دارید برمی‌دارید، صبر کنید تا این پیام برود.",
  rdy_title:"پنل هنوز چیزی برای دادن به نودها ندارد",
  rdy_agent:"ایجنتِ نود روی پنل نیست",rdy_core:"هستهٔ داده روی پنل نیست",
  rdy_core_arch:"هستهٔ داده برای معماریِ {a} روی پنل نیست",
@@ -9280,7 +9301,12 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
 // that is no longer in the document. That is the "it lets go by itself for a second or two after a drop".
 function listBusy(){return !!(editingId||CHECKING||RORD||RSAVE)}
 async function refreshNodes(){if(listBusy())return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setHTML(box,NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>');renderPager('nodes')}
+ setHTML(box,cnBanner(NODES)+(NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>'));renderPager('nodes')}
+// The count is the whole point: while the panel is being moved to a new address you can watch the
+// fleet arrive, instead of guessing when it is safe to retire the old one.
+function cnBanner(ns){var k=(ns||[]).filter(cnStale).length;if(!k)return '';
+ return '<div class="rdbar" style="margin-bottom:12px">'+ic('warn')+'<div class="rdtx"><b>'+
+  esc(k==1?T('cn_stale_one'):T('cn_stale_n').replace('{n}',k))+'</b><span>'+esc(T('cn_stale_sub'))+'</span></div></div>'}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
 // ===== popup modal shell (edit forms + node-details) =====
 function openModal(html,opts){opts=opts||{};
@@ -9306,6 +9332,13 @@ function setGauge(key,pct,sub){var C=207.3,g=el('g_'+key),t=el('gt_'+key),s=el('
  pct=Math.max(0,Math.min(100,Math.round(num(pct))));
  g.setAttribute('stroke-dashoffset',(C*(1-pct/100)).toFixed(1));g.setAttribute('class','gfill '+glvl(pct));
  t.innerHTML=pct+'<i>'+T('pct')+'</i>';if(s&&sub!=null)s.textContent=sub}
+// What this node thinks the panel's address is, against what the panel would actually hand it. They
+// differ for exactly as long as it takes the panel to reach the node once, so a lasting difference is
+// the thing worth seeing -- it is what «MMD-GE» looked like from the outside for weeks with no way to ask.
+function cnStale(n){var got=(n.info&&n.info.central)||'',want=n.central_want||'';return !!(got&&want&&got!==want)}
+function cnCell(n){var got=(n.info&&n.info.central)||'';
+ if(!got)return '<span class="muted">'+esc(T('nd_central_none'))+'</span>';
+ return '<span class="mono'+(cnStale(n)?' cn-stale':'')+'">'+esc(got)+'</span>'}
 function ndTile(icn,label,val,wide,ltr){return '<div class="nd-tile'+(wide?' nd-wide':'')+'"><span class="medi">'+ic(icn)+'</span><span>'+label+'</span><b'+(ltr?' class="ltr"':'')+'>'+val+'</b></div>'}
 function ndApplyStats(s){var rp=s.mem_total_mb?Math.round(num(s.mem_used_mb)/num(s.mem_total_mb)*100):0;
  setGauge('cpu',s.cpu_pct,T('load')+' '+((s.load||[])[0]||'—'));
@@ -9319,7 +9352,7 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
  var mb;
  if(n.online){var g='<div class="gauges">'+gaugeHTML('cpu','CPU')+gaugeHTML('ram','RAM')+gaugeHTML('disk',T('disk'))+'</div>';
   var traf='<div class="nd-sec">'+ic('traf')+' '+esc(T('nd_traffic'))+'<span class="lpill" style="margin-inline-start:auto"><span class="pd"></span>'+esc(T('live'))+'</span></div><div class="tf-chart"><div class="tf-top"><span class="din iso">↓ <b id="tf_rin">—</b></span><span class="dout iso">↑ <b id="tf_rout">—</b></span></div><svg id="tf_spark" class="tf-spk" viewBox="0 0 300 46" preserveAspectRatio="none"></svg></div><div class="ttiles"><div class="ttile"><span class="din">'+esc(T('ov_rxtot'))+'</span><b id="tf_tin">—</b></div><div class="ttile"><span class="dout">'+esc(T('ov_txtot'))+'</span><b id="tf_tout">—</b></div></div><div id="tf_tuns" class="tf-tuns"></div>';
-  var tiles='<div class="nd-grid">'+ndTile('os',T('os'),esc(s.os||'?'),false,true)+ndTile('clock',T('uptime'),s.uptime?fmtup(s.uptime):'?')+ndTile('cores',T('cpu_cores'),num(s.cpus)||'?')+ndTile('link',T('nd_tunnels'),num(i.tunnels))+ndTile('globe',T('nd_portfw'),num(i.portfw))+ndTile('shield',T('nd_ctrlproxy'),n.proxy_on?esc(n.proxy_name||'?'):'—')+ndTile('server',T('host'),esc(i.hostname||'?'),true,true)+ndTile('pin',T('ip'),esc(n.host),true,true)+'</div>';
+  var tiles='<div class="nd-grid">'+ndTile('os',T('os'),esc(s.os||'?'),false,true)+ndTile('clock',T('uptime'),s.uptime?fmtup(s.uptime):'?')+ndTile('cores',T('cpu_cores'),num(s.cpus)||'?')+ndTile('link',T('nd_tunnels'),num(i.tunnels))+ndTile('globe',T('nd_portfw'),num(i.portfw))+ndTile('shield',T('nd_ctrlproxy'),n.proxy_on?esc(n.proxy_name||'?'):'—')+ndTile('server',T('host'),esc(i.hostname||'?'),true,true)+ndTile('pin',T('ip'),esc(n.host),true,true)+ndTile('globe',T('nd_central'),cnCell(n),true,true)+'</div>';
   mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' '+esc(T('nd_ips'))+'<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">'+esc(T('ip_leg'))+'</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
  else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
  var sub=n.online?'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span> '+esc(T('refresh2s')):esc(T('nd_status'));
