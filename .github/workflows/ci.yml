@@ -175,3 +175,6 @@ jobs:
       - name: a slow peer is served the whole body
         working-directory: TUNNEL-MANAGER
         run: python tools/slow_peer_full_body_check.py
+      - name: the panel signs what the node verifies
+        working-directory: TUNNEL-MANAGER
+        run: python tools/signed_control_end_to_end_check.py
