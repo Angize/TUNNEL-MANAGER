@@ -153,7 +153,7 @@ def check(ok, msg):
 # Two knobs live on the agent and core cards instead of the settings card: they are switches that
 # save themselves the moment they are tapped, so Save must NOT carry them -- a card rendered before
 # the switch was flipped would otherwise post the old value back over it.
-SELF_SAVING = {"agent_delivery", "core_delivery"}
+SELF_SAVING = {"agent_delivery", "core_delivery", "control_auth"}
 
 
 def main():
@@ -220,13 +220,18 @@ def main():
         body = (by_name[name]["saved"] or {}).get("body") or {}
         for k in sorted(SELF_SAVING):
             check(k not in body, "%s: Save does not post %s — a stale card would clobber the switch" % (name, k))
-    i = js.find("async function setDelivery(")
-    check(i >= 0, "the delivery switch exists")
-    if i >= 0:
+    for fn, paint, why in [("async function setDelivery(", "paintDelivery()", "delivery"),
+                           # control_auth is the one the operator reaches for when the fleet has gone
+                           # quiet, so it especially must not need the card's Save button to take effect.
+                           ("async function setCtlAuth(", "paintCtlAuth()", "control-auth")]:
+        i = js.find(fn)
+        check(i >= 0, "the %s switch exists" % why)
+        if i < 0:
+            continue
         check("post('settings-set'" in js[i:i + 400],
-              "...and posts settings-set itself, so the switch is the thing that saves it")
-        check("paintDelivery()" in js[i:i + 400],
-              "...and repaints, so a rejected save does not leave the wrong option lit")
+              "...the %s switch posts settings-set itself" % why)
+        check(paint in js[i:i + 400],
+              "...and repaints, so a rejected save does not leave the wrong option lit (%s)" % why)
 
     print("== 2) ...and the TUNING half, in the same one request ==")
     for name, settings in [(c["name"], c["settings"]) for c in CASES]:
