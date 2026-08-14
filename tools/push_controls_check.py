@@ -59,23 +59,37 @@ def jsfn(name):
     return m.group(1) if m else ""
 
 
-# ---- 0. ONE job at a time, and exactly one way to start it
+# ---- 0. ONE NODE at a time, a GLOBAL upload bound, and exactly one way to start a job
 jn = body("_push_job_new")
-need('if any(not v["done"] for v in _push_jobs.values()):' in jn and "raise" in jn,
-     "_push_job_new must refuse a second job: PUSH_WORKERS is PER JOB, so two jobs double the uploads on "
-     "the uplink, and push-status/_push_active/the pill are all single-job")
-need("with _push_lock:" in jn.split('if any(not v["done"]')[0],
-     "the refusal must be inside the lock or two simultaneous POSTs both win")
+need("_busy_nodes()" in code("_push_job_new") and "raise" in jn,
+     "_push_job_new must refuse a node another live job is still working on -- two uploads to one node "
+     "race each other's install. It must NOT refuse a second job: a per-node update has to be able to "
+     "run while a fleet push is going.")
+need("with _push_lock:" in jn.split("busy = _busy_nodes()")[0],
+     "the refusal must be inside the lock or two simultaneous POSTs for one node both win")
 need(SRC.count("target=_push_worker") == 1,
-     "_push_worker may be launched from ONE place (_push_start), else the single-job rule is bypassable")
+     "_push_worker may be launched from ONE place (_push_start), so nothing bypasses the busy check")
+# The upload bound is what made one-job-at-a-time necessary. It has to be GLOBAL now, or several jobs
+# put several times PUSH_WORKERS on the uplink and the operator's bound is gone.
+need("_push_slots = threading.BoundedSemaphore(PUSH_WORKERS)" in CODE,
+     "the concurrency bound must be a GLOBAL semaphore, not a per-job thread count")
+need("_push_slots.acquire()" in code("_push_worker"),
+     "...and every worker must take a slot before it uploads")
+wl = code("_push_worker")
+need(wl.index("_push_slots.acquire()") < wl.index("_push_next(jid)"),
+     "the slot must be taken BEFORE the node is claimed, or a node waiting its turn shows «در حالِ آپلود» "
+     "at 0% instead of «در نوبت»")
+# and the merged view is what lets the single-job page follow several
+need("def _push_merged(" in SRC and "PUSH_ALL" in SRC,
+     "push-status with no job id must merge every live job: the page has one pill and one cancel")
+for fn in ("api_push_cancel", "api_push_pause"):
+    need("_push_live()" in code(fn),
+         "%s with no job id must reach every live job, or the pill's button stops half the work" % fn)
 need("_push_job_new(kind, todo)" in body("_push_start"),
      "_push_start must build the job from the filtered list, not the caller's full one")
-# one condition must not have two wordings
-busy = re.findall(r'raise ValueError\("(یک آپلود[^"]*)"\)', SRC)
-key = re.search(r'ag_p_busy:"([^"]*)"', SRC)
-need(len(busy) == 1 and key and busy[0] == key.group(1),
-     "the server's «busy» sentence must be byte-identical to ag_p_busy, got %r vs %r"
-     % (busy, key and key.group(1)))
+# the page must not refuse a start of its own any more -- the server owns that decision now, per node
+need("ag_p_busy" not in SRC,
+     "the client-side «one upload at a time» refusal is gone; the server refuses per NODE and says so")
 
 # ---- 0b. a node already running exactly this is not uploaded to at all
 cur = body("_push_current")
