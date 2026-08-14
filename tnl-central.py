@@ -7361,10 +7361,17 @@ def _node_ip_tags(nid):
             live.append(ip)
     peers = {}
     for L in load_links():
-        if L.get("a_node") == nid and L.get("a_ip"):
-            peers.setdefault(L["a_ip"], []).append({"node": L.get("b_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
-        if L.get("b_node") == nid and L.get("b_ip"):
-            peers.setdefault(L["b_ip"], []).append({"node": L.get("a_name") or "", "type": L.get("type") or "", "name": L.get("name") or ""})
+        for mine, theirs, pool in (("a_node", "b_name", "a_ip_pool"), ("b_node", "a_name", "b_ip_pool")):
+            if L.get(mine) != nid:
+                continue
+            ent = {"node": L.get(theirs) or "", "type": L.get("type") or "", "name": L.get("name") or ""}
+            # The endpoint IP, AND every IP of a rotation pool. A pooled tunnel spends its whole life
+            # cycling through those, so calling one «آزاد» invites the operator to hand a LIVE address to
+            # another tunnel -- and only the pool's own IPs are ever in it, so nothing else is affected.
+            side = "a_ip" if mine == "a_node" else "b_ip"
+            for ip in ([L.get(side)] + (list(L.get(pool) or []) if L.get("ip_rotate") else [])):
+                if ip and not any(e["name"] == ent["name"] for e in peers.setdefault(ip, [])):
+                    peers[ip].append(ent)
     pf = {}  # ip -> [portfw names] using it (an IP carrying a forward is in use, not free)
     only_ip = live[0] if len(live) == 1 else ""   # single-IP node: a forward with no pin still uses that lone IP
     for c in (_cached_list(nid).get("configs") or []):
@@ -8316,7 +8323,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tf-nm{display:flex;align-items:center;gap:6px;min-width:0;font-weight:700}.tf-nm .mono{font-size:11.5px}
 .tf-fig{margin-inline-start:auto;display:flex;align-items:center;gap:10px;white-space:nowrap;font-variant-numeric:tabular-nums}.tf-fig .tot{color:var(--sub)}
 /* traffic line on the tunnel card */
-.ltraf{margin-top:10px;padding-top:9px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:13px;font-size:12px;font-variant-numeric:tabular-nums}.ltraf .tot{color:var(--sub);margin-inline-start:auto;display:flex;align-items:center;gap:6px}
+.ltraf{margin-top:10px;padding-top:9px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:13px;font-size:12px;font-variant-numeric:tabular-nums}
+/* the node row's copy hangs off the head, not the collapsible body, so it carries the head's own inline padding */
+.ndtraf{margin:0 14px;padding:9px 0 12px}.ltraf .tot{color:var(--sub);margin-inline-start:auto;display:flex;align-items:center;gap:6px}
 .iso{direction:ltr;unicode-bidi:isolate}   /* keep a value+unit (and its ↓/↑) LTR so it never jumbles inside the RTL layout */
 .tot .iso{display:inline-flex;gap:8px}
 .act.flip{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,transparent)}
@@ -8949,11 +8958,7 @@ var I18N={fa:{
  rdy_why:"تا اینها آماده نشوند، «افزودن نود» و ساختِ تونلِ هسته رد می‌شوند.",
  rdy_go:"برو به تنظیمات",cor_arch_missing:" — معماریِ {a} نیامد؛ دوباره «دریافت از گیت‌هاب» را بزن",
  dlv_lbl:"فایل چطور به نود برسد",
- dlv_push_t:"پنل آپلود کند",dlv_push_s:"بایت‌ها را پنل می‌فرستد",
- dlv_git_t:"نود از گیت‌هاب",dlv_git_s:"نود خودش دانلود می‌کند",
- dlv_pan_t:"نود از پنل",dlv_pan_s:"نود از سرورِ پنل می‌گیرد",
- dlv_ag_hint:"در هر سه حالت پنل sha و امضای خودش را می‌فرستد و نود پیش از نصب هر دو را چک می‌کند. «نود از گیت‌هاب» فقط ایجنتی را می‌فرستد که با «دریافت از گیت‌هاب» گرفته شده باشد، و «نود از پنل» روی نودِ پروکسی‌دار کار نمی‌کند.",
- dlv_cor_hint:"همان زنجیرهٔ اعتماد: sha و امضای پنل در هر سه حالت چک می‌شود. باینریِ بارگذاری‌شده روی گیت‌هاب نیست، پس با «نود از گیت‌هاب» فرستاده نمی‌شود؛ و «نود از پنل» روی نودِ پروکسی‌دار کار نمی‌کند.",
+ dlv_push_t:"پنل آپلود کند",dlv_git_t:"نود از گیت‌هاب",dlv_pan_t:"نود از پنل",
 
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
@@ -9035,7 +9040,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندوم",raw_sport_rand_m:"حینِ تونل عوض می‌شود",raw_sport_hint:"عددی که کلاینت به‌عنوان مبدأ می‌نویسد. «ثابت» همیشه 51820 است، پس چهارتاییِ اتصال تغییرناپذیر می‌ماند و سوزاندنِ آن حامل را از کار می‌اندازد. «رندوم» آن را حینِ کار از بازهٔ 32768 تا 60999 عوض می‌کند و سرور مقدارِ تازه را از فریمِ رمزگشایی‌شده می‌خواند — بدونِ دست‌دادنِ دوباره و بدونِ افتِ بسته. پورتِ مقصد از این تنظیم اثر نمی‌گیرد.", raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"عددی که کلاینت در هدرِ جعلی به‌عنوان مقصد می‌نویسد. ثابت است و هر دو طرف باید یکی باشند؛ استتار هم از همین می‌آید — 443 یعنی «QUIC»، 51820 یعنی «WireGuard». هیچ پورتی باز نمی‌شود: سوکتِ حامل روی شمارهٔ پروتکل است نه پورت. برخی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"هر دقیقه و روی سکوت",raw_sport_hint:"عددی که کلاینت به‌عنوان مبدأ می‌نویسد؛ پورتِ مقصد از آن اثر نمی‌گیرد. «ثابت» همیشه 51820 است: اگر آن چهارتایی سوزانده شود، حامل تا ابد مرده می‌ماند. «رندومِ واکنشی» هر دقیقه عوضش می‌کند — و اگر جوابی برنگردد، منتظرِ نوبتِ بعد نمی‌ماند. سرور مقدارِ نو را از خودِ فریم می‌خواند، بدونِ دست‌دادنِ دوباره.", raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"عددی که کلاینت در هدرِ جعلی به‌عنوان مقصد می‌نویسد. ثابت است و هر دو طرف باید یکی باشند؛ استتار هم از همین می‌آید — 443 یعنی «QUIC»، 51820 یعنی «WireGuard». هیچ پورتی باز نمی‌شود: سوکتِ حامل روی شمارهٔ پروتکل است نه پورت. برخی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -9130,7 +9135,7 @@ function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m
  return c+' '+T('fmt_sec')}
 function fmtBytes(n){n=num(n);var u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<4){n/=1024;i++}return (i?(n<10?n.toFixed(2):n<100?n.toFixed(1):Math.round(n)):Math.round(n))+' '+u[i]}
 function fmtRate(b){b=num(b);var u=['bps','Kbps','Mbps','Gbps'],i=0;while(b>=1000&&i<3){b/=1000;i++}return (i?(b<10?b.toFixed(1):Math.round(b)):Math.round(b))+' '+u[i]}
-function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span><span class="tag '+esc(t.type)+'">'+esc(t.type)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso">'+fmtBytes(num(t.rx_total)+num(t.tx_total))+'</span></div></div>'}
+function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span><span class="tag '+esc(t.type)+'">'+esc(t.type)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b> <b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></div></div>'}
 function dualSpark(id,a,b){var svg=el(id);if(!svg||!a.length)return;var vb=svg.getAttribute('viewBox').split(' '),W=+vb[2],H=+vb[3],pad=3;
  var mx=Math.max.apply(null,a.concat(b).concat([1]));
  function P(v){if(v.length<2)v=v.concat(v);return 'M'+v.map(function(x,k){return (pad+k*(W-2*pad)/(v.length-1)).toFixed(1)+','+(H-pad-(num(x)/mx)*(H-2*pad)).toFixed(1)}).join(' L')}
@@ -9642,7 +9647,7 @@ function nodeCard(n){var i=n.info||{};
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic(AG_IC)+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act reset" title="'+esc(T('tip_nreset'))+'" onclick="resetNodeTraffic(\\''+n.id+'\\')">'+ic('reset')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+ndTraf(n)+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+ return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+ndTraf(n)+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
@@ -9917,9 +9922,13 @@ async function flipView(id){var r=await post('link-view',{id:id});
   refreshFleet()}
  else{toast(T('failed'),'err')}}
 // The node's OWN throughput and lifetime totals, in the same shape a tunnel gets — and the same class,
-// so the dashed rule above it is the card's own divider and the two read as one thing.
+// so the dashed rule above it is the divider under the address.
+//
+// It sits OUTSIDE .cbody on purpose. Inside it, the figure is only there once the card is opened, and a
+// list you have to expand row by row is not one you can read at a glance. .card.acc has no padding of
+// its own, so the row carries the head's.
 function ndTraf(n){var t=n.traffic;if(!t)return '';
- return '<div class="ltraf"><span class="din iso">↓ '+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(t.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b><b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></span></div>'}
+ return '<div class="ltraf ndtraf"><span class="din iso">↓ '+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(t.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b><b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></span></div>'}
 async function resetNodeTraffic(id){if(!await confirmBox(T('nreset_confirm')))return;var r=await post('traffic-reset',{node:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshNodes()}else{toast(perr(r),'err')}}
 async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast(perr(r),'err')}}
 async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast(perr(r),'err')}}
@@ -11201,11 +11210,11 @@ function goReady(){cur='settings';render()}
 // Which end carries the bytes the last hop, per artifact. The panel decides WHAT is installed in all
 // three (it sends the sha and its signature, and the node checks both), so this only moves the traffic.
 var DLV={agent:'push',core:'push'};
-var DLV_OPTS=[['push','dlv_push_t','dlv_push_s'],['github','dlv_git_t','dlv_git_s'],['panel','dlv_pan_t','dlv_pan_s']];
-function dlSeg(kind,hintK){
+var DLV_OPTS=[['push','dlv_push_t'],['github','dlv_git_t'],['panel','dlv_pan_t']];
+function dlSeg(kind){
  return '<div class="agx-dlv"><label>'+esc(T('dlv_lbl'))+'</label><div class="seg2" id="dlseg_'+kind+'">'+
-  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b><span>'+esc(T(o[2]))+'</span></button>'}).join('')+
-  '</div><div class="agx-hint" style="margin-top:-4px">'+esc(T(hintK))+'</div></div>'}
+  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b></button>'}).join('')+
+  '</div></div>'}
 function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
  Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})})}
 async function setDelivery(k,v){if(DLV[k]==v)return;var b={};b[k+'_delivery']=v;
@@ -11220,7 +11229,7 @@ function agentBody(){return ''+
     '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
-  dlSeg('agent','dlv_ag_hint')+
+  dlSeg('agent')+
   '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
   '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
@@ -11234,7 +11243,7 @@ function agentBody(){return ''+
     '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
-  dlSeg('core','dlv_cor_hint')+
+  dlSeg('core')+
   '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+

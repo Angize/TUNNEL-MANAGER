@@ -119,6 +119,22 @@ def main():
     check("a never-sampled node reports no figure rather than zeros", cold.get("traffic") is None,
           repr(cold.get("traffic")))
 
+    print("== and where the browser puts it ==")
+    # Both of these were shipped WRONG first, and neither is visible to anything above: a figure inside
+    # the collapsible body renders perfectly and is simply not there until the row is opened, and a
+    # summed total renders perfectly and answers a question nobody asked.
+    js = P.INDEX_HTML
+    card = js[js.index("data-rk=\\'nodes\\'") - 400:js.index("data-rk=\\'nodes\\'") + 400] \
+        if "data-rk=\\'nodes\\'" in js else js[js.index('data-rk="nodes"'):js.index('data-rk="nodes"') + 400]
+    check("the node row's figure is rendered OUTSIDE the collapsible body",
+          card.index("ndTraf(n)") < card.index('<div class="cbody">'),
+          "a list you have to expand row by row cannot be read at a glance")
+
+    tfrow = js[js.index("function tfRow("):js.index("function tfRow(") + 600]
+    check("a tunnel's row shows download and upload SEPARATELY",
+          "rx_total" in tfrow and "tx_total" in tfrow and "num(t.rx_total)+num(t.tx_total)" not in tfrow,
+          "the two are summed into one figure")
+
     print()
     if FAILED:
         print("%d FAILED:" % len(FAILED))
