@@ -17,6 +17,7 @@ import argparse
 import importlib.util
 import io
 import json
+import time
 import os
 import sys
 import tempfile
@@ -25,6 +26,24 @@ from pathlib import Path
 NODES = [{"id": "n1", "name": "IR02", "host": "94.183.210.131", "port": 8099, "token": "tok1"},
          {"id": "n2", "name": "DE01", "host": "5.75.197.201", "port": 8099, "token": "tok2"}]
 NEW = "94.183.210.9"
+
+
+
+# The check-in is signed now: it carries a FINGERPRINT of the token and an HMAC over the rest, never
+# the token itself. Built here exactly as the node builds it -- a guard that called the verifier
+# directly would say nothing about the shape the node actually sends.
+_CKCTR = [int(time.time() * 1000)]
+
+
+def claim(token, **fields):
+    import base64, hashlib, hmac
+    _CKCTR[0] += 1
+    c = dict(fields)
+    c["fp"] = hashlib.sha256(token.encode()).hexdigest()
+    c["ctr"] = _CKCTR[0]
+    msg = json.dumps(c, sort_keys=True, separators=(",", ":")).encode()
+    c["sig"] = base64.b64encode(hmac.new(token.encode(), msg, hashlib.sha256).digest()).decode()
+    return c
 
 
 def main():
@@ -67,7 +86,7 @@ def main():
     # ---- manual: report, change nothing
     mode("alert")
     reach({NEW})
-    r = P.api_checkin_impl(NEW, {"token": "tok1"})
+    r = P.api_checkin_impl(NEW, claim("tok1"))
     chk("manual mode does not adopt the new address", (r["updated"], host_of("n1")),
         (False, "94.183.210.131"))
     chk("but it tells the node WHERE we saw it", r.get("moved_to"), NEW)
@@ -79,7 +98,7 @@ def main():
     chk("and it is logged once, with the address in it",
         (len(logged), NEW in logged[0][3]), (1, True))
     for _ in range(5):
-        P.api_checkin_impl(NEW, {"token": "tok1"})
+        P.api_checkin_impl(NEW, claim("tok1"))
     chk("a node calling every 20s does not fill the log", len(logged), 1)
 
     P._cached_ping = lambda nid: {"ok": False, "error": "unreachable"}
@@ -178,7 +197,7 @@ def main():
     P._moved_clear("n1")          # _moved_note logs only on CHANGE; a primed value would silence this
     logged.clear()
     reach({NEW})
-    P.api_checkin_impl(NEW, {"token": "tok1"})
+    P.api_checkin_impl(NEW, claim("tok1"))
     line = logged[0][3] if logged else ""
     chk("the log points at the chip, not the edit form",
         "نشانِ هشدار" in line and "ویرایشِ نود" not in line, True)
@@ -189,13 +208,13 @@ def main():
 
     # a node that is reachable again at its stored host must stop being reported
     reach({"94.183.210.131", NEW})
-    P.api_checkin_impl(NEW, {"token": "tok1"})
+    P.api_checkin_impl(NEW, claim("tok1"))
     chk("a node found at its own host again is no longer 'moved'", P.moved_to("n1"), "")
 
     # ---- auto: do it
     mode("auto")
     reach({NEW})
-    r = P.api_checkin_impl(NEW, {"token": "tok1"})
+    r = P.api_checkin_impl(NEW, claim("tok1"))
     chk("auto mode adopts it", (r["updated"], host_of("n1")), (True, NEW))
     chk("and nothing is left pending for the operator", P.moved_to("n1"), "")
 
@@ -204,7 +223,7 @@ def main():
     for m in ("auto", "alert"):
         mode(m)
         reach(set())     # the old host is dead AND the new one does not answer either
-        r = P.api_checkin_impl("1.2.3.4", {"token": "tok1"})
+        r = P.api_checkin_impl("1.2.3.4", claim("tok1"))
         chk("%s mode rejects an address that does not reach the node" % m,
             (r["updated"], host_of("n1"), r.get("moved_to")), (False, "94.183.210.131", None))
 
@@ -212,9 +231,28 @@ def main():
     for m in ("auto", "alert"):
         mode(m)
         reach({NEW})
-        r = P.api_checkin_impl(NEW, {"token": "not-a-node"})
+        r = P.api_checkin_impl(NEW, claim("not-a-node"))
         chk("%s mode refuses an unknown token" % m, (r["ok"], host_of("n1")),
             (False, "94.183.210.131"))
+
+    # ---- the check-in must carry NO secret, and must not be replayable
+    mode("auto")
+    reach({NEW})
+    # The bare token was what this used to carry. Whoever saw it could not command the node -- that
+    # needs a signature -- but they could claim the node had MOVED to their address, answer the panel's
+    # signed probe with the key they had just been handed, and own its control traffic from then on.
+    r = P.api_checkin_impl(NEW, {"token": "tok1", "ips": {"eth0": [NEW]}})
+    chk("a check-in carrying the raw TOKEN is refused", r.get("ok"), False)
+    # ...and the fingerprint alone, which a listener CAN copy, proves nothing without the signature
+    import hashlib as _h
+    r = P.api_checkin_impl(NEW, {"fp": _h.sha256(b"tok1").hexdigest(), "ctr": 9 * 10 ** 12})
+    chk("...and the fingerprint alone, with no signature, is refused too", r.get("ok"), False)
+    c = claim("tok1")
+    chk("a signed one is accepted", P.api_checkin_impl(NEW, c).get("ok"), True)
+    chk("...and the SAME one replayed is refused", P.api_checkin_impl(NEW, c).get("ok"), False)
+    c2 = claim("tok1")
+    c2["hostname"] = "attacker"          # any edit invalidates the signature over the whole claim
+    chk("...and one edited after signing is refused", P.api_checkin_impl(NEW, c2).get("ok"), False)
 
     # ---- the PORT moves with the address, in AUTO mode where adopting is the point. Without it the
     # self-heal covers only half of "where this node is": an agent that moved port is unreachable and
@@ -223,12 +261,12 @@ def main():
     P._moved_clear("n1")
     cur_host = next(x["host"] for x in json.load(io.open(P.NODES_FILE)) if x["id"] == "n1")
     P.node_call = lambda nd, *a, **k: {"ok": (nd["host"], int(nd["port"])) == (cur_host, 9099)}
-    r = P.api_checkin_impl(cur_host, {"token": "tok1", "port": 9099})
+    r = P.api_checkin_impl(cur_host, claim("tok1", port=9099))
     chk("a node that changed only its PORT is followed", (r["updated"], r["port"]), (True, 9099))
     chk("and the record really carries it",
         next(int(x["port"]) for x in json.load(io.open(P.NODES_FILE)) if x["id"] == "n1"), 9099)
     P.node_call = lambda nd, *a, **k: {"ok": False}
-    r = P.api_checkin_impl(cur_host, {"token": "tok1", "port": 7777})
+    r = P.api_checkin_impl(cur_host, claim("tok1", port=7777))
     chk("a port that does not answer is NOT adopted", (r["updated"], r["port"]), (False, 9099))
 
     if bad:

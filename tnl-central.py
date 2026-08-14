@@ -7426,6 +7426,48 @@ def api_settings_set(d):
     return {"ok": True, "settings": obj}
 
 
+_checkin_ctr = {}          # node id -> the highest check-in counter accepted
+_checkin_ctr_lock = threading.Lock()
+
+
+def _checkin_claimant(d):
+    """The node this check-in is really from, or None.
+
+    It carries a FINGERPRINT of the token rather than the token, and an HMAC over the rest of the body
+    keyed on that token. So the secret never travels in this direction either, and the fingerprint on
+    its own proves nothing: a listener who copies it cannot produce the signature, and a captured
+    check-in cannot be replayed because the counter must strictly increase.
+
+    Being able to move a node's address is worth as much as being able to command it -- the panel
+    follows the claim and then sends that node's control traffic to wherever it points."""
+    fp = str(d.get("fp") or "")
+    sig = str(d.get("sig") or "")
+    if len(fp) != 64 or not sig:
+        return None
+    signed = {k: v for k, v in d.items() if k != "sig"}
+    msg = json.dumps(signed, sort_keys=True, separators=(",", ":")).encode()
+    try:
+        got = base64.b64decode(sig, validate=True)
+    except Exception:
+        return None
+    for node in load_nodes():
+        tok = str(node.get("token") or "")
+        if not tok or not hmac.compare_digest(hashlib.sha256(tok.encode()).hexdigest(), fp):
+            continue
+        if not hmac.compare_digest(hmac.new(tok.encode(), msg, hashlib.sha256).digest(), got):
+            return None
+        try:
+            ctr = int(d.get("ctr") or 0)
+        except (TypeError, ValueError):
+            return None
+        with _checkin_ctr_lock:
+            if ctr <= _checkin_ctr.get(node["id"], 0):
+                return None          # a replay: the same check-in, or an older one, sent again
+            _checkin_ctr[node["id"]] = ctr
+        return node
+    return None
+
+
 def api_checkin_impl(source_ip, d):
     """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
     whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
@@ -7434,11 +7476,12 @@ def api_checkin_impl(source_ip, d):
 
     Adopting is the first step of the self-heal chain, so it obeys the same `reconcile_mode` as the rebuild
     at the end of it: on "alert" the panel reports where the node moved to and changes nothing."""
-    tok = str((d or {}).get("token") or "")
-    if not tok:
-        return {"ok": False, "error": "token required"}
+    n = _checkin_claimant(d or {})
+    if not n:
+        return {"ok": False, "error": "unsigned or unknown node"}
+    tok = str(n.get("token", ""))
     with _reg_lock:
-        n = next((x for x in load_nodes() if hmac.compare_digest(str(x.get("token", "")), tok)), None)
+        n = next((x for x in load_nodes() if x["id"] == n["id"]), None)
         if not n:
             return {"ok": False, "error": "unknown node"}
         n_snap, host, port = dict(n), n.get("host"), int(n.get("port") or 0)
