@@ -3482,21 +3482,41 @@ def _body_cache(build):
 _push_lock = threading.Lock()
 _push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts, cancel, paused}
 PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err", "skip")
-PUSH_WORKERS = 4      # nodes pushed CONCURRENTLY per job (operator's choice: bounded, not all-at-once)
+PUSH_WORKERS = 4      # nodes uploading CONCURRENTLY across ALL jobs (operator's choice: bounded, not all-at-once)
+# The bound is GLOBAL, not per job. It used to be per job, which is why only one job could run at a time:
+# two jobs would have put 2x the uploads on the panel's uplink. Holding it here instead means any number
+# of jobs can be in flight -- per-node updates while a fleet push runs -- and the uplink still sees at
+# most PUSH_WORKERS at once. A worker takes a slot BEFORE it claims a node, so a node waiting for a slot
+# still reads «در نوبت» rather than sitting at 0% pretending to upload.
+_push_slots = threading.BoundedSemaphore(PUSH_WORKERS)
+
+
+PUSH_BUSY_STATES = ("wait", "send", "apply")     # a node still owed something by a live job
+
+
+def _busy_nodes():
+    """Node ids a live job still has work for. Caller holds _push_lock."""
+    return {nid for v in _push_jobs.values() if not v["done"]
+            for nid, s in v["nodes"].items() if s["state"] in PUSH_BUSY_STATES}
 
 
 def _push_job_new(kind, nodes):
-    """Create the job, refusing if one is already running. ONE AT A TIME is not a nicety: PUSH_WORKERS is
-    per job, so two jobs would put 2x that many uploads on the panel's uplink and defeat the bound, and
-    _push_active/push-status/the pill are all single-job -- a second job would be invisible and
-    uncancellable. Checked under the lock, so two simultaneous POSTs cannot both win."""
+    """Create the job. What is refused is a NODE that is already being updated, not a second job.
+
+    One-job-at-a-time used to be the rule because PUSH_WORKERS was per job. The bound is global now, so
+    the only thing left that must not overlap is two uploads to the SAME node -- they would race each
+    other's install. Anything else may run alongside: a per-node update while a fleet push is going.
+
+    Checked under the lock, so two simultaneous POSTs for one node cannot both win."""
     jid = secrets.token_hex(6)
     now = int(time.time())
     with _push_lock:
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
             _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
-        if any(not v["done"] for v in _push_jobs.values()):
-            raise ValueError("یک آپلود در جریان است — تا تمام‌شدنش صبر کن")   # same sentence as ag_p_busy
+        busy = _busy_nodes()
+        nodes = [x for x in nodes if x["id"] not in busy]
+        if not nodes:
+            raise ValueError("این نود همین حالا در حال به‌روزرسانی است — تا تمام‌شدنش صبر کن")
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
@@ -3535,16 +3555,42 @@ def _push_start(kind, nodes, payload, current=()):
     return jid
 
 
-def _push_active():
-    """(jid, job) of the upload still running, or (None, None).
+PUSH_ALL = "*"        # the job id meaning "every upload still running"
 
-    The worker runs on the panel and never depended on the browser -- this is what lets a freshly loaded
-    page find the upload again instead of the operator being told the process is gone."""
+
+def _push_live():
+    """The jids of every upload still running, oldest first. Caller holds _push_lock."""
+    return [jid for jid, j in sorted(_push_jobs.items(), key=lambda kv: kv[1].get("ts", 0))
+            if not j["done"]]
+
+
+def _push_merged():
+    """Every live job as ONE view.
+
+    The browser tracks a single upload -- one pill, one cancel, one set of per-node bars -- and that was
+    fine while only one job could exist. Now that a per-node update can run beside a fleet push, the
+    panel presents the union instead of asking the page to juggle several. A node can only be in one
+    live job at a time, so the maps cannot collide.
+
+    The worker runs on the panel and never depended on the browser: this is what lets a freshly loaded
+    page find the uploads again instead of being told they are gone."""
     with _push_lock:
-        for jid, j in sorted(_push_jobs.items(), key=lambda kv: kv[1].get("ts", 0), reverse=True):
-            if not j["done"]:
-                return jid, j
-    return None, None
+        live = _push_live()
+        if not live:
+            return None
+        order, nodes, kinds = [], {}, set()
+        cancel = paused = True
+        for jid in live:
+            j = _push_jobs[jid]
+            kinds.add(j["kind"])
+            cancel = cancel and bool(j.get("cancel"))
+            paused = paused and bool(j.get("paused"))
+            for nid in j["order"]:
+                if nid not in nodes:
+                    order.append(nid)
+                    nodes[nid] = dict(j["nodes"][nid])
+        return {"ok": True, "job": PUSH_ALL, "kind": kinds.pop() if len(kinds) == 1 else "mixed",
+                "done": False, "cancel": cancel, "paused": paused, "order": order, "nodes": nodes}
 
 
 def _push_set(jid, nid, **kw):
@@ -3640,24 +3686,30 @@ def _push_worker(jid, kind, nodes, payload):
     pool keeps going. Pause stops handing out NEW nodes (in-flight ones finish); cancel skips the rest."""
     def loop():
         while True:
-            nid = _push_next(jid)
-            if nid is None:
-                return
-            if nid == "wait":
-                time.sleep(0.3)
-                continue
-            _push_one(jid, nid, payload)
+            # The slot is taken BEFORE a node is claimed, so a worker that is only waiting its turn is
+            # not holding a node hostage in «در حالِ آپلود», and the global bound covers every job.
+            _push_slots.acquire()
+            try:
+                nid = _push_next(jid)
+                if nid is None:
+                    return
+                if nid != "wait":
+                    _push_one(jid, nid, payload)
+                    continue
+            finally:
+                _push_slots.release()
+            time.sleep(0.3)                      # paused: the slot is free while we wait
 
     try:
-        n = min(PUSH_WORKERS, max(1, len(nodes)))
+        n = min(PUSH_WORKERS, max(1, len(nodes)))   # threads; the SLOTS are what actually bound the uploads
         workers = [threading.Thread(target=loop, daemon=True) for _ in range(n)]
         for w in workers:
             w.start()
         for w in workers:
             w.join()
     finally:
-        # unconditional: a job left not-done blocks every later push until the 1h prune, because only one
-        # job may run at a time
+        # unconditional: a job left not-done would hold its nodes "busy" until the 1h prune, and nothing
+        # could update them in the meantime
         with _push_lock:
             j = _push_jobs.get(jid)
             if j:
@@ -3668,10 +3720,8 @@ def api_push_status(d):
     """With a job id: that job. WITHOUT one: whichever upload is still running, so a page that was just
     reloaded reattaches to it instead of being told the upload is gone."""
     jid = str((d or {}).get("job") or "")
-    if not jid:
-        jid, j = _push_active()
-        if not jid:
-            return {"ok": True, "job": "", "idle": True}
+    if not jid or jid == PUSH_ALL:
+        return _push_merged() or {"ok": True, "job": "", "idle": True, "done": True}
     with _push_lock:
         j = _push_jobs.get(jid)
         if not j:
@@ -3686,15 +3736,18 @@ def api_push_cancel(d):
     worker to come ask -- leaving it to _push_next means the queue keeps reading «در نوبت» until an upload
     finishes, which on a core push is tens of seconds, long enough to look like the button did nothing.
     The uploads already in flight see the flag between chunks and drop their sockets mid-body."""
-    jid = str((d or {}).get("job") or "") or _push_active()[0]
+    jid = str((d or {}).get("job") or "") or PUSH_ALL
     with _push_lock:
-        j = _push_jobs.get(jid or "")
-        if not j:
+        targets = _push_live() if jid == PUSH_ALL else [jid]
+        js = [_push_jobs[k] for k in targets if k in _push_jobs]
+        if not js:
             raise ValueError("job not found")
-        if j["done"]:
+        live = [j for j in js if not j["done"]]
+        if not live:
             return {"ok": True, "already_done": True}
-        j["cancel"] = True
-        _skip_waiting(j)
+        for j in live:
+            j["cancel"] = True
+            _skip_waiting(j)
     log_event("warn", "node", "دلیل: لغوِ آپلود به فلیت توسطِ اپراتور")
     return {"ok": True, "job": jid}
 
@@ -3703,15 +3756,18 @@ def api_push_pause(d):
     """Pause = stop handing out NEW nodes; the pool keeps its in-flight pushes and holds the rest at
     «در نوبت». Resume hands them out again. d.paused sets the state explicitly (a toggle would race two
     quick taps into the wrong state)."""
-    jid = str((d or {}).get("job") or "") or _push_active()[0]
+    jid = str((d or {}).get("job") or "") or PUSH_ALL
     want = bool((d or {}).get("paused", True))
     with _push_lock:
-        j = _push_jobs.get(jid or "")
-        if not j:
+        targets = _push_live() if jid == PUSH_ALL else [jid]
+        js = [_push_jobs[k] for k in targets if k in _push_jobs]
+        if not js:
             raise ValueError("job not found")
-        if j["done"] or j.get("cancel"):
+        live = [j for j in js if not j["done"] and not j.get("cancel")]
+        if not live:
             return {"ok": True, "done": True}
-        j["paused"] = want
+        for j in live:
+            j["paused"] = want
     return {"ok": True, "job": jid, "paused": want}
 
 
@@ -8629,7 +8685,7 @@ var I18N={fa:{
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",ag_p_send:"در حالِ آپلود…",ag_p_apply:"نود دارد اعمال می‌کند…",
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
- ag_p_busy:"یک آپلود در جریان است — تا تمام‌شدنش صبر کن",
+
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
  ag_p_skip:"لغو شد",ag_p_cancel:"لغوِ آپلود",ag_p_cancel_q:"آپلود لغو شود؟ نودهای در نوبت اصلاً نمی‌روند و نودی که همین حالا وسطِ فرستادنِ بایت‌هاست نیمه‌کاره بریده می‌شود — نسخهٔ فعلی‌اش دست‌نخورده می‌ماند، چون نود چیزی را که کامل نرسیده نصب نمی‌کند. ولی نودی که بایت‌هایش کامل رسیده و دارد اعمال می‌کند برگشت‌پذیر نیست: آن کارش را تمام می‌کند. برای اینکه فقط نودهای بعدی نروند، «توقف» را بزن.",
  ag_p_cancel_none:"چیزی برای لغو نمانده — بایت‌ها رسیده‌اند و نودها دارند اعمال می‌کنند؛ این مرحله برگشت‌پذیر نیست",
@@ -11234,14 +11290,14 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  await refreshAgent()}
 // One push job at a time, drawn per node under its own card. PUSH_WORKERS nodes upload at once, so that
 // many bars move together; a node that fails stays red and the pool carries on without it.
-var PUSHJOB=null,PUSHSTATE=null;
+var PUSHJOB=null,PUSHSTATE=null,PUSH_ALL='*';
 // The worker runs on the PANEL, not in this page: reloading the browser, or losing it entirely, does not
 // stop the upload. pushAdopt reattaches to whatever is still running, which is why a manual refresh shows
 // the continuation instead of an empty page.
 async function pushAdopt(){if(PUSHJOB)return;
  var r=await j('push-status').catch(function(){return null});
  if(!r||!r.ok||r.idle||!r.job||r.done)return;
- PUSHJOB=r.job;pushPaint(r);pushPoll(r.job)}
+ PUSHJOB=PUSH_ALL;pushPaint(r);pushPoll(PUSH_ALL)}
 async function pushCancel(){if(!PUSHJOB)return;
  if(!await confirmBox(T('ag_p_cancel_q'),T('ag_p_cancel')))return;
  var r=await post('push-cancel',{job:PUSHJOB});
@@ -11297,13 +11353,16 @@ async function pushPoll(job){var fails=0;
 // No optimistic pre-paint: the SERVER decides which nodes are in the job, dropping any that already run
 // this exact build. Painting «در نوبت» on every id first put a queue label -- then a full bar -- on nodes
 // that were never contacted. pushPoll's first read is immediate, so nothing is lost by waiting for it.
+// Starting one does NOT need the last one to have finished. The panel refuses only a node that is
+// already being updated, and bounds the total uploads itself -- so a per-node update can be fired while
+// a fleet push is running, and the page follows both through the one merged view.
 async function pushStart(cmd,body,ids){
- if(PUSHJOB){toast(T('ag_p_busy'),'err');return}
  var res=await post(cmd,body);
  if(!(res.ok&&res.d)){toast(perr(res),'err');return}
  if(res.d.none){toast(T('ag_p_none'),'ok');return}      // every target already runs it: nothing was sent
  if(!res.d.job){toast(perr(res),'err');return}
- PUSHJOB=res.d.job;await pushPoll(PUSHJOB)}
+ if(PUSHJOB)return;                                     // already following; the new job is in the merge
+ PUSHJOB=PUSH_ALL;await pushPoll(PUSH_ALL)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
  if(target=='all'){var r=await j('node-names');ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});

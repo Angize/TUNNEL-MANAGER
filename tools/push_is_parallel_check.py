@@ -160,7 +160,7 @@ def main():
     chk("no node past the pool was ever started", len(reached), P.PUSH_WORKERS)
     chk("so after a cancel nothing reads ok", sorted({v["state"] for v in sc["nodes"].values()}), ["skip"])
     chk("and the job still reports itself finished", sc["done"], True)
-    chk("a cancelled job is no longer the active one", P._push_active()[0], None)
+    chk("a cancelled job is no longer offered to reattach to", P._push_merged(), None)
 
     # a cut-off node must never be charged an error: it was the operator's choice, not a failure
     chk("a cut-off node carries no error text",
@@ -200,12 +200,43 @@ def main():
     chk("pausing a finished job changes nothing", P.api_push_pause({"job": jp, "paused": True}),
         {"ok": True, "done": True})
 
-    # ---- reattach: a page that lost its job id must find the running upload again
+    # ---- reattach: a page that lost its job id must find the running uploads again -- ALL of them.
+    # The page has one pill and one cancel, so what it gets back is the union of every live job rather
+    # than whichever happened to start last. A per-node update fired beside a fleet push has to appear.
     jr = P._push_job_new("core", NODES)
-    chk("push-status with NO job returns the running one", P.api_push_status({})["job"], jr)
-    chk("and reports it as unfinished, so the page reattaches", P.api_push_status({})["done"], False)
+    jr2 = P._push_job_new("agent", BIG[:2])
+    merged = P.api_push_status({})
+    chk("push-status with NO job returns the merged view", merged["job"], "*")
+    chk("...covering every live job, not just the newest",
+        sorted(merged["nodes"]), sorted([n["id"] for n in NODES] + [n["id"] for n in BIG[:2]]))
+    chk("and reports it as unfinished, so the page reattaches", merged["done"], False)
+    chk("...and says the kinds differ rather than picking one", merged["kind"], "mixed")
+    # A node another live job still owes work to may not be taken by a second one -- in ANY of the states
+    # that mean work is outstanding. Checking only «queued» would let a second push start on a node that
+    # is mid-upload, which is the exact race this rule exists to prevent: two installs on one node.
+    for state in ("wait", "send", "apply"):
+        with P._push_lock:
+            P._push_jobs[jr]["nodes"][NODES[0]["id"]]["state"] = state
+        try:
+            P._push_job_new("agent", [NODES[0]])
+            chk("a node in «%s» is refused a second push" % state, "accepted", "ValueError")
+        except ValueError as e:
+            chk("a node in «%s» is refused a second push" % state, "در حال به‌روزرسانی" in str(e), True)
+    # ...and one the job has FINISHED with is free again
     with P._push_lock:
-        P._push_jobs[jr]["done"] = True
+        P._push_jobs[jr]["nodes"][NODES[0]["id"]]["state"] = "ok"
+    j_again = P._push_job_new("agent", [NODES[0]])
+    chk("...but a node the job has finished with can be pushed again",
+        sorted(P.api_push_status({"job": j_again})["nodes"]), [NODES[0]["id"]])
+    with P._push_lock:
+        P._push_jobs[j_again]["done"] = True
+    # ...but a DIFFERENT node is not
+    j_other = P._push_job_new("agent", [BIG[5]])
+    chk("...while another node starts straight away", sorted(P.api_push_status({"job": j_other})["nodes"]),
+        [BIG[5]["id"]])
+    with P._push_lock:
+        for k in (jr, jr2, j_other):
+            P._push_jobs[k]["done"] = True
     chk("once finished, nothing is offered to reattach to", P.api_push_status({}).get("idle"), True)
 
     # a node deleted while the queue was working must be reported, not pushed to
