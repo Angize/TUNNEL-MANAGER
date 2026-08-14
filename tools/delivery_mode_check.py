@@ -238,6 +238,18 @@ def case_refusals(m):
               st.get('state') == 'err' and 'پروکسی' in (st.get('error') or ''), json.dumps(st, ensure_ascii=False))
         check('panel-fetch: nothing was delivered to the proxied node (%s)' % kind, not sent)
 
+    # A TLS-fronted panel announces https to its nodes (X-Central-TLS), and the node then refuses any
+    # http url -- including one at the panel's own address. So the url built here has to carry the same
+    # scheme the headers do, or the panel hands out a url its own nodes are bound to refuse.
+    m._CENTRAL_TLS = True
+    try:
+        u = m._panel_dl_url({'id': 'n1', 'host': '10.0.0.1', 'token': 'tok-one'}, 'ag')
+        check('a TLS-fronted panel hands out an https url', u.startswith('https://'), u)
+    finally:
+        m._CENTRAL_TLS = False
+    u = m._panel_dl_url({'id': 'n1', 'host': '10.0.0.1', 'token': 'tok-one'}, 'ag')
+    check('...and a plain-http panel still hands out http', u.startswith('http://'), u)
+
 
 # ---------------------------------------------------------------- 3) the url really serves those bytes
 def case_endpoint(m, shas):

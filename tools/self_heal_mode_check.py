@@ -73,7 +73,7 @@ def main():
     chk("but it tells the node WHERE we saw it", r.get("moved_to"), NEW)
     # what the BROWSER is handed, not the helper: the card cannot show an address api_nodes never sends
     row = {r["name"]: r for r in P.api_nodes({})["nodes"]}["IR02"]
-    chk("the card is given the same address", row.get("moved_to"), NEW)
+    chk("the card is given the same address", row.get("moved_to"), NEW + ":8099")
     chk("and a node that did not move gets nothing",
         {r["name"]: r for r in P.api_nodes({})["nodes"]}["DE01"].get("moved_to"), "")
     chk("and it is logged once, with the address in it",
@@ -105,7 +105,8 @@ def main():
     r = P.api_node_adopt_ip({"id": "n1"})
     chk("adopt takes the reported address", (r["ok"], r["host"], host_of("n1")), (True, NEW, NEW))
     chk("and clears the warning", P.moved_to("n1"), "")
-    chk("and says so in the log", any(NEW in (e[3] or "") and "تنظیمِ آی‌پی" in e[2] for e in logged), True)
+    chk("and says so in the log", any(NEW in (e[3] or "") and "تنظیمِ نشانی" in e[2] for e in logged), True)
+
     try:
         P.api_node_adopt_ip({"id": "n1"})
         chk("adopt with nothing reported is refused", "accepted", "ValueError")
@@ -157,7 +158,7 @@ def main():
               io.open(P.NODES_FILE, "w"))
     json.dump([{"id": "px9", "name": "IR-DE", "scheme": "socks5", "host": "9.9.9.9", "port": 1080}],
               io.open(P.PROXIES_FILE, "w"))
-    P._moved_note("n1", "IR02", "94.183.210.131", NEW)
+    P._moved_note("n1", "IR02", "94.183.210.131", NEW, 8099)
     reach(set())
     P._px_publish("px9", {"ok": False, "ms": None, "error": "timed out"})
     try:
@@ -184,7 +185,7 @@ def main():
 
     # restore the fixture for the checks below
     json.dump([dict(n) for n in NODES], io.open(P.NODES_FILE, "w"))
-    P._moved_note("n1", "IR02", "94.183.210.131", NEW)
+    P._moved_note("n1", "IR02", "94.183.210.131", NEW, 8099)
 
     # a node that is reachable again at its stored host must stop being reported
     reach({"94.183.210.131", NEW})
@@ -214,6 +215,21 @@ def main():
         r = P.api_checkin_impl(NEW, {"token": "not-a-node"})
         chk("%s mode refuses an unknown token" % m, (r["ok"], host_of("n1")),
             (False, "94.183.210.131"))
+
+    # ---- the PORT moves with the address, in AUTO mode where adopting is the point. Without it the
+    # self-heal covers only half of "where this node is": an agent that moved port is unreachable and
+    # cannot say so, so the record has to be edited by hand.
+    mode("auto")
+    P._moved_clear("n1")
+    cur_host = next(x["host"] for x in json.load(io.open(P.NODES_FILE)) if x["id"] == "n1")
+    P.node_call = lambda nd, *a, **k: {"ok": (nd["host"], int(nd["port"])) == (cur_host, 9099)}
+    r = P.api_checkin_impl(cur_host, {"token": "tok1", "port": 9099})
+    chk("a node that changed only its PORT is followed", (r["updated"], r["port"]), (True, 9099))
+    chk("and the record really carries it",
+        next(int(x["port"]) for x in json.load(io.open(P.NODES_FILE)) if x["id"] == "n1"), 9099)
+    P.node_call = lambda nd, *a, **k: {"ok": False}
+    r = P.api_checkin_impl(cur_host, {"token": "tok1", "port": 7777})
+    chk("a port that does not answer is NOT adopted", (r["updated"], r["port"]), (False, 9099))
 
     if bad:
         print("\nFAILURES (%d):" % len(bad))
