@@ -3232,17 +3232,20 @@ def _route_src(host):
 
 
 def _panel_origin_for(node):
-    """"http://ip:port" as THIS node reaches the panel, or "" when the panel cannot know it.
+    """"scheme://ip:port" as THIS node reaches the panel, or "" when the panel cannot know it.
 
-    The node accepts a plaintext fetch from exactly one origin: the (ip, port) our own requests arrive
-    from, which it pins on first contact. The port is what we advertise in X-Central-Port; the address is
-    the source the kernel picks for the route to this node. A node reached through a proxy sees the
-    PROXY's address instead, and the panel has no way to name that, so it reports no origin rather than
-    handing the node a URL it is bound to refuse."""
+    The node accepts a fetch from exactly one origin: the one our own requests announce -- the address
+    they arrive from, the port in X-Central-Port and the scheme in X-Central-TLS. So the URL built here
+    has to carry the SAME scheme those headers do, or a TLS-fronted panel would announce https and then
+    hand out an http url its own nodes are bound to refuse.
+
+    The address is the source the kernel picks for the route to this node. A node reached through a
+    proxy sees the PROXY's address instead, and the panel has no way to name that, so it reports no
+    origin rather than handing the node a URL that cannot match."""
     if node_proxy(node) or not _CENTRAL_PORT:
         return ""
     ip = _route_src(str(node.get("host") or ""))
-    return f"http://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
+    return f"{'https' if _CENTRAL_TLS else 'http'}://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
 
 
 def _panel_dl_url(node, kind, arch=""):
