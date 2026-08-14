@@ -174,6 +174,45 @@ def main():
             after = P._ctr_next[node["id"]]
         check("...by adopting the node's mark, not by retrying blindly", after > ahead, str(after))
 
+        print("== the other direction: the node's check-in, verified by the panel ==")
+        # Same drift risk as the request signature, and worse consequences if it goes unnoticed: a
+        # check-in that stops verifying fails SILENTLY, because it is only used when a node's address
+        # changes. So the claim is built by the NODE's own do_checkin and handed to the PANEL's own
+        # verifier -- neither side's idea of the format, both of them.
+        P.save_json(P.NODES_FILE, [dict(node)])
+        sent = {}
+        real_open = N.urllib.request.urlopen
+
+        class _R:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"ok":true}'
+
+        def cap(req, timeout=8):
+            sent["body"] = json.loads(req.data.decode())
+            return _R()
+
+        N.urllib.request.urlopen = cap
+        N.all_ips = lambda: {"eth0": ["10.0.0.1"]}
+        with N._central_cb_lock:
+            N._central_cb = ("127.0.0.1", 2053, False)
+        try:
+            N.do_checkin()
+        finally:
+            N.urllib.request.urlopen = real_open
+        check("the node built a check-in", bool(sent.get("body")), "nothing was sent")
+        if sent.get("body"):
+            b = sent["body"]
+            check("...carrying NO token", TOKEN not in json.dumps(b), json.dumps(b)[:140])
+            check("...and the PANEL's own verifier accepts it",
+                  (P._checkin_claimant(b) or {}).get("id") == "n1", json.dumps(b)[:140])
+            check("...and refuses it a second time", P._checkin_claimant(b) is None)
+
         print("== and there is no way back to sending the token ==")
         # The switch is gone, not merely defaulted: every node refuses a bearer token now, so a way back
         # could only ever brick the fleet -- and the tokens were never rotated, so anyone who watched
