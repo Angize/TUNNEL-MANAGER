@@ -172,3 +172,6 @@ jobs:
       - name: the panel refuses an install or a core build it cannot finish
         working-directory: TUNNEL-MANAGER
         run: python tools/readiness_gate_check.py
+      - name: a slow peer is served the whole body
+        working-directory: TUNNEL-MANAGER
+        run: python tools/slow_peer_full_body_check.py
