@@ -338,7 +338,6 @@ def settings_defaults():
         "ech_refresh_mins": 15,     # minutes between background ECH re-fetches for ECH links (0 = off; min 1)
         "agent_delivery": "push",   # who moves the agent's bytes to a node (see DELIVERY_MODES)
         "core_delivery": "push",    # the same choice for the core binary, made separately
-        "control_auth": "token",    # how the panel proves itself to a node (see CONTROL_AUTH_MODES)
         "tuning": dict(_TUNING_DEFAULTS),  # operational self-heal / pool-health timings (see _TUNING_DEFAULTS)
     }
 
@@ -350,13 +349,6 @@ def settings_defaults():
 #   github = the node downloads them from GitHub itself
 #   panel  = the node downloads them from the panel's own HTTP server
 DELIVERY_MODES = ("push", "github", "panel")
-
-# How the panel proves a request is its own.
-#   token = hand the shared secret over in a header (in the clear, and replayable)
-#   sign  = prove it with an HMAC over this request; the secret never travels
-# A SETTING, not a release, because the node refuses a bad signature outright instead of falling back
-# to the token -- so the way back from a mistake has to work when no node is reachable.
-CONTROL_AUTH_MODES = ("token", "sign")
 
 
 def load_settings():
@@ -408,11 +400,6 @@ def validate_settings(d):
             if m not in DELIVERY_MODES:
                 raise ValueError("حالتِ تحویل باید یکی از push / github / panel باشد")
             out[k] = m
-    if "control_auth" in d:
-        m = str(d["control_auth"]).strip().lower()
-        if m not in CONTROL_AUTH_MODES:
-            raise ValueError("روشِ احراز باید token یا sign باشد")
-        out["control_auth"] = m
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
@@ -873,21 +860,11 @@ def _ensure_update_key(node):
 
 
 # ----------------------------------------------------------------------------- proving we are the panel
-# Two ways, and `control_auth` picks. "token" hands the shared secret over in a header, in the clear, on
-# a path that crosses a censor; "sign" proves it instead -- an HMAC over this request's own method, path,
-# counter and body hash, so an observer learns nothing reusable and a capture cannot be replayed.
-#
-# It is a SETTING and not a release because the node refuses a bad signature outright rather than falling
-# back to the token (a downgrade would undo the point of signing). So a mistake here loses every node at
-# once, and the way back has to be something that works when no node is reachable: this switch, from a
-# browser, on the panel's own UI.
+# An HMAC over this request's own method, path, counter and body hash. The shared secret is what the MAC
+# is keyed on and is never transmitted, so an observer of this plaintext path learns nothing reusable,
+# and the counter makes a captured request worthless the second time.
 _ctr_lock = threading.Lock()
 _ctr_next = {}          # node id -> the next counter to spend
-
-
-def _control_auth():
-    m = str(get_settings().get("control_auth") or "token")
-    return m if m in CONTROL_AUTH_MODES else "token"
 
 
 def _take_ctr(nid):
@@ -916,10 +893,12 @@ def _sig_msg(method, path, ctr, body_sha):
 
 
 def _auth_headers(node, method, path, data):
-    """The headers that prove this request came from the panel, in whichever mode is selected."""
+    """The headers that prove this request came from the panel.
+
+    There is one way now. The bearer token was removed rather than left behind a switch: every node
+    refuses it, so a switch back could only ever brick the fleet -- and the tokens themselves were
+    never rotated, so anyone who watched the wire before the changeover still holds them."""
     tok = node.get("token", "")
-    if _control_auth() != "sign":
-        return {"X-Node-Token": tok}
     ctr = _take_ctr(node.get("id") or node.get("host") or "")
     bs = hashlib.sha256(data).hexdigest() if data else ""
     mac = hmac.new(tok.encode("utf-8"), _sig_msg(method, path, ctr, bs).encode("utf-8"),
@@ -8787,10 +8766,6 @@ var I18N={fa:{
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
- ca_lbl:"پنل خودش را چطور ثابت کند",
- ca_tok_t:"توکن",ca_tok_s:"سرّ روی سیم می‌رود",
- ca_sig_t:"امضا",ca_sig_s:"سرّ هیچ‌وقت فرستاده نمی‌شود",
- ca_hint:"«امضا» توکن را از روی سیم برمی‌دارد و درخواستِ ضبط‌شده را بی‌مصرف می‌کند. نودی که هنوز آن را نفهمد رد می‌کند و از دسترس خارج می‌شود — پس اول مطمئن شو همهٔ نودها به‌روزند. برگشت همین‌جاست و فوری است.",
  nd_central:"پنل را کجا می‌داند",nd_central_none:"هنوز نمی‌داند",
  cn_stale_one:"۱ نود هنوز پنل را در نشانیِ قدیمی می‌داند",
  cn_stale_n:"{n} نود هنوز پنل را در نشانیِ قدیمی می‌دانند",
@@ -11442,7 +11417,6 @@ var _setMode='alert',_modeOv=null;
 function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
- CAUTH=(s.control_auth=='sign')?'sign':'token';
  box.innerHTML=settingsCard(s)+
   '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  tunPmBind();refreshAgent()}
@@ -11451,17 +11425,6 @@ function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open
 function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
 // A subject header inside the settings card. The dot and the chip take their colour from cls.
 function gh(tk,ck,cls){return '<div class="grphd '+cls+'"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>'}
-// Saves itself on tap like the delivery switches: this is the control the operator reaches for when
-// the fleet has gone quiet, and it must not need the card's Save button to take effect.
-var CAUTH='token';
-var CA_OPTS=[['token','ca_tok_t','ca_tok_s'],['sign','ca_sig_t','ca_sig_s']];
-function caSeg(){return '<div class="seg2" id="caseg">'+CA_OPTS.map(function(o){
-  return '<button type="button" class="segopt'+(o[0]==CAUTH?' on':'')+'" id="cao_'+o[0]+'" onclick="setCtlAuth(\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b><span>'+esc(T(o[2]))+'</span></button>'}).join('')+'</div>'}
-function paintCtlAuth(){var g=el('caseg');if(!g)return;
- Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='cao_'+CAUTH)})}
-async function setCtlAuth(v){if(CAUTH==v)return;var was=CAUTH;CAUTH=v;paintCtlAuth();
- var r=await post('settings-set',{control_auth:v});
- if(r.ok&&r.d.ok)toast(T('set_saved'),'ok');else{CAUTH=was;paintCtlAuth();toast(perr(r),'err')}}
 function _sv(s,k){return (s&&s[k]!=null&&s[k]!=='')?s[k]:_SETDEF[k]}
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 // The two pool-retest knobs are stored and stamped in SECONDS but entered in MINUTES, the way
@@ -11481,7 +11444,6 @@ function settingsCard(s){
   qr(T('set_poll_int'),'set_poll_range','set_x_poll','<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'poll_interval')))+'">')+
   qr(T('set_ui_int'),'set_ui_range','set_x_ui','<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'ui_interval')))+'">')+
   qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+esc(String(_sv(s,'ech_refresh_mins')))+'">')+
-  qr(T('ca_lbl'),'ca_hint','ca_hint',caSeg())+
   qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(_sv(s,'uptime_window')),'',''))+
   /* Dead detection, one subject: keepalive is the clock, the multiplier is how many missed pings the
      carrier tolerates, and the rest are the failure thresholds beside them. */

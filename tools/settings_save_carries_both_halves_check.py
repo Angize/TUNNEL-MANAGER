@@ -153,7 +153,7 @@ def check(ok, msg):
 # Two knobs live on the agent and core cards instead of the settings card: they are switches that
 # save themselves the moment they are tapped, so Save must NOT carry them -- a card rendered before
 # the switch was flipped would otherwise post the old value back over it.
-SELF_SAVING = {"agent_delivery", "core_delivery", "control_auth"}
+SELF_SAVING = {"agent_delivery", "core_delivery"}
 
 
 def main():
@@ -220,10 +220,7 @@ def main():
         body = (by_name[name]["saved"] or {}).get("body") or {}
         for k in sorted(SELF_SAVING):
             check(k not in body, "%s: Save does not post %s — a stale card would clobber the switch" % (name, k))
-    for fn, paint, why in [("async function setDelivery(", "paintDelivery()", "delivery"),
-                           # control_auth is the one the operator reaches for when the fleet has gone
-                           # quiet, so it especially must not need the card's Save button to take effect.
-                           ("async function setCtlAuth(", "paintCtlAuth()", "control-auth")]:
+    for fn, paint, why in [("async function setDelivery(", "paintDelivery()", "delivery")]:
         i = js.find(fn)
         check(i >= 0, "the %s switch exists" % why)
         if i < 0:
