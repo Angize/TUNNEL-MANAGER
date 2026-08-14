@@ -1596,6 +1596,17 @@ def _tf_read(nid):
         return {k: dict(v) for k, v in e["if"].items()} if e else {}
 
 
+def _tf_node_view(nid):
+    """The node's own throughput + lifetime totals, or None when nothing has been sampled yet.
+
+    THE one place "_node" is turned into the browser's shape, so the list row and the details sheet
+    cannot disagree about what the figure means."""
+    s = _tf_read(nid).get("_node")
+    if not s:
+        return None
+    return {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"], "rx_total": s["crx"], "tx_total": s["ctx"]}
+
+
 def _tf_zero_rates(nid):
     """Node is unreachable this sweep -> zero its instantaneous rates (totals/baselines untouched)
     so a dead node stops contributing phantom throughput to the fleet/card figures."""
@@ -2191,7 +2202,10 @@ def _node_view(n, pend=None, pxn=None):
             # The origin this node SHOULD have learned. Beside info.central (what it actually believes)
             # this is what makes a fleet being moved to a new address watchable instead of guessed at.
             "central_want": _panel_origin_for(n),
-            "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw)}  # cells=visual bar, pct=time-weighted %
+            "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw),  # cells=visual bar, pct=time-weighted %
+            # The node's OWN figure — the sum over its physical NICs, the same "_node" key the details
+            # sheet reads. Carried on the row so the list shows it without a second call per node.
+            "traffic": _tf_node_view(n["id"])}
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
         return {**base, "online": False, "pending": True, "info": {"error": "در حال بررسی…"}}
@@ -4347,7 +4361,9 @@ def api_link_view(d):
 
 
 def api_traffic_reset(d):
-    """Zero the cumulative traffic total for a tunnel (both ends) or a port-forward; live rates untouched."""
+    """Zero a cumulative traffic total; live rates untouched. Three subjects: a tunnel (both ends), a
+    port-forward, or the NODE's own figure — the sum over its physical NICs, which no other shape here
+    reaches. `name` is what separates the last two, so the node case must be tested after it."""
     d = d or {}
     if d.get("id"):
         L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -4356,13 +4372,13 @@ def api_traffic_reset(d):
         _tf_reset(L["a_node"], [L["name"]])
         _tf_reset(L["b_node"], [L["name"]])
         return {"ok": True}
-    if d.get("node") and d.get("name"):
+    if d.get("node"):
         n = get_node(d["node"])
         if not n:
             raise ValueError("node not found")
-        _tf_reset(n["id"], ["pf:" + _pf_name(d["name"])])
+        _tf_reset(n["id"], ["pf:" + _pf_name(d["name"])] if d.get("name") else ["_node"])
         return {"ok": True}
-    raise ValueError("missing id or node/name")
+    raise ValueError("missing id or node")
 
 
 def _link_nodes(d):
@@ -8779,7 +8795,7 @@ var I18N={fa:{
  // nodes
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
  nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
- tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",tip_tune:"تیونینگِ شبکه",
+ tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",tip_tune:"تیونینگِ شبکه",tip_nreset:"صفر کردنِ ترافیکِ نود",nreset_confirm:"مجموعِ ترافیکِ این نود صفر شود؟ فقط شمارشِ پنل پاک می‌شود — خودِ نود و تونل‌هایش دست نمی‌خورند.",
  kt_title:"تیونینگِ کرنل (BBR)",kt_sub:"شتاب‌دهیِ شبکه‌ی سرور",kt_desc:"BBR + fq + بافرهای بزرگ‌تر را روی این سرور روشن می‌کند. روی مسیرِ پرتلفات و پرتأخیرِ ایران، سرعتِ حامل‌های TCP را بالا می‌برد. اختیاری و برگشت‌پذیر.",kt_state:"وضعیت",kt_cc:"کنترلِ ازدحام",kt_qdisc:"صف‌بندی",kt_on:"روشن",kt_off:"خاموش",kt_enable:"روشن کردن",kt_disable:"خاموش کردن",kt_nobbr:"کرنلِ این سرور BBR ندارد — روشن‌کردن ممکن نیست.",kt_working:"در حال اعمال…",kt_enabled:"تیونینگ روشن شد",kt_disabled:"تیونینگ خاموش شد",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
@@ -9625,8 +9641,8 @@ function nodeCard(n){var i=n.info||{};
  var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic(AG_IC)+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act reset" title="'+esc(T('tip_nreset'))+'" onclick="resetNodeTraffic(\\''+n.id+'\\')">'+ic('reset')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
+ return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+'<div class="cbody"><div class="cbody-in">'+ndTraf(n)+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
  var dis=!(n.disabled===true);n.disabled=dis;
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
@@ -9900,6 +9916,11 @@ async function flipView(id){var r=await post('link-view',{id:id});
   setTimeout(function(){if(CHK[id]){CHK[id]=null;var m=el('lchk_'+id);if(m){m.className='msg';m.innerHTML=''}}},4000);
   refreshFleet()}
  else{toast(T('failed'),'err')}}
+// The node's OWN throughput and lifetime totals, in the same shape a tunnel gets — and the same class,
+// so the dashed rule above it is the card's own divider and the two read as one thing.
+function ndTraf(n){var t=n.traffic;if(!t)return '';
+ return '<div class="ltraf"><span class="din iso">↓ '+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(t.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b><b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></span></div>'}
+async function resetNodeTraffic(id){if(!await confirmBox(T('nreset_confirm')))return;var r=await post('traffic-reset',{node:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshNodes()}else{toast(perr(r),'err')}}
 async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast(perr(r),'err')}}
 async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast(perr(r),'err')}}
 // ===== IP tags + rebuild IP picker (opens on rebuild for a drift-flagged tunnel) =====
