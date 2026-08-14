@@ -3371,6 +3371,28 @@ def _panel_origin_for(node):
 DL_TICKET_TTL = 3600    # seconds a download URL stays valid
 
 
+def _range_start(hdr, size):
+    """The first byte a `Range` header asks for: 0 when there is no header, None when it is unusable.
+
+    Only the one form a resuming download sends -- `bytes=N-`. A suffix range or a multi-range is not
+    something this endpoint's client ever asks for, and answering a request shape nobody makes is how a
+    server grows a parser it cannot test. Anything else is refused with 416 rather than quietly served
+    from zero, which would hand the node the whole file again and it would append it to what it had.
+    """
+    h = str(hdr or "").strip().lower()
+    if not h:
+        return 0
+    m = re.fullmatch(r"bytes=(\d+)-(\d*)", h)
+    if not m:
+        return None
+    start = int(m.group(1))
+    if start >= size:          # nothing left to send: not an error the node can act on, so say 416
+        return None
+    if m.group(2) and int(m.group(2)) < start:
+        return None
+    return start
+
+
 def _dl_ticket_msg(q):
     """The canonical string a download ticket is signed over: every field except the signature."""
     return "&".join("%s=%s" % (k, q[k]) for k in sorted(q) if k != "sig")
@@ -7724,6 +7746,9 @@ class Handler(BaseHTTPRequestHandler):
     # that is merely slow is never cut, while a peer that has actually stalled still trips it inside one
     # slice -- which is the slowloris protection the timeout is there for.
     SEND_CHUNK = 64 * 1024
+    # ...and how long ONE such slice may take. Still a stall detector, not a transfer budget: a peer that
+    # has stopped reading trips it, a peer crawling at a few KB/s does not.
+    BIG_SEND_TIMEOUT = 120
 
     def _send(self, code, body, ctype="application/json", extra=None, big=False):
         if isinstance(body, (dict, list)):
@@ -7750,9 +7775,22 @@ class Handler(BaseHTTPRequestHandler):
         if not big:
             self.wfile.write(data)
             return
-        mv = memoryview(data)   # slice without copying the megabytes
-        for i in range(0, len(mv), self.SEND_CHUNK):
-            self.wfile.write(mv[i:i + self.SEND_CHUNK])
+        # `timeout` above is a per-blocking-call deadline meant to unstick a slowloris on an API call.
+        # A megabyte body is the one place it is the wrong rule: MEASURED panel->Germany, the same 11 MB
+        # took 0.11 s to a node next door and, on a bad minute, delivered 365 KB in 200 s. At that rate a
+        # single chunk can sit in one sendall for most of a minute, and the deadline cuts a transfer that
+        # was moving. Widen it for the body only, and put it back -- every other endpoint keeps the 60 s.
+        sock = getattr(self, "connection", None)
+        prev = sock.gettimeout() if sock else None
+        if sock:
+            sock.settimeout(self.BIG_SEND_TIMEOUT)
+        try:
+            mv = memoryview(data)   # slice without copying the megabytes
+            for i in range(0, len(mv), self.SEND_CHUNK):
+                self.wfile.write(mv[i:i + self.SEND_CHUNK])
+        finally:
+            if sock:
+                sock.settimeout(prev)
 
     def _body(self, cap=1048576):
         try:
@@ -7859,7 +7897,19 @@ class Handler(BaseHTTPRequestHandler):
         if not raw:
             self._send(404, {"error": "not staged"})
             return
-        self._send(200, raw, "application/octet-stream", big=True)   # megabytes: one deadline per slice
+        # A node on a slow path cannot always finish in one go, and starting from zero every time it is
+        # cut never converges. Serving a byte range lets it keep what already arrived.
+        start = _range_start(self.headers.get("Range", ""), len(raw))
+        if start is None:
+            self._send(416, {"error": "bad range"}, extra={"Content-Range": "bytes */%d" % len(raw)})
+            return
+        if start:
+            self._send(206, raw[start:], "application/octet-stream", big=True,
+                       extra={"Accept-Ranges": "bytes",
+                              "Content-Range": "bytes %d-%d/%d" % (start, len(raw) - 1, len(raw))})
+            return
+        self._send(200, raw, "application/octet-stream", big=True,   # megabytes: one deadline per slice
+                   extra={"Accept-Ranges": "bytes"})
 
     def _checkin(self):
         ip = self._client_ip()
