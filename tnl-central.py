@@ -4769,14 +4769,17 @@ def _workers_field(d, transport, fec_on, cur=None):
     in THIS request is refused rather than persisted as a setting the wire ignores."""
     cur = cur or {}
     asked = "workers" in d
-    try:
-        n = int((d["workers"] if asked else cur.get("workers")) or 1)
-    except (TypeError, ValueError):
-        raise ValueError("تعدادِ صفِ موازی نامعتبر است")
-    if n <= 1:
+    if asked:
+        try:
+            n = int(d["workers"] or 1)   # 0/absent both mean "the default", like every other count here
+        except (TypeError, ValueError):
+            raise ValueError("تعدادِ صفِ موازی نامعتبر است")
+        if not 1 <= n <= CORE_MAX_WORKERS:
+            raise ValueError(f"تعدادِ صفِ موازی باید بینِ 1 تا {CORE_MAX_WORKERS} باشد")
+    else:
+        n = int(cur.get("workers") or 1)   # our own stored value: written by this function, in range
+    if n == 1:
         return {}
-    if n > CORE_MAX_WORKERS:
-        raise ValueError(f"تعدادِ صفِ موازی باید بینِ 1 تا {CORE_MAX_WORKERS} باشد")
     if transport != "raw" or fec_on:
         if asked:
             raise ValueError("«صف‌های موازی» فقط برای حاملِ raw و بدونِ FEC است؛ "
@@ -4786,15 +4789,9 @@ def _workers_field(d, transport, fec_on, cur=None):
 
 
 def _link_workers(L):
-    """A stored core link's TUN-queue count — what its node actually spends. Every core tunnel holds
-    one queue; only a raw carrier without FEC gets the extra ones, which is the same pair _workers_field
-    stores on."""
-    if L.get("transport") != "raw" or L.get("fec"):
-        return 1
-    try:
-        return max(1, min(CORE_MAX_WORKERS, int(L.get("workers") or 1)))
-    except (TypeError, ValueError):
-        return 1
+    """The TUN queues one stored core link holds: the raised count where the operator set one, and one
+    everywhere else — every core tunnel owns a queue whatever its carrier."""
+    return max(1, min(CORE_MAX_WORKERS, int(L.get("workers") or 1)))
 
 
 def _fec_fields(d, transport, cur=None):
@@ -9185,7 +9182,7 @@ var I18N={fa:{
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
 got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"هر دقیقه و روی سکوت",raw_sport_hint:"عددی که کلاینت به‌عنوان مبدأ می‌نویسد؛ پورتِ مقصد از آن اثر نمی‌گیرد. «ثابت» همیشه 51820 است: اگر آن چهارتایی سوزانده شود، حامل تا ابد مرده می‌ماند. «رندومِ واکنشی» هر دقیقه عوضش می‌کند — و اگر جوابی برنگردد، منتظرِ نوبتِ بعد نمی‌ماند. سرور مقدارِ نو را از خودِ فریم می‌خواند، بدونِ دست‌دادنِ دوباره.", raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"عددی که کلاینت در هدرِ جعلی به‌عنوان مقصد می‌نویسد. ثابت است و هر دو طرف باید یکی باشند؛ استتار هم از همین می‌آید — 443 یعنی «QUIC»، 51820 یعنی «WireGuard». هیچ پورتی باز نمی‌شود: سوکتِ حامل روی شمارهٔ پروتکل است نه پورت. برخی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
- workers_lbl:"صف‌های موازیِ دریافت",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",workers_hint:"بسته‌های رسیده به‌جای اینکه پشتِ قفلِ یک صف نوبت بگیرند، روی چند صفِ جدا نوشته می‌شوند. صفِ هر بسته از روی آدرس و پورتِ خودش انتخاب می‌شود، پس یک اتصال هیچ‌وقت بینِ دو صف پخش نمی‌شود و ترتیبش به‌هم نمی‌ریزد. 1 یعنی همان مسیرِ همیشگی. هر صفِ اضافه تا یک هستهٔ نود را می‌گیرد، پس فقط روی نودی سود دارد که هستهٔ بی‌کار داشته باشد؛ روی نودِ شلوغ فقط از تونل‌های دیگرِ همان نود می‌دزدد. فقط برای حاملِ raw و وقتی FEC خاموش است — جای دیگر هسته همان یک صف را برمی‌دارد.",workers_bud_wait:"در حالِ شمردنِ صف‌های نود…",workers_bud_row:"{n}: {u} صف روی {c} هسته — {v}",workers_bud_fits:"جا دارد",workers_bud_full:"جا ندارد",workers_bud_nocpu:"{n}: تعدادِ هسته‌اش معلوم نیست (نود آفلاین است)",workers_bud_over:"روی نودی که جا ندارد بیشتر از 1 نگذار — صفِ اضافه فقط از تونل‌های دیگرِ همان نود می‌دزدد.",
+ workers_lbl:"صف‌های موازیِ دریافت",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",workers_hint:"بسته‌های رسیده به‌جای اینکه پشتِ قفلِ یک صف نوبت بگیرند، روی چند صفِ جدا نوشته می‌شوند. صفِ هر بسته از روی آدرس و پورتِ خودش انتخاب می‌شود، پس یک اتصال هیچ‌وقت بینِ دو صف پخش نمی‌شود و ترتیبش به‌هم نمی‌ریزد. 1 یعنی همان مسیرِ همیشگی. هر صفِ اضافه تا یک هستهٔ نود را می‌گیرد، پس فقط روی نودی سود دارد که هستهٔ بی‌کار داشته باشد؛ روی نودِ شلوغ فقط از تونل‌های دیگرِ همان نود می‌دزدد. فقط برای حاملِ raw و وقتی FEC خاموش است — جای دیگر هسته همان یک صف را برمی‌دارد.",workers_bud_wait:"در حالِ شمردنِ صف‌های نود…",workers_bud_err:"شمردنِ صف‌های نود نشد — معلوم نیست روی این نودها جا هست یا نه. صفحه را تازه کن یا بعداً دوباره امتحان کن.",workers_bud_row:"{n}: {u} صف روی {c} هسته — {v}",workers_bud_fits:"جا دارد",workers_bud_full:"جا ندارد",workers_bud_nocpu:"{n}: تعدادِ هسته‌اش معلوم نیست (نود آفلاین است)",workers_bud_over:"روی نودی که جا ندارد بیشتر از 1 نگذار — صفِ اضافه فقط از تونل‌های دیگرِ همان نود می‌دزدد.",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -10728,39 +10725,61 @@ function workersSection(idp,fnp){return '<div id="'+idp+'wrkrow" style="display:
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('workers_hint')+'</div></div>'}
 
 // The chosen queue count painted onto the segment. Shared by both forms for the same reason
-// workersSection itself is: a per-form copy is how the edit form ends up wired to nothing.
-function workersPaint(idp,n){var g=el(idp+'wkg');if(!g)return;
+// workersSection itself is: a per-form copy is how the edit form ends up wired to nothing. Clamped
+// here rather than by the caller, so no path can leave the segment with nothing lit at all.
+function workersPaint(idp,n){n=wkClamp(n);
  _WKMAX.forEach(function(k){var b=el(idp+'wk_'+k);if(b)b.classList.toggle('on',k==n)})}
 // Show the row only where the core actually spends the queues, and force the state back to the single
 // queue when it doesn't — otherwise a value picked on raw rides a later switch to CDN into the body,
-// where the panel would refuse the save with a message about a carrier the operator has left.
-function workersVis(idp,S){var w=el(idp+'wrkrow');if(!w)return;
- var on=(S.Tr=='raw'&&!S.Fec);
+// where the panel would refuse the save with a message about a carrier the operator has left. The state
+// is reset BEFORE the row is touched, so it does not depend on the row existing (corFecGate's rule).
+function workersVis(idp,S){var on=(S.Tr=='raw'&&!S.Fec);
  if(!on)S.Workers=1;
- w.style.display=on?'':'none';workersPaint(idp,S.Workers||1)}
-// The per-node queue budget. Counted by the panel, not from the page's tunnel list, which is one
-// filtered page of the fleet. Cached per form so moving the segment repaints without a round-trip.
-var _wbud={},_wbudSeq={};
-async function workersBud(idp,S,a,b,ex){var box=el(idp+'wbud');if(!box)return;
- if(!a||!b||a==b){_wbud[idp]=null;box.style.display='none';return}
- var seq=(_wbudSeq[idp]=(_wbudSeq[idp]||0)+1);
- box.style.display='';box.className='spoofcap wait';box.innerHTML='<span>'+esc(T('workers_bud_wait'))+'</span>';
- var r=null;try{r=await j('workers-budget?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b)+'&exclude='+encodeURIComponent(ex||''))}catch(e){}
- if(seq!=_wbudSeq[idp])return;   // a newer node pair is already in flight; that one owns the box
- _wbud[idp]=(r&&r.nodes)||null;workersBudPaint(idp,S)}
-function workersBudPaint(idp,S){var box=el(idp+'wbud');if(!box)return;var d=_wbud[idp];
- if(!d){box.style.display='none';return}
+ var w=el(idp+'wrkrow');if(w)w.style.display=on?'':'none';
+ workersPaint(idp,S.Workers)}
+// The per-node queue budget, keyed by the REQUEST it answers: {key,nodes,failed}. The key is what makes
+// a repaint safe — a segment click while an answer is in flight would otherwise redraw the box from the
+// PREVIOUS node pair's numbers, naming nodes this tunnel does not even touch. It also means switching
+// transports back and forth on one pair costs no round-trip.
+var _wbud={};
+function _wbudKey(a,b,ex){return (a||'')+'|'+(b||'')+'|'+(ex||'')}
+async function workersBud(idp,S,a,b,ex){
+ if(!a||!b||a==b){_wbud[idp]=null;workersBudPaint(idp,S);return}
+ var key=_wbudKey(a,b,ex),st=_wbud[idp];
+ if(st&&st.key==key&&st.nodes){workersBudPaint(idp,S);return}   // same pair, already answered
+ _wbud[idp]={key:key,nodes:null,failed:false};                  // in flight: no numbers to show yet
+ workersBudPaint(idp,S);
+ var r=null,bad=false;
+ try{r=await j('workers-budget?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b)+'&exclude='+encodeURIComponent(ex||''))}catch(e){bad=true}
+ st=_wbud[idp];
+ if(!st||st.key!=key)return;                                    // a newer pair owns the box now
+ st.nodes=(r&&r.nodes)||null;st.failed=bad||!st.nodes;
+ workersBudPaint(idp,S)}
+function workersBudPaint(idp,S){var box=el(idp+'wbud');if(!box)return;var st=_wbud[idp];
+ if(!st){box.style.display='none';return}
+ box.style.display='';
+ if(!st.nodes){
+  // No numbers: either still counting, or the request died. A FAILED count must say so — hiding the box
+  // reads as «no constraint», which is the one thing this line exists to prevent.
+  box.className='spoofcap '+(st.failed?'no':'wait');
+  box.innerHTML=(st.failed?ic('warn'):'')+'<span>'+esc(T(st.failed?'workers_bud_err':'workers_bud_wait'))+'</span>';
+  return}
  // The verdict rides on the ROW, not on one trailing sentence: the box names two nodes, and only one of
  // them is usually the crowded one -- «جا نیست» underneath both says nothing about which.
+ // Filled in ONE pass through a function, because a node NAME reaches this: with a string pattern,
+ // `$&` / `$'` inside it are replacement directives, and a node called «DE$'02» pastes the rest of the
+ // template back in and leaves {u}/{c}/{v} sitting unfilled in the operator's face.
  var w=wkClamp(S.Workers),rows='',over=false,unknown=false;
- ['a','b'].forEach(function(k){var n=d[k];if(!n)return;
+ var fill=function(t,m){return t.replace(/\\{(\\w+)\\}/g,function(_,k){return (k in m)?String(m[k]):'{'+k+'}'})};
+ ['a','b'].forEach(function(k){var n=st.nodes[k];if(!n)return;
   var c=num(n.cpus),u=num(n.used)+w,bad=(c>0&&u>c);
   if(!c)unknown=true; if(bad)over=true;
-  rows+='<div>'+esc(c>0?T('workers_bud_row').replace('{n}',n.name).replace('{u}',u).replace('{c}',c)
-                        .replace('{v}',bad?T('workers_bud_full'):T('workers_bud_fits'))
-                      :T('workers_bud_nocpu').replace('{n}',n.name))+'</div>'});
- if(!rows){box.style.display='none';return}
- box.style.display='';box.className='spoofcap '+(over?'no':(unknown?'wait':'ok'));
+  rows+='<div>'+esc(c>0?fill(T('workers_bud_row'),{n:n.name,u:u,c:c,v:bad?T('workers_bud_full'):T('workers_bud_fits')})
+                      :fill(T('workers_bud_nocpu'),{n:n.name}))+'</div>'});
+ // No rows means the answer named neither node -- both ids are gone. That is a failed count, not an
+ // all-clear, and hiding the box here would say «no constraint» exactly like a dead request does.
+ if(!rows){st.failed=true;st.nodes=null;workersBudPaint(idp,S);return}
+ box.className='spoofcap '+(over?'no':(unknown?'wait':'ok'));
  box.innerHTML=(over?ic('warn'):(unknown?'':ic('okc')))+'<span>'+rows+(over?'<div>'+esc(T('workers_bud_over'))+'</div>':'')+'</span>'}
 
 // The chosen source-port mode painted onto the segment. Shared by both forms for the same reason
