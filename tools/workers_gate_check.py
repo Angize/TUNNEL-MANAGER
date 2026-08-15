@@ -31,12 +31,28 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 fails = []
+_ran = set()
 
 
 def check(ok, msg):
     print(("  ok   " if ok else " FAIL ") + msg)
     if not ok:
         fails.append(msg)
+
+
+def section(fn):
+    """Mark a check_* function as a section and record that it actually RAN.
+
+    A section that stops being called from main() proves nothing while still reading like coverage —
+    which is how this file already lost check_storage_invariant once, silently, between two edits. The
+    tail of main() compares what ran against every section defined here, so a new one that is never
+    wired in fails on its first run instead of passing quietly."""
+    def wrap(*a, **k):
+        _ran.add(fn.__name__)
+        return fn(*a, **k)
+    wrap.__name__ = fn.__name__
+    wrap.__doc__ = fn.__doc__
+    return wrap
 
 
 def load(path, name):
@@ -57,6 +73,7 @@ def py_const(src, name):
 
 
 # ------------------------------------------------------------------ 1) one ceiling, three repos
+@section
 def check_ceiling(core_dir, panel_src, node_src):
     cfg = (core_dir / "config.go").read_text(encoding="utf-8")
     m = re.search(r"^const maxWorkers = (\d+)$", cfg, re.M)
@@ -76,6 +93,7 @@ def check_ceiling(core_dir, panel_src, node_src):
 
 
 # ------------------------------------------------------------------ 2) the pair the core spends them on
+@section
 def check_core_gate(core_dir):
     main = (core_dir / "main.go").read_text(encoding="utf-8")
     m = re.search(r'nq := 1\s*\n\s*if cfg\.Transport == "raw" && !cfg\.Fec \{\s*\n\s*nq = cfg\.Workers',
@@ -97,6 +115,7 @@ def stored_for(P, req):
     return s
 
 
+@section
 def check_panel_matrix(P, core_max):
     # (label, request, stored-link, expected `workers` in the panel's node body or an exception)
     raw4 = stored_for(P, dict(RAW, workers=4))
@@ -136,13 +155,73 @@ def check_panel_matrix(P, core_max):
                                             if "  [" in label else repr(got)))
 
 
+@section
+def check_storage_invariant(P, core_max):
+    """`workers` may only ever be STORED on a raw carrier with FEC off.
+
+    This is what lets _link_workers simply read the key instead of re-deriving the core's gate: if the
+    invariant holds, a stored value is by construction one the core will spend. Proven by driving every
+    carrier a form can create and then EDITING each result into every carrier and both FEC states —
+    the transitions are where a knob leaks, because that is where a value arrives by inheritance rather
+    than by being asked for."""
+    base = {"udp": {}, "tcp": {}, "raw": {"raw_profile": "tcp"}, "flux": {"flux_carrier": "udp"},
+            "spoof": {"spoof_src": "192.0.2.7"}, "ws": {"ws_host": "e.example.com", "ws_path": "/"},
+            "dns": {"dns_zone": "t.example.com", "dns_resolvers": ["10.0.0.1"]}}
+
+    def build(req, cur):
+        try:
+            ce, _ = P._core_extra(dict(req), dict(cur), A_IP, B_IP, A_IPS, B_IPS)
+            return ce
+        except ValueError:
+            return None
+
+    stored = {}
+    for t, extra in base.items():
+        for fec in (False, True):
+            for wk in (1, core_max):
+                req = {"cipher": "auto", "transport": t, **extra}
+                if fec and t in P.DATAGRAM_TRANSPORTS:
+                    req.update(fec=True, fec_data=10, fec_parity=3)
+                if wk > 1:
+                    req["workers"] = wk
+                r = build(req, {})
+                if r is not None:
+                    stored[(t, fec, wk)] = dict(r, type="core")
+    leaks, moves = [], 0
+    for k, cur in stored.items():
+        if "workers" in cur and (cur.get("transport") != "raw" or cur.get("fec")):
+            leaks.append(("create", k, cur.get("workers")))
+        for t2, extra2 in base.items():
+            for fec2 in (False, True):
+                req = {"transport": t2, **extra2}
+                if t2 in P.DATAGRAM_TRANSPORTS:
+                    req["fec"] = fec2
+                    if fec2:
+                        req.update(fec_data=10, fec_parity=3)
+                r = build(req, cur)
+                if r is None:
+                    continue
+                moves += 1
+                if "workers" in r and (r.get("transport") != "raw" or r.get("fec")):
+                    leaks.append(("edit", k, t2, fec2, r.get("workers")))
+    check(not leaks, "workers is stored ONLY on raw without FEC — %d create shapes, %d edit "
+                     "transitions, leaks: %r" % (len(stored), moves, leaks[:4]))
+    kept = sorted(k for k, v in stored.items() if "workers" in v)
+    check(kept == [("raw", False, core_max)],
+          "...and exactly one create shape keeps it: %r" % (kept,))
+
+
+@section
 def check_budget(P):
     """The endpoint the form warns from: which links count against a node, and which do not."""
     LINKS = [
         # id      type      nodes       transport  fec    workers  enabled
         ("this",  "core",   ("n1", "n2"), "raw",   False, 4,       True),
         ("plain", "core",   ("n1", "n3"), "ws",    False, None,    True),   # 1 queue, like every core tunnel
-        ("fec",   "core",   ("n1", "n3"), "raw",   True,  4,       True),   # FEC gets one queue, not four
+        # raw+FEC as the panel actually stores it: no workers key at all, so it holds one queue. The
+        # combination raw+FEC+workers is NOT in this table because no writer can produce it — see
+        # check_storage_invariant, which is what lets _link_workers just read the key.
+        ("fec",   "core",   ("n1", "n3"), "raw",   True,  None,    True),
         ("big",   "core",   ("n1", "n3"), "raw",   False, 3,       True),
         ("dflt",  "core",   ("n1", "n3"), "raw",   False, None,    True),   # raw at the default: still 1
         ("off",   "core",   ("n1", "n3"), "raw",   False, 4,       False),  # stopped: it holds nothing
@@ -176,6 +255,7 @@ def check_budget(P):
           % got.get("b", {}).get("used"))
 
 
+@section
 def check_chain(P, N, core_max):
     """create / edit / partial edit / rebuild, each carried all the way into the core's config file."""
     req = dict(RAW, workers=core_max)
@@ -329,10 +409,81 @@ FLEET = [{id:'L-9', name:'core9', a_node:'n1', b_node:'n2', a_name:'IR01', b_nam
 openCoreEdit('L-9');
 out.exclude.prefilled = _eeS.Workers;
 out.exclude.lit = [1,2,3,4].filter(n => document.getElementById('ee_wk_'+n).classList.contains('on'));
-console.log(JSON.stringify(out));
+
+// The budget box is the whole reason this knob is safe to expose, so its NON-answer states matter as
+// much as its answer. Driven, because every one of these was a real defect found by running the page.
+out.box = {};
+const cls = () => document.getElementById('e_wbud').className;
+const shown = () => document.getElementById('e_wbud').style.display !== 'none';
+_corS.Tr = 'raw'; _corS.Fec = false; _corS.Workers = MAX;
+(async () => {
+  let urls = [];
+  const answer = n => { globalThis.fetch = u => { urls.push(u);
+    return Promise.resolve({json: () => Promise.resolve({nodes: n})}) } };
+
+  // (1) an answer in flight must not be repainted from the PREVIOUS pair's numbers.
+  globalThis.fetch = () => new Promise(() => {});
+  _wbud['e_'] = {key:'OLD|PAIR|', nodes:{a:{name:'GONE',cpus:2,used:9},b:{name:'GONE2',cpus:2,used:9}}, failed:false};
+  workersBud('e_', _corS, 'n1', 'n2', '');
+  const inflight = cls();
+  corSetWorkers(2);                                  // a click while it is still in flight
+  out.box.inFlight = {before: inflight, afterClick: cls(), nodes: JSON.stringify(_wbud['e_'].nodes)};
+
+  // (2) a FAILED count must be visible. Hiding it reads as "no constraint", which is backwards.
+  globalThis.fetch = () => Promise.reject(new Error('down'));
+  _wbud['e_'] = null;
+  await workersBud('e_', _corS, 'n1', 'n2', '');
+  out.box.failed = {shown: shown(), cls: cls()};
+
+  // (3) ...and it must not be sticky: asking again retries and recovers.
+  answer({a:{name:'N1',cpus:8,used:0}, b:{name:'N2',cpus:8,used:0}});
+  urls = [];
+  await workersBud('e_', _corS, 'n1', 'n2', '');
+  out.box.retried = {fetches: urls.length, cls: cls()};
+
+  // (4) the same pair must not be re-asked; a different pair or exclude must be.
+  await workersBud('e_', _corS, 'n1', 'n2', '');    const same = urls.length;
+  await workersBud('e_', _corS, 'n1', 'n3', '');    const pair = urls.length;
+  await workersBud('e_', _corS, 'n1', 'n3', 'L9');  const excl = urls.length;
+  out.box.fetches = {first: 1, samePair: same, newPair: pair, newExclude: excl};
+
+  // (4b) a node NAME reaches the row template, so it must be substituted with a function: with a
+  //      string pattern `$&` and `$'` are replacement DIRECTIVES, and «DE$'02» pastes the rest of the
+  //      template back in, leaving {u}/{c}/{v} unfilled in front of the operator.
+  let html = '';
+  const wb = document.getElementById('e_wbud');
+  Object.defineProperty(wb, 'innerHTML', {set(v){html=v}, get(){return html}, configurable:true});
+  answer({a:{name:"IR$&01",cpus:8,used:0}, b:{name:"DE$'02",cpus:2,used:5}});
+  _wbud['e_'] = null; await workersBud('e_', _corS, 'n1', 'n2', '');
+  out.box.dollarName = {leaked: /\{[a-z]\}/.test(html),
+                        hasA: html.indexOf('IR$&amp;01') >= 0, hasB: html.indexOf('DE$') >= 0};
+
+  // (4c) an answer that names NEITHER node is a failed count, not an all-clear. Hiding the box there
+  //      says «no constraint» just as loudly as a dead request does.
+  globalThis.fetch = () => Promise.resolve({json: () => Promise.resolve({nodes: {}})});
+  _wbud['e_'] = null; await workersBud('e_', _corS, 'n7', 'n8', '');
+  out.box.emptyAnswer = {shown: wb.style.display !== 'none', cls: wb.className};
+
+  // (5) the segment can never be left with nothing lit, whatever it is handed.
+  out.box.paint = {};
+  for (const n of [0, 1, MAX, MAX + 5, undefined, 'x'])
+    { workersPaint('e_', n); out.box.paint[String(n)] = _WKMAX.filter(k =>
+        document.getElementById('e_wk_'+k).classList.contains('on')); }
+
+  // (6) the state reset must not depend on the row existing -- corFecGate's rule, and the reason a
+  //     stale 4 could otherwise ride a carrier switch into the body.
+  const S = {Tr:'ws', Fec:false, Workers:MAX}, saved = globalThis.document.getElementById;
+  globalThis.document.getElementById = () => null;
+  try { workersVis('zz_', S) } catch (e) { out.box.visThrew = String(e).slice(0,60) }
+  globalThis.document.getElementById = saved;
+  out.box.stateWithNoRow = S.Workers;
+
+  console.log(JSON.stringify(out));
+})();
 """
 
 
+@section
 def check_forms(P, core_max):
     page = P.INDEX_HTML
     blocks = re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)
@@ -357,7 +508,19 @@ def check_forms(P, core_max):
     if r.returncode != 0:
         check(False, "the page's own script runs:\n" + (r.stderr or "")[:900])
         return
-    got = json.loads(r.stdout.strip().splitlines()[-1])
+    # An empty stdout means the harness died between its last statement and its one console.log — node
+    # can still exit 0 there. Report it as a failed check rather than an IndexError traceback, which
+    # reads as a broken tool instead of broken code.
+    lines = (r.stdout or "").strip().splitlines()
+    if not lines:
+        check(False, "the page harness printed nothing — it stopped before its output line:\n"
+                     + (r.stderr or "")[:600])
+        return
+    try:
+        got = json.loads(lines[-1])
+    except ValueError:
+        check(False, "the page harness printed no parseable result: %r" % (lines[-1][:200],))
+        return
 
     for form in ("create", "edit"):
         vis = got["vis"][form]
@@ -390,6 +553,36 @@ def check_forms(P, core_max):
           "open-edit's budget EXCLUDES the edited link, or its own queues are counted twice (url=%r)"
           % (ex.get("url") or "<never fetched>",))
 
+    b = got.get("box") or {}
+    fl = b.get("inFlight") or {}
+    check(fl.get("afterClick") == "spoofcap wait" and fl.get("nodes") == "null",
+          "a click while the count is in flight does not repaint the PREVIOUS pair's numbers "
+          "(class %r, cached nodes %s)" % (fl.get("afterClick"), fl.get("nodes")))
+    fa = b.get("failed") or {}
+    check(fa.get("shown") is True and fa.get("cls") == "spoofcap no",
+          "a FAILED count is shown, not hidden — hiding it reads as «no constraint» (shown=%r, %r)"
+          % (fa.get("shown"), fa.get("cls")))
+    rt = b.get("retried") or {}
+    check(rt.get("fetches") == 1 and rt.get("cls") == "spoofcap ok",
+          "a failure is not sticky: the next ask retries and recovers (%r fetch, class %r)"
+          % (rt.get("fetches"), rt.get("cls")))
+    f = b.get("fetches") or {}
+    check(f.get("samePair") == 1 and f.get("newPair") == 2 and f.get("newExclude") == 3,
+          "the same node pair is not re-asked; a new pair or exclude is (%r)" % (f,))
+    dn = b.get("dollarName") or {}
+    check(dn.get("leaked") is False and dn.get("hasA") and dn.get("hasB"),
+          "a node name containing $& or $' fills the row literally and leaves no placeholder behind "
+          "(%r)" % (dn,))
+    ea = b.get("emptyAnswer") or {}
+    check(ea.get("shown") is True and ea.get("cls") == "spoofcap no",
+          "an answer naming NEITHER node reads as a failed count, not as an all-clear (%r)" % (ea,))
+    lit = b.get("paint") or {}
+    bad = {k: v for k, v in lit.items() if len(v) != 1}
+    check(not bad, "the segment always has exactly one button lit, whatever it is handed (%r)" % bad)
+    check(b.get("stateWithNoRow") == 1,
+          "the queue state resets on a carrier that cannot spend it even with no row in the DOM "
+          "(got %r)" % b.get("stateWithNoRow"))
+
 
 def main():
     here = Path(__file__).resolve()
@@ -413,12 +606,19 @@ def main():
     check_panel_matrix(P, core_max)
     print("\n== 4) the value chain: every panel path -> node -> core config ==")
     check_chain(P, N, core_max)
-    print("\n== 5) the per-node queue budget the form warns from ==")
+    print("\n== 5) what may be STORED, over every carrier and every edit transition ==")
+    check_storage_invariant(P, core_max)
+    print("\n== 6) the per-node queue budget the form warns from ==")
     check_budget(P)
-    print("\n== 6) both forms, driven through their own gates ==")
+    print("\n== 7) both forms, driven through their own gates ==")
     check_forms(P, core_max)
 
     print("")
+    missed = sorted(n for n in globals()
+                    if n.startswith("check_") and callable(globals()[n]) and n not in _ran)
+    if missed:
+        print("these sections are defined but never run: %s" % ", ".join(missed))
+        return 1
     if fails:
         print("%d failure(s)" % len(fails))
         return 1
