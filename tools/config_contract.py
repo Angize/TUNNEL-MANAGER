@@ -52,6 +52,11 @@ CASES = [
      {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True}),
     ("raw/bare native", {"transport": "raw", "cipher": "auto", "raw_profile": "bare"},
      {"transport": "raw", "raw_profile": "bare"}),
+    # Extra TUN queues are per-tunnel state exactly like the port beside them: a rebuild that replays
+    # everything BUT this one drops the tunnel back to a single queue, which is the whole thing the
+    # operator raised it to escape, and the panel would keep showing 4.
+    ("raw/tcp+workers", {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "workers": 4},
+     {"transport": "raw", "raw_profile": "tcp", "workers": 4}),
     ("raw/gre", {"transport": "raw", "cipher": "auto", "raw_profile": "gre"},
      {"transport": "raw", "raw_profile": "gre"}),
     ("raw/icmp+fec", {"transport": "raw", "cipher": "auto", "raw_profile": "icmp",
@@ -225,6 +230,16 @@ def main():
                                         "ends would fail to start while the panel reported the save as "
                                         "successful" % (name, path_name, k, body[k],
                                                         must.get("cdn_carrier") or must.get("transport")))
+
+        # 2c) ...and every key _core_extra produced must survive an EDIT's persistence step. That step
+        #     keeps only the keys on one list, and a field missing from it has no symptom the edit can
+        #     show: the node is rebuilt with the operator's value and reports success, while the record
+        #     drops it — so the next rebuild silently reverts and the form shows the stale setting as
+        #     live. Nothing above can see this, because every path here calls _core_extra directly.
+        missing = sorted(set(stored) - {"type"} - set(P._LINK_EXTRA_KEYS))
+        if missing:
+            failures.append("[%s] _core_extra produced %s, which api_edit_link's _LINK_EXTRA_KEYS does "
+                            "not keep — an edit would drop it from the stored link" % (name, missing))
 
         # 3) the three paths must agree with each other.
         for pa, a, pb, b in (("create", create, "edit", edit),
