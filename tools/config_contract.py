@@ -52,11 +52,12 @@ CASES = [
      {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True}),
     ("raw/bare native", {"transport": "raw", "cipher": "auto", "raw_profile": "bare"},
      {"transport": "raw", "raw_profile": "bare"}),
-    # Extra TUN queues are per-tunnel state exactly like the port beside them: a rebuild that replays
-    # everything BUT this one drops the tunnel back to a single queue, which is the whole thing the
-    # operator raised it to escape, and the panel would keep showing 4.
-    ("raw/tcp+workers", {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "workers": 4},
-     {"transport": "raw", "raw_profile": "tcp", "workers": 4}),
+    # The extra TUN queues are NOT here, and must not be added back: they are per-END state now
+    # (a_workers/b_workers, like a_ip_pool beside them), so _node_extra strips them exactly as it
+    # strips the rotation pools — the count reaches a node through _core_workers_bodies, which is the
+    # only place that knows which end it is building. tools/workers_gate_check.py drives all four
+    # paths into the core's own config file, per end, which is a stronger claim than this table can
+    # make.
     ("raw/gre", {"transport": "raw", "cipher": "auto", "raw_profile": "gre"},
      {"transport": "raw", "raw_profile": "gre"}),
     ("raw/icmp+fec", {"transport": "raw", "cipher": "auto", "raw_profile": "icmp",
