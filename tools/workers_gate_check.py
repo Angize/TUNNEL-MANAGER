@@ -300,7 +300,10 @@ def check_chain(P, N, core_max):
     # The two ends are given DIFFERENT counts on purpose: a chain that carries one number correctly
     # says nothing about whether it carries two.
     req = dict(RAW, a_workers=core_max, b_workers=2)
-    stored = stored_for(P, req)
+    # ONE create, and the stored record derived from it. Calling _core_extra twice mints two different
+    # psks, and every later comparison then reports a divergence the panel does not have.
+    ce_c, _ = P._core_extra(dict(req), {}, A_IP, B_IP, A_IPS, B_IPS)
+    stored = dict(ce_c, type="core")
     ce_e, _ = P._core_extra(dict(req), dict(stored), A_IP, B_IP, A_IPS, B_IPS)
     ce_p, _ = P._core_extra({"transport": "raw"}, dict(stored), A_IP, B_IP, A_IPS, B_IPS)
     def pair(ce, base):
@@ -311,11 +314,26 @@ def check_chain(P, N, core_max):
         return a, b
 
     bodies = {
-        "create": pair(stored, P._node_extra(stored_for(P, req))),
+        "create": pair(ce_c, P._node_extra(ce_c)),
         "edit": pair(ce_e, P._node_extra(ce_e)),
         "edit(partial)": pair(ce_p, P._node_extra(ce_p)),
         "rebuild": pair(stored, P._node_extra(P._tunnel_extra(dict(stored), refetch_ech=False))),
     }
+
+    # The three builders must produce the SAME node body, whole -- not merely agree on the key under
+    # study. A key that only one path spreads is the shape this guard exists for, and checking one key
+    # at a time is how such a key stays invisible: the per-end pair itself leaked into create's and
+    # edit's bodies while rebuild's stayed clean, and only a whole-body diff showed it.
+    whole = {}
+    for nm, ce in (("create", ce_c), ("edit", ce_e), ("rebuild", P._tunnel_extra(dict(stored), refetch_ech=False))):
+        a_b, b_b = dict(P._node_extra(ce)), dict(P._node_extra(ce))
+        P._core_workers_bodies(stored if nm == "rebuild" else ce, a_b, b_b)
+        whole[nm] = (a_b, b_b)
+    same = whole["create"] == whole["edit"] == whole["rebuild"]
+    diff = {} if same else {k: v for k, v in whole["create"][0].items()
+                            if whole["rebuild"][0].get(k) != v}
+    check(same, "create, edit and rebuild build the SAME node body, whole%s"
+          % ("" if same else " — create carries %r that rebuild does not" % diff))
 
     class Captured(Exception):
         def __init__(self, obj):

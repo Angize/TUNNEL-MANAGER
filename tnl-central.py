@@ -1880,6 +1880,12 @@ _PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned", "cdn_profile")
 # NOT be spread into a node body as-is (the node whitelists only the per-role fields), so drop them.
 _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
 
+# The TUN-queue count is per END, and _core_workers_bodies turns it into each node's own `workers`.
+# The raw a_/b_ pair is the panel's own bookkeeping for exactly the reason the rotation pools are, so it
+# is dropped here too — otherwise create and edit ship it to a node that has no use for it while rebuild
+# does not, and the three paths stop agreeing.
+_WORKERS_KEYS = ("a_workers", "b_workers")
+
 # The extras an edit may leave in a stored link record. Present-and-set, absent-and-dropped, so an edit
 # that turns rotation off actually clears the stored pools rather than leaving them to be replayed.
 #
@@ -1917,7 +1923,7 @@ def _node_extra(extra):
         # Stored as a name so the numbers live in exactly one place and a stored tunnel picks up a
         # retuned profile on its next push. grpc has no POST ladder, so the shape is meaningless there.
         e.update(CDN_PROFILES.get(str(e.get("cdn_profile") or "cf"), {}))
-    skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS
+    skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS + _WORKERS_KEYS
     return {k: v for k, v in e.items() if k not in skip}
 
 
