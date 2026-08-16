@@ -88,6 +88,9 @@ SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
 # costs a read buffer and a share of a cpu the node's OTHER tunnels also want, which is what the form's
 # budget line weighs. tools/workers_gate_check.py compares this against the core's own constant.
 CORE_MAX_WORKERS = 4
+# The carriers whose core drains every queue it is given, mirroring the core's queueingCarrier and the
+# node's QUEUEING_TRANSPORTS. tools/workers_gate_check.py compares this against the core's own source.
+QUEUEING_TRANSPORTS = ("raw", "udp")
 STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # carriers that write a precise status ring (the direct tcp/cover client writes one too)
 _reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
 _pending_lock = threading.Lock()   # serialize pending_del.json read-modify-write (deferred teardowns)
@@ -4759,10 +4762,11 @@ def _flux_fields(d, transport, cipher, cur=None):
 
 
 def _workers_field(d, transport, fec_on, cur=None):
-    """How many TUN queues this tunnel gets (the core's `workers`), so received packets are written by
-    several goroutines instead of queueing behind one file's lock. Only a raw carrier with FEC off
-    spends them: main.go gates its queue count on exactly that pair, and FEC's decoder rebuilds a block
-    out of consecutive frames. Returns {} for the single-queue default, so only a raised value is stored.
+    """How many TUN queues this tunnel gets (the core's `workers`), so its packets are read and written
+    by several goroutines instead of queueing behind one file's lock. Only the carriers in
+    QUEUEING_TRANSPORTS, and only with FEC off, spend them: main.go gates its queue count on exactly
+    that pair, and FEC's decoder rebuilds a block out of consecutive frames. Returns {} for the
+    single-queue default, so only a raised value is stored.
 
     Inherit-vs-ask, the rule raw_port already follows: a value carried in from `cur` is dropped when the
     new carrier cannot use it (switching carrier IS the request to leave it behind), while one asked for
@@ -4780,9 +4784,9 @@ def _workers_field(d, transport, fec_on, cur=None):
         n = int(cur.get("workers") or 1)   # our own stored value: written by this function, in range
     if n == 1:
         return {}
-    if transport != "raw" or fec_on:
+    if transport not in QUEUEING_TRANSPORTS or fec_on:
         if asked:
-            raise ValueError("«صف‌های موازی» فقط برای حاملِ raw و بدونِ FEC است؛ "
+            raise ValueError("«صف‌های موازی» فقط برای حاملِ raw یا udp و بدونِ FEC است؛ "
                              "جای دیگر هستهٔ اختصاصی همان یک صف را برمی‌دارد")
         return {}
     return {"workers": n}
@@ -9182,7 +9186,7 @@ var I18N={fa:{
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
 got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"هر دقیقه و روی سکوت",raw_sport_hint:"عددی که کلاینت به‌عنوان مبدأ می‌نویسد؛ پورتِ مقصد از آن اثر نمی‌گیرد. «ثابت» همیشه 51820 است: اگر آن چهارتایی سوزانده شود، حامل تا ابد مرده می‌ماند. «رندومِ واکنشی» هر دقیقه عوضش می‌کند — و اگر جوابی برنگردد، منتظرِ نوبتِ بعد نمی‌ماند. سرور مقدارِ نو را از خودِ فریم می‌خواند، بدونِ دست‌دادنِ دوباره.", raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"عددی که کلاینت در هدرِ جعلی به‌عنوان مقصد می‌نویسد. ثابت است و هر دو طرف باید یکی باشند؛ استتار هم از همین می‌آید — 443 یعنی «QUIC»، 51820 یعنی «WireGuard». هیچ پورتی باز نمی‌شود: سوکتِ حامل روی شمارهٔ پروتکل است نه پورت. برخی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
- workers_lbl:"صف‌های موازیِ دریافت",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",workers_hint:"بسته‌های رسیده به‌جای اینکه پشتِ قفلِ یک صف نوبت بگیرند، روی چند صفِ جدا نوشته می‌شوند. صفِ هر بسته از روی آدرس و پورتِ خودش انتخاب می‌شود، پس یک اتصال هیچ‌وقت بینِ دو صف پخش نمی‌شود و ترتیبش به‌هم نمی‌ریزد. 1 یعنی همان مسیرِ همیشگی. هر صفِ اضافه تا یک هستهٔ نود را می‌گیرد، پس فقط روی نودی سود دارد که هستهٔ بی‌کار داشته باشد؛ روی نودِ شلوغ فقط از تونل‌های دیگرِ همان نود می‌دزدد. فقط برای حاملِ raw و وقتی FEC خاموش است — جای دیگر هسته همان یک صف را برمی‌دارد.",workers_bud_wait:"در حالِ شمردنِ صف‌های نود…",workers_bud_err:"شمردنِ صف‌های نود نشد — معلوم نیست روی این نودها جا هست یا نه. صفحه را تازه کن یا بعداً دوباره امتحان کن.",workers_bud_row:"{n}: {u} صف روی {c} هسته — {v}",workers_bud_fits:"جا دارد",workers_bud_full:"جا ندارد",workers_bud_nocpu:"{n}: تعدادِ هسته‌اش معلوم نیست (نود آفلاین است)",workers_bud_over:"روی نودی که جا ندارد بیشتر از 1 نگذار — صفِ اضافه فقط از تونل‌های دیگرِ همان نود می‌دزدد.",
+ workers_lbl:"صف‌های موازیِ تونل",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",workers_hint:"بسته‌های تونل به‌جای اینکه پشتِ قفلِ یک صف نوبت بگیرند، روی چند صفِ جدا خوانده و نوشته می‌شوند. صفِ هر بسته از روی آدرس و پورتِ خودش انتخاب می‌شود، پس یک اتصال هیچ‌وقت بینِ دو صف پخش نمی‌شود و ترتیبش به‌هم نمی‌ریزد. 1 یعنی همان مسیرِ همیشگی. هر صفِ اضافه تا یک هستهٔ نود را می‌گیرد، پس فقط روی نودی سود دارد که هستهٔ بی‌کار داشته باشد؛ روی نودِ شلوغ فقط از تونل‌های دیگرِ همان نود می‌دزدد. فقط برای حاملِ raw و udp و وقتی FEC خاموش است — جای دیگر هسته همان یک صف را برمی‌دارد.",workers_bud_wait:"در حالِ شمردنِ صف‌های نود…",workers_bud_err:"شمردنِ صف‌های نود نشد — معلوم نیست روی این نودها جا هست یا نه. صفحه را تازه کن یا بعداً دوباره امتحان کن.",workers_bud_row:"{n}: {u} صف روی {c} هسته — {v}",workers_bud_fits:"جا دارد",workers_bud_full:"جا ندارد",workers_bud_nocpu:"{n}: تعدادِ هسته‌اش معلوم نیست (نود آفلاین است)",workers_bud_over:"روی نودی که جا ندارد بیشتر از 1 نگذار — صفِ اضافه فقط از تونل‌های دیگرِ همان نود می‌دزدد.",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -9363,6 +9367,9 @@ var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the 
    above, so the segment can never offer a queue the panel would then reject. */
 var _WKMAX=[],_WKN=__WORKERSMAX__;for(var _i=1;_i<=_WKN;_i++)_WKMAX.push(_i);
 function wkClamp(n){n=parseInt(n,10);return (n>=1&&n<=_WKN)?n:1}
+/* Which carriers spend the queues, mirroring the core's queueingCarrier and the node's
+   QUEUEING_TRANSPORTS. FEC is out everywhere: its decoder rebuilds a block out of consecutive frames. */
+function wkCarrier(S){return (S.Tr=='raw'||S.Tr=='udp')&&!S.Fec}
 var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
 var _SETDEF=__SETDEF_JSON__;   /* injected from settings_defaults() minus tuning; feeds the form AND the reset */
 var _PROBESAMP=__PROBE_SAMPLES__;   /* the node's PROBE_COUNT, injected; guarded by tools/tuning_consistency.py */
@@ -10733,7 +10740,7 @@ function workersPaint(idp,n){n=wkClamp(n);
 // queue when it doesn't — otherwise a value picked on raw rides a later switch to CDN into the body,
 // where the panel would refuse the save with a message about a carrier the operator has left. The state
 // is reset BEFORE the row is touched, so it does not depend on the row existing (corFecGate's rule).
-function workersVis(idp,S){var on=(S.Tr=='raw'&&!S.Fec);
+function workersVis(idp,S){var on=wkCarrier(S);
  if(!on)S.Workers=1;
  var w=el(idp+'wrkrow');if(w)w.style.display=on?'':'none';
  workersPaint(idp,S.Workers)}
@@ -10966,7 +10973,7 @@ function corPortVis(){var w=el('e_portrow');if(!w)return;
  var on=(_corS.Tr=='raw'&&(_corS.RawProfile=='udp'||_corS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('e_rawport');if(i&&!i.value)i.value='443';corPortWarn();sportPaint('e_',_corS.SportRandom)}}
 function corSetWorkers(n){_corS.Workers=n;workersPaint('e_',n);workersBudPaint('e_',_corS)}
-function corWorkersVis(){workersVis('e_',_corS);if(_corS.Tr=='raw'&&!_corS.Fec)workersBud('e_',_corS,ssVal('e_a'),ssVal('e_b'),'')}
+function corWorkersVis(){workersVis('e_',_corS);if(wkCarrier(_corS))workersBud('e_',_corS,ssVal('e_a'),ssVal('e_b'),'')}
 function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='253';corProtoWarn()}}
 function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.toggle('on',_corS.Gso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
@@ -10992,7 +10999,8 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('e_cipher',CORE_CIPHERS(),'auto',T('cipher_ph'),'onCorCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt" id="e_tr_spoof" onclick="corSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt" id="e_tr_dns" onclick="corSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+workersSection('e_','cor')+'</div>'+
+  '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
+  workersSection('e_','cor')+
   fluxSection('e_','cor','udp',600,'random',null)+
   wsSection('e_','cor','','',false,'',false,'ws','','cf')+
   dnsSection('e_','cor')+
@@ -11008,7 +11016,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050"></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic(COR_IC)+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnProfGate();trFade(el('e_trbar'))}
+ corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnProfGate();corWorkersVis();trFade(el('e_trbar'))}
 function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='spoof')corSpoofProbe();corWorkersVis()}   /* the queue budget is per NODE, so a different node is a different budget */
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
@@ -11131,7 +11139,7 @@ function _collectCoreBody(S,px,m,body){
  if(fecDatagram(S)){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  /* Sent whenever the core would spend the queues, INCLUDING the default 1 — an absent key falls back to
     what the tunnel was saved with, so a form that only sent a raised value could never lower one. */
- if(S.Tr=='raw'&&!S.Fec)body.workers=wkClamp(S.Workers)
+ if(wkCarrier(S))body.workers=wkClamp(S.Workers)
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
  if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http')body.cdn_profile=S.CdnProf;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
@@ -11199,7 +11207,7 @@ function cePortVis(){var w=el('ee_portrow');if(!w)return;
 function ceSetWorkers(n){_eeS.Workers=n;workersPaint('ee_',n);workersBudPaint('ee_',_eeS)}
 /* _eeS.Lid, not editingId: openModal overwrites editingId with its own 'modal' sentinel, so by the time
    this runs the edited link's id is gone — and the budget would count this tunnel's own queues twice. */
-function ceWorkersVis(){workersVis('ee_',_eeS);if(_eeS.Tr=='raw'&&!_eeS.Fec)workersBud('ee_',_eeS,_eeS.NodesArr[0],_eeS.NodesArr[1],_eeS.Lid||'')}
+function ceWorkersVis(){workersVis('ee_',_eeS);if(wkCarrier(_eeS))workersBud('ee_',_eeS,_eeS.NodesArr[0],_eeS.NodesArr[1],_eeS.Lid||'')}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
@@ -11223,7 +11231,8 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='spoof'?' on':'')+'" id="ee_tr_spoof" onclick="ceSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+workersSection('ee_','ce')+'</div>'+
+  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
+  workersSection('ee_','ce')+
   fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,_eeS.CdnProf)+
   dnsSection('ee_','ce')+

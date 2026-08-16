@@ -6,9 +6,9 @@ Four things have to hold, and each of them has been the shape of a real defect i
 
   1. The ceiling is ONE number across three repos. The core clamps silently, so a panel that offered a
      fifth queue would promise something the wire never delivers and nothing would ever say so.
-  2. The core spends the queues on exactly ONE pair — a raw carrier with FEC off (main.go gates its
-     queue count on it; FEC's decoder rebuilds a block out of consecutive frames). Any other carrier
-     must not carry the key, or the panel reads as set while the core takes its single queue.
+  2. The carriers the core spends the queues on are read out of `queueingCarrier` itself, never listed
+     here, and FEC is out on all of them (its decoder rebuilds a block out of consecutive frames). Any
+     other carrier must not carry the key, or the panel reads as set while the core takes one queue.
   3. Every panel path agrees. `workers` is per-tunnel state like raw_port beside it: create, edit, a
      PARTIAL edit and rebuild must all produce it, and it must survive into the node's persisted config
      and out into the core's config file. Both node stages are driven here, not read.
@@ -95,10 +95,20 @@ def check_ceiling(core_dir, panel_src, node_src):
 # ------------------------------------------------------------------ 2) the pair the core spends them on
 @section
 def check_core_gate(core_dir):
+    """Which carriers the core spends queues on, read out of its own source.
+
+    Returned rather than hardcoded, so the day the core admits another carrier every panel and node
+    expectation below moves with it instead of quietly asserting yesterday's list."""
+    cfg = (core_dir / "config.go").read_text(encoding="utf-8")
+    m = re.search(r"func queueingCarrier\(t string\) bool \{ return ([^\n}]+)\}", cfg)
+    check(bool(m), "core config.go names the queueing carriers in queueingCarrier")
+    carriers = sorted(set(re.findall(r't == "([a-z]+)"', m.group(1)))) if m else []
+    check(bool(carriers), "queueingCarrier names at least one carrier (got %r)" % (carriers,))
     main = (core_dir / "main.go").read_text(encoding="utf-8")
-    m = re.search(r'nq := 1\s*\n\s*if cfg\.Transport == "raw" && !cfg\.Fec \{\s*\n\s*nq = cfg\.Workers',
-                  main)
-    check(bool(m), 'core main.go spends the queues on raw-without-FEC only (`transport=="raw" && !Fec`)')
+    check(bool(re.search(r"nq := 1\s*\n\s*if !cfg\.Fec && queueingCarrier\(cfg\.Transport\) \{"
+                         r"\s*\n\s*nq = cfg\.Workers", main)),
+          "core main.go gates the queue count on queueingCarrier and !Fec")
+    return carriers or None
 
 
 # ------------------------------------------------------------------ 3) the panel/node/core value chain
@@ -156,8 +166,8 @@ def check_panel_matrix(P, core_max):
 
 
 @section
-def check_storage_invariant(P, core_max):
-    """`workers` may only ever be STORED on a raw carrier with FEC off.
+def check_storage_invariant(P, core_max, carriers):
+    """`workers` may only ever be STORED on a carrier the core spends it on, with FEC off.
 
     This is what lets _link_workers simply read the key instead of re-deriving the core's gate: if the
     invariant holds, a stored value is by construction one the core will spend. Proven by driving every
@@ -189,7 +199,7 @@ def check_storage_invariant(P, core_max):
                     stored[(t, fec, wk)] = dict(r, type="core")
     leaks, moves = [], 0
     for k, cur in stored.items():
-        if "workers" in cur and (cur.get("transport") != "raw" or cur.get("fec")):
+        if "workers" in cur and (cur.get("transport") not in carriers or cur.get("fec")):
             leaks.append(("create", k, cur.get("workers")))
         for t2, extra2 in base.items():
             for fec2 in (False, True):
@@ -202,13 +212,13 @@ def check_storage_invariant(P, core_max):
                 if r is None:
                     continue
                 moves += 1
-                if "workers" in r and (r.get("transport") != "raw" or r.get("fec")):
+                if "workers" in r and (r.get("transport") not in carriers or r.get("fec")):
                     leaks.append(("edit", k, t2, fec2, r.get("workers")))
-    check(not leaks, "workers is stored ONLY on raw without FEC — %d create shapes, %d edit "
-                     "transitions, leaks: %r" % (len(stored), moves, leaks[:4]))
+    check(not leaks, "workers is stored ONLY on %s without FEC — %d create shapes, %d edit "
+                     "transitions, leaks: %r" % ("/".join(carriers), len(stored), moves, leaks[:4]))
     kept = sorted(k for k, v in stored.items() if "workers" in v)
-    check(kept == [("raw", False, core_max)],
-          "...and exactly one create shape keeps it: %r" % (kept,))
+    check(kept == sorted((c, False, core_max) for c in carriers),
+          "...and the create shapes that keep it are exactly the queueing carriers: %r" % (kept,))
 
 
 @section
@@ -387,7 +397,8 @@ for (const [form, S, setter, px] of [['create', _corS, corSetWorkers, 'e_'],
   document.getElementById(px+'cipher').value = 'auto';
   document.getElementById(px+'rawport').value = '443';
   for (const [label, tr, fec, n] of [['raw/1','raw',false,1], ['raw/max','raw',false,MAX],
-                                     ['raw+fec','raw',true,MAX], ['ws','ws',false,MAX]]) {
+                                     ['raw+fec','raw',true,MAX], ['ws','ws',false,MAX],
+                                     ['udp/max','udp',false,MAX], ['udp+fec','udp',true,MAX]]) {
     S.Tr = tr; S.Fec = fec; S.RawProfile = 'tcp'; setter(n);
     const b = {};
     _collectCoreBody(S, px, document.getElementById(px+'msg'), b);
@@ -484,7 +495,7 @@ _corS.Tr = 'raw'; _corS.Fec = false; _corS.Workers = MAX;
 
 
 @section
-def check_forms(P, core_max):
+def check_forms(P, core_max, carriers):
     page = P.INDEX_HTML
     blocks = re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)
     js = max(blocks, key=len) if blocks else ""
@@ -525,7 +536,8 @@ def check_forms(P, core_max):
     for form in ("create", "edit"):
         vis = got["vis"][form]
         shown = sorted(k for k, v in vis.items() if v)
-        check(shown == ["raw"], "%-6s form: the row shows on %s (expected ['raw'])" % (form, shown))
+        check(shown == list(carriers),
+              "%-6s form: the row shows on %s (expected %s)" % (form, shown, list(carriers)))
         check(got["drop"][form] == 1,
               "%-6s form: leaving raw resets the state to one queue (got %r)"
               % (form, got["drop"][form]))
@@ -544,6 +556,10 @@ def check_forms(P, core_max):
               "%-6s form: raw+FEC sends no workers key (got %r)" % (form, body["raw+fec"]))
         check(body["ws"] == "ABSENT",
               "%-6s form: ws sends no workers key (got %r)" % (form, body["ws"]))
+        check(body["udp/max"] == core_max,
+              "%-6s form: udp at %d sends workers=%r" % (form, core_max, body["udp/max"]))
+        check(body["udp+fec"] == "ABSENT",
+              "%-6s form: udp+FEC sends no workers key (got %r)" % (form, body["udp+fec"]))
 
     ex = got["exclude"]
     check(ex.get("prefilled") == 3 and ex.get("lit") == [3],
@@ -598,8 +614,11 @@ def main():
     if core_max is None:
         print("\n%d failure(s)" % len(fails))
         return 1
-    print("\n== 2) the carrier pair the core spends queues on ==")
-    check_core_gate(core)
+    print("\n== 2) the carriers the core spends queues on ==")
+    carriers = check_core_gate(core)
+    if carriers is None:
+        print("\n%d failure(s)" % len(fails))
+        return 1
     P = load(panel, "tnl_central_workers")
     N = load(node, "tnl_node_workers")
     print("\n== 3) panel: which carrier stores it, and inherit-vs-ask ==")
@@ -607,11 +626,11 @@ def main():
     print("\n== 4) the value chain: every panel path -> node -> core config ==")
     check_chain(P, N, core_max)
     print("\n== 5) what may be STORED, over every carrier and every edit transition ==")
-    check_storage_invariant(P, core_max)
+    check_storage_invariant(P, core_max, carriers)
     print("\n== 6) the per-node queue budget the form warns from ==")
     check_budget(P)
     print("\n== 7) both forms, driven through their own gates ==")
-    check_forms(P, core_max)
+    check_forms(P, core_max, carriers)
 
     print("")
     missed = sorted(n for n in globals()
