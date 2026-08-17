@@ -136,7 +136,7 @@ IGNORE = {"psk", "ws_ech", "ech"}
 # a panel-only key that leaks into a body is invisible at runtime — no error, no log, just a setting
 # that does nothing.
 NEVER = ("cdn_profile", "ws_edge_ips_burned", "ws_edge_snis_burned",
-         "ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
+         "ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 # ...unless a case's own contract asks for it (none do today; the check reads `must` so a future
 # carrier that legitimately needs one of these can say so instead of quietly disabling the guard).
 

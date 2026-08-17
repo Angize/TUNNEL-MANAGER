@@ -1878,7 +1878,7 @@ _PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned", "cdn_profile")
 # IP-rotation config lives in the LINK record and is consumed by _core_rotation_bodies to derive each
 # node's PER-ROLE fields (peer_ips/src_ips on the client, pool_listen on the server). The raw keys must
 # NOT be spread into a node body as-is (the node whitelists only the per-role fields), so drop them.
-_ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs", "auto_burn")
+_ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 
 # The TUN-queue count is per END, and _core_workers_bodies turns it into each node's own `workers`.
 # The raw a_/b_ pair is the panel's own bookkeeping for exactly the reason the rotation pools are, so it
@@ -1901,7 +1901,7 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile",
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned",
-                    "ws_rotate_secs", "ws_auto_burn", "gso", "spoof_src", "spoof_dst",
+                    "ws_rotate_secs", "gso", "spoof_src", "spoof_dst",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
@@ -1927,7 +1927,7 @@ def _node_extra(extra):
     return {k: v for k, v in e.items() if k not in skip}
 
 
-def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto_burn):
+def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
     """Set a core node's per-role IP-rotation fields in place. The CLIENT gets its own node's IPs as the
     source pool (src_ips) and the peer node's IPs as the destination pool (peer_ips) plus the rotation
     settings; the SERVER binds exactly its OWN selected pool IPs (pool_listen + listen_ips) so the core
@@ -1939,7 +1939,6 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto
         if own_pool:
             body["src_ips"] = list(own_pool)      # this node's own IPs — the client cycles the source
         body["peer_rotate_secs"] = rotate_secs
-        body["peer_auto_burn"] = auto_burn
     else:
         body["pool_listen"] = True                # accept the client dialing any of this server's IPs
         # ...but listen_ips only where a server READS it. config.go refuses it outright on anything but
@@ -1958,15 +1957,15 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs, auto
 
 def _core_rotation_bodies(src, a_body, b_body):
     """Apply IP rotation to BOTH core node bodies from a create/edit request or a stored link `src`
-    (which carries ip_rotate + a_ip_pool/b_ip_pool + rotate_secs/auto_burn). a_body is node A, b_body
+    (which carries ip_rotate + a_ip_pool/b_ip_pool + rotate_secs). a_body is node A, b_body
     node B; the client/server split comes from each body's already-set role. No-op when rotation is off
     or the transport isn't direct (peer_ips/src_ips are meaningless on ws)."""
     if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
         return
     ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
-    rs, ab = max(0, min(86400, int(src.get("rotate_secs") or 0))), bool(src.get("auto_burn"))
-    _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs, ab)  # A: own=ap, peer=bp
-    _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs, ab)  # B: own=bp, peer=ap
+    rs = max(0, min(86400, int(src.get("rotate_secs") or 0)))
+    _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)  # A: own=ap, peer=bp
+    _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)  # B: own=bp, peer=ap
 
 
 def _core_workers_bodies(src, a_body, b_body):
@@ -2174,7 +2173,6 @@ def _tunnel_extra(src, refetch_ech=True):
         e["ws_edge_snis"] = psnis
         _rs = src.get("ws_rotate_secs")   # 0 = rotation off (failover-only); a truthiness `or 600` would force 600
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
-        e["ws_auto_burn"] = bool(src.get("ws_auto_burn"))
     if src.get("gso"):                   # TUN segmentation offload (throughput)
         e["gso"] = True
     if src.get("spoof_src"):             # forge the outer source (raw bare; client only, node applies by role)
@@ -5339,7 +5337,6 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_snis": snis,                # [{host,ech,path}] — sent to the node + stored
         "ws_edge_snis_burned": burned_hosts,  # host list — panel-side only
         "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),   # 0 (rotation off) preserved, not coerced to 600
-        "ws_auto_burn": bool(d.get("ws_auto_burn") if "ws_auto_burn" in d else cur.get("ws_auto_burn")),
         "ws_path": path,
     }
     # cdn_carrier is stored ALWAYS here (see the dict above), not only when it is non-default. The profile
@@ -5473,7 +5470,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                 ce["ip_rotate"] = True
                 ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
                 ce["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
-                ce["auto_burn"] = bool(d.get("auto_burn"))
     elif cur.get("ip_rotate"):   # partial edit — carry the stored rotation config forward unchanged
         for _k in _ROTATION_KEYS:
             if cur.get(_k) is not None:
@@ -5738,7 +5734,7 @@ def _restore_link(A, B, L, extra=None):
             extra = _tunnel_extra(L, refetch_ech=False)  # last resort: stored key verbatim, never raises
     _rot = L.get("ip_rotate") and L.get("transport") in DIRECT_TRANSPORTS
     _ap, _bp = list(L.get("a_ip_pool") or []), list(L.get("b_ip_pool") or [])
-    _rs, _ab = max(0, min(86400, int(L.get("rotate_secs") or 0))), bool(L.get("auto_burn"))
+    _rs = max(0, min(86400, int(L.get("rotate_secs") or 0)))
     for N, self_ip, peer_ip, own, peer, is_a in ((A, L["a_ip"], L["b_ip"], _ap, _bp, True),
                                                  (B, L["b_ip"], L["a_ip"], _bp, _ap, False)):
         if N:
@@ -5754,7 +5750,7 @@ def _restore_link(A, B, L, extra=None):
             if role:
                 body["role"] = role
                 if _rot:   # replay the stored IP-rotation pools for this node's role
-                    _apply_core_rotation(body, role == "client", own, peer, _rs, _ab)
+                    _apply_core_rotation(body, role == "client", own, peer, _rs)
                 # ...and the fleet-wide timing, exactly like the three real build paths. Without it a rolled-back
                 # tunnel comes back UP but with the core's compiled-in keepalive and dead-window instead of the
                 # operator's, silently, on the very path where they are already reading an error about something
@@ -6744,6 +6740,10 @@ _EV_UP_CODE = {
 _EV_ROT_CODE = {
     "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
     "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
+    # The core gave up its session and handshaked again BEFORE condemning any address — a peer that
+    # restarted makes a good path carry nothing, and one round trip settles that. It is a deliberate
+    # step during an outage, so warn rather than the red "disconnected" an unknown code would get.
+    "rehandshake": ("warn", "دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی"),
 }
 
 
@@ -9206,7 +9206,7 @@ var I18N={fa:{
  ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ 80. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
  // ws pool inner
  rot_3m:"هر 3 دقیقه",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",rot_15m:"هر 15 دقیقه",rot_30m:"هر 30 دقیقه",rot_1h:"هر 1 ساعت",rot_4h:"هر 4 ساعت",rot_8h:"هر 8 ساعت",rot_off_fo:"خاموش (فقط failover)",
- pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل 2 آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",pool_ab_t:"سوختهٔ خودکار",pool_ab_d:"لبهٔ بلاک‌شده خودکار کنار می‌رود و روی backoff دوباره تست می‌شود؛ خوب شد، خودش برمی‌گردد.",
+ pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل 2 آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
  // core modal general
@@ -10445,7 +10445,7 @@ function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
 function corEchPxGate(){var vis=(_corS.Tr=='ws'&&_corS.Ech),row=el('e_echpxrow');if(!vis){_corS.EchProxy=false;var s=el('e_echpx');if(s)s.classList.remove('on')}if(row)row.style.display=vis?'':'none';var b=el('e_echpxbody');if(b)b.style.display=(vis&&_corS.EchProxy)?'':'none'}
 var _poolData={};
-function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,autoBurn:l?!!l.ws_auto_burn:true,
+function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,
   open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return (s&&s.host)||''}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
@@ -10512,14 +10512,13 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   host.innerHTML=html||'<div class="pempty">'+esc(T('pool_empty'))+'</div>';}
 function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(pfx+'chev_'+kind);if(b)b.style.display=d.open[kind]?'':'none';if(c)c.classList.toggle('open',d.open[kind]);}
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
-function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});var d=poolGet(pfx);var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
+function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?T('pool_bad_ip'):T('pool_bad_dom'));return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
 function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
 function poolDel(pfx,kind,from,val){var d=poolGet(pfx);if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
-function poolToggleAB(pfx){var d=poolGet(pfx);d.autoBurn=!d.autoBurn;var ab=el(pfx+'poolab');if(ab)ab.classList.toggle('on',d.autoBurn);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;body.ws_auto_burn=d.autoBurn;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 function corSetFluxCarrier(c){_corS.FluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
@@ -10960,8 +10959,7 @@ function wsPoolInner(idp,fnp,lid){
      +'</div></div>';}
  return block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
    +block('sni',T('pool_sni_lbl'),'cdn.example.com')
-   +'<label style="margin-top:14px">'+esc(T('flux_rot_lbl'))+'</label>'+sel
-   +'<div class="tglbox" style="margin-top:10px"><div class="tglsw on" id="'+idp+'poolab" onclick="poolToggleAB(\\''+idp+'\\')"></div><div class="tt"><b>'+esc(T('pool_ab_t'))+'</b><small>'+esc(T('pool_ab_d'))+'</small></div></div>';}
+   +'<label style="margin-top:14px">'+esc(T('flux_rot_lbl'))+'</label>'+sel;}
 // The epoch NUMBER mirrors the core: floor(unixtime/rotate) + flux_epoch_offset. Without the offset
 // «چرخش الان» looked inert — the core moved to the next shape and this box kept the old number. The
 // countdown is unaffected: the offset is added AFTER the division, so it shifts the epoch's name,
@@ -11130,7 +11128,7 @@ function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
  var secs=parseInt(ssVal(px+'rotsecs'))||0;
  // auto-burn is always on now (like the ws edge pool): a blocked IP is sidelined and retested on
  // backoff, returning to rotation when healthy — no operator toggle.
- return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,auto_burn:true,a_ip:ap[0]||'',b_ip:bp[0]||''}}
+ return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,a_ip:ap[0]||'',b_ip:bp[0]||''}}
 // Save-time guard: a rotation pool needs >=2 IPs to actually rotate. When the toggle is on, every side
 // whose multi-select pool is shown must have >=2 selected (a 0/1-IP "pool" silently doesn't rotate).
 function rotValidate(px){var st=rotSt(px);if(!st.on)return null;
@@ -11190,7 +11188,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  var _rverr=rotValidate('e_');if(_rverr){formErr(m,_rverr);return}
  var aip=pickedIP('e_','a','');if(aip)body.a_ip=aip;
  var bare=pickedIP('e_','b','');if(bare)body.b_ip=bare;
- var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs;body.auto_burn=_rc.auto_burn}
+ var _rc=rotCollect('e_');if(_rc){body.ip_rotate=true;body.a_ip_pool=_rc.a_ip_pool;body.b_ip_pool=_rc.b_ip_pool;body.rotate_secs=_rc.rotate_secs}
  var range=ssVal('e_snr');if(range=='custom'){var sub=v('e_subnet');if(sub)body.subnet=sub}else{body.subnet_base=range}
  var port=v('e_port');if(port)body.port=port;
  m.textContent=T('creating_core');
@@ -11311,7 +11309,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  // what the `stored` argument does.
  var aip=pickedIP('ee_','a',l.a_ip||'');if(aip)body.a_ip=aip;
  var bare=pickedIP('ee_','b',l.b_ip||'');if(bare)body.b_ip=bare;
- var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs;body.auto_burn=_rc2.auto_burn}
+ var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs}
  var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
  if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
