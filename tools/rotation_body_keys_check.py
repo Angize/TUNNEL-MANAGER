@@ -46,7 +46,7 @@ def main():
         b = {"role": "client", "transport": tr}
         mod._core_rotation_bodies({"ip_rotate": True, "transport": tr,
                                    "a_ip_pool": ["1.1.1.1", "1.1.1.2"], "b_ip_pool": ["2.2.2.2"],
-                                   "rotate_secs": 600, "auto_burn": False}, a, b)
+                                   "rotate_secs": 600}, a, b)
         want = tr in LISTEN_IPS_OK
         got = "listen_ips" in a
         ok = got == want
