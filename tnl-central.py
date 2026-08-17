@@ -6740,6 +6740,10 @@ _EV_UP_CODE = {
 _EV_ROT_CODE = {
     "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
     "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
+    # The core gave up its session and handshaked again BEFORE condemning any address — a peer that
+    # restarted makes a good path carry nothing, and one round trip settles that. It is a deliberate
+    # step during an outage, so warn rather than the red "disconnected" an unknown code would get.
+    "rehandshake": ("warn", "دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی"),
 }
 
 
