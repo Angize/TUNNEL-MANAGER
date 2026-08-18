@@ -6723,6 +6723,9 @@ _EV_DOWN_CODE = {
     "ws_upgrade": "ارتقاءِ WebSocket رد شد (Origin/CDN)",
     "closed": "اتصال قطع شد",
     "dropped": "اتصال قطع شد",
+    # dns: the tunnel rides a reliable session inside DNS, and that session ended on its own — the
+    # resolver path stopped carrying it. The next connect is a recovery.
+    "session-dead": "سشنِ DNS تمام شد — مسیرِ ریزالور دیگر آن را حمل نمی‌کند",
     # datagram transports (udp/raw/flux) — connectionless self-heal reasons
     "stale": "سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد",
     # A timed destination rotation keeps the AEAD session, so a dead endpoint produces no handshake
@@ -6744,6 +6747,13 @@ _EV_ROT_CODE = {
     # restarted makes a good path carry nothing, and one round trip settles that. It is a deliberate
     # step during an outage, so warn rather than the red "disconnected" an unknown code would get.
     "rehandshake": ("warn", "دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی"),
+    # The cheapest step of all: the source port is redrawn because THIS 4-tuple stopped answering.
+    # Written once per outage, not once per redraw — the core keeps redrawing every few seconds while
+    # the tuple stays dead, and a line each would bury the burn and the re-handshake that follow.
+    "port-roll": ("warn", "چرخشِ پورتِ مبدأ، پیش از سوزاندنِ هر آدرسی"),
+    # A ws client whose carriers keep dying too fast for the probe to judge them walks its edges once.
+    # Also once per outage: the lap that follows is the same fact repeated.
+    "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
 }
 
 
