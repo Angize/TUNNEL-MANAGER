@@ -6727,10 +6727,9 @@ _EV_DOWN_CODE = {
     # resolver path stopped carrying it. The next connect is a recovery.
     "session-dead": "سشنِ DNS تمام شد — مسیرِ ریزالور دیگر آن را حمل نمی‌کند",
     # datagram transports (udp/raw/flux) — connectionless self-heal reasons
-    "stale": "سشن کهنه شد (سرِ مقابل خاموش/ری‌استارت؟) — در حالِ دست‌دادنِ مجدد",
     # A timed destination rotation keeps the AEAD session, so a dead endpoint produces no handshake
     # failure to notice it — the carrier probes the jumped-to IP every second instead and gives up after
-    # the same threshold. Distinct from "stale": the SESSION is fine, this one ADDRESS went silent.
+    # the same threshold. The SESSION is fine here; this one ADDRESS went silent.
     "peer-dead": "آی‌پیِ مقصدی که چرخش روی آن رفت جواب نداد — سوزانده شد و رفت روی آی‌پیِ بعدی",
 }
 _EV_UP_CODE = {
