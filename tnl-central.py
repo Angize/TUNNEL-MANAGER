@@ -202,12 +202,6 @@ _TUNING_DEFAULTS = {
     "suspect_backoff": [600, 1800, 3600],
     "dead_retest_secs": 21600,
     # 2 - dead detection / self-heal
-    "keepalive": 15,          # fleet-wide keepalive (the base clock every dead-window scales off); was per-tunnel
-    # ONE multiplier for every carrier: the dead window is dead_mult × keepalive and nothing else, so
-    # keepalive is the single number that moves them all. There is no absolute deadline beside it any
-    # more: two knobs set the same window, one of them could express a self-destructive value, and
-    # setting either greyed the other out.
-    "dead_mult": 3,
     "ping_loss_threshold": 3,
     "min_liveness_secs": 20,
     "probe_timeout_secs": 5,
@@ -235,16 +229,12 @@ _PROBE_SAMPLES = 20
 _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشتی")}   # (step, the label the operator sees)
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
-    # min 2: keepaliveInterval is clamped to [0.6,1.3]×keepalive, so a 1× window would expire BETWEEN
-    # two pings and tear down a healthy idle carrier.
-    "dead_mult": (2, 100),
     "ping_loss_threshold": (1, 100), "min_liveness_secs": (1, 3600),
     "probe_timeout_secs": (1, 120),
     # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
     # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
     # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
     "probe_min_pct": (5, 100),   # steps of 5; see _TUNING_STEPS
-    "keepalive": (5, 120),
     "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
 }
 
@@ -1989,11 +1979,6 @@ def _apply_core_tuning(a_body, b_body):
     rebuild — so a tunnel picks up the current Settings timing on any (re)build, uniformly. Empty diff
     (all knobs at default) leaves both bodies untouched so the core keeps its own defaults."""
     tn = _settings_tuning()
-    # keepalive is fleet-wide too, but the core reads it as a TOP-LEVEL config field (not from the
-    # `tuning` object), so inject it there. Only when the operator moved it off the core's own default,
-    # so an all-default fleet still hands the core a body it would build identically.
-    if tn.get("keepalive"):
-        a_body["keepalive"] = b_body["keepalive"] = max(5, min(120, int(tn["keepalive"])))
     # sock_buf is a top-level core field, and the one knob the operator sets in a different unit than the
     # core reads: MiB here, BYTES on the wire. 0 means "off", which the core spells as a negative value.
     # _settings_tuning already omits the knob when it equals the panel default, which is the core's own
@@ -2005,7 +1990,7 @@ def _apply_core_tuning(a_body, b_body):
     # they never appear twice on the wire. probe_min_pct is stripped for a different reason: the core
     # has no such knob at all. It is the NODE's, and _apply_probe_tuning stamps it on every type.
     _tn = {k: v for k, v in tn.items()
-           if k not in ("keepalive", "sock_buf_mb", "probe_min_pct")}
+           if k not in ("sock_buf_mb", "probe_min_pct")}
     if _tn:
         a_body["tuning"] = _tn
         b_body["tuning"] = _tn
@@ -5724,7 +5709,7 @@ def _restore_link(A, B, L, extra=None):
                 if _rot:   # replay the stored IP-rotation pools for this node's role
                     _apply_core_rotation(body, role == "client", own, peer, _rs)
                 # ...and the fleet-wide timing, exactly like the three real build paths. Without it a rolled-back
-                # tunnel comes back UP but with the core's compiled-in keepalive and dead-window instead of the
+                # tunnel comes back UP with the core's compiled-in timings instead of the
                 # operator's, silently, on the very path where they are already reading an error about something
                 # else. Both args are this one body; _apply_core_tuning stamps them identically.
                 _apply_core_tuning(body, body)
@@ -9203,7 +9188,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"2) اتصال و تشخیصِ مرگ",set_gkdc:"همهٔ تونل‌ها",set_t_keepalive:"keepalive (ثانیه)",set_t_keepalive_d:"هر این‌قدر ثانیه یک بستهٔ خیلی کوچک بین دو سرِ تونل رد و بدل می‌شود، فقط برای اینکه معلوم شود هنوز زنده است. تقریباً همهٔ عددهای پایین از روی همین حساب می‌شوند. کم که باشد، قطعیِ تونل زودتر معلوم می‌شود — به قیمتِ ترافیکِ خیلی ناچیز. زیاد که باشد، دیرتر می‌فهمی.",set_x_keepalive:"keepalive=<b>10</b> ← هر 10ث یک پینگ؛ پنجرهٔ خودکار ~30ث سکوت = مرده.",set_t_deadmult:"ضریبِ پنجرهٔ مرگ (×keepalive)",set_t_deadmult_d:"چند برابرِ keepalive سکوت را تحمل کند تا تونل را مرده حساب کند. <b>یک عدد برای همهٔ حامل‌ها</b> — ws و tcp و udp و raw و flux همه از همین یکی استفاده می‌کنند، پس برای تشخیصِ سریع‌تر یا این را کم کن یا keepalive را. کمتر از 2 نمی‌شود: فاصلهٔ دو پینگ تا 1.3 برابرِ keepalive کش می‌آید و پنجره‌ای کوتاه‌تر از آن وسطِ دو پینگ می‌بُرد و اتصالِ سالم را می‌کشد.",set_x_deadmult:"keepalive=15 و ضریب=<b>3</b> ← 45ثانیه سکوت = مرده. keepalive را 10 کن ← 30ثانیه.",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
+ set_gkd:"2) اتصال و تشخیصِ مرگ",set_gkdc:"همهٔ تونل‌ها",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -11843,8 +11828,6 @@ function settingsCard(s){
   /* Dead detection, one subject: keepalive is the clock, the multiplier is how many missed pings the
      carrier tolerates, and the rest are the failure thresholds beside them. */
   gh('set_gkd','set_gkdc','sc-conn')+
-  qr(T('set_t_keepalive'),'set_t_keepalive_d','set_x_keepalive',tNum('set_t_keepalive',_tv(s,'keepalive'),5,120))+
-  qr(T('set_t_deadmult'),'set_t_deadmult_d','set_x_deadmult',tNum('set_t_deadmult',_tv(s,'dead_mult'),2,100))+
   qr(T('set_t_pingloss'),'set_t_pingloss_d','set_x_pingloss',tNum('set_t_pingloss',_tv(s,'ping_loss_threshold'),1,100))+
   qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
   qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
@@ -11862,7 +11845,7 @@ function settingsCard(s){
   '</div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={keepalive:parseInt(v('set_t_keepalive')),dead_retest_secs:_minSec(v('set_t_deadretest')),dead_mult:parseInt(v('set_t_deadmult')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={dead_retest_secs:_minSec(v('set_t_deadretest')),ping_loss_threshold:parseInt(v('set_t_pingloss')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every

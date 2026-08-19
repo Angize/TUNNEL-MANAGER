@@ -3,7 +3,7 @@
 
 The operator-tunable timing knobs are declared in three places that must agree:
   * core   TUNNEL-MANAGER-CORE/internal/packet/tuning.go  (the AUTHORITY: defaults in the var block,
-           clamps in ApplyTuning) + config.go (the keepalive top-level field)
+           clamps in ApplyTuning) + config.go (the sock_buf top-level field)
   * panel  TUNNEL-MANAGER/tnl-central.py    (_TUNING_DEFAULTS / _TUNING_RANGES; the browser _TUNDEF is
            now INJECTED from _TUNING_DEFAULTS at import, so it cannot drift -- verified here as "derived")
   * node   TUNNEL-MANAGER-NODE/tnl-node.py  (_TUNING_INT_KEYS -- the pass-through key roster)
@@ -19,13 +19,12 @@ import sys
 from pathlib import Path
 
 # panel-name -> how the same knob is spelled in the core's tuning.go var block and its TuningInput struct.
-# suspect_backoff is a list; the rest are scalar. keepalive is NOT a tuning-object knob; it is a
+# suspect_backoff is a list; the rest are scalar. sock_buf is NOT a tuning-object knob; it is a
 # top-level config.go field, checked separately below.
 TUNING_KNOBS = [
     # panel key,               go var name,           go ApplyTuning field,   is_list
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
-    ("dead_mult",              "deadMult",            "DeadMult",             False),
     ("ping_loss_threshold",    "pingLossThreshold",   "PingLossThreshold",    False),
     ("min_liveness_secs",      "minLiveness",         "MinLivenessSecs",      False),
     ("probe_timeout_secs",     "probeTimeout",        "ProbeTimeoutSecs",     False),
@@ -134,33 +133,7 @@ def main():
             else:
                 check(pr == c_clamp, f"range   {panel_key}: panel={pr} core={c_clamp}")
 
-    print("== 2) top-level config.go knobs (keepalive / sock_buf) ==")
-    # The core assigns its keepalive default through a NAMED constant, so resolve the name rather than
-    # expecting a literal. Matching only `c.Keepalive = <digits>` made this line crash with a traceback the
-    # moment the constant was introduced -- and a crash reads as "the guard is broken", not "the repos
-    # disagree", which is the failure mode every message in this script is written to avoid.
-    ka_m = re.search(r"c\.Keepalive\s*=\s*(\w+)", config_go)
-    ka_def = None
-    if ka_m:
-        tok = ka_m.group(1)
-        if tok.isdigit():
-            ka_def = int(tok)
-        else:
-            named = re.search(r"\b%s\s*=\s*(\d+)" % re.escape(tok), config_go)
-            ka_def = int(named.group(1)) if named else None
-    if ka_def is None:
-        check(False, "keepalive default: CANNOT RESOLVE c.Keepalive's default in config.go -- "
-                     f"THIS SCRIPT is out of date (matched {ka_m.group(1) if ka_m else 'nothing'!r})")
-    else:
-        check(p_def.get("keepalive") == ka_def and js_ok("keepalive", ka_def),
-              f"keepalive default: panel={p_def.get('keepalive')} core={ka_def}")
-    print("  note  keepalive range 5..120 is panel/node-only; the core does not clamp the upper bound")
-    # The absolute dead-window deadline is GONE from all three repos: dead_mult x keepalive is the only
-    # rule. Checked per REPO, not as one boolean -- the panel's CI checks out the core's and the node's
-    # main, so this legitimately fails there until they merge, and the message has to say which one.
-    for who, src in (("core config.go", config_go), ("panel", panel_src), ("node", node_src)):
-        check("DeadAfterSecs" not in src and "dead_after_secs" not in src,
-              f"{who}: no absolute dead-window deadline beside dead_mult")
+    print("== 2) top-level config.go knobs (sock_buf) ==")
     # sock_buf is the one knob stored in a DIFFERENT UNIT than the core reads: the panel keeps MiB
     # (sock_buf_mb) and _apply_core_tuning multiplies to bytes, so compare after converting. The core's
     # own default is written as a shift (4 << 20), and its clamp ceiling likewise.
