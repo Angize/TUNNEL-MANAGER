@@ -6753,11 +6753,6 @@ _EV_ROT_CODE = {
     # A ws client whose carriers keep dying too fast for the probe to judge them walks its edges once.
     # Also once per outage: the lap that follows is the same fact repeated.
     "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
-    # Every endpoint on every axis was tried, every free step was spent, and nothing crosses. The core
-    # clears the burns (a fully-burned pool ranks nothing and only lengthens the way back) and rests
-    # the ladder before walking again. Once per outage, re-armed by traffic crossing -- a line per lap
-    # would bury the burns that earned it.
-    "path-exhausted": ("warn", "همهٔ آدرس‌ها و همهٔ پله‌های مجانی آزموده شد — سوخته‌ها پاک شد و نردبان مکث می‌کند"),
 }
 
 
