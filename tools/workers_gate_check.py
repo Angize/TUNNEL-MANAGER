@@ -442,6 +442,10 @@ out.exclude.lit = ['a','b'].map(sd =>
 // The node each segment names, so the operator can tell which end they are raising. A segment pair with
 // no names is a coin toss on the one setting whose whole point is that the ends differ.
 out.exclude.labels = ['a','b'].map(sd => document.getElementById('ee_wklbl_'+sd).textContent);
+// The label must name the NODE, and the SERVER end must sit on top. Both are read off the link the
+// form was opened with: nodeName() resolves against a NODES list the tunnels page never loads, so it
+// fell through to the raw node id and the operator saw «روی fe70a7ad34».
+out.exclude.order = ['a','b'].map(sd => String(document.getElementById('ee_wkone_'+sd).style.order));
 
 out.box = {};
 (async () => {
@@ -547,6 +551,14 @@ def check_forms(P, core_max, carriers):
     check(len(lbl) == 2 and all(lbl) and lbl[0] != lbl[1],
           "each segment names the node it raises, and the two differ (%r) — without that the operator "
           "is guessing which end they are setting" % (lbl,))
+    check(all(any(nm in x for nm in ("IR01", "DE01")) for x in lbl)
+          and not any(nid in x for x in lbl for nid in ("n1", "n2")),
+          "each label names the NODE, never its id — nodeName() resolves against a list the tunnels "
+          "page never loads, so it fell through to the id and the operator read «روی fe70a7ad34» (%r)" % (lbl,))
+    order = ex.get("order") or []
+    check(order == ["0", "1"],
+          "the SERVER end is on top and the client under it (server_side='a', order=%r) — the two "
+          "segments are the one setting whose whole point is that the ends differ" % (order,))
 
     b = got.get("box") or {}
     lit = b.get("paint") or {}

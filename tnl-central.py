@@ -9123,7 +9123,7 @@ var I18N={fa:{
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
  ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",peer_live_note:"سلامتِ هر آی‌پی را تنها پروبِ tunِ نود تعیین می‌کند؛ معیار، عبورِ واقعیِ ترافیک از داخلِ تونل است. آی‌پیِ سوخته پس از پایانِ مهلت دوباره انتخاب و با همان پروب سنجیده می‌شود، و هر شکست مهلتِ بعدی را طولانی‌تر می‌کند. «الان تست کن» مهلت‌ها را صفر می‌کند؛ «این را فعال کن» به‌صورت دستی روی یک آی‌پی می‌پرد.",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخشِ بعدی امتحان می‌شوند و پروبِ tun قضاوتشان می‌کند",pool_edge_active:"این لبه فعال شد",
@@ -10640,7 +10640,7 @@ function peerRender(){var host=el('ee_peerlive');if(!host)return;
   // pool status appears only once the tunnel is running on the up-to-date node/core. peerTick only calls
   // this on a pool:true response, and _peerLid is set only for a rotating tunnel, so the hint is apt.
   if(!boxes){host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div><div class="muted" style="font-size:11px;line-height:1.7">'+esc(T('peer_live_empty'))+'</div></div>';return;}
-  host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div>'+boxes+'<div class="muted" style="font-size:10.5px;line-height:1.7;margin-top:2px">'+esc(T('peer_live_note'))+'</div></div>';}
+  host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div>'+boxes+'</div>';}
 function peerCdTick(){if(!_peerLid)return;_cdTick(el('ee_peerlive'),_peerData.now,_peerData.polledMs)}
 setInterval(peerCdTick,1000);
 async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.getAttribute('data-ip');
@@ -10732,13 +10732,13 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
 // raw with FEC off — the one pair the core spends queues on. The budget line under it is what keeps the
 // segment from being a self-harm knob: a queue eats a node cpu the node's OTHER tunnels also want.
 function workersSection(idp,fnp){
- var one=function(sd){return '<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
+ var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
    +'<div class="seg2" id="'+idp+'wkg_'+sd+'">'
    +_WKMAX.map(function(n){return '<button type="button" class="segopt'+(n==1?' on':'')+'" id="'+idp+'wk_'+sd+'_'+n+'" onclick="'+fnp+'SetWorkers(&quot;'+sd+'&quot;,'+n+')"><b>'+n+'</b><span>'+esc(T('workers_'+n))+'</span></button>'}).join('')
-   +'</div>'};
+   +'</div></div>'};
  return '<div id="'+idp+'wrkrow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('workers_lbl'))+'</label>'
- +one('a')+one('b')
+ +'<div id="'+idp+'wkpair" style="display:flex;flex-direction:column">'+one('a')+one('b')+'</div>'
  +'</div>'}
 
 // The chosen queue count painted onto the segment. Shared by both forms for the same reason
@@ -10748,9 +10748,10 @@ function workersPaint(idp,sd,n){n=wkClamp(n);
  _WKMAX.forEach(function(k){var b=el(idp+'wk_'+sd+'_'+k);if(b)b.classList.toggle('on',k==n)})}
 // Which node each segment belongs to. Filled through a FUNCTION replacement, not a string pattern: a
 // node called «DE$'02» would otherwise paste the rest of the template back into the operator's face.
-function workersLbls(idp,an,bn){
+function workersLbls(idp,an,bn,srv){
  [['a',an],['b',bn]].forEach(function(x){var e=el(idp+'wklbl_'+x[0]);if(!e)return;
-  e.textContent=T('workers_lbl_node').replace(/\\{n\\}/g,function(){return x[1]||''})})}
+  e.textContent=T('workers_lbl_node').replace(/\\{n\\}/g,function(){return x[1]||''})});
+ [['a',an],['b',bn]].forEach(function(x){var w=el(idp+'wkone_'+x[0]);if(w)w.style.order=(x[0]==srv)?0:1})}
 // Show the row only where the core actually spends the queues, and force the state back to the single
 // queue when it doesn't — otherwise a value picked on raw rides a later switch to CDN into the body,
 // where the panel would refuse the save with a message about a carrier the operator has left. The state
@@ -10759,7 +10760,7 @@ function workersVis(idp,S,an,bn){var on=wkCarrier(S);
  if(!on){S.WorkersA=1;S.WorkersB=1}
  var w=el(idp+'wrkrow');if(w)w.style.display=on?'':'none';
  workersPaint(idp,'a',S.WorkersA);workersPaint(idp,'b',S.WorkersB);
- workersLbls(idp,an,bn)}
+ workersLbls(idp,an,bn,S.Srv=='b'?'b':'a')}
 // The per-node queue budget, keyed by the REQUEST it answers: {key,nodes,failed}. The key is what makes
 // a repaint safe — a segment click while an answer is in flight would otherwise redraw the box from the
 // PREVIOUS node pair's numbers, naming nodes this tunnel does not even touch. It also means switching
@@ -11152,7 +11153,7 @@ function ceFecDatagram(){return fecDatagram(_eeS)}
 function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none';ceWorkersVis()}   /* FEC takes the extra queues away: its decoder needs consecutive frames, so the core drops back to one */
 function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
-_eeS.Decoy=false,_eeS.Src=false,_eeS.SpoofOk=false,_eeS.NodesArr=['',''];
+_eeS.Decoy=false,_eeS.Src=false,_eeS.SpoofOk=false,_eeS.NodesArr=['',''],_eeS.NamesArr=['',''];
 function ceSpoofVis(){var w=el('ee_spoofblk');if(!w)return;var show=(_eeS.Tr=='spoof');w.style.display=show?'':'none';if(show)ceSpoofProbe()}
 async function ceSpoofProbe(){var cap=el('ee_cap');if(!cap)return;cap.className='spoofcap wait';cap.innerHTML=esc(T('spoof_checking'));
  var res=await spoofProbePair(_eeS.NodesArr[0],_eeS.NodesArr[1]);_eeS.SpoofOk=res.ok;
@@ -11179,7 +11180,7 @@ function cePortVis(){var w=el('ee_portrow');if(!w)return;
  var on=(_eeS.Tr=='raw'&&(_eeS.RawProfile=='udp'||_eeS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('ee_rawport');if(i&&!i.value)i.value='443';cePortWarn();sportPaint('ee_',_eeS.SportRandom)}}
 function ceSetWorkers(sd,n){_eeS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('ee_',sd,n)}
-function ceWorkersVis(){workersVis('ee_',_eeS,nodeName(_eeS.NodesArr[0]),nodeName(_eeS.NodesArr[1]))}
+function ceWorkersVis(){workersVis('ee_',_eeS,_eeS.NamesArr[0]||nodeName(_eeS.NodesArr[0]),_eeS.NamesArr[1]||nodeName(_eeS.NodesArr[1]))}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
@@ -11188,7 +11189,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.CdnProf=(l.cdn_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.CdnProf=(l.cdn_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
  var aips=l.a_ips||[],bips=l.b_ips||[];
  // rotate_secs=0 is «فقط هنگامِ قطع», a real stored value the backend clamps to (0..86400) — not an
  // absent field. `||600` treated it as absent because 0 is falsy in JS, so opening the edit form on a
