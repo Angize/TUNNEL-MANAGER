@@ -248,53 +248,6 @@ def check_storage_invariant(P, core_max, carriers):
 
 
 @section
-def check_budget(P):
-    """The endpoint the form warns from: which links count against a node, and which do not."""
-    LINKS = [
-        # id      type      nodes       transport  fec    (a,b)    enabled
-        ("this",  "core",   ("n1", "n2"), "raw",   False, (4, 4),  True),
-        ("plain", "core",   ("n1", "n3"), "ws",    False, None,    True),   # 1 queue, like every core tunnel
-        # raw+FEC as the panel actually stores it: no workers key at all, so it holds one queue. The
-        # combination raw+FEC+workers is NOT in this table because no writer can produce it — see
-        # check_storage_invariant, which is what lets _link_workers just read the key.
-        ("fec",   "core",   ("n1", "n3"), "raw",   True,  None,    True),
-        ("big",   "core",   ("n1", "n3"), "raw",   False, (3, 1),  True),   # raised on n1's end only
-        ("far",   "core",   ("n3", "n1"), "raw",   False, (4, 2),  True),   # n1 is the B end here: 2, not 4
-        ("dflt",  "core",   ("n1", "n3"), "raw",   False, None,    True),   # raw at the default: still 1
-        ("off",   "core",   ("n1", "n3"), "raw",   False, (4, 4),  False),  # stopped: it holds nothing
-        ("kern",  "vxlan",  ("n1", "n3"), None,    False, None,    True),   # no core process at all
-        ("other", "core",   ("n3", "n4"), "raw",   False, (4, 4),  True),   # not this node
-    ]
-    rows = []
-    for lid, ttype, (a, b), tr, fec, wk, en in LINKS:
-        L = {"id": lid, "type": ttype, "a_node": a, "b_node": b, "enabled": en}
-        if tr:
-            L["transport"] = tr
-        if fec:
-            L["fec"] = True
-        if wk:
-            L["a_workers"], L["b_workers"] = wk
-        rows.append(L)
-    P.load_links = lambda: rows
-    P.get_node = lambda nid: {"id": nid, "name": nid.upper()} if nid in ("n1", "n2") else None
-    P._cached_ping = lambda nid: {"stats": {"cpus": 2}} if nid == "n1" else {}
-    got = P.api_workers_budget({"a": "n1", "b": "n2", "exclude": "this"})["nodes"]
-    # n1 keeps: plain(1) + fec(1) + big(3, its own end) + far(2, where n1 is the B end) + dflt(1) = 8.
-    # Dropped: this(excluded), off(disabled), kern(not core), other(different nodes). `far` is the one
-    # that matters: a node must be charged for ITS OWN end, and reading the other end's number would
-    # give 10 here — a fleet-wide over-count that reads as "no room" on nodes that have it.
-    check(got.get("a", {}).get("used") == 8,
-          "budget charges each node for ITS OWN end's queues "
-          "(n1 used=%r, want 8)" % got.get("a", {}).get("used"))
-    check(got.get("a", {}).get("cpus") == 2 and got.get("b", {}).get("cpus") == 0,
-          "an offline node reports 0 cpus rather than a number the form would judge against "
-          "(%r)" % {k: v.get("cpus") for k, v in got.items()})
-    check(got.get("b", {}).get("used") == 0,
-          "the excluded link is the only one on n2, so it counts nothing (n2 used=%r)"
-          % got.get("b", {}).get("used"))
-
-
-@section
 def check_chain(P, N, core_max):
     """create / edit / partial edit / rebuild, each carried all the way into the core's config file."""
     # The two ends are given DIFFERENT counts on purpose: a chain that carries one number correctly
@@ -477,14 +430,7 @@ for (const [form, S, setter, px] of [['create', _corS, corSetWorkers, 'e_'],
       ? [b.a_workers, b.b_workers] : 'ABSENT';
   }
 }
-// The budget must EXCLUDE the link being edited, or that tunnel's own queues are counted twice and the
-// form reports a node as full when it is not. Driven through the REAL open-edit path, because the id it
-// needs is set there: `editingId` looks like the obvious source and is NOT — openModal overwrites it
-// with its own sentinel before this ever runs.
 out.exclude = {};
-// Capture at the FETCH, not at j(): j is a script-scope binding, so assigning globalThis.j would leave
-// the real one in place and the guard would pass on a page that never asks for the budget at all.
-globalThis.fetch = (u) => { out.exclude.url = u; return new Promise(() => {}) };
 FLEET = [{id:'L-9', name:'core9', a_node:'n1', b_node:'n2', a_name:'IR01', b_name:'DE01',
           a_ip:'10.0.0.1', b_ip:'10.0.0.2', a_ips:['10.0.0.1'], b_ips:['10.0.0.2'],
           server_side:'a', type:'core', transport:'raw', raw_profile:'tcp', cipher:'auto',
@@ -497,60 +443,8 @@ out.exclude.lit = ['a','b'].map(sd =>
 // no names is a coin toss on the one setting whose whole point is that the ends differ.
 out.exclude.labels = ['a','b'].map(sd => document.getElementById('ee_wklbl_'+sd).textContent);
 
-// The budget box is the whole reason this knob is safe to expose, so its NON-answer states matter as
-// much as its answer. Driven, because every one of these was a real defect found by running the page.
 out.box = {};
-const cls = () => document.getElementById('e_wbud').className;
-const shown = () => document.getElementById('e_wbud').style.display !== 'none';
-_corS.Tr = 'raw'; _corS.Fec = false; _corS.WorkersA = MAX; _corS.WorkersB = MAX;
 (async () => {
-  let urls = [];
-  const answer = n => { globalThis.fetch = u => { urls.push(u);
-    return Promise.resolve({json: () => Promise.resolve({nodes: n})}) } };
-
-  // (1) an answer in flight must not be repainted from the PREVIOUS pair's numbers.
-  globalThis.fetch = () => new Promise(() => {});
-  _wbud['e_'] = {key:'OLD|PAIR|', nodes:{a:{name:'GONE',cpus:2,used:9},b:{name:'GONE2',cpus:2,used:9}}, failed:false};
-  workersBud('e_', _corS, 'n1', 'n2', '');
-  const inflight = cls();
-  corSetWorkers('a', 2);                             // a click while it is still in flight
-  out.box.inFlight = {before: inflight, afterClick: cls(), nodes: JSON.stringify(_wbud['e_'].nodes)};
-
-  // (2) a FAILED count must be visible. Hiding it reads as "no constraint", which is backwards.
-  globalThis.fetch = () => Promise.reject(new Error('down'));
-  _wbud['e_'] = null;
-  await workersBud('e_', _corS, 'n1', 'n2', '');
-  out.box.failed = {shown: shown(), cls: cls()};
-
-  // (3) ...and it must not be sticky: asking again retries and recovers.
-  answer({a:{name:'N1',cpus:8,used:0}, b:{name:'N2',cpus:8,used:0}});
-  urls = [];
-  await workersBud('e_', _corS, 'n1', 'n2', '');
-  out.box.retried = {fetches: urls.length, cls: cls()};
-
-  // (4) the same pair must not be re-asked; a different pair or exclude must be.
-  await workersBud('e_', _corS, 'n1', 'n2', '');    const same = urls.length;
-  await workersBud('e_', _corS, 'n1', 'n3', '');    const pair = urls.length;
-  await workersBud('e_', _corS, 'n1', 'n3', 'L9');  const excl = urls.length;
-  out.box.fetches = {first: 1, samePair: same, newPair: pair, newExclude: excl};
-
-  // (4b) a node NAME reaches the row template, so it must be substituted with a function: with a
-  //      string pattern `$&` and `$'` are replacement DIRECTIVES, and «DE$'02» pastes the rest of the
-  //      template back in, leaving {u}/{c}/{v} unfilled in front of the operator.
-  let html = '';
-  const wb = document.getElementById('e_wbud');
-  Object.defineProperty(wb, 'innerHTML', {set(v){html=v}, get(){return html}, configurable:true});
-  answer({a:{name:"IR$&01",cpus:8,used:0}, b:{name:"DE$'02",cpus:2,used:5}});
-  _wbud['e_'] = null; await workersBud('e_', _corS, 'n1', 'n2', '');
-  out.box.dollarName = {leaked: /\{[a-z]\}/.test(html),
-                        hasA: html.indexOf('IR$&amp;01') >= 0, hasB: html.indexOf('DE$') >= 0};
-
-  // (4c) an answer that names NEITHER node is a failed count, not an all-clear. Hiding the box there
-  //      says «no constraint» just as loudly as a dead request does.
-  globalThis.fetch = () => Promise.resolve({json: () => Promise.resolve({nodes: {}})});
-  _wbud['e_'] = null; await workersBud('e_', _corS, 'n7', 'n8', '');
-  out.box.emptyAnswer = {shown: wb.style.display !== 'none', cls: wb.className};
-
   // (5) the segment can never be left with nothing lit, whatever it is handed.
   out.box.paint = {};
   for (const n of [0, 1, MAX, MAX + 5, undefined, 'x'])
@@ -653,33 +547,8 @@ def check_forms(P, core_max, carriers):
     check(len(lbl) == 2 and all(lbl) and lbl[0] != lbl[1],
           "each segment names the node it raises, and the two differ (%r) — without that the operator "
           "is guessing which end they are setting" % (lbl,))
-    check("exclude=L-9" in (ex.get("url") or ""),
-          "open-edit's budget EXCLUDES the edited link, or its own queues are counted twice (url=%r)"
-          % (ex.get("url") or "<never fetched>",))
 
     b = got.get("box") or {}
-    fl = b.get("inFlight") or {}
-    check(fl.get("afterClick") == "spoofcap wait" and fl.get("nodes") == "null",
-          "a click while the count is in flight does not repaint the PREVIOUS pair's numbers "
-          "(class %r, cached nodes %s)" % (fl.get("afterClick"), fl.get("nodes")))
-    fa = b.get("failed") or {}
-    check(fa.get("shown") is True and fa.get("cls") == "spoofcap no",
-          "a FAILED count is shown, not hidden — hiding it reads as «no constraint» (shown=%r, %r)"
-          % (fa.get("shown"), fa.get("cls")))
-    rt = b.get("retried") or {}
-    check(rt.get("fetches") == 1 and rt.get("cls") == "spoofcap ok",
-          "a failure is not sticky: the next ask retries and recovers (%r fetch, class %r)"
-          % (rt.get("fetches"), rt.get("cls")))
-    f = b.get("fetches") or {}
-    check(f.get("samePair") == 1 and f.get("newPair") == 2 and f.get("newExclude") == 3,
-          "the same node pair is not re-asked; a new pair or exclude is (%r)" % (f,))
-    dn = b.get("dollarName") or {}
-    check(dn.get("leaked") is False and dn.get("hasA") and dn.get("hasB"),
-          "a node name containing $& or $' fills the row literally and leaves no placeholder behind "
-          "(%r)" % (dn,))
-    ea = b.get("emptyAnswer") or {}
-    check(ea.get("shown") is True and ea.get("cls") == "spoofcap no",
-          "an answer naming NEITHER node reads as a failed count, not as an all-clear (%r)" % (ea,))
     lit = b.get("paint") or {}
     bad = {k: v for k, v in lit.items() if len(v) != 1}
     check(not bad, "the segment always has exactly one button lit, whatever it is handed (%r)" % bad)
@@ -715,9 +584,7 @@ def main():
     check_chain(P, N, core_max)
     print("\n== 5) what may be STORED, over every carrier and every edit transition ==")
     check_storage_invariant(P, core_max, carriers)
-    print("\n== 6) the per-node queue budget the form warns from ==")
-    check_budget(P)
-    print("\n== 7) both forms, driven through their own gates ==")
+    print("\n== 6) both forms, driven through their own gates ==")
     check_forms(P, core_max, carriers)
 
     print("")

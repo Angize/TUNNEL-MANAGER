@@ -3242,34 +3242,6 @@ def api_node_stats(d):
             "tunnels": p.get("tunnels"), "portfw": p.get("portfw"), "hostname": p.get("hostname")}
 
 
-def api_workers_budget(d):
-    """The TUN-queue budget the core-tunnel forms weigh their «صف‌های موازی» segment against: for each
-    of the two nodes, how many queues its OTHER core tunnels already claim and how many cpus it has.
-
-    Counted HERE rather than in the browser because the tunnel list the page holds is one filtered,
-    paginated screenful — summing that would quietly undercount on any fleet past a page and read as
-    room the node does not have. `exclude` drops the link being edited so the form adds its own value
-    exactly once. cpus comes from the poll cache, so an offline node reports 0 and the form says so.
-
-    A tunnel the operator turned OFF has no core process, so it holds no queue and is not counted —
-    counting it would report a node as full while its cpus sit idle."""
-    ex = str(d.get("exclude") or "")
-    links = [L for L in load_links()
-             if L.get("type") == "core" and L.get("id") != ex and L.get("enabled", True)]
-    out = {}
-    for key in ("a", "b"):
-        nid = str(d.get(key) or "")
-        n = get_node(nid)
-        if not n:
-            continue
-        out[key] = {"name": n["name"],
-                    "cpus": int((_cached_ping(nid).get("stats") or {}).get("cpus") or 0),
-                    "used": sum(_link_workers(L, "a_workers" if L.get("a_node") == nid else "b_workers")
-                                for L in links
-                                if nid in (L.get("a_node"), L.get("b_node")))}
-    return {"nodes": out}
-
-
 def api_node_traffic(d):
     """Live traffic for the node-details popup: node throughput/totals + per-tunnel rows (from _tf)."""
     _require(d, ["id"])
@@ -7830,7 +7802,7 @@ API = {
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
     "node-adopt-ip": api_node_adopt_ip, "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
-    "traffic": api_node_traffic, "fleet": api_fleet, "workers-budget": api_workers_budget,
+    "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,
     "proxy-del": api_proxy_del, "proxy-test": api_proxy_test,
@@ -9222,9 +9194,9 @@ var I18N={fa:{
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
- raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",raw_note:"هر دو طرف باید یک پروفایل داشته باشند. <b>bare</b> بهینه است؛ نقطهٔ طلایی یعنی ممکن است از NAT رد نشود. حاملِ raw به <b>root</b> و رمزنگاری نیاز دارد.",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"هر دقیقه و روی سکوت",raw_sport_hint:"عددی که کلاینت به‌عنوان مبدأ می‌نویسد؛ پورتِ مقصد از آن اثر نمی‌گیرد. «ثابت» همیشه 51820 است: اگر آن چهارتایی سوزانده شود، حامل تا ابد مرده می‌ماند. «رندومِ واکنشی» هر دقیقه عوضش می‌کند — و اگر جوابی برنگردد، منتظرِ نوبتِ بعد نمی‌ماند. سرور مقدارِ نو را از خودِ فریم می‌خواند، بدونِ دست‌دادنِ دوباره.", raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_port_hint:"عددی که کلاینت در هدرِ جعلی به‌عنوان مقصد می‌نویسد. ثابت است و هر دو طرف باید یکی باشند؛ استتار هم از همین می‌آید — 443 یعنی «QUIC»، 51820 یعنی «WireGuard». هیچ پورتی باز نمی‌شود: سوکتِ حامل روی شمارهٔ پروتکل است نه پورت. برخی مسیرها کلِ UDP/443 را می‌اندازند. خالی = 443.",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
- workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",workers_hint:"بسته‌های تونل به‌جای اینکه پشتِ قفلِ یک صف نوبت بگیرند، روی چند صفِ جدا خوانده و نوشته می‌شوند. صفِ هر بسته از روی آدرس و پورتِ خودش انتخاب می‌شود، پس یک اتصال هیچ‌وقت بینِ دو صف پخش نمی‌شود و ترتیبش به‌هم نمی‌ریزد. 1 یعنی همان مسیرِ همیشگی. ⚠ این اهرمِ سمتِ فرستنده است و برای هر سر جدا انتخاب می‌شود: روی نودی که کارتِ شبکه‌اش چند صفِ ارسال دارد سود می‌دهد و روی نودی که یک صف دارد کندتر هم می‌شود. هر صفِ اضافه تا یک هستهٔ همان نود را می‌گیرد، پس روی نودِ شلوغ فقط از تونل‌های دیگرش می‌دزدد. فقط برای حاملِ raw و udp و وقتی FEC خاموش است — جای دیگر هسته همان یک صف را برمی‌دارد.",workers_bud_wait:"در حالِ شمردنِ صف‌های نود…",workers_bud_err:"شمردنِ صف‌های نود نشد — معلوم نیست روی این نودها جا هست یا نه. صفحه را تازه کن یا بعداً دوباره امتحان کن.",workers_bud_row:"{n}: {u} صف روی {c} هسته — {v}",workers_bud_fits:"جا دارد",workers_bud_full:"جا ندارد",workers_bud_nocpu:"{n}: تعدادِ هسته‌اش معلوم نیست (نود آفلاین است)",workers_bud_over:"روی نودی که جا ندارد بیشتر از 1 نگذار — صفِ اضافه فقط از تونل‌های دیگرِ همان نود می‌دزدد.",
+ raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+ workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -10751,12 +10723,11 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
    +'<button type="button" class="segopt" id="'+idp+'rp_51820" onclick="'+fnp+'SetPort(51820)"><b>51820</b><span>WireGuard</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'rp_4500" onclick="'+fnp+'SetPort(4500)"><b>4500</b><span>IPsec</span></button></div>'
  +'<input id="'+idp+'rawport" class="mono" inputmode="numeric" maxlength="5" placeholder="443" oninput="'+fnp+'PortWarn()" style="text-align:center;direction:ltr">'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_port_hint')+'</div>'
  +'<label style="margin-top:13px">'+esc(T('raw_sport_lbl'))+'</label>'
  +'<div class="seg2" id="'+idp+'spg">'
    +'<button type="button" class="segopt on" id="'+idp+'sp_fix" onclick="'+fnp+'SetSport(0)"><b>'+esc(T('raw_sport_fixed_n'))+'</b><span>'+esc(T('raw_sport_fixed_m'))+'</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'sp_rnd" onclick="'+fnp+'SetSport(1)"><b>'+esc(T('raw_sport_rand_n'))+'</b><span>'+esc(T('raw_sport_rand_m'))+'</span></button></div>'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_sport_hint')+'</div></div>'}
+ +'</div>'}
 // workersSection: how many TUN queues this tunnel's receive path gets. Revealed by {cor,ce}WorkersVis on
 // raw with FEC off — the one pair the core spends queues on. The budget line under it is what keeps the
 // segment from being a self-harm knob: a queue eats a node cpu the node's OTHER tunnels also want.
@@ -10768,8 +10739,7 @@ function workersSection(idp,fnp){
  return '<div id="'+idp+'wrkrow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('workers_lbl'))+'</label>'
  +one('a')+one('b')
- +'<div class="spoofcap" id="'+idp+'wbud" style="display:none;margin-top:2px"></div>'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('workers_hint')+'</div></div>'}
+ +'</div>'}
 
 // The chosen queue count painted onto the segment. Shared by both forms for the same reason
 // workersSection itself is: a per-form copy is how the edit form ends up wired to nothing. Clamped
@@ -10794,47 +10764,6 @@ function workersVis(idp,S,an,bn){var on=wkCarrier(S);
 // a repaint safe — a segment click while an answer is in flight would otherwise redraw the box from the
 // PREVIOUS node pair's numbers, naming nodes this tunnel does not even touch. It also means switching
 // transports back and forth on one pair costs no round-trip.
-var _wbud={};
-function _wbudKey(a,b,ex){return (a||'')+'|'+(b||'')+'|'+(ex||'')}
-async function workersBud(idp,S,a,b,ex){
- if(!a||!b||a==b){_wbud[idp]=null;workersBudPaint(idp,S);return}
- var key=_wbudKey(a,b,ex),st=_wbud[idp];
- if(st&&st.key==key&&st.nodes){workersBudPaint(idp,S);return}   // same pair, already answered
- _wbud[idp]={key:key,nodes:null,failed:false};                  // in flight: no numbers to show yet
- workersBudPaint(idp,S);
- var r=null,bad=false;
- try{r=await j('workers-budget?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b)+'&exclude='+encodeURIComponent(ex||''))}catch(e){bad=true}
- st=_wbud[idp];
- if(!st||st.key!=key)return;                                    // a newer pair owns the box now
- st.nodes=(r&&r.nodes)||null;st.failed=bad||!st.nodes;
- workersBudPaint(idp,S)}
-function workersBudPaint(idp,S){var box=el(idp+'wbud');if(!box)return;var st=_wbud[idp];
- if(!st){box.style.display='none';return}
- box.style.display='';
- if(!st.nodes){
-  // No numbers: either still counting, or the request died. A FAILED count must say so — hiding the box
-  // reads as «no constraint», which is the one thing this line exists to prevent.
-  box.className='spoofcap '+(st.failed?'no':'wait');
-  box.innerHTML=(st.failed?ic('warn'):'')+'<span>'+esc(T(st.failed?'workers_bud_err':'workers_bud_wait'))+'</span>';
-  return}
- // The verdict rides on the ROW, not on one trailing sentence: the box names two nodes, and only one of
- // them is usually the crowded one -- «جا نیست» underneath both says nothing about which.
- // Filled in ONE pass through a function, because a node NAME reaches this: with a string pattern,
- // `$&` / `$'` inside it are replacement directives, and a node called «DE$'02» pastes the rest of the
- // template back in and leaves {u}/{c}/{v} sitting unfilled in the operator's face.
- var wk={a:wkClamp(S.WorkersA),b:wkClamp(S.WorkersB)},rows='',over=false,unknown=false;
- var fill=function(t,m){return t.replace(/\\{(\\w+)\\}/g,function(_,k){return (k in m)?String(m[k]):'{'+k+'}'})};
- ['a','b'].forEach(function(k){var n=st.nodes[k];if(!n)return;
-  var c=num(n.cpus),u=num(n.used)+wk[k],bad=(c>0&&u>c);
-  if(!c)unknown=true; if(bad)over=true;
-  rows+='<div>'+esc(c>0?fill(T('workers_bud_row'),{n:n.name,u:u,c:c,v:bad?T('workers_bud_full'):T('workers_bud_fits')})
-                      :fill(T('workers_bud_nocpu'),{n:n.name}))+'</div>'});
- // No rows means the answer named neither node -- both ids are gone. That is a failed count, not an
- // all-clear, and hiding the box here would say «no constraint» exactly like a dead request does.
- if(!rows){st.failed=true;st.nodes=null;workersBudPaint(idp,S);return}
- box.className='spoofcap '+(over?'no':(unknown?'wait':'ok'));
- box.innerHTML=(over?ic('warn'):(unknown?'':ic('okc')))+'<span>'+rows+(over?'<div>'+esc(T('workers_bud_over'))+'</div>':'')+'</span>'}
-
 // The chosen source-port mode painted onto the segment. Shared by both forms for the same reason
 // portSection itself is: a per-form copy is how the edit form ends up wired to nothing.
 function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
@@ -11017,9 +10946,8 @@ function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value
 function corPortVis(){var w=el('e_portrow');if(!w)return;
  var on=(_corS.Tr=='raw'&&(_corS.RawProfile=='udp'||_corS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('e_rawport');if(i&&!i.value)i.value='443';corPortWarn();sportPaint('e_',_corS.SportRandom)}}
-function corSetWorkers(sd,n){_corS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('e_',sd,n);workersBudPaint('e_',_corS)}
-function corWorkersVis(){workersVis('e_',_corS,nodeName(ssVal('e_a')),nodeName(ssVal('e_b')));
- if(wkCarrier(_corS))workersBud('e_',_corS,ssVal('e_a'),ssVal('e_b'),'')}
+function corSetWorkers(sd,n){_corS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('e_',sd,n)}
+function corWorkersVis(){workersVis('e_',_corS,nodeName(ssVal('e_a')),nodeName(ssVal('e_b')))}
 function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='253';corProtoWarn()}}
 function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.toggle('on',_corS.Gso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
@@ -11045,7 +10973,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('e_cipher',CORE_CIPHERS(),'auto',T('cipher_ph'),'onCorCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt" id="e_tr_spoof" onclick="corSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt" id="e_tr_dns" onclick="corSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
+  '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
   workersSection('e_','cor')+
   fluxSection('e_','cor','udp',600,'random',null)+
   wsSection('e_','cor','','',false,'',false,'ws','','cf')+
@@ -11250,11 +11178,8 @@ function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value
 function cePortVis(){var w=el('ee_portrow');if(!w)return;
  var on=(_eeS.Tr=='raw'&&(_eeS.RawProfile=='udp'||_eeS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('ee_rawport');if(i&&!i.value)i.value='443';cePortWarn();sportPaint('ee_',_eeS.SportRandom)}}
-function ceSetWorkers(sd,n){_eeS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('ee_',sd,n);workersBudPaint('ee_',_eeS)}
-/* _eeS.Lid, not editingId: openModal overwrites editingId with its own 'modal' sentinel, so by the time
-   this runs the edited link's id is gone — and the budget would count this tunnel's own queues twice. */
-function ceWorkersVis(){workersVis('ee_',_eeS,nodeName(_eeS.NodesArr[0]),nodeName(_eeS.NodesArr[1]));
- if(wkCarrier(_eeS))workersBud('ee_',_eeS,_eeS.NodesArr[0],_eeS.NodesArr[1],_eeS.Lid||'')}
+function ceSetWorkers(sd,n){_eeS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('ee_',sd,n)}
+function ceWorkersVis(){workersVis('ee_',_eeS,nodeName(_eeS.NodesArr[0]),nodeName(_eeS.NodesArr[1]))}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
@@ -11278,7 +11203,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='spoof'?' on':'')+'" id="ee_tr_spoof" onclick="ceSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
-  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('raw_note')+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
+  '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
   workersSection('ee_','ce')+
   fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,_eeS.CdnProf)+
