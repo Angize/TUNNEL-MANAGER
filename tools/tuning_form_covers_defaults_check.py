@@ -40,7 +40,6 @@ PANEL = Path(__file__).resolve().parent.parent / "tnl-central.py"
 STORED = {
     "suspect_backoff": [300, 900, 2700],
     "dead_retest_secs": 7200,
-    "ping_loss_threshold": 4,
     "min_liveness_secs": 30,
     "probe_timeout_secs": 9,
     "probe_min_pct": 25,

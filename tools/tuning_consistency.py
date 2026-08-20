@@ -25,7 +25,6 @@ TUNING_KNOBS = [
     # panel key,               go var name,           go ApplyTuning field,   is_list
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
-    ("ping_loss_threshold",    "pingLossThreshold",   "PingLossThreshold",    False),
     ("min_liveness_secs",      "minLiveness",         "MinLivenessSecs",      False),
     ("probe_timeout_secs",     "probeTimeout",        "ProbeTimeoutSecs",     False),
 ]
