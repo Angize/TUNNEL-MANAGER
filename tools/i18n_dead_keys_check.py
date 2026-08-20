@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every declared I18N key is reachable from the UI.
+"""Every declared I18N key is reachable from the UI, and every key the UI asks for is declared.
 
 A key nobody renders is dead weight, and they accumulate silently: nine of them survived several
 rounds of feature removal because nothing ever looked. Deleting them by hand has a trap in the other
@@ -54,6 +54,13 @@ def fa_keys(html):
     return len(chunks), sorted(keys)
 
 
+def quoted_keys(html):
+    """Every T('name') call with a literal name. A missing one renders as an empty label, which no
+    other guard sees: the row is there, the input works, and the text above it is simply gone."""
+    return sorted(set(re.findall(r"T\(\s*'([A-Za-z0-9_]+)'\s*\)", html)
+                      + re.findall(r'T\(\s*"([A-Za-z0-9_]+)"\s*\)', html)))
+
+
 def builder_prefixes(html):
     """The prefixes of every T('xxx_'+...) call: keys they could compose are reachable."""
     return sorted(set(re.findall(r'T\(\s*[\'"]([A-Za-z0-9_]+_)[\'"]\s*\+', html)))
@@ -73,6 +80,18 @@ def main():
     print('== I18N reachability ==')
     print('  ok  %d fa chunk(s), %d keys declared' % (nchunks, len(keys)))
     print('  ok  runtime key builders: %s' % (', '.join("T('%s'+…)" % p for p in prefixes) or 'none'))
+
+    # Not `keys`: that list comes from walking the fa chunks, which is complete enough to find a
+    # dead key and not complete enough to prove one absent. A declaration reads name:"...".
+    missing = [k for k in quoted_keys(html) if (k + ':"') not in html]
+    if missing:
+        print()
+        for k in missing:
+            print(" FAIL T('%s') is rendered but never declared -- that label comes out blank" % k)
+        print()
+        print("%d undeclared key(s)." % len(missing))
+        return 1
+    print("  ok  every quoted key the UI asks for is declared")
 
     dead, composed = [], []
     for k in keys:

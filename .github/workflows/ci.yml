@@ -33,10 +33,10 @@ name: ci
 #                         spent its whole life failing on a divergence nobody saw.
 #   ws_pool_edit_test     an edit that omits a pool field falls back to the stored pool instead of
 #                         emptying it. Added in the same batch, and likewise never run.
-#   cdn_profile_labels    each CDN-profile tile advertises the numbers that profile really sends. The
-#                         tile is the only place the operator learns what the choice does, and it is
-#                         hand-written Persian ~5,700 lines away from the dict that decides the bytes.
-#                         They drifted inside one batch (#293 wrote the text, #295 changed the numbers).
+#   fec_rate_labels       each FEC rate tile advertises the overhead it really produces, and the
+#                         note beside it says that figure is the saturated-block one.
+#   http_shape_consistency  the upload/download shape has one range in the browser form, the panel
+#                         API, the node whitelist and the core's own ceiling.
 #   sni_mode_fields       split_ttl stays a disorder-only knob, on all three build paths AND in the
 #                         browser. disorder and fake want opposite values out of that one input, so
 #                         offering it for both shipped a decoy that died before the DPI.
@@ -139,9 +139,12 @@ jobs:
       - name: an edit that omits a pool field keeps the stored pool
         working-directory: TUNNEL-MANAGER
         run: python tools/ws_pool_edit_test.py
-      - name: CDN profile tiles advertise what they send
+      - name: each FEC rate tile advertises the overhead it produces
         working-directory: TUNNEL-MANAGER
-        run: python tools/cdn_profile_labels_check.py
+        run: python tools/fec_rate_labels_check.py
+      - name: the http carrier shape has one range in the form, the API and the node
+        working-directory: TUNNEL-MANAGER
+        run: python tools/http_shape_consistency.py
       - name: split_ttl stays a disorder-only knob
         working-directory: TUNNEL-MANAGER
         run: python tools/sni_mode_fields_check.py

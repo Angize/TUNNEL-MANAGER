@@ -81,37 +81,46 @@ CASES = [
     ("dns", {"transport": "dns", "cipher": "auto", "dns_zone": "t.example.com",
              "dns_resolvers": ["10.0.0.1"]},
      {"transport": "dns", "dns_zone": "t.example.com"}),
-    ("ws/http+arvan", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
-                       "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "arvan"},
-     {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 512}),
-    # The DEFAULT profile is its own case — it carries its OWN measured numbers now, rather than
-    # leaning on the core's defaults, so "cf reached the node" has to be asserted just like arvan's.
-    ("ws/http+cf", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
-                    "ws_path": "/", "ws_tls": True, "cdn_carrier": "http", "cdn_profile": "cf"},
-     {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 256}),
+    ("ws/http+shape", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
+                       "ws_path": "/", "ws_tls": True, "cdn_carrier": "http",
+                       "http_up_workers": 12, "http_up_batch_kb": 256, "http_streams": 4},
+     {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 12, "http_up_batch_kb": 256,
+      "http_streams": 4}),
+    # An operator who set nothing is its own case: the shape is written explicitly rather than left to
+    # the core, so "the default reached the node" has to be asserted just like a chosen one.
+    ("ws/http+default", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
+                         "ws_path": "/", "ws_tls": True, "cdn_carrier": "http"},
+     {"transport": "ws", "cdn_carrier": "http", "http_up_workers": 8, "http_up_batch_kb": 512,
+      "http_streams": 1}),
     # grpc has no POST ladder, so no profile applies and none of its knobs may appear. That sentence
     # stood here while NOTHING checked it: `must` only asserts the keys it lists, NEVER did not carry
     # the POST-ladder knobs, and check (3) compares the three paths against each other — so a leak
     # present on all three was invisible. HTTP_ONLY below is the check the comment was describing.
+    # grpc has no POST ladder — the core refuses those three on it — but it does stripe its call, so
+    # the stream count reaches it and the ladder must not.
     ("ws/grpc", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
                  "ws_path": "/", "ws_tls": True, "cdn_carrier": "grpc"},
-     {"transport": "ws", "cdn_carrier": "grpc"}),
+     {"transport": "ws", "cdn_carrier": "grpc", "http_streams": 1}),
+    ("ws/grpc+streams", {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com",
+                         "ws_path": "/", "ws_tls": True, "cdn_carrier": "grpc", "http_streams": 4},
+     {"transport": "ws", "cdn_carrier": "grpc", "http_streams": 4}),
     # An edge POOL is its own branch — _ws_fields returns to _ws_pool_fields before it ever reaches
     # the single-edge carrier block — so every ws case above says nothing about it. That gap is why a
     # pooled tunnel ignored the profile on all three paths for a whole release. ECH is off so this
     # never touches the network.
-    ("ws-pool/http+arvan", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
+    ("ws-pool/http+shape", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
                             "ws_edge_ips": ["203.0.113.10", "203.0.113.11"],
                             "ws_edge_snis": ["a.example.com", "b.example.com"],
-                            "ech": False, "cdn_carrier": "http", "cdn_profile": "arvan"},
+                            "ech": False, "cdn_carrier": "http",
+                            "http_up_workers": 12, "http_up_batch_kb": 256, "http_streams": 4},
      {"transport": "ws", "ws_pool": True, "cdn_carrier": "http",
-      "http_up_workers": 8, "http_up_batch_kb": 512}),
-    ("ws-pool/http+cf", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
-                         "ws_edge_ips": ["203.0.113.10", "203.0.113.11"],
-                         "ws_edge_snis": ["a.example.com", "b.example.com"],
-                         "ech": False, "cdn_carrier": "http", "cdn_profile": "cf"},
+      "http_up_workers": 12, "http_up_batch_kb": 256, "http_streams": 4}),
+    ("ws-pool/http+default", {"transport": "ws", "cipher": "auto", "ws_pool": True, "ws_path": "/",
+                              "ws_edge_ips": ["203.0.113.10", "203.0.113.11"],
+                              "ws_edge_snis": ["a.example.com", "b.example.com"],
+                              "ech": False, "cdn_carrier": "http"},
      {"transport": "ws", "ws_pool": True, "cdn_carrier": "http",
-      "http_up_workers": 8, "http_up_batch_kb": 256}),
+      "http_up_workers": 8, "http_up_batch_kb": 512, "http_streams": 1}),
     # The PLAIN-WebSocket pool. Every pool case above sets an http carrier, so none of them covers the
     # default shape — and that is where the second real divergence was hiding: _ws_pool_fields stores
     # cdn_carrier ALWAYS (unlike _ws_fields, which stores it only when it is not "ws"), so create/edit
@@ -135,12 +144,12 @@ IGNORE = {"psk", "ws_ech", "ech"}
 # Keys that must NEVER reach a node, on any path. A node silently drops what it does not whitelist, so
 # a panel-only key that leaks into a body is invisible at runtime — no error, no log, just a setting
 # that does nothing.
-NEVER = ("cdn_profile", "ws_edge_ips_burned", "ws_edge_snis_burned",
+NEVER = ("ws_edge_ips_burned", "ws_edge_snis_burned",
          "ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 # ...unless a case's own contract asks for it (none do today; the check reads `must` so a future
 # carrier that legitimately needs one of these can say so instead of quietly disabling the guard).
 
-# The POST-ladder knobs are a HARDER rule than NEVER: the core does not ignore them elsewhere, it
+# The carrier-shape knobs are a HARDER rule than NEVER: the core does not ignore them elsewhere, it
 # REFUSES the whole config unless the role is client and the carrier is http — so a leak here is a
 # tunnel that will not start on either end, with the panel reporting the save as successful. The rule
 # is read from each case's own contract, so a new http-shaped carrier gets it for free.
