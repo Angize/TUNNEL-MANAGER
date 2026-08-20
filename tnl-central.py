@@ -1860,9 +1860,8 @@ def norm_subnet(ttype, tid, provided, base=None):
 
 # Keys the panel keeps for itself: the node either has no use for them or does not whitelist them at
 # all, and an unwhitelisted key is dropped there in silence. Pool blacklists are the operator's own
-# memory of which edges are burned and the node/core never consume them. `cdn_profile` is stored as a
-# NAME and expanded by _node_extra into the numbers the node does whitelist, so the name never travels.
-_PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned", "cdn_profile")
+# memory of which edges are burned and the node/core never consume them.
+_PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned")
 
 # IP-rotation config lives in the LINK record and is consumed by _core_rotation_bodies to derive each
 # node's PER-ROLE fields (peer_ips/src_ips on the client, pool_listen on the server). The raw keys must
@@ -1887,7 +1886,8 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "raw_proto", "raw_port", "raw_sport_random", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
                     "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
-                    "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier", "cdn_profile",
+                    "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
+                    "http_up_workers", "http_up_batch_kb", "http_streams",
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned",
                     "ws_rotate_secs", "gso", "spoof_src", "spoof_dst",
@@ -1895,23 +1895,16 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
 
 
 def _node_extra(extra):
-    """Turn a panel-side extras dict into the body a NODE receives: expand what is stored as a NAME
-    into the numbers the core reads, then drop the keys that are the panel's own bookkeeping.
+    """Turn a panel-side extras dict into the body a NODE receives: drop the keys that are the panel's
+    own bookkeeping and pass the rest through.
 
     EVERY path to a node goes through here — create, edit, and rebuild (via _tunnel_extra's return).
-    That is the whole point. The CDN profile used to be expanded inside _tunnel_extra alone, which
-    only the rebuild path runs, so create and edit shipped the profile NAME instead: tnl-node.py does
-    not whitelist `cdn_profile`, so it was dropped in silence and the tunnel came up on the core's
-    defaults. An operator who picked ابرآروان got 8x128 KB rather than 8x512 KB — measured on that
-    edge as ~17 Mbit where 50 was available — and only a manual rebuild ever fixed it. Three commits
-    in a row claimed the chain was verified end to end after checking the one path that worked.
+    That is the whole point: a key handled on one path and not the others reaches the node on that
+    path alone, and a node drops what it does not whitelist in silence, so the difference has no
+    symptom until someone measures the tunnel.
 
     Keep this the only funnel. `tools/config_contract.py` fails the build if the three paths drift."""
     e = dict(extra)
-    if e.get("cdn_carrier") == "http":
-        # Stored as a name so the numbers live in exactly one place and a stored tunnel picks up a
-        # retuned profile on its next push. grpc has no POST ladder, so the shape is meaningless there.
-        e.update(CDN_PROFILES.get(str(e.get("cdn_profile") or "cf"), {}))
     skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS + _WORKERS_KEYS
     return {k: v for k, v in e.items() if k not in skip}
 
@@ -2015,26 +2008,17 @@ def _apply_probe_tuning(*bodies):
         b["probe_min_pct"] = v
 
 
-# The upstream POST-ladder shape per CDN. The binding constraint is what the CDN counts per source
-# address, and on ArvanCloud that is the number of CONCURRENT CONNECTIONS rather than the request rate,
-# so a worker count is portable between paths in a way a request rate is not. Both profiles carry real
-# numbers, so both change the node body.
-CDN_PROFILES = {
-    # Cloudflare's shape. The batch is where the upstream gain lands; a bigger one buys no more and made
-    # the downstream erratic. Workers stay low rather than doubled, because a worker is a concurrent
-    # socket and socket COUNT is what a CDN's limiter counts. Only the ranking carries — the numbers came
-    # from a short round-trip, and capacity is in-flight/RTT, so a far-away client may want a bigger batch.
-    "cf":    {"http_up_workers": 8, "http_up_batch_kb": 256},
-    # Half the ban threshold, so the carrier keeps its margin: the real client also holds the downstream
-    # GET open and a warm standby adds one more socket. Throughput is bought with the BATCH instead, which
-    # costs no sockets. Both keys are written explicitly rather than leaning on the core's defaults, so a
-    # future core that raises its own worker count cannot silently carry this past the threshold.
-    "arvan": {"http_up_workers": 8, "http_up_batch_kb": 512},
-}
-# A profile may also carry "http_up_rate" (POSTs/sec, 1..1000; 0 = unpaced). The knob is plumbed all
-# the way through to the carrier's upMinGap, but nothing here produces it today, so it is always 0 and
-# the pacer is off. It stays wired on purpose: it is the lever for a CDN that bans on REQUEST RATE
-# rather than on socket count. Measure first, then set it here.
+# The carrier shape an operator may set on an http-carrier tunnel, and the range the CORE accepts. It
+# REJECTS rather than clamps, so a value outside these never starts a tunnel. The upstream window is
+# workers x batch and it is spent per round trip, so what a far edge needs is a BIGGER batch, not more
+# workers — a worker is a concurrent socket and socket count is what a CDN's limiter counts. The
+# download streams are the same lever the other way: each one is its own connection the server can
+# write down, and the first is what carries the session.
+HTTP_SHAPE = {"http_up_workers": (1, 16, 8), "http_up_batch_kb": (8, 512, 512),
+              "http_streams": (1, 16, 1)}
+# The POST ladder is the http carrier's alone — the core refuses those three on grpc. The stream count
+# belongs to both: http stripes its download over them, grpc its whole duplex call.
+HTTP_SHAPE_GRPC = ("http_streams",)
 
 
 def _tunnel_extra(src, refetch_ech=True):
@@ -2111,11 +2095,14 @@ def _tunnel_extra(src, refetch_ech=True):
         # `cdn_carrier: "ws"` and this path dropped it. The node defaults an absent one to "ws", so nothing
         # broke; the three paths still disagreed, which is the one thing this funnel exists to prevent.
         e["cdn_carrier"] = src["cdn_carrier"]
-        # Carry the profile NAME, exactly as create/edit do. _node_extra is what expands it into
-        # numbers, for all three paths at once — expanding it here instead is what made this path the
-        # only one that worked.
-        if src.get("cdn_carrier") == "http":
-            e["cdn_profile"] = str(src.get("cdn_profile") or "cf")
+        # The shape reaches the node as numbers, on this path exactly as on create and edit. grpc
+        # carries the stream count and not the ladder, the same split _cdn_shape_fields makes.
+        if src.get("cdn_carrier") in ("http", "grpc"):
+            for k in HTTP_SHAPE:
+                if src.get("cdn_carrier") == "grpc" and k not in HTTP_SHAPE_GRPC:
+                    continue
+                if src.get(k):
+                    e[k] = int(src[k])
     if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
         e["ech"] = True
         host = src.get("ws_host")
@@ -5092,22 +5079,36 @@ def _edge_port_ok(port, tls):
         "پورتِ %d قبول نیست. (یا wss را روشن کن و 443 بگذار.)" % (lst, port))
 
 
-def _cdn_profile_field(d, cur, cdn):
-    """The POST-ladder profile for a `http` CDN carrier, validated. Returns an empty dict for any
-    other carrier (grpc has no ladder; plain ws has no CDN shape) and for the default `cf`, which does
-    not need storing — _node_extra falls back to it.
+def _cdn_shape_fields(d, cur, cdn):
+    """The operator's carrier shape for a `http` CDN carrier, validated and stored as numbers. Empty
+    for any other carrier: grpc has no POST ladder and no stream fan-out, and plain ws has neither.
+
+    Every value is written, never left to the core's own default, so a core that retunes its defaults
+    cannot silently move a tunnel the operator had already sized.
 
     Shared by the single-edge builder and the edge-POOL one. It used to exist only in the single-edge
     branch, and _ws_fields returns to the pool builder BEFORE reaching it, so on a pooled tunnel the
-    operator's profile choice was dropped on EVERY path — rebuild included — while the panel kept
-    showing the tile as selected. One definition, two call sites, so the two cannot drift again."""
-    if cdn != "http":
+    operator's choice was dropped on EVERY path — rebuild included — while the panel kept showing it
+    as set. One definition, two call sites, so the two cannot drift again."""
+    if cdn not in ("http", "grpc"):
         return {}
     cur = cur or {}
-    prof = str((d.get("cdn_profile") if "cdn_profile" in d else cur.get("cdn_profile")) or "cf").strip().lower()
-    if prof not in CDN_PROFILES:
-        raise ValueError("پروفایلِ CDN نامعتبر است")
-    return {"cdn_profile": prof} if prof != "cf" else {}
+    out = {}
+    for k, (lo, hi, dflt) in HTTP_SHAPE.items():
+        if cdn == "grpc" and k not in HTTP_SHAPE_GRPC:
+            continue
+        raw = d.get(k) if k in d else cur.get(k)
+        if raw in (None, ""):
+            out[k] = dflt
+            continue
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            raise ValueError("مقدارِ «%s» باید عدد باشد" % k)
+        if v < lo or v > hi:
+            raise ValueError("«%s» باید بین %d و %d باشد" % (k, lo, hi))
+        out[k] = v
+    return out
 
 
 def _ws_fields(d, transport, cur=None):
@@ -5163,7 +5164,7 @@ def _ws_fields(d, transport, cur=None):
     # http: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a WebSocket upgrade,
     # so it passes a CDN or account that blocks WebSocket. Independent of wss, though wss is the usual
     # fronting choice. Single-edge path only — the pool branch above returns first and builds its OWN
-    # carrier fields, including the profile, through the SAME _cdn_profile_field helper.
+    # carrier fields, including the shape, through the SAME _cdn_shape_fields helper.
     cdn = str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws").strip().lower()
     if cdn not in ("ws", "http", "grpc"):
         raise ValueError("حاملِ CDN نامعتبر است")
@@ -5178,9 +5179,9 @@ def _ws_fields(d, transport, cur=None):
         out["cdn_carrier"] = cdn
         # Upstream style: post (default, many short POSTs — the most CDN-compatible) or grpc (a single
         # full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of buffering; needs
-        # wss). Which CDN this tunnel fronts through decides the upstream shape, and only on the http carrier:
-        # the ladder is what a WAF counts, and grpc does not have one. Stored as a name; _node_extra expands it.
-        out.update(_cdn_profile_field(d, cur, cdn))
+        # wss). The shape below applies only to the http carrier: the ladder and the stream fan-out are
+        # what a WAF counts, and grpc has neither.
+        out.update(_cdn_shape_fields(d, cur, cdn))
     ss = _sni_split_fields(d, cur)  # SNI fragmentation (wss only)
     if ss:
         if not out.get("ws_tls"):
@@ -5295,10 +5296,10 @@ def _ws_pool_fields(d, cur=None):
         "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),   # 0 (rotation off) preserved, not coerced to 600
         "ws_path": path,
     }
-    # cdn_carrier is stored ALWAYS here (see the dict above), not only when it is non-default. The profile
-    # applies to a pool exactly as it does to a single edge — the POST ladder is the same over a pool, only
-    # the endpoint rotates — so it is built here through the same helper.
-    res.update(_cdn_profile_field(d, cur, res["cdn_carrier"]))
+    # cdn_carrier is stored ALWAYS here (see the dict above), not only when it is non-default. The shape
+    # applies to a pool exactly as it does to a single edge — the ladder and the streams are the same over
+    # a pool, only the endpoint rotates — so it is built here through the same helper.
+    res.update(_cdn_shape_fields(d, cur, res["cdn_carrier"]))
     res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
     res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
     return res
@@ -9123,10 +9124,10 @@ var I18N={fa:{
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  // raw profiles
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
- // the CDN carrier tiles + the http profile
- cdn_prof_lbl:"CDNِ روبه‌رو",
- cdnp_cf_n:"کلودفلر",cdnp_cf_m:"8 کارگر × 256KB (پیش‌فرض)",
- cdnp_arvan_n:"ابرآروان",cdnp_arvan_m:"8 کارگر × 512KB · ~3× سریع‌تر",
+ // the CDN carrier tiles + the http carrier shape
+ cdn_shape_lbl:"شکلِ حاملِ http",
+ cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",
+ cdn_shape_note:"آپلود در هر رفت‌وبرگشت فقط «کارگر × اندازه» بایت جا دارد؛ برای لبهٔ دور اندازه را بالا ببر، نه تعدادِ کارگر را. جریانِ حاملِ بیشتر سرعت را بالا می‌برد (روی grpc خیلی زیاد، چون هر جریان پنجرهٔ خودش را می‌گیرد) ولی بسته‌ها نامرتب می‌رسند و گیرنده باید نگه‌شان دارد، پس تأخیر و حافظه هم بالا می‌رود. روی http هر جریان یک اتصالِ جداست و CDN می‌شماردش؛ روی grpc همه روی یک اتصال‌اند.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
  // flux rotation presets + shapes
@@ -10353,7 +10354,7 @@ function coreCard(l){
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
-_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.CdnProf='cf',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
+_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 // The card's carrier tag. «bare» forges no header, so its outer IP protocol number is CHOSEN rather
 // than implied by the name — show it. Every other profile's number is fixed and printing it is noise.
 // A core tunnel's CARRIER, in one place: the header chip and the body row must never disagree about what
@@ -10378,19 +10379,20 @@ function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<but
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
 // the selector value for a stored link
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
-// Which CDN the HTTP carrier fronts through. It changes ONE thing — how many POSTs per second the
-// client makes. Both entries carry the core's own defaults, so the selector is here to let a future
-// CDN get its own profile without a schema change. Only HTTP has a POST ladder, so this row appears
-// for HTTP alone.
-function CDN_PROFILES(){return [{v:'cf',n:T('cdnp_cf_n'),m:T('cdnp_cf_m')},{v:'arvan',n:T('cdnp_arvan_n'),m:T('cdnp_arvan_m')}]}
-function cdnProfTiles(px,cur){return CDN_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-cp="'+p.v+'" onclick="'+px+'SetCdnProf(\\''+p.v+'\\')"><div class="pn">'+esc(p.n)+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-function _setCdnProf(S,px,p){S.CdnProf=p;var g=el(px+'cdnppg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-cp')==p)})}
-function corSetCdnProf(p){_setCdnProf(_corS,'e_',p)}
-function ceSetCdnProf(p){_setCdnProf(_eeS,'ee_',p)}
+// The http carrier's shape: the upstream window (workers x batch, spent per round trip) and how many
+// download streams the client opens. Only the http carrier has either, so this row appears for it
+// alone. The min/max here must match HTTP_SHAPE on the API side — tools/http_shape_consistency.py
+// fails the build if they drift.
+var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},downw:{k:'http_streams',lo:1,hi:16,d:1}};
+function cdnNum(idp,n,lbl,l){var f=CDN_SHAPE[n];var cur=(l&&l[f.k])||f.d;return '<div style="flex:1;min-width:92px"><label style="margin-top:0">'+esc(lbl)+'</label><input id="'+idp+'cdn'+n+'" type="number" min="'+f.lo+'" max="'+f.hi+'" value="'+cur+'"></div>'}
+function cdnShapeInputs(idp,l){return '<div id="'+idp+'cdnup" style="display:flex;gap:8px;flex:2">'+cdnNum(idp,'upw',T('cdn_upw_lbl'),l)+cdnNum(idp,'upkb',T('cdn_upkb_lbl'),l)+'</div>'+cdnNum(idp,'downw',T('cdn_strm_lbl'),l)}
+function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(cdn!='http'&&f.k!='http_streams')return;var x=parseInt(v(px+'cdn'+n));if(!(x>=f.lo&&x<=f.hi))x=f.d;body[f.k]=x})}
 // the row is meaningful only on the HTTP carrier (ws has no POSTs, grpc has no ladder)
-function cdnProfOn(S){return S.Tr=='ws'&&S.Cdn=='http'}
-function corCdnProfGate(){var r=el('e_cdnprow');if(r)r.style.display=cdnProfOn(_corS)?'':'none';grpcZoneGate(_corS,'e_')}
-function ceCdnProfGate(){var r=el('ee_cdnprow');if(r)r.style.display=cdnProfOn(_eeS)?'':'none';grpcZoneGate(_eeS,'ee_')}
+function cdnShapeOn(S){return S.Tr=='ws'&&(S.Cdn=='http'||S.Cdn=='grpc')}
+function corCdnShapeGate(){cdnShapeRow('e_',_corS);grpcZoneGate(_corS,'e_')}
+function ceCdnShapeGate(){cdnShapeRow('ee_',_eeS);grpcZoneGate(_eeS,'ee_')}
+// The POST ladder is the http carrier's; the stream count is both carriers'.
+function cdnShapeRow(px,S){var r=el(px+'cdnprow');if(r)r.style.display=cdnShapeOn(S)?'':'none';var u=el(px+'cdnup');if(u)u.style.display=(S.Cdn=='http')?'flex':'none'}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 // grpcZoneGate reveals the "your CDN zone must have gRPC turned on" warning for the grpc carrier.
 // A Cloudflare zone with gRPC off refuses the grpc content-type at the edge, so the tunnel cannot
@@ -10399,9 +10401,9 @@ function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<butto
 function grpcZoneGate(S,px){var w=el(px+'grpczone');if(w)w.style.display=(S.Cdn=='grpc')?'':'none'}
 function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
-function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnProfGate()}
-function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnProfGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='spoof'?'جعل':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corCdnProfGate();corRotVis('e_');corWorkersVis();onCorCipher()}   /* obfs is unavailable on dns -- re-gate on every transport change, not just on a cipher change */
+function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnShapeGate()}
+function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnShapeGate()}
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='spoof'?'جعل':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   /* obfs is unavailable on dns -- re-gate on every transport change, not just on a cipher change */
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corS.Tr=='flux')?'':'none';fluxTick()}
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
@@ -10854,11 +10856,12 @@ function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyurl,sni,pos,mode,ttl,show
   +'<div id="'+idp+'snittlbody" style="margin-top:6px'+((mode=='disorder')?'':';display:none')+'"><label>'+esc(T('sni_ttl_lbl'))+'</label><input id="'+idp+'splitttl" type="number" min="0" max="__SPLITTTLMAX__" value="'+(ttl||0)+'"></div></div>';}
 function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_dis_s')},{v:'fake',s:T('m_fake_s')}]}
 // ---- ws (WebSocket / CDN) — shared markup.
-function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,prof){return '<div id="'+idp+'wsblk" style="display:none">'
+function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,shape){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid p3" id="'+idp+'wspg">'+wsProfTiles(fnp,wsProfOf({Cdn:cdn}))+'</div>'
  +'<div class="spoofcap no" id="'+idp+'grpczone" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('grpc_zone_warn'))+'</span></div>'
- +'<div id="'+idp+'cdnprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('cdn_prof_lbl'))+'</label>'
- +'<div class="pgrid" id="'+idp+'cdnppg">'+cdnProfTiles(fnp,prof=='arvan'?'arvan':'cf')+'</div></div>'
+ +'<div id="'+idp+'cdnprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('cdn_shape_lbl'))+'</label>'
+ +'<div style="display:flex;gap:8px">'+cdnShapeInputs(idp,shape)+'</div>'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('cdn_shape_note'))+'</div></div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>'+esc(T('ws_pool_t'))+'</b><small>'+esc(T('ws_pool_d'))+'</small></div></div>'
  +'<div id="'+idp+'wshostblk" style="margin-top:11px">'
  +'<label>'+esc(T('ws_host_lbl'))+'</label><input id="'+idp+'wshost" dir="ltr" placeholder="'+esc(T('ph_cdn_domain'))+'" value="'+esc(host||'')+'">'
@@ -10953,7 +10956,7 @@ function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(
 function onCorCipher(){_obfsGate('e_',_corS)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.CdnProf='cf';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  // Pickers are labelled and ordered by role (corNodeLbls), not by slot. The roles segment below is
  // where the role is chosen; the IP row two rows down stays keyed to core's src_ips/peer_ips.
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
@@ -10966,7 +10969,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
   workersSection('e_','cor')+
   fluxSection('e_','cor','udp',600,'random',null)+
-  wsSection('e_','cor','','',false,'',false,'ws','','cf')+
+  wsSection('e_','cor','','',false,'',false,'ws','',null)+
   dnsSection('e_','cor')+
   spoofSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
@@ -10980,7 +10983,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050"></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic(COR_IC)+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnProfGate();corWorkersVis();trFade(el('e_trbar'))}
+ corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnShapeGate();corWorkersVis();trFade(el('e_trbar'))}
 function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='spoof')corSpoofProbe();corWorkersVis()}   /* the queue budget is per NODE, so a different node is a different budget */
 function renderCorIps(){renderRotIps('e_')}
 // ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
@@ -11105,7 +11108,7 @@ function _collectCoreBody(S,px,m,body){
     what the tunnel was saved with, so a form that only sent a raised value could never lower one. */
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http')body.cdn_profile=S.CdnProf;if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){formErr(m,T('two_diff_nodes'));return}
@@ -11123,8 +11126,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
  else{formErr(m,perr(r))}}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
-_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.CdnProf='cf',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnProfGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
+_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
+function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
@@ -11178,7 +11181,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.CdnProf=(l.cdn_profile=='arvan')?'arvan':'cf';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
  var aips=l.a_ips||[],bips=l.b_ips||[];
  // rotate_secs=0 is «فقط هنگامِ قطع», a real stored value the backend clamps to (0..86400) — not an
  // absent field. `||600` treated it as absent because 0 is falsy in JS, so opening the edit form on a
@@ -11196,7 +11199,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
   workersSection('ee_','ce')+
   fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
-  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,_eeS.CdnProf)+
+  wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,l)+
   dnsSection('ee_','ce')+
   spoofSection('ee_','ce')+
   '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Obfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
