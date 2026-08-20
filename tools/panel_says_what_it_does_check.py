@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""A toast must not claim something the code does not do.
+"""A toast must not claim something the code does not do, and a per-row button must act on ITS row.
 
-Neither «الان تست کن» sends a probe. core's probeAllNow only pulls nextRetest forward, and no pool has
-a prober behind it, so nothing dials until the next rotation or failover -- the tun probe is the only
-thing that judges an endpoint. Both buttons are checked, on both pools.
+Neither «الان تست کن» sends a probe. The core only pulls that entry's nextRetest forward; nothing dials
+until the next rotation, and the tun probe is the only thing that judges an endpoint. And the button is
+rendered beside ONE burned entry, so it must name that entry -- a call carrying only the link id zeroed
+every wait in the pool while looking like it touched one row.
 
     python3 tools/panel_says_what_it_does_check.py
 """
@@ -39,25 +40,42 @@ def main():
                      "read its subject, so it must not report success")
         return report()
 
-    buttons = (("direct", r"async function peerProbeNow\(\)\{.*?\n(?=[/a-zA-Z])"),
-               ("ws edge", r"async function poolProbeNow\(lid\)\{.*?\n(?=[/a-zA-Z])"))
-    for name, pat in buttons:
-        m = re.search(pat, js, re.S)
+    for name, fn, endpoint in (("direct", "peerProbeNow", "peer-retest-now"),
+                               ("ws edge", "poolProbeNow", "pool-retest-now")):
+        m = re.search(r"async function " + fn + r"\((?P<args>[^)]*)\)\{.*?\n(?=[/a-zA-Z])", js, re.S)
         if not m:
             fails.append("the %s pool's probe button was not found in the decoded JS (it moved, and this "
                          "check went blind)" % name)
             continue
-        claim = re.search(r"toast\(T\('([a-z_]+)'\),'ok'\)", m.group(0))
+        body = m.group(0)
+
+        claim = re.search(r"toast\(T\('([a-z_]+)'\),'ok'\)", body)
         if not claim:
             fails.append("the %s pool's probe button no longer toasts anything on success — the operator "
                          "presses it and is told nothing" % name)
         elif claim.group(1) != "peer_probe_pulled":
-            fails.append("the %s pool's probe button toasts %r. Nothing dials: core's probeAllNow only "
-                         "pulls nextRetest forward, and no pool has a prober behind it. The one true "
+            fails.append("the %s pool's probe button toasts %r. Nothing dials: the core only pulls that "
+                         "entry's nextRetest forward, and no pool has a prober behind it. The one true "
                          "thing to say is peer_probe_pulled — the wait was zeroed, and the tun probe "
-                         "judges them on the next rotation." % (name, claim.group(1)))
+                         "judges it on the next rotation." % (name, claim.group(1)))
         else:
             print("  ok  the %s pool's probe button claims only that the wait was zeroed" % name)
+
+        # The button sits beside ONE burned row, so it must send that row's axis and key. Without them
+        # it can only ask for the whole pool while looking like it touched one entry.
+        args = [a.strip() for a in m.group("args").split(",") if a.strip()]
+        if "key" not in args:
+            fails.append("the %s pool's probe button takes %r — with no key it can only ask for the "
+                         "whole pool, while sitting next to one row" % (name, args))
+        elif not re.search(r"post\('" + endpoint + r"',\{[^}]*kind:[^}]*key:", body):
+            fails.append("the %s pool's probe button does not forward kind+key to %s" % (name, endpoint))
+        else:
+            print("  ok  the %s pool's probe button asks for its own row only" % name)
+
+        for call in re.findall(r'onclick="' + fn + r'\(([^"]*)\)"', js):
+            if "kind" not in call and "side" not in call:
+                fails.append("a %s row renders %s(%s) — it does not pass the row's own axis"
+                             % (name, fn, call))
 
     if "pool_probe_sent" in js:
         fails.append("the string pool_probe_sent («پروبِ فوری فرستاده شد») is still in the panel. No pool "
@@ -74,7 +92,7 @@ def report():
         for f in fails:
             print("  - %s" % f)
         return 1
-    print("\nthe panel's toasts agree with what the code does")
+    print("\nthe panel's toasts agree with what the code does, and each button acts on its own row")
     return 0
 
 
