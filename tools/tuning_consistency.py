@@ -276,23 +276,32 @@ def main():
         check(core_cli.group(1) in tile.group(1),
               "fixed client source port: core=%s panel tile=%r" % (core_cli.group(1), tile.group(1)))
 
-    print("== 2e) the edge pool's ACTIVE separator: core joins with it, node splits on it ==")
-    # The core publishes the live combination as "<edge><sep><sni>" and the node splits that string back
-    # apart to key its tun-probe verdict. A mismatch is SILENT and total: str.partition finds nothing, the
-    # node reports the whole label as the edge and an empty SNI, and every verdict then names a
-    # combination the core cannot match -- so it burns nothing and the pool never fails over again.
-    # The character is a MIDDLE DOT, which is exactly the kind of thing a copy-paste turns into a hyphen.
-    ws_pool_go = (Path(a.core) / "internal" / "packet" / "ws_pool.go").read_text(encoding="utf-8")
-    core_sep = re.search(r'const activeSep = "([^"]*)"', ws_pool_go)
-    node_sep = re.search(r'WS_ACTIVE_SEP\s*=\s*"([^"]*)"', node_src)
-    if not core_sep or not node_sep:
-        check(False, "CANNOT PARSE the active separator (core=%s node=%s) -- THIS SCRIPT is out of date"
-                     % (bool(core_sep), bool(node_sep)))
-    else:
-        check(core_sep.group(1) == node_sep.group(1),
-              "active separator: core=%r node=%r (codepoints %s vs %s)"
-              % (core_sep.group(1), node_sep.group(1),
-                 [hex(ord(c)) for c in core_sep.group(1)], [hex(ord(c)) for c in node_sep.group(1)]))
+    print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
+    # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
+    # exactly those keys to name its tun-probe verdict. A mismatch is SILENT and total: the node reads
+    # blanks, every verdict names nothing, and no endpoint is ever burned again. It replaced splitting
+    # the DISPLAY label on a middle dot, which had the same failure mode and one more way to reach it.
+    ws_pool_go = (Path(a.core) / "internal" / "packet" / "core_status.go").read_text(encoding="utf-8")
+    core_keys = set(re.findall(r'json:"(low|high|low_kind|high_kind)"', ws_pool_go))
+    node_keys = set(re.findall(r'pair\.get\("(low|high|low_kind|high_kind)"\)', node_src))
+    check(core_keys == {"low", "high", "low_kind", "high_kind"},
+          "the core publishes the whole pair: %s" % sorted(core_keys))
+    check(core_keys == node_keys,
+          "pair keys: core=%s node=%s -- a key the node does not read is a verdict that names nothing"
+          % (sorted(core_keys), sorted(node_keys)))
+
+    # And the axis KIND strings, which tag both the health rows and the pin/retest commands. The node
+    # filters on them and refuses anything else, so a rename on one side silently empties a whole view.
+    kinds_go = set()
+    for f in ("peer_pool.go", "ws_pool.go"):
+        src = (Path(a.core) / "internal" / "packet" / f).read_text(encoding="utf-8")
+        kinds_go |= set(re.findall(r'return "(dst|src|sni|ip)", "(?:dst|src|sni|ip)"', src))
+        kinds_go |= set(re.findall(r'kinds\(\) \(string, string\) \{ return "(?:dst|sni)", "(src|ip)" \}', src))
+    node_kinds = set(re.findall(r'kind not in \("dst", "src", "ip", "sni"\)', node_src))
+    check(kinds_go >= {"dst", "sni"},
+          "the core names its axes: %s" % sorted(kinds_go))
+    check(bool(node_kinds),
+          "the node accepts exactly the four axis kinds the core tags its rows with")
 
     print("== 2g) the tun-probe threshold: panel offers it, the NODE consumes it ==")
     # The one Settings knob the node reads for itself instead of forwarding to the core, so its default

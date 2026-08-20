@@ -739,7 +739,7 @@ NODE_WIRE = {
     "ping": "pg", "list": "ls", "check": "ck", "tunnel": "mk", "delete": "dl", "apply": "ap",
     "update": "up", "wipe": "wz", "portfw": "pf", "portfw-edit": "pe", "portfw-next": "pn",
     "portcheck": "pc", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
-    "peer-probe-now": "pp", "pool-probe-now": "qp", "pool-select": "qs", "ech-update": "eu",
+    "pool-select": "qs", "retest-now": "rt", "ech-update": "eu",
     "core-install": "ci", "spoof-probe": "sp", "spoof-egress-listen": "sl", "spoof-egress-send": "ss",
     "spoof-egress-result": "sr", "set-update-key": "sk", "kernel-tune": "kt", "link-enable": "le",
     "core-restart": "cr",
@@ -5761,24 +5761,32 @@ def api_edge_status(d):
     # so retest countdowns are correct even if the panel's clock is skewed from the node's. `ts` is the
     # status file's write time -> the UI can flag a stale file (dead tunnel) as offline.
     node_now = int(r.get("now") or 0)
+    pair = r.get("pair") if isinstance(r.get("pair"), dict) else {}
     return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
+            "pair": {"low": str(pair.get("low") or ""), "high": str(pair.get("high") or "")},
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
-def _probe_now(d, resolve, endpoint):
-    """Shared 'probe now': resolve the client node (ws-edge or direct pool), tell it to SIGHUP the core
-    so it retests every suspect/dead entry at once. One place for the fallback error + response shape."""
-    L, node = resolve(d or {})
-    r = node_call(node, endpoint, "POST", {"name": L.get("name")}, timeout=10)
+def _retest_now(d, resolve):
+    """Shared 'try this one again now': end ONE entry's backoff so the next rotation hands it live
+    traffic and the tun probe can judge it. Nothing is dialled -- neither pool has a prober, and a
+    control handshake cannot tell a filtered endpoint from a live one. Per ENTRY, not per pool: one
+    button that zeroed every wait made the others' backoff a lie."""
+    d = d or {}
+    _require(d, ["id", "kind", "key"])
+    if d["kind"] not in ("ip", "sni", "dst", "src"):
+        raise ValueError("kind باید ip / sni / dst / src باشد")
+    L, node = resolve(d)
+    r = node_call(node, "retest-now", "POST",
+                  {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or "پروب ناموفق بود"}
+        return {"ok": False, "error": r.get("error") or r.get("msg") or "ناموفق بود"}
     return {"ok": True}
 
 
-def api_pool_probe_now(d):
-    """Live 'probe now' for a ws edge pool: tell the client node to SIGHUP the running core so
-    it retests every suspect/dead edge at once (no rebuild). Returns fresh status via the next poll."""
-    return _probe_now(d, _ws_pool_client, "pool-probe-now")
+def api_pool_retest_now(d):
+    """End ONE ws edge (or SNI) entry's backoff. No rebuild, no dial."""
+    return _retest_now(d, _ws_pool_client)
 
 
 def api_pool_select(d):
@@ -5882,10 +5890,9 @@ def api_peer_status(d):
     return {"ok": True, "pool": True, "now": node_now, "dst": _peer_sec_norm(r.get("dst")), "src": _peer_sec_norm(r.get("src"))}
 
 
-def api_peer_probe_now(d):
-    """'Probe now' for a direct-transport pool: SIGHUP the client's core to retest every burned
-    endpoint at once (re-admit it to rotation) with no rebuild. Fresh state arrives via the next poll."""
-    return _probe_now(d, _peer_pool_client, "peer-probe-now")
+def api_peer_retest_now(d):
+    """End ONE direct-pool endpoint's backoff. No rebuild, no dial."""
+    return _retest_now(d, _peer_pool_client)
 
 
 def api_peer_select(d):
@@ -6687,6 +6694,10 @@ _EV_DOWN_CODE = {
     # the same threshold. The SESSION is fine here; this one ADDRESS went silent.
     "peer-dead": "آی‌پیِ مقصدی که چرخش روی آن رفت جواب نداد — سوزانده شد و رفت روی آی‌پیِ بعدی",
 }
+# Which axis a burn/heal names. The core tags every health row and every burn/heal detail with these.
+_HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
+              "ip": "آی‌پیِ لبه", "sni": "دامنه (SNI)"}
+
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
 }
@@ -6749,11 +6760,13 @@ def _mib(b):
 def _ev_core_text(kind, code, detail, nm):
     """Render a core event into (level, kind, title, detail) for log_event(*...).
     Splitting title from detail lets the UI show the reason on its own line."""
+    # The core tags an endpoint with the axis it belongs to: "dst"/"src" on a direct pool, "ip"/"sni" on
+    # an edge one. The operator wants the address, not the tag.
     key = str(detail or "")
-    if key.startswith("ip:"):
-        key = key[3:]
-    elif key.startswith("sni:"):
-        key = key[4:]
+    for tag in ("dst:", "src:", "ip:", "sni:"):
+        if key.startswith(tag):
+            key = key[len(tag):]
+            break
     if kind == "down":
         rot = _EV_ROT_CODE.get(code)
         if rot:   # an intentional rotation/pin, not a fault — informational, not a red "disconnected"
@@ -6766,8 +6779,10 @@ def _ev_core_text(kind, code, detail, nm):
         return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", rf)
     if kind == "burn":
         # The reason string repeated what the title already says, so the card carried two sentences for
-        # one fact. The endpoint is the useful part; keep only that.
-        return ("warn", "burn", f"دلیل: سوختنِ لبه تونلِ «{nm}»", f"لبه: {key}")
+        # one fact. The endpoint is the useful part; keep only that -- and name the AXIS it sits on,
+        # because a destination IP is not an edge.
+        what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
+        return ("warn", "burn", f"دلیل: سوختنِ {what} تونلِ «{nm}»", f"{what}: {key}")
     if kind == "cfg":
         # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
         # opens its sockets, and they used to reach only the core unit's journal, which the node reads on
@@ -6786,22 +6801,13 @@ def _ev_core_text(kind, code, detail, nm):
                         f"چاره: net.core.rmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
         return ("warn", "cfg", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
     if kind == "heal":
-        # A previously-sidelined member recovered and is back in the rotation pool. peer-retest/src-retest
-        # are the DIRECT pool's destination/source IP; tun-probe is either pool's node verdict. Only the
-        # node's tun probe readmits anything now, so those three are the whole set. Distinct from the
-        # active-carrier up/reconnect.
+        # A previously-sidelined member is back in the rotation. Only the node's tun probe readmits
+        # anything, so there is ONE code; which axis recovered comes from the tag the pool stamps on
+        # the detail. Distinct from the active-carrier up/reconnect.
         if code == "tun-probe":
-            # The core tags the axis in `detail`; say which one actually recovered. Calling a
-            # DOMAIN an edge is wrong on a two-axis pool.
-            what = "دامنه (SNI)" if str(detail or "").startswith("sni:") else "آی‌پیِ لبه"
+            what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
             return ("ok", "heal", f"دلیل: بازگشتِ {what} تونلِ «{nm}»",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
-        if code == "peer-retest":
-            return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مقصد تونلِ «{nm}»",
-                    f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
-        if code == "src-retest":
-            return ("ok", "heal", f"دلیل: بازگشتِ آی‌پیِ مبدأ تونلِ «{nm}»",
-                    f"آی‌پی: {key}\nداده روی این آی‌پی دوباره برقرار شد")
     if kind == "pool":
         # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 edges it
         # can REACH -- healthy, or burned with their backoff elapsed, since the walk spends a live try on
@@ -7796,8 +7802,8 @@ API = {
     "proxy-del": api_proxy_del, "proxy-test": api_proxy_test,
     "rebuild-link": api_rebuild_link, "restart-link": api_restart_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
     "flux-rotate": api_flux_rotate, "edge-status": api_edge_status,
-    "pool-probe-now": api_pool_probe_now, "pool-select": api_pool_select,
-    "peer-status": api_peer_status, "peer-probe-now": api_peer_probe_now, "peer-select": api_peer_select,
+    "pool-retest-now": api_pool_retest_now, "pool-select": api_pool_select,
+    "peer-status": api_peer_status, "peer-retest-now": api_peer_retest_now, "peer-select": api_peer_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
@@ -7809,8 +7815,8 @@ API = {
     "reorder": api_reorder,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
-             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-probe-now", "pool-select",
-             "peer-status", "peer-probe-now", "peer-select", "spoof-egress-probe",
+             "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-retest-now", "pool-select",
+             "peer-status", "peer-retest-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-check", "core-update", "core-upload", "core-stage", "core-push",
              "reorder"}
@@ -9112,7 +9118,7 @@ var I18N={fa:{
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
- flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخشِ بعدی امتحان می‌شوند و پروبِ tun قضاوتشان می‌کند",pool_edge_active:"این لبه فعال شد",
+ flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  // ---- core create/edit form + shared section builders (Gap 1)
@@ -10466,7 +10472,7 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
     if(dead){
       acts='<button type="button" class="eib" title="'+esc(T('pa_restore'))+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
     }else{
-      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolProbeNow(\\''+d.lid+'\\')">'+ic('redo')+'</button>';
+      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolProbeNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
       if(d.lid){var pend=d.pinPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
         if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
         else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';}
@@ -10502,8 +10508,10 @@ async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&
 // row highlight + live bar), plus mirror any auto-burns the core reported. doPoolRotate signals
 // the core to jump one dimension with no rebuild, then re-polls shortly after.
 _eeS.PoolLid='';
-function poolApplyStatus(pfx,st){var d=poolGet(pfx);var a=String(st.active||'').split(' · ');
-  d.act={ip:(a[0]||'').trim(),sni:(a[1]||'').trim()};
+function poolApplyStatus(pfx,st){var d=poolGet(pfx);var pr=st.pair||{};
+  // The machine-readable pair, not the display label: splitting «active» by eye is what let a verdict
+  // be keyed on a combination the carrier had already left.
+  d.act={ip:String(pr.high||''),sni:String(pr.low||'')};
   d.live={};(st.health||[]).forEach(function(h){if(h&&h.key)d.live[(h.kind=='sni'?'sni':'ip')+':'+h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
   d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
   // release the pin lock once the chosen edge is confirmed active (or after a 12s safety timeout)
@@ -10515,7 +10523,9 @@ async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){_cdTick(el('ee_lst_'+k),d.srvNow,d.polledMs)})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
-async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
+async function poolProbeNow(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
+  var r=await post('pool-retest-now',{id:lid,kind:kind,key:key});
+  if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
 // "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
 async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var d=poolGet('ee_');
@@ -10585,7 +10595,7 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // the edge can rejoin rotation sooner. A healthy IP has nothing to test, and there is no single-IP
   // probe op — the core retests every burned edge at once, the same pool-wide SIGHUP the WS-CDN
   // per-row probe uses.
-  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow()">'+ic('redo')+'</button>';
+  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('redo')+'</button>';
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
@@ -10638,7 +10648,8 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
 // «الان تست کن», on both pools. It must NOT claim a probe was sent: core's probeAllNow only sets
 // nextRetest = now, and nothing dials until the next rotation or failover.
-async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
+async function peerProbeNow(side,key){if(!_peerLid)return;
+  var r=await post('peer-retest-now',{id:_peerLid,kind:(side=='src'?'src':'dst'),key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(perr(r),'err')}}
 // ---- IP spoofing section — shared markup + per-form logic. Only for the "spoof" transport.
