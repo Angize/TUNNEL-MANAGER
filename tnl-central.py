@@ -203,7 +203,6 @@ _TUNING_DEFAULTS = {
     "dead_retest_secs": 21600,
     # 2 - dead detection / self-heal
     "min_liveness_secs": 20,
-    "probe_timeout_secs": 5,
     # 2b - the NODE's liveness verdict. Unlike everything else here this knob is consumed by the node
     # itself (tnl-node.py health_of), not passed through to the core, so it is stamped as a top-level
     # body field on EVERY tunnel type rather than riding in the `tuning` object. Percent of the tun
@@ -229,7 +228,6 @@ _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشت
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "min_liveness_secs": (1, 3600),
-    "probe_timeout_secs": (1, 120),
     # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
     # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
     # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
@@ -9051,7 +9049,6 @@ var I18N={fa:{
 
 
  set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
- set_t_probeto:"تایم‌اوتِ پروبِ لبه (ثانیه)",set_t_probeto_d:"برای اینکه بفهمد یک آی‌پیِ خراب دوباره سالم شده یا نه، یک اتصالِ آزمایشی می‌زند. این می‌گوید چند ثانیه منتظرِ جوابش بماند. اگر اینترنتت کند است این عدد را زیاد کن، وگرنه آی‌پیِ سالم را هم رد می‌کند.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
@@ -9071,7 +9068,6 @@ var I18N={fa:{
  set_x_minlive:"<b>20</b> = اتصالی که بعد از 5ثانیه افتاد سشنِ واقعی نبود ← از آن لبه کنار برو، ولی متهمش نکن.",
  set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>5</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
  set_pm_hint:"= حداقل {n} بسته از {c} باید جواب بدهد",
- set_x_probeto:"<b>5</b> = لبه در 5ثانیه هندشیک نداد ← ناموفق. (حاملِ مستقیم اصلاً prober ندارد.)",
  set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
  h1:"ساعت",h3:"3 ساعت",h6:"6 ساعت",h8:"8 ساعت",h12:"12 ساعت",h24:"24 ساعت",
  // generic states
@@ -9116,7 +9112,7 @@ var I18N={fa:{
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
- flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",pool_probe_sent:"پروبِ فوری فرستاده شد",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخشِ بعدی امتحان می‌شوند و پروبِ tun قضاوتشان می‌کند",pool_edge_active:"این لبه فعال شد",
+ flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ آی‌پی‌های سوخته صفر شد — در اولین چرخشِ بعدی امتحان می‌شوند و پروبِ tun قضاوتشان می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  // ---- core create/edit form + shared section builders (Gap 1)
@@ -10519,7 +10515,7 @@ async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){_cdTick(el('ee_lst_'+k),d.srvNow,d.polledMs)})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
-async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('pool_probe_sent'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
+async function poolProbeNow(lid){if(!lid){toast(T('pool_make_first'),'err');return}var r=await post('pool-probe-now',{id:lid});if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
 // "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
 async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var d=poolGet('ee_');
@@ -10640,10 +10636,8 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   var r=await post('peer-select',{id:_peerLid,side:side,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
-// peerProbeNow is the DIRECT (udp/tcp/raw/flux) pool's «الان تست کن». It must NOT claim a probe was
-// sent: core's probeAllNow only sets nextRetest = now and there is no retestLoop behind these pools,
-// so nothing dials until the next rotation or failover. poolProbeNow, the ws-edge twin, does say
-// pool_probe_sent, because there it is true. tools/panel_says_what_it_does_check.py pins both.
+// «الان تست کن», on both pools. It must NOT claim a probe was sent: core's probeAllNow only sets
+// nextRetest = now, and nothing dials until the next rotation or failover.
 async function peerProbeNow(){if(!_peerLid)return;var r=await post('peer-probe-now',{id:_peerLid});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(perr(r),'err')}}
@@ -11841,7 +11835,6 @@ function settingsCard(s){
   gh('set_g2','set_g2c','sc-pool')+
   qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
   qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
-  qr(T('set_t_probeto'),'set_t_probeto_d','set_x_probeto',tNum('set_t_probeto',_tv(s,'probe_timeout_secs'),1,120))+
   /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
      the connection group, because there is now ONE of it for every carrier. */
   gh('set_g5','set_g5c','sc-perf')+
@@ -11851,7 +11844,7 @@ function settingsCard(s){
   '</div>'}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_timeout_secs:parseInt(v('set_t_probeto')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every

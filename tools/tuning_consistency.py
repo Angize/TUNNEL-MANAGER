@@ -26,7 +26,6 @@ TUNING_KNOBS = [
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
     ("min_liveness_secs",      "minLiveness",         "MinLivenessSecs",      False),
-    ("probe_timeout_secs",     "probeTimeout",        "ProbeTimeoutSecs",     False),
 ]
 
 fails = []

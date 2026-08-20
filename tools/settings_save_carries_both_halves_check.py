@@ -48,7 +48,6 @@ STORED = {
         "suspect_backoff": [300, 900, 2700],
         "dead_retest_secs": 7200,
         "min_liveness_secs": 30,
-        "probe_timeout_secs": 9,
         "probe_min_pct": 25,
         "sock_buf_mb": 8,
     },

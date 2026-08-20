@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """A toast must not claim something the code does not do.
 
-The DIRECT (udp/tcp/raw/flux) pool's «الان تست کن» sends no probe: core's probeAllNow only pulls
-nextRetest forward, and there is no retestLoop behind those pools, so nothing dials until the next
-rotation or failover. Its ws-EDGE twin DOES dial, so the same claim is true there — which is why this
-checks both, and cannot be satisfied by deleting the string from one of them.
+Neither «الان تست کن» sends a probe. core's probeAllNow only pulls nextRetest forward, and no pool has
+a prober behind it, so nothing dials until the next rotation or failover -- the tun probe is the only
+thing that judges an endpoint. Both buttons are checked, on both pools.
 
     python3 tools/panel_says_what_it_does_check.py
 """
@@ -40,30 +39,31 @@ def main():
                      "read its subject, so it must not report success")
         return report()
 
-    m = re.search(r"async function peerProbeNow\(\)\{.*?\n(?=[/a-zA-Z])", js, re.S)
-    if not m:
-        fails.append("peerProbeNow was not found in the decoded JS (or it moved and this check went blind)")
-    else:
-        body = m.group(0)
-        if "pool_probe_sent" in body:
-            fails.append("the DIRECT pool's probe button toasts pool_probe_sent («پروبِ فوری فرستاده "
-                         "شد»), but nothing dials: core's probeAllNow only pulls nextRetest forward and "
-                         "there is no retestLoop behind these pools. peer_live_note right above it "
-                         "already tells the operator «خودش تستی نمی‌فرستد».")
+    buttons = (("direct", r"async function peerProbeNow\(\)\{.*?\n(?=[/a-zA-Z])"),
+               ("ws edge", r"async function poolProbeNow\(lid\)\{.*?\n(?=[/a-zA-Z])"))
+    for name, pat in buttons:
+        m = re.search(pat, js, re.S)
+        if not m:
+            fails.append("the %s pool's probe button was not found in the decoded JS (it moved, and this "
+                         "check went blind)" % name)
+            continue
+        claim = re.search(r"toast\(T\('([a-z_]+)'\),'ok'\)", m.group(0))
+        if not claim:
+            fails.append("the %s pool's probe button no longer toasts anything on success — the operator "
+                         "presses it and is told nothing" % name)
+        elif claim.group(1) != "peer_probe_pulled":
+            fails.append("the %s pool's probe button toasts %r. Nothing dials: core's probeAllNow only "
+                         "pulls nextRetest forward, and no pool has a prober behind it. The one true "
+                         "thing to say is peer_probe_pulled — the wait was zeroed, and the tun probe "
+                         "judges them on the next rotation." % (name, claim.group(1)))
         else:
-            print("  ok  the direct pool's probe button does not claim to have sent a probe")
+            print("  ok  the %s pool's probe button claims only that the wait was zeroed" % name)
 
-    # ...and the ws EDGE twin must KEEP it, so this cannot be satisfied by deleting the string.
-    if "async function poolProbeNow(" in js:
-        pm = re.search(r"async function poolProbeNow\(lid\)\{.*?\n(?=[/a-zA-Z])", js, re.S)
-        if pm and "pool_probe_sent" not in pm.group(0):
-            fails.append("the ws EDGE pool's probe button no longer claims a probe was sent — there it "
-                         "IS true (retestLoop dials the due entries), and saying less than the truth is "
-                         "its own kind of wrong")
-        else:
-            print("  ok  the ws edge pool's button still says what is true for it")
+    if "pool_probe_sent" in js:
+        fails.append("the string pool_probe_sent («پروبِ فوری فرستاده شد») is still in the panel. No pool "
+                     "sends a probe of its own any more, and a dead string is how the claim comes back")
     else:
-        fails.append("poolProbeNow was not found — the positive half of this check went blind")
+        print("  ok  the retired «پروبِ فوری فرستاده شد» string is gone from the panel")
 
     return report()
 
