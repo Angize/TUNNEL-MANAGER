@@ -6813,11 +6813,16 @@ def _ev_core_text(kind, code, detail, nm):
             return ("warn", "edge", f"دلیل: توقفِ چرخش تونلِ «{nm}» — فقط یک لبه در دسترس مانده",
                     "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
-            # The operator pinned an edge that turned out to be genuinely blocked. Rather than hold the
-            # tunnel down for the whole pin window, the pin self-released and rotation moved to a healthy
-            # edge. Explains "I pinned it, the tunnel dropped, and it jumped back to the old edge".
-            return ("warn", "edge", f"دلیل: آزادشدنِ پینِ تونلِ «{nm}» — آن لبه مسدود بود",
-                    "لبهٔ پین‌شده واقعاً مسدود بود؛ برای جلوگیری از قطعی، چرخش به لبهٔ سالم برگشت")
+            # The operator pinned something that turned out not to work. Rather than hold the tunnel down
+            # for the whole pin window, the pin self-releases and rotation resumes. detail is
+            # «axis:reason» — every pool sends it, so the line names WHAT was un-pinned and WHY.
+            axis, _, why = key.partition(":")
+            what = {"dst": "آی‌پیِ مقصدِ", "src": "آی‌پیِ مبدأِ"}.get(axis, "لبهٔ")
+            if why == "cannot-land":
+                return ("warn", "edge", f"دلیل: آزادشدنِ پینِ {what} تونلِ «{nm}» — اصلاً وصل نشد",
+                        "چیزی که پین کردی در دسترس نبود؛ برای جلوگیری از قطعی، چرخش به انتخابِ سالم برگشت")
+            return ("warn", "edge", f"دلیل: آزادشدنِ پینِ {what} تونلِ «{nm}» — مسدود بود",
+                    "پروبِ نود دید هیچ ترافیکی از آن مسیر رد نمی‌شود؛ برای جلوگیری از قطعی، چرخش برگشت")
         return ("ok", "edge", f"دلیل: ازسرگیریِ چرخش تونلِ «{nm}»",
                 "لبهٔ دیگری دوباره در دسترسِ چرخش است")
     if kind == "ech":
