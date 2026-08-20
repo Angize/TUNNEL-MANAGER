@@ -6692,10 +6692,10 @@ _EV_DOWN_CODE = {
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
 }
-# Intentional IP MOVES on a datagram rotation pool (udp/raw/flux — tcp is connection-oriented and re-dials
-# instead of emitting these). The core reports these as a
-# "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation
-# or an operator pin. Render them as informational (ok) events, not a red "disconnected". (level, fa)
+# Deliberate steps a carrier takes DURING an outage, on every transport. The core reports them as a
+# "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation,
+# a free rung of the ladder, or an operator pin. Render them as informational (ok) events, not a red
+# "disconnected". (level, fa)
 _EV_ROT_CODE = {
     "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
     "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
