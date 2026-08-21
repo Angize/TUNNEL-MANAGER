@@ -11391,7 +11391,7 @@ function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal
  else{w.innerHTML='';delete SEL['pf_lip']}}   // single-IP node: no picker, and no stale pick
 async function refreshPortfw(){if(listBusy())return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
  if(listBusy())return;   // re-read: a drag may have started during the fetch
- setList(box,PF.length?PF.map(function(p,i){return {k:p.node_id+p.name,h:pfCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>'}]);renderPager('portfw')}
+ setList(box,PF.length?PF.map(function(p,i){return {k:p.node_id.length+':'+p.node_id+p.name,h:pfCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>'}]);renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
  var st=h.rule?(h.reachable?'<span class="badge ok">'+esc(T('pf_active_badge'))+CK+'</span>':'<span class="badge bad">'+esc(T('pf_rule'))+CK+' · '+esc(T('pf_dest'))+XK+'</span>'):'<span class="badge bad">'+esc(T('pf_disabled'))+'</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
