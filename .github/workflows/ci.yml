@@ -25,6 +25,10 @@ name: ci
 #                         panel holds no agent or no core for BOTH arches. The disabled button is not
 #                         the gate: a stale page walks past it and the operation half-completes on the
 #                         node. Drives the real APIs and the page boot under node.
+#   list_diff_keeps_untouched_rows
+#                         a list refresh replaces only the rows whose markup changed. Assigning the
+#                         whole list drops every row, so a half-made selection, a live upload bar and
+#                         an edge box another loop filled all die on a poll the operator did not ask for.
 #   config_contract       the panel's THREE independent ways of building a node body (create / edit /
 #                         rebuild) build the SAME body. This is the guard for the defect class that
 #                         shipped three times in a row under "chain verified end to end": a key that
@@ -175,6 +179,9 @@ jobs:
       - name: the panel refuses an install or a core build it cannot finish
         working-directory: TUNNEL-MANAGER
         run: python tools/readiness_gate_check.py
+      - name: a list refresh replaces only the rows that changed
+        working-directory: TUNNEL-MANAGER
+        run: python tools/list_diff_keeps_untouched_rows_check.py
       - name: a slow peer is served the whole body
         working-directory: TUNNEL-MANAGER
         run: python tools/slow_peer_full_body_check.py

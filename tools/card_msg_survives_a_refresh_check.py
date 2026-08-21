@@ -95,15 +95,15 @@ def main():
                      "and nothing reads it, so the race is back with the code still looking correct")
         print("FAIL  " + failures0)
         return 1
-    # TWICE, not once: the check before the fetch skips the work, and the one before setHTML is what
+    # TWICE, not once: the check before the fetch skips the work, and the one before the paint is what
     # actually stops the paint. Removing only the second still passes a "does it mention listBusy" test
     # while the repaint lands again -- measured.
     for r in ("refreshNodes", "refreshProxies"):
         rb = next((b for n, b, _ in bodies(js) if n == r), "")
         n_lb = rb.count("listBusy()")
-        paint = rb.find("setHTML(")
+        paint = min([i for i in (rb.find("setHTML("), rb.find("setList(")) if i >= 0] or [-1])
         if n_lb < 2 or paint < 0 or "listBusy()" not in rb[:paint]:
-            print("FAIL  %s() reads listBusy() %d time(s) and %s re-check it before setHTML — a test "
+            print("FAIL  %s() reads listBusy() %d time(s) and %s re-check it before it paints — a test "
                   "that started during its fetch loses its card to the repaint"
                   % (r, n_lb, "does not" if paint < 0 else "does not"))
             return 1
@@ -133,10 +133,10 @@ def main():
     painters = {}
     for name, body, _l in bodies(js, want_async=False) + bodies(js, want_async=True):
         for m in per_row.finditer(body):
-            if "className='msg" in body or "setHTML(" in body:
+            if "className='msg" in body or "setHTML(" in body or "setList(" in body:
                 painters.setdefault(m.group(1), set()).add(name)
-    # Mitigation (2) has to be a REAL re-apply, so the shape is pinned: the refresh must rebuild with
-    # setHTML (the house pattern, which also skips an unchanged repaint) and then call the painter with
+    # Mitigation (2) has to be a REAL re-apply, so the shape is pinned: the refresh must rebuild through
+    # setHTML or setList (both skip an unchanged repaint) and then call the painter with
     # the SAME remembered state it just tested -- `if(S)paint(S)`. A bare mention of the painter is not
     # enough: `if(false)pushPaint(PUSHSTATE)` mentions it and re-applies nothing.
     reapplied = set()
@@ -149,7 +149,7 @@ def main():
                               % re.escape(w), body)
                 if not m:
                     continue
-                if "setHTML(" not in body:
+                if "setHTML(" not in body and "setList(" not in body:
                     failures0.append("%s() re-applies %s but rebuilds with a raw innerHTML= — that "
                                      "repaints on every tick even when nothing changed, so the strips are "
                                      "destroyed far more often than they need to be" % (name, w))
