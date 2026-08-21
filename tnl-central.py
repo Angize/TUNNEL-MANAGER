@@ -9274,7 +9274,49 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function el(id){return document.getElementById(id)}
 function v(id){var e=el(id);return e?e.value.trim():''}
 function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t}
-function setHTML(box,html){if(!box)return;if(box._html===html)return;box._html=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
+function setHTML(box,html){if(!box)return;if(box._sig===html)return;box._sig=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
+var _rowBox=null;
+// One row of a keyed list, built from its markup. The key goes on the element so the next pass can
+// find it again; the markup goes on it so the next pass can tell whether the row moved on.
+function rowNode(k,h){if(!_rowBox)_rowBox=document.createElement('div');_rowBox.innerHTML=h;
+ var n=_rowBox.firstElementChild||document.createElement('div');
+ n.setAttribute('data-k',k);n._h=h;return n}
+// Replace only the rows that changed. innerHTML= tears out every row in the list, including the ones
+// whose markup is identical: a selection the operator is half way through making dies with the nodes
+// it lived in, and so does whatever the browser or another loop holds per element — the edge boxes
+// edgesLoop fills on its own cadence, a live upload bar, a focused control. Rows are matched by key,
+// so a reorder moves the nodes the list already has instead of rebuilding them.
+//
+// The caller passes every row it wants, in order, including its own empty-state row: one path, so a
+// list cannot be half-diffed and half-replaced.
+function setList(box,rows){if(!box)return;
+ if(!rows.length){box._sig='';box.textContent='';return}
+ // Most ticks bring nothing. One compare of the whole list answers that far more cheaply than the
+ // row-by-row compare the diff below has to do once it knows something moved. Each key rides in front
+ // of its own markup, length first, so no two different lists can build the same string.
+ var i,j='';for(i=0;i<rows.length;i++)j+=rows[i].k.length+':'+rows[i].k+rows[i].h;
+ if(j===box._sig)return;
+ box._sig=j;
+ var have=Object.create(null),c=box.children,k,keyed=false;
+ for(i=0;i<c.length;i++){k=c[i].getAttribute('data-k');if(k!==null){have[k]=c[i];keyed=true}}
+ // Nothing keyed in there yet — a fresh page, or a skeleton. Parsing the whole list in one go beats
+ // building it a row at a time, and a box with no rows in it has nothing to preserve. It only lines up
+ // while every row is one element; tools/list_diff_keeps_untouched_rows_check.py is what says so, and
+ // the row-at-a-time path below is what carries a list it stops being true for.
+ if(!keyed){box.innerHTML=rows.map(function(r){return r.h}).join('');
+  if(box.children.length===rows.length){
+   for(i=0;i<rows.length;i++){box.children[i].setAttribute('data-k',rows[i].k);box.children[i]._h=rows[i].h}
+   return}
+  box.textContent=''}
+ var prev=null;
+ for(i=0;i<rows.length;i++){var r=rows[i],old=have[r.k],node;
+  if(old&&old._h===r.h)node=old;else{node=rowNode(r.k,r.h);if(old)old.remove()}
+  delete have[r.k];
+  var want=prev?prev.nextSibling:box.firstChild;
+  if(node!==want)box.insertBefore(node,want);
+  prev=node}
+ for(k in have)have[k].remove();
+ while(prev.nextSibling)box.removeChild(prev.nextSibling)}
 function num(x){x=+x;return isFinite(x)?x:0}
 function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),c=Math.floor(s%60);
  if(d>0)return d+' '+T('fmt_day')+' '+T('fmt_and')+' '+h+' '+T('fmt_hr');
@@ -9704,7 +9746,11 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
 // that is no longer in the document. That is the "it lets go by itself for a second or two after a drop".
 function listBusy(){return !!(editingId||CHECKING||RORD||RSAVE)}
 async function refreshNodes(){if(listBusy())return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setHTML(box,cnBanner(NODES)+(NODES.length?NODES.map(nodeCard).join(''):'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>'));renderPager('nodes')}
+ var rows=[],bn=cnBanner(NODES);
+ if(bn)rows.push({k:'__banner',h:bn});
+ NODES.forEach(function(n){rows.push({k:n.id,h:nodeCard(n)})});
+ if(!NODES.length)rows.push({k:'__empty',h:'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>'});
+ setList(box,rows);renderPager('nodes')}
 // The count is the whole point: while the panel is being moved to a new address you can watch the
 // fleet arrive, instead of guessing when it is safe to retire the old one.
 function cnBanner(ns){var k=(ns||[]).filter(cnStale).length;if(!k)return '';
@@ -10016,7 +10062,7 @@ function linkCard(l){
  var F=linkFooter(l,'openLinkEdit');
  return accShell(l,false,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
 async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setHTML(box,FLEET.length?FLEET.map(linkCard).join(''):'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>');renderPager('tunnels')}
+ setList(box,FLEET.length?FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
  if(!type){formErr(m,T('tun_type'));return}
  var L=FLEET.find(function(x){return x.id==id})||{};
@@ -10184,7 +10230,7 @@ function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_su
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setHTML(box,FLEET.length?FLEET.map(coreCard).join(''):'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>');renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
+ setList(box,FLEET.length?FLEET.map(function(l){return {k:l.id,h:coreCard(l)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
 // ===== reorder cards: explicit "reorder mode" (toolbar toggle) + drag by the grip handle =====
 // The user taps the toggle; each card then shows a grip, and dragging THAT live-swaps with the
 // neighbour and persists server-side. Outside reorder mode nothing here fires, so tap / scroll /
@@ -11257,7 +11303,7 @@ function proxiesSkel(){el('view').innerHTML=vhead('globe','nav_proxies','px_sub'
  refreshProxies()}
 async function refreshProxies(){if(listBusy())return;await pxLoad();
  var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setHTML(box,PX.length?PX.map(pxCard).join(''):'<div class="card muted">'+esc(T('px_empty'))+'</div>')}
+ setList(box,PX.length?PX.map(function(p,i){return {k:p.id,h:pxCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('px_empty'))+'</div>'}])}
 // Built like nodeCard: the header carries the dot and folds, the body holds the rest. The dot is the
 // POLLER's verdict, not this button's -- the panel probes every proxy on the same sweep as the nodes.
 function pxCard(p,i){var open=!!TOPEN[p.id];
@@ -11345,7 +11391,7 @@ function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal
  else{w.innerHTML='';delete SEL['pf_lip']}}   // single-IP node: no picker, and no stale pick
 async function refreshPortfw(){if(listBusy())return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
  if(listBusy())return;   // re-read: a drag may have started during the fetch
- setHTML(box,PF.length?PF.map(pfCard).join(''):'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>');renderPager('portfw')}
+ setList(box,PF.length?PF.map(function(p,i){return {k:p.node_id.length+':'+p.node_id+p.name,h:pfCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>'}]);renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
  var st=h.rule?(h.reachable?'<span class="badge ok">'+esc(T('pf_active_badge'))+CK+'</span>':'<span class="badge bad">'+esc(T('pf_rule'))+CK+' · '+esc(T('pf_dest'))+XK+'</span>'):'<span class="badge bad">'+esc(T('pf_disabled'))+'</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
@@ -11466,9 +11512,9 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  loadCoreVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
- // setHTML, not innerHTML=: it skips the rebuild when nothing changed. Then the LIVE upload's bars are
- // re-applied, because this list refreshes every ui_interval and used to wipe them off the screen.
- setHTML(box,nodes.length?nodes.map(agRow).join(''):'<div class="card muted">'+esc(T('ag_no_item'))+'</div>');renderPager('agent');
+ // setList, not innerHTML=: it replaces only the rows that changed, so a live upload bar on a row that
+ // did not is still on screen afterwards. pushPaint still runs, for the rows it did rebuild.
+ setList(box,nodes.length?nodes.map(function(n){return {k:n.id,h:agRow(n)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('ag_no_item'))+'</div>'}]);renderPager('agent');
  if(PUSHSTATE)pushPaint(PUSHSTATE);
  if(!PUSHJOB)pushAdopt()}
 var CORVERS=[],STAGED=null;
@@ -11704,9 +11750,9 @@ function logChipsHTML(){
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   // «فقط خطاها» now hides at 0 just like every other category
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 // The filtered list. Each card carries a colored category badge before the title.
-function logListHTML(){
+function logRows(){
  var evs=LOGEVS.filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':logCat(e)==LOGFILTER;});
- if(!evs.length)return '<div class="card muted">'+esc(T('logc_none'))+'</div>';
+ if(!evs.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T('logc_none'))+'</div>'}];
  return evs.map(function(e){
    var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
@@ -11716,7 +11762,7 @@ function logListHTML(){
    var k=evKey(e);
    var tap=evFolds(p.lines)?(' logtap" role="button" tabindex="0" aria-expanded="'+(LOGOPEN[k]?'true':'false')+
      '" onclick="logFold(\\''+k+'\\',event)" onkeydown="logKey(event,\\''+k+'\\')'):'';
-   return '<div class="card logcard'+tap+'">'+
+   return {k:k,h:'<div class="card logcard'+tap+'">'+
      '<span class="lstripe" style="background:'+col+'"></span>'+
      '<div class="lbody">'+
        '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
@@ -11724,10 +11770,11 @@ function logListHTML(){
          '<div class="lhead"><span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
            '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span></div>'+
          evDetail(p.lines,evKey(e))+'</div>'+
-     '</div></div>';}).join('');}
-// A stable per-card key for the fold state. Events carry no id and the list is rebuilt from scratch on
-// every poll, so the key has to come from the content — which never changes once logged. Hashed to a
-// bare number so it is safe both as a DOM id and inside the onclick's string literal.
+     '</div></div>'};});}
+// A stable per-card key. Events carry no id, so it comes from the content — which never changes once
+// logged. It is both the fold state's key and the row's, which is what lets a poll that brings nothing
+// new leave every card exactly where it is. Hashed to a bare number so it is safe as a DOM id and
+// inside the onclick's string literal.
 function evKey(e){var s=(e.ts||0)+'|'+(e.fa||'')+'|'+(e.dfa||''),h=0;
  for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;
  return 'k'+(h>>>0);}
@@ -11736,7 +11783,7 @@ function evKey(e){var s=(e.ts||0)+'|'+(e.fa||'')+'|'+(e.dfa||''),h=0;
 // don't change on a filter pick, so an in-place highlight is enough; a full refreshLogs still rebuilds.
 function logFilter(k){LOGFILTER=k;var ch=el('logChips');
  if(ch){var cs=ch.querySelectorAll('.fchip');for(var i=0;i<cs.length;i++)cs[i].classList.toggle('on',cs[i].getAttribute('data-f')===k);}
- var box=el('logList');if(box)setHTML(box,logListHTML());}
+ var box=el('logList');if(box)setList(box,logRows());}
 // Split an event into a clean title + detail lines. Every event carries its structure in dfa
 // (detail, possibly multi-line); an event with no detail is title-only.
 function evParts(e){
@@ -11793,11 +11840,11 @@ function logKey(e,id){if(e.key===' '||e.key==='Enter'){e.preventDefault();logFol
 
 async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
  var ch=el('logChips');
- if(!LOGEVS.length){if(ch)ch.innerHTML='';setHTML(box,'<div class="card muted">'+esc(T('logs_empty'))+'</div>');return;}
+ if(!LOGEVS.length){if(ch)ch.innerHTML='';setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T('logs_empty'))+'</div>'}]);return;}
  // Preserve the row's horizontal scroll across the rebuild — the periodic poll calls refreshLogs, and a
  // bare innerHTML swap would reset scrollLeft to 0 and snap the tabs back to the start every few seconds.
  if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML();var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl;}
- setHTML(box,logListHTML());}
+ setList(box,logRows());}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}

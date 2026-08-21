@@ -73,8 +73,9 @@ const naptime = ms => new Promise(r => setTimeout(r, ms));   // the page already
 
 // Spy on the one call that destroys the cards. Everything else is the page's own code.
 let SETHTML_WHILE_DRAGGING = 0, SETHTML_TOTAL = 0;
-const realSetHTML = setHTML;
+const realSetHTML = setHTML, realSetList = setList;
 setHTML = function (box, html) { SETHTML_TOTAL++; if (RORD) SETHTML_WHILE_DRAGGING++; return realSetHTML(box, html) };
+setList = function (box, rows) { SETHTML_TOTAL++; if (RORD) SETHTML_WHILE_DRAGGING++; return realSetList(box, rows) };
 renderPager = () => {};
 coreCard = () => '<div></div>';
 
