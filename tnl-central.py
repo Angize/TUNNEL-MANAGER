@@ -5763,6 +5763,10 @@ def api_edge_status(d):
     node_now = int(r.get("now") or 0)
     pair = r.get("pair") if isinstance(r.get("pair"), dict) else {}
     return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
+            # `ready` is the core's own "a carrier is up on this path RIGHT NOW". `active` is a display
+            # label the core only ever WRITES -- it is never cleared on a disconnect -- so anything that
+            # asks "is this tunnel down?" has to read this, not the emptiness of that.
+            "ready": bool(r.get("ready")),
             "pair": {"low": str(pair.get("low") or ""), "high": str(pair.get("high") or "")},
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
@@ -6378,8 +6382,12 @@ def _ech_pool_state(lid):
     """Read the client core's live edge health once and classify it for the ECH auto-heal. Returns
     (reachable, down, stalled):
       reachable — the client node answered (a merely-offline node is not actionable; a rebuild can't help).
-      down      — reachable but NO active edge: the 'ECH rotation broke the live tunnel' signal.
-      stalled   — reachable WITH an active edge still coasting on an already-open connection, YET the pool
+      down      — reachable and the core reports NO live carrier: the 'ECH rotation broke the live
+                  tunnel' signal. Read from `ready`, not from `active`: the core writes `active` on a
+                  successful connect and never clears it on a disconnect, so `not active` was False for
+                  the life of the process once the pool had connected once -- and this whole auto-heal
+                  could never fire for a ws pool.
+      stalled   — reachable WITH a live carrier still coasting on an already-open connection, YET the pool
                   can no longer build a fresh edge because new establishes fail on TLS/ECH: at least one IP
                   edge is suspect/dead AND the event ring carries a recent tls-coded failure (the stale-ECH
                   cert-verify signature — cloudflare-ech.com). This is the stale-ECH-but-active-still-up
@@ -6393,7 +6401,7 @@ def _ech_pool_state(lid):
     reachable = bool(st.get("ok")) and not st.get("error")
     if not reachable:
         return (False, False, False)
-    active = str(st.get("active") or "")
+    ready = bool(st.get("ready"))
     ips = [h for h in (st.get("health") or []) if isinstance(h, dict) and h.get("kind") == "ip"]
     any_bad = any(str(h.get("state")) in ("suspect", "dead") for h in ips)
     now = int(st.get("now") or 0) or int(time.time())
@@ -6402,8 +6410,8 @@ def _ech_pool_state(lid):
         and (now - int(e.get("ts") or 0)) <= 900          # within the last 15 min (one refresh window)
         for e in (st.get("events") or []) if isinstance(e, dict)
     )
-    stalled = bool(active) and any_bad and tls_recent
-    return (True, not active, stalled)
+    stalled = ready and any_bad and tls_recent
+    return (True, not ready, stalled)
 
 
 def _ech_write(lid, kind, updates, degrade):
