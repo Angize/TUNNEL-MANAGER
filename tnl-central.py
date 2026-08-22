@@ -5767,7 +5767,9 @@ def api_edge_status(d):
             # label the core only ever WRITES -- it is never cleared on a disconnect -- so anything that
             # asks "is this tunnel down?" has to read this, not the emptiness of that.
             "ready": bool(r.get("ready")),
-            "pair": {"low": str(pair.get("low") or ""), "high": str(pair.get("high") or "")},
+            "pair": {"low": str(pair.get("low") or ""), "high": str(pair.get("high") or ""),
+                     "low_kind": str(pair.get("low_kind") or ""),
+                     "high_kind": str(pair.get("high_kind") or "")},
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
@@ -9125,7 +9127,7 @@ var I18N={fa:{
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
- pa_restore:"بازگرداندن به چرخش",pa_testnow:"الان تست کن",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
+ pa_restore:"بازگرداندن به چرخش",pa_testnow:"صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
@@ -10550,7 +10552,7 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
     if(dead){
       acts='<button type="button" class="eib" title="'+esc(T('pa_restore'))+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
     }else{
-      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolProbeNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
+      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolRetestNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
       if(d.lid){var pend=d.pinPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
         if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
         else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';}
@@ -10589,7 +10591,11 @@ _eeS.PoolLid='';
 function poolApplyStatus(pfx,st){var d=poolGet(pfx);var pr=st.pair||{};
   // The machine-readable pair, not the display label: splitting «active» by eye is what let a verdict
   // be keyed on a combination the carrier had already left.
-  d.act={ip:String(pr.high||''),sni:String(pr.low||'')};
+  // Map by the kind the core stamped, never by position: which axis is the cheap one is the core's
+  // decision and it has changed once already.
+  d.act={ip:'',sni:''};
+  if(pr.low_kind)d.act[pr.low_kind]=String(pr.low||'');
+  if(pr.high_kind)d.act[pr.high_kind]=String(pr.high||'');
   d.live={};(st.health||[]).forEach(function(h){if(h&&h.key)d.live[(h.kind=='sni'?'sni':'ip')+':'+h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
   d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
   // release the pin lock once the chosen edge is confirmed active (or after a 12s safety timeout)
@@ -10601,7 +10607,7 @@ async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){_cdTick(el('ee_lst_'+k),d.srvNow,d.polledMs)})}
 setInterval(poolCdTick,1000);
 // "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
-async function poolProbeNow(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
+async function poolRetestNow(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var r=await post('pool-retest-now',{id:lid,kind:kind,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
 // "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
@@ -10673,7 +10679,7 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   // the edge can rejoin rotation sooner. A healthy IP has nothing to test, and there is no single-IP
   // probe op — the core retests every burned edge at once, the same pool-wide SIGHUP the WS-CDN
   // per-row probe uses.
-  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerProbeNow(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('redo')+'</button>';
+  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerRetestNow(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('redo')+'</button>';
   // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
   // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
   // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
@@ -10726,7 +10732,7 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
 // «الان تست کن», on both pools. It must NOT claim a probe was sent: core's probeAllNow only sets
 // nextRetest = now, and nothing dials until the next rotation or failover.
-async function peerProbeNow(side,key){if(!_peerLid)return;
+async function peerRetestNow(side,key){if(!_peerLid)return;
   var r=await post('peer-retest-now',{id:_peerLid,kind:(side=='src'?'src':'dst'),key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(perr(r),'err')}}

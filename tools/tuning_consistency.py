@@ -292,14 +292,17 @@ def main():
 
     # And the axis KIND strings, which tag both the health rows and the pin/retest commands. The node
     # filters on them and refuses anything else, so a rename on one side silently empties a whole view.
+    # Order-free on purpose: WHICH axis is the low digit is the core's decision and it has already
+    # changed once -- the edge pool swapped, so the edge is now the cheap digit and the domain the
+    # one a spent row condemns. What must hold is that all four names exist and the node takes them.
     kinds_go = set()
     for f in ("peer_pool.go", "ws_pool.go"):
         src = (Path(a.core) / "internal" / "packet" / f).read_text(encoding="utf-8")
-        kinds_go |= set(re.findall(r'return "(dst|src|sni|ip)", "(?:dst|src|sni|ip)"', src))
-        kinds_go |= set(re.findall(r'kinds\(\) \(string, string\) \{ return "(?:dst|sni)", "(src|ip)" \}', src))
-    node_kinds = set(re.findall(r'kind not in \("dst", "src", "ip", "sni"\)', node_src))
-    check(kinds_go >= {"dst", "sni"},
-          "the core names its axes: %s" % sorted(kinds_go))
+        for lo, hi in re.findall(r'kinds.*return "(dst|src|sni|ip)", "(dst|src|sni|ip)"', src):
+            kinds_go |= {lo, hi}
+    node_kinds = set(re.findall(r'kind not in ."dst", "src", "ip", "sni".', node_src))
+    check(kinds_go == {"dst", "src", "ip", "sni"},
+          "the core names all four axes: %s" % sorted(kinds_go))
     check(bool(node_kinds),
           "the node accepts exactly the four axis kinds the core tags its rows with")
 

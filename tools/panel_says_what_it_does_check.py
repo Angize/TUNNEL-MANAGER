@@ -40,8 +40,8 @@ def main():
                      "read its subject, so it must not report success")
         return report()
 
-    for name, fn, endpoint in (("direct", "peerProbeNow", "peer-retest-now"),
-                               ("ws edge", "poolProbeNow", "pool-retest-now")):
+    for name, fn, endpoint in (("direct", "peerRetestNow", "peer-retest-now"),
+                               ("ws edge", "poolRetestNow", "pool-retest-now")):
         m = re.search(r"async function " + fn + r"\((?P<args>[^)]*)\)\{.*?\n(?=[/a-zA-Z])", js, re.S)
         if not m:
             fails.append("the %s pool's probe button was not found in the decoded JS (it moved, and this "
