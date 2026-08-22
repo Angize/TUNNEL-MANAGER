@@ -5763,6 +5763,10 @@ def api_edge_status(d):
     node_now = int(r.get("now") or 0)
     pair = r.get("pair") if isinstance(r.get("pair"), dict) else {}
     return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
+            # `ready` is the core's own "a carrier is up on this path RIGHT NOW". `active` is a display
+            # label the core only ever WRITES -- it is never cleared on a disconnect -- so anything that
+            # asks "is this tunnel down?" has to read this, not the emptiness of that.
+            "ready": bool(r.get("ready")),
             "pair": {"low": str(pair.get("low") or ""), "high": str(pair.get("high") or "")},
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
@@ -6378,8 +6382,12 @@ def _ech_pool_state(lid):
     """Read the client core's live edge health once and classify it for the ECH auto-heal. Returns
     (reachable, down, stalled):
       reachable — the client node answered (a merely-offline node is not actionable; a rebuild can't help).
-      down      — reachable but NO active edge: the 'ECH rotation broke the live tunnel' signal.
-      stalled   — reachable WITH an active edge still coasting on an already-open connection, YET the pool
+      down      — reachable and the core reports NO live carrier: the 'ECH rotation broke the live
+                  tunnel' signal. Read from `ready`, not from `active`: the core writes `active` on a
+                  successful connect and never clears it on a disconnect, so `not active` was False for
+                  the life of the process once the pool had connected once -- and this whole auto-heal
+                  could never fire for a ws pool.
+      stalled   — reachable WITH a live carrier still coasting on an already-open connection, YET the pool
                   can no longer build a fresh edge because new establishes fail on TLS/ECH: at least one IP
                   edge is suspect/dead AND the event ring carries a recent tls-coded failure (the stale-ECH
                   cert-verify signature — cloudflare-ech.com). This is the stale-ECH-but-active-still-up
@@ -6393,7 +6401,7 @@ def _ech_pool_state(lid):
     reachable = bool(st.get("ok")) and not st.get("error")
     if not reachable:
         return (False, False, False)
-    active = str(st.get("active") or "")
+    ready = bool(st.get("ready"))
     ips = [h for h in (st.get("health") or []) if isinstance(h, dict) and h.get("kind") == "ip"]
     any_bad = any(str(h.get("state")) in ("suspect", "dead") for h in ips)
     now = int(st.get("now") or 0) or int(time.time())
@@ -6402,8 +6410,8 @@ def _ech_pool_state(lid):
         and (now - int(e.get("ts") or 0)) <= 900          # within the last 15 min (one refresh window)
         for e in (st.get("events") or []) if isinstance(e, dict)
     )
-    stalled = bool(active) and any_bad and tls_recent
-    return (True, not active, stalled)
+    stalled = ready and any_bad and tls_recent
+    return (True, not ready, stalled)
 
 
 def _ech_write(lid, kind, updates, degrade):
@@ -9276,19 +9284,40 @@ function v(id){var e=el(id);return e?e.value.trim():''}
 function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t}
 function setHTML(box,html){if(!box)return;if(box._sig===html)return;box._sig=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
 var _rowBox=null;
-// One row of a keyed list, built from its markup. The key goes on the element so the next pass can
-// find it again; the markup goes on it so the next pass can tell whether the row moved on.
+// A row parsed out of its markup. The key goes on the element so the next pass can find it again, and
+// the markup goes on it so the next pass can tell whether the row moved on. A fresh row is either put
+// in the list or, when the list already holds that key, used as the shape to bring the old one up to.
 function rowNode(k,h){if(!_rowBox)_rowBox=document.createElement('div');_rowBox.innerHTML=h;
  var n=_rowBox.firstElementChild||document.createElement('div');
  n.setAttribute('data-k',k);n._h=h;return n}
-// Replace only the rows that changed. innerHTML= tears out every row in the list, including the ones
-// whose markup is identical: a selection the operator is half way through making dies with the nodes
-// it lived in, and so does whatever the browser or another loop holds per element — the edge boxes
-// edgesLoop fills on its own cadence, a live upload bar, a focused control. Rows are matched by key,
-// so a reorder moves the nodes the list already has instead of rebuilding them.
+// Bring a row that changed up to date where it stands, instead of swapping it out. A card carrying a
+// live figure changes on every poll, and swapping it takes everything the document holds per node with
+// it — a selection the operator is making, a scroll position, whatever another loop wrote inside. This
+// walks the two in step and touches only what differs. False means they are not the same kind of node,
+// which is the caller's cue to swap after all.
+function morphNode(a,b){
+ if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName)return false;
+ if(a.nodeType!==1){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue;return true}
+ var i,at,bt=b.attributes;
+ for(i=bt.length-1;i>=0;i--)if(a.getAttribute(bt[i].name)!==bt[i].value)a.setAttribute(bt[i].name,bt[i].value);
+ at=a.attributes;
+ for(i=at.length-1;i>=0;i--)if(!b.hasAttribute(at[i].name))a.removeAttribute(at[i].name);
+ var an=a.firstChild,bn=b.firstChild;
+ while(bn){var bx=bn.nextSibling;
+  if(!an){a.appendChild(bn);bn=bx;continue}
+  var ax=an.nextSibling;
+  if(!morphNode(an,bn))a.replaceChild(bn,an);
+  an=ax;bn=bx}
+ while(an){var dead=an;an=an.nextSibling;a.removeChild(dead)}
+ return true}
+// Bring a list up to date without taking it apart. innerHTML= tears out every row, including the ones
+// that came back identical; a row this finds by key is either left alone or updated where it stands,
+// so nothing the document holds per node is thrown away — a selection the operator is half way through
+// making, an edge box edgesLoop filled on its own cadence, a live upload bar, a focused control. A
+// reorder moves the nodes the list already has.
 //
 // The caller passes every row it wants, in order, including its own empty-state row: one path, so a
-// list cannot be half-diffed and half-replaced.
+// list cannot be half-updated and half-assigned.
 function setList(box,rows){if(!box)return;
  if(!rows.length){box._sig='';box.textContent='';return}
  // Most ticks bring nothing. One compare of the whole list answers that far more cheaply than the
@@ -9310,7 +9339,10 @@ function setList(box,rows){if(!box)return;
   box.textContent=''}
  var prev=null;
  for(i=0;i<rows.length;i++){var r=rows[i],old=have[r.k],node;
-  if(old&&old._h===r.h)node=old;else{node=rowNode(r.k,r.h);if(old)old.remove()}
+  if(old&&old._h===r.h)node=old;
+  else{var fresh=rowNode(r.k,r.h);
+   if(old&&morphNode(old,fresh)){old._h=r.h;node=old}
+   else{if(old)old.remove();node=fresh}}
   delete have[r.k];
   var want=prev?prev.nextSibling:box.firstChild;
   if(node!==want)box.insertBefore(node,want);
