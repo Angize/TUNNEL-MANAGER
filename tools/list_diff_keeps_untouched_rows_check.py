@@ -12,7 +12,7 @@ that is polling every couple of seconds.
 INDEX_HTML against a small DOM and asserts what the operator actually needs:
 
   * a row whose markup did not change keeps the very node it had — same object, not an equal one
-  * a row whose markup did change is replaced
+  * a row whose markup DID change keeps its nodes too, and is brought up to date inside them
   * a reorder moves the nodes the list already has
   * rows that left are gone, and the list is exactly what was asked for
   * a tick that changes nothing touches the document at all
@@ -41,36 +41,74 @@ PANEL = Path(__file__).resolve().parent.parent / "tnl-central.py"
 PRELUDE = r"""
 const noop = () => {};
 let NODE_SERIAL = 0;
+class Txt {
+  constructor(v){ this.serial = ++NODE_SERIAL; this.nodeType = 3; this.nodeName = '#text'; this.nodeValue = v; this.parent = null; }
+  get nextSibling(){ if(!this.parent) return null; const i = this.parent.nodes.indexOf(this); return this.parent.nodes[i+1] || null; }
+  get textContent(){ return this.nodeValue; }
+  get outer(){ return this.nodeValue; }
+}
 class El {
-  constructor(tag){ this.tag = tag; this.serial = ++NODE_SERIAL; this.attrs = {}; this.kids = []; this.parent = null; this.text = ''; }
-  get children(){ return this.kids; }
-  get firstChild(){ return this.kids[0] || null; }
-  get firstElementChild(){ return this.kids[0] || null; }
-  get nextSibling(){ if(!this.parent) return null; const i = this.parent.kids.indexOf(this); return this.parent.kids[i+1] || null; }
-  setAttribute(k, v){ this.attrs[k] = String(v); }
-  getAttribute(k){ return k in this.attrs ? this.attrs[k] : null; }
+  constructor(tag){ this.serial = ++NODE_SERIAL; this.nodeType = 1; this.tag = tag;
+    this.nodeName = tag.toUpperCase(); this.attrs = new Map(); this.nodes = []; this.parent = null; }
+  get children(){ return this.nodes.filter(n => n.nodeType === 1); }
+  get childNodes(){ return this.nodes; }
+  get firstChild(){ return this.nodes[0] || null; }
+  get firstElementChild(){ return this.children[0] || null; }
+  get nextSibling(){ if(!this.parent) return null; const i = this.parent.nodes.indexOf(this); return this.parent.nodes[i+1] || null; }
+  get attributes(){ return [...this.attrs].map(([name, value]) => ({name, value})); }
+  setAttribute(k, v){ this.attrs.set(k, String(v)); }
+  getAttribute(k){ return this.attrs.has(k) ? this.attrs.get(k) : null; }
+  hasAttribute(k){ return this.attrs.has(k); }
+  removeAttribute(k){ this.attrs.delete(k); }
   insertBefore(node, ref){
-    if (node.parent) node.parent.kids.splice(node.parent.kids.indexOf(node), 1);
+    if (node.parent) node.parent.nodes.splice(node.parent.nodes.indexOf(node), 1);
     node.parent = this;
-    const at = ref ? this.kids.indexOf(ref) : this.kids.length;
-    this.kids.splice(at < 0 ? this.kids.length : at, 0, node);
+    const at = ref ? this.nodes.indexOf(ref) : this.nodes.length;
+    this.nodes.splice(at < 0 ? this.nodes.length : at, 0, node);
     return node;
   }
   appendChild(node){ return this.insertBefore(node, null); }
-  removeChild(node){ const i = this.kids.indexOf(node); if (i >= 0) { this.kids.splice(i, 1); node.parent = null; } return node; }
+  replaceChild(fresh, old){ const i = this.nodes.indexOf(old);
+    if (fresh.parent) fresh.parent.nodes.splice(fresh.parent.nodes.indexOf(fresh), 1);
+    fresh.parent = this; old.parent = null; this.nodes[i] = fresh; return old; }
+  removeChild(node){ const i = this.nodes.indexOf(node); if (i >= 0) { this.nodes.splice(i, 1); node.parent = null; } return node; }
   remove(){ if (this.parent) this.parent.removeChild(this); }
-  set textContent(v){ for (const k of this.kids) k.parent = null; this.kids = []; this.text = String(v); }
-  get textContent(){ return this.kids.length ? this.kids.map(k => k.textContent).join('') : this.text; }
-  set innerHTML(h){
-    for (const k of this.kids) k.parent = null;
-    this.kids = [];
-    for (const piece of splitTop(String(h))) this.appendChild(parseOne(piece));
-  }
-  get innerHTML(){ return this.kids.map(k => k.outer).join(''); }
-  get outer(){ return this._outer || ''; }
-  get content(){ return this; }
+  set textContent(v){ for (const n of this.nodes) n.parent = null; this.nodes = []; if (v !== '') this.appendChild(new Txt(String(v))); }
+  get textContent(){ return this.nodes.map(n => n.textContent).join(''); }
+  set innerHTML(h){ for (const n of this.nodes) n.parent = null; this.nodes = []; for (const n of parseNodes(String(h))) this.appendChild(n); }
+  get innerHTML(){ return this.nodes.map(n => n.outer).join(''); }
+  get outer(){ const at = [...this.attrs].map(([k, v]) => ` ${k}="${v}"`).join('');
+    return `<${this.tag}${at}>${this.innerHTML}</${this.tag}>`; }
 }
-// Split a string of sibling elements at depth 0. Good enough for markup the panel itself produced.
+const VOID = /^(br|hr|img|input|meta|link|source)$/i;
+// A parser, not a splitter: morphNode walks text nodes and nested elements, so the guard has to have
+// them. Markup the panel itself produced, so no error recovery.
+function parseNodes(h){
+  const out = []; let i = 0;
+  while (i < h.length) {
+    const lt = h.indexOf('<', i);
+    if (lt < 0) { if (h.slice(i)) out.push(new Txt(h.slice(i))); break; }
+    if (lt > i) out.push(new Txt(h.slice(i, lt)));
+    const gt = h.indexOf('>', lt);
+    const raw = h.slice(lt + 1, gt);
+    const tag = /^([a-zA-Z][\w-]*)/.exec(raw)[1];
+    const el = new El(tag);
+    const attr = /([:\w-]+)\s*=\s*"([^"]*)"/g;
+    let m; while ((m = attr.exec(raw))) el.attrs.set(m[1], m[2]);
+    if (VOID.test(tag) || /\/\s*$/.test(raw)) { out.push(el); i = gt + 1; continue; }
+    // find this tag's own closing tag, counting nested ones of the same name
+    let depth = 1, at = gt + 1, close = -1;
+    const same = new RegExp('<(/?)' + tag + '(?=[\s/>])', 'gi'); same.lastIndex = at;
+    let mm; while ((mm = same.exec(h))) { depth += mm[1] ? -1 : 1; if (!depth) { close = mm.index; break; } }
+    const inner = close < 0 ? h.slice(at) : h.slice(at, close);
+    for (const n of parseNodes(inner)) el.appendChild(n);
+    i = close < 0 ? h.length : h.indexOf('>', close) + 1;
+    out.push(el);
+  }
+  return out;
+}
+// Counting a real card's root elements needs nothing but tag depth, and the little parser above is
+// only ever fed the guard's own rows.
 function splitTop(h){
   const out = []; let depth = 0, start = -1;
   const tag = /<(\/?)([a-zA-Z][\w-]*)([^>]*)>/g;
@@ -83,14 +121,6 @@ function splitTop(h){
     else if (depth === 0) out.push(m[0]);
   }
   return out;
-}
-function parseOne(piece){
-  const m = /^<([a-zA-Z][\w-]*)/.exec(piece);
-  const el = new El(m ? m[1] : 'div');
-  el._outer = piece;
-  const inner = piece.replace(/^<[^>]*>/, '').replace(/<\/[^>]*>$/, '');
-  el.text = inner.replace(/<[^>]*>/g, '');
-  return el;
 }
 globalThis.window = globalThis;
 globalThis.document = { createElement: t => new El(t), getElementById: () => null,
@@ -122,14 +152,56 @@ setList(box, rows([['a', 'A1'], ['b', 'B1'], ['c', 'C1']]));
 out.first = {keys: keys(), tagged: box.children.every(c => c.getAttribute('data-k') && c._h)};
 const s0 = serials();
 
-// one row's markup moved on; the other two came back identical
+// one row's markup moved on; the other two came back identical. The changed one has to end up
+// showing the new markup WITHOUT being taken out of the document, and the text node it shows it in
+// has to be the same one — that is the node a selection lives in.
+const textNode = box.children[0].firstChild;
 setList(box, rows([['a', 'A2'], ['b', 'B1'], ['c', 'C1']]));
 const s1 = serials();
-out.oneChanged = {replaced: s1[0] !== s0[0], keptB: s1[1] === s0[1], keptC: s1[2] === s0[2]};
+out.oneChanged = {keptA: s1[0] === s0[0], keptB: s1[1] === s0[1], keptC: s1[2] === s0[2],
+  sameTextNode: box.children[0].firstChild === textNode,
+  showsTheNewText: box.children[0].textContent === 'A2',
+  markupRemembered: box.children[0]._h.indexOf('A2') > 0};
 
 // a tick that brings nothing back at all
 setList(box, rows([['a', 'A2'], ['b', 'B1'], ['c', 'C1']]));
 out.nothingChanged = {allKept: JSON.stringify(serials()) === JSON.stringify(s1)};
+
+// a row that loses a child, and one that gains one: what is left over has to go, and what is new has
+// to arrive, or the row shows a mixture of the two polls
+const raw = h => [{k: 'r', h}];
+const rbox = document.createElement('div');
+setList(rbox, raw('<div id="r"><b>x</b><i>y</i><u>z</u></div>'));
+const rnode = rbox.children[0];
+setList(rbox, raw('<div id="r"><b>x</b></div>'));
+out.shrank = {kept: rbox.children[0] === rnode, html: rbox.children[0].outer};
+setList(rbox, raw('<div id="r"><b>x</b><i>y2</i></div>'));
+out.grew = {kept: rbox.children[0] === rnode, html: rbox.children[0].outer};
+
+// attributes: a card's inline handler carries the row's own index, so a row left holding the last
+// poll's attributes acts on whatever used to be in its place.
+setList(rbox, raw('<div id="r" class="card" onclick="act(1)">x</div>'));
+const anode = rbox.children[0];
+setList(rbox, raw('<div id="r" class="card off" onclick="act(2)" title="t">x</div>'));
+out.attrs = {kept: rbox.children[0] === anode, cls: rbox.children[0].getAttribute('class'),
+  click: rbox.children[0].getAttribute('onclick'), title: rbox.children[0].getAttribute('title')};
+setList(rbox, raw('<div id="r" class="card">x</div>'));
+out.attrsDropped = {title: rbox.children[0].getAttribute('title'),
+  click: rbox.children[0].getAttribute('onclick'), kept: rbox.children[0] === anode};
+
+// a child that changed KIND has to be swapped for the new one, not have the new one's attributes
+// painted onto it: a span wearing a div's markup is the wrong element in the wrong place.
+setList(rbox, raw('<div id="r"><b>keep</b><span class="v">1</span></div>'));
+const knode = rbox.children[0], kkid = rbox.children[0].children[0];
+setList(rbox, raw('<div id="r"><b>keep</b><i class="v">2</i></div>'));
+out.childKind = {rowKept: rbox.children[0] === knode, siblingKept: rbox.children[0].children[0] === kkid,
+  html: rbox.children[0].outer};
+
+// a row whose own kind changed cannot be updated in place; it has to be swapped
+setList(rbox, raw('<div id="r">x</div>'));
+const before = rbox.children[0];
+setList(rbox, raw('<section id="r">x</section>'));
+out.rowKind = {swapped: rbox.children[0] !== before, html: rbox.children[0].outer};
 
 // the operator reordered the cards: the same nodes must move
 setList(box, rows([['c', 'C1'], ['a', 'A2'], ['b', 'B1']]));
@@ -217,10 +289,35 @@ def main():
     ok(got["first"]["keys"] == "a,b,c" and got["first"]["tagged"],
        "the first fill lays the rows out and keys every one of them",
        "the first fill did not key its rows: %r" % (got["first"],))
-    ok(got["oneChanged"]["replaced"] and got["oneChanged"]["keptB"] and got["oneChanged"]["keptC"],
-       "a changed row is replaced and the untouched ones keep the very nodes they had",
-       "a refresh replaced rows that did not change: %r — a selection in one of them dies with it"
-       % (got["oneChanged"],))
+    oc = got["oneChanged"]
+    ok(oc["keptA"] and oc["keptB"] and oc["keptC"],
+       "no row is taken out of the document, changed or not",
+       "a refresh took rows out of the document: %r — a selection in one of them dies with it" % (oc,))
+    ok(oc["sameTextNode"] and oc["showsTheNewText"] and oc["markupRemembered"],
+       "the row that changed is brought up to date in the nodes it already had",
+       "the changed row did not update in place: %r" % (oc,))
+    ok(got["shrank"]["kept"] and got["shrank"]["html"] == '<div id="r" data-k="r"><b>x</b></div>',
+       "a row that lost children keeps its node and loses exactly them",
+       "a row that lost children came out wrong: %r" % (got["shrank"],))
+    ok(got["grew"]["kept"] and got["grew"]["html"] == '<div id="r" data-k="r"><b>x</b><i>y2</i></div>',
+       "a row that gained a child keeps its node and gains exactly it",
+       "a row that gained a child came out wrong: %r" % (got["grew"],))
+    ok(got["attrs"]["kept"] and got["attrs"]["cls"] == "card off"
+       and got["attrs"]["click"] == "act(2)" and got["attrs"]["title"] == "t",
+       "a row's attributes follow the new markup without the row leaving the document",
+       "attributes did not follow the new markup: %r — the row is left acting on the last poll" % (got["attrs"],))
+    ok(got["attrsDropped"]["title"] is None and got["attrsDropped"]["click"] is None
+       and got["attrsDropped"]["kept"],
+       "an attribute the new markup dropped is gone from the row",
+       "an attribute outlived the markup that put it there: %r" % (got["attrsDropped"],))
+    ok(got["childKind"]["rowKept"] and got["childKind"]["siblingKept"]
+       and got["childKind"]["html"] == '<div id="r" data-k="r"><b>keep</b><i class="v">2</i></div>',
+       "a child that changed kind is swapped, and its siblings are not",
+       "a child that changed kind came out wrong: %r" % (got["childKind"],))
+    ok(got["rowKind"]["swapped"]
+       and got["rowKind"]["html"] == '<section id="r" data-k="r">x</section>',
+       "a row whose own kind changed is swapped rather than painted over",
+       "a row that changed kind came out wrong: %r" % (got["rowKind"],))
     ok(got["nothingChanged"]["allKept"],
        "a tick that brings nothing back touches nothing",
        "a tick with no new data still rebuilt rows: %r" % (got["nothingChanged"],))
