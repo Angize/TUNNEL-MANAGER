@@ -6681,6 +6681,14 @@ def _ev_ip(detail):
     then the rotation event renders exactly as before (no box), so a non-IP detail can never mislabel."""
     m = re.search(r"\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?", str(detail or ""))
     return m.group(0) if m else ""
+def _ev_value(detail):
+    """The value out of a core event's tagged detail («ip:1.2.3.4:443», «sni:a.example»). Unlike _ev_ip
+    this keeps a DOMAIN, which the edge pool's own axis carries. Empty when there is no tag to strip,
+    so a detail in some other shape renders as no box rather than as a mislabelled one."""
+    tag, _, rest = str(detail or "").partition(":")
+    return rest.strip() if tag in ("ip", "sni") and rest.strip() else ""
+
+
 _ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
 
 # Map the CORE's stable reason codes (it saw the real error) to bilingual text for the log. This is
@@ -6718,6 +6726,8 @@ _EV_UP_CODE = {
 _EV_ROT_CODE = {
     "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
     "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
+    "edge-rotate": ("ok", "چرخش لبهٔ CDN"),
+    "sni-rotate":  ("ok", "چرخش دامنه"),
     # The core gave up its session and handshaked again BEFORE condemning any address — a peer that
     # restarted makes a good path carry nothing, and one round trip settles that. It is a deliberate
     # step during an outage, so warn rather than the red "disconnected" an unknown code would get.
@@ -6725,7 +6735,10 @@ _EV_ROT_CODE = {
     # The cheapest step of all: the source port is redrawn because THIS 4-tuple stopped answering.
     # Written once per outage, not once per redraw — the core keeps redrawing every few seconds while
     # the tuple stays dead, and a line each would bury the burn and the re-handshake that follow.
-    "port-roll": ("warn", "چرخشِ پورتِ مبدأ، پیش از سوزاندنِ هر آدرسی"),
+    # Written only once the tunnel is CARRYING again, and only for the port it came back on. A draw
+    # that did not work is not news: the ladder redraws every few seconds, so writing at the draw meant
+    # a line per draw for a tunnel that never returned.
+    "port-roll": ("ok", "با چرخشِ پورتِ مبدأ برگشت"),
     # A ws client whose carriers keep dying too fast for the probe to judge them walks its edges once.
     # Also once per outage: the lap that follows is the same fact repeated.
     "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
@@ -6944,6 +6957,7 @@ def _events_once():
     links = load_links()
     nmap = {n["id"]: n.get("name", "") for n in nodes}
     first = not _ev_state["init"]
+    rotated = set()   # links whose ring already reported a rotation this pass; the poll-diff defers to it
 
     # --- nodes: online <-> offline (only for nodes actually probed at least once) ---
     seen = set()
@@ -7112,6 +7126,15 @@ def _events_once():
                     if sq <= last:
                         continue
                     ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
+                    if ekind == "down" and ecode in ("edge-rotate", "sni-rotate"):
+                        # The edge pool's own axes. They do not go through the dst/src pair state below:
+                        # that pairs two IPs, and one half of this pair is a domain. The core names what
+                        # moved, which is the whole answer.
+                        lvl, fa = _EV_ROT_CODE[ecode]
+                        rotated.add(lid)
+                        log_event(lvl, "rot", f"دلیل: {fa} تونلِ «{nm}»",
+                                  f"به: {_ev_value(edet)}" if _ev_value(edet) else "")
+                        continue
                     if ekind == "down" and ecode in _EV_ROT_CODE:
                         # source/dest IP rotation. Show the whole PAIR on each side, like a ws edge switch
                         # shows «ip · sni»: one endpoint alone does not say what the tunnel became, and the
@@ -7152,7 +7175,12 @@ def _events_once():
                 # refuses to log on the empty sweep itself; this keeps the empty value out of the state too.
                 if active:
                     _ev_state["edge"][lid] = active
-                if not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
+                # Only when the ring did NOT already report it. The core reports its own rotation now;
+                # this diff stays as the fallback for an edge that changed for some other reason -- a
+                # reconnect landing elsewhere, a burn -- which has no event of its own.
+                if lid in rotated:
+                    pass
+                elif not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
                     log_event("ok", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
         except Exception:
             continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
