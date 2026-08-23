@@ -4076,7 +4076,7 @@ def api_core_delete_blob(d):
                 pass
     if not gone:
         raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
-    log_event("core", "باینریِ سفارشیِ هسته حذف شد")
+    log_event("ok", "core", "باینریِ سفارشیِ هسته حذف شد")
     return {"ok": True}
 
 
