@@ -221,6 +221,27 @@ need("isinstance(body, (bytes, bytearray))" in body("node_push"),
 P_STATES = re.findall(r'"(\w+)"', re.search(r"^PUSH_STATES = \((.*?)\)", SRC, re.M).group(1))
 P_BUSY = re.findall(r'"(\w+)"', re.search(r"^PUSH_BUSY_STATES = \((.*?)\)", SRC, re.M).group(1))
 
+# ---- 0d. neither node list is paged. The operator reads these to find ONE node among all of them,
+# and a page boundary hid half a 27-node fleet behind a «next» nobody wanted to press.
+for fn, box in (("agentBody", "agList"), ("nodesSkel", "nodeList")):
+    body_js = jsfn(fn) + CODE[CODE.find("function %s(" % fn):CODE.find("function %s(" % fn) + 900]
+    need(box in body_js and "pagerBottom" not in body_js,
+         "%s draws #%s and must NOT hang a pager under it" % (fn, box))
+for fn in ("refreshAgent", "refreshNodes"):
+    # from the signature, not from jsfn(): these bodies start ON the signature line, and a capture that
+    # skips it reads none of the fetch -- which is how this very assertion first passed on a mutation
+    i = CODE.find("function %s(" % fn)
+    src_fn = CODE[i:i + 1600] if i >= 0 else ""
+    need(bool(src_fn), "%s must exist" % fn)
+    need("renderPager" not in src_fn,
+         "%s must not paint a pager -- the list it fills is the whole fleet" % fn)
+    need("offset=" not in src_fn and "limit=" not in src_fn,
+         "%s must ask for the whole fleet, not a slice of it" % fn)
+need("_paginate(" not in code("api_nodes"),
+     "api_nodes must return every node the search matched; it is the one list that is not paged")
+need('"offset"' not in code("api_nodes") and '"limit"' not in code("api_nodes"),
+     "...and must not answer with offset/limit either, or the page it does not apply looks applied")
+
 # ---- 1. the pool is bounded and parallel
 need(re.search(r"^PUSH_WORKERS\s*=\s*[2-9]\d*\b", SRC, re.M), "PUSH_WORKERS must be a bounded (>1) constant")
 w = body("_push_worker")

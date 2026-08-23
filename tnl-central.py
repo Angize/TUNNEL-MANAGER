@@ -2241,16 +2241,17 @@ def _node_view(n, pend=None, pxn=None):
 
 
 def api_nodes(d):
-    off, lim, q = _paginate(d)
+    """The WHOLE fleet, filtered by the search box and nothing else. It is not paged: the operator reads
+    this list to find one node among all of them, and a page boundary hid half the fleet behind a
+    «next» nobody wanted to press."""
+    q = str((d or {}).get("q") or "").strip().lower()
     nodes = load_nodes()
     if q:
         nodes = [n for n in nodes if q in n["name"].lower() or q in n["host"].lower()]
-    total = len(nodes)
-    page = nodes[off:off + lim]
-    _ensure_cached(page)  # bounded to one page — warms cold-start without touching the whole fleet
-    _pend = _pending_counts()   # read the deferred-teardown queue once for the whole page
+    _ensure_cached(nodes)
+    _pend = _pending_counts()   # read the deferred-teardown queue once for the whole fleet
     _pxn = _proxy_names()       # and the proxy registry once, not once per node
-    return {"nodes": [_node_view(n, _pend, _pxn) for n in page], "total": total, "offset": off, "limit": lim,
+    return {"nodes": [_node_view(n, _pend, _pxn) for n in nodes], "total": len(nodes),
             "uptime_window": get_settings().get("uptime_window", 1)}
 
 
@@ -9574,7 +9575,7 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
 var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
-var LIM=25,PG={nodes:0,tunnels:0,portfw:0,agent:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
+var LIM=25,PG={tunnels:0,portfw:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
 /* The queue ceiling, injected from CORE_MAX_WORKERS -- the same number the submit validator refuses
    above, so the segment can never offer a queue the panel would then reject. */
@@ -9682,7 +9683,9 @@ function renderPager(kind){var total=TOT[kind]||0,pages=Math.max(1,Math.ceil(tot
  var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">'+esc(T('prev'))+'</button><span class="pinfo">'+esc(T('page'))+' '+cur+' '+esc(T('of'))+' '+pages+' · '+total+' '+esc(T('items'))+'</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">'+esc(T('next'))+'</button>';
  var a=el('pg_'+kind),b=el('pgb_'+kind);if(a)a.innerHTML=pages>1?h:'';if(b)b.innerHTML=pages>1?h:''}
 function goPage(kind,delta){var pages=Math.max(1,Math.ceil((TOT[kind]||0)/LIM));PG[kind]=Math.max(0,Math.min(pages-1,PG[kind]+delta));refresh()}
-function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);PG[kind]=0;refresh()},280)}
+// A search jumps a PAGED list back to its first page. The node lists are not paged, so there is no
+// page to reset -- writing one here would invent a key nothing reads.
+function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);if(PG[kind]!=null)PG[kind]=0;refresh()},280)}
 function msFilter(inp){var q=inp.value.trim().toLowerCase(),list=inp.parentNode;
  list.querySelectorAll('.msrow').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().indexOf(q)>=0)?'':'none'})}
 // The SAME arithmetic subnet_default() runs server-side: one /24 per tunnel, indexed across the whole
@@ -9816,7 +9819,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
 // ===== Nodes
 function nodesSkel(){el('view').innerHTML=vhead('server','nav_nodes','nodes_sub')+
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
- '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'+pagerBottom('nodes')}
+ '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'}
 var _naddMode='auto';
 async function openNodeAddModal(){await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
  _naddMode='auto';_authMode='pass';_installDone=null;_instStop();
@@ -9914,12 +9917,12 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
 // setHTML then replaces every card including the one under the finger, and the drag dies holding a node
 // that is no longer in the document. That is the "it lets go by itself for a second or two after a drop".
 function listBusy(){return !!(editingId||CHECKING||RORD||RSAVE)}
-async function refreshNodes(){if(listBusy())return;var r=await j('nodes?offset='+(PG.nodes*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
  var rows=[],bn=cnBanner(NODES);
  if(bn)rows.push({k:'__banner',h:bn});
  NODES.forEach(function(n){rows.push({k:n.id,h:nodeCard(n)})});
  if(!NODES.length)rows.push({k:'__empty',h:'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>'});
- setList(box,rows);renderPager('nodes')}
+ setList(box,rows)}
 // The count is the whole point: while the panel is being moved to a new address you can watch the
 // fleet arrive, instead of guessing when it is safe to retire the old one.
 function cnBanner(ns){var k=(ns||[]).filter(cnStale).length;if(!k)return '';
@@ -11677,7 +11680,7 @@ function agentBody(){return ''+
  '</div>'+
  '<div class="sec" style="margin-top:16px">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
- '<div id="agList">'+skCards('agent')+'</div>'+pagerBottom('agent')}
+ '<div id="agList">'+skCards('agent')+'</div>'}
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
  if(info&&info.delivery){DLV.agent=info.delivery;paintDelivery()}   // rides the poll this page already makes
@@ -11689,10 +11692,10 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
   :'<span class="muted">'+esc(T('ag_no_agent_loaded'))+'</span>';
  loadCoreVersions();
  var box=el('agList');if(!box)return;
- var r=await j('nodes?offset='+(PG.agent*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
+ var r=await j('nodes?q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
  // setList, not innerHTML=: it replaces only the rows that changed, so a live upload bar on a row that
  // did not is still on screen afterwards. pushPaint still runs, for the rows it did rebuild.
- setList(box,nodes.length?nodes.map(function(n){return {k:n.id,h:agRow(n)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('ag_no_item'))+'</div>'}]);renderPager('agent');
+ setList(box,nodes.length?nodes.map(function(n){return {k:n.id,h:agRow(n)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('ag_no_item'))+'</div>'}]);
  if(PUSHSTATE)pushPaint(PUSHSTATE);
  if(!PUSHJOB)pushAdopt()}
 var CORVERS=[],STAGED=null;
@@ -12166,7 +12169,7 @@ function palActions(){return [
  {i:document.body.classList.contains('dark')?'sun':'moon',label:T('pal_theme'),act:function(){closePal();toggleTheme()}}]}
 function palRender(q){q=(q||'').trim().toLowerCase();
  var nodes=(PALDATA.nodes||[]).filter(function(n){return !q||n.name.toLowerCase().indexOf(q)>=0||(n.host||'').indexOf(q)>=0}).slice(0,6)
-  .map(function(n){return {i:'server',label:esc(n.name),sub:esc(n.host),act:function(){cur='nodes';QRY.nodes=n.name;PG.nodes=0;closePal();render()}}});
+  .map(function(n){return {i:'server',label:esc(n.name),sub:esc(n.host),act:function(){cur='nodes';QRY.nodes=n.name;closePal();render()}}});
  var tuns=(PALDATA.tuns||[]).filter(function(l){return !q||((l.a_name||'')+' '+(l.b_name||'')+' '+(l.name||'')+' '+(l.type||'')).toLowerCase().indexOf(q)>=0}).slice(0,6)
   .map(function(l){return {i:'link',label:esc(l.a_name)+' ↔ '+esc(l.b_name),sub:esc(l.name),act:function(){cur='tunnels';QRY.tunnels=l.name;PG.tunnels=0;closePal();render()}}});
  var acts=palActions().filter(function(a){return !q||a.label.toLowerCase().indexOf(q)>=0});
