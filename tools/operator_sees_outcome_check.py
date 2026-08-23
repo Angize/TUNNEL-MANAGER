@@ -87,8 +87,16 @@ def main():
     numeric = sorted(set(re.findall(r"timeout=(\d+)", src)))
     chk("no call hard-codes a timeout longer than that",
         [t for t in numeric if int(t) > P.NODE_OP_TIMEOUT], [])
-    uploads = [ln.strip()[:60] for ln in src.splitlines() if "NODE_UPLOAD_TIMEOUT" in ln]
-    chk("only the byte-carrying calls take the long one", len(uploads), 3)
+    # The long timeout belongs to calls that take a long time: the two that carry the core binary, and
+    # the install that swaps it and relaunches every core tunnel on the node. Naming them beats counting
+    # them -- a count says nothing about WHICH call grew the three-minute wait.
+    # A call can wrap over several lines, so flatten the source first and match the endpoint that OPENS
+    # the call each mention sits in -- matching per line silently misses a wrapped one and reads as fewer.
+    flat = re.sub(r"\s+", " ", src)
+    named = sorted(re.findall(r'node_call\(node, "([a-z-]+)".{0,200}?NODE_UPLOAD_TIMEOUT', flat))
+    chk("...and only the core install's two steps ask for it by name", named, ["core-apply", "core-put"])
+    chk("nothing else takes it but its own definition and node_push's default",
+        len(re.findall("NODE_UPLOAD_TIMEOUT", src)) - len(named), 2)
 
     # ---- the browser half, read from the decoded page the browser runs
     js = P.INDEX_HTML

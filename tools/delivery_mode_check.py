@@ -6,10 +6,10 @@ the node downloading them from GitHub, or the node downloading them from the pan
 decides WHAT is installed in every mode, so the thing this has to prove is that switching the mode
 never changes the artifact, only its route.
 
-Every case here drives the shipped entry point (api_agent_push, api_core_push, api_core_update,
-_push_staged, _install_worker, and a REAL GET against the panel's own Handler) and reads what came out
-the far end. A test that called the body builder directly would say nothing about the four call sites
-that do not go through it.
+Every case here drives the shipped entry point (api_update_agent, api_update_core, _push_staged,
+_install_worker, and a REAL GET against the panel's own Handler) and reads what came out the far end.
+A test that called the body builder directly would say nothing about the call sites that do not go
+through it.
 """
 import base64
 import hashlib
@@ -96,6 +96,8 @@ def wire_fakes(m, sent):
                                   'host': '127.0.0.1', 'port': 1080, 'user': '', 'pass': ''}])
 
     def fake_push(node, endpoint, body, on_progress=None, timeout=None, chunk=65536, should_abort=None):
+        if endpoint == 'ping':                 # the check step: nothing is delivered by it
+            return {'ok': True, 'arch': ARCH.get(node['id'], 'amd64'), 'sha256': '', 'core_sha': ''}
         data = bytes(body) if isinstance(body, (bytes, bytearray)) else json.dumps(body or {}).encode()
         sent.append({'node': node['id'], 'endpoint': endpoint, 'body': json.loads(data.decode())})
         if on_progress:
@@ -105,9 +107,9 @@ def wire_fakes(m, sent):
     def fake_call(node, endpoint, method='POST', body=None, timeout=8):
         if endpoint == 'ping':
             return {'ok': True, 'arch': ARCH.get(node['id'], 'amd64')}
-        if endpoint == 'core-install':
+        if endpoint in ('core-put', 'core-apply'):
             sent.append({'node': node['id'], 'endpoint': endpoint, 'body': body})
-        return {'ok': True}
+        return {'ok': True, 'code': 'staged'}
 
     m.node_push = fake_push
     m.node_call = fake_call
@@ -132,8 +134,8 @@ def run_job(m, fn, arg):
     return r
 
 
-def bodies(sent, nid):
-    return [s['body'] for s in sent if s['node'] == nid]
+def bodies(sent, nid, ep=None):
+    return [s['body'] for s in sent if s['node'] == nid and (ep is None or s['endpoint'] == ep)]
 
 
 # ---------------------------------------------------------------- 1) the artifact never changes
@@ -141,7 +143,7 @@ def case_agent(m, mode, shas):
     sent = []
     wire_fakes(m, sent)
     m.api_settings_set({'agent_delivery': mode})
-    r = run_job(m, m.api_agent_push, {'ids': ['n1', 'n2']})
+    r = run_job(m, m.api_update_agent, {'ids': ['n1', 'n2']})
     agent_sha = hashlib.sha256(AGENT_SRC.encode()).hexdigest()
     for nid in ('n1', 'n2'):
         b = bodies(sent, nid)
@@ -179,8 +181,15 @@ def case_core(m, mode, shas, api, arg, label):
     m.api_settings_set({'core_delivery': mode})
     run_job(m, api, arg)
     for nid, arch in (('n1', 'amd64'), ('n2', 'arm64')):
-        b = bodies(sent, nid)
-        check('%s/%s: %s got exactly one core-install' % (label, mode, nid), len(b) == 1, str(len(b)))
+        b = bodies(sent, nid, 'core-put')
+        ap = bodies(sent, nid, 'core-apply')
+        check('%s/%s: %s got exactly one core-put' % (label, mode, nid), len(b) == 1, str(len(b)))
+        check('%s/%s: %s got exactly one core-apply after it' % (label, mode, nid), len(ap) == 1, str(len(ap)))
+        if len(ap) == 1:
+            check('%s/%s: %s install step names ITS arch sha, and carries no bytes' % (label, mode, nid),
+                  ap[0].get('sha256') == shas[arch] and bool(ap[0].get('sig'))
+                  and 'data' not in ap[0] and 'url' not in ap[0],
+                  json.dumps(sorted(ap[0]))[:120])
         if len(b) != 1:
             continue
         b = b[0]
@@ -201,7 +210,7 @@ def case_core(m, mode, shas, api, arg, label):
                   'arch=' + arch in (b.get('url') or ''), b.get('url', ''))
     # THE trap _body_cache exists to avoid: one cached body handed to both architectures kills every
     # core tunnel on the arm64 node with "Exec format error", and never self-corrects.
-    ba, bb = bodies(sent, 'n1'), bodies(sent, 'n2')
+    ba, bb = bodies(sent, 'n1', 'core-put'), bodies(sent, 'n2', 'core-put')
     if ba and bb:
         check('%s/%s: the two arches did NOT share a body' % (label, mode), ba[0] != bb[0])
 
@@ -213,7 +222,7 @@ def case_refusals(m):
     m._store_agent_src(AGENT_SRC, {'too_big': 'x', 'bad_py': 'x', 'not_agent': 'x', 'no_ver': 'x'})  # uploaded, not git
     m.api_settings_set({'agent_delivery': 'github'})
     try:
-        m.api_agent_push({'ids': ['n1']})
+        m.api_update_agent({'ids': ['n1']})
         check('github + an uploaded agent is refused up front', False, 'no error raised')
     except ValueError as e:
         check('github + an uploaded agent is refused up front', 'گیت‌هاب' in str(e), str(e))
@@ -224,21 +233,22 @@ def case_refusals(m):
     m.api_settings_set({'core_delivery': 'github'})
     sent[:] = []
     try:
-        m.api_core_update({'ids': ['n1'], 'version': 'custom'})
+        m.api_update_core({'ids': ['n1'], 'version': 'custom'})
         check('github + an uploaded core binary is refused up front', False, 'no error raised')
     except ValueError as e:
         check('github + an uploaded core binary is refused up front', 'گیت‌هاب' in str(e), str(e))
     check('...and nothing was sent to any node either', not sent, str(len(sent)))
 
     # A proxied node sees the PROXY's address, not the panel's, so there is no origin to hand it.
-    for kind, api, arg in (('agent', m.api_agent_push, {'ids': ['n3']}),
-                           ('core', m.api_core_push, {'ids': ['n3']})):
+    for kind, api, arg in (('agent', m.api_update_agent, {'ids': ['n3']}),
+                           ('core', m.api_update_core, {'ids': ['n3']})):
         sent[:] = []
         m.api_settings_set({kind + '_delivery': 'panel'})
         r = run_job(m, api, arg)
         st = (r.get('nodes') or {}).get('n3', {})
         check('panel-fetch: the proxied node fails with a reason, not a url (%s)' % kind,
-              st.get('state') == 'err' and 'پروکسی' in (st.get('error') or ''), json.dumps(st, ensure_ascii=False))
+              st.get('state') == 'err' and 'پروکسی' in (st.get('detail') or ''),
+              json.dumps(st, ensure_ascii=False))
         check('panel-fetch: nothing was delivered to the proxied node (%s)' % kind, not sent)
 
     # A TLS-fronted panel announces https to its nodes (X-Central-TLS), and the node then refuses any
@@ -259,11 +269,13 @@ def case_endpoint(m, shas):
     m.api_settings_set({'agent_delivery': 'panel', 'core_delivery': 'panel'})
     sent = []
     wire_fakes(m, sent)
-    run_job(m, m.api_agent_push, {'ids': ['n1']})
-    run_job(m, m.api_core_push, {'ids': ['n1', 'n2']})
-    run_job(m, m.api_core_update, {'ids': ['n1'], 'version': 'custom'})
+    run_job(m, m.api_update_agent, {'ids': ['n1']})
+    run_job(m, m.api_update_core, {'ids': ['n1', 'n2']})
+    run_job(m, m.api_update_core, {'ids': ['n1'], 'version': 'custom'})
     urls = {}
     for s in sent:
+        if 'url' not in s['body']:             # the install step names the artifact, it does not carry it
+            continue
         key = s['endpoint'] + ':' + s['node'] + ':' + (s['body'].get('version') or '')
         urls[key] = (s['body']['url'], s['body']['sha256'])
 
@@ -385,10 +397,10 @@ def main():
         print('== 1) the same artifact, three routes ==')
         for mode in m.DELIVERY_MODES:
             case_agent(m, mode, shas)
+        # ONE loop: the two that were here called the same api with two labels, so the second proved
+        # nothing the first had not. Naming a version is a staging question, not a delivery one.
         for mode in m.DELIVERY_MODES:
-            case_core(m, mode, shas, m.api_core_push, {'ids': ['n1', 'n2']}, 'core-push')
-        for mode in m.DELIVERY_MODES:
-            case_core(m, mode, shas, m.api_core_push, {'ids': ['n1', 'n2']}, 'core-staged')
+            case_core(m, mode, shas, m.api_update_core, {'ids': ['n1', 'n2']}, 'core-staged')
         print('== 2) what a mode cannot deliver, it refuses ==')
         case_refusals(m)
         print('== 3) the url the node is handed serves those exact bytes ==')
@@ -403,8 +415,10 @@ def main():
             wire_fakes(m, sent)
             m.api_settings_set({'core_delivery': mode})
             m._push_staged(dict(NODES[0]))
-            b = bodies(sent, 'n1')
-            check('_push_staged/%s: one core-install' % mode, len(b) == 1, str(len(b)))
+            b = bodies(sent, 'n1', 'core-put')
+            check('_push_staged/%s: one core-put' % mode, len(b) == 1, str(len(b)))
+            check('_push_staged/%s: and the install step after it' % mode,
+                  len(bodies(sent, 'n1', 'core-apply')) == 1, str(len(bodies(sent, 'n1', 'core-apply'))))
             if b:
                 check('_push_staged/%s: %s' % (mode, 'bytes' if mode == 'push' else 'url'),
                       ('data' in b[0]) == (mode == 'push') and ('url' in b[0]) == (mode != 'push'))

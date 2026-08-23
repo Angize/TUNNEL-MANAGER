@@ -59,6 +59,20 @@ def jsfn(name):
     return m.group(1) if m else ""
 
 
+def toplevel(name):
+    """One def's own statements, with every nested def removed -- what runs when the function is CALLED."""
+    src, out, skip = body(name, CODE), [], None
+    for ln in src.splitlines():
+        ind = len(ln) - len(ln.lstrip())
+        if skip is not None and ln.strip() and ind <= skip:
+            skip = None
+        if skip is None and re.match(r"\s*def \w+\(", ln):
+            skip = ind
+        if skip is None:
+            out.append(ln)
+    return chr(10).join(out)
+
+
 # ---- 0. ONE NODE at a time, a GLOBAL upload bound, and exactly one way to start a job
 jn = body("_push_job_new")
 need("_busy_nodes()" in code("_push_job_new") and "raise" in jn,
@@ -76,7 +90,7 @@ need("_push_slots = threading.BoundedSemaphore(PUSH_WORKERS)" in CODE,
 need("_push_slots.acquire()" in code("_push_worker"),
      "...and every worker must take a slot before it uploads")
 wl = code("_push_worker")
-need(wl.index("_push_slots.acquire()") < wl.index("_push_next(jid)"),
+need(wl.index("_push_slots.acquire()") < wl.index("_push_next(jid, "),
      "the slot must be taken BEFORE the node is claimed, or a node waiting its turn shows «در حالِ آپلود» "
      "at 0% instead of «در نوبت»")
 # and the merged view is what lets the single-job page follow several
@@ -85,44 +99,58 @@ need("def _push_merged(" in SRC and "PUSH_ALL" in SRC,
 for fn in ("api_push_cancel", "api_push_pause"):
     need("_push_live()" in code(fn),
          "%s with no job id must reach every live job, or the pill's button stops half the work" % fn)
-need("_push_job_new(kind, todo)" in body("_push_start"),
-     "_push_start must build the job from the filtered list, not the caller's full one")
+sp = body("_push_start")
+need("_push_job_new(kind, nodes)" in sp, "_push_start must build the job from the list it was given")
+need("if not nodes:" in sp and "return None" in sp,
+     "_push_start must report " + chr(171) + "nothing to do" + chr(187) + " rather than an empty job")
+
 # the page must not refuse a start of its own any more -- the server owns that decision now, per node
 need("ag_p_busy" not in SRC,
      "the client-side «one upload at a time» refusal is gone; the server refuses per NODE and says so")
 
-# ---- 0b. a node already running exactly this is not uploaded to at all
-cur = body("_push_current")
-need("if w and got and got == w:" in cur,
-     "_push_current must skip only on a POSITIVE match -- a missing/stale ping must still be pushed to, "
-     "since a needless push wastes bandwidth but a wrong skip never delivers the update")
-need("_cached_ping(" in cur, "_push_current must read the same ping the row's «به‌روز» is drawn from")
-need("_node_arch(" not in code("_core_job"),
-     "the skip check runs INSIDE the request, so it must not call _node_arch -- that falls back to a "
-     "live 10s ping and would stall the operator once per unpolled node before the job even starts")
-need('_push_current(nodes, "core_sha", want)' in body("_core_job"),
-     "the core push must skip nodes whose reported core_sha already matches the staged one")
-need('_push_current(nodes, "sha256"' in body("api_agent_push"),
-     "the agent push must skip nodes whose reported sha256 already matches the stored agent")
-# an up-to-date node gets NO queue slot and NO bar: it must not be in the job at all
-sp = body("_push_start")
-need('todo = [n for n in nodes if n["id"] not in set(current)]' in sp,
-     "_push_start must DROP already-current nodes, not carry them as settled entries -- a full bar on a "
-     "node that was never contacted reads as work that happened")
-need("if not todo:\n        return None" in sp,
-     "_push_start must report «nothing to do» rather than an empty job")
-need('"same"' not in jn, "_push_job_new must not pre-settle any node; the job holds work only")
-for fn in ("api_agent_push", "_core_job"):
-    need('"none": True' in body(fn), "%s must tell the page when nothing was sent" % fn)
-# the long wait after the last byte must be called «apply», not «send» -- mislabelling it invited a cancel
-# that could not land (a 226KB agent sends in ~6ms then waits ~3s for the node to compile and swap)
-po = body("_push_one")
-need("if total and sent >= total:" in po and 'state="apply", pct=96' in po,
-     "_push_one must flip to «apply» on the LAST BYTE, not when the reply arrives: past that point the node "
-     "holds the whole body and installs it whatever the panel does")
+# ---- 0b. a node already running exactly this is asked FIRST, and then not uploaded to
+# The old shape read the panel's cached ping and dropped the node before the job existed. The node's own
+# answer replaces it: every update opens with a «check» step, so a stale cache can no longer decide, and
+# the operator sees the node being asked. What must not come back is sending the megabytes anyway.
+for fn, ep in (("api_update_core", "core-put"), ("api_update_agent", "update")):
+    pl = re.search(r"plan = \[(.*?)\]\n", code(fn), re.S)
+    need(pl and '("check", "ping"' in pl.group(1),
+         "%s must open its plan with a check step, or every node is sent the whole artifact" % fn)
+    need(pl and pl.group(1).index('"check"') < pl.group(1).index('"%s"' % ep),
+         "%s must ask BEFORE it delivers -- a check after the bytes have moved saves nothing" % fn)
+need("_cached_ping(" not in code("api_update_core") and "_cached_ping(" not in code("api_update_agent"),
+     "the skip must rest on the node's own reply to the check step, not on the panel's cached ping -- a "
+     "stale cache that says «current» never delivers the update at all")
+need("startswith(got)" in body("_core_current") and "if not got" not in body("_core_current"),
+     "_core_current must skip only on a POSITIVE match: a node that reports no core_sha must still be "
+     "pushed to, since a needless push wastes bandwidth but a wrong skip never delivers anything")
+# the request thread must do NO per-node work: it builds the plan and returns. _node_arch falls back to a
+# live 10s ping, so touching it here stalls the operator once per unpolled node before the job even starts.
+for fn in ("api_update_core", "api_update_agent"):
+    top = toplevel(fn)
+    for call in ("_node_arch(", "_staged_bytes(", "prep(", "for n in nodes"):
+        need(call not in top,
+             "%s must not %s on the request thread -- the plan's builders run on the pool" % (fn, call))
+need('"none": True' in body("_update_start"),
+     "_update_start must tell the page when nothing was sent")
+# provisioning the verify key is a ROUND TRIP to the node: once per node, not once per step
+need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
+     "_push_one must provision the update key once per node -- calling it per step adds a network "
+     "round trip to every step of every node for a key that is first-set-only anyway")
+# provisioning the verify key is a ROUND TRIP to the node: once per node, not once per step
+need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
+     "_push_one must provision the update key once per node -- calling it per step adds a network "
+     "round trip to every step of every node for a key that is first-set-only anyway")
+# a gate that fires must settle the node WITHOUT running the rest of the plan
+one = body("_push_one")
+need("if gate and gate(r):" in one and 'state="same"' in one and "return" in one,
+     "_push_one must stop the plan when the check says the node already has it -- carrying on would "
+     "deliver the artifact the check just proved unnecessary")
+
 pf = jsfn("pushFab")
-need("s=='wait'||s=='send'" in pf and "stoppable" in pf,
-     "the pill must disable «لغو» when no node is queued or still sending -- nothing else is reachable")
+need("s=='wait'||s=='run'" in pf and "stoppable" in pf,
+     "the pill must offer «لغو» while any node is queued or mid-step -- the operator asked for a cancel "
+     "that lands at ANY step, and the plan is walked one step at a time so there is always one to stop")
 need("ag_p_cancel_none" in pf, "...and say why it is disabled")
 need("برگشت‌پذیر نیست" in SRC,
      "ag_p_cancel_q must admit that a node already applying cannot be recalled")
@@ -169,16 +197,19 @@ need("✅" not in SRC, "the overview note must use ic('okc'), not a ✅ emoji")
 need("ic('okc','var(--ok)')" in SRC and "ov_all_good" in SRC, "…tinted with the ok colour")
 
 # ---- 0c. the body is serialised ONCE per distinct body, not per node
-need('_body_cache(' in code("_staged_payload") and '_body_cache(' in code("api_agent_push"),
+need('_body_cache(' in code("api_update_core") and '_body_cache(' in code("api_update_agent"),
      "both payload builders must go through _body_cache; encoding per node is ~87ms of GIL-held CPU "
      "each, which stalls every other worker's progress")
-need("json.dumps" not in code("_staged_payload") and "json.dumps" not in code("api_agent_push"),
+need("json.dumps" not in code("api_update_core") and "json.dumps" not in code("api_update_agent"),
      "...and neither may json.dumps a body itself — that is exactly how the per-node encode came back")
 need('key = body.get("url") or body["sha256"]' in code("_body_cache"),
      "_body_cache must key on the artifact, not on a constant: one shared entry would hand the amd64 "
      "body to an arm64 node and kill every core tunnel there with «Exec format error»")
 need("isinstance(body, (bytes, bytearray))" in body("node_push"),
      "node_push must send an already-encoded body verbatim instead of re-encoding it")
+
+P_STATES = re.findall(r'"(\w+)"', re.search(r"^PUSH_STATES = \((.*?)\)", SRC, re.M).group(1))
+P_BUSY = re.findall(r'"(\w+)"', re.search(r"^PUSH_BUSY_STATES = \((.*?)\)", SRC, re.M).group(1))
 
 # ---- 1. the pool is bounded and parallel
 need(re.search(r"^PUSH_WORKERS\s*=\s*[2-9]\d*\b", SRC, re.M), "PUSH_WORKERS must be a bounded (>1) constant")
@@ -210,13 +241,20 @@ need(re.search(r"while sent < total:\s*\n\s*if should_abort", np),
      "the check must sit INSIDE the send loop -- once before it only catches an already-cancelled job")
 need('if "state" in kw and kw["state"] not in PUSH_STATES' in body("_push_set"),
      "_push_set must reject an unknown state; PUSH_STATES is otherwise dead documentation")
-need('"skip"' in re.search(r"^PUSH_STATES = \((.*?)\)", SRC, re.M).group(1),
-     "PUSH_STATES must list skip, which cancel actually sets")
+need("skip" in P_STATES, "PUSH_STATES must list skip, which cancel actually sets")
 
 # ---- 3. handing out work is locked, and respects pause + cancel
 nxt = body("_push_next")
 need("with _push_lock:" in nxt, "_push_next must claim a node under the lock or two workers take the same one")
-need('j["nodes"][nid]["state"] = "send"' in nxt, "_push_next must claim the node it returns")
+need('update(state="run", step=first, pct=0)' in nxt,
+     "_push_next must claim the node AND name the step it is about to run, in one write under the lock")
+need(set(re.findall(r'state="(\w+)"', body("_push_one")) + ["run"]) <= set(P_STATES)
+     and set(P_STATES) - {"wait"} <= set(re.findall(r'state="(\w+)"', SRC) + ["run"]),
+     "PUSH_STATES, the states _push_one sets and the state _push_next claims with must be ONE set -- a "
+     "state the browser has no word for paints a blank bar, and a listed state nothing sets is dead")
+need(set(P_BUSY) == {"wait", "run"},
+     "PUSH_BUSY_STATES must be exactly the unsettled ones: a node mid-step that is not counted busy can "
+     "be claimed by a second job, and two installs race on one node")
 need('j.get("cancel")' in nxt and "return None" in nxt, "_push_next must stop handing out work on cancel")
 c = body("api_push_cancel")
 need("_skip_waiting(j)" in c,

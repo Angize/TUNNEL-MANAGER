@@ -740,7 +740,7 @@ NODE_WIRE = {
     "update": "up", "wipe": "wz", "portfw": "pf", "portfw-edit": "pe", "portfw-next": "pn",
     "portcheck": "pc", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
     "pool-select": "qs", "retest-now": "rt", "ech-update": "eu",
-    "core-install": "ci", "spoof-probe": "sp", "spoof-egress-listen": "sl", "spoof-egress-send": "ss",
+    "core-put": "cp", "core-apply": "ca", "spoof-probe": "sp", "spoof-egress-listen": "sl", "spoof-egress-send": "ss",
     "spoof-egress-result": "sr", "set-update-key": "sk", "kernel-tune": "kt", "link-enable": "le",
     "core-restart": "cr",
 }
@@ -958,10 +958,13 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
     to report until the answer arrives. Here the request line and headers go first, then the body in
     chunks, and on_progress(sent, total) fires per chunk -- that is what the per-node bar shows.
 
-    should_abort() is consulted between chunks; when it goes true the socket is dropped mid-body and
-    {"cancelled": True} comes back. Safe because the node parses the JSON before it touches disk: a body
-    cut short fails json.loads, and even one that parsed would fail the sha256 gate. Nothing partial is
-    ever installed.
+    should_abort() is consulted between chunks AND while the answer is awaited, so a cancel lands at
+    every point of every step, not only while bytes are moving. The socket is dropped and
+    {"cancelled": True} comes back, with `delivered` saying whether the node already held the whole
+    request. Dropping mid-body is safe: the node parses the JSON before it touches disk, a body cut
+    short fails json.loads, and even one that parsed would fail the sha256 gate. Dropping while WAITING
+    is a different thing -- the node has the request and may carry it out -- which is why `delivered`
+    is reported rather than assumed either way.
 
     Goes through the node's proxy when it has one, because it uses the same _proxy_socket() node_call
     does: a push must not fall out to a direct connection that the control plane would never take.
@@ -989,11 +992,12 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             head.append("X-Central-TLS: %s" % ("1" if _CENTRAL_TLS else "0"))
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
+        deadline = time.monotonic() + timeout
         if on_progress:
             on_progress(0, total)
         while sent < total:
             if should_abort and should_abort():
-                return {"ok": False, "cancelled": True}     # the finally below closes the socket mid-body
+                return {"ok": False, "cancelled": True, "delivered": False}   # socket dropped mid-body
             # An answer arriving mid-body is a refusal decided from the HEADERS alone -- an unproven
             # signature, a stale counter. Take it NOW. The node has stopped reading, so the rest of a
             # large body earns nothing but a broken pipe, and the answer is lost with it: the operator
@@ -1013,6 +1017,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         # Content-Length body, and a close-framed body with no Content-Length at all -- which the earlier
         # two-loop version truncated to whatever the first recv happened to hold.
         raw, head_blob, rest, clen = pre, b"", b"", None
+        sock.settimeout(min(0.25, timeout))      # wake often enough to answer a cancel
         while True:
             head_blob, sep, rest = raw.partition(b"\r\n\r\n")
             if sep:
@@ -1020,7 +1025,14 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
                              if l.lower().startswith(b"content-length:")), None)
                 if clen is not None and len(rest) >= clen:
                     break
-            b = sock.recv(65536)
+            if should_abort and should_abort():
+                return {"ok": False, "cancelled": True, "delivered": True}
+            if time.monotonic() > deadline:
+                raise OSError("timed out waiting for the node")
+            try:
+                b = sock.recv(65536)
+            except socket.timeout:
+                continue                         # nothing yet: back round to the cancel check
             if not b:
                 break                            # EOF: close-framed reply is complete
             raw += b
@@ -3592,7 +3604,7 @@ def _body_cache(build):
 
 _push_lock = threading.Lock()
 _push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts, cancel, paused}
-PUSH_STATES = ("wait", "send", "apply", "ok", "same", "err", "skip")
+PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
 PUSH_WORKERS = 4      # nodes uploading CONCURRENTLY across ALL jobs (operator's choice: bounded, not all-at-once)
 # The bound is GLOBAL, not per job. It used to be per job, which is why only one job could run at a time:
 # two jobs would have put 2x the uploads on the panel's uplink. Holding it here instead means any number
@@ -3602,7 +3614,7 @@ PUSH_WORKERS = 4      # nodes uploading CONCURRENTLY across ALL jobs (operator's
 _push_slots = threading.BoundedSemaphore(PUSH_WORKERS)
 
 
-PUSH_BUSY_STATES = ("wait", "send", "apply")     # a node still owed something by a live job
+PUSH_BUSY_STATES = ("wait", "run")     # a node still owed something by a live job
 
 
 def _busy_nodes():
@@ -3631,38 +3643,16 @@ def _push_job_new(kind, nodes):
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
-                                               "error": ""} for n in nodes}}
+                                               "step": "", "err": "", "detail": ""} for n in nodes}}
     return jid
 
 
-def _push_current(nodes, field, want):
-    """The ids among `nodes` that already run exactly what is about to be pushed.
-
-    `field` is the ping key the node reports it under ("sha256" for the agent, "core_sha" for the core);
-    `want(node)` is the value to match, or "" when it cannot be established. Read from the poll cache --
-    the same ping field the row's «به‌روز» state is drawn from. Only a POSITIVE match skips: a node whose
-    ping is missing or stale is pushed to, because a needlessly-pushed node merely wastes bandwidth and
-    answers `unchanged`, while a wrongly-skipped one never gets the update at all."""
-    out = set()
-    for n in nodes:
-        w = str(want(n) or "")
-        got = str(_cached_ping(n.get("id") or "").get(field) or "")
-        if w and got and got == w:
-            out.add(n["id"])
-    return out
-
-
-def _push_start(kind, nodes, payload, current=()):
-    """Create the job and run it. The ONE way a push job is launched.
-
-    Nodes in `current` are DROPPED, not carried as settled entries: nothing is sent to them, so they get no
-    queue slot, no progress bar and no verdict -- a full green bar on a node that was never contacted reads
-    as work that happened. Returns None when there is nothing left to do."""
-    todo = [n for n in nodes if n["id"] not in set(current)]
-    if not todo:
+def _push_start(kind, nodes, plan):
+    """Create the job and run it. The ONE way a push job is launched. Returns None for an empty list."""
+    if not nodes:
         return None
-    jid = _push_job_new(kind, todo)
-    threading.Thread(target=_push_worker, args=(jid, kind, todo, payload), daemon=True).start()
+    jid = _push_job_new(kind, nodes)
+    threading.Thread(target=_push_worker, args=(jid, kind, nodes, plan), daemon=True).start()
     return jid
 
 
@@ -3726,51 +3716,66 @@ def _push_cancelled(jid):
         return bool(j and j.get("cancel"))
 
 
-def _push_one(jid, nid, payload):
-    """Push to ONE node. A failure or timeout is recorded on that node alone -- it never propagates, so a
-    dead node cannot end the sweep. Shared by every pool worker."""
+def _push_one(jid, nid, plan):
+    """Walk ONE node through the plan's steps, in order. A failure or a timeout is recorded on that node
+    alone -- it never propagates, so a dead node cannot end the sweep.
+
+    Cancel is honoured at every boundary AND inside the byte send: a node that has not started its next
+    step never starts it, and one that is mid-upload has its socket dropped. The step the operator sees
+    is the step the panel is issuing, because the panel issues them one at a time."""
     try:
-        fresh = get_node(nid)
-        if not fresh:                          # deleted while the queue was working through the fleet
-            _push_set(jid, nid, state="err", error="نود حذف شد")
-            return
-        _push_set(jid, nid, state="send", pct=0)
-        _ensure_update_key(fresh)              # fail-closed verification needs the key before the push
-        body, endpoint, timeout = payload(fresh)
-        if body is None:                       # nothing pushable for this node (e.g. unknown arch)
-            _push_set(jid, nid, state="err", pct=0, error=endpoint)
-            return
+        keyed = False
+        for code, endpoint, build, timeout, gate in plan:
+            if _push_cancelled(jid):
+                _push_set(jid, nid, state="skip", step=code, pct=0)
+                return
+            fresh = get_node(nid)
+            if not fresh:                          # deleted while the queue was working through the fleet
+                _push_set(jid, nid, state="err", err="node_gone")
+                return
+            _push_set(jid, nid, state="run", step=code, pct=0)
+            if not keyed:      # one round trip per NODE: fail-closed verification needs the key, once
+                _ensure_update_key(fresh)
+                keyed = True
+            try:
+                body = build(fresh)
+            except ValueError as e:                # nothing pushable for this node (unknown arch, no origin)
+                _push_set(jid, nid, state="err", err="unbuildable", detail=str(e))
+                return
+            if body is None:
+                _push_set(jid, nid, state="skip", step=code, pct=0)
+                return
 
-        def prog(sent, total, _nid=nid):
-            # 0..95 while the bytes move; the last 5 belong to the node's own verify+swap.
-            # The LAST byte flips the state to «apply» here rather than after the reply: past that point the
-            # node holds the whole body and installs it whatever the panel does, and the wait for its answer
-            # is the node compiling+swapping+restarting. For a 226KB agent that send is ~6ms and the wait is
-            # ~3s, so labelling the wait «در حالِ آپلود» described 99.8% of the visible time wrongly -- and
-            # invited a cancel that could not possibly land.
-            if total and sent >= total:
-                _push_set(jid, _nid, state="apply", pct=96)
-            else:
-                _push_set(jid, _nid, pct=int(sent * 95 / total) if total else 95)
+            def prog(sent, total, _nid=nid):
+                # 0..95 while the bytes move; the last 5 belong to the node's own work on them.
+                _push_set(jid, _nid, pct=int(sent * 95 / total) if total and sent < total else 96)
 
-        r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
-                      should_abort=lambda: _push_cancelled(jid))
-        if r.get("cancelled"):                 # dropped mid-body: the node installed nothing
-            _push_set(jid, nid, state="skip", pct=0)
-            return
-        _push_set(jid, nid, state="apply", pct=97)
-        if r.get("ok") and (r.get("already") or r.get("unchanged")):
-            _push_set(jid, nid, state="same", pct=100)
-        elif r.get("ok"):
-            _push_set(jid, nid, state="ok", pct=100)
-        else:
-            _push_set(jid, nid, state="err", pct=100 if not r.get("offline") else 0,
-                      error=r.get("error") or r.get("msg") or "ناموفق")
-    except Exception as e:                     # never let one node's surprise end the sweep
-        _push_set(jid, nid, state="err", error=str(e)[:120])
+            r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
+                          should_abort=lambda: _push_cancelled(jid))
+            if r.get("cancelled"):
+                # Dropped mid-body the node kept nothing. Dropped while the answer was awaited it had
+                # the whole request, so say so instead of implying the node was left untouched.
+                _push_set(jid, nid, state="skip", step=code, pct=0,
+                          detail="درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
+                                 if r.get("delivered") else "")
+                return
+            if not r.get("ok"):
+                _push_set(jid, nid, state="err", step=code, pct=100 if not r.get("offline") else 0,
+                          err=str(r.get("code") or ("offline" if r.get("offline") else "failed")),
+                          detail=str(r.get("error") or r.get("msg") or ""))
+                return
+            if gate and gate(r):               # already running what we came to install: send nothing more
+                _push_set(jid, nid, state="same", step=code, pct=100)
+                return
+            _push_set(jid, nid, pct=100, restarted=r.get("restarted"))
+        # Reaching the end means work was done: every plan opens with a step whose gate settles a node
+        # that already has the artifact, so «nothing to do» never gets this far.
+        _push_set(jid, nid, state="ok", pct=100)
+    except Exception as e:                         # never let one node's surprise end the sweep
+        _push_set(jid, nid, state="err", err="panel", detail=str(e)[:120])
 
 
-def _push_next(jid):
+def _push_next(jid, first):
     """Hand out the next node id to a pool worker, honouring pause and cancel. Returns:
       a node id  -> push it
       "wait"     -> paused; the worker sleeps briefly and asks again (in-flight pushes keep running)
@@ -3786,7 +3791,9 @@ def _push_next(jid):
             return "wait" if any(v["state"] == "wait" for v in j["nodes"].values()) else None
         for nid in j["order"]:
             if j["nodes"][nid]["state"] == "wait":
-                j["nodes"][nid]["state"] = "send"   # claim it under the lock so no two workers take it
+                # Claimed AND labelled in one write: a poll landing between the two would find a node
+                # «running» with no step, and the row would name the wrong one.
+                j["nodes"][nid].update(state="run", step=first, pct=0)
                 return nid
     return None
 
@@ -3801,7 +3808,7 @@ def _push_worker(jid, kind, nodes, payload):
             # not holding a node hostage in «در حالِ آپلود», and the global bound covers every job.
             _push_slots.acquire()
             try:
-                nid = _push_next(jid)
+                nid = _push_next(jid, payload[0][0])
                 if nid is None:
                     return
                 if nid != "wait":
@@ -3882,33 +3889,118 @@ def api_push_pause(d):
     return {"ok": True, "job": jid, "paused": want}
 
 
-def api_agent_push(d):
-    """Deliver the stored agent to the given node ids in the operator's `agent_delivery` mode; each node
-    validates + swaps + self-restarts whichever way the bytes reached it."""
+def _update_targets(d):
+    """The nodes this update is for. An offline node is kept in the list and marked, not dropped: the
+    operator asked for it, and a row that silently vanishes reads as one that was done."""
     _require(d, ["ids"])
-    try:
-        src, meta = _staged_agent()
-    except OSError:
-        raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
     if not isinstance(d.get("ids"), list):
         raise ValueError("ids must be a list")
     nodes = [n for n in (get_node(i) for i in dict.fromkeys(d["ids"])) if n]
     if not nodes:
-        raise ValueError("نودی برای پوش انتخاب نشده")
-    # Refuse a mode that cannot deliver this agent to ANY node HERE, where the operator sees one clear
-    # sentence, instead of letting every row in the job go red carrying the same message.
+        raise ValueError("نودی انتخاب نشده")
+    return nodes
+
+
+def _core_current(ping, sha):
+    """Whether the node already runs this exact core. It reports the sha truncated to 12."""
+    got = str(ping.get("core_sha") or "")
+    return bool(got) and sha.startswith(got)
+
+
+def _update_start(kind, nodes, plan):
+    """Start one update job. An offline node is NOT filtered out here: it goes into the job like any
+    other and fails its first step with «آفلاین», which is the honest thing for a row the operator
+    asked for. Nothing is delivered to it — the first contact is what fails."""
+    jid = _push_start(kind, nodes, plan)
+    return {"ok": True, "job": jid} if jid else {"ok": True, "none": True}
+
+
+def api_update_agent(d):
+    """Update the AGENT on the given nodes. One step: the node validates the code, swaps it and comes
+    back on it, which is also how a node that has never seen this panel's newer ops gets them."""
+    nodes = _update_targets(d)
+    try:
+        src, meta = _staged_agent()
+    except OSError:
+        raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
     _agent_delivery_check(meta, _delivery_mode("agent"))
     sig = _sign_sha(meta["sha256"])
     enc = _body_cache(lambda n: _agent_update_body(n, src, meta, sig))
+    plan = [("check", "ping", lambda _n: {}, 15,
+             lambda r, _w=meta["sha256"]: str(r.get("sha256") or "") == _w),
+            ("deliver", "update", enc, 60, None)]
+    return _update_start("agent", nodes, plan)
 
-    def payload(n):
-        return enc(n), "update", 60
 
-    cur = _push_current(nodes, "sha256", lambda _n: meta["sha256"])
-    jid = _push_start("agent", nodes, payload, cur)
-    if not jid:
-        return {"ok": True, "none": True, "skipped": len(cur)}
-    return {"ok": True, "job": jid, "skipped": sorted(cur)}   # poller re-reads versions ~2s after the bounce
+def api_update_core(d):
+    """Update the CORE on the given nodes, in two steps the panel drives: the bytes are staged first and
+    installed second, so the operator watches it happen and a cancel while the bytes move leaves the node
+    untouched. `version` is a release tag, "latest", "custom" (the uploaded binary), or absent for
+    whatever the panel already has staged."""
+    nodes = _update_targets(d)
+    version = str((d or {}).get("version") or "").strip()
+    if version == "custom":
+        info = _core_blob_info()
+        if not info:
+            raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
+        _core_delivery_check(_delivery_mode("core"), True)
+        with _core_blob_lock:
+            with open(CORE_BLOB, "rb") as f:
+                raw = f.read()
+        b64, sha = base64.b64encode(raw).decode(), info["sha256"]
+        sig = _sign_sha(sha)
+        put = _body_cache(lambda n: _core_install_body(n, b64, sha, "custom", sig, custom=True))
+        plan = [("check", "ping", lambda _n: {}, 15, lambda r, _s=sha: _core_current(r, _s)),
+                ("deliver", "core-put", put, 300, None),
+                ("install", "core-apply",
+                 lambda _n, _s=sha, _g=sig: {"sha256": _s, "version": "custom", "sig": _g}, 300, None)]
+        return _update_start("core", nodes, plan)
+
+    if version:
+        _stage_core(version)                       # onto the panel first; raises if it cannot be fetched
+    elif not _staged_info():
+        raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
+
+    parts, shas = {}, {}
+
+    def prep(n):
+        """The bytes to send this node, encoded and signed ONCE per architecture, not once per node."""
+        arch = _node_arch(n)
+        if not arch:
+            raise ValueError("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود")
+        if arch not in parts:
+            b = _staged_bytes(arch)
+            if not b:
+                raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
+            raw, sha, ver = b
+            parts[arch] = (base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha), arch)
+        return parts[arch]
+
+    def put_body(n):
+        b64, sha, ver, sig, arch = prep(n)
+        return _core_install_body(n, b64, sha, ver, sig, arch=arch)
+
+    put = _body_cache(put_body)
+
+    def apply_body(n):
+        _b64, sha, ver, sig, _arch = prep(n)
+        return {"sha256": sha, "version": ver, "sig": sig}
+
+    def current(r):
+        """Read the checksum once per ARCHITECTURE, not once per node: the point of this step is to skip
+        the megabytes, and re-hashing the staged file for every node gives that saving back."""
+        arch = str(r.get("arch") or "")
+        if arch not in CORE_ARCHES:
+            return False                  # the deliver step is where an unknown arch gets its message
+        if arch not in shas:
+            b = _staged_bytes(arch)
+            shas[arch] = b[1] if b else ""
+        return bool(shas[arch]) and _core_current(r, shas[arch])
+
+    plan = [("check", "ping", lambda _n: {}, 15, current),
+            ("deliver", "core-put", put, 300, None),
+            ("install", "core-apply", apply_body, 300, None)]
+    return _update_start("core", nodes, plan)
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
@@ -4160,9 +4252,11 @@ def _node_arch(node):
 
 
 def _push_staged(node):
-    """Deliver the staged core to one node via core-install, in the operator's delivery mode. Returns a
-    result dict. Used by the two paths that are NOT the fleet job: the freshly-added node and the
-    core-tunnel build's retry."""
+    """Deliver the staged core to one node, in the operator's delivery mode. Returns a result dict. Used
+    by the two paths that are NOT the fleet job: the freshly-added node and the core-tunnel build's retry.
+
+    Same two node ops the fleet job drives — staging the bytes and then installing them — so there is one
+    install path on the node, not one per caller."""
     arch = _node_arch(node)
     if not arch:
         return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
@@ -4170,12 +4264,17 @@ def _push_staged(node):
     if not b:
         return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
     raw, sha, ver = b
+    sig = _sign_sha(sha)
     try:
-        body = _core_install_body(node, base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha), arch)
+        body = _core_install_body(node, base64.b64encode(raw).decode(), sha, ver, sig, arch)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     _ensure_update_key(node)   # guarantee the node holds the verify key before a signed root-binary push (fail-closed on the node side)
-    return node_call(node, "core-install", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
+    r = node_call(node, "core-put", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
+    if not r.get("ok") or r.get("code") == "same":
+        return r
+    return node_call(node, "core-apply", "POST", {"sha256": sha, "version": ver, "sig": sig},
+                     timeout=NODE_UPLOAD_TIMEOUT)
 
 
 def _push_staged_on_add(node):
@@ -4208,111 +4307,6 @@ def api_core_stage(d):
     'get from GitHub' action for the core. version defaults to latest."""
     info = _stage_core(str((d or {}).get("version") or "latest").strip())
     return {"ok": True, **info}
-
-
-def _staged_payload():
-    """A payload callable for the staged core, with the expensive half memoized PER ARCHITECTURE.
-
-    The push asks per node and the bytes only vary by arch -- so without this a 12-node fleet
-    base64-encoded the same 10MB binary twelve times and spawned openssl twelve times to sign the same
-    hash. _body_cache does the same for the json encode, keyed so the two arches never share a body."""
-    parts = {}
-
-    def build(n):
-        arch = _node_arch(n)
-        if not arch:
-            raise ValueError("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود")
-        if arch not in parts:
-            b = _staged_bytes(arch)
-            if not b:
-                raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
-            raw, sha, ver = b
-            parts[arch] = (base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha))
-        return _core_install_body(n, *parts[arch], arch=arch)
-
-    enc = _body_cache(build)
-
-    def payload(n):
-        try:
-            return enc(n), "core-install", 300
-        except ValueError as e:                 # unknown arch / nothing staged / no origin for this node
-            return None, str(e), 0
-
-    return payload
-
-
-def _core_job(ids, payload):
-    nodes = [n for n in (get_node(i) for i in ids) if n]
-    if not nodes:
-        raise ValueError("نودی برای نصب انتخاب نشده")
-    shas = {}
-
-    def want(n):
-        # CACHED arch only: _node_arch falls back to a live 10s ping, and this runs inside the request --
-        # an unpolled fleet would stall the operator for 10s per node before the job even started. No arch
-        # cached simply means no skip, which is the safe direction.
-        arch = str(_cached_ping(n.get("id") or "").get("arch") or "")
-        if arch not in CORE_ARCHES:
-            return ""
-        if arch not in shas:                       # per arch, not per node
-            st = _staged_bytes(arch)
-            shas[arch] = (st[1][:12] if st else "")   # the node reports its core sha truncated to 12
-        return shas[arch]
-
-    cur = _push_current(nodes, "core_sha", want)
-    jid = _push_start("core", nodes, payload, cur)
-    if not jid:
-        return {"ok": True, "none": True, "skipped": len(cur)}
-    return {"ok": True, "job": jid, "skipped": sorted(cur)}
-
-
-def api_core_update(d):
-    """Install a core version on the given node ids and restart their core tunnels. The panel always
-    stages the version (downloads it once) and decides what may be installed; `core_delivery` decides
-    who carries the bytes the last hop. `version` is a release tag, "latest", or "custom" (the
-    operator-uploaded binary)."""
-    _require(d, ["ids", "version"])
-    version = str(d.get("version") or "latest").strip()
-    if not isinstance(d.get("ids"), list):
-        raise ValueError("ids must be a list")
-    ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
-
-    if version == "custom":                          # the operator-uploaded blob, which only the panel has
-        info = _core_blob_info()
-        if not info:
-            raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
-        _core_delivery_check(_delivery_mode("core"), True)   # one clear sentence, not one red row per node
-        with _core_blob_lock:
-            with open(CORE_BLOB, "rb") as f:
-                raw = f.read()
-        b64, sha = base64.b64encode(raw).decode(), info["sha256"]
-        sig = _sign_sha(sha)
-        enc = _body_cache(lambda n: _core_install_body(n, b64, sha, "custom", sig, custom=True))
-
-        def payload_custom(n):
-            try:
-                return enc(n), "core-install", 300
-            except ValueError as e:
-                return None, str(e), 0
-
-        return _core_job(ids, payload_custom)
-
-    _stage_core(version)   # download the chosen version onto the panel first (raises if the panel is offline)
-
-    return _core_job(ids, _staged_payload())
-
-
-def api_core_push(d):
-    """Push the currently-staged core to the given node ids (the 'push the ready binary' per-node action).
-    No download, no version pick — just deliver what the panel already has staged."""
-    _require(d, ["ids"])
-    if not _staged_info():
-        raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
-    if not isinstance(d.get("ids"), list):
-        raise ValueError("ids must be a list")
-    ids = [i for i in dict.fromkeys(d["ids"]) if get_node(i)]
-
-    return _core_job(ids, _staged_payload())
 
 
 def api_fleet(d):
@@ -7869,17 +7863,19 @@ API = {
     "events": api_events, "events-clear": api_events_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
-    "agent-upload": api_agent_upload, "agent-info": api_agent_info, "agent-push": api_agent_push,
+    "agent-upload": api_agent_upload, "agent-info": api_agent_info,
+    "update-agent": api_update_agent, "update-core": api_update_core,
     "agent-fetch-git": api_agent_fetch_git,
-    "core-versions": api_core_versions, "core-check": api_core_check, "core-update": api_core_update,
-    "core-upload": api_core_upload, "core-stage": api_core_stage, "core-push": api_core_push, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
+    "core-versions": api_core_versions, "core-check": api_core_check,
+    "core-upload": api_core_upload, "core-stage": api_core_stage, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
-             "agent-upload", "agent-push", "agent-fetch-git", "settings-set", "core-check", "core-update", "core-upload", "core-stage", "core-push",
+             "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",
+             "update-agent", "update-core",
              "reorder"}
 
 # ----------------------------------------------------------------------------- HTTP
@@ -8976,7 +8972,13 @@ var I18N={fa:{
  px_hint:"یوزر و پسوردِ خالی = بدونِ احراز. پسورد روی مرکزی می‌ماند و هیچ‌وقت به مرورگر فرستاده نمی‌شود.",
  px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
- ag_p_wait:"در نوبت",ag_p_send:"در حالِ آپلود…",ag_p_apply:"نود دارد اعمال می‌کند…",
+ ag_p_wait:"در نوبت",
+ // the update's steps, and every reason it can stop — the node sends a code, these are the words
+ ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",ups_restarted:"{n} تونل دوباره بالا آمد",
+ upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
+ upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
+ upe_bad_signature:"امضای پنل تأیید نشد",upe_too_small:"فایل برای یک هسته خیلی کوچک است",
+ upe_download_failed:"نود نتوانست دانلود کند",upe_nothing_staged:"چیزی روی نود آماده نبود",
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
 
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
@@ -11648,12 +11650,12 @@ async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');
    (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
   loadCoreVersions();loadReadiness()}
  else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
-async function corPushStaged(id){await pushStart('core-push',{ids:[id]},[id])}
+async function corPushStaged(id){await pushStart('update-core',{ids:[id]},[id])}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ver'),'err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast(T('ag_no_online'),'err');return}
  if(!await confirmBox(T('ag_confirm_core')+ver+T('ag_confirm_core2')+ids.length+T('ag_confirm_core3'),T('yes_all')))return;
- await pushStart('core-update',{ids:ids,version:ver},ids)}
+ await pushStart('update-core',{ids:ids,version:ver},ids)}
 function agCorPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';
  var m=el('cor_msg');m.className='msg';m.textContent=T('cor_reading_upload');
  var rd=new FileReader();
@@ -11733,13 +11735,21 @@ async function pushPause(want){if(!PUSHJOB)return;
  var r=await post('push-pause',{job:PUSHJOB,paused:!!want});
  if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
  if(PUSHSTATE){PUSHSTATE.paused=!!want;pushFab(PUSHSTATE)}}   // no waiting a poll tick to look pressed
+// The node answers each step with a CODE; every word the operator reads is written here.
+function pushWord(st){
+ if(st.state=='wait')return T('ag_p_wait');
+ if(st.state=='skip')return T('ag_p_skip');
+ if(st.state=='same')return T('ag_p_same');
+ if(st.state=='ok')return T('ag_p_ok');
+ if(st.state=='err')return T('upe_'+(st.err||'failed'))||T('ag_p_err');
+ return st.step?T('ups_'+st.step):T('ag_p_wait')}
 function pushBar(st){
  var pct=Math.max(0,Math.min(100,num(st.pct)));
  var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
- var txt={wait:T('ag_p_wait'),send:T('ag_p_send'),apply:T('ag_p_apply'),ok:T('ag_p_ok'),
-          same:T('ag_p_same'),skip:T('ag_p_skip'),err:terr(st.error||T('ag_p_err'))}[st.state]||'';
+ var txt=pushWord(st);
+ if(st.state=='ok'&&num(st.restarted)>0)txt+=' · '+T('ups_restarted').replace('{n}',num(st.restarted));
  return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
-  +'<div class="plbl"><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
+  +'<div class="plbl"'+(st.detail?' title="'+esc(st.detail)+'"':'')+'><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
 // The job's controls live in a fixed pill, NOT inside the node list: refreshAgent rewrites that list every
 // 1.5s and would wipe them. It sits outside #view for the same reason.
 function pushFab(d){var box=el('pushFab');if(!box)return;
@@ -11750,10 +11760,9 @@ function pushFab(d){var box=el('pushFab');if(!box)return;
  order.forEach(function(nid){var s=(ns[nid]||{}).state;
    if(s=='ok'||s=='same'||s=='err'||s=='skip')done++});
  var pz=!!d.paused;
- // Cancel can only reach a node still QUEUED or still sending bytes. Once a node's body is fully delivered
- // it holds the whole thing and installs it no matter what the panel does, so offering «لغو» then promises
- // something impossible -- which is exactly how it read as broken.
- var stoppable=order.some(function(nid){var s=(ns[nid]||{}).state;return s=='wait'||s=='send'});
+ // The plan is walked one step at a time, so a cancel always has something to stop: it drops the socket
+ // mid-step and skips the queue. What it cannot do is recall a «نصب» the node already answered.
+ var stoppable=order.some(function(nid){var s=(ns[nid]||{}).state;return s=='wait'||s=='run'});
  setHTML(box,'<div class="pfab"><span class="pfn">'+num(done)+'<s>/'+num(order.length)+'</s></span>'+
    '<button class="pfb"'+(pz?' disabled':'')+' title="'+esc(T('ag_p_pause'))+'" onclick="pushPause(true)">'+ic('pause')+'</button>'+
    '<button class="pfb"'+(pz?'':' disabled')+' title="'+esc(T('ag_p_resume'))+'" onclick="pushPause(false)">'+ic('play')+'</button>'+
@@ -11794,7 +11803,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
   if(!ids.length){toast(T('ag_no_online'),'err');return}
   if(!await confirmBox(T('ag_confirm_all')+ids.length+T('ag_confirm_all2'),T('yes_all')))return}
  else{ids=[target]}
- await pushStart('agent-push',{ids:ids},ids)}
+ await pushStart('update-agent',{ids:ids},ids)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 // ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
