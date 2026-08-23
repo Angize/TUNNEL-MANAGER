@@ -8315,9 +8315,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok)}
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
-/* Settings is ONE card with four subject groups. Every group but the first gets air above it; the rows
-   already carry hairlines, so the gap plus the bold header is the whole separation. */
-.setgrp .grphd~.grphd{margin-top:20px}
 .search:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0 2px;flex-wrap:wrap}
 .pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
@@ -8548,26 +8545,115 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 /* agent update page */
 .drop{border:1.5px dashed color-mix(in srgb,var(--acc) 45%,transparent);border-radius:13px;padding:18px;text-align:center;background:var(--accw);color:var(--sub);font-size:12.5px;cursor:pointer;margin-top:4px}.drop b{color:var(--acc)}
 .banner{display:flex;align-items:center;gap:12px}.banner .v{font-size:13.5px;font-weight:800}
-/* --- unified agent+core card (compact) --- */
-.agx-uni{padding:13px}
-.agx-uni .k{margin-bottom:10px}
-.agx-uni .k .grow{flex:1}
-.agx-meta{display:flex;flex-wrap:wrap;gap:5px 10px;align-items:center;font-size:11.5px;color:var(--sub);background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 11px;margin-bottom:11px}
-.agx-meta .sep{width:3px;height:3px;border-radius:50%;background:var(--sub);opacity:.5}
-/* The release picker and its check button share a row: the button is what FILLS the picker, so
-   putting it anywhere else would leave an empty dropdown with no visible way to populate it. */
-.corverrow{display:flex;gap:8px;align-items:center;margin-bottom:9px}
-/* Before the first check there is nothing to pick. A .setfield here looked like a dead control;
-   this is a status line, so it reads as one. */
-.corempty{flex:1;min-width:0;font-size:12px;color:var(--sub);line-height:1.7;padding:2px 2px}
-.corverrow>#cor_ver_box{flex:1;min-width:0}
-.corverrow>.corcheck{flex:0 0 auto;margin:0;padding:9px 13px;font-size:12.5px;min-height:38px;
-  border-radius:10px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.corverrow>.corcheck .ic{width:14px;height:14px}
-.agx-act{display:flex;gap:7px;flex-wrap:wrap}
-.agx-act .primary,.agx-act .ghost{margin-top:0;padding:8px 13px;font-size:12px;border-radius:10px;display:inline-flex;align-items:center;gap:6px}
-.agx-act .primary{flex:1;justify-content:center}
-.agx-hint{font-size:10.5px;color:var(--sub);margin-top:8px;line-height:1.6}
+/* ---- settings + update page ------------------------------------------------------------------
+   ONE ruler for the whole page: every control is --sc-h tall and every control column --sc-w wide, so
+   the inner edge of a card is a straight line whatever sits in each row. Two columns wherever there
+   is room: the setting groups, the two update cards, and the node list. */
+.stpage{--sc-h:38px;--sc-w:186px;--sc-g:12px}
+.stgrid>.card{margin-bottom:var(--sc-g)}
+@media(min-width:900px){.stgrid{column-count:2;column-gap:var(--sc-g)}
+ .stgrid>.card{break-inside:avoid}}
+/* the two update cards DO share a row, so they stretch to each other and their go buttons line up */
+.opgrid{display:grid;grid-template-columns:1fr;gap:var(--sc-g);align-items:stretch}
+@media(min-width:900px){.opgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.sg{padding:0;overflow:hidden}
+.sghd{display:flex;align-items:center;gap:9px;padding:13px 14px;border-bottom:1px solid var(--bord)}
+.sghd .sgt{width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;
+  flex:none;background:var(--scbg);color:var(--sc)}
+.sghd .sgt .ic{width:15px;height:15px}
+.sghd b{font-size:13.5px;font-weight:800}
+.sghd .schip{margin-inline-start:auto;font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:20px;
+  background:var(--scbg);color:var(--sc);white-space:nowrap}
+.sc-panel{--sc:var(--acc);--scbg:var(--accw)}
+.sc-conn{--sc:var(--acc2);--scbg:color-mix(in srgb,var(--acc2) 13%,transparent)}
+.sc-pool{--sc:var(--gold);--scbg:var(--warnw)}
+.sc-perf{--sc:#8b5cf6;--scbg:color-mix(in srgb,#8b5cf6 13%,transparent)}
+.sgb{padding:2px 14px 12px}
+.sr{padding:8px 0;border-bottom:1px dashed var(--bord)}
+.sr:last-child{border-bottom:0}
+.srtop{display:flex;align-items:center;gap:10px;min-height:var(--sc-h)}
+.srlbl{flex:1;min-width:0;font-size:13px;font-weight:700}
+.srlbl u{text-decoration:none;color:var(--sub);font-weight:600}
+.srq{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--bord);background:var(--field);
+  color:var(--sub);font-size:11px;line-height:1;cursor:pointer;padding:0;font-family:inherit}
+.srq:hover{border-color:var(--acc);color:var(--acc)}
+.sr.exp-open .srq{background:var(--acc);border-color:var(--acc);color:#fff}
+.srctl{flex:none;width:var(--sc-w);max-width:52%}
+.srctl>*{width:100%;height:var(--sc-h);margin:0}
+.srctl input.search{min-width:0;padding:0 12px;border-radius:10px;font-variant-numeric:tabular-nums}
+.srctl .setfield{padding:0 12px;border-radius:10px}
+.srctl .msbtn{padding:0 12px;border-radius:10px}
+.srctl .seg2{gap:4px;padding:3px;background:var(--field);border:1px solid var(--bord);border-radius:10px}
+.srctl .seg2 .segopt{padding:0;border:0;background:transparent;border-radius:7px;display:flex;
+  align-items:center;justify-content:center}
+.srctl .seg2 .segopt.on{background:var(--card);color:var(--acc);box-shadow:var(--sh-sm)}
+.srctl input.wtxt{max-width:none;text-align:left;direction:ltr;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.srexp{max-height:0;overflow:hidden;opacity:0;transition:max-height .28s ease,opacity .2s,margin .2s;
+  background:var(--field);border-radius:11px;padding:0 12px}
+.sr.exp-open .srexp{max-height:300px;opacity:1;margin-top:9px;padding:10px 12px}
+.srexp p{margin:0;font-size:12.5px;line-height:1.75}
+.srexp .srex{margin-top:5px;color:var(--sub)}
+.srexp .srex b{color:var(--acc);font-weight:700}
+.srnote{margin:8px 2px 0;font-size:11px;line-height:1.85;color:var(--sub)}
+/* The save bar rides the bottom of the viewport: the groups are two columns tall, and a save that
+   scrolls away is one the operator has to hunt for after every edit. */
+.stsave{position:sticky;bottom:10px;z-index:5;display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap;margin-top:var(--sc-g);
+  padding:9px 13px;border-radius:14px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
+.stnote{margin:2px 2px 10px;font-size:11px;line-height:1.85;color:var(--sub)}
+.stsave button{margin:0;flex:none;height:var(--sc-h);padding:0 15px;border-radius:10px;font-size:12.5px;
+  display:inline-flex;align-items:center;gap:6px}
+.stsave .msg{flex:none;margin:0}
+/* the two update cards share one skeleton, so agent and core cannot drift apart visually */
+.opc{padding:14px;display:flex;flex-direction:column;gap:10px}
+.opc .ophd{display:flex;align-items:center;gap:9px}
+.opc .ophd .sgt{width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;
+  justify-content:center;flex:none;background:var(--scbg);color:var(--sc)}
+.opc .ophd .sgt .ic{width:15px;height:15px}
+.opc .ophd b{font-size:13.5px;font-weight:800}
+.opc .ophd .grow{flex:1}
+.opmeta{display:flex;flex-wrap:wrap;gap:4px 9px;align-items:center;font-size:11.5px;color:var(--sub);
+  background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:8px 11px;min-height:var(--sc-h)}
+.opmeta .sep{width:3px;height:3px;border-radius:50%;background:var(--sub);opacity:.5}
+.oprow{display:flex;gap:8px;align-items:center}
+.oprow>.primary,.oprow>.ghost,.oprow>.corcheck{margin:0;height:var(--sc-h);border-radius:10px;font-size:12.5px;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px}
+.oprow>.primary,.oprow>.ghost{flex:1;min-width:0}
+.oprow>.corcheck{flex:0 0 auto;white-space:nowrap}
+.oprow>#cor_ver_box{flex:1;min-width:0}
+.oprow>#cor_ver_box .msbtn{height:var(--sc-h);border-radius:10px;padding:0 12px;margin:0;width:100%}
+.oprow .ic{width:14px;height:14px}
+.corempty{flex:1;min-width:0;font-size:12px;color:var(--sub);line-height:1.7}
+.opdlv label{display:block;margin:0 2px 6px;font-size:11.5px;color:var(--sub)}
+.opdlv .seg2{margin:0;gap:6px}
+.opdlv .seg2 .segopt{padding:8px 6px;border-radius:10px}
+.opgo{width:100%;margin:auto 0 0;height:var(--sc-h);border-radius:10px;font-size:13px;display:inline-flex;
+  align-items:center;justify-content:center;gap:7px}
+.opgo .ic{width:15px;height:15px}
+.ophint{font-size:10.5px;color:var(--sub);line-height:1.7;margin:0}
+/* ---- one node, one card, two columns. The action row is pinned to the bottom, so the buttons of a
+   card that is carrying a progress bar still line up with the buttons of the card beside it. */
+#agList{display:grid;grid-template-columns:1fr;gap:var(--sc-g);align-items:stretch}
+@media(min-width:900px){#agList{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.nx{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--bord);
+  border-radius:14px;padding:11px 13px;box-shadow:var(--dsh)}
+.nxh{display:flex;align-items:center;gap:8px;min-height:22px}
+.nxh .nm{font-weight:800;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nxh .nxhost{margin-inline-start:auto;font-size:11px;color:var(--sub);font-family:ui-monospace,Consolas,monospace;
+  direction:ltr;flex:none}
+.nxv{display:flex;gap:6px;flex-wrap:wrap;direction:ltr;justify-content:flex-end}
+.nxv .vp{display:inline-flex;align-items:center;gap:4px;height:25px;padding:0 8px;border-radius:8px;
+  background:var(--field);border:1px solid var(--bord);font-size:11px;font-weight:700;
+  font-family:ui-monospace,Consolas,monospace}
+.nxv .vp .ic{width:12px;height:12px}
+.nxv .vp.ok{background:var(--okw);border-color:transparent;color:var(--ok)}
+.nxv .vp.up{background:var(--warnw);border-color:transparent;color:var(--gold)}
+.nxv .vp.na{background:var(--badw);border-color:transparent;color:var(--bad)}
+.nxv .vp.offl{color:var(--sub)}
+.nxa{display:flex;gap:7px;margin-top:auto}
+.nxa .ib{width:34px;height:34px;border-radius:10px}
+.nx .agres{margin:0;min-height:0;font-size:11.5px}
+.nx .agres:empty{display:none}   /* costs no gap until there IS a result, so the list never jumps */
+.nx .pushbar{margin-top:0}
 /* readiness bar: the panel is missing something the install / core-build needs. Above the view, so it
    is the same warning on whatever page the operator happens to be on. */
 .rdbar{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:11px 13px;border-radius:13px;
@@ -8578,25 +8664,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .rdbar span{font-size:11px;color:var(--sub);line-height:1.6}
 .rdbar button{margin:0;flex:0 0 auto;padding:8px 12px;font-size:11.5px;border-radius:10px}
 .cn-stale{color:var(--gold)}
-.agx-dlv{margin-top:11px}
-.agx-dlv label{margin:0 2px 7px}
-.agx-dlv .seg2{margin:0}
-/* --- compact node row + per-node core picker --- */
-.agx-row{position:relative;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap;box-shadow:var(--dsh)}
-.agx-row .nm{font-weight:800;font-size:13px}
-.agx-right{display:flex;flex-direction:column;gap:6px;min-width:0}
-.agx-l1{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:20px}
-.agx-colb{display:flex;gap:6px;flex:0 0 auto;margin-inline-start:auto}
-/* «آیکنِ ایجنت: نسخه — آیکنِ هسته: نسخه»: the icon's COLOUR is the whole status, so the row carries no
-   separate status chip and no version pill. */
-.vline{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--sub);font-family:ui-monospace,monospace;direction:ltr}
-.vline .vp{display:inline-flex;align-items:center;gap:4px;background:var(--field);border:1px solid var(--bord);border-radius:7px;padding:2px 6px;font-weight:700}
-.vline .vp .ic{width:12px;height:12px}
-.vline .vp.ok .ic{color:var(--ok)}
-.vline .vp.up .ic{color:var(--gold)}
-.vline .vp.na .ic{color:var(--bad)}
-.vline .vp.offl .ic{color:var(--sub)}
-.vline .vdash{color:var(--bord);font-weight:800}
 .ib{width:32px;height:32px;border-radius:10px;border:1px solid var(--bord);background:var(--glass);color:var(--tx);display:inline-flex;align-items:center;justify-content:center;padding:0;margin:0;cursor:pointer}
 .ib .ic{width:15px;height:15px}
 .ib.up{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent)}
@@ -8610,7 +8677,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pfb.stop{border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:var(--bad)}
 .pfb:disabled{opacity:.35;cursor:not-allowed}
 body.pushing .toast{bottom:74px}
-.agx-row .agres{flex-basis:100%;margin:2px 0 0;min-height:0;font-size:11.5px}
 /* icon-only card action buttons */
 /* A core card carries SEVEN of these and the row is 315px on a 375px phone: at gap 8 the seventh
    wraps onto a line of its own. Six is what fits, so the icon-only row takes a tighter gap. */
@@ -8754,32 +8820,9 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .ippf{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,#fb923c 15%,transparent);color:#fb923c}.ippf .ic{width:12px;height:12px}
 /* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
-/* compact settings rows (option B) */
-.setctl{flex:0 0 auto;min-width:118px;max-width:150px}
-.setctl>*{width:100%}
-.setctl .setfield{padding:8px 12px;font-size:13px}
-.setctl input.search{padding:8px 12px}
-.setgrp{margin-top:8px}
 .pxhd{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .pxurl{font-size:12.5px;color:var(--sub);margin-top:6px;word-break:break-all}
 .pxused{font-size:11.5px;color:var(--sub);margin-top:6px}
-.sc-panel{--sc:#4f6ef7;--scbg:#4f6ef722}.sc-conn{--sc:#0891b2;--scbg:#0891b222}.sc-pool{--sc:#c2410c;--scbg:#c2410c22}.sc-perf{--sc:#8b5cf6;--scbg:#8b5cf622}
-.grphd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 2px 8px;font-weight:800;font-size:14px;color:var(--tx)}
-.grphd .gdot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--sc)}
-.grphd .schip{font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:20px;background:var(--scbg);color:var(--sc)}
-.setrow2{padding:10px 0;border-bottom:1px solid var(--bord)}
-.setrow2:last-of-type{border-bottom:0}
-.setrow2-top{display:flex;align-items:center;gap:10px}
-.setlbl2{flex:1;font-size:13px;font-weight:700;color:var(--tx)}
-.qbtn{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--bord);background:var(--field);color:var(--sub);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;line-height:1;padding:0}
-.qbtn:hover{border-color:var(--acc);color:var(--acc)}
-.setrow2.exp-open .qbtn{background:var(--acc);border-color:var(--acc);color:#fff}
-.setexp{max-height:0;overflow:hidden;opacity:0;transition:max-height .28s ease,opacity .2s,margin .2s;background:var(--field);border-radius:11px;margin-top:0}
-.setrow2.exp-open .setexp{max-height:280px;opacity:1;margin-top:9px;padding:10px 12px}
-.setexp p{margin:0;font-size:12.5px;line-height:1.75;color:var(--tx)}
-.setexp .setex{margin-top:5px;color:var(--sub)}
-.setexp .setex b{color:var(--acc);font-weight:700}
-.setctl input.wtxt{max-width:150px;text-align:left;direction:ltr;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .setfield .val{color:var(--gold)}
 .setfield .cv{margin-inline-start:auto;color:var(--sub)}
 .modal.modesheet{max-width:320px;padding:6px}
@@ -9658,11 +9701,10 @@ function skPfCard(){return '<div class="card acc"><div class="chead">'+     // c
   '<div class="hmain"><div class="hrow1">'+skb('90px',13)+skb('40px',15,20)+
     '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('54px',12)+skb('60px',18,20)+'</span></div></div>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
-function skAgRow(){return '<div class="agx-row">'+             // exact agent/update row
-  '<div class="agx-right"><div class="agx-l1"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+'</div>'+
-  '<div class="vline">'+skb('62px',18,7)+skb('62px',18,7)+'</div></div>'+
-  '<div class="agx-colb">'+skb('32px',32,10)+skb('32px',32,10)+'</div>'+
-  '<div class="msg agres"></div></div>'}
+function skAgRow(){return '<div class="nx">'+             // the shape one node card takes
+  '<div class="nxh"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+'</div>'+
+  '<div class="nxv">'+skb('62px',25,8)+skb('62px',25,8)+'</div>'+
+  '<div class="nxa">'+skb('34px',34,10)+skb('34px',34,10)+'</div></div>'}
 function skCards(kind){
  var arr=(kind=='nodes'?NODES:kind=='portfw'?PF:kind=='agent'?NODES:FLEET)||[];
  var n=Math.max(3,Math.min(8,num(arr.length)||6));
@@ -11551,7 +11593,7 @@ function goReady(){cur='settings';render()}
 var DLV={agent:'push',core:'push'};
 var DLV_OPTS=[['push','dlv_push_t'],['github','dlv_git_t'],['panel','dlv_pan_t']];
 function dlSeg(kind){
- return '<div class="agx-dlv"><label>'+esc(T('dlv_lbl'))+'</label><div class="seg2" id="dlseg_'+kind+'">'+
+ return '<div class="opdlv"><label>'+esc(T('dlv_lbl'))+'</label><div class="seg2" id="dlseg_'+kind+'">'+
   DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b></button>'}).join('')+
   '</div></div>'}
 function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
@@ -11560,35 +11602,40 @@ async function setDelivery(k,v){if(DLV[k]==v)return;var b={};b[k+'_delivery']=v;
  var was=DLV[k];DLV[k]=v;paintDelivery();          // paint first: a switch that waits for the round-trip reads as dead
  var r=await post('settings-set',b);
  if(r.ok&&r.d.ok)toast(T('set_saved'),'ok');else{DLV[k]=was;paintDelivery();toast(perr(r),'err')}}
+// Agent and core wear ONE skeleton, so nothing can drift between them: heading, meta strip, the two
+// source buttons, the delivery segment, and one full-width go button. The core has one row more --
+// the release picker -- because it is the only one of the two with versions to choose from.
 function agentBody(){return ''+
- '<div class="card agx-uni">'+   // AGENT card
-  '<div class="k"><span class="chip" style="--hue:var(--acc)">'+ic(AG_IC,'var(--acc)')+'</span> '+esc(T('ag_node_agent'))+'<span class="grow"></span><span id="ag_status"></span></div>'+
-  '<div class="agx-meta" id="ag_meta"></div>'+
-  '<div class="agx-act">'+
+ '<div class="opgrid">'+
+ '<div class="card opc sc-panel">'+
+  '<div class="ophd"><span class="sgt">'+ic(AG_IC)+'</span><b>'+esc(T('ag_node_agent'))+'</b><span class="grow"></span><span id="ag_status"></span></div>'+
+  '<div class="opmeta" id="ag_meta"></div>'+
+  '<div class="oprow">'+
     '<button class="primary" id="ag_git_btn" onclick="agFetchGit()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'ag_file\\').click()">'+ic('plus')+esc(T('ag_file_btn'))+'</button>'+
   '</div>'+
   dlSeg('agent')+
-  '<button class="primary" style="width:100%;margin-top:9px" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
-  '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
   '<div class="msg" id="ag_git_msg"></div><div class="msg" id="ag_msg"></div>'+
+  '<input type="file" id="ag_file" accept=".py" style="display:none" onchange="agPick(this)">'+
+  '<button class="primary opgo" onclick="agPush(\\'all\\')">'+ic('redo')+esc(T('ag_push_all'))+'</button>'+
  '</div>'+
- '<div class="card agx-uni">'+   // CORE card — matched to the agent card
-  '<div class="k"><span class="chip" style="--hue:#8b5cf6">'+ic(COR_IC,'#8b5cf6')+'</span> '+esc(T('ag_data_core'))+'<span class="grow"></span><span id="cor_status"></span></div>'+
-  '<div class="agx-meta" id="cor_meta"></div>'+
-  '<div class="corverrow"><div id="cor_ver_box"></div>'+
+ '<div class="card opc sc-perf">'+
+  '<div class="ophd"><span class="sgt">'+ic(COR_IC)+'</span><b>'+esc(T('ag_data_core'))+'</b><span class="grow"></span><span id="cor_status"></span></div>'+
+  '<div class="opmeta" id="cor_meta"></div>'+
+  '<div class="oprow"><div id="cor_ver_box"></div>'+
     '<button type="button" class="ghost corcheck" onclick="corCheck()">'+ic('redo')+esc(T('cor_check'))+'</button></div>'+
-  '<div class="agx-act">'+
+  '<div class="oprow">'+
     '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
   '</div>'+
   dlSeg('core')+
-  '<button class="primary" style="width:100%;margin-top:9px;background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
-  '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
-  '<div class="agx-hint">'+esc(T('ag_core_hint'))+'</div>'+
+  '<p class="ophint">'+esc(T('ag_core_hint'))+'</p>'+
   '<div class="msg" id="cor_msg"></div>'+
+  '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
+  '<button class="primary opgo" style="background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
  '</div>'+
- '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
+ '</div>'+
+ '<div class="sec" style="margin-top:16px">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
  '<div id="agList">'+skCards('agent')+'</div>'+pagerBottom('agent')}
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
@@ -11672,13 +11719,15 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
 // The glyph names the version, tints itself to say the state, and labels the button that pushes it -- which
 // is why the row needs no «ایجنت»/«هسته» text. Do NOT use cog here: that is «تنظیمات» in the same nav.
 var AG_IC='server',COR_IC='cpu';
+// One node, one card, two per row. The two version pills carry the whole status in their colour, so
+// the card needs no separate badge; the action row is last and pinned to the bottom of the card, which
+// is what keeps a card with a running job aligned with the plain one beside it.
 function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
  var cinst=!!(i.core_sha&&String(i.core_sha).length);            // core_sha empty => no binary on the node
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
  var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    // agent update available
  var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  // core update available/missing
  var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
- // «آیکن: نسخه» -- the colour IS the status, so the tooltip carries the words
  function vp(icon,cls,ver,tip){return '<span class="vp '+cls+'" title="'+esc(tip)+'">'+ic(icon)+esc(ver)+'</span>'}
  var agcls,agtip,agdis;
  if(!n.online){agcls='offl';agtip=LA+': '+T('offline');agdis=1}
@@ -11690,17 +11739,17 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  else if(!cinst){ccls='na';ctip=LC+': '+T('ag_not_installed');cdis=!STAGED}
  else if(cup){ccls='up';ctip=LC+': '+T('ag_up_avail');cdis=0}
  else{ccls='ok';ctip=LC+': '+T('ag_uptodate');cdis=1}
- return '<div class="agx-row">'+
-   '<div class="agx-right">'+
-     '<div class="agx-l1"><span class="ndot '+(n.online?'on':'off')+'"></span><span class="nm">'+esc(n.name)+'</span></div>'+
-     '<div class="vline">'+vp(AG_IC,agcls,agver,agtip)+'<span class="vdash">—</span>'+
-       vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   // a label, not a number: may be «custom»
-   '</div>'+
-   '<div class="agx-colb">'+
+ return '<div class="nx">'+
+   '<div class="nxh"><span class="ndot '+(n.online?'on':'off')+'"></span>'+
+     '<span class="nm">'+esc(n.name)+'</span>'+
+     '<span class="nxhost">'+esc(n.host||'')+'</span></div>'+
+   '<div class="nxv">'+vp(AG_IC,agcls,agver,agtip)+
+     vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   // a label, not a number: may be «custom»
+   '<div class="msg agres" id="agres_'+n.id+'"></div>'+
+   '<div class="nxa">'+
      '<button class="ib'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LA)+'" onclick="agPush(\\''+n.id+'\\')">'+ic(AG_IC)+'</button>'+
      '<button class="ib'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LC)+'" onclick="corPushStaged(\\''+n.id+'\\')">'+ic(COR_IC)+'</button>'+
-   '</div>'+
-   '<div class="msg agres" id="agres_'+n.id+'"></div></div>'}
+   '</div></div>'}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode;
  if(!code||!code.trim()){formErr(m,T('ag_pick_file_first'));return}
@@ -11949,19 +11998,26 @@ function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember t
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
 // ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
-function settingsSkel(){el('view').innerHTML=vhead('cog','nav_settings','set_sub')+'<div id="setBox"><div class="card muted">'+esc(T('loading'))+'</div></div>'}
+function settingsSkel(){el('view').innerHTML=vhead('cog','nav_settings','set_sub')+'<div id="setBox" class="stpage"><div class="card muted">'+esc(T('loading'))+'</div></div>'}
 var _setMode='alert',_modeOv=null;
 function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
 async function refreshSettings(){var s=await j('settings').catch(function(){return{}});var box=el('setBox');if(!box)return;
  _setMode=(s.reconcile_mode=='auto')?'auto':'alert';
- box.innerHTML=settingsCard(s)+
-  '<div class="sec" style="margin-top:8px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
+ box.innerHTML='<div class="stgrid">'+settingsGroups(s)+'</div>'+saveBar()+
+  '<div class="sec" style="margin-top:16px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  tunPmBind();refreshAgent()}
-// A settings row with a "?" that expands a concept + example; gh() heads a subject group.
-function tgExp(b){var r=b.closest('.setrow2');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
-function qr(lbl,ck,xk,ctl){return '<div class="setrow2"><div class="setrow2-top"><b class="setlbl2">'+lbl+'</b><button type="button" class="qbtn" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="setctl">'+ctl+'</div></div><div class="setexp"><p>'+T(ck)+'</p><p class="setex">'+T(xk)+'</p></div></div>'}
-// A subject header inside the settings card. The dot and the chip take their colour from cls.
-function gh(tk,ck,cls){return '<div class="grphd '+cls+'"><span class="gdot"></span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div>'}
+// One settings row: name, a "?" that expands the concept + an example, and the control. Every control
+// sits in .srctl, which is what gives the whole page one control width.
+function tgExp(b){var r=b.closest('.sr');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
+function qr(lbl,ck,xk,ctl){return '<div class="sr"><div class="srtop"><b class="srlbl">'+lbl+'</b><button type="button" class="srq" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="srctl">'+ctl+'</div></div><div class="srexp"><p>'+T(ck)+'</p><p class="srex">'+T(xk)+'</p></div></div>'}
+// A subject is a CARD of its own now, so the four of them tile two-up instead of stacking into one
+// column the operator has to scroll past. The tile and the chip take their colour from cls.
+function sgCard(icn,tk,ck,cls,rows){return '<div class="card sg '+cls+'"><div class="sghd"><span class="sgt">'+ic(icn)+'</span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div><div class="sgb">'+rows+'</div></div>'}
+function saveBar(){return '<p class="stnote">'+esc(T('set_apply_note'))+'</p>'+
+ '<div class="stsave">'+
+ '<button class="ghost" onclick="resetSettings()">'+ic('reset')+esc(T('set_reset'))+'</button>'+
+ '<button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button>'+
+ '<span class="msg" id="set_msg"></span></div>'}
 function _sv(s,k){return (s&&s[k]!=null&&s[k]!=='')?s[k]:_SETDEF[k]}
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
 // The two pool-retest knobs are stored and stamped in SECONDS but entered in MINUTES, the way
@@ -11973,31 +12029,31 @@ function tNum(id,val,mn,mx,st){return '<input id="'+id+'" class="search" type="n
    the connection, then the IP pool, then throughput. The panel rows take effect the moment they are
    saved; the three tuning groups are stamped into the core config and take effect on a tunnel's next
    build/rebuild. That split is what the note under the button says. */
-function settingsCard(s){
- return '<div class="card setgrp">'+
-  gh('set_g1','set_g1c','sc-panel')+
+function settingsGroups(s){
+ var panel=
   qr(T('set_on_ipchange'),'set_on_ipchange_d','set_x_ipchange','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
   qr(T('set_rec_int'),'set_rec_range','set_x_rec','<input id="set_rec" class="search" type="number" min="5" max="3600" value="'+esc(String(_sv(s,'reconcile_interval')))+'">')+
   qr(T('set_poll_int'),'set_poll_range','set_x_poll','<input id="set_poll" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'poll_interval')))+'">')+
   qr(T('set_ui_int'),'set_ui_range','set_x_ui','<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'ui_interval')))+'">')+
   qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+esc(String(_sv(s,'ech_refresh_mins')))+'">')+
-  qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(_sv(s,'uptime_window')),'',''))+
-  /* Dead detection, one subject: keepalive is the clock, the multiplier is how many missed pings the
-     carrier tolerates, and the rest are the failure thresholds beside them. */
-  gh('set_gkd','set_gkdc','sc-conn')+
+  qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(_sv(s,'uptime_window')),'',''));
+ /* Dead detection, one subject: the multiplier is how many missed pings the carrier tolerates and the
+    rest are the failure thresholds beside it. */
+ var conn=
   qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
   qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
-  '<div class="muted" id="tun_pmhint" style="font-size:11.5px;line-height:1.8;margin:-2px 4px 6px"></div>'+
-  gh('set_g2','set_g2c','sc-pool')+
+  '<p class="srnote" id="tun_pmhint"></p>';
+ var pool=
   qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
-  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
-  /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
-     the connection group, because there is now ONE of it for every carrier. */
-  gh('set_g5','set_g5c','sc-perf')+
-  qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64))+
-  '<div class="tbtnrow" style="margin:14px 0 6px;align-items:center;gap:8px"><button class="primary" onclick="saveSettings()">'+ic('check')+esc(T('save'))+'</button><button class="ghost" onclick="resetSettings()">'+ic('reset')+esc(T('set_reset'))+'</button><span class="msg" id="set_msg" style="align-self:center"></span></div>'+
-  '<div class="muted" style="font-size:11px;line-height:1.8;margin:0 2px">'+esc(T('set_apply_note'))+'</div>'+
-  '</div>'}
+  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440));
+ /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
+    the connection group, because there is now ONE of it for every carrier. */
+ var perf=
+  qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64));
+ return sgCard('cog','set_g1','set_g1c','sc-panel',panel)+
+  sgCard('activity','set_gkd','set_gkdc','sc-conn',conn)+
+  sgCard('redo','set_g2','set_g2c','sc-pool',pool)+
+  sgCard('bolt','set_g5','set_g5c','sc-perf',perf)}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
  var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};

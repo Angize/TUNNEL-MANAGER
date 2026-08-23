@@ -2,7 +2,7 @@
 """Guard: the Settings tuning FORM and _TUNING_DEFAULTS describe the same knob set.
 
 Adding or removing a tuning knob touches three places that no compiler ties together: the
-`_TUNING_DEFAULTS` dict, the row in `settingsCard`, and the read in `_collectTuning`. Drop only one of
+`_TUNING_DEFAULTS` dict, the row in `settingsGroups`, and the read in `_collectTuning`. Drop only one of
 them and nothing raises:
 
   * row removed, collector kept   -> `parseInt(v('set_t_gone'))` is NaN, JSON.stringify writes **null**,
@@ -78,7 +78,7 @@ HARNESS = r"""
 // Pull every <input id=... value=...> out of the card the page just built. tNum and the suspect input
 // both write id before value, so one pass reads the whole form.
 function formOf(settings){
-  const html = settingsCard(settings), vals = {};
+  const html = settingsGroups(settings), vals = {};
   const re = /<input[^>]*\bid="([^"]+)"[^>]*\bvalue="([^"]*)"/g;
   let m; while ((m = re.exec(html))) vals[m[1]] = m[2].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   return {html, vals};
@@ -122,7 +122,7 @@ def main():
     page = index_html()
     blocks = re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)
     js = max(blocks, key=len) if blocks else ""
-    for fn in ("function settingsCard(", "function _collectTuning("):
+    for fn in ("function settingsGroups(", "function _collectTuning("):
         if fn not in js:
             print("FAIL: %s is not in the rendered page -- the guard cannot read its subject" % fn)
             return 1

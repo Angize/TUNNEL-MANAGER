@@ -2,7 +2,7 @@
 """Guard: the pool-retest knobs are MINUTES in the form and SECONDS everywhere else.
 
 `suspect_backoff` and `dead_retest_secs` are stored in settings.json, sent to the node and stamped into
-the core config in SECONDS, but the operator types them in MINUTES — so `settingsCard` divides on the way
+the core config in SECONDS, but the operator types them in MINUTES — so `settingsGroups` divides on the way
 out and `_collectTuning` multiplies on the way back. Drop either half and the panel silently writes a
 value 60x off; nothing downstream can tell, because 600 is a legal number of seconds.
 
@@ -81,7 +81,7 @@ HARNESS = r"""
 // Pull every <input id=... value=...> out of the card the page just built. tNum and the suspect input
 // both write id before value, so one pass reads the whole form.
 function formOf(settings){
-  const html = settingsCard(settings), vals = {};
+  const html = settingsGroups(settings), vals = {};
   const re = /<input[^>]*\bid="([^"]+)"[^>]*\bvalue="([^"]*)"/g;
   let m; while ((m = re.exec(html))) vals[m[1]] = m[2].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   return {html, vals};
@@ -127,7 +127,7 @@ def main():
     page = index_html()
     blocks = re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)
     js = max(blocks, key=len) if blocks else ""
-    for fn in ("function settingsCard(", "function _collectTuning("):
+    for fn in ("function settingsGroups(", "function _collectTuning("):
         if fn not in js:
             print("FAIL: %s is not in the rendered page -- the guard cannot read its subject" % fn)
             return 1

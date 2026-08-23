@@ -119,7 +119,7 @@ async function run(name, settings){
   POSTED = null;
   await resetSettings();
   out.cases.push({name, saved, reset: POSTED, mode: _setMode,
-                  groups: (html.match(/class="grphd ([a-z-]+)"/g) || []),
+                  groups: (html.match(/class="card sg (sc-[a-z]+)"/g) || []),
                   saveButtons: (html.match(/onclick="save[A-Za-z]*\(\)"/g) || []),
                   ids: Object.keys(globalThis._vals)});
 }
@@ -162,7 +162,7 @@ def main():
     blocks = re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)
     js = max(blocks, key=len) if blocks else ""
     for fn in ("async function refreshSettings(", "async function saveSettings(",
-               "async function resetSettings(", "function settingsCard("):
+               "async function resetSettings(", "function settingsGroups("):
         if fn not in js:
             print("FAIL: %s is not in the rendered page -- the guard cannot read its subject" % fn)
             return 1
@@ -187,7 +187,7 @@ def main():
     tundef, setdef = got["tundef"], got["setdef"]
     by_name = {c["name"]: c for c in got["cases"]}
 
-    print("== 0) the card really is ONE card with four subject groups and ONE save ==")
+    print("== 0) four subject cards, each with its own scope, and ONE save ==")
     first = got["cases"][0]
     check(len(first["groups"]) == 4,
           "four group headers rendered: %s" % (first["groups"] or "none"))
