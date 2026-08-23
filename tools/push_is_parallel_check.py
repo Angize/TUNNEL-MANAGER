@@ -135,6 +135,36 @@ def main():
     chk("the last 5% belong to the node's own verify+swap",
         P.api_push_status({"job": j2})["nodes"]["n1"]["pct"], 100)
 
+    # ---- the bar covers the WHOLE plan, and never rewinds. Per step it reset to zero at every boundary,
+    # so a core install (three steps) rewound twice, which reads as the upload having started over.
+    seen3 = []
+
+    def three_push(node, endpoint, body, on_progress=None, timeout=200, should_abort=None):
+        total = 1000 if endpoint == "big" else 4
+        for s in (0, total // 4, total // 2, total):
+            on_progress(s, total)
+            seen3.append(P.api_push_status({"job": j3})["nodes"]["n1"]["pct"])
+        return {"ok": True}
+
+    P.node_push = three_push
+    PLAN3 = [("check", "ping", lambda _n: {}, 15, lambda r: False),
+             ("deliver", "big", lambda _n: {"d": "x"}, 60, None),
+             ("install", "apply", lambda _n: {"a": 1}, 60, None)]
+    j3 = P._push_job_new("core", [NODES[0]])
+    P._push_worker(j3, "core", [NODES[0]], PLAN3)
+    fin = P.api_push_status({"job": j3})["nodes"]["n1"]
+    chk("three steps, and the bar never goes backwards", seen3 == sorted(seen3), True)
+    chk("...it starts at zero and ends at a hundred", (seen3[0], fin["pct"]), (0, 100))
+    chk("...and each step lands on its own share of the bar rather than restarting",
+        (max(s for s in seen3 if s < 34) >= 30, max(s for s in seen3 if s < 67) >= 63), (True, True))
+    chk("the row says which step of how many", (fin["si"], fin["sn"]), (3, 3))
+    jq = P._push_job_new("agent", [NODES[0]])
+    P._push_next(jq, (PLAN3[0][0], len(PLAN3)))
+    stq = P.api_push_status({"job": jq})["nodes"]["n1"]
+    chk("a node still queued carries the count the first step will publish", (stq["si"], stq["sn"]), (1, 3))
+    with P._push_lock:                      # this job exists only to be inspected; leaving it live would
+        P._push_jobs[jq]["done"] = True     # hold n1 busy for every later section
+
     # ---- cancel means NOW: the queue is skipped AND the in-flight sockets are dropped mid-body. The fake
     # honours should_abort the way the real node_push does, so what is tested is _push_one's wiring of it.
     gate = threading.Event()
@@ -270,21 +300,29 @@ def main():
         sorted(merged["nodes"]), sorted([n["id"] for n in NODES] + [n["id"] for n in BIG[:2]]))
     chk("and reports it as unfinished, so the page reattaches", merged["done"], False)
     chk("...and says the kinds differ rather than picking one", merged["kind"], "mixed")
-    # A node another live job still owes work to may not be taken by a second one -- in ANY of the states
-    # that mean work is outstanding. Checking only «queued» would let a second push start on a node that
-    # is mid-upload, which is the exact race this rule exists to prevent: two installs on one node.
+    # A node another live job of the SAME kind still owes work to may not be taken by a second one --
+    # in ANY of the states that mean work is outstanding. Checking only «queued» would let a second push
+    # start on a node that is mid-upload, which is the exact race this rule exists to prevent.
+    # A job of the OTHER kind is a different file, different node op, different lock: those run together,
+    # which is what the operator asked for.
     for state in P.PUSH_BUSY_STATES:
         with P._push_lock:
             P._push_jobs[jr]["nodes"][NODES[0]["id"]]["state"] = state
         try:
-            P._push_job_new("agent", [NODES[0]])
-            chk("a node in «%s» is refused a second push" % state, "accepted", "ValueError")
+            P._push_job_new("core", [NODES[0]])
+            chk("a node in «%s» is refused a second push of its kind" % state, "accepted", "ValueError")
         except ValueError as e:
-            chk("a node in «%s» is refused a second push" % state, "در حال به‌روزرسانی" in str(e), True)
+            chk("a node in «%s» is refused a second push of its kind" % state,
+                "در جریان است" in str(e), True)
+        j_other_kind = P._push_job_new("agent", [NODES[0]])
+        chk("...but the OTHER kind starts on it right away (state «%s»)" % state,
+            sorted(P.api_push_status({"job": j_other_kind})["nodes"]), [NODES[0]["id"]])
+        with P._push_lock:
+            P._push_jobs[j_other_kind]["done"] = True
     # ...and one the job has FINISHED with is free again
     with P._push_lock:
         P._push_jobs[jr]["nodes"][NODES[0]["id"]]["state"] = "ok"
-    j_again = P._push_job_new("agent", [NODES[0]])
+    j_again = P._push_job_new("core", [NODES[0]])
     chk("...but a node the job has finished with can be pushed again",
         sorted(P.api_push_status({"job": j_again})["nodes"]), [NODES[0]["id"]])
     with P._push_lock:

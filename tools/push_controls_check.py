@@ -75,10 +75,13 @@ def toplevel(name):
 
 # ---- 0. ONE NODE at a time, a GLOBAL upload bound, and exactly one way to start a job
 jn = body("_push_job_new")
-need("_busy_nodes()" in code("_push_job_new") and "raise" in jn,
-     "_push_job_new must refuse a node another live job is still working on -- two uploads to one node "
-     "race each other's install. It must NOT refuse a second job: a per-node update has to be able to "
-     "run while a fleet push is going.")
+need("_busy_nodes(kind)" in code("_push_job_new") and "raise" in jn,
+     "_push_job_new must refuse a node that already has an update of THIS KIND running -- two of one "
+     "kind race each other over the same staged file. It must NOT refuse a second job, nor an update "
+     "of the OTHER kind on the same node: the operator asked to be able to run both at once.")
+need('v["kind"] == kind' in code("_busy_nodes"),
+     "_busy_nodes must be scoped by kind, or an agent update on a node the core job is working is "
+     "refused and the two can never run together")
 need("with _push_lock:" in jn.split("busy = _busy_nodes()")[0],
      "the refusal must be inside the lock or two simultaneous POSTs for one node both win")
 need(SRC.count("target=_push_worker") == 1,
@@ -137,6 +140,15 @@ need('"none": True' in body("_update_start"),
 need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
      "_push_one must provision the update key once per node -- calling it per step adds a network "
      "round trip to every step of every node for a key that is first-set-only anyway")
+# The bar covers the WHOLE plan. Per step it reset to zero at every boundary, so a core install
+# rewound the bar twice, which reads as the upload having restarted.
+one_src = code("_push_one")
+need("def at(i, frac):" in one_src and "(i + frac) / n" in one_src,
+     "_push_one must publish a percentage over the whole plan, not over the step in hand")
+need("pct=0" not in one_src.split("def at(")[1],
+     "no step may reset the bar to zero -- that is the rewind this exists to prevent")
+need("pct=at(i + 1, 0)" in one_src,
+     "finishing a step must land on that step's share of the bar, so the next one carries on from there")
 # a gate that fires must settle the node WITHOUT running the rest of the plan
 one = body("_push_one")
 need("if gate and gate(r):" in one and 'state="same"' in one and "return" in one,
@@ -244,8 +256,9 @@ need("skip" in P_STATES, "PUSH_STATES must list skip, which cancel actually sets
 # ---- 3. handing out work is locked, and respects pause + cancel
 nxt = body("_push_next")
 need("with _push_lock:" in nxt, "_push_next must claim a node under the lock or two workers take the same one")
-need('update(state="run", step=first, pct=0)' in nxt,
-     "_push_next must claim the node AND name the step it is about to run, in one write under the lock")
+need('update(state="run", step=first[0], si=1, sn=first[1], pct=0)' in nxt,
+     "_push_next must claim the node AND name the step it is about to run -- with the step counter the "
+     "first step will publish -- in one write under the lock")
 need(set(re.findall(r'state="(\w+)"', body("_push_one")) + ["run"]) <= set(P_STATES)
      and set(P_STATES) - {"wait"} <= set(re.findall(r'state="(\w+)"', SRC) + ["run"]),
      "PUSH_STATES, the states _push_one sets and the state _push_next claims with must be ONE set -- a "
