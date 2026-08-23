@@ -3617,18 +3617,24 @@ _push_slots = threading.BoundedSemaphore(PUSH_WORKERS)
 PUSH_BUSY_STATES = ("wait", "run")     # a node still owed something by a live job
 
 
-def _busy_nodes():
-    """Node ids a live job still has work for. Caller holds _push_lock."""
-    return {nid for v in _push_jobs.values() if not v["done"]
+def _busy_nodes(kind):
+    """Node ids a live job OF THIS KIND still has work for. Caller holds _push_lock.
+
+    Scoped by kind on purpose: the agent and the core are different files, different node ops and
+    different locks on the node, so updating both at once is something the operator asked to be able
+    to do. Two updates of the SAME kind still race each other over one staged file, and that is what
+    stays refused."""
+    return {nid for v in _push_jobs.values() if not v["done"] and v["kind"] == kind
             for nid, s in v["nodes"].items() if s["state"] in PUSH_BUSY_STATES}
 
 
 def _push_job_new(kind, nodes):
-    """Create the job. What is refused is a NODE that is already being updated, not a second job.
+    """Create the job. What is refused is a node that already has an update of THIS KIND running.
 
     One-job-at-a-time used to be the rule because PUSH_WORKERS was per job. The bound is global now, so
-    the only thing left that must not overlap is two uploads to the SAME node -- they would race each
-    other's install. Anything else may run alongside: a per-node update while a fleet push is going.
+    the only thing left that must not overlap is two updates of one kind on one node -- they would race
+    each other over the same staged file. An agent update and a core update on the same node run side
+    by side; the node serialises them itself, under the lock its handler already holds.
 
     Checked under the lock, so two simultaneous POSTs for one node cannot both win."""
     jid = secrets.token_hex(6)
@@ -3636,14 +3642,15 @@ def _push_job_new(kind, nodes):
     with _push_lock:
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
             _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
-        busy = _busy_nodes()
+        busy = _busy_nodes(kind)
         nodes = [x for x in nodes if x["id"] not in busy]
         if not nodes:
-            raise ValueError("این نود همین حالا در حال به‌روزرسانی است — تا تمام‌شدنش صبر کن")
+            raise ValueError("همین به‌روزرسانی روی این نود در جریان است — تا تمام‌شدنش صبر کن")
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
-                                               "step": "", "err": "", "detail": ""} for n in nodes}}
+                                               "step": "", "si": 0, "sn": 0,
+                                               "err": "", "detail": ""} for n in nodes}}
     return jid
 
 
@@ -3722,18 +3729,28 @@ def _push_one(jid, nid, plan):
 
     Cancel is honoured at every boundary AND inside the byte send: a node that has not started its next
     step never starts it, and one that is mid-upload has its socket dropped. The step the operator sees
-    is the step the panel is issuing, because the panel issues them one at a time."""
+    is the step the panel is issuing, because the panel issues them one at a time.
+
+    The percentage covers the WHOLE plan, not the step in hand: each step owns a slice of the bar and
+    the bytes fill that slice, so the bar only ever moves forward. Per-step it rewound to zero at every
+    boundary -- twice on a core install -- which reads as the upload having restarted."""
+    n = len(plan)
+
+    def at(i, frac):
+        """The overall percentage `frac` of the way through step `i`."""
+        return int(max(0.0, min(1.0, (i + frac) / n)) * 100)
+
     try:
         keyed = False
-        for code, endpoint, build, timeout, gate in plan:
+        for i, (code, endpoint, build, timeout, gate) in enumerate(plan):
             if _push_cancelled(jid):
-                _push_set(jid, nid, state="skip", step=code, pct=0)
+                _push_set(jid, nid, state="skip", step=code)
                 return
             fresh = get_node(nid)
             if not fresh:                          # deleted while the queue was working through the fleet
                 _push_set(jid, nid, state="err", err="node_gone")
                 return
-            _push_set(jid, nid, state="run", step=code, pct=0)
+            _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0))
             if not keyed:      # one round trip per NODE: fail-closed verification needs the key, once
                 _ensure_update_key(fresh)
                 keyed = True
@@ -3743,31 +3760,32 @@ def _push_one(jid, nid, plan):
                 _push_set(jid, nid, state="err", err="unbuildable", detail=str(e))
                 return
             if body is None:
-                _push_set(jid, nid, state="skip", step=code, pct=0)
+                _push_set(jid, nid, state="skip", step=code)
                 return
 
-            def prog(sent, total, _nid=nid):
-                # 0..95 while the bytes move; the last 5 belong to the node's own work on them.
-                _push_set(jid, _nid, pct=int(sent * 95 / total) if total and sent < total else 96)
+            def prog(sent, total, _nid=nid, _i=i):
+                # The last sliver of a step's slice belongs to the node's own work on what it was sent.
+                _push_set(jid, _nid, pct=at(_i, (sent / total) * 0.95 if total and sent < total else 0.96))
 
             r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
                           should_abort=lambda: _push_cancelled(jid))
             if r.get("cancelled"):
                 # Dropped mid-body the node kept nothing. Dropped while the answer was awaited it had
                 # the whole request, so say so instead of implying the node was left untouched.
-                _push_set(jid, nid, state="skip", step=code, pct=0,
+                # The bar freezes where it stopped: that is how far this actually got.
+                _push_set(jid, nid, state="skip", step=code,
                           detail="درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
                                  if r.get("delivered") else "")
                 return
             if not r.get("ok"):
-                _push_set(jid, nid, state="err", step=code, pct=100 if not r.get("offline") else 0,
+                _push_set(jid, nid, state="err", step=code,
                           err=str(r.get("code") or ("offline" if r.get("offline") else "failed")),
                           detail=str(r.get("error") or r.get("msg") or ""))
                 return
             if gate and gate(r):               # already running what we came to install: send nothing more
                 _push_set(jid, nid, state="same", step=code, pct=100)
                 return
-            _push_set(jid, nid, pct=100, restarted=r.get("restarted"))
+            _push_set(jid, nid, pct=at(i + 1, 0), restarted=r.get("restarted"))
         # Reaching the end means work was done: every plan opens with a step whose gate settles a node
         # that already has the artifact, so «nothing to do» never gets this far.
         _push_set(jid, nid, state="ok", pct=100)
@@ -3793,7 +3811,7 @@ def _push_next(jid, first):
             if j["nodes"][nid]["state"] == "wait":
                 # Claimed AND labelled in one write: a poll landing between the two would find a node
                 # «running» with no step, and the row would name the wrong one.
-                j["nodes"][nid].update(state="run", step=first, pct=0)
+                j["nodes"][nid].update(state="run", step=first[0], si=1, sn=first[1], pct=0)
                 return nid
     return None
 
@@ -3808,7 +3826,7 @@ def _push_worker(jid, kind, nodes, payload):
             # not holding a node hostage in «در حالِ آپلود», and the global bound covers every job.
             _push_slots.acquire()
             try:
-                nid = _push_next(jid, payload[0][0])
+                nid = _push_next(jid, (payload[0][0], len(payload)))
                 if nid is None:
                     return
                 if nid != "wait":
@@ -4043,6 +4061,23 @@ def api_core_versions(d):
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
     return {"versions": out, "staged": _staged_info(), "checked_ts": int(_core_versions_cache["ts"] or 0),
             "delivery": _delivery_mode("core")}
+
+
+def api_core_delete_blob(d):
+    """Throw away the uploaded custom binary. Nothing else refers to it: it is offered as its own choice
+    in the version list and staged from there, so removing the two files removes the choice."""
+    with _core_blob_lock:
+        gone = False
+        for path in (CORE_BLOB, CORE_BLOB_META):
+            try:
+                os.remove(path)
+                gone = True
+            except FileNotFoundError:
+                pass
+    if not gone:
+        raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
+    log_event("core", "باینریِ سفارشیِ هسته حذف شد")
+    return {"ok": True}
 
 
 def api_core_check(d):
@@ -7867,7 +7902,7 @@ API = {
     "update-agent": api_update_agent, "update-core": api_update_core,
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-check": api_core_check,
-    "core-upload": api_core_upload, "core-stage": api_core_stage, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
+    "core-upload": api_core_upload, "core-delete-blob": api_core_delete_blob, "core-stage": api_core_stage, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
@@ -7875,6 +7910,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "peer-status", "peer-retest-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",
+             "core-delete-blob",
              "update-agent", "update-core",
              "reorder"}
 
@@ -8618,7 +8654,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .oprow>.primary,.oprow>.ghost,.oprow>.corcheck{margin:0;height:var(--sc-h);border-radius:10px;font-size:12.5px;
   display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px}
 .oprow>.primary,.oprow>.ghost{flex:1;min-width:0}
-.oprow>.corcheck{flex:0 0 auto;white-space:nowrap}
+.oprow>.corcheck,.oprow>.opdel{flex:0 0 auto;white-space:nowrap}
+.oprow>.opdel{width:var(--sc-h);padding:0;color:var(--bad);border-color:color-mix(in srgb,var(--bad) 32%,transparent)}
 .oprow>#cor_ver_box{flex:1;min-width:0}
 .oprow>#cor_ver_box .msbtn{height:var(--sc-h);border-radius:10px;padding:0 12px;margin:0;width:100%}
 .oprow .ic{width:14px;height:14px}
@@ -8632,14 +8669,15 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ophint{font-size:10.5px;color:var(--sub);line-height:1.7;margin:0}
 /* ---- one node, one card, two columns. The action row is pinned to the bottom, so the buttons of a
    card that is carrying a progress bar still line up with the buttons of the card beside it. */
-#agList{display:grid;grid-template-columns:1fr;gap:var(--sc-g);align-items:stretch}
-@media(min-width:900px){#agList{grid-template-columns:repeat(2,minmax(0,1fr))}}
+#agList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sc-g);align-items:stretch}
 .nx{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--bord);
   border-radius:14px;padding:11px 13px;box-shadow:var(--dsh)}
-.nxh{display:flex;align-items:center;gap:8px;min-height:22px}
-.nxh .nm{font-weight:800;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nxh .nxhost{margin-inline-start:auto;font-size:11px;color:var(--sub);font-family:ui-monospace,Consolas,monospace;
-  direction:ltr;flex:none}
+.nxh{display:flex;align-items:flex-start;gap:8px;min-height:22px}
+.nxh .ndot{margin-top:5px}
+.nxh .nmwrap{min-width:0;display:flex;flex-direction:column;gap:1px}
+.nxh .nm{font-weight:800;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nxh .nxhost{font-size:11px;color:var(--sub);font-family:ui-monospace,Consolas,monospace;direction:ltr;
+  text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nxv{display:flex;gap:6px;flex-wrap:wrap;direction:ltr;justify-content:flex-end}
 .nxv .vp{display:inline-flex;align-items:center;gap:4px;height:25px;padding:0 8px;border-radius:8px;
   background:var(--field);border:1px solid var(--bord);font-size:11px;font-weight:700;
@@ -9017,7 +9055,7 @@ var I18N={fa:{
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",
  // the update's steps, and every reason it can stop — the node sends a code, these are the words
- ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",ups_restarted:"{n} تونل دوباره بالا آمد",
+ ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",ups_restarted:"{n} تونل دوباره بالا آمد",
  upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
  upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
  upe_bad_signature:"امضای پنل تأیید نشد",upe_too_small:"فایل برای یک هسته خیلی کوچک است",
@@ -9193,10 +9231,11 @@ var I18N={fa:{
  pal_add_tun:"افزودن تونل",pal_agent:"بروزرسانیِ ایجنت",pal_checkall:"تستِ همهٔ تونل‌های صفحه",pal_theme:"تغییرِ تمِ روشن/تیره",
  // agent/core update page (partial)
  ag_title:"ایجنت و هسته",ag_sub:"آپدیت و ری‌استارتِ ایجنت و هستهٔ نودها از پنل، بدونِ SSH",
+ cor_del_blob:"حذفِ باینریِ آپلودشده",cor_del_blob_q:"باینریِ سفارشی از پنل حذف شود؟ نودهایی که همین حالا رویش هستند دست‌نخورده می‌مانند.",cor_del_blob_ok:"باینریِ سفارشی حذف شد",cor_deleting:"در حالِ حذف…",
  cor_check:"بررسی آپدیت",cor_checking:"در حال بررسی…",cor_check_new:"نسخهٔ تازه پیدا شد — از لیست انتخابش کن و «دریافت از گیت‌هاب» را بزن",cor_check_same:"تازه‌ترین نسخه همینی است که داری",cor_check_first:"{n} نسخه پیدا شد — یکی را انتخاب کن",cor_check_none:"هیچ نسخه‌ای پیدا نشد",cor_ver_empty:"هنوز بررسی نشده — «بررسی آپدیت» را بزن",
  ag_node_agent:"ایجنتِ نودها",ag_data_core:"هستهٔ داده",ag_fetch_git:"دریافت از گیت‌هاب",ag_file_btn:"فایلِ ایجنت",ag_push_all:"پوشِ ایجنت به همهٔ نودها",
  ag_binary:"باینری",ag_install_all:"نصبِ هسته روی همهٔ نودها",ag_search:"جستجوی نود…",ag_ready:"آمادهٔ پوش",ag_empty:"خالی",ag_no_item:"موردی نیست",
- ag_core_hint:"⚠️ دو سرِ هر تونلِ هسته باید نسخهٔ یکسان داشته باشند؛ اگر نسخهٔ یک نود را عوض کردی، نودِ طرفِ مقابل را هم به همان نسخه ببر وگرنه آن تونل قطع می‌شود.",
+
  ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",ag_send:"ارسالِ",
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
@@ -9702,7 +9741,8 @@ function skPfCard(){return '<div class="card acc"><div class="chead">'+     // c
     '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('54px',12)+skb('60px',18,20)+'</span></div></div>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
 function skAgRow(){return '<div class="nx">'+             // the shape one node card takes
-  '<div class="nxh"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+skb('92px',13)+'</div>'+
+  '<div class="nxh"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+
+  '<span class="nmwrap">'+skb('92px',13)+skb('70px',11)+'</span></div>'+
   '<div class="nxv">'+skb('62px',25,8)+skb('62px',25,8)+'</div>'+
   '<div class="nxa">'+skb('34px',34,10)+skb('34px',34,10)+'</div></div>'}
 function skCards(kind){
@@ -11627,9 +11667,9 @@ function agentBody(){return ''+
   '<div class="oprow">'+
     '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
+    '<button class="ghost opdel" id="cor_del" style="display:none" onclick="corDelBlob()" title="'+esc(T('cor_del_blob'))+'">'+ic('trash')+'</button>'+
   '</div>'+
   dlSeg('core')+
-  '<p class="ophint">'+esc(T('ag_core_hint'))+'</p>'+
   '<div class="msg" id="cor_msg"></div>'+
   '<input type="file" id="cor_file" style="display:none" onchange="agCorPick(this)">'+
   '<button class="primary opgo" style="background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
@@ -11669,6 +11709,8 @@ async function loadCoreVersions(want){
   else mt.innerHTML='<span class="muted">'+esc(T('ag_no_core_staged'))+'</span>';
  }
  var box=el('cor_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
+ var db=el('cor_del');
+ if(db)db.style.display=CORVERS.filter(function(x){return x.custom}).length?'':'none';
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
  var sel=want||ssVal('corver')||(items.length?items[0].v:'');   // default to the newest real version (no synthetic "latest")
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
@@ -11676,6 +11718,14 @@ async function loadCoreVersions(want){
  // empty control that looks broken.
  box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'')
    :'<div class="corempty">'+esc(T('cor_ver_empty'))+'</div>'}
+// Throwing away the uploaded binary is a panel-side delete: a node already running it keeps running it.
+async function corDelBlob(){
+ if(!await confirmBox(T('cor_del_blob_q')))return;
+ var m=el('cor_msg');m.className='msg';m.textContent=T('cor_deleting');
+ var r=await post('core-delete-blob',{});
+ if(!(r.ok&&r.d.ok)){formErr(m,perr(r)||terr(r.d.error)||T('failed'));return}
+ m.className='msg ok';m.textContent=T('cor_del_blob_ok');
+ await loadCoreVersions()}
 // The panel no longer polls GitHub on its own. This is the ONLY thing that fetches the release list,
 // and it runs when the operator asks. It reports what it found rather than silently reordering the
 // dropdown, because "is there a new version" is the actual question being asked.
@@ -11741,8 +11791,8 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  else{ccls='ok';ctip=LC+': '+T('ag_uptodate');cdis=1}
  return '<div class="nx">'+
    '<div class="nxh"><span class="ndot '+(n.online?'on':'off')+'"></span>'+
-     '<span class="nm">'+esc(n.name)+'</span>'+
-     '<span class="nxhost">'+esc(n.host||'')+'</span></div>'+
+     '<span class="nmwrap"><span class="nm">'+esc(n.name)+'</span>'+
+       '<span class="nxhost">'+esc(n.host||'')+'</span></span></div>'+
    '<div class="nxv">'+vp(AG_IC,agcls,agver,agtip)+
      vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   // a label, not a number: may be «custom»
    '<div class="msg agres" id="agres_'+n.id+'"></div>'+
@@ -11791,7 +11841,9 @@ function pushWord(st){
  if(st.state=='same')return T('ag_p_same');
  if(st.state=='ok')return T('ag_p_ok');
  if(st.state=='err')return T('upe_'+(st.err||'failed'))||T('ag_p_err');
- return st.step?T('ups_'+st.step):T('ag_p_wait')}
+ if(!st.step)return T('ag_p_wait');
+ var w=T('ups_'+st.step);
+ return num(st.sn)>1?w+' · '+T('ups_of').replace('{i}',num(st.si)).replace('{n}',num(st.sn)):w}
 function pushBar(st){
  var pct=Math.max(0,Math.min(100,num(st.pct)));
  var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
