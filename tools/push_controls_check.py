@@ -137,10 +137,6 @@ need('"none": True' in body("_update_start"),
 need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
      "_push_one must provision the update key once per node -- calling it per step adds a network "
      "round trip to every step of every node for a key that is first-set-only anyway")
-# provisioning the verify key is a ROUND TRIP to the node: once per node, not once per step
-need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
-     "_push_one must provision the update key once per node -- calling it per step adds a network "
-     "round trip to every step of every node for a key that is first-set-only anyway")
 # a gate that fires must settle the node WITHOUT running the rest of the plan
 one = body("_push_one")
 need("if gate and gate(r):" in one and 'state="same"' in one and "return" in one,
@@ -186,10 +182,12 @@ need(len([1 for _g, k in pairs if k in want_glyph]) >= 3,
 # The two CARD chips are invisible to the pair scan above: their markup is ic(...)+'</span> '+esc(T(...)),
 # so the regex cannot pair them. Check them by name -- a mutation that swapped the card's glyph escaped
 # precisely through this hole.
-for glyph, label in (("AG_IC,'var(--acc)'", "ag_node_agent"), ("COR_IC,'#8b5cf6'", "ag_data_core")):
-    i = CODE.find("ic(%s)" % glyph)
-    need(i >= 0 and label in CODE[i:i + 120],
-         "the «%s» card must be drawn with ic(%s)" % (label, glyph))
+# The two update cards take their glyph from the constants and their COLOUR from the card's scope
+# class, so a colour can no longer be typed in at one call site and drift from the other.
+for glyph, label, scope in (("AG_IC", "ag_node_agent", "sc-panel"), ("COR_IC", "ag_data_core", "sc-perf")):
+    i = CODE.find("card opc %s" % scope)
+    need(i >= 0 and ("ic(%s)" % glyph) in CODE[i:i + 240] and label in CODE[i:i + 280],
+         "the «%s» card must be the %s card and draw its glyph with ic(%s)" % (label, scope, glyph))
 need("vhead(AG_IC,'ag_title'" in CODE and "vhead(COR_IC,'nav_core'" in CODE,
      "both page headers must come from the constants; 'cpu' made «ایجنت و هسته» read as the core page")
 # and the overview note must use an icon, not an emoji
@@ -312,13 +310,21 @@ if pair:
     need(nav.get("cog") not in (None,) and "cog" not in (ag, cor),
          "cog is «تنظیمات» in the same nav -- reusing it gives one glyph two meanings")
 need("num(i.core_ver" not in row, "core_ver is a LABEL (may be «custom») -- num() turns it into 0")
-need("class=\"vline\"" in row, "the row must carry the «icon: version — icon: version» line")
+need('class="nxv"' in row, "the card must carry the two version pills -- their colour IS the status")
+need('class="nxa"' in row and row.index('class="nxv"') < row.index('class="nxa"'),
+     "the actions come last, so a card with a running job keeps its buttons on the same line as the "
+     "plain card beside it")
 for cls in ("ok", "up", "na", "offl"):
     need("'%s'" % cls in row, "the version line must be able to show the %s state" % cls)
 # the row and its skeleton must not drift apart again
-need('class="msg agres"' in jsfn("skAgRow"),
-     "skAgRow must carry the empty .agres line or the list jumps when it loads")
-need("class=\"vline\"" in jsfn("skAgRow"), "skAgRow must mirror the row's version line")
+need(".nx .agres:empty{display:none}" in SRC,
+     "an empty result line must cost no gap, or the card grows by one gap the skeleton did not have "
+     "and the whole list jumps the moment it loads")
+i = CODE.find("function skAgRow(")
+sk = CODE[i:i + 700] if i >= 0 else ""
+need(all(c in sk for c in ('class="nx"', 'class="nxh"', 'class="nxv"', 'class="nxa"')),
+     "skAgRow must mirror the card it stands in for -- wrapper, header, version pills and actions -- "
+     "or the list changes shape the moment the data lands")
 
 out = io.open(1, "w", encoding="utf-8", closefd=False)
 if bad:
