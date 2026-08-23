@@ -137,6 +137,10 @@ need('"none": True' in body("_update_start"),
 need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
      "_push_one must provision the update key once per node -- calling it per step adds a network "
      "round trip to every step of every node for a key that is first-set-only anyway")
+# provisioning the verify key is a ROUND TRIP to the node: once per node, not once per step
+need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_update_key(") == 1,
+     "_push_one must provision the update key once per node -- calling it per step adds a network "
+     "round trip to every step of every node for a key that is first-set-only anyway")
 # a gate that fires must settle the node WITHOUT running the rest of the plan
 one = body("_push_one")
 need("if gate and gate(r):" in one and 'state="same"' in one and "return" in one,

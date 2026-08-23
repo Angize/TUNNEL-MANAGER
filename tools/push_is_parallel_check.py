@@ -43,6 +43,7 @@ def main():
     P = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(P)
 
+    REAL_PUSH = P.node_push      # the sections below replace it; this one section needs the real thing
     failures = []
 
     def chk(label, got, want):
@@ -142,9 +143,9 @@ def main():
     def cancel_push(node, endpoint, body, on_progress=None, timeout=200, should_abort=None):
         reached.append(node["id"])
         gate.wait(2)                          # hold the first PUSH_WORKERS nodes in flight
-        if should_abort and should_abort():    # a real push checks this between 64K chunks
+        if should_abort and should_abort():    # a real push checks this between chunks AND while waiting
             aborted.append(node["id"])
-            return {"ok": False, "cancelled": True}
+            return {"ok": False, "cancelled": True, "delivered": False}
         on_progress and on_progress(1, 1)
         return {"ok": True}
 
@@ -173,6 +174,56 @@ def main():
     # a cut-off node must never be charged an error: it was the operator's choice, not a failure
     chk("a cut-off node carries no error text",
         sorted({sc["nodes"][nid].get("err") or "" for nid in reached}), [""])
+
+    # ---- cancel while the ANSWER is awaited, not only while bytes move. This is the half that used to
+    # be missing: the body of an install step is tiny, so the operator spends the whole step waiting for
+    # a node that is swapping a binary and relaunching tunnels -- with a 300s timeout behind it. A cancel
+    # that only reached the send loop did nothing at all there, and the row still ended «انجام شد».
+    import socket as _s, threading as _t
+    srv = _s.socket(); srv.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0)); srv.listen(4)
+    port = srv.getsockname()[1]
+    held = []
+
+    def deaf():
+        """Read the whole request and then never answer -- a node that is busy installing."""
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            held.append(c)                       # kept open: closing it would be an EOF, not a wait
+            try:
+                c.recv(65536)
+            except Exception:
+                pass
+
+    _t.Thread(target=deaf, daemon=True).start()
+    node = {"id": "slow", "name": "SLOW", "host": "127.0.0.1", "port": port, "token": "t"}
+    P.node_proxy = lambda n: None
+    P._auth_headers = lambda n, m, p, b: {"X-Auth": "x"}
+    flag = {"go": False}
+    t0 = time.time()
+    out = {}
+    th = _t.Thread(target=lambda: out.update(
+        REAL_PUSH(node, "core-apply", {"sha256": "a" * 64}, timeout=300,
+                  should_abort=lambda: flag["go"]) or {}), daemon=True)
+    th.start()
+    time.sleep(0.6)                       # the body is long gone; we are in the wait
+    chk("...and the step really is waiting, not still sending", th.is_alive(), True)
+    flag["go"] = True
+    th.join(timeout=5)
+    took = time.time() - t0
+    chk("a cancel while the node's answer is awaited comes back", out.get("cancelled"), True)
+    chk("...in well under the step's own timeout", took < 3, True)
+    chk("...and says the node already had the whole request, so the row cannot claim it was untouched",
+        out.get("delivered"), True)
+    for c in held:
+        try:
+            c.close()
+        except Exception:
+            pass
+    srv.close()
 
     # ---- pause holds the waiting nodes; resume drains them
     gate2 = threading.Event()

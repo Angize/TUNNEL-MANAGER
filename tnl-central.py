@@ -958,10 +958,13 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
     to report until the answer arrives. Here the request line and headers go first, then the body in
     chunks, and on_progress(sent, total) fires per chunk -- that is what the per-node bar shows.
 
-    should_abort() is consulted between chunks; when it goes true the socket is dropped mid-body and
-    {"cancelled": True} comes back. Safe because the node parses the JSON before it touches disk: a body
-    cut short fails json.loads, and even one that parsed would fail the sha256 gate. Nothing partial is
-    ever installed.
+    should_abort() is consulted between chunks AND while the answer is awaited, so a cancel lands at
+    every point of every step, not only while bytes are moving. The socket is dropped and
+    {"cancelled": True} comes back, with `delivered` saying whether the node already held the whole
+    request. Dropping mid-body is safe: the node parses the JSON before it touches disk, a body cut
+    short fails json.loads, and even one that parsed would fail the sha256 gate. Dropping while WAITING
+    is a different thing -- the node has the request and may carry it out -- which is why `delivered`
+    is reported rather than assumed either way.
 
     Goes through the node's proxy when it has one, because it uses the same _proxy_socket() node_call
     does: a push must not fall out to a direct connection that the control plane would never take.
@@ -989,11 +992,12 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             head.append("X-Central-TLS: %s" % ("1" if _CENTRAL_TLS else "0"))
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
+        deadline = time.monotonic() + timeout
         if on_progress:
             on_progress(0, total)
         while sent < total:
             if should_abort and should_abort():
-                return {"ok": False, "cancelled": True}     # the finally below closes the socket mid-body
+                return {"ok": False, "cancelled": True, "delivered": False}   # socket dropped mid-body
             # An answer arriving mid-body is a refusal decided from the HEADERS alone -- an unproven
             # signature, a stale counter. Take it NOW. The node has stopped reading, so the rest of a
             # large body earns nothing but a broken pipe, and the answer is lost with it: the operator
@@ -1013,6 +1017,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         # Content-Length body, and a close-framed body with no Content-Length at all -- which the earlier
         # two-loop version truncated to whatever the first recv happened to hold.
         raw, head_blob, rest, clen = pre, b"", b"", None
+        sock.settimeout(min(0.25, timeout))      # wake often enough to answer a cancel
         while True:
             head_blob, sep, rest = raw.partition(b"\r\n\r\n")
             if sep:
@@ -1020,7 +1025,14 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
                              if l.lower().startswith(b"content-length:")), None)
                 if clen is not None and len(rest) >= clen:
                     break
-            b = sock.recv(65536)
+            if should_abort and should_abort():
+                return {"ok": False, "cancelled": True, "delivered": True}
+            if time.monotonic() > deadline:
+                raise OSError("timed out waiting for the node")
+            try:
+                b = sock.recv(65536)
+            except socket.timeout:
+                continue                         # nothing yet: back round to the cancel check
             if not b:
                 break                            # EOF: close-framed reply is complete
             raw += b
@@ -3740,8 +3752,12 @@ def _push_one(jid, nid, plan):
 
             r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
                           should_abort=lambda: _push_cancelled(jid))
-            if r.get("cancelled"):                 # dropped mid-body: the node kept nothing
-                _push_set(jid, nid, state="skip", step=code, pct=0)
+            if r.get("cancelled"):
+                # Dropped mid-body the node kept nothing. Dropped while the answer was awaited it had
+                # the whole request, so say so instead of implying the node was left untouched.
+                _push_set(jid, nid, state="skip", step=code, pct=0,
+                          detail="درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
+                                 if r.get("delivered") else "")
                 return
             if not r.get("ok"):
                 _push_set(jid, nid, state="err", step=code, pct=100 if not r.get("offline") else 0,
