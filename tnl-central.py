@@ -6599,10 +6599,26 @@ def _ech_ingest_selfheal():
         if not st.get("ok") or st.get("error"):
             continue
         hostset = set(hosts)
+        events = st.get("events") or []
         seen_max = _ech_healed_seq.get(lid, 0)
+        # The core's seq counts from 1 in each PROCESS. A restart -- rebuild, reboot, tunnel restart --
+        # starts it over, and a high-water mark kept across that swallows every heal the new process
+        # ever reports: G2 goes quiet for good and every rebuild puts the stale key back. The ring only
+        # grows, so a top seq below the mark can only mean the counter restarted underneath us.
+        ring_max = 0
+        for e in events:
+            if isinstance(e, dict):
+                try:
+                    ring_max = max(ring_max, int(e.get("seq") or 0))
+                except (TypeError, ValueError):
+                    pass
+        if ring_max < seen_max:
+            log_event("ok", "ech",
+                      "شمارندهٔ رویدادِ هستهٔ تونلِ «%s» صفر شده (ری‌استارتِ هسته)؛ ثبتِ خودترمیمِ ECH از نو باز شد" % nm)
+            seen_max = 0
         new_max = seen_max
         latest = {}   # host -> (seq, base64): newest not-yet-persisted self-heal per host (robust to ring order)
-        for e in (st.get("events") or []):
+        for e in events:
             if not isinstance(e, dict) or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
                 continue
             try:
@@ -6715,6 +6731,11 @@ _EV_DOWN_CODE = {
 # Which axis a burn/heal names. The core tags every health row and every burn/heal detail with these.
 _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
               "ip": "آی‌پیِ لبه", "sni": "دامنه (SNI)"}
+
+# The same axes where the sentence needs a possessive («پینِ ... تونلِ»). «edge» is both halves of an
+# edge pool at once; the default covers it.
+_PIN_AXIS = {"dst": "آی‌پیِ مقصدِ", "src": "آی‌پیِ مبدأِ",
+             "ip": "لبهٔ", "sni": "دامنهٔ"}
 
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
@@ -6842,9 +6863,11 @@ def _ev_core_text(kind, code, detail, nm):
         if code == "pin_dropped":
             # The operator pinned something that turned out not to work. Rather than hold the tunnel down
             # for the whole pin window, the pin self-releases and rotation resumes. detail is
-            # «axis:reason» — every pool sends it, so the line names WHAT was un-pinned and WHY.
+            # «axis:reason» — every pool sends it, so the line names WHAT was un-pinned and WHY. The
+            # edge pool releases ONE axis when a dial is refused (that only condemns the edge) and both
+            # when the tun probe judges the pair, which is what «edge» means here.
             axis, _, why = key.partition(":")
-            what = {"dst": "آی‌پیِ مقصدِ", "src": "آی‌پیِ مبدأِ"}.get(axis, "لبهٔ")
+            what = _PIN_AXIS.get(axis, "لبهٔ")
             if why == "cannot-land":
                 return ("warn", "edge", f"دلیل: آزادشدنِ پینِ {what} تونلِ «{nm}» — اصلاً وصل نشد",
                         "چیزی که پین کردی در دسترس نبود؛ برای جلوگیری از قطعی، چرخش به انتخابِ سالم برگشت")
