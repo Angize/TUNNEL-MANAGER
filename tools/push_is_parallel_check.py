@@ -26,6 +26,9 @@ import threading
 import time
 from pathlib import Path
 
+# what _push_worker takes now: an ordered list of steps, each (code, endpoint, build, timeout, gate)
+PLAN = [("deliver", "update", lambda n: {"code": "x"}, 60, None)]
+
 NODES = [{"id": "n%d" % i, "name": "N%d" % i, "host": "10.0.0.%d" % i, "port": 8099, "token": "t"}
          for i in (1, 2, 3, 4)]
 
@@ -70,10 +73,12 @@ def main():
 
     P.node_push = wide_push
     jb = P._push_job_new("core", BIG)
-    P._push_worker(jb, "core", BIG, lambda n: ({"code": "x"}, "update", 60))
+    P._push_worker(jb, "core", BIG, PLAN)
     chk("more than one node uploads at a time", peak["max"] >= 2, True)
     chk("but never more than PUSH_WORKERS", peak["max"] <= P.PUSH_WORKERS, True)
     chk("every node in the fleet was pushed to", sorted(starts), sorted(n["id"] for n in BIG))
+    chk("a node is claimed and labelled in one write, never «running» with no step",
+        all(v.get("step") for v in P.api_push_status({"job": jb})["nodes"].values()), True)
     chk("the pool starts at the head of the queue, in order",
         starts[:P.PUSH_WORKERS], [n["id"] for n in BIG[:P.PUSH_WORKERS]])
     sb = P.api_push_status({"job": jb})
@@ -97,14 +102,17 @@ def main():
 
     P.node_push = fake_push
     jid = P._push_job_new("agent", NODES)
-    P._push_worker(jid, "agent", NODES, lambda n: ({"code": "x"}, "update", 60))
+    P._push_worker(jid, "agent", NODES, PLAN)
     st = P.api_push_status({"job": jid})
     chk("the job finishes", st["done"], True)
     chk("every node is reported", sorted(st["nodes"]), ["n1", "n2", "n3", "n4"])
     chk("a node that answers ok reaches 100", (st["nodes"]["n1"]["state"], st["nodes"]["n1"]["pct"]),
         ("ok", 100))
+    # the CODE picks the operator's word; the node's own sentence rides along as the detail, because
+    # «شکست خورد» on its own tells nobody which of a dozen reasons it was
     chk("the node that TIMED OUT is marked, with its reason",
-        (st["nodes"]["n2"]["state"], st["nodes"]["n2"]["error"]), ("err", "timed out"))
+        (st["nodes"]["n2"]["state"], st["nodes"]["n2"]["err"], st["nodes"]["n2"]["detail"]),
+        ("err", "offline", "timed out"))
     chk("a node that RAISED mid-sweep is marked too", st["nodes"]["n3"]["state"], "err")
     chk("the failures did not stop the others",
         (st["nodes"]["n4"]["state"], st["nodes"]["n4"]["pct"]), ("ok", 100))
@@ -116,12 +124,12 @@ def main():
         [on_progress(s, 1000) or seen.append(P.api_push_status({"job": j2})["nodes"]["n1"]["pct"])
          for s in (0, 100, 500, 900, 1000)] and {"ok": True})
     j2 = P._push_job_new("agent", [NODES[0]])
-    P._push_worker(j2, "agent", [NODES[0]], lambda n: ({"code": "x"}, "update", 60))
+    P._push_worker(j2, "agent", [NODES[0]], PLAN)
     # the last sample is 96, not 95: the final byte flips the node to «apply», because past that point
     # the node holds the whole body and installs it whatever the panel does
     chk("the bar tracks bytes, not phases", seen, [0, 9, 47, 85, 96])
-    chk("and the last byte flips the state to apply, before the reply arrives",
-        P.api_push_status({"job": j2})["nodes"]["n1"]["state"] in ("apply", "ok", "same"), True)
+    chk("and the last byte leaves it working, before the reply arrives",
+        P.api_push_status({"job": j2})["nodes"]["n1"]["state"] in ("run", "ok", "same"), True)
     chk("it never goes backwards", seen == sorted(seen), True)
     chk("the last 5% belong to the node's own verify+swap",
         P.api_push_status({"job": j2})["nodes"]["n1"]["pct"], 100)
@@ -143,7 +151,7 @@ def main():
     P.node_push = cancel_push
     jc = P._push_job_new("agent", BIG)
     tc = threading.Thread(target=P._push_worker,
-                          args=(jc, "agent", BIG, lambda n: ({"code": "x"}, "update", 60)), daemon=True)
+                          args=(jc, "agent", BIG, PLAN), daemon=True)
     tc.start()
     while len(reached) < P.PUSH_WORKERS:
         time.sleep(0.01)
@@ -164,7 +172,7 @@ def main():
 
     # a cut-off node must never be charged an error: it was the operator's choice, not a failure
     chk("a cut-off node carries no error text",
-        sorted({sc["nodes"][nid].get("error") or "" for nid in reached}), [""])
+        sorted({sc["nodes"][nid].get("err") or "" for nid in reached}), [""])
 
     # ---- pause holds the waiting nodes; resume drains them
     gate2 = threading.Event()
@@ -179,7 +187,7 @@ def main():
     P.node_push = slow_push
     jp = P._push_job_new("core", BIG)
     tp = threading.Thread(target=P._push_worker,
-                          args=(jp, "core", BIG, lambda n: ({"code": "x"}, "update", 60)), daemon=True)
+                          args=(jp, "core", BIG, PLAN), daemon=True)
     tp.start()
     while len(seen2) < P.PUSH_WORKERS:
         time.sleep(0.01)
@@ -214,7 +222,7 @@ def main():
     # A node another live job still owes work to may not be taken by a second one -- in ANY of the states
     # that mean work is outstanding. Checking only «queued» would let a second push start on a node that
     # is mid-upload, which is the exact race this rule exists to prevent: two installs on one node.
-    for state in ("wait", "send", "apply"):
+    for state in P.PUSH_BUSY_STATES:
         with P._push_lock:
             P._push_jobs[jr]["nodes"][NODES[0]["id"]]["state"] = state
         try:
@@ -245,18 +253,18 @@ def main():
     P.node_push = lambda node, ep, body, on_progress=None, timeout=200, should_abort=None: (
         reached3.append(node["id"]) or (on_progress(1, 1) if on_progress else None) or {"ok": True})
     j3 = P._push_job_new("agent", NODES)
-    P._push_worker(j3, "agent", NODES, lambda n: ({"code": "x"}, "update", 60))
+    P._push_worker(j3, "agent", NODES, PLAN)
     s3 = P.api_push_status({"job": j3})
     chk("a node deleted mid-job is not pushed to", sorted(reached3), ["n1", "n2", "n4"])
     chk("and it is reported rather than skipped silently",
-        (s3["nodes"]["n3"]["state"], s3["nodes"]["n3"]["error"]), ("err", "نود حذف شد"))
+        (s3["nodes"]["n3"]["state"], s3["nodes"]["n3"]["err"]), ("err", "node_gone"))
     P.get_node = lambda nid: next((n for n in NODES if n["id"] == nid), None)
 
-    # The push asks for a payload PER NODE, and the core bytes only vary by architecture. Without a memo
-    # a 12-node fleet base64-encoded and json-dumped the same 10MB binary twelve times and spawned openssl
+    # The push asks for a body PER NODE, and the core bytes only vary by architecture. Without a memo a
+    # 12-node fleet base64-encoded and json-dumped the same 16MB binary twelve times and spawned openssl
     # twelve times to sign one hash.
     # Two architectures are two different binaries with two different checksums -- modelling them as one
-    # would let a payload cache keyed on the artifact look correct while sharing one body between them.
+    # would let a cache keyed on the artifact look correct while sharing one body between them.
     seenp = {"bytes": 0, "sign": 0}
     ARCHBYTES = {a: b"\x7fELF" + bytes([i]) * 200000 for i, a in enumerate(("amd64", "arm64"))}
     ARCHSHA = {a: chr(ord("a") + i) * 64 for i, a in enumerate(("amd64", "arm64"))}
@@ -264,20 +272,51 @@ def main():
                                     or (ARCHBYTES[arch], ARCHSHA[arch], "v1"))
     P._sign_sha = lambda sha: seenp.__setitem__("sign", seenp["sign"] + 1) or "SIG"
     P._node_arch = lambda n: n["arch"]
+    P._staged_info = lambda: {"version": "v1"}
+    P._delivery_mode = lambda kind: "push"
+    P._core_delivery_check = lambda *a: None
     mixed = [{"id": "m%d" % i, "name": "M%d" % i, "arch": "amd64" if i % 4 else "arm64"}
              for i in range(12)]
-    pay = P._staged_payload()
-    outs = [pay(n) for n in mixed]
+    P.get_node = lambda nid: next((n for n in mixed if n["id"] == nid), None)
+    plans = {}
+    P._push_start = lambda kind, nodes, plan: plans.setdefault("p", plan) and ""
+    P.api_update_core({"ids": [n["id"] for n in mixed]})
+    plan = plans["p"]
+    chk("the core update is check -> deliver -> install", [x[0] for x in plan],
+        ["check", "deliver", "install"])
+    put = plan[1][2]
+    outs = [put(n) for n in mixed]
     chk("12 nodes, 2 architectures -> the binary is encoded twice, not twelve times",
         (seenp["bytes"], seenp["sign"]), (2, 2))
-    chk("nodes of the same arch share the payload object", outs[1][0] is outs[2][0], True)
-    chk("the two architectures get DIFFERENT payloads", outs[0][0] is not outs[1][0], True)
-    # …and different is not enough: each node must get ITS OWN arch. A crossed pair chmod-755s the wrong
+    chk("nodes of the same arch share the encoded body", outs[1] is outs[2], True)
+    chk("the two architectures get DIFFERENT bodies", outs[0] is not outs[1], True)
+    # ...and different is not enough: each node must get ITS OWN arch. A crossed pair chmod-755s the wrong
     # ELF into place and every core tunnel on that node dies with "Exec format error", forever.
-    got = {n["arch"]: json.loads(o[0].decode())["sha256"] for n, o in zip(mixed, outs)}
+    got = {n["arch"]: json.loads(o.decode())["sha256"] for n, o in zip(mixed, outs)}
     chk("each architecture is sent its own binary", got, dict(ARCHSHA))
+
+    # ---- the check step: what it saves is the megabytes, so it must not re-read them per node
+    seenp["bytes"] = 0
+    gate = plan[0][4]
+    chk("a node already on this core is settled without sending anything",
+        [gate({"arch": "amd64", "core_sha": ARCHSHA["amd64"][:12]}) for _ in range(6)], [True] * 6)
+    chk("...and the staged file is hashed once per ARCH, not once per node", seenp["bytes"], 1)
+    chk("a node on a different core is not skipped",
+        gate({"arch": "amd64", "core_sha": "f" * 12}), False)
+    chk("a node that never answered has no arch, and is not skipped",
+        gate({"core_sha": ARCHSHA["amd64"][:12]}), False)
+    chk("...nor is one reporting an arch the panel cannot build for",
+        gate({"arch": "mips", "core_sha": ARCHSHA["amd64"][:12]}), False)
+    chk("the check step carries no payload", plan[0][2](mixed[0]), {})
+    # an unknown arch must refuse at DELIVER rather than push the wrong ELF
     P._node_arch = lambda n: ""
-    chk("an unknown arch refuses instead of guessing", P._staged_payload()(mixed[0])[0], None)
+    plans.clear()
+    P.api_update_core({"ids": [mixed[0]["id"]]})
+    try:
+        plans["p"][1][2](mixed[0])
+        chk("an unknown arch refuses instead of guessing", "built", "ValueError")
+    except ValueError:
+        chk("an unknown arch refuses instead of guessing", True, True)
 
     if failures:
         print("\nFAILURES (%d):" % len(failures))
