@@ -2607,6 +2607,30 @@ def _host_taken(nodes, host, exclude_id=None):
     return any(n.get("id") != exclude_id and str(n.get("host", "")).strip().lower() == key for n in nodes)
 
 
+def _node_first_contact(node):
+    """Ping a freshly added node, pin the signing key, push the staged core. Off the request thread:
+    every step here can wait on a node that is not there yet."""
+    p = node_call(node, "ping", "GET")
+    _refresh_cache([node["id"]])
+    if not p.get("ok"):
+        return
+    try:
+        # Pin the panel's update-signing key before any code push, so even the first core install is
+        # signature-verified — closes the bootstrap window where an unprovisioned node accepts unsigned
+        # pushes. First-set-only on the node side; best-effort, provision-key can retry if this blips.
+        _, _pub = _signing_keys()
+        node_call(get_node(node["id"]) or node, "set-update-key", "POST", {"pubkey": _pub}, timeout=15)
+    except Exception:
+        pass
+    _push_staged_on_add(get_node(node["id"]) or {**node, "arch": p.get("arch")})
+
+
+def _refresh_bg(nids):
+    """Refresh these nodes' cache WITHOUT holding the request. _refresh_cache is the blocking twin,
+    and it is the right one only where the caller genuinely needs the answer before replying."""
+    threading.Thread(target=_refresh_cache, args=(list(nids),), daemon=True).start()
+
+
 def api_node_add(d):
     _require(d, ["name", "host", "port", "token"])
     name = str(d["name"]).strip()
@@ -2634,20 +2658,11 @@ def api_node_add(d):
             raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
         nodes.append(node)
         save_json(NODES_FILE, nodes)
-    p = node_call(node, "ping", "GET")
-    _refresh_cache([node["id"]])
-    if p.get("ok"):                      # node reachable → provision the signing key FIRST, then stage-push the core
-        try:
-            # Pin the panel's update-signing key before any code push, so even the first core install is
-            # signature-verified — closes the bootstrap window where an unprovisioned node accepts unsigned
-            # pushes. First-set-only on the node side; best-effort, provision-key can retry if this blips.
-            _, _pub = _signing_keys()
-            node_call(get_node(node["id"]) or node, "set-update-key", "POST", {"pubkey": _pub}, timeout=15)
-        except Exception:
-            pass
-        _push_staged_on_add(get_node(node["id"]) or {**node, "arch": p.get("arch")})
-    return {"ok": True, "id": node["id"], "online": bool(p.get("ok")),
-            "error": "" if p.get("ok") else p.get("error", "unreachable")}
+    # Everything past this point talks to the node, and the node may be unreachable -- which is a
+    # normal state for one being added, not an error the operator should wait out. The registry
+    # entry above is already durable, so the request answers now and the contact happens behind it.
+    threading.Thread(target=_node_first_contact, args=(node,), daemon=True).start()
+    return {"ok": True, "id": node["id"], "checking": True}
 
 
 # ----------------------------------------------------------------------------- SSH auto-provision
@@ -3052,9 +3067,8 @@ def api_node_edit(d):
                 L["b_name"], chg = name, True
         if chg:
             save_json(LINKS_FILE, links)
-    p = node_call(n, "ping", "GET")
-    _refresh_cache([d["id"]])
-    return {"ok": True, "online": bool(p.get("ok")), "error": "" if p.get("ok") else p.get("error", "unreachable")}
+    _refresh_bg([d["id"]])   # the node may be down, and the save above does not depend on it
+    return {"ok": True, "checking": True}
 
 
 def api_node_toggle(d):
@@ -7971,7 +7985,6 @@ JOB_KINDS = {
     "pool-retest-now":    ("تستِ دوبارهٔ لبه", _jn_link),
     "peer-retest-now":    ("تستِ دوبارهٔ مقصد", _jn_link),
     "node-install":       ("نصبِ نود", _jn_node),
-    "node-kernel-tune":   ("تیونینگِ کرنل", _jn_node),
     "node-adopt-ip":      ("پذیرشِ آی‌پیِ تازه", _jn_node),
     "portfw":             ("ساختِ پورت‌فوروارد", _jn_node),
     "portfw-edit":        ("ویرایشِ پورت‌فوروارد", _jn_node),
@@ -7982,21 +7995,6 @@ JOB_KINDS = {
     "update-core":        ("آپدیتِ هسته", _jn_none),
 }
 QUEUED = frozenset(JOB_KINDS)
-
-# An endpoint that is both an action and a read: only SOME bodies are the action. Without this the
-# read is queued too and the caller is handed a job id where it expected an answer -- which is how
-# the kernel-tuning dialog came up saying «?» over a node whose state it had just failed to ask for.
-JOB_ONLY_WHEN = {
-    "node-kernel-tune": lambda d: str((d or {}).get("action") or "status") in ("apply", "revert"),
-}
-
-
-def jq_is_action(cmd, d):
-    """Whether THIS request is the action, and not the read that shares its name."""
-    if cmd not in QUEUED:
-        return False
-    gate = JOB_ONLY_WHEN.get(cmd)
-    return gate(d) if gate else True
 
 # What the card shows the job beside. A job with no link id is only ever seen on the queue page.
 _JOB_LINK_KINDS = ("edit-link", "rebuild-link", "restart-link", "delete-link", "link-toggle",
@@ -8249,7 +8247,7 @@ def _dispatch(cmd, d):
 
     `_job` in the body is how the queue calls back in: that request is already ON a worker thread, so
     it must RUN the action rather than queue a second copy of it."""
-    if jq_is_action(cmd, d) and not (d or {}).get("_job"):
+    if cmd in QUEUED and not (d or {}).get("_job"):
         return jq_enqueue(cmd, d)
     return API[cmd](d)
 
@@ -9573,7 +9571,7 @@ var I18N={fa:{
  
  
  connecting_dots:"در حال اتصال…",
- need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added:"نود اضافه شد",
+ need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added_checking:"نود اضافه شد — وضعیتش تا چند لحظهٔ دیگر روی کارتش می‌آید",
  inst_done:"انجام شد",
  // node delete
  nd_del:"حذفِ نود",del_how:"می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:",del_detach_t:"فقط از پنل جدا کن",
@@ -9584,7 +9582,7 @@ var I18N={fa:{
  del_force_ask:"این تونل به‌اجبار حذف شود؟ سمتِ نودِ در دسترس همین حالا بسته می‌شود، و سمتِ نودِ قطع وقتی برگشت خودکار پاک می‌شود.",del_force_yes:"حذفِ اجباری",
  del_wipe_force_ask:"سرور قطع است — «پاک‌سازیِ اجباری»؟ رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند؛ خودِ این سرور اگر روزی برگشت باید دستی پاک شود.",del_wipe_force_yes:"پاک‌سازیِ اجباری",del_wipe_force_s:"سرور قطع است، پس روی خودش کاری نمی‌شود کرد: رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند. برگشت‌ناپذیر است!",del_force_wiping:"در حالِ پاک‌سازیِ اجباری…",node_force_wiped:"نود از پنل پاک شد (سرور در دسترس نبود؛ سمتِ مقابل بسته شد)",
  pend_del_t:"حذفِ معلق — وقتی این نود دوباره وصل شد، خودکار پاک‌سازی می‌شود",
- test_testing:"در حال تست…",node_added_online:" · آنلاین",node_added_offline:" · آفلاین: ",
+ test_testing:"در حال تست…",
  // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",
@@ -10600,7 +10598,7 @@ async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host')
  if(!name||!host||!port||!tok){formErr(m,T('need_all_nhpt'));return}
  m.className='msg';m.textContent=T('connecting_dots');
  var r=await post('node-add',Object.assign({name:name,host:host,port:port,token:tok},pxBody('n_')));
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added')+(r.d.online?T('node_added_online'):T('node_added_offline')+terr(r.d.error||'')),r.d.online?'ok':'err')}
+ if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added_checking'),'ok');refreshNodes()}
  else{formErr(m,terr(r.d.error||T('failed')))}}
 // CHECKING is held for the whole test, the way checkLink holds it: refreshNodes replaces EVERY card, so
 // a repaint landing mid-test detaches the strip this writes into -- «در حال تست…» vanishes and the answer
