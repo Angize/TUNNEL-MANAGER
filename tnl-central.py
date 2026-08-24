@@ -8240,9 +8240,14 @@ def api_job_cancel(d):
 
 
 def api_job_retry(d):
-    """Send a failed or cancelled job back to the queue, with the request it was created from."""
+    """Put a failed or cancelled job back in the queue -- the SAME job, not a copy of it.
+
+    A copy left the failed one sitting on the page and put a second card beside it, so three
+    presses on one tunnel that would not build produced three identical cards and three rows. One
+    job is one card for its whole life: it goes back to «در صف» where it stands, keeping its id,
+    its request and its place."""
     jid = str((d or {}).get("job") or "")
-    with _jq_lock:
+    with _jq_cv:
         j = _jobs.get(jid)
         if not j:
             raise ValueError("این کار دیگر نیست")
@@ -8250,8 +8255,13 @@ def api_job_retry(d):
             raise ValueError("این کار انجام شده — برای انجامِ دوباره‌اش از خودِ همان صفحه اقدام کن")
         if j["state"] not in ("fail", "cancel"):
             raise ValueError("این کار هنوز تمام نشده")
-        kind, req = j["kind"], dict(j.get("req") or {})
-    return jq_enqueue(kind, req)
+        j.update(state="wait", err="", tries=0, pct=0, step="", started=0, ended=0)
+        j.pop("cancel", None)
+        j.pop("at", None)
+        _jq_save()
+        _jq_cv.notify_all()
+    jq_start()
+    return {"ok": True, "queued": True, "job": jid}
 
 
 def _dispatch(cmd, d):
@@ -8265,9 +8275,11 @@ def _dispatch(cmd, d):
 
 
 def api_job_clear(d):
-    """Forget every finished job. Nothing that is still to run is touched."""
+    """Forget finished jobs: the one named by `job`, or all of them. Nothing still to run is touched."""
+    one = str((d or {}).get("job") or "")
     with _jq_cv:
-        for jid in [j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("done", "fail", "cancel")]:
+        for jid in [j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("done", "fail", "cancel")
+                    and (not one or j == one)]:
             _jobs.pop(jid, None)
             _jobs_order.remove(jid)
         _jq_save()
@@ -9516,7 +9528,7 @@ var I18N={fa:{
  q_run:"در حال اجرا",q_wait:"در صف",q_fail:"ناموفق",q_done:"تمام‌شده",
  q_cancel:"لغو",q_cancel_all:"لغوِ همه",q_retry:"تلاش دوباره",q_goto:"برو به کارت",
  q_st_wait:"در صف",q_st_run:"در حال اجرا",q_st_fail:"ناموفق",q_st_done:"انجام شد",q_st_cancel:"لغو شد",
- q_pending:"در حالِ ساخت",q_took:"در {t} تمام شد",q_gaveup:"پیش از تمام‌شدن لغو شد",
+ q_pending:"در حالِ ساخت",q_forget:"بردار",q_took:"در {t} تمام شد",q_gaveup:"پیش از تمام‌شدن لغو شد",
  q_queued:"رفت به صف",q_cancelled:"لغو شد",q_tries:"تلاشِ {n}",q_blocked:"منتظرِ نودی است که کارِ دیگری گرفته",
  px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
  px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",
@@ -9584,6 +9596,17 @@ var I18N={fa:{
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
  core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
  server:"سرور",client:"کلاینت",profile:"پروفایل",port:"پورت",port_dst:"پورتِ مقصد",port_src:"پورتِ مبدأ",port_src_rand:"رندوم",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
+ err_rt_nomod:"کرنلِ این نود این نوع تونل را ندارد — ماژولش لود نیست",
+ err_rt_exists:"این اینترفیس یا آدرس از قبل روی نود هست",
+ err_rt_unsupported:"کرنلِ این نود این کار را پشتیبانی نمی‌کند",
+ err_rt_notperm:"کرنل اجازه نداد",err_rt_noroute:"از این نود مسیری به آن آدرس نیست",
+ err_rt_addrused:"این آدرس از قبل روی نود گرفته شده",err_rt_nodev:"چنین اینترفیسی روی نود نیست",
+ err_rt_badarg:"کرنل ورودی را نپذیرفت",err_rt_other:"کرنل رد کرد",
+ err_kernel:"کرنل درخواست را رد کرد",err_refused:"اتصال رد شد",err_noroute:"مسیری به میزبان نیست",
+ err_dns:"نامِ میزبان پیدا نشد",err_reset:"اتصال از آن سر قطع شد",err_timeout:"وقت تمام شد",
+ err_unreach:"در دسترس نبود",err_denied:"اجازه داده نشد",err_nocmd:"این دستور روی نود نیست",
+ err_nofile:"چنین فایل یا مسیری نیست",err_afam:"این نوع آدرس پشتیبانی نمی‌شود",
+ err_pipe:"اتصال وسطِ کار قطع شد",err_cert_unknown:"گواهیِ TLSِ این سرور شناخته نشد",err_cert_expired:"گواهیِ TLSِ این سرور منقضی شده",err_eof:"اتصال بی‌جواب بسته شد",err_cert:"مشکلِ گواهیِ TLS",
  copied:"کپی شد",copy_fail:"کپی نشد",tip_copy:"بزن تا کپی شود",port_src_fixed:"ثابت",
  // portfw
  pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
@@ -9857,7 +9880,49 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
 function T(k){return (k in I18N.fa)?I18N.fa[k]:k}
 // ---- backend error translator (Gap 2): backend raises Persian; translate the STATIC ones on the
 // client for the EN locale. Unmatched messages (interpolated / dynamic) fall back to the original.
-function terr(msg){return msg}
+// English the operator never asked for. Every one of these comes off the node's own tools -- iproute2
+// and the kernel behind it -- and travels through the panel untouched, so a build that failed because
+// a kernel module is missing said «RTNETLINK answers: No such file or directory» to somebody who wants
+// to know whether to try again. The phrase is replaced IN PLACE, so the sentence the panel built
+// around it (which node, what was rolled back) survives, and so does the command in brackets.
+// The prefixes the tools wrap their own errors in. They name no fault and cannot be translated into
+// anything -- dropping them is what leaves a sentence that is Persian all the way through.
+var ERRNOISE=[/^(dial|read|write) (tcp|udp)\\s*/i,/connect:\\s*/i,
+ /context deadline exceeded:?\\s*/i,/^bash: line \\d+:\\s*/i,/^sh: \\d+:\\s*/i,/^ssh:\\s*/i,
+ /^connect:\\s*/i,/^Error:\\s*/i,/^error:\\s*/i];
+var ERRWHOLE=[[/x509:[^,]*signed by unknown authority/i,'err_cert_unknown'],
+ [/x509:[^,]*certificate has expired[^,]*/i,'err_cert_expired'],
+ [/i\\/o timeout/i,'err_timeout'],
+ [/EOF$/,'err_eof']];
+var ERRFA=[
+ [/RTNETLINK answers:\\s*No such file or directory/ig,'err_rt_nomod'],
+ [/RTNETLINK answers:\\s*File exists/ig,'err_rt_exists'],
+ [/RTNETLINK answers:\\s*Operation not supported/ig,'err_rt_unsupported'],
+ [/RTNETLINK answers:\\s*Operation not permitted/ig,'err_rt_notperm'],
+ [/RTNETLINK answers:\\s*Network is unreachable/ig,'err_rt_noroute'],
+ [/RTNETLINK answers:\\s*Address already in use/ig,'err_rt_addrused'],
+ [/RTNETLINK answers:\\s*Cannot find device/ig,'err_rt_nodev'],
+ [/RTNETLINK answers:\\s*Invalid argument/ig,'err_rt_badarg'],
+ [/RTNETLINK answers:\\s*([A-Za-z][A-Za-z ]+)/ig,'err_rt_other'],
+ [/Error talking to the kernel/ig,'err_kernel'],
+ [/Cannot find device/ig,'err_rt_nodev'],
+ [/Connection refused/ig,'err_refused'],
+ [/No route to host/ig,'err_noroute'],
+ [/Name or service not known/ig,'err_dns'],
+ [/Connection reset by peer/ig,'err_reset'],
+ [/timed out|timeout/ig,'err_timeout'],
+ [/unreachable/ig,'err_unreach'],
+ [/Permission denied/ig,'err_denied'],
+ [/command not found/ig,'err_nocmd'],
+ [/No such file or directory/ig,'err_nofile'],
+ [/Address family not supported/ig,'err_afam'],
+ [/broken pipe/ig,'err_pipe'],
+ [/certificate/ig,'err_cert']];
+function terr(msg){msg=String(msg==null?'':msg);
+ for(var i=0;i<ERRNOISE.length;i++)msg=msg.replace(ERRNOISE[i],'');
+ for(var i=0;i<ERRWHOLE.length;i++)msg=msg.replace(ERRWHOLE[i][0],T(ERRWHOLE[i][1]));
+ for(var i=0;i<ERRFA.length;i++)msg=msg.replace(ERRFA[i][0],T(ERRFA[i][1]));
+ return msg.trim()}
 function perr(r,fbk){return r&&r.net?T(r.net=='timeout'?'net_timeout':'net_drop')
  :terr((r.d&&(r.d.error||r.d.msg))||T(fbk||'failed'))}   // no answer, then error, then msg, then a fallback
 function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1><p class="sub">'+esc(T(subK))+'</p>'}   // page header shared by every *Skel view
@@ -10191,10 +10256,12 @@ function jobPill(jb){var k=jb.state;
 // The line under the title. It carries what the title cannot: why this one is waiting, what went
 // wrong, how long it took. Falling back to the title printed the same words twice and told the
 // operator nothing -- an action that reports no step of its own is better left to its clock.
+// terr, not the raw text: a node\'s error reaches here in English and this is where the operator
+// reads it.
 function jobWords(jb){
  var t=jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\';
- if(jb.state==\'fail\')return esc(jb.err||T(\'q_st_fail\'))+t;
- if(jb.state==\'wait\')return esc(jb.step||T(\'q_blocked\'))+t;
+ if(jb.state==\'fail\')return esc(terr(jb.err)||T(\'q_st_fail\'))+t;
+ if(jb.state==\'wait\')return esc(terr(jb.step)||T(\'q_blocked\'))+t;
  if(jb.state==\'run\')return esc(jb.step||\'\');
  if(jb.state==\'done\')return esc(T(\'q_took\').replace(\'{t}\',jobAge(jb)));
  return esc(jb.step||T(\'q_gaveup\'))}
@@ -10206,7 +10273,8 @@ function jobRowOf(jb){if(!jb)return \'\';
  if(jb.state==\'done\')return \'\';
  var acts=(jb.state==\'wait\'||jb.state==\'run\')
    ?\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\'
-   :\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\';
+   :\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\'+
+    \'<button class="jbtn" type="button" onclick="jobForget(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_forget\'))+\'</button>\';
  return \'<div class="jrow">\'+jobPill(jb)+\'<span class="jstep">\'+jobWords(jb)+\'</span>\'+
   ((jb.state==\'run\')?\'<span class="jclock">\'+esc(jobAge(jb))+\'</span>\':\'\')+acts+
   \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div></div>\'}
@@ -10234,6 +10302,9 @@ async function jobCancel(id){var r=await post(\'job-cancel\',{job:id});
 async function jobRetry(id){var r=await post(\'job-retry\',{job:id});
  if(r.ok&&r.d.ok)toast(T(\'q_queued\'),\'ok\');else toast(perr(r),\'err\');refreshJobs()}
 async function jobsClear(){var r=await post(\'job-clear\',{});if(r.ok)refreshJobs()}
+// One finished job put away, so a build that will never work can leave the list without taking
+// every other finished job with it.
+async function jobForget(id){var r=await post(\'job-clear\',{job:id});if(r.ok)refreshJobs()}
 // ===== the «صف‌ها» page =====
 function queueSkel(){el(\'view\').innerHTML=vhead(\'list\',\'nav_queue\',\'q_sub\')+
  \'<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="jobsClear()">\'+ic(\'trash\')+esc(T(\'q_clear\'))+\'</button>\'+
@@ -10259,6 +10330,7 @@ function qJobCard(jb){
  var acts=[];
  if(jb.state==\'wait\'||jb.state==\'run\')acts.push(\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\');
  else if(jb.state==\'fail\'||jb.state==\'cancel\')acts.push(\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\');
+ if(jb.state==\'fail\'||jb.state==\'cancel\')acts.push(\'<button class="jbtn" type="button" onclick="jobForget(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_forget\'))+\'</button>\');
  if(jb.link)acts.push(\'<button class="jbtn" type="button" onclick="jobGoto(\\'\'+esc(jb.link)+\'\\')">\'+esc(T(\'q_goto\'))+\'</button>\');
  return \'<div class="qjob">\'+
   \'<div class="qtop">\'+jobPill(jb)+\'<span class="qkind">\'+esc(jb.title||jb.kind)+\'</span>\'+
