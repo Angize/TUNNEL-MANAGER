@@ -15,8 +15,9 @@ Two ways this rots, and neither shows up in a screenshot:
 
 So this renders the REAL coreCard / linkCard for every transport out of the decoded INDEX_HTML under
 node, reads the chip back out of the header, and asserts it names the carrier AND that the body's own
-row agrees with it. The `full` form carries detail the header drops (the raw profile, the flux shape,
-the dns zone) — that is checked as a prefix relationship, not equality.
+«نوع» row carries the IDENTICAL chip. The sub-choice the header drops (the raw profile, the flux
+carrier, the spoof mode, the dns zone) has its own row: the families that have one must print it, and
+the families that do not must print no row at all rather than an empty one.
 
 Exit 1 on any failure.
 """
@@ -33,19 +34,22 @@ if hasattr(sys.stdout, "reconfigure"):
 
 PANEL = Path(__file__).resolve().parent.parent / "tnl-central.py"
 
-# transport -> what the header chip must read. Written from the PRODUCT rule, not from the code, so this
-# stays a real assertion if carrierLabel is rewritten.
+# transport -> (what the header chip must read, what the body profile row must read). Both written
+# from the PRODUCT rule, not from the code, so this stays a real assertion if the helpers are rewritten.
+# An empty profile means the family IS the whole answer and the row must not be printed at all.
 CORE_CASES = [
-    ({"transport": "udp"}, "UDP"),
-    ({"transport": "tcp"}, "TCP"),
-    ({"transport": "raw", "raw_profile": "icmp"}, "RAW"),
-    ({"transport": "raw", "raw_profile": "bare", "raw_proto": 253}, "RAW"),
-    ({"transport": "flux", "flux_carrier": "stun"}, "FLUX"),
-    ({"transport": "ws", "ws_host": "cdn.example.com"}, "WS"),
-    ({"transport": "ws", "cdn_carrier": "http", "ws_host": "cdn.example.com"}, "HTTP"),
-    ({"transport": "ws", "cdn_carrier": "grpc", "ws_host": "cdn.example.com"}, "GRPC"),
-    ({"transport": "dns", "dns_zone": "t.example.com"}, "DNS"),
-    ({"transport": "spoof", "spoof_src": True, "spoof_dst": True}, "SPOOF"),
+    ({"transport": "udp"}, "UDP", ""),
+    ({"transport": "tcp"}, "TCP", ""),
+    ({"transport": "raw", "raw_profile": "icmp"}, "RAW", "ICMP"),
+    ({"transport": "raw", "raw_profile": "tcp", "raw_port": 8801}, "RAW", "TCP"),
+    ({"transport": "raw", "raw_profile": "udp", "raw_sport_random": True}, "RAW", "UDP"),
+    ({"transport": "raw", "raw_profile": "bare", "raw_proto": 253}, "RAW", "BARE(253)"),
+    ({"transport": "flux", "flux_carrier": "stun"}, "FLUX", "STUN"),
+    ({"transport": "ws", "ws_host": "cdn.example.com"}, "WS", ""),
+    ({"transport": "ws", "cdn_carrier": "http", "ws_host": "cdn.example.com"}, "HTTP", ""),
+    ({"transport": "ws", "cdn_carrier": "grpc", "ws_host": "cdn.example.com"}, "GRPC", ""),
+    ({"transport": "dns", "dns_zone": "t.example.com"}, "DNS", "T.EXAMPLE.COM"),
+    ({"transport": "spoof", "spoof_src": True, "spoof_dst": True}, "SPOOF", "SRC+DST"),
 ]
 SYS_TYPES = ["gre", "vxlan", "ipip", "sit", "gretap", "wg"]
 
@@ -77,15 +81,30 @@ globalThis.fetch = () => new Promise(() => {});
 """
 
 HARNESS = r"""
-// The chip is the FIRST .ctag in the header; the body is everything after the header opens.
+// The chip is the FIRST .ctag in the header; the body prints its own inside the .tagrow row, and the
+// sub-choice sits one row below it, as the profile label followed by a .mono value.
 function chipOf(html){ const m = /<span class="ctag ([^"]*)">([^<]*)<\/span>/.exec(html);
   return m ? {cls: m[1], text: m[2]} : null }
+function rowChipOf(html){
+  const m = /<div class="tagrow">[^<]*<span class="ctag ([^"]*)">([^<]*)<\/span>/.exec(html);
+  return m ? {cls: m[1], text: m[2]} : null }
 function textOf(html){ return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ') }
+const PL = T('profile');
+const PROW = new RegExp('>' + PL + ': <b class=\"mono\">([^<]*)</b>');
+// Every port row the card printed, keyed by its label, so the guard can say WHICH port is missing.
+const PORTLBL = {dst: T('port_dst'), src: T('port_src'), one: T('port')};
+function portsOf(html){ const out = {};
+  for (const k of Object.keys(PORTLBL)) {
+    const m = new RegExp('>' + PORTLBL[k] + ': <b class=\"mono\">([^<]*)</b>').exec(html);
+    if (m) out[k] = m[1]; }
+  return out }
 
-const out = {core: [], sys: []};
+const out = {core: [], sys: [], profLabel: PL};
 for (const l of %s) { const html = coreCard(l);
+  const pm = PROW.exec(html);
   out.core.push({transport: l.transport, cdn: l.cdn_carrier || '', chip: chipOf(html),
-                 full: carrierLabel(l, true), body: textOf(html)}); }
+                 rowChip: rowChipOf(html), prof: carrierProfile(l),
+                 profRow: pm ? pm[1] : null, ports: portsOf(html), body: textOf(html)}); }
 for (const l of %s) { const html = linkCard(l);
   out.sys.push({type: l.type, chip: chipOf(html)}); }
 console.log(JSON.stringify(out));
@@ -107,7 +126,8 @@ def main():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     js = max(re.findall(r"<script[^>]*>(.*?)</script>", mod.INDEX_HTML, re.S), key=len)
-    for fn in ("function accHead(", "function carrierLabel(", "function coreCard(", "function linkCard("):
+    for fn in ("function accHead(", "function carrierLabel(", "function carrierProfile(",
+               "function coreCard(", "function linkCard("):
         if fn not in js:
             print("FAIL: %s is not in the rendered page -- the guard cannot read its subject" % fn)
             return 1
@@ -116,7 +136,7 @@ def main():
                 a_ip="203.0.113.5", b_ip="198.51.100.7", enabled=True, server_side="a",
                 cipher="auto", subnet="10.20.1.0/24", port=20001,
                 health={"a": {"up": True, "alive": True}, "b": {"up": True, "alive": True}})
-    cores = [dict(base, **extra) for extra, _ in CORE_CASES]
+    cores = [dict(base, **extra) for extra, _w, _p in CORE_CASES]
     sysu = [dict(base, type=t, name="n%d" % i) for i, t in enumerate(SYS_TYPES)]
 
     with tempfile.TemporaryDirectory() as d:
@@ -136,7 +156,7 @@ def main():
 
     print("== 1) a core card's header names its CARRIER ==")
     seen = set()
-    for (extra, want), row in zip(CORE_CASES, got["core"]):
+    for (extra, want, _p), row in zip(CORE_CASES, got["core"]):
         chip = row["chip"]
         label = "%s%s" % (extra["transport"], ("/" + extra["cdn_carrier"]) if extra.get("cdn_carrier") else "")
         check(chip is not None and chip["text"] == want,
@@ -147,25 +167,50 @@ def main():
                   "%-11s -> chip carries its own colour class (%s)" % (label, chip["cls"]))
 
     print("== 2) ...and no two carriers share one label ==")
-    check(len(seen) == len({w for _, w in CORE_CASES}),
+    check(len(seen) == len({w for _, w, _p in CORE_CASES}),
           "every carrier is distinguishable on the card: %s" % sorted(seen))
 
-    print("== 3) the header and the expanded body do not contradict each other ==")
-    # These four carry a second half the header deliberately drops. If the body stops carrying it the
-    # detail is gone from the UI entirely -- the header never had it -- and a "same family" check alone
-    # would still pass, which is how this section was vacuous on its first pass.
-    DETAILED = {"raw", "flux", "spoof", "dns"}
-    for (extra, want), row in zip(CORE_CASES, got["core"]):
-        full, t = row["full"], extra["transport"]
-        check(full.split("·")[0] == want,
-              "%-11s -> body says %-16s header says %-6s (same family)" % (t, full, want))
-        check(full in row["body"],
-              "%-11s -> the body row really carries %s" % (t, full))
-        if t in DETAILED:
-            check("·" in full and full.split("·", 1)[1].strip() != "",
-                  "%-11s -> the body still carries the detail the header drops (%s)" % (t, full))
+    print("== 3) the header chip and the body type row are the SAME chip ==")
+    for (extra, want, _p), row in zip(CORE_CASES, got["core"]):
+        t, rc, hc = extra["transport"], row["rowChip"], row["chip"]
+        check(rc is not None and hc is not None and rc == hc,
+              "%-11s -> body row chip %s, header chip %s" % (t, rc, hc))
 
-    print("== 4) system cards still name their kernel type ==")
+    print("== 4) ...and the sub-choice the chip drops has its own row ==")
+    # The chip deliberately says only the family, so raw/flux/spoof/dns would lose their second half
+    # entirely if this row went missing -- and a chip-equality check alone would still pass, which is
+    # exactly how the previous version of this section went vacuous. The reverse is checked too: a
+    # family with nothing to choose must print NO row, not an empty one.
+    for (extra, want, prof), row in zip(CORE_CASES, got["core"]):
+        t = extra["transport"] + (("/" + extra["cdn_carrier"]) if extra.get("cdn_carrier") else "")
+        check(row["prof"] == prof,
+              "%-11s -> carrierProfile %r, want %r" % (t, row["prof"], prof))
+        if prof:
+            check(row["profRow"] == prof,
+                  "%-11s -> the card prints the row %s: %s (got %r)" % (t, got["profLabel"], prof, row["profRow"]))
+        else:
+            check(row["profRow"] is None,
+                  "%-11s -> no profile row at all (got %r)" % (t, row["profRow"]))
+
+    print("== 5) a raw udp/tcp card prints BOTH forged ports ==")
+    # raw's udp and tcp profiles are the only carriers that forge a whole L4 header, so they are the
+    # only ones with a source port to show -- and the card used to print no port at all for raw, which
+    # read as "this tunnel has no port" on the one carrier that has two. The numbers themselves are
+    # tied to the core by tools/tuning_consistency.py; this is about which ROWS exist.
+    for (extra, want, _p), row in zip(CORE_CASES, got["core"]):
+        t = extra["transport"]
+        prof, ports = extra.get("raw_profile"), row["ports"]
+        if t == "raw" and prof in ("udp", "tcp"):
+            check(set(ports) == {"dst", "src"},
+                  "raw/%-5s -> prints both forged ports (%s)" % (prof, ports))
+        elif t in ("raw", "flux", "spoof", "dns"):
+            check(ports == {},
+                  "%-11s -> forges no port, so prints none (%s)" % (t, ports))
+        else:
+            check(set(ports) == {"one"},
+                  "%-11s -> prints the one dialled port (%s)" % (t, ports))
+
+    print("== 6) system cards still name their kernel type ==")
     for t, row in zip(SYS_TYPES, got["sys"]):
         chip = row["chip"]
         check(chip is not None and chip["text"] == t.upper(),
