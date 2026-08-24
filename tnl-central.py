@@ -1893,7 +1893,7 @@ _WORKERS_KEYS = ("a_workers", "b_workers")
 # old setting as if it were the live one. Every _core_extra key is checked against this list by
 # tools/config_contract.py, which is only possible because the list is reachable from outside.
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_proto", "raw_port", "raw_sport_random", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
+                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
                     "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
@@ -2060,6 +2060,8 @@ def _tunnel_extra(src, refetch_ech=True):
         e["raw_port"] = src["raw_port"]
     if src.get("raw_sport_random"):      # ...and whether the udp/tcp CLIENT source port rolls
         e["raw_sport_random"] = True
+    elif src.get("raw_sport"):           # ...or the fixed number it is pinned to instead
+        e["raw_sport"] = src["raw_sport"]
     if src.get("dns_zone"):              # dns-tunnel carrier: delegated zone + client resolver list
         e["dns_zone"] = src["dns_zone"]
         if src.get("dns_resolvers"):
@@ -4388,6 +4390,14 @@ def api_fleet(d):
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), **tfl.get(L["id"], {})}
+        # The forged client source port the tunnel is on RIGHT NOW. Only the CLIENT end publishes a
+        # path, so read it off that node -- the same cached list the pools come out of, no extra call.
+        # A rolled port exists nowhere else at all: the stored config only says that it rolls.
+        if L.get("type") == "core":
+            _cl = lb if (L.get("server_side") != "b") else la
+            _sp = (_cl.get("sports") or {}).get(L["name"])
+            if _sp:
+                rec["sport_live"] = int(_sp)
         # Live active pool IP: the CLIENT node writes .peerpool (active destination) and .srcpool (active
         # source), surfaced per side. `*_ip_rot` is a property of the POOL, not of the status file — a
         # one-entry source pool exists to PIN a source IP and writes a status file like a real one — so
@@ -5390,15 +5400,31 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             # impossible on any tunnel that had ever been udp/tcp -- which is every one of them, since
             # the form fills in the effective 443.
             raise ValueError(f"«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
-        # The CLIENT's forged SOURCE port: fixed (the core's own constant) or rolled over the ephemeral
-        # range for the life of the tunnel. Same inherit-vs-ask rule as raw_port above: a mode carried in
-        # from the PREVIOUS profile is dropped on a profile that forges no ports, and only one asked for
-        # in THIS request is refused.
+        # The CLIENT's forged SOURCE port: ONE choice with two shapes -- a number the operator picked, or
+        # rolled over the ephemeral range for the life of the tunnel. Same inherit-vs-ask rule as raw_port
+        # above: a value carried in from the PREVIOUS profile is dropped on a profile that forges no
+        # ports, and only one asked for in THIS request is refused.
         _srand = bool(d["raw_sport_random"] if "raw_sport_random" in d else cur.get("raw_sport_random"))
-        if _srand and profile in ("udp", "tcp"):
-            ce["raw_sport_random"] = True
-        elif _srand and "raw_sport_random" in d:
-            raise ValueError(f"«پورتِ مبدأِ چرخان» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
+        try:
+            _rsport = int((d["raw_sport"] if "raw_sport" in d else cur.get("raw_sport")) or 0)
+        except (TypeError, ValueError):
+            _rsport = 0
+        # Both asked for in THIS request: refuse. The core refuses the pair as well, so storing it would
+        # only move the failure to a rebuild whose reason the operator never sees.
+        if _srand and _rsport and "raw_sport" in d and "raw_sport_random" in d:
+            raise ValueError("«پورتِ مبدأ» یا ثابت است یا چرخان — هر دو با هم نمی‌شود")
+        if profile in ("udp", "tcp"):
+            if _srand:
+                ce["raw_sport_random"] = True
+            elif _rsport:
+                if not 1 <= _rsport <= 65535:
+                    raise ValueError("پورتِ مبدأ باید بینِ 1 تا 65535 باشد")
+                ce["raw_sport"] = _rsport
+        else:
+            if _srand and "raw_sport_random" in d:
+                raise ValueError(f"«پورتِ مبدأِ چرخان» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
+            if _rsport and "raw_sport" in d:
+                raise ValueError(f"«پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
     if transport == "spoof":                   # standalone IP-spoofing carrier (bare-like, never rotates)
         if cipher == "none":
             raise ValueError("حاملِ جعل به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -9117,7 +9143,7 @@ var I18N={fa:{
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
  core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
  server:"سرور",client:"کلاینت",profile:"پروفایل",port:"پورت",port_dst:"پورتِ مقصد",port_src:"پورتِ مبدأ",port_src_rand:"رندوم",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
- copied:"کپی شد",copy_fail:"کپی نشد",tip_copy:"بزن تا کپی شود",
+ copied:"کپی شد",copy_fail:"کپی نشد",tip_copy:"بزن تا کپی شود",port_src_fixed:"ثابت",
  // portfw
  pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
  pf_empty:"پورت‌فورواردی نیست.",pf_no_online:"هیچ نودِ آنلاینی نیست",
@@ -9338,7 +9364,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -10628,8 +10654,14 @@ var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820;
 function portRows(l){var t=l.transport||'udp';
  if(t=='raw'){
   if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
+  // The source row names the MODE and, in brackets, the port actually in force: the live one the
+  // client's core publishes when we have it, else the configured number. A rolled port has no other
+  // home — the stored config only says that it rolls — so with no live value the brackets are dropped
+  // rather than filled with a number the wire never carried.
+  var _mode=l.raw_sport_random?T('port_src_rand'):T('port_src_fixed');
+  var _now=num(l.sport_live)||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
   return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
-         '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(l.raw_sport_random?T('port_src_rand'):RAW_SPORT_FIX)+'</b></div>'}
+         '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(_mode+(_now?(' ('+_now+')'):''))+'</b></div>'}
  if(t=='flux'||t=='spoof'||t=='dns'||!l.port)return '';
  return '<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'}
 function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best'),warn:1},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m'),warn:1},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
@@ -10987,6 +11019,14 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
  +'<div class="seg2" id="'+idp+'spg">'
    +'<button type="button" class="segopt on" id="'+idp+'sp_fix" onclick="'+fnp+'SetSport(0)"><b>'+esc(T('raw_sport_fixed_n'))+'</b><span>'+esc(T('raw_sport_fixed_m'))+'</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'sp_rnd" onclick="'+fnp+'SetSport(1)"><b>'+esc(T('raw_sport_rand_n'))+'</b><span>'+esc(T('raw_sport_rand_m'))+'</span></button></div>'
+ /* The number itself, revealed only in fixed mode. Same shape as the server port above it: presets for
+    the ports a real client of some known protocol would use, plus anything typed. */
+ +'<div id="'+idp+'spfix" style="margin-top:8px">'
+   +'<div class="seg2" id="'+idp+'spg2" style="margin-bottom:8px">'
+     +'<button type="button" class="segopt on" id="'+idp+'sp_51820" onclick="'+fnp+'SetSportPort(51820)"><b>51820</b><span>WireGuard</span></button>'
+     +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
+     +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
+   +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
  +'</div>'}
 // workersSection: how many TUN queues this tunnel's receive path gets. Revealed by {cor,ce}WorkersVis on
 // raw with FEC off — the one pair the core spends queues on. The budget line under it is what keeps the
@@ -11029,7 +11069,21 @@ function workersVis(idp,S,an,bn){var on=wkCarrier(S);
 // portSection itself is: a per-form copy is how the edit form ends up wired to nothing.
 function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
  var f=el(idp+'sp_fix'),r=el(idp+'sp_rnd');
- if(f)f.classList.toggle('on',!on); if(r)r.classList.toggle('on',!!on)}
+ if(f)f.classList.toggle('on',!on); if(r)r.classList.toggle('on',!!on)
+ // Hiding the number is not enough on its own: the collector reads the INPUT, so switching to rolled
+ // has to clear it too, or a port typed beforehand rides along in the body and the panel refuses the
+ // save over a field the operator can no longer see.
+ var w=el(idp+'spfix');if(w)w.style.display=on?'none':'';
+ var i=el(idp+'rawsport');
+ if(i){if(on)i.value='';else if(!i.value)i.value=String(RAW_SPORT_FIX)}
+ sportPresetPaint(idp)}
+// Which preset the typed number matches, if any — the same job cePortWarn does for the server port.
+function sportPresetPaint(idp){var g=el(idp+'spg2');if(!g)return;var i=el(idp+'rawsport');
+ var n=parseInt((i&&i.value)||'',10);
+ Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id==idp+'sp_'+n)})}
+function sportErr(idp){var e=el(idp+'rawsport');if(!e)return '';
+ var s=(e.value||'').trim();if(!s)return '';
+ var n=parseInt(s,10);return (n>=1&&n<=65535)?'':T('raw_sport_bad')}
 function portErr(idp){var e=el(idp+'rawport');if(!e)return '';
  var s=(e.value||'').trim();if(!s)return '';
  var n=parseInt(s,10);return (n>=1&&n<=65535)?'':T('raw_port_bad')}
@@ -11203,6 +11257,8 @@ function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
 function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bare')||S.Tr=='spoof'}
 function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
 function corSetSport(on){_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom)}
+function corSetSportPort(n){var i=el('e_rawsport');if(i)i.value=n;sportPresetPaint('e_')}
+function corSportWarn(){sportPresetPaint('e_')}
 function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('e_rpg');
  if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_rp_'+n)})}
 function corPortVis(){var w=el('e_portrow');if(!w)return;
@@ -11367,7 +11423,12 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
-   body.raw_sport_random=!!S.SportRandom}}
+   /* One choice, two shapes: rolled, or the number under it. BOTH keys always go out, so an edit that
+      switches mode clears the one it left behind instead of inheriting it from the stored record. */
+   var _se=sportErr(px);if(_se){formErr(m,_se);return true}
+   body.raw_sport_random=!!S.SportRandom;
+   var _st=parseInt(v(px+'rawsport'),10);
+   body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}
  /* The spoof carrier is bare-like: no profile, just the outer protocol number plus the forged field(s).
     Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
     go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
@@ -11444,6 +11505,8 @@ function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
 function ceSetPort(v){var i=el('ee_rawport');if(i)i.value=v;cePortWarn()}
 function ceSetSport(on){_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom)}
+function ceSetSportPort(n){var i=el('ee_rawsport');if(i)i.value=n;sportPresetPaint('ee_')}
+function ceSportWarn(){sportPresetPaint('ee_')}
 function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('ee_rpg');
  if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_rp_'+n)})}
 function cePortVis(){var w=el('ee_portrow');if(!w)return;
@@ -11497,7 +11560,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
 // in the open path, and raw_port simply never got its own — so the form could not show which port a
 // tunnel was on. One list means adding a field is one line, and it is drivable by a guard.
 function cePrefillFields(l){
- [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_dnszone',l.dns_zone],
+ [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_dnszone',l.dns_zone],
   ['ee_dnsresolvers',(l.dns_resolvers||[]).join(', ')]].forEach(function(p){
    var e=el(p[0]);if(e&&p[1])e.value=p[1]})}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');

@@ -53,6 +53,21 @@ CORE_CASES = [
 ]
 SYS_TYPES = ["gre", "vxlan", "ipip", "sit", "gretap", "wg"]
 
+# The source-port row names the MODE and then, in brackets, the port actually in force. The live number
+# out of the client's core wins over the stored one, because a ROLLED port exists nowhere else at all:
+# the stored config only says that it rolls. With no live number and no fixed one there is nothing
+# truthful to put in brackets, so there must be no brackets.
+SPORT_CASES = [
+    ("default",            {}, "ثابت (51820)"),
+    ("fixed 4500",         {"raw_sport": 4500}, "ثابت (4500)"),
+    ("fixed, live agrees", {"raw_sport": 4500, "sport_live": 4500}, "ثابت (4500)"),
+    ("rolled, no live",    {"raw_sport_random": True}, "رندوم"),
+    ("rolled, live 39421", {"raw_sport_random": True, "sport_live": 39421}, "رندوم (39421)"),
+    # A live port the core reports must win: the operator is reading what the wire carries, not what
+    # the form once said. This is the case that makes the row worth printing at all.
+    ("fixed 4500, live 500", {"raw_sport": 4500, "sport_live": 500}, "ثابت (500)"),
+]
+
 PRELUDE = r"""
 const noop = () => {};
 const mkClassList = () => { const s = new Set(); return {add:c=>s.add(c),remove:c=>s.delete(c),
@@ -107,6 +122,8 @@ for (const l of %s) { const html = coreCard(l);
                  profRow: pm ? pm[1] : null, ports: portsOf(html), body: textOf(html)}); }
 for (const l of %s) { const html = linkCard(l);
   out.sys.push({type: l.type, chip: chipOf(html)}); }
+out.sport = [];
+for (const l of %s) { out.sport.push(portsOf(coreCard(l)).src || null); }
 console.log(JSON.stringify(out));
 """
 
@@ -138,10 +155,13 @@ def main():
                 health={"a": {"up": True, "alive": True}, "b": {"up": True, "alive": True}})
     cores = [dict(base, **extra) for extra, _w, _p in CORE_CASES]
     sysu = [dict(base, type=t, name="n%d" % i) for i, t in enumerate(SYS_TYPES)]
+    sports = [dict(base, transport="raw", raw_profile="tcp", raw_port=8801, **extra)
+              for _n, extra, _w in SPORT_CASES]
 
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "chip.js"
-        p.write_text(PRELUDE + "\n" + js + "\n" + (HARNESS % (json.dumps(cores), json.dumps(sysu))),
+        p.write_text(PRELUDE + "\n" + js + "\n" + (HARNESS % (json.dumps(cores), json.dumps(sysu),
+                                                                  json.dumps(sports))),
                      encoding="utf-8")
         try:
             r = subprocess.run(["node", str(p)], capture_output=True, text=True, encoding="utf-8", timeout=60)
@@ -210,7 +230,11 @@ def main():
             check(set(ports) == {"one"},
                   "%-11s -> prints the one dialled port (%s)" % (t, ports))
 
-    print("== 6) system cards still name their kernel type ==")
+    print("== 6) the source-port row names the mode AND the port in force ==")
+    for (name, extra, want), val in zip(SPORT_CASES, got["sport"]):
+        check(val == want, "%-22s -> %r, want %r" % (name, val, want))
+
+    print("== 7) system cards still name their kernel type ==")
     for t, row in zip(SYS_TYPES, got["sys"]):
         chip = row["chip"]
         check(chip is not None and chip["text"] == t.upper(),
