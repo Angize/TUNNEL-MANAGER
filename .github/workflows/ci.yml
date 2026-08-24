@@ -70,6 +70,10 @@ name: ci
 #   subnet_parity         the browser and the panel derive the same subnet, AND the core edit form's
 #                         range picker round-trips: opening it and saving must send back the address
 #                         the tunnel already has, or a rebuild renumbers both ends for nothing.
+#   actions_go_through_the_queue  an ACTION is queued and a READ is not. The queue is wired by NAME,
+#                         so a kind spelled wrong is an action that can never run, a read that joins
+#                         the table hands the page a job id instead of its data, and a new action
+#                         that never joins it quietly goes back to blocking the request.
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -209,3 +213,6 @@ jobs:
       - name: the browser and the panel derive the same subnet, and the edit form round-trips it
         working-directory: TUNNEL-MANAGER
         run: python tools/subnet_parity_check.py
+      - name: every action goes through the queue, every read goes around it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/actions_go_through_the_queue_check.py

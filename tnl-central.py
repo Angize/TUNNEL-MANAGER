@@ -7904,6 +7904,352 @@ def api_checkin_impl(source_ip, d):
     return {"ok": True, "updated": True, "host": host, "port": port}
 
 
+# ----------------------------------------------------------------------------- the action queue
+# Every action the operator can start is a JOB: it is written down, it runs on a panel thread, and the
+# browser watches it instead of holding a request open. What this buys, in order of why it exists:
+#
+#   * a slow node cannot fail an action any more. The request that starts it returns at once; the work
+#     keeps going for as long as it takes, and a network attempt that dies is retried rather than lost.
+#   * the operator can stop anything, at any point, from one page.
+#   * two actions that touch the same node no longer race -- the queue hands out nodes, one job at a
+#     time. Actions on unrelated nodes still run side by side.
+#   * a panel restart no longer loses the record of what was asked for.
+#
+# Reads are NOT queued. `fleet`, `summary`, `traffic` and the status polls answer straight away, or the
+# page would have nothing to draw while it waits for its own queue.
+JOBS_FILE = os.path.join(CENTRAL_DIR, "jobs.json")
+JOB_KEEP = 120                 # finished jobs kept on the page (and on disk)
+JOB_WORKERS = 4                # actions running at once, fleet-wide
+JOB_RETRY_MAX = 8              # attempts before a job gives up and waits for the operator
+JOB_RETRY_BACKOFF = (5, 10, 20, 40, 60, 90, 120, 180)   # seconds between attempts
+
+_jobs = {}                     # jid -> record (JSON-safe: it is written to disk as-is)
+_jobs_order = []               # oldest first
+_jq_lock = threading.RLock()
+_jq_cv = threading.Condition(_jq_lock)
+_jq_busy = set()               # node ids a RUNNING job holds
+_jq_up = False
+
+
+class JobCancelled(Exception):
+    """Raised inside a job when the operator cancels it. Never reaches the operator as an error."""
+
+
+class JobRetry(Exception):
+    """The attempt failed for a reason that may pass -- an unreachable node, a refused connection. The
+    queue waits and tries again. A ValueError means the request itself is wrong and is NOT retried."""
+
+
+# kind -> how it is shown, and which nodes it must hold while it runs. The runner is API[kind] itself,
+# so an action becomes queueable by joining this table and nothing else: no second copy of its logic.
+def _jn_pair(d):
+    return [d.get("a_node"), d.get("b_node")]
+
+
+def _jn_link(d):
+    L = next((x for x in load_links() if x["id"] == (d or {}).get("id")), None)
+    return [L.get("a_node"), L.get("b_node")] if L else []
+
+
+def _jn_node(d):
+    return [(d or {}).get("node") or (d or {}).get("id") or (d or {}).get("node_id")]
+
+
+def _jn_none(_d):
+    return []
+
+
+JOB_KINDS = {
+    "create-tunnel":      ("ساختِ تونل", _jn_pair),
+    "edit-link":          ("ویرایشِ تونل", _jn_link),
+    "rebuild-link":       ("بازسازیِ تونل", _jn_link),
+    "restart-link":       ("ری‌استارتِ هسته", _jn_link),
+    "delete-link":        ("حذفِ تونل", _jn_link),
+    "link-toggle":        ("روشن/خاموشِ تونل", _jn_link),
+    "check-link":         ("بررسیِ اتصال", _jn_link),
+    "flux-rotate":        ("چرخشِ flux", _jn_link),
+    "traffic-reset":      ("صفر کردنِ ترافیک", _jn_link),
+    "pool-retest-now":    ("تستِ دوبارهٔ لبه", _jn_link),
+    "peer-retest-now":    ("تستِ دوبارهٔ مقصد", _jn_link),
+    "node-install":       ("نصبِ نود", _jn_node),
+    "node-kernel-tune":   ("تیونینگِ کرنل", _jn_node),
+    "node-adopt-ip":      ("پذیرشِ آی‌پیِ تازه", _jn_node),
+    "node-test":          ("تستِ نود", _jn_node),
+    "spoof-egress-probe": ("تستِ خروجیِ جعل", _jn_pair),
+    "portfw":             ("ساختِ پورت‌فوروارد", _jn_node),
+    "portfw-edit":        ("ویرایشِ پورت‌فوروارد", _jn_node),
+    "portfw-del":         ("حذفِ پورت‌فوروارد", _jn_node),
+    "core-stage":         ("دانلودِ هسته", _jn_none),
+    "agent-fetch-git":    ("دانلودِ ایجنت", _jn_none),
+    "update-agent":       ("آپدیتِ ایجنت", _jn_none),
+    "update-core":        ("آپدیتِ هسته", _jn_none),
+    "proxy-test":         ("تستِ پروکسی", _jn_none),
+}
+QUEUED = frozenset(JOB_KINDS)
+
+# What the card shows the job beside. A job with no link id is only ever seen on the queue page.
+_JOB_LINK_KINDS = ("edit-link", "rebuild-link", "restart-link", "delete-link", "link-toggle",
+                   "check-link", "flux-rotate", "traffic-reset", "pool-retest-now", "peer-retest-now")
+
+
+def _job_link_id(kind, d):
+    if kind in _JOB_LINK_KINDS:
+        return str((d or {}).get("id") or "")
+    return ""
+
+
+def _job_target(kind, d):
+    """The short name beside the kind: the tunnel, the node, the version -- whatever the operator asked
+    this of. Never an id, which says nothing on a page."""
+    d = d or {}
+    lid = _job_link_id(kind, d)
+    if lid:
+        L = next((x for x in load_links() if x["id"] == lid), None)
+        if L:
+            return L.get("name") or ""
+    if kind == "create-tunnel":
+        A, B = get_node(d.get("a_node")), get_node(d.get("b_node"))
+        return "%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?"))
+    for k in ("node", "node_id", "id"):
+        n = get_node(d.get(k)) if d.get(k) else None
+        if n:
+            return n.get("name") or ""
+    return str(d.get("version") or d.get("name") or "")
+
+
+def _jq_save():
+    """Persist the queue. Caller holds _jq_lock."""
+    try:
+        save_json(JOBS_FILE, [_jobs[j] for j in _jobs_order if j in _jobs])
+    except OSError:
+        pass                    # a queue that cannot be written still runs; losing the file is not fatal
+
+
+def _jq_prune():
+    """Drop the oldest finished jobs past JOB_KEEP. Caller holds _jq_lock."""
+    fin = [j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("done", "fail", "cancel")]
+    for jid in fin[:max(0, len(fin) - JOB_KEEP)]:
+        _jobs.pop(jid, None)
+        _jobs_order.remove(jid)
+
+
+def jq_enqueue(kind, d, auto=False):
+    """Write the action down and return its id. This is what an action request answers with."""
+    if kind not in JOB_KINDS:
+        raise ValueError("این عمل صف‌بندی نمی‌شود")
+    title, nodes_of = JOB_KINDS[kind]
+    nodes = [n for n in (nodes_of(d) or []) if n]
+    jid = secrets.token_hex(6)
+    rec = {"id": jid, "kind": kind, "title": title, "target": _job_target(kind, d),
+           "link": _job_link_id(kind, d), "nodes": nodes, "state": "wait",
+           "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "tries": 0,
+           "created": int(time.time()), "started": 0, "ended": 0,
+           "req": d or {}, "auto": bool(auto)}
+    with _jq_cv:
+        _jobs[jid] = rec
+        _jobs_order.append(jid)
+        _jq_prune()
+        _jq_save()
+        _jq_cv.notify_all()
+    jq_start()
+    return {"ok": True, "queued": True, "job": jid, "title": title, "target": rec["target"]}
+
+
+def _jq_set(jid, **kw):
+    with _jq_cv:
+        j = _jobs.get(jid)
+        if not j:
+            return
+        j.update(kw)
+        _jq_save()
+
+
+def jq_cancelled(jid):
+    with _jq_lock:
+        j = _jobs.get(jid)
+        return bool(j and j.get("cancel"))
+
+
+def _jq_free(nodes):
+    """True when no running job holds any of these nodes. Caller holds _jq_lock."""
+    return not (_jq_busy & set(nodes))
+
+
+def _jq_take():
+    """Block until a queued job can run, reserve its nodes and return it."""
+    with _jq_cv:
+        while True:
+            soon = 2.0
+            for jid in _jobs_order:
+                j = _jobs.get(jid)
+                if not j or j["state"] != "wait":
+                    continue
+                if j.get("cancel"):
+                    j.update(state="cancel", ended=int(time.time()))
+                    _jq_save()
+                    continue
+                if j.get("at", 0) > time.time():
+                    soon = min(soon, j["at"] - time.time())   # waiting out a retry backoff
+                    continue
+                if not _jq_free(j["nodes"]):
+                    continue                       # another job holds one of its nodes
+                _jq_busy.update(j["nodes"])
+                j.update(state="run", started=j.get("started") or int(time.time()), err="")
+                _jq_save()
+                return jid
+            # Nothing notifies the queue when a backoff comes due, so sleep exactly until the nearest
+            # one -- a flat wait silently rounds every retry up to its own length.
+            _jq_cv.wait(max(0.05, min(soon, 2.0)))
+
+
+def _jq_run(jid):
+    """Run one job to a verdict. The runner is the API function itself: one implementation, whether the
+    action was queued or (in a test) called directly."""
+    with _jq_lock:
+        j = dict(_jobs.get(jid) or {})
+    kind, d = j.get("kind"), j.get("req") or {}
+    try:
+        if jq_cancelled(jid):
+            raise JobCancelled()
+        res = API[kind](dict(d, _job=jid))
+        _jq_set(jid, state="done", pct=100, ended=int(time.time()), step="",
+                res=res if isinstance(res, dict) else {})
+        log_event("ok", "job", "کارِ «%s» تمام شد" % j.get("title", kind), j.get("target", ""))
+    except JobCancelled:
+        _jq_set(jid, state="cancel", ended=int(time.time()), step="")
+    except ValueError as e:
+        # The request itself is wrong. Retrying it would only ask the same wrong question again.
+        _jq_set(jid, state="fail", err=str(e)[:300], ended=int(time.time()))
+        log_event("bad", "job", "کارِ «%s» ناموفق بود" % j.get("title", kind), str(e)[:300])
+    except Exception as e:
+        tries = int(j.get("tries") or 0) + 1
+        if jq_cancelled(jid):
+            _jq_set(jid, state="cancel", ended=int(time.time()))
+        elif tries >= JOB_RETRY_MAX:
+            _jq_set(jid, state="fail", tries=tries, err=str(e)[:300], ended=int(time.time()))
+            log_event("bad", "job", "کارِ «%s» بعد از %d تلاش ناموفق بود" % (j.get("title", kind), tries),
+                      str(e)[:300])
+        else:
+            wait = JOB_RETRY_BACKOFF[min(tries - 1, len(JOB_RETRY_BACKOFF) - 1)]
+            _jq_set(jid, state="wait", tries=tries, err=str(e)[:300],
+                    at=time.time() + wait, step="تلاشِ دوباره تا %ds" % wait)
+    finally:
+        with _jq_cv:
+            _jq_busy.difference_update(j.get("nodes") or [])
+            _jq_cv.notify_all()
+
+
+def _jq_worker():
+    while True:
+        try:
+            _jq_run(_jq_take())
+        except Exception:
+            time.sleep(1)       # a worker must never die: the queue behind it would stop for good
+
+
+def jq_start():
+    """Start the workers once, on the first action of the process."""
+    global _jq_up
+    with _jq_lock:
+        if _jq_up:
+            return
+        _jq_up = True
+    for _ in range(JOB_WORKERS):
+        threading.Thread(target=_jq_worker, daemon=True).start()
+
+
+def jq_load():
+    """Read the queue back after a restart. A job caught mid-flight is NOT replayed: half of it may
+    already have happened on a node, and running it again could build a second copy of the same thing.
+    It is marked failed with the reason, and the operator retries it if they want it."""
+    try:
+        with open(JOBS_FILE) as f:
+            rows = json.load(f)
+    except Exception:
+        rows = []
+    with _jq_cv:
+        for r in rows if isinstance(rows, list) else []:
+            if not isinstance(r, dict) or not r.get("id"):
+                continue
+            if r.get("state") == "run":
+                r["state"] = "fail"
+                r["err"] = "پنل وسطِ این کار ری‌استارت شد — اگر لازم است دوباره بفرستش"
+                r["ended"] = int(time.time())
+            r.pop("cancel", None)
+            _jobs[r["id"]] = r
+            _jobs_order.append(r["id"])
+        _jq_prune()
+        _jq_save()
+
+
+def api_jobs(d):
+    """The whole queue, newest first. One poll feeds both the queue page and every card's job row."""
+    with _jq_lock:
+        rows = [_jobs[j] for j in _jobs_order if j in _jobs]
+        live = sum(1 for r in rows if r["state"] == "run")
+        wait = sum(1 for r in rows if r["state"] == "wait")
+        fail = sum(1 for r in rows if r["state"] == "fail")
+        done = sum(1 for r in rows if r["state"] in ("done", "cancel"))
+        out = [{k: v for k, v in r.items() if k not in ("req", "res")} for r in reversed(rows)]
+    return {"ok": True, "jobs": out, "run": live, "wait": wait, "fail": fail, "done": done,
+            "now": int(time.time())}
+
+
+def api_job_cancel(d):
+    """Stop one job, or every job still to run. A job that has not started never starts; one already
+    running is asked to stop and stops at its next step -- it is never killed mid-write."""
+    jid = str((d or {}).get("job") or "")
+    with _jq_cv:
+        targets = [jid] if jid and jid != "*" else [
+            j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("wait", "run")]
+        n = 0
+        for t in targets:
+            j = _jobs.get(t)
+            if not j or j["state"] not in ("wait", "run"):
+                continue
+            j["cancel"] = True
+            n += 1
+            if j["state"] == "wait":               # never started: end it here and now
+                j.update(state="cancel", ended=int(time.time()), step="")
+            else:
+                j["step"] = "در حالِ لغو…"   # stops at the action next checkpoint
+        _jq_save()
+        _jq_cv.notify_all()
+    return {"ok": True, "cancelled": n}
+
+
+def api_job_retry(d):
+    """Send a failed or cancelled job back to the queue, with the request it was created from."""
+    jid = str((d or {}).get("job") or "")
+    with _jq_lock:
+        j = _jobs.get(jid)
+        if not j:
+            raise ValueError("این کار دیگر نیست")
+        if j["state"] not in ("fail", "cancel"):
+            raise ValueError("این کار هنوز تمام نشده")
+        kind, req = j["kind"], dict(j.get("req") or {})
+    return jq_enqueue(kind, req)
+
+
+def _dispatch(cmd, d):
+    """An ACTION is written into the queue and answers with a job id; a READ answers with the answer.
+
+    `_job` in the body is how the queue calls back in: that request is already ON a worker thread, so
+    it must RUN the action rather than queue a second copy of it."""
+    if cmd in QUEUED and not (d or {}).get("_job"):
+        return jq_enqueue(cmd, d)
+    return API[cmd](d)
+
+
+def api_job_clear(d):
+    """Forget every finished job. Nothing that is still to run is touched."""
+    with _jq_cv:
+        for jid in [j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("done", "fail", "cancel")]:
+            _jobs.pop(jid, None)
+            _jobs_order.remove(jid)
+        _jq_save()
+    return {"ok": True}
+
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
     "spoof-probe": api_spoof_probe,
@@ -7923,6 +8269,8 @@ API = {
     "peer-status": api_peer_status, "peer-retest-now": api_peer_retest_now, "peer-select": api_peer_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
+    "jobs": api_jobs, "job-cancel": api_job_cancel, "job-retry": api_job_retry,
+    "job-clear": api_job_clear,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info,
@@ -7939,7 +8287,8 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",
              "core-delete-blob",
              "update-agent", "update-core",
-             "reorder"}
+             "reorder",
+             "job-cancel", "job-retry", "job-clear"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -8164,7 +8513,7 @@ class Handler(BaseHTTPRequestHandler):
         # a custom core binary (base64) needs far more than the 1MB default; everything else keeps the tight cap
         d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
         try:
-            self._send(200, API[cmd](d))
+            self._send(200, _dispatch(cmd, d))
         except ValueError as e:
             self._send(400, {"error": str(e)})
         except Exception as e:
@@ -8797,6 +9146,45 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
+/* ── the queue: one row inside a card, in the shape .ltraf and .msg already use ── */
+.jrow{margin-top:11px;padding-top:10px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--sub);flex-wrap:wrap}
+.jst{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;flex:0 0 auto;display:inline-flex;align-items:center;gap:5px}
+.jst.wait{color:var(--sub);background:var(--field);border:1px solid var(--bord)}
+.jst.run{color:var(--acc);background:var(--accw)}
+.jst.cancel{color:var(--gold);background:var(--goldw)}
+.jst.fail{color:var(--bad);background:var(--badw)}
+.jst.done{color:var(--ok);background:var(--okw)}
+.jstep{flex:1 1 auto;min-width:0;line-height:1.7;color:var(--tx);font-weight:600;overflow-wrap:anywhere}
+.jstep em{font-style:normal;color:var(--sub);font-weight:500}
+.jclock{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:11px;color:var(--sub);flex:0 0 auto}
+.jbar{flex:1 1 100%;height:5px;border-radius:3px;background:var(--bord);overflow:hidden}
+.jbar>i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width .5s linear}
+.jbar.cancel>i{background:var(--gold)}.jbar.fail>i{background:var(--bad)}
+.jbar.idle>i{background:var(--sub);opacity:.45}.jbar.done>i{background:var(--ok)}
+.jbtn{flex:0 0 auto;font:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:9px;border:1px solid var(--bord);background:var(--field);color:var(--sub);transition:.15s}
+.jbtn:hover{color:var(--tx);border-color:var(--sub)}
+.jbtn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+.jbtn.danger:hover{background:var(--badw)}
+.jbtn.go{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 38%,transparent)}
+.jbtn.go:hover{background:var(--accw)}
+.card.jwait .tninfo,.card.jwait .enmeta,.card.jwait .ltraf{opacity:.42}
+.card.jrun .tninfo,.card.jrun .enmeta{opacity:.72}
+.jpulse{width:7px;height:7px;border-radius:50%;background:var(--acc);flex:0 0 auto;animation:jp 1.5s ease-in-out infinite}
+@keyframes jp{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+@media (prefers-reduced-motion:reduce){.jpulse{animation:none;opacity:.9}.jbar>i{transition:none}}
+/* ── the «صف‌ها» page ── */
+.qsum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:13px}
+.qsum>div{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 6px;text-align:center;box-shadow:var(--sh-sm)}
+.qsum b{display:block;font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.25}
+.qsum span{font-size:10px;font-weight:700;color:var(--sub)}
+.qsum .n-run b{color:var(--acc)}.qsum .n-wait b{color:var(--sub)}
+.qsum .n-fail b{color:var(--bad)}.qsum .n-done b{color:var(--ok)}
+.qjob{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:12px 13px;box-shadow:var(--sh-sm)}
+.qtop{display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap}
+.qkind{font-size:13px;font-weight:800}
+.qwhere{font-size:11px;color:var(--sub);font-weight:600;margin-inline-start:auto;font-family:ui-monospace,Consolas,monospace;direction:ltr;overflow-wrap:anywhere}
+.qmeta{font-size:11px;color:var(--sub);line-height:1.75;margin-bottom:9px;overflow-wrap:anywhere}
+.qacts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
 /* tap-to-copy value: dotted underline hugs the glyphs, so it reads the same on a block .tna and on an
    inline <b> inside a meta row. */
 .cpv{cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}
@@ -9060,6 +9448,7 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تانل‌های سیستمی</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="fwd"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
+   <a class="navi" data-t="queue"><span class="ic" data-ic="list"></span> <span class="nlbl">صف‌ها</span><span class="ct" id="ct_queue" style="display:none"></span></a>
    <a class="navi" data-t="logs"><span class="ic" data-ic="list"></span> <span class="nlbl">لاگ</span><span class="ctwrap"><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
@@ -9077,6 +9466,12 @@ body.dark .tag.core{color:#a78bfa}
 var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_proxies:"پروکسی‌ها",
+ nav_queue:"صف‌ها",q_sub:"هر کاری که پنل انجام می‌دهد؛ می‌توانی هرکدام را لغو کنی",
+ q_empty:"صفی نیست — هر کاری بزنی همین‌جا پیدایش می‌شود.",q_clear:"پاک کردنِ تمام‌شده‌ها",
+ q_run:"در حال اجرا",q_wait:"در صف",q_fail:"ناموفق",q_done:"تمام‌شده",
+ q_cancel:"لغو",q_cancel_all:"لغوِ همه",q_retry:"تلاش دوباره",q_goto:"برو به کارت",
+ q_st_wait:"در صف",q_st_run:"در حال اجرا",q_st_fail:"ناموفق",q_st_done:"انجام شد",q_st_cancel:"لغو شد",
+ q_queued:"رفت به صف",q_cancelled:"لغو شد",q_tries:"تلاشِ {n}",q_blocked:"منتظرِ نودی است که کارِ دیگری گرفته",
  px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
  px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",
  px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",
@@ -9723,6 +10118,73 @@ function copyTxt(t,e){if(e)e.stopPropagation();t=String(t||'').trim();if(!t)retu
 function cpv(t,cls){t=String(t||'');if(!t)return '<b class="mono">—</b>';
  return '<b class="mono cpv'+(cls?' '+cls:'')+'" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(t)+'</b>'}
 
+// ===== the action queue =====
+// Every action the operator starts is a job on the panel. The browser never holds a request open for
+// it: it gets a job id back, and this one poll paints BOTH the queue page and the row on each card.
+var JOBS=[],JOBQ={run:0,wait:0,fail:0,done:0},JOBNOW=0;
+function jobsByLink(){var m={};JOBS.forEach(function(j){if(j.link&&!m[j.link])m[j.link]=j});return m}
+var JOBLINK={};
+async function refreshJobs(){var r=await j(\'jobs\').catch(function(){return null});if(!r)return;
+ JOBS=r.jobs||[];JOBQ={run:num(r.run),wait:num(r.wait),fail:num(r.fail),done:num(r.done)};JOBNOW=num(r.now);
+ JOBLINK=jobsByLink();
+ var b=el(\'ct_queue\');if(b){var n=JOBQ.run+JOBQ.wait;b.textContent=n?String(n):\'\';b.style.display=n?\'\':\'none\';b.classList.toggle(\'live\',JOBQ.run>0)}
+ if(cur==\'queue\')paintQueue()}
+function jobAge(jb){var t=(jb.state==\'run\')?(JOBNOW-(jb.started||jb.created)):((jb.ended||JOBNOW)-(jb.started||jb.created));
+ t=Math.max(0,num(t));var m=Math.floor(t/60),s=t%60;return (m<10?\'0\':\'\')+m+\':\'+(s<10?\'0\':\'\')+s}
+function jobPill(jb){var k=jb.state;
+ return \'<span class="jst \'+esc(k)+\'">\'+(k==\'run\'?\'<span class="jpulse"></span>\':\'\')+esc(T(\'q_st_\'+k))+\'</span>\'}
+// What the job is doing, in words. A job that has never run says WHY it has not: the operator asked for
+// it, so «nothing yet» is not an answer.
+function jobWords(jb){
+ if(jb.state==\'fail\')return esc(jb.err||\'\')+(jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\');
+ if(jb.state==\'wait\')return esc(jb.step||T(\'q_blocked\'))+(jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\');
+ if(jb.state==\'run\')return esc(jb.step||jb.title||\'\');
+ return esc(jb.step||jb.title||\'\')}
+function jobBarCls(jb){return jb.state==\'run\'?\'\':(jb.state==\'wait\'?\'idle\':esc(jb.state))}
+function jobPct(jb){return jb.state==\'done\'?100:(jb.state==\'wait\'?100:(num(jb.pct)||(jb.state==\'run\'?12:35)))}
+// The row a card grows while it has a job. No job, no row -- the card is exactly what it was.
+function jobRow(l){var jb=JOBLINK[l.id];if(!jb)return \'\';
+ if(jb.state==\'done\')return \'\';
+ var acts=(jb.state==\'wait\'||jb.state==\'run\')
+   ?\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\'
+   :\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\';
+ return \'<div class="jrow">\'+jobPill(jb)+\'<span class="jstep">\'+jobWords(jb)+\'</span>\'+
+  ((jb.state==\'run\')?\'<span class="jclock">\'+esc(jobAge(jb))+\'</span>\':\'\')+acts+
+  \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div></div>\'}
+function jobCardCls(l){var jb=JOBLINK[l.id];if(!jb)return \'\';
+ return jb.state==\'wait\'?\' jwait\':(jb.state==\'run\'?\' jrun\':\'\')}
+async function jobCancel(id){var r=await post(\'job-cancel\',{job:id});
+ if(r.ok&&r.d.ok)toast(T(\'q_cancelled\'),\'ok\');else toast(perr(r),\'err\');refreshJobs()}
+async function jobRetry(id){var r=await post(\'job-retry\',{job:id});
+ if(r.ok&&r.d.ok)toast(T(\'q_queued\'),\'ok\');else toast(perr(r),\'err\');refreshJobs()}
+async function jobsClear(){var r=await post(\'job-clear\',{});if(r.ok)refreshJobs()}
+// ===== the «صف‌ها» page =====
+function queueSkel(){el(\'view\').innerHTML=vhead(\'list\',\'nav_queue\',\'q_sub\')+
+ \'<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="jobsClear()">\'+ic(\'trash\')+esc(T(\'q_clear\'))+\'</button>\'+
+ \'<button class="reordbtn" title="\'+esc(T(\'q_cancel_all\'))+\'" onclick="jobCancel(\\'*\\')">\'+ic(\'xc\')+\'</button></div>\'+
+ \'<div id="qsum" class="qsum"></div><div id="qList"></div>\';paintQueue()}
+function paintQueue(){var s=el(\'qsum\');if(s)s.innerHTML=
+  \'<div class="n-run"><b>\'+JOBQ.run+\'</b><span>\'+esc(T(\'q_run\'))+\'</span></div>\'+
+  \'<div class="n-wait"><b>\'+JOBQ.wait+\'</b><span>\'+esc(T(\'q_wait\'))+\'</span></div>\'+
+  \'<div class="n-fail"><b>\'+JOBQ.fail+\'</b><span>\'+esc(T(\'q_fail\'))+\'</span></div>\'+
+  \'<div class="n-done"><b>\'+JOBQ.done+\'</b><span>\'+esc(T(\'q_done\'))+\'</span></div>\';
+ var box=el(\'qList\');if(!box)return;
+ setList(box,JOBS.length?JOBS.map(function(jb){return {k:jb.id,h:qJobCard(jb)}})
+                        :[{k:\'__empty\',h:\'<div class="card muted">\'+esc(T(\'q_empty\'))+\'</div>\'}])}
+function qJobCard(jb){
+ var acts=[];
+ if(jb.state==\'wait\'||jb.state==\'run\')acts.push(\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\');
+ else acts.push(\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\');
+ if(jb.link)acts.push(\'<button class="jbtn" type="button" onclick="jobGoto(\\'\'+esc(jb.link)+\'\\')">\'+esc(T(\'q_goto\'))+\'</button>\');
+ return \'<div class="qjob">\'+
+  \'<div class="qtop">\'+jobPill(jb)+\'<span class="qkind">\'+esc(jb.title||jb.kind)+\'</span>\'+
+  \'<span class="qwhere">\'+esc(jb.target||\'\')+\'</span></div>\'+
+  \'<div class="qmeta">\'+jobWords(jb)+((jb.state==\'run\')?\' · \'+esc(jobAge(jb)):\'\')+\'</div>\'+
+  \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div>\'+
+  \'<div class="qacts">\'+acts.join(\'\')+\'</div></div>\'}
+function jobGoto(lid){var l=(FLEET||[]).filter(function(x){return x.id==lid})[0];
+ cur=(l&&l.type!=\'core\')?\'tunnels\':\'core\';TOPEN[lid]=true;render()}
+
 // ===== pagination + search =====
 function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
  return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')">'+rb+'</div>'}
@@ -10266,7 +10728,7 @@ function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic(
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">'+esc(T('no_live_side'))+'</span>';
  return '<div class="ltraf">'+rates+'<span class="tot">'+esc(T('total'))+' '+tot+'</span></div>'}
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
- return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
+ return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+jobCardCls(l)+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkFooter(l,editFn){
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
@@ -10285,7 +10747,7 @@ function linkCard(l){
   '</div>'+
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
- return accShell(l,false,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
+ return accShell(l,false,F.drift+body+accBodyTraf(l)+jobRow(l)+F.acts+F.msg)}
 async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
  setList(box,FLEET.length?FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
@@ -10628,7 +11090,7 @@ function coreCard(l){
   '</div>'+
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
- return accShell(l,true,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
+ return accShell(l,true,F.drift+body+accBodyTraf(l)+jobRow(l)+F.acts+F.msg)}
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 // A core tunnel's carrier, in one place: the header chip and the body's «نوع» row read the SAME family,
 // and the profile row under it carries that family's own sub-choice. Families with nothing to choose
@@ -12167,6 +12629,7 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
  setList(box,logRows());}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
+ if(cur=='queue'){queueSkel();refreshJobs();return}
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
@@ -12255,7 +12718,8 @@ async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.text
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){formErr(m,perr(r))}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
- updateSidebar();refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
+ updateSidebar();refreshJobs().catch(function(){});
+ refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
 // Every accordion header is role="button" + tabindex="0", so it has to answer Enter and Space like
 // one; none of them did. Delegated, so a header only has to carry data-acc and its own onclick.
