@@ -78,6 +78,11 @@ name: ci
 #                         says something the title did not. Both defects reached the operator: every
 #                         finished job carried a retry the panel then refused, and the line under the
 #                         title fell back to the title, so the page said everything twice.
+#   one_job_one_card      «تلاش دوباره» puts THIS job back in the queue instead of enqueuing a copy,
+#                         and every error a node's own tools produce comes back in Persian. Both
+#                         reached the operator: three presses on one tunnel left three identical
+#                         cards, and a missing kernel module reported itself as «RTNETLINK answers:
+#                         No such file or directory».
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -223,3 +228,6 @@ jobs:
       - name: the queue page offers the control each state has
         working-directory: TUNNEL-MANAGER
         run: python tools/queue_page_controls_check.py
+      - name: one job is one card, and the node's English is answered in Persian
+        working-directory: TUNNEL-MANAGER
+        run: python tools/one_job_one_card_check.py
