@@ -8771,6 +8771,10 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
+/* tap-to-copy value: dotted underline hugs the glyphs, so it reads the same on a block .tna and on an
+   inline <b> inside a meta row. */
+.cpv{cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}
+.cpv:active{opacity:.5}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
 /* portfw card: two columns — ports on one side, destinations/rotation on the other */
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
@@ -9113,6 +9117,7 @@ var I18N={fa:{
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
  core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
  server:"سرور",client:"کلاینت",profile:"پروفایل",port:"پورت",port_dst:"پورتِ مقصد",port_src:"پورتِ مبدأ",port_src_rand:"رندوم",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
+ copied:"کپی شد",copy_fail:"کپی نشد",tip_copy:"بزن تا کپی شود",
  // portfw
  pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
  pf_empty:"پورت‌فورواردی نیست.",pf_no_online:"هیچ نودِ آنلاینی نیست",
@@ -9675,6 +9680,23 @@ function toast(msg,kind){var t=document.createElement('div');t.className='toast 
  document.body.appendChild(t);setTimeout(function(){t.classList.add('show')},10);
  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove()},320)},3400)}
 
+// ===== tap-to-copy =====
+// The panel is reached over plain http on an IP, so window.isSecureContext is false and
+// navigator.clipboard is not there at all: the textarea+execCommand path is the one that actually runs.
+// The async API stays first for whoever fronts the panel with TLS.
+function copyFallback(t){try{var ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');
+ ta.style.cssText='position:fixed;top:0;left:-9999px;opacity:0';document.body.appendChild(ta);
+ ta.select();ta.setSelectionRange(0,t.length);var ok=document.execCommand('copy');ta.remove();return !!ok}catch(_){return false}}
+function copyTxt(t,e){if(e)e.stopPropagation();t=String(t||'').trim();if(!t)return;
+ function done(ok){toast(ok?T('copied'):T('copy_fail'),ok?'ok':'err')}
+ if(window.isSecureContext&&navigator.clipboard&&navigator.clipboard.writeText){
+  navigator.clipboard.writeText(t).then(function(){done(true)},function(){done(copyFallback(t))});return}
+ done(copyFallback(t))}
+// A card value the operator can lift out with one tap. The text is read back off the element, so nothing
+// has to survive a trip through an onclick string.
+function cpv(t,cls){t=String(t||'');if(!t)return '<b class="mono">—</b>';
+ return '<b class="mono cpv'+(cls?' '+cls:'')+'" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(t)+'</b>'}
+
 // ===== pagination + search =====
 function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
  return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')">'+rb+'</div>'}
@@ -10161,7 +10183,7 @@ function boxTitle(online,h,peer){return sideState(online,h,peer).t}
 function sideDot(online,h,peer){var s=sideState(online,h,peer);   // the WORD only; the frame carries the colour
  return s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':''}
 function metaCols(l){   // two meta columns placed exactly under the two node boxes
- var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
+ var sub='<div>'+esc(T('subnet'))+': '+cpv(l.subnet)+'</div>';
  var idr='<div>'+esc(T('tid'))+': <b>'+esc(l.tunnel_id)+'</b></div>';
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
  var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="tag '+esc(l.type)+'">'+esc(l.type)+'</span></div>';
@@ -10226,9 +10248,9 @@ function linkFooter(l,editFn){
  return {drift:drift,acts:acts,msg:msg}}
 function linkCard(l){
  var body='<div class="tninfo">'+
-  '<div class="tnnode '+boxCls(l.a_online,l.a_health,l.b_health)+'" id="bxa_'+l.id+'" title="'+esc(boxTitle(l.a_online,l.a_health,l.b_health))+'"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono">'+esc(l.a_ip)+'</div></div>'+
+  '<div class="tnnode '+boxCls(l.a_online,l.a_health,l.b_health)+'" id="bxa_'+l.id+'" title="'+esc(boxTitle(l.a_online,l.a_health,l.b_health))+'"><div class="tnhead"><span class="tnn">'+esc(l.a_name)+'</span><span class="stat" id="lba_'+l.id+'">'+accStat(l,'a')+'</span></div><div class="tna mono cpv" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(l.a_ip)+'</div></div>'+
   '<span class="tnarrow">↔</span>'+
-  '<div class="tnnode '+boxCls(l.b_online,l.b_health,l.a_health)+'" id="bxb_'+l.id+'" title="'+esc(boxTitle(l.b_online,l.b_health,l.a_health))+'"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono">'+esc(l.b_ip)+'</div></div>'+
+  '<div class="tnnode '+boxCls(l.b_online,l.b_health,l.a_health)+'" id="bxb_'+l.id+'" title="'+esc(boxTitle(l.b_online,l.b_health,l.a_health))+'"><div class="tnhead"><span class="tnn">'+esc(l.b_name)+'</span><span class="stat" id="lbb_'+l.id+'">'+accStat(l,'b')+'</span></div><div class="tna mono cpv" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(l.b_ip)+'</div></div>'+
   '</div>'+
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
@@ -10513,7 +10535,7 @@ document.addEventListener('lostpointercapture',function(e){
  if(RORD&&e.pointerId===RORD.pid){try{RORD.card.setPointerCapture(e.pointerId)}catch(_){}}},true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
- var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
+ var sub='<div>'+esc(T('subnet'))+': '+cpv(l.subnet)+'</div>';
  var prt=portRows(l);
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
  // «نوع» is the SAME chip the card header carries, and the profile row under it is that carrier's own
@@ -10566,7 +10588,7 @@ function coreCard(l){
  // (cpip_a_/lba_/cprot_a_), never by screen position — the live-status poll looks them up by end.
  var _ip={a:_aip,b:_bip},_rt={a:_arot,b:_brot};
  var nbox=function(s){var isSrv=(s=='a')==srvA;
-  return '<div class="tnnode '+boxCls(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health'])+'" id="bx'+s+'_'+l.id+'" title="'+esc(boxTitle(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health']))+'"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono" id="cpip_'+s+'_'+l.id+'">'+esc(_ip[s])+'</div></div>'};
+  return '<div class="tnnode '+boxCls(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health'])+'" id="bx'+s+'_'+l.id+'" title="'+esc(boxTitle(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health']))+'"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono cpv" id="cpip_'+s+'_'+l.id+'" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(_ip[s])+'</div></div>'};
  var _so=sideOrder(l,true);   // [left, right]
  var body='<div class="tninfo">'+
   nbox(_so[0])+
