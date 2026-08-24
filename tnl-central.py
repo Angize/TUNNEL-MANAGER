@@ -8051,6 +8051,18 @@ def jq_enqueue(kind, d, auto=False):
     jid = secrets.token_hex(6)
     rec = {"id": jid, "kind": kind, "title": title, "target": _job_target(kind, d),
            "link": _job_link_id(kind, d), "nodes": nodes, "state": "wait",
+           # A tunnel being BUILT has no record for a card to be drawn from, so the job carries the
+           # little a card needs: which list it belongs in, and what it will be when it exists.
+           "page": ("core" if str((d or {}).get("type") or "") == "core" else "tunnels")
+                   if kind == "create-tunnel" else "",
+           "ttype": str((d or {}).get("transport") or (d or {}).get("type") or "")
+                    if kind == "create-tunnel" else "",
+           # A tunnel being BUILT has no record for a card to be drawn from, so the job carries the
+           # little a card needs: which list it belongs in, and what it will be when it exists.
+           "page": ("core" if str((d or {}).get("type") or "") == "core" else "tunnels")
+                   if kind == "create-tunnel" else "",
+           "ttype": str((d or {}).get("transport") or (d or {}).get("type") or "")
+                    if kind == "create-tunnel" else "",
            "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "tries": 0,
            "created": int(time.time()), "started": 0, "ended": 0,
            "req": d or {}, "auto": bool(auto)}
@@ -9200,6 +9212,28 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
    inline <b> inside a meta row. */
 .cpv{cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}
 .cpv:active{opacity:.5}
+/* A card that has just arrived settles in instead of appearing. The one case this is FOR is the
+   swap at the end of a build: the placeholder goes and the real card takes its place in the same
+   frame, which without this reads as a flicker. */
+@keyframes jcardin{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:none}}
+.card.jin{animation:jcardin .34s cubic-bezier(.22,.7,.3,1)}
+/* the placeholder is a tunnel that does not exist yet -- it should look like it is coming, not like
+   a card that failed to load */
+@keyframes jbreathe{0%,100%{opacity:.72}50%{opacity:1}}
+.card.jpend .hname{animation:jbreathe 2.1s ease-in-out infinite}
+.card.jpend{border-style:dashed}
+@media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.jpend .hname{animation:none}}
+/* A card that has just arrived settles in instead of appearing. The one case this is FOR is the
+   swap at the end of a build: the placeholder goes and the real card takes its place in the same
+   frame, which without this reads as a flicker. */
+@keyframes jcardin{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:none}}
+.card.jin{animation:jcardin .34s cubic-bezier(.22,.7,.3,1)}
+/* the placeholder is a tunnel that does not exist yet -- it should look like it is coming, not like
+   a card that failed to load */
+@keyframes jbreathe{0%,100%{opacity:.72}50%{opacity:1}}
+.card.jpend .hname{animation:jbreathe 2.1s ease-in-out infinite}
+.card.jpend{border-style:dashed}
+@media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.jpend .hname{animation:none}}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
 /* portfw card: two columns — ports on one side, destinations/rotation on the other */
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
@@ -9482,7 +9516,7 @@ var I18N={fa:{
  q_run:"در حال اجرا",q_wait:"در صف",q_fail:"ناموفق",q_done:"تمام‌شده",
  q_cancel:"لغو",q_cancel_all:"لغوِ همه",q_retry:"تلاش دوباره",q_goto:"برو به کارت",
  q_st_wait:"در صف",q_st_run:"در حال اجرا",q_st_fail:"ناموفق",q_st_done:"انجام شد",q_st_cancel:"لغو شد",
- q_took:"در {t} تمام شد",q_gaveup:"پیش از تمام‌شدن لغو شد",
+ q_pending:"در حالِ ساخت",q_took:"در {t} تمام شد",q_gaveup:"پیش از تمام‌شدن لغو شد",
  q_queued:"رفت به صف",q_cancelled:"لغو شد",q_tries:"تلاشِ {n}",q_blocked:"منتظرِ نودی است که کارِ دیگری گرفته",
  px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
  px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",
@@ -9918,7 +9952,9 @@ function setList(box,rows){if(!box)return;
   if(old&&old._h===r.h)node=old;
   else{var fresh=rowNode(r.k,r.h);
    if(old&&morphNode(old,fresh)){old._h=r.h;node=old}
-   else{if(old)old.remove();node=fresh}}
+   // Only a row that was not there settles in. A row that was SWAPPED (same key, different element
+   // kind) is an update, and animating those makes an ordinary poll look like the list rebuilt itself.
+   else{if(old)old.remove();node=fresh;if(keyed&&!old)fresh.classList.add('jin')}}
   delete have[r.k];
   var want=prev?prev.nextSibling:box.firstChild;
   if(node!==want)box.insertBefore(node,want);
@@ -10140,7 +10176,12 @@ async function refreshJobs(){var r=await j(\'jobs\').catch(function(){return nul
  JOBS=r.jobs||[];JOBQ={run:num(r.run),wait:num(r.wait),fail:num(r.fail),done:num(r.done)};JOBNOW=num(r.now);
  JOBLINK=jobsByLink();
  var b=el(\'ct_queue\');if(b){var n=JOBQ.run+JOBQ.wait;b.textContent=n?String(n):\'\';b.style.display=n?\'\':\'none\';b.classList.toggle(\'live\',JOBQ.run>0)}
- if(cur==\'queue\')paintQueue()}
+ if(cur==\'queue\')paintQueue();
+ // A build that just finished leaves its placeholder behind until the fleet is re-read. Re-read it,
+ // so the real card arrives in the same beat the placeholder goes.
+ var _np=JOBS.filter(function(x){return x.kind==\'create-tunnel\'&&x.state!=\'done\'}).length;
+ if(_np!==_lastPend){_lastPend=_np;if(cur==\'core\'||cur==\'tunnels\')refreshFleet()}}
+var _lastPend=-1;
 function jobAge(jb){var t=(jb.state==\'run\')?(JOBNOW-(jb.started||jb.created)):((jb.ended||JOBNOW)-(jb.started||jb.created));
  t=Math.max(0,num(t));var m=Math.floor(t/60),s=t%60;return (m<10?\'0\':\'\')+m+\':\'+(s<10?\'0\':\'\')+s}
 function jobPill(jb){var k=jb.state;
@@ -10160,7 +10201,8 @@ function jobWords(jb){
 function jobBarCls(jb){return jb.state==\'run\'?\'\':(jb.state==\'wait\'?\'idle\':esc(jb.state))}
 function jobPct(jb){return jb.state==\'done\'?100:(jb.state==\'wait\'?100:(num(jb.pct)||(jb.state==\'run\'?12:35)))}
 // The row a card grows while it has a job. No job, no row -- the card is exactly what it was.
-function jobRow(l){var jb=JOBLINK[l.id];if(!jb)return \'\';
+function jobRow(l){return jobRowOf(JOBLINK[l.id])}
+function jobRowOf(jb){if(!jb)return \'\';
  if(jb.state==\'done\')return \'\';
  var acts=(jb.state==\'wait\'||jb.state==\'run\')
    ?\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\'
@@ -10168,6 +10210,23 @@ function jobRow(l){var jb=JOBLINK[l.id];if(!jb)return \'\';
  return \'<div class="jrow">\'+jobPill(jb)+\'<span class="jstep">\'+jobWords(jb)+\'</span>\'+
   ((jb.state==\'run\')?\'<span class="jclock">\'+esc(jobAge(jb))+\'</span>\':\'\')+acts+
   \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div></div>\'}
+// A tunnel the operator has asked for but that does not exist yet. It takes its place in the list
+// it is destined for from the moment the button is pressed: the alternative is a form that closes
+// onto an unchanged page, and a card that pops into being some seconds later with no account of
+// where it came from.
+function pendingJobs(page){return JOBS.filter(function(jb){
+ return jb.kind==\'create-tunnel\'&&jb.page==page&&jb.state!=\'done\'})}
+function pendCard(jb){var fam=String(jb.ttype||\'\').toLowerCase();
+ return \'<div class="card acc open jpend\'+(jb.state==\'run\'?\' jrun\':(jb.state==\'wait\'?\' jwait\':\'\'))+\'">\'+
+  \'<div class="chead" style="cursor:default"><div class="hmain"><div class="hrow1">\'+
+   \'<span class="hname">\'+esc(T(\'q_pending\'))+\'</span>\'+
+   (fam?\'<span class="ctag c-\'+esc(fam)+\'">\'+esc(fam.toUpperCase())+\'</span>\':\'\')+
+   \'<span class="hpeers" dir="ltr">\'+esc(jb.target||\'\')+\'</span>\'+
+  \'</div></div></div>\'+
+  \'<div class="cbody"><div class="cbody-in">\'+jobRowOf(jb)+\'</div></div></div>\'}
+// The ones being built go first: they are what the operator is waiting on.
+function withPending(page,rows){
+ return pendingJobs(page).map(function(jb){return {k:\'pend_\'+jb.id,h:pendCard(jb)}}).concat(rows)}
 function jobCardCls(l){var jb=JOBLINK[l.id];if(!jb)return \'\';
  return jb.state==\'wait\'?\' jwait\':(jb.state==\'run\'?\' jrun\':\'\')}
 async function jobCancel(id){var r=await post(\'job-cancel\',{job:id});
@@ -10774,7 +10833,8 @@ function linkCard(l){
  var F=linkFooter(l,'openLinkEdit');
  return accShell(l,false,F.drift+body+accBodyTraf(l)+jobRow(l)+F.acts+F.msg)}
 async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setList(box,FLEET.length?FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
+ var _rows=withPending('tunnels',FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}));
+ setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
  if(!type){formErr(m,T('tun_type'));return}
  var L=FLEET.find(function(x){return x.id==id})||{};
@@ -10942,7 +11002,8 @@ function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_su
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
 async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
- setList(box,FLEET.length?FLEET.map(function(l){return {k:l.id,h:coreCard(l)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
+ var _rows=withPending('core',FLEET.map(function(l){return {k:l.id,h:coreCard(l)}}));
+ setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
 // ===== reorder cards: explicit "reorder mode" (toolbar toggle) + drag by the grip handle =====
 // The user taps the toggle; each card then shows a grip, and dragging THAT live-swaps with the
 // neighbour and persists server-side. Outside reorder mode nothing here fires, so tap / scroll /

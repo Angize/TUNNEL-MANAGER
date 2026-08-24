@@ -55,6 +55,15 @@ class El {
   get firstChild(){ return this.nodes[0] || null; }
   get firstElementChild(){ return this.children[0] || null; }
   get nextSibling(){ if(!this.parent) return null; const i = this.parent.nodes.indexOf(this); return this.parent.nodes[i+1] || null; }
+  // A real element always has one, and setList marks a freshly inserted row through it. Without this
+  // the stub is not an element and the guard fails on its own scaffolding rather than on the diff.
+  get classList(){ const el = this;
+    const set = () => new Set((el.getAttribute('class') || '').split(/\s+/).filter(Boolean));
+    const put = s => el.setAttribute('class', [...s].join(' '));
+    return { add(c){ const s = set(); s.add(c); put(s); },
+             remove(c){ const s = set(); s.delete(c); put(s); },
+             toggle(c, on){ const s = set(); (on === undefined ? (s.has(c) ? s.delete(c) : s.add(c)) : (on ? s.add(c) : s.delete(c))); put(s); },
+             contains(c){ return set().has(c); } }; }
   get attributes(){ return [...this.attrs].map(([name, value]) => ({name, value})); }
   setAttribute(k, v){ this.attrs.set(k, String(v)); }
   getAttribute(k){ return this.attrs.has(k) ? this.attrs.get(k) : null; }
