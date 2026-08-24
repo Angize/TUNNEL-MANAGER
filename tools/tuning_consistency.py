@@ -275,6 +275,20 @@ def main():
     else:
         check(core_cli.group(1) in tile.group(1),
               "fixed client source port: core=%s panel tile=%r" % (core_cli.group(1), tile.group(1)))
+    # The same two numbers again, this time as the values the CARD prints for a raw udp/tcp tunnel. The
+    # tile above is prose the operator reads before choosing; these are what the card claims the running
+    # tunnel is on, so a drifted copy here misreports a live wire rather than mislabelling a button.
+    core_srv = re.search(r"rawServerPort\s*=\s*(\d+)", rawprofile_go)
+    js_sport = re.search(r"RAW_SPORT_FIX\s*=\s*(\d+)", panel_src)
+    js_dport = re.search(r"RAW_DPORT_DEF\s*=\s*(\d+)", panel_src)
+    if not core_srv or not js_sport or not js_dport:
+        check(False, "CANNOT PARSE the card's raw ports (core srv=%s panel sport=%s dport=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_srv), bool(js_sport), bool(js_dport)))
+    else:
+        check(js_sport.group(1) == core_cli.group(1),
+              "card source port: panel RAW_SPORT_FIX=%s core rawClientPort=%s" % (js_sport.group(1), core_cli.group(1)))
+        check(js_dport.group(1) == core_srv.group(1),
+              "card destination port: panel RAW_DPORT_DEF=%s core rawServerPort=%s" % (js_dport.group(1), core_srv.group(1)))
 
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads

@@ -9112,7 +9112,7 @@ var I18N={fa:{
  // core view
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
  core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
- server:"سرور",client:"کلاینت",carrier:"حامل",port:"پورت",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
+ server:"سرور",client:"کلاینت",profile:"پروفایل",port:"پورت",port_dst:"پورتِ مقصد",port_src:"پورتِ مبدأ",port_src_rand:"رندوم",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
  // portfw
  pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
  pf_empty:"پورت‌فورواردی نیست.",pf_no_online:"هیچ نودِ آنلاینی نیست",
@@ -9284,10 +9284,10 @@ var I18N={fa:{
  // fec presets
  fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"20٪ سربار",fec_ov30:"30٪ سربار",fec_ov50:"50٪ سربار",
  // flux section
- flux_carrier_lbl:"حاملِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",
+ flux_carrier_lbl:"پروفایلِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",
  flux_shape_lbl:"پروفایلِ شکل — شبیهِ چه ترافیکی",flux_rot_lbl:"بازهٔ چرخش",flux_rot_ph:"بازه",flux_rotate_btn:"چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)",
  flux_note:"شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. هر دو حامل UDPِ واقعی‌اند و رویِ اینترنت رد می‌شوند. رمزنگاری الزامی است.",
- flux_live:"شکلِ زنده",flux_carrier_word:"حامل",flux_next_pre:"چرخشِ بعدی تا",flux_next_post:"دیگر",
+ flux_live:"شکلِ زنده",flux_carrier_word:"پروفایل",flux_next_pre:"چرخشِ بعدی تا",flux_next_post:"دیگر",
  // spoof section
  spoof_hd:"جعلِ آی‌پی (استتار)",spoof_decoy_t:"جعلِ مقصد (Decoy)",spoof_decoy_d:"روی سیم وانمود می‌شود ترافیک به آی‌پیِ زیر می‌رود، ولی واقعاً به سرورت می‌رسد.",spoof_decoy_ph:"آی‌پیِ طُعمه (مقصدِ جعلی) — مثلاً 185.51.200.10",
  spoof_src_t:"جعلِ مبدأ",spoof_src_d:"آی‌پیِ مبدأِ واقعی روی سیم مخفی می‌شود (اختیاری).",spoof_src_ph:"آی‌پیِ مبدأِ جعلی — مثلاً 198.51.100.9",spoof_checking:"بررسیِ امکانِ جعل روی نودها…",
@@ -9319,7 +9319,7 @@ var I18N={fa:{
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
  ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
  // ws section
- ws_prof_lbl:"حاملِ رویِ CDN",
+ ws_prof_lbl:"نوعِ اتصال روی CDN",
  ws_pool_t:"استخرِ لبه (چرخش + بلک‌لیست)",ws_pool_d:"چند IP و چند دامنه؛ هسته می‌چرخد و سوخته‌ها را کنار می‌گذارد. خاموش = یک لبهٔ ثابت.",
  ws_host_lbl:"دامنهٔ فرانت (Host / SNI)",ph_cdn_domain:"مثلاً cdn.example.com",ws_edge_lbl:"آی‌پیِ لبهٔ CDN (اختیاری) — کلاینت به‌جای مبدأ به این وصل می‌شود",ph_edge_ip:"مثلاً 104.16.0.1 یا 104.16.0.1:443",ws_path_lbl:"مسیر (path)",
  ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ 80. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
@@ -9330,7 +9330,7 @@ var I18N={fa:{
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
  // core modal general
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
- enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"حاملِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
+ enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
 got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"همیشه 51820",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
@@ -10200,7 +10200,7 @@ function accHead(l,isCore){var on=l.enabled!==false;
  var so=sideOrder(l,isCore),sl=so[0],sr=so[1];
  // Every card on the core page is a core tunnel, so the word "Core" said nothing; the carrier is what
 // differs between them. System cards have always named their type here — this is the same idea.
-var typ=isCore?'<span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l,false))+'</span>'
+var typ=isCore?'<span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l))+'</span>'
               :'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
  return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+grip()+
@@ -10514,11 +10514,13 @@ document.addEventListener('lostpointercapture',function(e){
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
  var sub='<div>'+esc(T('subnet'))+': <b class="mono">'+esc(l.subnet)+'</b></div>';
- var tr=carrierLabel(l,true);   /* exactly the three names the picker shows; wss has its own tag */
- var prt=(l.transport!='raw'&&l.transport!='flux'&&l.transport!='spoof'&&l.transport!='dns'&&l.port)?'<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>':'';
- var car='<div>'+esc(T('carrier'))+': <b class="mono">'+tr+'</b></div>';
+ var prt=portRows(l);
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
- var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="tag core">Core</span></div>';
+ // «نوع» is the SAME chip the card header carries, and the profile row under it is that carrier's own
+ // sub-choice. Header and body used to name two different things here — «RAW» above, «Core» below.
+ var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l))+'</span></div>';
+ var _pf=carrierProfile(l);
+ var prof=_pf?'<div>'+esc(T('profile'))+': <b class="mono">'+esc(_pf)+'</b></div>':'';
  var feats=[];
  if(l.transport=='ws'&&l.ws_pool)feats.push('<span class="tag obfs">pool</span>');
  if(l.transport=='ws'&&l.ws_tls)feats.push('<span class="tag obfs">wss</span>');if(l.sni_split)feats.push('<span class="tag obfs">SNI'+(l.sni_mode||'split')+'</span>');
@@ -10541,7 +10543,7 @@ function edgeHost(v){v=String(v||'');var i=v.lastIndexOf(':');return (i>0&&v.ind
      // Fixed edge: same chips, neutral wrapper — nothing polls it, so no live tint and no dot.
      if(eip||edom)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="echips">'+edgeChipsOf(eip,edom)+'</div></div>';}
  }
- return '<div class="enmeta"><div class="emcol">'+sub+prt+car+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+cap+enc+'</div></div>'+edge}
+ return '<div class="enmeta"><div class="emcol">'+sub+prt+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+prof+cap+enc+'</div></div>'+edge}
 function coreCard(l){
  var srvA=(l.server_side!='b');   // which end listens; stored on the record
  // Prefer the backend's FRESH active pool IP (api_fleet reads it from the client node); sync it into the
@@ -10575,21 +10577,34 @@ function coreCard(l){
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+F.acts+F.msg)}
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
-// The card's carrier tag. «bare» forges no header, so its outer IP protocol number is CHOSEN rather
-// than implied by the name — show it. Every other profile's number is fixed and printing it is noise.
-// A core tunnel's CARRIER, in one place: the header chip and the body row must never disagree about what
-// this tunnel actually rides on. `full` adds the detail the body has room for (the raw profile, the flux
-// shape, the dns zone); the header takes the short form so a narrow phone header still fits.
+// A core tunnel's carrier, in one place: the header chip and the body's «نوع» row read the SAME family,
+// and the profile row under it carries that family's own sub-choice. Families with nothing to choose
+// (udp/tcp, and the three CDN shapes which ARE the family) return '' and the row is dropped.
 function carrierFamily(l){var t=l.transport||'udp';
  return (t=='ws')?((l.cdn_carrier=='grpc')?'grpc':(l.cdn_carrier=='http')?'http':'ws'):t}
-function carrierLabel(l,full){var t=l.transport||'udp',f=carrierFamily(l);
- if(t=='raw')return full?('RAW·'+rawProfTag(l)):'RAW';
- if(t=='flux')return full?('FLUX·'+(l.flux_carrier||'udp').toUpperCase()):'FLUX';
- if(t=='spoof')return full?('SPOOF·'+((l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC'))):'SPOOF';
- if(t=='dns')return full?('DNS·'+(l.dns_zone||'').toUpperCase()):'DNS';
- return f.toUpperCase()}
+function carrierLabel(l){return carrierFamily(l).toUpperCase()}
+function carrierProfile(l){var t=l.transport||'udp';
+ if(t=='raw')return rawProfTag(l);
+ if(t=='flux')return (l.flux_carrier||'udp').toUpperCase();
+ if(t=='spoof')return (l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC');
+ if(t=='dns')return (l.dns_zone||'').toUpperCase();
+ return ''}
+// «bare» forges no header, so its outer IP protocol number is CHOSEN rather than implied by the name —
+// show it. Every other profile's number is fixed and printing it is noise.
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
+// The forged L4 ports of raw's udp/tcp profiles, mirroring the core's rawPorts(): a server port the
+// middlebox reads and a client source port that is either the fixed constant or rolled per tunnel.
+// Nothing binds either — the raw socket is opened on a protocol number — but the card was showing no
+// port at all on the one carrier that has two. Every other carrier dials the single stored port.
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820;
+function portRows(l){var t=l.transport||'udp';
+ if(t=='raw'){
+  if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
+  return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
+         '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(l.raw_sport_random?T('port_src_rand'):RAW_SPORT_FIX)+'</b></div>'}
+ if(t=='flux'||t=='spoof'||t=='dns'||!l.port)return '';
+ return '<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'}
 function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best'),warn:1},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m'),warn:1},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 // The three ways to cross a CDN, as ONE choice. They are three separate transports everywhere

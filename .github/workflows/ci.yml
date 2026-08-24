@@ -58,6 +58,11 @@ name: ci
 #                         T('prefix'+…) builder. Dead keys accumulate silently -- nine survived
 #                         several rounds of feature removal -- and deleting one by hand has the
 #                         opposite trap: `nav_logs` is quoted nowhere and is very much alive.
+#   card_names_its_carrier  a tunnel card's header chip, the «نوع» row under it and the profile row
+#                         beside it all describe the SAME tunnel. The header and the body derived
+#                         their labels separately, so they drifted: the chip said RAW while the body
+#                         said Core. It also pins which port rows each carrier prints -- raw's udp and
+#                         tcp profiles forge two, everything else has one or none.
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -188,3 +193,6 @@ jobs:
       - name: the panel signs what the node verifies
         working-directory: TUNNEL-MANAGER
         run: python tools/signed_control_end_to_end_check.py
+      - name: a card's chip, type row and profile row describe one tunnel
+        working-directory: TUNNEL-MANAGER
+        run: python tools/card_names_its_carrier_check.py
