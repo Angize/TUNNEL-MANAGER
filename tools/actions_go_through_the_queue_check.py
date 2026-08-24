@@ -32,13 +32,24 @@ HERE = Path(__file__).resolve().parent
 # the code, so this stays a real assertion if the roster is rewritten.
 READS = ["fleet", "summary", "nodes", "node-names", "events", "settings", "traffic", "portfw-list",
          "proxies", "readiness", "agent-info", "edge-status", "peer-status", "install-status",
-         "push-status", "node-stats", "node-ips", "link-rebuild-info", "jobs"]
+         "push-status", "node-stats", "node-ips", "link-rebuild-info", "jobs",
+         # Interactive probes. Each is a button the operator presses and then watches for the answer,
+         # which is painted onto the thing they are looking at. Queued, the press returns a job id and
+         # the caller reads a verdict that is not there -- «?» drawn over live data.
+         "check-link", "node-test", "spoof-egress-probe", "proxy-test"]
 
 # Actions that must ALWAYS be queued: each one waits on a node or on the internet, which is exactly the
 # wait that used to time the operator out.
 ACTIONS = ["create-tunnel", "edit-link", "rebuild-link", "restart-link", "delete-link", "link-toggle",
-           "check-link", "flux-rotate", "node-install", "node-kernel-tune", "core-stage",
+           "flux-rotate", "node-install", "core-stage",
            "agent-fetch-git", "update-agent", "update-core", "portfw", "portfw-edit", "portfw-del"]
+
+# One endpoint is both: kernel-tune applies, reverts AND reads its own status under one name. Only
+# some bodies are the action, and getting that wrong is what put «?» in the tuning dialog.
+HYBRID = [("node-kernel-tune", {"id": "n1"}, False),
+          ("node-kernel-tune", {"id": "n1", "action": "status"}, False),
+          ("node-kernel-tune", {"id": "n1", "action": "apply"}, True),
+          ("node-kernel-tune", {"id": "n1", "action": "revert"}, True)]
 
 fails = []
 
@@ -92,6 +103,14 @@ def main():
         r = P._dispatch(name, {})
         check(not r.get("queued") and r.get("ran") == name,
               "%-20s -> answered straight away (%r)" % (name, r))
+
+    print("== 3b) the endpoint that is BOTH: the read answers, the action queues ==")
+    # Its API is stubbed above, so what is under test here is the DECISION, not the node call.
+    for name, body, want_q in HYBRID:
+        P.API[name] = lambda d: {"ok": True, "ran": "hybrid"}
+        r = P._dispatch(name, dict(body))
+        check(bool(r.get("queued")) == want_q,
+              "%-20s %-34s -> %s" % (name, str(body), "queued" if want_q else "answered"))
 
     print("== 4) the queue's own call-back runs the action instead of queueing it again ==")
     n0 = len(calls)
