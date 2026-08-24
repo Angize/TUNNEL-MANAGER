@@ -44,12 +44,13 @@ ACTIONS = ["create-tunnel", "edit-link", "rebuild-link", "restart-link", "delete
            "flux-rotate", "node-install", "core-stage",
            "agent-fetch-git", "update-agent", "update-core", "portfw", "portfw-edit", "portfw-del"]
 
-# One endpoint is both: kernel-tune applies, reverts AND reads its own status under one name. Only
-# some bodies are the action, and getting that wrong is what put «?» in the tuning dialog.
+# Kernel tuning is a READ in every body, apply and revert included: each one repaints the dialog the
+# operator is standing in front of, out of the reply. Queued, that reply is a job id and the dialog
+# reads «off», «?», «no BBR» from fields that were never there -- over a node it had just tuned.
 HYBRID = [("node-kernel-tune", {"id": "n1"}, False),
           ("node-kernel-tune", {"id": "n1", "action": "status"}, False),
-          ("node-kernel-tune", {"id": "n1", "action": "apply"}, True),
-          ("node-kernel-tune", {"id": "n1", "action": "revert"}, True)]
+          ("node-kernel-tune", {"id": "n1", "action": "apply"}, False),
+          ("node-kernel-tune", {"id": "n1", "action": "revert"}, False)]
 
 fails = []
 
@@ -104,7 +105,7 @@ def main():
         check(not r.get("queued") and r.get("ran") == name,
               "%-20s -> answered straight away (%r)" % (name, r))
 
-    print("== 3b) the endpoint that is BOTH: the read answers, the action queues ==")
+    print("== 3b) a control the operator is standing in front of answers, whatever the body ==")
     # Its API is stubbed above, so what is under test here is the DECISION, not the node call.
     for name, body, want_q in HYBRID:
         P.API[name] = lambda d: {"ok": True, "ran": "hybrid"}
