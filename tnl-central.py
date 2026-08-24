@@ -7966,7 +7966,6 @@ JOB_KINDS = {
     "restart-link":       ("ری‌استارتِ هسته", _jn_link),
     "delete-link":        ("حذفِ تونل", _jn_link),
     "link-toggle":        ("روشن/خاموشِ تونل", _jn_link),
-    "check-link":         ("بررسیِ اتصال", _jn_link),
     "flux-rotate":        ("چرخشِ flux", _jn_link),
     "traffic-reset":      ("صفر کردنِ ترافیک", _jn_link),
     "pool-retest-now":    ("تستِ دوبارهٔ لبه", _jn_link),
@@ -7974,8 +7973,6 @@ JOB_KINDS = {
     "node-install":       ("نصبِ نود", _jn_node),
     "node-kernel-tune":   ("تیونینگِ کرنل", _jn_node),
     "node-adopt-ip":      ("پذیرشِ آی‌پیِ تازه", _jn_node),
-    "node-test":          ("تستِ نود", _jn_node),
-    "spoof-egress-probe": ("تستِ خروجیِ جعل", _jn_pair),
     "portfw":             ("ساختِ پورت‌فوروارد", _jn_node),
     "portfw-edit":        ("ویرایشِ پورت‌فوروارد", _jn_node),
     "portfw-del":         ("حذفِ پورت‌فوروارد", _jn_node),
@@ -7983,13 +7980,27 @@ JOB_KINDS = {
     "agent-fetch-git":    ("دانلودِ ایجنت", _jn_none),
     "update-agent":       ("آپدیتِ ایجنت", _jn_none),
     "update-core":        ("آپدیتِ هسته", _jn_none),
-    "proxy-test":         ("تستِ پروکسی", _jn_none),
 }
 QUEUED = frozenset(JOB_KINDS)
 
+# An endpoint that is both an action and a read: only SOME bodies are the action. Without this the
+# read is queued too and the caller is handed a job id where it expected an answer -- which is how
+# the kernel-tuning dialog came up saying «?» over a node whose state it had just failed to ask for.
+JOB_ONLY_WHEN = {
+    "node-kernel-tune": lambda d: str((d or {}).get("action") or "status") in ("apply", "revert"),
+}
+
+
+def jq_is_action(cmd, d):
+    """Whether THIS request is the action, and not the read that shares its name."""
+    if cmd not in QUEUED:
+        return False
+    gate = JOB_ONLY_WHEN.get(cmd)
+    return gate(d) if gate else True
+
 # What the card shows the job beside. A job with no link id is only ever seen on the queue page.
 _JOB_LINK_KINDS = ("edit-link", "rebuild-link", "restart-link", "delete-link", "link-toggle",
-                   "check-link", "flux-rotate", "traffic-reset", "pool-retest-now", "peer-retest-now")
+                   "flux-rotate", "traffic-reset", "pool-retest-now", "peer-retest-now")
 
 
 def _job_link_id(kind, d):
@@ -8238,7 +8249,7 @@ def _dispatch(cmd, d):
 
     `_job` in the body is how the queue calls back in: that request is already ON a worker thread, so
     it must RUN the action rather than queue a second copy of it."""
-    if cmd in QUEUED and not (d or {}).get("_job"):
+    if jq_is_action(cmd, d) and not (d or {}).get("_job"):
         return jq_enqueue(cmd, d)
     return API[cmd](d)
 
