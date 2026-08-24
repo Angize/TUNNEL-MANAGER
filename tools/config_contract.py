@@ -50,6 +50,12 @@ CASES = [
     ("raw/tcp+rolling sport",
      {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_random": True},
      {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True}),
+    # The FIXED source port is per-tunnel state in exactly the same way: a rebuild that replays
+    # everything BUT this one drops the client back to the core's constant 51820 while the card goes on
+    # printing the number the operator chose, and the anti-leak rule on both ends is built from it.
+    ("raw/tcp+fixed sport",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport": 4500},
+     {"transport": "raw", "raw_profile": "tcp", "raw_sport": 4500}),
     ("raw/bare native", {"transport": "raw", "cipher": "auto", "raw_profile": "bare"},
      {"transport": "raw", "raw_profile": "bare"}),
     # The extra TUN queues are NOT here, and must not be added back: they are per-END state now
