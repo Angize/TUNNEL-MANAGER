@@ -74,6 +74,10 @@ name: ci
 #                         so a kind spelled wrong is an action that can never run, a read that joins
 #                         the table hands the page a job id instead of its data, and a new action
 #                         that never joins it quietly goes back to blocking the request.
+#   queue_page_controls   the queue page offers the control each state actually HAS, and its line
+#                         says something the title did not. Both defects reached the operator: every
+#                         finished job carried a retry the panel then refused, and the line under the
+#                         title fell back to the title, so the page said everything twice.
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -216,3 +220,6 @@ jobs:
       - name: every action goes through the queue, every read goes around it
         working-directory: TUNNEL-MANAGER
         run: python tools/actions_go_through_the_queue_check.py
+      - name: the queue page offers the control each state has
+        working-directory: TUNNEL-MANAGER
+        run: python tools/queue_page_controls_check.py

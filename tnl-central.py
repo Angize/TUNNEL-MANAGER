@@ -8225,6 +8225,8 @@ def api_job_retry(d):
         j = _jobs.get(jid)
         if not j:
             raise ValueError("این کار دیگر نیست")
+        if j["state"] == "done":
+            raise ValueError("این کار انجام شده — برای انجامِ دوباره‌اش از خودِ همان صفحه اقدام کن")
         if j["state"] not in ("fail", "cancel"):
             raise ValueError("این کار هنوز تمام نشده")
         kind, req = j["kind"], dict(j.get("req") or {})
@@ -9471,6 +9473,7 @@ var I18N={fa:{
  q_run:"در حال اجرا",q_wait:"در صف",q_fail:"ناموفق",q_done:"تمام‌شده",
  q_cancel:"لغو",q_cancel_all:"لغوِ همه",q_retry:"تلاش دوباره",q_goto:"برو به کارت",
  q_st_wait:"در صف",q_st_run:"در حال اجرا",q_st_fail:"ناموفق",q_st_done:"انجام شد",q_st_cancel:"لغو شد",
+ q_took:"در {t} تمام شد",q_gaveup:"پیش از تمام‌شدن لغو شد",
  q_queued:"رفت به صف",q_cancelled:"لغو شد",q_tries:"تلاشِ {n}",q_blocked:"منتظرِ نودی است که کارِ دیگری گرفته",
  px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
  px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",
@@ -10135,11 +10138,16 @@ function jobPill(jb){var k=jb.state;
  return \'<span class="jst \'+esc(k)+\'">\'+(k==\'run\'?\'<span class="jpulse"></span>\':\'\')+esc(T(\'q_st_\'+k))+\'</span>\'}
 // What the job is doing, in words. A job that has never run says WHY it has not: the operator asked for
 // it, so «nothing yet» is not an answer.
+// The line under the title. It carries what the title cannot: why this one is waiting, what went
+// wrong, how long it took. Falling back to the title printed the same words twice and told the
+// operator nothing -- an action that reports no step of its own is better left to its clock.
 function jobWords(jb){
- if(jb.state==\'fail\')return esc(jb.err||\'\')+(jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\');
- if(jb.state==\'wait\')return esc(jb.step||T(\'q_blocked\'))+(jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\');
- if(jb.state==\'run\')return esc(jb.step||jb.title||\'\');
- return esc(jb.step||jb.title||\'\')}
+ var t=jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\';
+ if(jb.state==\'fail\')return esc(jb.err||T(\'q_st_fail\'))+t;
+ if(jb.state==\'wait\')return esc(jb.step||T(\'q_blocked\'))+t;
+ if(jb.state==\'run\')return esc(jb.step||\'\');
+ if(jb.state==\'done\')return esc(T(\'q_took\').replace(\'{t}\',jobAge(jb)));
+ return esc(jb.step||T(\'q_gaveup\'))}
 function jobBarCls(jb){return jb.state==\'run\'?\'\':(jb.state==\'wait\'?\'idle\':esc(jb.state))}
 function jobPct(jb){return jb.state==\'done\'?100:(jb.state==\'wait\'?100:(num(jb.pct)||(jb.state==\'run\'?12:35)))}
 // The row a card grows while it has a job. No job, no row -- the card is exactly what it was.
@@ -10171,15 +10179,23 @@ function paintQueue(){var s=el(\'qsum\');if(s)s.innerHTML=
  var box=el(\'qList\');if(!box)return;
  setList(box,JOBS.length?JOBS.map(function(jb){return {k:jb.id,h:qJobCard(jb)}})
                         :[{k:\'__empty\',h:\'<div class="card muted">\'+esc(T(\'q_empty\'))+\'</div>\'}])}
+// The meta line, or nothing at all: a running action that reports no step still has its clock, and a
+// job that finished has the time it took.
+function qMeta(jb){var w=jobWords(jb),c=(jb.state==\'run\')?esc(jobAge(jb)):\'\';
+ var s=w&&c?(w+\' · \'+c):(w||c);
+ return s?(\'<div class="qmeta">\'+s+\'</div>\'):\'\'}
+// A job that is DONE has nothing to retry, and offering it anyway put a control on the page that the
+// panel then refused -- on the one page an operator opens when something is stuck. Retry belongs to
+// the two states that did not finish.
 function qJobCard(jb){
  var acts=[];
  if(jb.state==\'wait\'||jb.state==\'run\')acts.push(\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\');
- else acts.push(\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\');
+ else if(jb.state==\'fail\'||jb.state==\'cancel\')acts.push(\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\');
  if(jb.link)acts.push(\'<button class="jbtn" type="button" onclick="jobGoto(\\'\'+esc(jb.link)+\'\\')">\'+esc(T(\'q_goto\'))+\'</button>\');
  return \'<div class="qjob">\'+
   \'<div class="qtop">\'+jobPill(jb)+\'<span class="qkind">\'+esc(jb.title||jb.kind)+\'</span>\'+
   \'<span class="qwhere">\'+esc(jb.target||\'\')+\'</span></div>\'+
-  \'<div class="qmeta">\'+jobWords(jb)+((jb.state==\'run\')?\' · \'+esc(jobAge(jb)):\'\')+\'</div>\'+
+  qMeta(jb)+
   \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div>\'+
   \'<div class="qacts">\'+acts.join(\'\')+\'</div></div>\'}
 function jobGoto(lid){var l=(FLEET||[]).filter(function(x){return x.id==lid})[0];
