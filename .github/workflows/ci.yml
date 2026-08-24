@@ -67,6 +67,9 @@ name: ci
 #                         copy path still works with no navigator.clipboard -- the panel is reached
 #                         over plain http, which is not a secure context, so the async API is absent
 #                         exactly where the operator is.
+#   subnet_parity         the browser and the panel derive the same subnet, AND the core edit form's
+#                         range picker round-trips: opening it and saving must send back the address
+#                         the tunnel already has, or a rebuild renumbers both ends for nothing.
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -203,3 +206,6 @@ jobs:
       - name: card addresses are one tap from the clipboard, over plain http too
         working-directory: TUNNEL-MANAGER
         run: python tools/card_values_are_copyable_check.py
+      - name: the browser and the panel derive the same subnet, and the edit form round-trips it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/subnet_parity_check.py

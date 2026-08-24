@@ -5,6 +5,10 @@ subnetForBase is a second implementation of subnet_default. A drifting copy show
 address the tunnel never gets -- and the first cut of the widening rule fell off the end of 10/8 and
 produced 11.0.0.0/24 for an id no range can hold, which is somebody else's address space.
 
+It also guards the pair subnetBaseOf/subnetForBase, which is what the core EDIT form opens and saves
+with. That form has no free-text subnet field any more: it picks a RANGE and derives the address, so a
+base that does not round-trip back to the stored subnet renumbers a live tunnel for being looked at.
+
 Exit 1 on any mismatch, or on any subnet outside 10/8, 172.16/12, 192.168/16.
 """
 import importlib.util
@@ -42,7 +46,13 @@ def main():
     harness = ("const out={};for(const b of ['192.168','172.16','10'])for(const t of %s)"
                "out[b+':'+t]=subnetForBase('core',t,b);"
                "for(const t of [1,42,70000])out['sit:'+t]=subnetForBase('sit',t,'10');"
-               "console.log(JSON.stringify(out));") % json.dumps(IDS)
+               # the edit form's own round trip, kept OUT of `out` so the private-range scan below
+               # still sees nothing but subnet strings
+               "const rt={};for(const k of Object.keys(out)){if(k.indexOf('sit:')===0||!out[k])continue;"
+               "const t=parseInt(k.split(':')[1],10),b=subnetBaseOf({type:'core',tunnel_id:t,subnet:out[k]});"
+               "rt[k]={base:b,back:(b==='custom'?'':subnetForBase('core',t,b))};}"
+               "const off=subnetBaseOf({type:'core',tunnel_id:5,subnet:'192.168.240.0/24'});"
+               "console.log(JSON.stringify({flat:out,rt:rt,offgrid:off}));") % json.dumps(IDS)
     with tempfile.TemporaryDirectory() as d:
         f = Path(d) / "s.js"
         f.write_text(G.PRELUDE + "\n" + js + "\n" + harness, encoding="utf-8")
@@ -52,7 +62,8 @@ def main():
         print()
         print("%d failure(s)" % len(fails))
         return 1
-    got = json.loads(r.stdout.strip().splitlines()[-1])
+    payload = json.loads(r.stdout.strip().splitlines()[-1])
+    got = payload["flat"]
 
     bad = 0
     for base in ("192.168", "172.16", "10"):
@@ -78,6 +89,20 @@ def main():
     for tid in (1, 42, 70000):
         check(got["sit:%d" % tid] == P.subnet_default("sit", tid),
               "sit id=%s agrees (%s)" % (tid, got["sit:%d" % tid]))
+
+    # Opening the core edit form and saving it untouched must send back the subnet the tunnel already
+    # has. The form derives it from the RANGE its picker landed on, so this is the whole guarantee:
+    # subnetBaseOf has to name a range that resolves to the same address, or a rebuild renumbers both
+    # ends of a live tunnel because somebody opened a dialog and pressed save.
+    rt = payload["rt"]
+    drift = {k: v for k, v in rt.items() if v["back"] != got[k]}
+    check(not drift, "every stored subnet round-trips through its range (%d cases, drifted: %s)"
+          % (len(rt), sorted(drift)[:4]))
+    check(all(v["base"] != "custom" for v in rt.values()),
+          "a subnet the arithmetic produced is never reported as custom")
+    check(payload["offgrid"] == "custom",
+          "an off-grid subnet opens the form on custom, so its text field keeps it (got %r)"
+          % payload["offgrid"])
 
     print()
     if fails:

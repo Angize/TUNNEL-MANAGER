@@ -9729,6 +9729,11 @@ function subnetForBase(type,tid,base){tid=num(tid)||0;
 function subnetFree(base){var cap=subnetCap(base),n=0;
  (window.FLEET||[]).forEach(function(l){var t=num(l.tunnel_id);if(t>=1&&t<=cap)n++});
  return Math.max(0,cap-n)}
+// Which range a stored subnet came out of, so the edit form opens on the range the tunnel is ALREADY in.
+// The cap test is what keeps a widened answer honest: subnetForBase silently moves an id past a range's
+// ceiling into the next one, so without it the picker would light up a range that cannot hold this id.
+function subnetBaseOf(l){var tid=num(l.tunnel_id);
+ return ['192.168','172.16','10'].filter(function(x){return tid<=subnetCap(x)&&subnetForBase(l.type,tid,x)==l.subnet})[0]||'custom'}
 function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){return x.id==EDID})[0];if(!L)return;
  var f=el('e_sub_'+EDID);if(f)f.value=subnetForBase(ssVal('lt_'+EDID),L.tunnel_id,ssVal('lsr_'+EDID));renderEditPort(EDID)}
 var LEDTYPE='',LEDPORT='';
@@ -11331,6 +11336,15 @@ function rotValidate(px){var st=rotSt(px);if(!st.on)return null;
  if(rotCount(px,'a')<2&&rotCount(px,'b')<2)return T('rot_min2');   // rotation on but no side has a pool
  return null}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>'+esc(T('custom_subnet'))+'</label><input id="e_subnet" placeholder="'+esc(T('ph_subnet'))+'">':''}
+// Same picker on the edit side, with one addition create cannot have: the id is already fixed, so the
+// chosen range resolves to ONE subnet and the form shows which — the operator is renumbering a live
+// tunnel, not naming a new one.
+function onCeSubRange(){var w=el('ee_snc');if(!w)return;
+ // _eeS.Lid, not editingId: openModal overwrites editingId with the literal 'modal' the moment the
+ // sheet is in the DOM, so every lookup that runs AFTER the form is built has to use the form's own id.
+ var l=(FLEET||[]).filter(function(x){return x.id==_eeS.Lid})[0]||{},r=ssVal('ee_snr');
+ if(r=='custom'){w.innerHTML='<label>'+esc(T('custom_subnet'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'">';return}
+ w.innerHTML='<div class="muted" style="font-size:11px;margin:6px 2px 0">'+esc(T('core_subnet_lbl'))+': <b class="mono">'+esc(subnetForBase(l.type,l.tunnel_id,r)||'—')+'</b></div>'}
 function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a=el('e_srv_a'),b=el('e_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' '+esc(T('role_server_word'))+'</b><span>'+esc(an)+' '+esc(T('role_client_word'))+'</span>';
@@ -11473,11 +11487,12 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="tglbox" id="ee_gsorow"><div class="tglsw'+(_eeS.Gso?' on':'')+'" id="ee_gso" onclick="ceToggleGso()"></div><div class="tt"><b>'+esc(T('gso_t'))+'</b><small>'+esc(T('gso_d'))+'</small></div></div>'+
   fecSection('ee_','ce',_eeS.Fec,_eeS.FecData,_eeS.FecParity,ceFecDatagram())+
   desyncSection('ee_','ce',_eeS.Desync,_eeS.DesyncTtl,_eeS.DesyncCount,_eeS.DesyncMode,desyncOk(_eeS))+
-  '<div class="grid2"><div><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div><div><label>'+esc(T('core_subnet_lbl'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'"></div></div>'+
+  '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('ee_snr',SUBNETRANGES(),subnetBaseOf(l),T('range'),'onCeSubRange')+'<div id="ee_snc"></div>'+
+  '<label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050">'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- ceRoleLbls(l);renderRotIps('ee_');ceSpoofPrefill(l);cePrefillFields(l);ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
+ ceRoleLbls(l);renderRotIps('ee_');ceSpoofPrefill(l);cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 // Every stored per-transport field the edit form has to LOAD, in one place. It was four inline `if`s
 // in the open path, and raw_port simply never got its own — so the form could not show which port a
 // tunnel was on. One list means adding a field is one line, and it is drivable by a guard.
@@ -11501,7 +11516,10 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var aip=pickedIP('ee_','a',l.a_ip||'');if(aip)body.a_ip=aip;
  var bare=pickedIP('ee_','b',l.b_ip||'');if(bare)body.b_ip=bare;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs}
- var sub=v('ee_subnet');if(sub)body.subnet=sub;var port=v('ee_port');if(port)body.port=port;
+ var _sr=ssVal('ee_snr');
+ if(_sr=='custom'){var sub=v('ee_subnet');if(sub)body.subnet=sub}
+ else{var _sb=subnetForBase('core',l.tunnel_id,_sr);if(_sb)body.subnet=_sb}
+ var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
  if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
  else{formErr(m,perr(r))}}
