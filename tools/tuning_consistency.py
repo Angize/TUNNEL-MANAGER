@@ -26,6 +26,7 @@ TUNING_KNOBS = [
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
     ("min_liveness_secs",      "minLiveness",         "MinLivenessSecs",      False),
+    ("port_tries",             "portTries",           "PortTries",            False),
 ]
 
 fails = []

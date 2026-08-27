@@ -204,6 +204,10 @@ _TUNING_DEFAULTS = {
     "dead_retest_secs": 21600,
     # 2 - dead detection / self-heal
     "min_liveness_secs": 20,
+    # 2a - how many source ports the ladder draws before it gives up on the port axis. Each draw costs
+    # one probe verdict; a tunnel with one destination and one source has nothing after them, so this is
+    # the whole recovery budget for the commonest shape on the fleet.
+    "port_tries": 2,
     # 2b - the NODE's liveness verdict. Unlike everything else here this knob is consumed by the node
     # itself (tnl-node.py health_of), not passed through to the core, so it is stamped as a top-level
     # body field on EVERY tunnel type rather than riding in the `tuning` object. Percent of the tun
@@ -229,6 +233,7 @@ _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشت
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "min_liveness_secs": (1, 3600),
+    "port_tries": (1, 50),
     # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
     # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
     # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
@@ -6965,6 +6970,14 @@ def _ev_core_text(kind, code, detail, nm):
         rot = _EV_ROT_CODE.get(code)
         if rot:   # an intentional rotation/pin, not a fault — informational, not a red "disconnected"
             lvl, fa = rot
+            if code == "port-roll":
+                # The core sends «sport:<p> tries:<n>»: the port it came back on, and how many
+                # draws it took. Both belong in the sentence — «it came back» alone does not say
+                # whether the budget was nearly spent.
+                kv = dict(w.split(":", 1) for w in key.split() if ":" in w)
+                return (lvl, "rot",
+                        f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ پس از {kv.get('tries', '?')} تلاش، "
+                        f"با پورتِ {kv.get('sport', '?')} برگشت", "")
             return (lvl, "rot", f"تونلِ «{nm}»: {fa}", "")
         rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
         return ("bad", "link", f"دلیل: قطعِ تونلِ «{nm}»", rf)
@@ -9600,7 +9613,7 @@ var I18N={fa:{
 
 
 
- set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ set_t_porttries:"چند بار پورتِ مبدأ عوض شود (RAW)",set_x_porttries:"<b>2</b> = دو پورتِ تازه امتحان می‌شود، بعد یک دست‌دادنِ دوباره، بعد دیگر کاری نمانده. <b>10</b> = ده قرعه، یعنی ~۲۰ ثانیه تلاشِ بیشتر پیش از تسلیم.",set_t_porttries_d:"وقتی پروب می‌گوید چیزی رد نمی‌شود، هسته اول <b>پورتِ مبدأِ جعلی</b> را عوض می‌کند و دوباره امتحان می‌کند. این عدد می‌گوید چند بار. هر قرعه یک وردیکتِ پروب خرج می‌کند و پورت از فهرستِ ۲۰۰ پورتِ سرویسِ پرترافیک برداشته می‌شود، نه از بازهٔ افمرال. تونلی که فقط <b>یک</b> مقصد و <b>یک</b> مبدأ دارد، بعد از این قرعه‌ها و یک دست‌دادنِ دوباره دیگر هیچ کاری ندارد — پس این تمامِ بودجهٔ ترمیمِ رایج‌ترین شکلِ فلیت است.", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
@@ -12774,7 +12787,8 @@ function settingsGroups(s){
   '<p class="srnote" id="tun_pmhint"></p>';
  var pool=
   qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
-  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440));
+  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
+  qr(T('set_t_porttries'),'set_t_porttries_d','set_x_porttries',tNum('set_t_porttries',_tv(s,'port_tries'),1,50));
  /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
     the connection group, because there is now ONE of it for every carrier. */
  var perf=
@@ -12785,7 +12799,7 @@ function settingsGroups(s){
   sgCard('bolt','set_g5','set_g5c','sc-perf',perf)}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),port_tries:parseInt(v('set_t_porttries')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
