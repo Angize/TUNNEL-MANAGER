@@ -204,10 +204,6 @@ _TUNING_DEFAULTS = {
     "dead_retest_secs": 21600,
     # 2 - dead detection / self-heal
     "min_liveness_secs": 20,
-    # 2a - how many source ports the ladder draws before it gives up on the port axis. Each draw costs
-    # one probe verdict; a tunnel with one destination and one source has nothing after them, so this is
-    # the whole recovery budget for the commonest shape on the fleet.
-    "port_tries": 2,
     # 2b - the NODE's liveness verdict. Unlike everything else here this knob is consumed by the node
     # itself (tnl-node.py health_of), not passed through to the core, so it is stamped as a top-level
     # body field on EVERY tunnel type rather than riding in the `tuning` object. Percent of the tun
@@ -233,7 +229,6 @@ _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشت
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "min_liveness_secs": (1, 3600),
-    "port_tries": (1, 50),
     # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
     # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
     # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
@@ -1899,7 +1894,7 @@ _WORKERS_KEYS = ("a_workers", "b_workers")
 # old setting as if it were the live one. Every _core_extra key is checked against this list by
 # tools/config_contract.py, which is only possible because the list is reachable from outside.
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
+                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
                     "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
@@ -2064,6 +2059,8 @@ def _tunnel_extra(src, refetch_ech=True):
         e["raw_proto"] = src["raw_proto"]
     if src.get("raw_port"):              # udp/tcp forged server port
         e["raw_port"] = src["raw_port"]
+    if src.get("port_tries"):            # how many source ports THIS tunnel's ladder may draw
+        e["port_tries"] = src["port_tries"]
     if src.get("raw_sport_random"):      # ...and whether the udp/tcp CLIENT source port rolls
         e["raw_sport_random"] = True
     elif src.get("raw_sport"):           # ...or the fixed number it is pinned to instead
@@ -5495,6 +5492,16 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if cover:
         ce["cover"] = True
         ce["cover_sni"] = cover_sni
+    # How many source ports THIS tunnel's ladder may draw. Per tunnel, not fleet-wide: what a path is
+    # worth trying is a property of the path. 0 / absent leaves the core on its own default.
+    try:
+        _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
+    except (TypeError, ValueError):
+        _ptries = 0
+    if _ptries:
+        if not 1 <= _ptries <= 50:
+            raise ValueError("تعدادِ قرعهٔ پورتِ مبدأ باید بینِ 1 تا 50 باشد")
+        ce["port_tries"] = _ptries
     if (bool(d.get("gso")) if "gso" in d else bool(cur.get("gso"))):   # TUN segmentation offload (throughput); any transport
         ce["gso"] = True
     # IP rotation (direct transports): a full form edit sends ip_rotate + pools; a partial edit omits them,
@@ -9613,7 +9620,7 @@ var I18N={fa:{
 
 
 
- set_t_porttries:"چند بار پورتِ مبدأ عوض شود (RAW)",set_x_porttries:"<b>2</b> = دو پورتِ تازه امتحان می‌شود، بعد یک دست‌دادنِ دوباره، بعد دیگر کاری نمانده. <b>10</b> = ده قرعه، یعنی ~۲۰ ثانیه تلاشِ بیشتر پیش از تسلیم.",set_t_porttries_d:"وقتی پروب می‌گوید چیزی رد نمی‌شود، هسته اول <b>پورتِ مبدأِ جعلی</b> را عوض می‌کند و دوباره امتحان می‌کند. این عدد می‌گوید چند بار. هر قرعه یک وردیکتِ پروب خرج می‌کند و پورت از فهرستِ ۲۰۰ پورتِ سرویسِ پرترافیک برداشته می‌شود، نه از بازهٔ افمرال. تونلی که فقط <b>یک</b> مقصد و <b>یک</b> مبدأ دارد، بعد از این قرعه‌ها و یک دست‌دادنِ دوباره دیگر هیچ کاری ندارد — پس این تمامِ بودجهٔ ترمیمِ رایج‌ترین شکلِ فلیت است.", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ raw_porttries_lbl:"چند بار پورتِ مبدأ عوض شود",raw_porttries_hint:"وقتی پروب می‌گوید چیزی رد نمی‌شود، هسته اول پورتِ مبدأِ جعلی را عوض می‌کند و دوباره امتحان می‌کند؛ این عدد می‌گوید چند بار. هر قرعه یک وردیکتِ پروب خرج می‌کند و پورت از فهرستِ ۲۰۰ پورتِ سرویسِ پرترافیک برداشته می‌شود. تونلی که فقط یک مقصد و یک مبدأ دارد بعد از این قرعه‌ها و یک دست‌دادنِ دوباره دیگر کاری ندارد. خالی = ۲.", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
@@ -11548,6 +11555,12 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
    +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
+ /* How many source ports the ladder may draw for THIS tunnel before it moves on. Per tunnel, not
+    fleet-wide: a tunnel with one destination and one source has nothing after those draws, and how
+    long that is worth trying is a property of the path this tunnel takes. */
+ +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
+ +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
+ +'<p class="srnote">'+esc(T('raw_porttries_hint'))+'</p>'
  +'</div>'}
 // workersSection: how many TUN queues this tunnel's receive path gets. Revealed by {cor,ce}WorkersVis on
 // raw with FEC off — the one pair the core spends queues on. The budget line under it is what keeps the
@@ -11949,7 +11962,11 @@ function _collectCoreBody(S,px,m,body){
    var _se=sportErr(px);if(_se){formErr(m,_se);return true}
    body.raw_sport_random=!!S.SportRandom;
    var _st=parseInt(v(px+'rawsport'),10);
-   body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}
+   body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0
+   /* Always sent, so an edit that clears the box actually clears the stored number instead of
+      inheriting it. 0 means "the core's own default". */
+   var _pt=parseInt(v(px+'porttries'),10);
+   body.port_tries=(_pt>=1&&_pt<=50)?_pt:0}}
  /* The spoof carrier is bare-like: no profile, just the outer protocol number plus the forged field(s).
     Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
     go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
@@ -12084,7 +12101,8 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
 // in the open path, and raw_port simply never got its own — so the form could not show which port a
 // tunnel was on. One list means adding a field is one line, and it is drivable by a guard.
 function cePrefillFields(l){
- [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_dnszone',l.dns_zone],
+ [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],
+  ['ee_porttries',l.port_tries],['ee_dnszone',l.dns_zone],
   ['ee_dnsresolvers',(l.dns_resolvers||[]).join(', ')]].forEach(function(p){
    var e=el(p[0]);if(e&&p[1])e.value=p[1]})}
 function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
@@ -12787,8 +12805,7 @@ function settingsGroups(s){
   '<p class="srnote" id="tun_pmhint"></p>';
  var pool=
   qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
-  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440))+
-  qr(T('set_t_porttries'),'set_t_porttries_d','set_x_porttries',tNum('set_t_porttries',_tv(s,'port_tries'),1,50));
+  qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440));
  /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
     the connection group, because there is now ONE of it for every carrier. */
  var perf=
@@ -12799,7 +12816,7 @@ function settingsGroups(s){
   sgCard('bolt','set_g5','set_g5c','sc-perf',perf)}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),port_tries:parseInt(v('set_t_porttries')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  return t}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
