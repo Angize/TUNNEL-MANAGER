@@ -29,6 +29,8 @@ if hasattr(sys.stdout, "reconfigure"):   # Persian can appear in a failure messa
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 PANEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tnl-central.py")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import act_wait as A     # noqa: E402  (an action answers with a key, so A.raising waits for its verdict)
 
 A_ID, B_ID = 1, 2
 A_IP, B_IP = "203.0.113.5", "198.51.100.7"
@@ -114,7 +116,7 @@ def run_path(path, ttype, tid, tuning):
     if path == "create":
         P._create_tunnel_impl(create_req(ttype, tid))
     elif path == "edit":
-        P.api_edit_link(edit_req(P, ttype, tid))
+        A.run(P, lambda: P.api_edit_link(edit_req(P, ttype, tid)))
     elif path == "rebuild":
         P._rebuild_link_impl({"id": 7})
     else:   # the rollback restore, which builds a body of its own

@@ -26,6 +26,8 @@ import tempfile
 
 sys.dont_write_bytecode = True
 PANEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tnl-central.py")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import act_wait as A     # noqa: E402  (an action answers with a key, so A.run waits for its verdict)
 
 A_ID, B_ID = 1, 2
 A_IP, B_IP = "203.0.113.5", "198.51.100.7"
@@ -261,8 +263,9 @@ def main():
         L = stored[0]
         # -- edit (a partial edit that changes nothing but must still rebuild both ends)
         P = load(); links2 = [dict(L)]; sent = wire(P, links2)
-        P.api_edit_link({"id": L["id"], "type": "core", "transport": "udp", "cipher": "auto",
-                         "server_side": ss, "a_node": A_ID, "b_node": B_ID})
+        A.run(P, lambda: P.api_edit_link({"id": L["id"], "type": "core", "transport": "udp",
+                                          "cipher": "auto", "server_side": ss,
+                                          "a_node": A_ID, "b_node": B_ID}))
         bodies["edit"] = {nid: b for nid, b in sent}
         # -- rebuild
         P = load(); links3 = [dict(L)]; sent = wire(P, links3)
@@ -320,8 +323,8 @@ def main():
         ("create", lambda P, links: P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "gre"})),
         # a non-core edit that changes NOTHING short-circuits as "unchanged" and builds no body at all,
         # so this one moves the subnet -- otherwise the case proves nothing about the edit path.
-        ("edit", lambda P, links: P.api_edit_link({"id": 1, "type": "gre", "a_node": A_ID, "b_node": B_ID,
-                                                   "subnet": "10.9.0.0/24"})),
+        ("edit", lambda P, links: A.run(P, lambda: P.api_edit_link({"id": 1, "type": "gre", "a_node": A_ID,
+                                                                    "b_node": B_ID, "subnet": "10.9.0.0/24"}))),
         ("rebuild", lambda P, links: P._rebuild_link_impl({"id": 1})),
         ("restore", lambda P, links: P._restore_link(P.get_node(A_ID), P.get_node(B_ID), dict(L))),
     ):

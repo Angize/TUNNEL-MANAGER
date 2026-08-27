@@ -5358,9 +5358,20 @@ def _ws_pool_fields(d, cur=None):
 
 
 def api_create_tunnel(d):
+    """Build on a panel thread and answer with the key the card watches. A tunnel that does not exist
+    yet has no id to be named by, so the panel mints the slot its placeholder card takes."""
     d = d or {}
-    with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
-        return _create_tunnel_impl(d)
+    A, B = get_node(d.get("a_node")), get_node(d.get("b_node"))
+    ttype = str(d.get("type") or "")
+
+    def build(h):
+        with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
+            return _create_tunnel_impl(d, h)
+
+    return act_start("new:" + secrets.token_hex(4), "ساختِ تونل", build,
+                     target="%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?")),
+                     page="core" if ttype == "core" else "tunnels",
+                     ttype=str(d.get("transport") or ttype))
 
 
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
@@ -5503,7 +5514,11 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     return ce, server_side
 
 
-def _create_tunnel_impl(d):
+CREATE_STEPS = 4
+
+
+def _create_tunnel_impl(d, h=None):
+    act_step(h, "خواندنِ وضعیتِ دو نود", 0, CREATE_STEPS)
     _require(d, ["a_node", "b_node", "type"])
     A, B = get_node(d["a_node"]), get_node(d["b_node"])
     if not A or not B:
@@ -5609,14 +5624,22 @@ def _create_tunnel_impl(d):
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
+    act_step(h, "ساخت روی نودِ «%s»" % A["name"], 1, CREATE_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
+    try:
+        act_step(h, "ساخت روی نودِ «%s»" % B["name"], 2, CREATE_STEPS)
+    except ActCancelled:
+        node_call(A, "delete", "POST", {"name": name})   # cancelled with one end already up: take it back down
+        raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         rr = node_call(A, "delete", "POST", {"name": name})  # roll back A side
         warn = "" if rr.get("ok") else f" — هشدار: '{name}' روی {A['name']} پاک نشد، دستی تمیزش کن"
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تغییرات روی {A['name']} برگردانده شد){warn}")
+    # Both ends are up: stopping here would leave them on the nodes with nothing on the panel knowing.
+    act_step(h, "ثبتِ تونل", 3, CREATE_STEPS, stop=False)
     try:
         with _reg_lock:  # atomic append so a concurrent delete-link can't lose/resurrect a record
             links = load_links()
@@ -5640,6 +5663,14 @@ def _create_tunnel_impl(d):
 
 
 def api_delete_link(d):
+    return act_link("حذفِ تونل", d, lambda h: _delete_link_impl(d, h))
+
+
+DELETE_STEPS = 3
+
+
+def _delete_link_impl(d, h=None):
+    act_step(h, "بررسیِ دو سر", 0, DELETE_STEPS)
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -5668,6 +5699,9 @@ def api_delete_link(d):
                 _refresh_cache([L["a_node"], L["b_node"]])
                 return {"ok": False, "msg": "نودِ «" + "»، «".join(off) + "» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         errs, deferred = [], []
+        # The last point this can be stopped: past here an end is torn down, and a tunnel half-removed is
+        # a shape the operator has no name for.
+        act_step(h, "برچیدنِ تونل روی دو نود", 1, DELETE_STEPS, stop=False)
         for nid, nm in ends:
             n = get_node(nid)
             if not n:
@@ -5690,6 +5724,7 @@ def api_delete_link(d):
         if errs:  # non-force + a node failed/offline — KEEP the record so a later delete can finish teardown (no orphans)
             _refresh_cache([L["a_node"], L["b_node"]])
             return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
+        act_step(h, "برداشتنِ رکورد", 2, DELETE_STEPS, stop=False)
         with _reg_lock:  # atomic RMW; re-read so a concurrent create isn't clobbered
             save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
         _tf_forget(L["a_node"], [L["name"]])   # drop stale traffic totals so a reused tunnel name starts fresh
@@ -5789,9 +5824,12 @@ def _restore_link(A, B, L, extra=None):
 
 
 def api_edit_link(d):
-    a, b = _link_nodes(d)
-    with _PairLock(a, b):  # serialize only with ops touching the same node(s)
-        return _edit_link_impl(d)
+    def edit(h):
+        a, b = _link_nodes(d)
+        with _PairLock(a, b):  # serialize only with ops touching the same node(s)
+            return _edit_link_impl(d, h)
+
+    return act_link("ویرایشِ تونل", d, edit)
 
 
 def api_edge_status(d):
@@ -6003,7 +6041,11 @@ def api_flux_rotate(d):
         return _edit_link_impl({"id": d["id"], "type": "core", "flux_epoch_offset": nxt})
 
 
-def _edit_link_impl(d):
+EDIT_STEPS = 4
+
+
+def _edit_link_impl(d, h=None):
+    act_step(h, "خواندنِ وضعیتِ دو نود", 0, EDIT_STEPS)
     _require(d, ["id", "type"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -6069,7 +6111,7 @@ def _edit_link_impl(d):
     # below (the only reliable way to un-wedge a tunnel), so never silently no-op it — which is exactly
     # why the guard leads with `ttype != "core"` and no per-field core comparison is needed here.
     if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
-        return {"ok": True, "unchanged": True, "name": old_name}
+        return {"ok": True, "unchanged": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
     # Port-conflict guard: verify only bindings that DIFFER from what this tunnel already occupies — its
     # current port/proto/server node are excluded so it cannot clash with itself. A pooled server binds
     # each SELECTED pool IP explicitly, so _own expands to that exact per-IP set: a rebuild that keeps the
@@ -6098,6 +6140,7 @@ def _edit_link_impl(d):
     # restarted server latches onto the stale still-live client and never re-handshakes, so the tunnel
     # stays wedged. Tearing both ends down forces a clean re-handshake.
     if name_changed or type_changed or ttype == "core":
+        act_step(h, "برچیدنِ پیکربندیِ قبلی", 1, EDIT_STEPS)
         node_call(A, "delete", "POST", {"name": old_name})
         node_call(B, "delete", "POST", {"name": old_name})
     node_extra = _node_extra(extra)
@@ -6112,10 +6155,16 @@ def _edit_link_impl(d):
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
+    act_step(h, "اعمال روی نودِ «%s»" % A["name"], 2, EDIT_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
+    try:
+        act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS)
+    except ActCancelled:
+        _restore_link(A, B, L)   # cancelled with only one end moved: put the tunnel back the way it was
+        raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         if name_changed:
@@ -6123,6 +6172,8 @@ def _edit_link_impl(d):
             node_call(B, "delete", "POST", {"name": new_name})
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
+    # Both ends carry the new shape: stopping now would leave the record describing the old one.
+    act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
     with _reg_lock:
         links = load_links()
         for x in links:
@@ -6167,12 +6218,15 @@ def api_check_link(d):
 
 
 def api_restart_link(d):
-    a, b = _link_nodes(d)
-    with _PairLock(a, b):
-        return _restart_link_impl(d)
+    def restart(h):
+        a, b = _link_nodes(d)
+        with _PairLock(a, b):
+            return _restart_link_impl(d, h)
+
+    return act_link("ری‌استارتِ هسته", d, restart)
 
 
-def _restart_link_impl(d):
+def _restart_link_impl(d, h=None):
     """Bounce both ends' core process on the config they already hold.
 
     Deliberately NOT a rebuild: nothing is torn down, no config is rewritten, no ECH is re-fetched and
@@ -6191,7 +6245,10 @@ def _restart_link_impl(d):
     if not A or not B:
         raise ValueError("a node of this link is no longer registered")
     ends, errs = [], []
-    for side, N in (("a", A), ("b", B)):
+    for i, (side, N) in enumerate((("a", A), ("b", B))):
+        # Stopping between the two ends is safe: the end already bounced re-handshakes with the one that
+        # was not, so a half-done restart heals itself rather than leaving a shape nothing describes.
+        act_step(h, "ری‌استارتِ هسته روی نودِ «%s»" % N["name"], i, 2)
         r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=30)
         ok = bool(r.get("ok"))
         ends.append({"side": side, "node": N["name"], "ok": ok})
@@ -6224,22 +6281,28 @@ def rb_last(lid):
 
 
 def api_rebuild_link(d):
-    a, b = _link_nodes(d)
-    with _PairLock(a, b):
-        # A rebuild can outlive the request that asked for it: it deletes and rebuilds BOTH ends, and each
-        # node call is allowed 200s. When the operator's connection dies first the browser only knows the
-        # answer never came, so the verdict is recorded here and served with the link.
-        try:
-            r = _rebuild_link_impl(d)
-        except Exception as e:
-            _rb_note(str(d.get("id") or ""), False, e)
-            raise
-        _rb_note(str(d.get("id") or ""), bool(r.get("ok")))
-        return r
+    def rebuild(h):
+        a, b = _link_nodes(d)
+        with _PairLock(a, b):
+            # The verdict is recorded on the link as well as on the action: a page opened long after the
+            # action has been pruned still finds out how the last rebuild went.
+            try:
+                r = _rebuild_link_impl(d, h)
+            except Exception as e:
+                _rb_note(str(d.get("id") or ""), False, e)
+                raise
+            _rb_note(str(d.get("id") or ""), bool(r.get("ok")))
+            return r
+
+    return act_link("بازسازیِ تونل", d, rebuild)
 
 
-def _rebuild_link_impl(d):
+REBUILD_STEPS = 4
+
+
+def _rebuild_link_impl(d, h=None):
     """Tear the tunnel down on both nodes and build it again with the SAME params (id/type/subnet)."""
+    act_step(h, "خواندنِ وضعیتِ دو نود", 0, REBUILD_STEPS)
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -6267,6 +6330,7 @@ def _rebuild_link_impl(d):
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = _tunnel_extra(L)   # same UDP port / key / cipher as before; also re-fetches fresh ECH and
                                # MAY RAISE — do it BEFORE teardown so a fetch failure leaves the tunnel intact
+    act_step(h, "برچیدنِ هر دو سر", 1, REBUILD_STEPS)
     node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
     node_call(B, "delete", "POST", {"name": name})
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
@@ -6279,10 +6343,16 @@ def _rebuild_link_impl(d):
         _core_workers_bodies(L, a_body, b_body)    # ...and each end's own queue count
         _apply_core_tuning(a_body, b_body)         # re-stamp current fleet-wide timing on rebuild
     _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
+    act_step(h, "ساخت روی نودِ «%s»" % A["name"], 2, REBUILD_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
+    try:
+        act_step(h, "ساخت روی نودِ «%s»" % B["name"], 3, REBUILD_STEPS)
+    except ActCancelled:
+        _restore_link(A, B, L, extra)   # cancelled with one end rebuilt: put both back the way they were
+        raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         _restore_link(A, B, L, extra)
@@ -7918,372 +7988,130 @@ def api_checkin_impl(source_ip, d):
     return {"ok": True, "updated": True, "host": host, "port": port}
 
 
-# ----------------------------------------------------------------------------- the action queue
-# Every action the operator can start is a JOB: it is written down, it runs on a panel thread, and the
-# browser watches it instead of holding a request open. What this buys, in order of why it exists:
+# ----------------------------------------------------------------------------- actions in flight
+# An action that has to talk to a node runs on a panel thread, and the page watches it where the
+# operator started it -- on the card, in the list, in the form. The request that begins one answers as
+# soon as the thread is up, so nothing a node does can time it out.
 #
-#   * a slow node cannot fail an action any more. The request that starts it returns at once; the work
-#     keeps going for as long as it takes, and a network attempt that dies is retried rather than lost.
-#   * the operator can stop anything, at any point, from one page.
-#   * two actions that touch the same node no longer race -- the queue hands out nodes, one job at a
-#     time. Actions on unrelated nodes still run side by side.
-#   * a panel restart no longer loses the record of what was asked for.
+# This is not a queue. Nothing waits for a turn, nothing is ordered, there is no worker pool: an action
+# starts at once. Two actions touching the same nodes are serialised by _PairLock, which every one of
+# them already holds.
 #
-# Reads are NOT queued. `fleet`, `summary`, `traffic` and the status polls answer straight away, or the
-# page would have nothing to draw while it waits for its own queue.
-JOBS_FILE = os.path.join(CENTRAL_DIR, "jobs.json")
-JOB_KEEP = 120                 # finished jobs kept on the page (and on disk)
-JOB_WORKERS = 4                # actions running at once, fleet-wide
-JOB_RETRY_MAX = 8              # attempts before a job gives up and waits for the operator
-JOB_RETRY_BACKOFF = (5, 10, 20, 40, 60, 90, 120, 180)   # seconds between attempts
+# The key IS the place: `link:<id>` for an action on a tunnel that exists, `new:<slot>` for one still
+# being built. One place, one action -- a second press on the same tunnel is refused, not queued.
+ACT_KEEP = 20          # seconds a finished action stays readable where it ran
+ACT_KEEP_FAIL = 600    # a failure waits far longer: the operator has to be able to come back and read it
 
-_jobs = {}                     # jid -> record (JSON-safe: it is written to disk as-is)
-_jobs_order = []               # oldest first
-_jq_lock = threading.RLock()
-_jq_cv = threading.Condition(_jq_lock)
-_jq_busy = set()               # node ids a RUNNING job holds
-_jq_up = False
+_acts = {}             # key -> handle
+_act_lock = threading.RLock()
 
 
-class JobCancelled(Exception):
-    """Raised inside a job when the operator cancels it. Never reaches the operator as an error."""
+class ActCancelled(Exception):
+    """Raised inside an action when the operator cancels it. Never reaches them as an error."""
 
 
-class JobRetry(Exception):
-    """The attempt failed for a reason that may pass -- an unreachable node, a refused connection. The
-    queue waits and tries again. A ValueError means the request itself is wrong and is NOT retried."""
+def act_step(h, step, i=0, n=0, stop=True):
+    """Say which step this action is on, and stop it here if the operator asked for that.
+
+    Reporting and cancelling are ONE call on purpose: a step that reports without checking cannot be
+    stopped, and a check that reports nothing is a bar that does not move. So every progress point is a
+    cancel point and vice versa, and neither can be forgotten on its own.
+
+    stop=False marks a step past the point of no return, where the work is already done on the nodes and
+    abandoning it would leave them holding something nothing on the panel knows about."""
+    if h is None:
+        return
+    with _act_lock:
+        if stop and h.get("cancel"):
+            raise ActCancelled()
+        h.update(step=step, si=i, sn=n, pct=int(i * 100 / n) if n else 0, can=bool(stop))
 
 
-# kind -> how it is shown, and which nodes it must hold while it runs. The runner is API[kind] itself,
-# so an action becomes queueable by joining this table and nothing else: no second copy of its logic.
-def _jn_pair(d):
-    return [d.get("a_node"), d.get("b_node")]
+def act_dead(h):
+    """For a node call's should_abort=: True once the operator has cancelled."""
+    with _act_lock:
+        return bool(h and h.get("cancel"))
 
 
-def _jn_link(d):
-    L = next((x for x in load_links() if x["id"] == (d or {}).get("id")), None)
-    return [L.get("a_node"), L.get("b_node")] if L else []
+def _act_prune():
+    """Drop finished actions once they have been readable long enough. Caller holds _act_lock."""
+    now = time.time()
+    for k in [k for k, v in _acts.items() if v["state"] != "run"
+              and now - v["ended"] > (ACT_KEEP_FAIL if v["state"] == "fail" else ACT_KEEP)]:
+        _acts.pop(k, None)
 
 
-def _jn_node(d):
-    return [(d or {}).get("node") or (d or {}).get("id") or (d or {}).get("node_id")]
+def act_start(key, title, fn, target="", page="", ttype=""):
+    """Run fn(h) on its own thread and answer with the key the page watches.
 
+    Whatever fn raises is the verdict, and a result dict that says ok:False is one too -- delete-link
+    refuses that way when a node is unreachable, and its `msg` is the sentence the operator must read."""
+    with _act_lock:
+        _act_prune()
+        cur = _acts.get(key)
+        if cur and cur["state"] == "run":
+            raise ValueError("همین کار روی این مورد در جریان است — تا تمام‌شدنش صبر کن")
+        h = {"key": key, "title": title, "target": target, "page": page, "ttype": ttype,
+             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "note": "",
+             "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
+        _acts[key] = h
 
-def _jn_none(_d):
-    return []
-
-
-JOB_KINDS = {
-    "create-tunnel":      ("ساختِ تونل", _jn_pair),
-    "edit-link":          ("ویرایشِ تونل", _jn_link),
-    "rebuild-link":       ("بازسازیِ تونل", _jn_link),
-    "restart-link":       ("ری‌استارتِ هسته", _jn_link),
-    "delete-link":        ("حذفِ تونل", _jn_link),
-    "link-toggle":        ("روشن/خاموشِ تونل", _jn_link),
-    "flux-rotate":        ("چرخشِ flux", _jn_link),
-    "traffic-reset":      ("صفر کردنِ ترافیک", _jn_link),
-    "pool-retest-now":    ("تستِ دوبارهٔ لبه", _jn_link),
-    "peer-retest-now":    ("تستِ دوبارهٔ مقصد", _jn_link),
-    "node-install":       ("نصبِ نود", _jn_node),
-    "node-adopt-ip":      ("پذیرشِ آی‌پیِ تازه", _jn_node),
-    "portfw":             ("ساختِ پورت‌فوروارد", _jn_node),
-    "portfw-edit":        ("ویرایشِ پورت‌فوروارد", _jn_node),
-    "portfw-del":         ("حذفِ پورت‌فوروارد", _jn_node),
-    "core-stage":         ("دانلودِ هسته", _jn_none),
-    "agent-fetch-git":    ("دانلودِ ایجنت", _jn_none),
-    "update-agent":       ("آپدیتِ ایجنت", _jn_none),
-    "update-core":        ("آپدیتِ هسته", _jn_none),
-}
-QUEUED = frozenset(JOB_KINDS)
-
-# What the card shows the job beside. A job with no link id is only ever seen on the queue page.
-_JOB_LINK_KINDS = ("edit-link", "rebuild-link", "restart-link", "delete-link", "link-toggle",
-                   "flux-rotate", "traffic-reset", "pool-retest-now", "peer-retest-now")
-
-
-def _job_link_id(kind, d):
-    if kind in _JOB_LINK_KINDS:
-        return str((d or {}).get("id") or "")
-    return ""
-
-
-def _job_target(kind, d):
-    """The short name beside the kind: the tunnel, the node, the version -- whatever the operator asked
-    this of. Never an id, which says nothing on a page."""
-    d = d or {}
-    lid = _job_link_id(kind, d)
-    if lid:
-        L = next((x for x in load_links() if x["id"] == lid), None)
-        if L:
-            return L.get("name") or ""
-    if kind == "create-tunnel":
-        A, B = get_node(d.get("a_node")), get_node(d.get("b_node"))
-        return "%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?"))
-    for k in ("node", "node_id", "id"):
-        n = get_node(d.get(k)) if d.get(k) else None
-        if n:
-            return n.get("name") or ""
-    return str(d.get("version") or d.get("name") or "")
-
-
-def _jq_save():
-    """Persist the queue. Caller holds _jq_lock."""
-    try:
-        save_json(JOBS_FILE, [_jobs[j] for j in _jobs_order if j in _jobs])
-    except OSError:
-        pass                    # a queue that cannot be written still runs; losing the file is not fatal
-
-
-def _jq_prune():
-    """Drop the oldest finished jobs past JOB_KEEP. Caller holds _jq_lock."""
-    fin = [j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("done", "fail", "cancel")]
-    for jid in fin[:max(0, len(fin) - JOB_KEEP)]:
-        _jobs.pop(jid, None)
-        _jobs_order.remove(jid)
-
-
-def jq_enqueue(kind, d, auto=False):
-    """Write the action down and return its id. This is what an action request answers with."""
-    if kind not in JOB_KINDS:
-        raise ValueError("این عمل صف‌بندی نمی‌شود")
-    title, nodes_of = JOB_KINDS[kind]
-    nodes = [n for n in (nodes_of(d) or []) if n]
-    jid = secrets.token_hex(6)
-    rec = {"id": jid, "kind": kind, "title": title, "target": _job_target(kind, d),
-           "link": _job_link_id(kind, d), "nodes": nodes, "state": "wait",
-           # A tunnel being BUILT has no record for a card to be drawn from, so the job carries the
-           # little a card needs: which list it belongs in, and what it will be when it exists.
-           "page": ("core" if str((d or {}).get("type") or "") == "core" else "tunnels")
-                   if kind == "create-tunnel" else "",
-           "ttype": str((d or {}).get("transport") or (d or {}).get("type") or "")
-                    if kind == "create-tunnel" else "",
-           # A tunnel being BUILT has no record for a card to be drawn from, so the job carries the
-           # little a card needs: which list it belongs in, and what it will be when it exists.
-           "page": ("core" if str((d or {}).get("type") or "") == "core" else "tunnels")
-                   if kind == "create-tunnel" else "",
-           "ttype": str((d or {}).get("transport") or (d or {}).get("type") or "")
-                    if kind == "create-tunnel" else "",
-           "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "tries": 0,
-           "created": int(time.time()), "started": 0, "ended": 0,
-           "req": d or {}, "auto": bool(auto)}
-    with _jq_cv:
-        _jobs[jid] = rec
-        _jobs_order.append(jid)
-        _jq_prune()
-        _jq_save()
-        _jq_cv.notify_all()
-    jq_start()
-    return {"ok": True, "queued": True, "job": jid, "title": title, "target": rec["target"]}
-
-
-def _jq_set(jid, **kw):
-    with _jq_cv:
-        j = _jobs.get(jid)
-        if not j:
-            return
-        j.update(kw)
-        _jq_save()
-
-
-def jq_cancelled(jid):
-    with _jq_lock:
-        j = _jobs.get(jid)
-        return bool(j and j.get("cancel"))
-
-
-def _jq_free(nodes):
-    """True when no running job holds any of these nodes. Caller holds _jq_lock."""
-    return not (_jq_busy & set(nodes))
-
-
-def _jq_take():
-    """Block until a queued job can run, reserve its nodes and return it."""
-    with _jq_cv:
-        while True:
-            soon = 2.0
-            for jid in _jobs_order:
-                j = _jobs.get(jid)
-                if not j or j["state"] != "wait":
-                    continue
-                if j.get("cancel"):
-                    j.update(state="cancel", ended=int(time.time()))
-                    _jq_save()
-                    continue
-                if j.get("at", 0) > time.time():
-                    soon = min(soon, j["at"] - time.time())   # waiting out a retry backoff
-                    continue
-                if not _jq_free(j["nodes"]):
-                    continue                       # another job holds one of its nodes
-                _jq_busy.update(j["nodes"])
-                j.update(state="run", started=j.get("started") or int(time.time()), err="")
-                _jq_save()
-                return jid
-            # Nothing notifies the queue when a backoff comes due, so sleep exactly until the nearest
-            # one -- a flat wait silently rounds every retry up to its own length.
-            _jq_cv.wait(max(0.05, min(soon, 2.0)))
-
-
-def _jq_run(jid):
-    """Run one job to a verdict. The runner is the API function itself: one implementation, whether the
-    action was queued or (in a test) called directly."""
-    with _jq_lock:
-        j = dict(_jobs.get(jid) or {})
-    kind, d = j.get("kind"), j.get("req") or {}
-    try:
-        if jq_cancelled(jid):
-            raise JobCancelled()
-        res = API[kind](dict(d, _job=jid))
-        _jq_set(jid, state="done", pct=100, ended=int(time.time()), step="",
-                res=res if isinstance(res, dict) else {})
-        log_event("ok", "job", "کارِ «%s» تمام شد" % j.get("title", kind), j.get("target", ""))
-    except JobCancelled:
-        _jq_set(jid, state="cancel", ended=int(time.time()), step="")
-    except ValueError as e:
-        # The request itself is wrong. Retrying it would only ask the same wrong question again.
-        _jq_set(jid, state="fail", err=str(e)[:300], ended=int(time.time()))
-        log_event("bad", "job", "کارِ «%s» ناموفق بود" % j.get("title", kind), str(e)[:300])
-    except Exception as e:
-        tries = int(j.get("tries") or 0) + 1
-        if jq_cancelled(jid):
-            _jq_set(jid, state="cancel", ended=int(time.time()))
-        elif tries >= JOB_RETRY_MAX:
-            _jq_set(jid, state="fail", tries=tries, err=str(e)[:300], ended=int(time.time()))
-            log_event("bad", "job", "کارِ «%s» بعد از %d تلاش ناموفق بود" % (j.get("title", kind), tries),
-                      str(e)[:300])
-        else:
-            wait = JOB_RETRY_BACKOFF[min(tries - 1, len(JOB_RETRY_BACKOFF) - 1)]
-            _jq_set(jid, state="wait", tries=tries, err=str(e)[:300],
-                    at=time.time() + wait, step="تلاشِ دوباره تا %ds" % wait)
-    finally:
-        with _jq_cv:
-            _jq_busy.difference_update(j.get("nodes") or [])
-            _jq_cv.notify_all()
-
-
-def _jq_worker():
-    while True:
+    def run():
         try:
-            _jq_run(_jq_take())
-        except Exception:
-            time.sleep(1)       # a worker must never die: the queue behind it would stop for good
+            res = fn(h)
+            res = res if isinstance(res, dict) else {}
+            bad = (res.get("msg") or res.get("error") or "") if res.get("ok") is False else ""
+            with _act_lock:
+                if bad:
+                    h.update(state="fail", step="", err=str(bad)[:300], ended=int(time.time()))
+                else:
+                    # An action can succeed and still have something to say -- a force-delete parks the
+                    # teardown of an unreachable end, and the operator has to be told it is coming.
+                    h.update(state="done", step="", pct=100, si=h["sn"], can=False,
+                             note=str(res.get("msg") or "")[:300], ended=int(time.time()))
+        except ActCancelled:
+            with _act_lock:
+                h.update(state="cancel", step="", ended=int(time.time()))
+        except Exception as e:
+            with _act_lock:
+                h.update(state="fail", step="", err=str(e)[:300], ended=int(time.time()))
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True, "act": key, "title": title, "target": target}
 
 
-def jq_start():
-    """Start the workers once, on the first action of the process."""
-    global _jq_up
-    with _jq_lock:
-        if _jq_up:
-            return
-        _jq_up = True
-    for _ in range(JOB_WORKERS):
-        threading.Thread(target=_jq_worker, daemon=True).start()
+def act_link(cmd_title, d, fn):
+    """Start an action on a tunnel that already exists. The link is read HERE, not on the thread, so a
+    bad id is a 400 the operator sees at once rather than a card that appears and then fails."""
+    lid = (d or {}).get("id")
+    L = next((x for x in load_links() if x["id"] == lid), None)   # compared as the impls compare it
+    if not L:
+        raise ValueError("link not found")
+    return act_start("link:" + str(lid), cmd_title, fn, target=L.get("name") or "")
 
 
-def jq_load():
-    """Read the queue back after a restart. A job caught mid-flight is NOT replayed: half of it may
-    already have happened on a node, and running it again could build a second copy of the same thing.
-    It is marked failed with the reason, and the operator retries it if they want it."""
-    try:
-        with open(JOBS_FILE) as f:
-            rows = json.load(f)
-    except Exception:
-        rows = []
-    with _jq_cv:
-        for r in rows if isinstance(rows, list) else []:
-            if not isinstance(r, dict) or not r.get("id"):
-                continue
-            if r.get("state") == "run":
-                r["state"] = "fail"
-                r["err"] = "پنل وسطِ این کار ری‌استارت شد — اگر لازم است دوباره بفرستش"
-                r["ended"] = int(time.time())
-            r.pop("cancel", None)
-            _jobs[r["id"]] = r
-            _jobs_order.append(r["id"])
-        _jq_prune()
-        _jq_save()
+def api_acts(_d):
+    """Every action still running, and the ones that just finished. One read feeds every card."""
+    with _act_lock:
+        _act_prune()
+        return {"ok": True, "acts": {k: dict(v) for k, v in _acts.items()}, "now": int(time.time())}
 
 
-def api_jobs(d):
-    """The whole queue, newest first. One poll feeds both the queue page and every card's job row."""
-    with _jq_lock:
-        rows = [_jobs[j] for j in _jobs_order if j in _jobs]
-        live = sum(1 for r in rows if r["state"] == "run")
-        wait = sum(1 for r in rows if r["state"] == "wait")
-        fail = sum(1 for r in rows if r["state"] == "fail")
-        done = sum(1 for r in rows if r["state"] in ("done", "cancel"))
-        out = [{k: v for k, v in r.items() if k not in ("req", "res")} for r in reversed(rows)]
-    return {"ok": True, "jobs": out, "run": live, "wait": wait, "fail": fail, "done": done,
-            "now": int(time.time())}
-
-
-def api_job_cancel(d):
-    """Stop one job, or every job still to run. A job that has not started never starts; one already
-    running is asked to stop and stops at its next step -- it is never killed mid-write."""
-    jid = str((d or {}).get("job") or "")
-    with _jq_cv:
-        targets = [jid] if jid and jid != "*" else [
-            j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("wait", "run")]
-        n = 0
-        for t in targets:
-            j = _jobs.get(t)
-            if not j or j["state"] not in ("wait", "run"):
-                continue
-            j["cancel"] = True
-            n += 1
-            if j["state"] == "wait":               # never started: end it here and now
-                j.update(state="cancel", ended=int(time.time()), step="")
-            else:
-                j["step"] = "در حالِ لغو…"   # stops at the action next checkpoint
-        _jq_save()
-        _jq_cv.notify_all()
-    return {"ok": True, "cancelled": n}
-
-
-def api_job_retry(d):
-    """Put a failed or cancelled job back in the queue -- the SAME job, not a copy of it.
-
-    A copy left the failed one sitting on the page and put a second card beside it, so three
-    presses on one tunnel that would not build produced three identical cards and three rows. One
-    job is one card for its whole life: it goes back to «در صف» where it stands, keeping its id,
-    its request and its place."""
-    jid = str((d or {}).get("job") or "")
-    with _jq_cv:
-        j = _jobs.get(jid)
-        if not j:
-            raise ValueError("این کار دیگر نیست")
-        if j["state"] == "done":
-            raise ValueError("این کار انجام شده — برای انجامِ دوباره‌اش از خودِ همان صفحه اقدام کن")
-        if j["state"] not in ("fail", "cancel"):
-            raise ValueError("این کار هنوز تمام نشده")
-        j.update(state="wait", err="", tries=0, pct=0, step="", started=0, ended=0)
-        j.pop("cancel", None)
-        j.pop("at", None)
-        _jq_save()
-        _jq_cv.notify_all()
-    jq_start()
-    return {"ok": True, "queued": True, "job": jid}
+def api_act_cancel(d):
+    """Stop ONE action, where it runs. It stops at its next step; it is never killed mid-write."""
+    key = str((d or {}).get("act") or "")
+    with _act_lock:
+        h = _acts.get(key)
+        if not h or h["state"] != "run":
+            raise ValueError("این کار دیگر در جریان نیست")
+        h["cancel"] = True
+        h["step"] = "در حالِ لغو…"
+    return {"ok": True, "act": key}
 
 
 def _dispatch(cmd, d):
-    """An ACTION is written into the queue and answers with a job id; a READ answers with the answer.
-
-    `_job` in the body is how the queue calls back in: that request is already ON a worker thread, so
-    it must RUN the action rather than queue a second copy of it."""
-    if cmd in QUEUED and not (d or {}).get("_job"):
-        return jq_enqueue(cmd, d)
     return API[cmd](d)
 
-
-def api_job_clear(d):
-    """Forget finished jobs: the one named by `job`, or all of them. Nothing still to run is touched."""
-    one = str((d or {}).get("job") or "")
-    with _jq_cv:
-        for jid in [j for j in _jobs_order if _jobs.get(j, {}).get("state") in ("done", "fail", "cancel")
-                    and (not one or j == one)]:
-            _jobs.pop(jid, None)
-            _jobs_order.remove(jid)
-        _jq_save()
-    return {"ok": True}
 
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
@@ -8304,8 +8132,7 @@ API = {
     "peer-status": api_peer_status, "peer-retest-now": api_peer_retest_now, "peer-select": api_peer_select,
     "link-view": api_link_view, "traffic-reset": api_traffic_reset,
     "events": api_events, "events-clear": api_events_clear,
-    "jobs": api_jobs, "job-cancel": api_job_cancel, "job-retry": api_job_retry,
-    "job-clear": api_job_clear,
+    "acts": api_acts, "act-cancel": api_act_cancel,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
     "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info,
@@ -8323,7 +8150,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "core-delete-blob",
              "update-agent", "update-core",
              "reorder",
-             "job-cancel", "job-retry", "job-clear"}
+             "act-cancel"}
 
 # ----------------------------------------------------------------------------- HTTP
 
@@ -9181,45 +9008,39 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
-/* ── the queue: one row inside a card, in the shape .ltraf and .msg already use ── */
-.jrow{margin-top:11px;padding-top:10px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--sub);flex-wrap:wrap}
-.jst{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;flex:0 0 auto;display:inline-flex;align-items:center;gap:5px}
-.jst.wait{color:var(--sub);background:var(--field);border:1px solid var(--bord)}
-.jst.run{color:var(--acc);background:var(--accw)}
-.jst.cancel{color:var(--gold);background:var(--goldw)}
-.jst.fail{color:var(--bad);background:var(--badw)}
-.jst.done{color:var(--ok);background:var(--okw)}
-.jstep{flex:1 1 auto;min-width:0;line-height:1.7;color:var(--tx);font-weight:600;overflow-wrap:anywhere}
-.jstep em{font-style:normal;color:var(--sub);font-weight:500}
-.jclock{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:11px;color:var(--sub);flex:0 0 auto}
-.jbar{flex:1 1 100%;height:5px;border-radius:3px;background:var(--bord);overflow:hidden}
-.jbar>i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width .5s linear}
-.jbar.cancel>i{background:var(--gold)}.jbar.fail>i{background:var(--bad)}
-.jbar.idle>i{background:var(--sub);opacity:.45}.jbar.done>i{background:var(--ok)}
-.jbtn{flex:0 0 auto;font:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:9px;border:1px solid var(--bord);background:var(--field);color:var(--sub);transition:.15s}
-.jbtn:hover{color:var(--tx);border-color:var(--sub)}
-.jbtn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
-.jbtn.danger:hover{background:var(--badw)}
-.jbtn.go{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 38%,transparent)}
-.jbtn.go:hover{background:var(--accw)}
-.card.jwait .tninfo,.card.jwait .enmeta,.card.jwait .ltraf{opacity:.42}
-.card.jrun .tninfo,.card.jrun .enmeta{opacity:.72}
-.jpulse{width:7px;height:7px;border-radius:50%;background:var(--acc);flex:0 0 auto;animation:jp 1.5s ease-in-out infinite}
+/* ── an action, drawn on the thing it is happening to ── */
+.arow{margin-top:11px;padding-top:10px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--sub);flex-wrap:wrap}
+.ast{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;flex:0 0 auto;display:inline-flex;align-items:center;gap:5px}
+.ast.run{color:var(--acc);background:var(--accw)}
+.ast.cancel{color:var(--gold);background:var(--goldw)}
+.ast.fail{color:var(--bad);background:var(--badw)}
+.ast.done{color:var(--ok);background:var(--okw)}
+.astep{flex:1 1 auto;min-width:0;line-height:1.7;color:var(--tx);font-weight:600;overflow-wrap:anywhere}
+/* the class rides only on the paint where the words changed, so the step reads as one line giving way
+   to the next instead of a label being overwritten */
+.astep.sw{animation:astepin .34s cubic-bezier(.22,.7,.3,1)}
+@keyframes astepin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.aclock{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:11px;color:var(--sub);flex:0 0 auto}
+.abar{flex:1 1 100%;height:5px;border-radius:3px;background:var(--bord);overflow:hidden}
+.abar>i{display:block;height:100%;width:0;background:var(--acc);border-radius:3px;transition:width .6s cubic-bezier(.4,0,.2,1)}
+.abar.cancel>i{background:var(--gold)}.abar.fail>i{background:var(--bad)}.abar.done>i{background:var(--ok)}
+/* nothing to fill to: sweep, rather than invent a percentage */
+.abar.spin>i{width:38%;background:linear-gradient(90deg,transparent,var(--acc),transparent);transition:none;animation:asweep 1.25s ease-in-out infinite}
+@keyframes asweep{from{transform:translateX(-100%)}to{transform:translateX(263%)}}
+.abtn{flex:0 0 auto;font:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:9px;border:1px solid var(--bord);background:var(--field);color:var(--sub);transition:.15s}
+.abtn:hover{color:var(--tx);border-color:var(--sub)}
+.abtn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+.abtn.danger:hover{background:var(--badw)}
+.apulse{width:7px;height:7px;border-radius:50%;background:var(--acc);flex:0 0 auto;animation:jp 1.5s ease-in-out infinite}
 @keyframes jp{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
-@media (prefers-reduced-motion:reduce){.jpulse{animation:none;opacity:.9}.jbar>i{transition:none}}
-/* ── the «صف‌ها» page ── */
-.qsum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:13px}
-.qsum>div{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:9px 6px;text-align:center;box-shadow:var(--sh-sm)}
-.qsum b{display:block;font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.25}
-.qsum span{font-size:10px;font-weight:700;color:var(--sub)}
-.qsum .n-run b{color:var(--acc)}.qsum .n-wait b{color:var(--sub)}
-.qsum .n-fail b{color:var(--bad)}.qsum .n-done b{color:var(--ok)}
-.qjob{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:12px 13px;box-shadow:var(--sh-sm)}
-.qtop{display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap}
-.qkind{font-size:13px;font-weight:800}
-.qwhere{font-size:11px;color:var(--sub);font-weight:600;margin-inline-start:auto;font-family:ui-monospace,Consolas,monospace;direction:ltr;overflow-wrap:anywhere}
-.qmeta{font-size:11px;color:var(--sub);line-height:1.75;margin-bottom:9px;overflow-wrap:anywhere}
-.qacts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+/* a card with something happening to it: one line travelling along its top edge, and the figures below
+   dimmed, because they describe the shape being replaced. .card already clips, so ::after stays inside */
+.card.acting::after{content:'';position:absolute;top:0;left:0;height:2px;width:34%;border-radius:2px;pointer-events:none;
+ background:linear-gradient(90deg,transparent,var(--acc),transparent);animation:acardsweep 1.9s ease-in-out infinite}
+@keyframes acardsweep{from{transform:translateX(-100%)}to{transform:translateX(194%)}}
+.card.acting .tninfo,.card.acting .enmeta{opacity:.72}
+@media (prefers-reduced-motion:reduce){.apulse{animation:none;opacity:.9}.abar>i{transition:none}
+ .abar.spin>i,.card.acting::after,.astep.sw{animation:none}}
 /* tap-to-copy value: dotted underline hugs the glyphs, so it reads the same on a block .tna and on an
    inline <b> inside a meta row. */
 .cpv{cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}
@@ -9232,20 +9053,9 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 /* the placeholder is a tunnel that does not exist yet -- it should look like it is coming, not like
    a card that failed to load */
 @keyframes jbreathe{0%,100%{opacity:.72}50%{opacity:1}}
-.card.jpend .hname{animation:jbreathe 2.1s ease-in-out infinite}
-.card.jpend{border-style:dashed}
-@media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.jpend .hname{animation:none}}
-/* A card that has just arrived settles in instead of appearing. The one case this is FOR is the
-   swap at the end of a build: the placeholder goes and the real card takes its place in the same
-   frame, which without this reads as a flicker. */
-@keyframes jcardin{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:none}}
-.card.jin{animation:jcardin .34s cubic-bezier(.22,.7,.3,1)}
-/* the placeholder is a tunnel that does not exist yet -- it should look like it is coming, not like
-   a card that failed to load */
-@keyframes jbreathe{0%,100%{opacity:.72}50%{opacity:1}}
-.card.jpend .hname{animation:jbreathe 2.1s ease-in-out infinite}
-.card.jpend{border-style:dashed}
-@media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.jpend .hname{animation:none}}
+.card.apend .hname{animation:jbreathe 2.1s ease-in-out infinite}
+.card.apend{border-style:dashed}
+@media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.apend .hname{animation:none}}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
 /* portfw card: two columns — ports on one side, destinations/rotation on the other */
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
@@ -9505,7 +9315,6 @@ body.dark .tag.core{color:#a78bfa}
    <a class="navi" data-t="tunnels"><span class="ic" data-ic="link"></span> <span class="nlbl">تانل‌های سیستمی</span><span class="ct" id="ct_tunnels"></span></a>
    <a class="navi" data-t="portfw"><span class="ic" data-ic="fwd"></span> <span class="nlbl">پورت‌فوروارد</span><span class="ct" id="ct_portfw"></span></a>
    <a class="navi" data-t="core"><span class="ic" data-ic="cpu"></span> <span class="nlbl">هستهٔ اختصاصی</span><span class="ct" id="ct_core"></span></a>
-   <a class="navi" data-t="queue"><span class="ic" data-ic="list"></span> <span class="nlbl">صف‌ها</span><span class="ct" id="ct_queue" style="display:none"></span></a>
    <a class="navi" data-t="logs"><span class="ic" data-ic="list"></span> <span class="nlbl">لاگ</span><span class="ctwrap"><span class="ct" id="ct_logs"></span><span class="ct ctun" id="ct_logs_un" style="display:none"></span></span></a>
    <a class="navi" data-t="settings"><span class="ic" data-ic="cog"></span> <span class="nlbl">تنظیمات</span></a>
    <a class="navi" data-t="logout"><span class="ic" data-ic="logout"></span> <span class="nlbl">خروج</span></a>
@@ -9523,13 +9332,9 @@ body.dark .tag.core{color:#a78bfa}
 var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_proxies:"پروکسی‌ها",
- nav_queue:"صف‌ها",q_sub:"هر کاری که پنل انجام می‌دهد؛ می‌توانی هرکدام را لغو کنی",
- q_empty:"صفی نیست — هر کاری بزنی همین‌جا پیدایش می‌شود.",q_clear:"پاک کردنِ تمام‌شده‌ها",
- q_run:"در حال اجرا",q_wait:"در صف",q_fail:"ناموفق",q_done:"تمام‌شده",
- q_cancel:"لغو",q_cancel_all:"لغوِ همه",q_retry:"تلاش دوباره",q_goto:"برو به کارت",
- q_st_wait:"در صف",q_st_run:"در حال اجرا",q_st_fail:"ناموفق",q_st_done:"انجام شد",q_st_cancel:"لغو شد",
- q_pending:"در حالِ ساخت",q_forget:"بردار",q_took:"در {t} تمام شد",q_gaveup:"پیش از تمام‌شدن لغو شد",
- q_queued:"رفت به صف",q_cancelled:"لغو شد",q_tries:"تلاشِ {n}",q_blocked:"منتظرِ نودی است که کارِ دیگری گرفته",
+ a_pending:"در حالِ ساخت",a_working:"در حالِ انجام…",a_cancel:"لغو",a_dismiss:"بستن",
+ a_st_run:"در حالِ انجام",a_st_done:"انجام شد",a_st_fail:"ناموفق",a_st_cancel:"لغو شد",
+ a_took:"در {t} تمام شد",a_stopped:"پیش از تمام‌شدن لغو شد",
  px_sub:"پروکسی‌هایی که نودها می‌توانند ترافیکشان را از آن‌ها رد کنند",px_add:"افزودنِ پروکسی",
  px_edit_t:"ویرایشِ پروکسی",px_add_t:"پروکسیِ تازه",px_name:"نام",
  px_type:"نوعِ پروکسی",px_ip:"آی‌پی",px_port:"پورت",px_user:"یوزرنیم",px_pass:"پسورد",px_opt:"اختیاری",
@@ -9588,7 +9393,7 @@ var I18N={fa:{
  // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarting:"در حال ری‌استارتِ هسته روی دو نود…",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -9645,7 +9450,7 @@ var I18N={fa:{
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
- rebuilt_test:"تونل از نو ساخته شد — با «بررسی اتصال» تستش کن",rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",nd_moved_t:"این نود آی‌پیِ جدیدی گرفته — بزن ببین",mv_title:"آی‌پیِ تازهٔ نود",mv_desc:"این نود آی‌پیِ جدیدی دریافت کرده است و از همان آدرس جواب می‌دهد. با «تنظیم» هوستِ نود روی آن عوض می‌شود؛ بعدش تونل‌هایش را بازسازی کن.",mv_new:"آی‌پیِ تازه",mv_old:"هوستِ فعلی",mv_set:"تنظیم به‌عنوانِ آی‌پیِ نود",mv_setting:"در حالِ تنظیم…",mv_done:"هوستِ نود عوض شد: ",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
+ rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",nd_moved_t:"این نود آی‌پیِ جدیدی گرفته — بزن ببین",mv_title:"آی‌پیِ تازهٔ نود",mv_desc:"این نود آی‌پیِ جدیدی دریافت کرده است و از همان آدرس جواب می‌دهد. با «تنظیم» هوستِ نود روی آن عوض می‌شود؛ بعدش تونل‌هایش را بازسازی کن.",mv_new:"آی‌پیِ تازه",mv_old:"هوستِ فعلی",mv_set:"تنظیم به‌عنوانِ آی‌پیِ نود",mv_setting:"در حالِ تنظیم…",mv_done:"هوستِ نود عوض شد: ",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
  conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
  pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",
  view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
@@ -9655,7 +9460,7 @@ var I18N={fa:{
  // Core form only; the generic modal keeps src_node/dst_node (it has no server/client role).
  srv_node:"نودِ سرور",cli_node:"نودِ کلاینت",
  tun_type:"نوع تونل",local_range:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)",custom_subnet:"سابنتِ دلخواه",range:"رنج",
- create_tun_btn:"ساخت تونل",two_diff_nodes:"دو نودِ متفاوت انتخاب کن",creating_tun:"در حال ساختِ تونل…",tun_created:"تونل ساخته شد",
+ create_tun_btn:"ساخت تونل",two_diff_nodes:"دو نودِ متفاوت انتخاب کن",creating_tun:"در حال ساختِ تونل…",
  src_ip:"آی‌پیِ نودِ مبدأ",dst_ip:"آی‌پیِ نودِ مقصد",
  rot_t:"چرخشِ آی‌پی",rot_d:"بینِ آی‌پی‌های هر نود می‌چرخد و آی‌پیِ بلاک‌شده را کنار می‌گذارد (مسیرِ مستقیم، بدونِ CDN)",
  rot_interval:"بازهٔ چرخش",rot_onfail:"فقط هنگامِ قطع",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",
@@ -9666,8 +9471,8 @@ var I18N={fa:{
  rb_title:"بازسازیِ تونل",rb_newip:"آی‌پیِ جدید",rb_no_ip:"آی‌پیِ قابلِ انتخابی نیست",rb_info:"آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.",
  rb_no_link:"اطلاعاتِ لینک در دسترس نیست",rb_no_drift:"این تونل driftی ندارد",rebuilding:"در حال بازسازی…",rb_fetch_err:"خطا در دریافتِ اطلاعات",
  // core roles / meta
- core_edit_t:"ویرایشِ تونلِ هسته",not_found:"یافت نشد",no_change:"تغییری نبود",saved_rebuilt:"ذخیره و بازسازی شد",core_tun_t:"تونلِ هسته",core_tun_sub:"هستهٔ اختصاصی · packet/core",
- core_created:"تونلِ هسته ساخته شد",raw_need_enc:"حاملِ raw به رمزنگاری نیاز دارد",flux_need_enc:"حاملِ flux به رمزنگاری نیاز دارد",
+ core_edit_t:"ویرایشِ تونلِ هسته",not_found:"یافت نشد",core_tun_t:"تونلِ هسته",core_tun_sub:"هستهٔ اختصاصی · packet/core",
+ raw_need_enc:"حاملِ raw به رمزنگاری نیاز دارد",flux_need_enc:"حاملِ flux به رمزنگاری نیاز دارد",
  wss_need_host:"برای wss باید دامنه (Host) را وارد کنی",ech_need_wss:"ECH به wss نیاز دارد — اول wss را روشن کن",sni_need_wss:"تقسیمِ SNI به wss نیاز دارد — اول wss را روشن کن",
  cdn_need_wss:"gRPC نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا حاملِ HTTP را انتخاب کن",
  decoy_need_ip:"آی‌پیِ طُعمه (مقصدِ جعلی) را وارد کن",cover_need_sni:"برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی",
@@ -10231,115 +10036,90 @@ function copyTxt(t,e){if(e)e.stopPropagation();t=String(t||'').trim();if(!t)retu
 function cpv(t,cls){t=String(t||'');if(!t)return '<b class="mono">—</b>';
  return '<b class="mono cpv'+(cls?' '+cls:'')+'" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(t)+'</b>'}
 
-// ===== the action queue =====
-// Every action the operator starts is a job on the panel. The browser never holds a request open for
-// it: it gets a job id back, and this one poll paints BOTH the queue page and the row on each card.
-var JOBS=[],JOBQ={run:0,wait:0,fail:0,done:0},JOBNOW=0;
-function jobsByLink(){var m={};JOBS.forEach(function(j){if(j.link&&!m[j.link])m[j.link]=j});return m}
-var JOBLINK={};
-async function refreshJobs(){var r=await j(\'jobs\').catch(function(){return null});if(!r)return;
- JOBS=r.jobs||[];JOBQ={run:num(r.run),wait:num(r.wait),fail:num(r.fail),done:num(r.done)};JOBNOW=num(r.now);
- JOBLINK=jobsByLink();
- var b=el(\'ct_queue\');if(b){var n=JOBQ.run+JOBQ.wait;b.textContent=n?String(n):\'\';b.style.display=n?\'\':\'none\';b.classList.toggle(\'live\',JOBQ.run>0)}
- if(cur==\'queue\')paintQueue();
- // A build that just finished leaves its placeholder behind until the fleet is re-read. Re-read it,
- // so the real card arrives in the same beat the placeholder goes.
- var _np=JOBS.filter(function(x){return x.kind==\'create-tunnel\'&&x.state!=\'done\'}).length;
- if(_np!==_lastPend){_lastPend=_np;if(cur==\'core\'||cur==\'tunnels\')refreshFleet()}}
-var _lastPend=-1;
-function jobAge(jb){var t=(jb.state==\'run\')?(JOBNOW-(jb.started||jb.created)):((jb.ended||JOBNOW)-(jb.started||jb.created));
- t=Math.max(0,num(t));var m=Math.floor(t/60),s=t%60;return (m<10?\'0\':\'\')+m+\':\'+(s<10?\'0\':\'\')+s}
-function jobPill(jb){var k=jb.state;
- return \'<span class="jst \'+esc(k)+\'">\'+(k==\'run\'?\'<span class="jpulse"></span>\':\'\')+esc(T(\'q_st_\'+k))+\'</span>\'}
-// What the job is doing, in words. A job that has never run says WHY it has not: the operator asked for
-// it, so «nothing yet» is not an answer.
-// The line under the title. It carries what the title cannot: why this one is waiting, what went
-// wrong, how long it took. Falling back to the title printed the same words twice and told the
-// operator nothing -- an action that reports no step of its own is better left to its clock.
-// terr, not the raw text: a node\'s error reaches here in English and this is where the operator
-// reads it.
-function jobWords(jb){
- var t=jb.tries?\' <em>· \'+esc(T(\'q_tries\').replace(\'{n}\',jb.tries))+\'</em>\':\'\';
- if(jb.state==\'fail\')return esc(terr(jb.err)||T(\'q_st_fail\'))+t;
- if(jb.state==\'wait\')return esc(terr(jb.step)||T(\'q_blocked\'))+t;
- if(jb.state==\'run\')return esc(jb.step||\'\');
- if(jb.state==\'done\')return esc(T(\'q_took\').replace(\'{t}\',jobAge(jb)));
- return esc(jb.step||T(\'q_gaveup\'))}
-function jobBarCls(jb){return jb.state==\'run\'?\'\':(jb.state==\'wait\'?\'idle\':esc(jb.state))}
-function jobPct(jb){return jb.state==\'done\'?100:(jb.state==\'wait\'?100:(num(jb.pct)||(jb.state==\'run\'?12:35)))}
-// The row a card grows while it has a job. No job, no row -- the card is exactly what it was.
-function jobRow(l){return jobRowOf(JOBLINK[l.id])}
-function jobRowOf(jb){if(!jb)return \'\';
- if(jb.state==\'done\')return \'\';
- var acts=(jb.state==\'wait\'||jb.state==\'run\')
-   ?\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\'
-   :\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\'+
-    \'<button class="jbtn" type="button" onclick="jobForget(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_forget\'))+\'</button>\';
- return \'<div class="jrow">\'+jobPill(jb)+\'<span class="jstep">\'+jobWords(jb)+\'</span>\'+
-  ((jb.state==\'run\')?\'<span class="jclock">\'+esc(jobAge(jb))+\'</span>\':\'\')+acts+
-  \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div></div>\'}
-// A tunnel the operator has asked for but that does not exist yet. It takes its place in the list
-// it is destined for from the moment the button is pressed: the alternative is a form that closes
-// onto an unchanged page, and a card that pops into being some seconds later with no account of
-// where it came from.
-function pendingJobs(page){return JOBS.filter(function(jb){
- return jb.kind==\'create-tunnel\'&&jb.page==page&&jb.state!=\'done\'})}
-function pendCard(jb){var fam=String(jb.ttype||\'\').toLowerCase();
- return \'<div class="card acc open jpend\'+(jb.state==\'run\'?\' jrun\':(jb.state==\'wait\'?\' jwait\':\'\'))+\'">\'+
-  \'<div class="chead" style="cursor:default"><div class="hmain"><div class="hrow1">\'+
-   \'<span class="hname">\'+esc(T(\'q_pending\'))+\'</span>\'+
-   (fam?\'<span class="ctag c-\'+esc(fam)+\'">\'+esc(fam.toUpperCase())+\'</span>\':\'\')+
-   \'<span class="hpeers" dir="ltr">\'+esc(jb.target||\'\')+\'</span>\'+
-  \'</div></div></div>\'+
-  \'<div class="cbody"><div class="cbody-in">\'+jobRowOf(jb)+\'</div></div></div>\'}
+// ===== an action, where it runs =====
+// An action that has to talk to a node keeps going on the panel, and this is what draws it on the thing
+// the operator started it from. One read feeds every card; there is no page for these, and no list.
+var ACTS={},ACTNOW=0,ADISM={},_ASTEP={},_ABUILDS=-1;
+function actSeen(a){return a.key+':'+a.ended}                 // a NEW action on the same key is not the dismissed one
+function actLive(a){return !!a&&!ADISM[actSeen(a)]}
+function actOf(l){var a=ACTS['link:'+l.id];return actLive(a)?a:null}
+async function refreshActs(){var r=await j('acts').catch(function(){return null});if(!r)return;
+ ACTS=r.acts||{};ACTNOW=num(r.now);
+ // A build that just landed leaves its placeholder behind until the fleet is re-read. Re-read it, so
+ // the real card arrives in the same beat the placeholder goes.
+ var n=0;for(var k in ACTS)if(k.indexOf('new:')===0&&ACTS[k].state=='run')n++;
+ if(n!==_ABUILDS){_ABUILDS=n;if(cur=='core'||cur=='tunnels')refreshFleet()}}
+function actAge(a){var t=(a.state=='run')?(ACTNOW-num(a.started)):(num(a.ended||ACTNOW)-num(a.started));
+ t=Math.max(0,num(t));var m=Math.floor(t/60),s=t%60;return (m<10?'0':'')+m+':'+(s<10?'0':'')+s}
+function actPill(a){return '<span class="ast '+esc(a.state)+'">'+(a.state=='run'?'<span class="apulse"></span>':'')+esc(T('a_st_'+a.state))+'</span>'}
+// What it is doing, in words -- the step the action itself reported, never a guess. terr, because a
+// node's own tools answer in English and this is where the operator reads them.
+function actWords(a){
+ if(a.state=='fail')return esc(terr(a.err)||T('a_st_fail'));
+ if(a.state=='cancel')return esc(T('a_stopped'));
+ if(a.state=='done')return esc(a.note?terr(a.note):T('a_took').replace('{t}',actAge(a)));
+ return esc(a.step||T('a_working'))}
+// A bar that knows which step it is on fills to it; one that does not says so by sweeping. Inventing a
+// percentage puts a number on the screen that nothing measured.
+function actBar(a){
+ if(a.state!='run')return '<div class="abar '+esc(a.state)+'"><i style="width:100%"></i></div>';
+ if(!num(a.sn))return '<div class="abar spin"><i></i></div>';
+ return '<div class="abar"><i style="width:'+Math.max(5,num(a.pct))+'%"></i></div>'}
+// The row a card grows while something is happening to it. No action, no row -- the card is exactly
+// what it was. «لغو» is drawn only while the panel can still honour it: once the work is on the nodes,
+// offering it would be a button that does nothing.
+function actRow(a){if(!actLive(a))return '';
+ var sw=(_ASTEP[a.key]!==a.step);_ASTEP[a.key]=a.step;
+ var btn=(a.state=='run')
+  ?(a.can?'<button class="abtn danger" type="button" onclick="actCancel(\\''+esc(a.key)+'\\')">'+esc(T('a_cancel'))+'</button>':'')
+  :'<button class="abtn" type="button" title="'+esc(T('a_dismiss'))+'" onclick="actDismiss(\\''+esc(actSeen(a))+'\\')">✕</button>';
+ return '<div class="arow">'+actPill(a)+
+  '<span class="astep'+(sw?' sw':'')+'">'+actWords(a)+'</span>'+
+  (a.state=='run'?'<span class="aclock">'+esc(actAge(a))+'</span>':'')+btn+actBar(a)+'</div>'}
+function linkActRow(l){return actRow(actOf(l))}
+function cardActCls(l){var a=actOf(l);return (a&&a.state=='run')?' acting':''}
+// A tunnel the operator has asked for but that does not exist yet. It takes its place in the list it is
+// destined for from the moment the button is pressed: the alternative is a form that closes onto an
+// unchanged page, and a card that pops into being some seconds later with no account of where it came
+// from. Everything it draws with rides on the action itself, put there by the build that was started.
+function pendActs(page){var out=[],k;
+ // A build that SUCCEEDED has a real card now, and the placeholder standing beside it would read as
+ // two tunnels. One that failed or was stopped has no card at all, so it stays until it is read.
+ for(k in ACTS)if(k.indexOf('new:')===0&&ACTS[k].page==page&&ACTS[k].state!='done'&&actLive(ACTS[k]))out.push(ACTS[k]);
+ return out.sort(function(x,y){return num(x.started)-num(y.started)})}
+function apendCard(a){var fam=String(a.ttype||'').toLowerCase();
+ return '<div class="card acc open apend'+(a.state=='run'?' acting':'')+'">'+
+  '<div class="chead" style="cursor:default"><div class="hmain"><div class="hrow1">'+
+   '<span class="hname">'+esc(T('a_pending'))+'</span>'+
+   (fam?'<span class="ctag c-'+esc(fam)+'">'+esc(fam.toUpperCase())+'</span>':'')+
+   '<span class="hpeers" dir="ltr">'+esc(a.target||'')+'</span>'+
+  '</div></div></div>'+
+  '<div class="cbody"><div class="cbody-in">'+actRow(a)+'</div></div></div>'}
 // The ones being built go first: they are what the operator is waiting on.
 function withPending(page,rows){
- return pendingJobs(page).map(function(jb){return {k:\'pend_\'+jb.id,h:pendCard(jb)}}).concat(rows)}
-function jobCardCls(l){var jb=JOBLINK[l.id];if(!jb)return \'\';
- return jb.state==\'wait\'?\' jwait\':(jb.state==\'run\'?\' jrun\':\'\')}
-async function jobCancel(id){var r=await post(\'job-cancel\',{job:id});
- if(r.ok&&r.d.ok)toast(T(\'q_cancelled\'),\'ok\');else toast(perr(r),\'err\');refreshJobs()}
-async function jobRetry(id){var r=await post(\'job-retry\',{job:id});
- if(r.ok&&r.d.ok)toast(T(\'q_queued\'),\'ok\');else toast(perr(r),\'err\');refreshJobs()}
-async function jobsClear(){var r=await post(\'job-clear\',{});if(r.ok)refreshJobs()}
-// One finished job put away, so a build that will never work can leave the list without taking
-// every other finished job with it.
-async function jobForget(id){var r=await post(\'job-clear\',{job:id});if(r.ok)refreshJobs()}
-// ===== the «صف‌ها» page =====
-function queueSkel(){el(\'view\').innerHTML=vhead(\'list\',\'nav_queue\',\'q_sub\')+
- \'<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="jobsClear()">\'+ic(\'trash\')+esc(T(\'q_clear\'))+\'</button>\'+
- \'<button class="reordbtn" title="\'+esc(T(\'q_cancel_all\'))+\'" onclick="jobCancel(\\'*\\')">\'+ic(\'xc\')+\'</button></div>\'+
- \'<div id="qsum" class="qsum"></div><div id="qList"></div>\';paintQueue()}
-function paintQueue(){var s=el(\'qsum\');if(s)s.innerHTML=
-  \'<div class="n-run"><b>\'+JOBQ.run+\'</b><span>\'+esc(T(\'q_run\'))+\'</span></div>\'+
-  \'<div class="n-wait"><b>\'+JOBQ.wait+\'</b><span>\'+esc(T(\'q_wait\'))+\'</span></div>\'+
-  \'<div class="n-fail"><b>\'+JOBQ.fail+\'</b><span>\'+esc(T(\'q_fail\'))+\'</span></div>\'+
-  \'<div class="n-done"><b>\'+JOBQ.done+\'</b><span>\'+esc(T(\'q_done\'))+\'</span></div>\';
- var box=el(\'qList\');if(!box)return;
- setList(box,JOBS.length?JOBS.map(function(jb){return {k:jb.id,h:qJobCard(jb)}})
-                        :[{k:\'__empty\',h:\'<div class="card muted">\'+esc(T(\'q_empty\'))+\'</div>\'}])}
-// The meta line, or nothing at all: a running action that reports no step still has its clock, and a
-// job that finished has the time it took.
-function qMeta(jb){var w=jobWords(jb),c=(jb.state==\'run\')?esc(jobAge(jb)):\'\';
- var s=w&&c?(w+\' · \'+c):(w||c);
- return s?(\'<div class="qmeta">\'+s+\'</div>\'):\'\'}
-// A job that is DONE has nothing to retry, and offering it anyway put a control on the page that the
-// panel then refused -- on the one page an operator opens when something is stuck. Retry belongs to
-// the two states that did not finish.
-function qJobCard(jb){
- var acts=[];
- if(jb.state==\'wait\'||jb.state==\'run\')acts.push(\'<button class="jbtn danger" type="button" onclick="jobCancel(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_cancel\'))+\'</button>\');
- else if(jb.state==\'fail\'||jb.state==\'cancel\')acts.push(\'<button class="jbtn go" type="button" onclick="jobRetry(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_retry\'))+\'</button>\');
- if(jb.state==\'fail\'||jb.state==\'cancel\')acts.push(\'<button class="jbtn" type="button" onclick="jobForget(\\'\'+esc(jb.id)+\'\\')">\'+esc(T(\'q_forget\'))+\'</button>\');
- if(jb.link)acts.push(\'<button class="jbtn" type="button" onclick="jobGoto(\\'\'+esc(jb.link)+\'\\')">\'+esc(T(\'q_goto\'))+\'</button>\');
- return \'<div class="qjob">\'+
-  \'<div class="qtop">\'+jobPill(jb)+\'<span class="qkind">\'+esc(jb.title||jb.kind)+\'</span>\'+
-  \'<span class="qwhere">\'+esc(jb.target||\'\')+\'</span></div>\'+
-  qMeta(jb)+
-  \'<div class="jbar \'+jobBarCls(jb)+\'"><i style="width:\'+jobPct(jb)+\'%"></i></div>\'+
-  \'<div class="qacts">\'+acts.join(\'\')+\'</div></div>\'}
-function jobGoto(lid){var l=(FLEET||[]).filter(function(x){return x.id==lid})[0];
- cur=(l&&l.type!=\'core\')?\'tunnels\':\'core\';TOPEN[lid]=true;render()}
+ return pendActs(page).map(function(a){return {k:'pend_'+a.key,h:apendCard(a)}}).concat(rows)}
+async function actCancel(key){var r=await post('act-cancel',{act:key});
+ if(!(r.ok&&r.d.ok))toast(perr(r),'err');
+ refreshActs()}
+// Put a finished row away where it stands. The panel forgets it on its own soon enough; this is for the
+// operator who has read it and wants the card back now.
+function actDismiss(seen){ADISM[seen]=true;refresh().catch(function(){})}
+// A form stays open until the panel has ACCEPTED what it sent. si is how the panel says so: step 0 is
+// what it checks and reads, and every step past it has already been written to a node. So a request
+// that is going to be refused -- an overlapping subnet, a port already taken, a core nothing has staged
+// -- is refused while the operator is still looking at the form they can fix, instead of closing it onto
+// a card that dies. Past that, the card carries the rest.
+async function actAccepted(key){var end=Date.now()+45000;
+ while(Date.now()<end){
+  var r=await j('acts').catch(function(){return null});
+  if(r&&r.acts){ACTS=r.acts;ACTNOW=num(r.now);
+   var a=r.acts[key];
+   if(!a)return {ok:true};                                    // already finished and forgotten
+   if(a.state=='fail')return {err:terr(a.err)||T('failed')};
+   if(a.state=='cancel')return {err:T('a_stopped')};
+   if(a.state=='done'||num(a.si)>=1)return {ok:true}}
+  await new Promise(function(f){setTimeout(f,280)})}
+ return {ok:true}}
 
 // ===== pagination + search =====
 function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
@@ -10884,7 +10664,7 @@ function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic(
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">'+esc(T('no_live_side'))+'</span>';
  return '<div class="ltraf">'+rates+'<span class="tot">'+esc(T('total'))+' '+tot+'</span></div>'}
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
- return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+jobCardCls(l)+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
+ return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+cardActCls(l)+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkFooter(l,editFn){
  var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
@@ -10903,7 +10683,7 @@ function linkCard(l){
   '</div>'+
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
- return accShell(l,false,F.drift+body+accBodyTraf(l)+jobRow(l)+F.acts+F.msg)}
+ return accShell(l,false,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
 async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
  var _rows=withPending('tunnels',FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}));
  setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
@@ -10914,7 +10694,10 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  m.className='msg';m.textContent=T('rebuilding_both');
  var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
  var r=await post('edit-link',body);
- if(r.ok&&r.d.ok){delete CHK[id];closeModal(m.closest('.modalov'))}else{formErr(m,perr(r))}}
+ if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
+ var vr=await actAccepted(r.d.act);
+ if(vr.err){formErr(m,vr.err);return}
+ delete CHK[id];closeModal(m.closest('.modalov'))}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
 async function checkLink(id){CHECKING++;
@@ -10946,20 +10729,14 @@ async function rebuildLink(id){
  var _L=FLEET.filter(function(x){return x.id==id})[0];
  if(_L&&_L.drift){openRebuildPicker(id);return}   // IP drifted -> let the operator pick the new IP
  if(!await confirmBox(T('rebuild_confirm')))return;
- CHECKING++;
- try{setChk(id,'',esc(T('rebuilding_both')));
-  var r=await post('rebuild-link',{id:id});
-  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('rebuilt_test')));toast(T('t_rebuilt'),'ok')}
-  else setChk(id,r.net?'':'err',esc(perr(r,'rebuild_failed')));
-  if(r.net)refreshFleet();   // the panel may have finished it -- pull its own verdict instead of guessing
- }finally{CHECKING--}}
+ var r=await post('rebuild-link',{id:id});
+ if(!(r.ok&&r.d.act)){toast(perr(r,'rebuild_failed'),'err');return}
+ delete CHK[id];   // the card's own row carries this now; a stale check verdict beside it would contradict it
+ refreshActs()}
 async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('restart_yes')))return;
- CHECKING++;
- try{setChk(id,'',esc(T('restarting')));
-  var r=await post('restart-link',{id:id});
-  if(r.ok&&r.d.ok){setChk(id,'ok',CK+esc(' '+T('restarted')));toast(T('restarted'),'ok')}
-  else setChk(id,'err',esc(terr((r.d&&(r.d.error||r.d.msg))||T('restart_failed'))));
- }finally{CHECKING--}}
+ var r=await post('restart-link',{id:id});
+ if(!(r.ok&&r.d.act)){toast(perr(r,'restart_failed'),'err');return}
+ delete CHK[id];refreshActs()}
 async function flipView(id){var r=await post('link-view',{id:id});
  if(r.ok&&r.d.ok){var L=FLEET.filter(function(x){return x.id==id})[0];var nm=L?(r.d.view_side=='b'?L.b_name:L.a_name):'';
   setChk(id,'ok',ic('swap')+esc(T('view_switched')+nm+T('view_switched2')));
@@ -11011,22 +10788,23 @@ function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
 async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
  var m=el('rb_msg');if(m){m.className='msg';m.textContent=T('rebuilding')}
  var r=await post('rebuild-link',body);
- if(r.ok&&r.d.ok){toast(T('t_rebuilt'),'ok');if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
- // A rebuild can fail for a reason only the node knows. A toast fades, and on a phone that reads as
- // "the button does nothing" -- so the reason goes in the sheet, the way every other form reports one.
- else if(m)formErr(m,perr(r,'rebuild_failed'));
- else toast(perr(r,'rebuild_failed'),'err')}
+ // A rebuild can be refused for a reason only the node knows. A toast fades, and on a phone that reads
+ // as "the button does nothing" -- so the reason goes in the sheet, the way every other form reports one.
+ if(!(r.ok&&r.d.act)){if(m)formErr(m,perr(r,'rebuild_failed'));else toast(perr(r,'rebuild_failed'),'err');return}
+ var vr=await actAccepted(r.d.act);
+ if(vr.err){if(m)formErr(m,vr.err);else toast(vr.err,'err');return}
+ if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
 async function delLink(id){
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  if(l.a_online===false||l.b_online===false){          // an endpoint is KNOWN-offline -> straight to force: one dialog, no wait
   if(!await confirmBox(T('del_force_ask'),T('del_force_yes')))return;
   var rf=await post('delete-link',{id:id,force:true});
-  if(rf.d&&rf.d.msg)toast(rf.d.msg,(rf.d.ok?'ok':'err'));else if(!(rf.d&&rf.d.ok))toast(perr(rf),'err');
-  delete CHK[id];editingId=null;refreshFleet();return}
+  if(!(rf.ok&&rf.d.act)){toast(perr(rf),'err');return}
+  delete CHK[id];editingId=null;refreshActs();return}
  if(!await confirmBox(T('del_tun_confirm')))return;   // both endpoints online -> normal delete
  var r=await post('delete-link',{id:id});
- if(r.d&&r.d.msg)toast(r.d.msg,(r.d.ok?'ok':'err'));else if(!(r.d&&r.d.ok))toast(perr(r),'err');
- delete CHK[id];editingId=null;refreshFleet()}
+ if(!(r.ok&&r.d.act)){toast(perr(r),'err');return}
+ delete CHK[id];editingId=null;refreshActs()}
 
 // ===== Create
 // one endpoint's IP field for the create forms: multi-IP -> dropdown; single-IP -> disabled box (like the edit form)
@@ -11066,8 +10844,10 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
  if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
  m.textContent=T('creating_tun');
  var r=await post('create-tunnel',body);
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('tun_created'),'ok');refreshTunnels()}
- else{formErr(m,perr(r))}}
+ if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
+ var vr=await actAccepted(r.d.act);
+ if(vr.err){formErr(m,vr.err);return}
+ closeModal(m.closest('.modalov'));refreshTunnels()}
 
 // ===== Custom core (packet/core) — its own view, list and create form
 function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_sub')+
@@ -11248,7 +11028,7 @@ function coreCard(l){
   '</div>'+
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
- return accShell(l,true,F.drift+body+accBodyTraf(l)+jobRow(l)+F.acts+F.msg)}
+ return accShell(l,true,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 // A core tunnel's carrier, in one place: the header chip and the body's «نوع» row read the SAME family,
 // and the profile row under it carries that family's own sub-choice. Families with nothing to choose
@@ -12082,8 +11862,10 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  var port=v('e_port');if(port)body.port=port;
  m.textContent=T('creating_core');
  var r=await post('create-tunnel',body);
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('core_created'),'ok');refreshCore()}
- else{formErr(m,perr(r))}}
+ if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
+ var vr=await actAccepted(r.d.act);
+ if(vr.err){formErr(m,vr.err);return}
+ closeModal(m.closest('.modalov'));refreshCore()}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
 function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
@@ -12204,8 +11986,10 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  else{var _sb=subnetForBase('core',l.tunnel_id,_sr);if(_sb)body.subnet=_sb}
  var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
- if(r.ok&&r.d.ok){editingId=null;closeModal(m.closest('.modalov'));toast(r.d.unchanged?T('no_change'):T('saved_rebuilt'),'ok');refreshCore()}
- else{formErr(m,perr(r))}}
+ if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
+ var vr=await actAccepted(r.d.act);
+ if(vr.err){formErr(m,vr.err);return}
+ editingId=null;closeModal(m.closest('.modalov'));refreshCore()}
 
 // ===== Proxies: one named proxy, reusable by any number of nodes.
 var PX=[];
@@ -12787,7 +12571,6 @@ async function refreshLogs(){var r=await j('events').catch(function(){return{}})
  setList(box,logRows());}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
- if(cur=='queue'){queueSkel();refreshJobs();return}
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
@@ -12876,7 +12659,7 @@ async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.text
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){formErr(m,perr(r))}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
- updateSidebar();refreshJobs().catch(function(){});
+ updateSidebar();refreshActs().catch(function(){});
  refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
 // Every accordion header is role="button" + tabindex="0", so it has to answer Enter and Space like
@@ -12932,7 +12715,9 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
  if(['overview','nodes','proxies','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;
  await loadReadiness();
  if(RDY&&!RDY.ok)cur='settings';
- render();updateSidebar();TT=setTimeout(tick,6000)})();
+ render();updateSidebar();
+ refreshActs().catch(function(){});   // a page that was just reloaded finds the builds still running
+ TT=setTimeout(tick,6000)})();
 </script></body></html>"""
 
 # Keep the browser's tuning defaults in lock-step with the Python source of truth: inject _TUNING_DEFAULTS

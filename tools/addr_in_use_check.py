@@ -22,6 +22,8 @@ import sys
 
 sys.dont_write_bytecode = True
 PANEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tnl-central.py")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import act_wait as A     # noqa: E402  (an action answers with a key, so A.raising waits for its verdict)
 
 A_ID, B_ID = 1, 2
 A_IP, B_IP = "203.0.113.5", "198.51.100.7"
@@ -96,8 +98,9 @@ def main():
                 P._create_tunnel_impl({"a_node": A_ID, "b_node": B_ID, "type": "core", "transport": "udp",
                                        "cipher": "auto", "server_side": "a", "id": TID})
             elif path == "edit":
-                P.api_edit_link({"id": 7, "type": "core", "transport": "udp", "cipher": "auto",
-                                 "server_side": "a", "a_node": A_ID, "b_node": B_ID})
+                A.raising(P, lambda: P.api_edit_link({"id": 7, "type": "core", "transport": "udp",
+                                                      "cipher": "auto", "server_side": "a",
+                                                      "a_node": A_ID, "b_node": B_ID}))
             else:
                 P._rebuild_link_impl({"id": 7})
             check(False, "%-7s ACCEPTED it -- the tunnel would come up green and carry nothing" % path)
@@ -115,8 +118,9 @@ def main():
         wire(P, links, own, plain)
         try:
             if path == "edit":
-                P.api_edit_link({"id": 7, "type": "core", "transport": "udp", "cipher": "auto",
-                                 "server_side": "a", "a_node": A_ID, "b_node": B_ID})
+                A.raising(P, lambda: P.api_edit_link({"id": 7, "type": "core", "transport": "udp",
+                                                      "cipher": "auto", "server_side": "a",
+                                                      "a_node": A_ID, "b_node": B_ID}))
             else:
                 P._rebuild_link_impl({"id": 7})
             check(True, "%-7s went through with the address on its own device" % path)
