@@ -27,8 +27,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import raw_rows_gate_check as G     # noqa: E402  (reuse its DOM prelude)
 
-# The message the operator actually saw, and the ones beside it. Every entry must come back with no
-# English SENTENCE left in it: an identifier (a device name, a command in brackets, TLS) is not one.
 MESSAGES = [
     "نودِ «DE01»: RTNETLINK answers: No such file or directory",
     "RTNETLINK answers: File exists",

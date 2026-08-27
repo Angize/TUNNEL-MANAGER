@@ -135,7 +135,7 @@ def part_runs(P, calls, gate):
     k2 = P.api_create_tunnel(dict(BODY))["act"]
     until(lambda: (P.api_acts({})["acts"].get(k2) or {}).get("si") == 1)
     try:
-        P.act_start(k2, "t", lambda _h: None)
+        P.act_start(k2, lambda _h: None)
         check(False, "a second action on the same key is refused")
     except ValueError as e:
         check("در جریان است" in str(e), "a second action on the same key is refused", e)
@@ -179,6 +179,33 @@ ROSTER = [
     ("fleet", {}, "answer"),
     ("summary", {}, "answer"),
 ]
+
+
+def part_keep(state):
+    """How long a finished action stays where it ran.
+
+    A card is the only place an action is ever shown, so what the panel forgets, the operator can never
+    read. A failure has to outlive the moment it happened -- they were not necessarily looking -- while
+    a success has said all it has to say. And a RUNNING action is never forgotten, whatever the clock."""
+    print("== 4b) a failure waits to be read; a success does not ==")
+    P = load(state)
+    now = int(time.time())
+
+    def put(st, age, ended=None):
+        P._acts.clear()
+        P._acts["k"] = {"key": "k", "target": "", "page": "", "ttype": "", "state": st,
+                        "step": "", "si": 1, "sn": 4, "pct": 25, "err": "boom", "note": "",
+                        "cancel": False, "can": False, "started": now - age - 5,
+                        "ended": now - age if ended is None else ended}
+        return "k" in P.api_acts({})["acts"]
+
+    check(P.ACT_KEEP_FAIL >= 300, "a failure is kept for minutes, not seconds (%ss)" % P.ACT_KEEP_FAIL)
+    for st in ("done", "cancel"):
+        check(put(st, 0), "%-6s just finished -> still readable" % st)
+        check(not put(st, P.ACT_KEEP + 1), "%-6s a little later    -> forgotten" % st)
+    check(put("fail", P.ACT_KEEP + 1), "fail   past a success's window -> STILL readable")
+    check(not put("fail", P.ACT_KEEP_FAIL + 1), "fail   long past its own       -> forgotten")
+    check(put("run", 0, ended=0), "a running action is never forgotten, whatever the clock says")
 
 
 def part_roster(state):
@@ -244,8 +271,12 @@ def part_steps(state):
         seen = []
         # The steps are watched from INSIDE, because a poll can miss one that passes between two reads.
         real = P.act_step
-        P.act_step = lambda h, step, i=0, n=0, stop=True: (seen.append((step, i, n)),
-                                                           real(h, step, i, n, stop))[1]
+        # *a/**kw on purpose: a spy that spells the signature out goes stale the moment act_step grows
+        # an argument, and then every action "fails" for a reason that has nothing to do with the panel.
+        def watch(h, step, i=0, n=0, *a, **kw):
+            seen.append((step, i, n))
+            return real(h, step, i, n, *a, **kw)
+        P.act_step = watch
         P.node_call = lambda *a, **k: {"ok": True, "configs": []}
         P._node_tunnel = lambda node, body: {"ok": True, "tunnel_ip": "10.9.9.1"}
         h = settled(P, start(P)["act"]) or {}
@@ -255,8 +286,68 @@ def part_steps(state):
         numbered = [(s, i, n) for s, i, n in seen if n]
         check(len(numbered) == len(seen), "%-16s ...every one of them counted" % title,
               [s for s, _i, n in seen if not n])
-        check(h.get("state") in ("done", "fail"), "%-16s ...and it reached a verdict" % title,
+        check(h.get("state") == "done", "%-16s ...and it finished" % title,
               "%s %s" % (h.get("state"), h.get("err", "")[:60]))
+
+
+def part_promise(state):
+    """The button's promise, at EVERY step of EVERY action.
+
+    `can` is what the page draws «لغو» from, and a press lands at the action's NEXT checkpoint -- not
+    the one it is standing on. So a step that is itself a safe place to stop can still be the LAST one,
+    and saying «you can stop this» while the final node write is in flight draws a button that does
+    nothing. This holds each action still at each of its steps, presses cancel, and checks the promise
+    against what actually happened."""
+    print("== 5c) whenever the page may draw «لغو», pressing it lands ==")
+    for title, start, _steps in STEPS:
+        P = load(state)
+        P.save_json(P.NODES_FILE, [dict(n) for n in NODES])
+        idx = 0
+        while True:                    # once per step of this action
+            P = load(state)
+            P.save_json(P.NODES_FILE, [dict(n) for n in NODES])
+            P.save_json(P.LINKS_FILE, [dict(LINK, type="core", server_side="a", transport="udp",
+                                            psk="x" * 44, cipher="auto", port=20001)])
+            P._ping_both = lambda A, B: ({"ips": {"eth0": ["203.0.113.5"]}},
+                                         {"ips": {"eth0": ["198.51.100.7"]}})
+            P._refresh_cache = lambda *a, **k: None
+            P._cached_ping = lambda nid: {"ok": True}
+            P._readiness = lambda: {"agent": True, "core": True, "core_missing": [], "ok": True}
+            P.node_call = lambda *a, **k: {"ok": True, "configs": []}
+            P._node_tunnel = lambda node, body: {"ok": True, "tunnel_ip": "10.9.9.1"}
+            here = {"n": 0, "at": idx, "can": None, "step": "", "hit": threading.Event()}
+            realstep = P.act_step
+
+            def step(h, s, i=0, n=0, *a, _h=here, _r=realstep, **kw):
+                _r(h, s, i, n, *a, **kw)
+                if _h["n"] == _h["at"]:
+                    _h["can"] = bool(h["can"])
+                    _h["step"] = s
+                    _h["hit"].set()
+                    time.sleep(0.15)   # the cancel lands while this step is the one in flight
+                _h["n"] += 1
+            P.act_step = step
+            r = start(P)
+            if not here["hit"].wait(5):
+                break                  # this action has no step number `idx`; every one was covered
+            try:                       # pressed once, whatever the promise was, and both halves checked
+                P.api_act_cancel({"act": r["act"]})
+                refused = False
+            except ValueError:
+                refused = True
+            h = settled(P, r["act"]) or {}
+            where = "%-16s step %d «%s»" % (title, idx, here["step"])
+            if here["can"]:
+                check(not refused and h.get("state") == "cancel",
+                      "%s promised a stop -- and it landed" % where,
+                      "state=%s refused=%s" % (h.get("state"), refused))
+            else:
+                check(refused and h.get("state") != "cancel",
+                      "%s promised nothing -- and the press was refused" % where,
+                      "state=%s refused=%s" % (h.get("state"), refused))
+            idx += 1
+            if idx > 8:
+                break
 
 
 def part_own_answer(state):
@@ -319,6 +410,132 @@ DEAD = ["JOBQ", "jobRow", "jobRowOf", "pendCard", "refreshJobs", "queueSkel", "p
         'data-t="queue"', "'job-cancel'", "'job-retry'", "'job-clear'", "j('jobs')"]
 
 
+# A press on a card has to SHOW something. Re-reading the actions is not drawing them: the row lives on
+# a card, cards come from the fleet list, and only a BUILD changes that list's shape -- so the four that
+# act on an existing tunnel are the ones that sat silent until the next poll came round.
+# What a form does while the panel makes up its mind. si is the signal: step 0 is what the panel reads
+# and checks, and everything past it is already written to a node -- so a refusal (an overlapping
+# subnet, a port already taken) has to reach the operator while the form they can fix is still open. A
+# form that closed first would take everything they typed with it.
+ACCEPT = r"""
+var FEED=[],SEEN=0;
+// the DOM stub's setTimeout never fires, and actAccepted sleeps between polls -- so give it one
+// that lands on the microtask queue: same order, no wall clock
+globalThis.setTimeout=function(f){Promise.resolve().then(f);return 0};
+globalThis.fetch=function(){var a=FEED[Math.min(SEEN++,FEED.length-1)];
+ return Promise.resolve({ok:true,json:function(){
+  return Promise.resolve({ok:true,acts:a?{'k':a}:{},now:1})}})};
+function A(st,si,err){return {key:'k',state:st,si:si,sn:4,pct:si*25,can:true,step:'',err:err||'',
+                              note:'',started:0,ended:0}}
+var box={isConnected:true};
+async function verdict(feed,live){FEED=feed;SEEN=0;box.isConnected=live!==false;
+ return await actAccepted('k',box)}
+var out={};
+(async function(){
+ // it waits while the panel is still reading, then lets go the moment a node is being written to
+ out.readingThenAccepted=await verdict([A('run',0),A('run',0),A('run',1)]);
+ // a refusal at step 0 comes back as something to show IN the form
+ out.refusedBeforeAnyNode=await verdict([A('run',0),A('fail',0,'سابنت با تونلِ دیگری تداخل دارد')]);
+ // an edit that changed nothing never leaves step 0 -- and must not hold the form open either
+ out.finishedAtStepZero=await verdict([A('done',0)]);
+ out.stoppedByHand=await verdict([A('run',0),A('cancel',0)]);
+ out.alreadyForgotten=await verdict([null]);
+ // and it lets go at once when the operator closed the form themselves
+ out.formClosed=await verdict([A('run',0)],false);
+ console.log(JSON.stringify(out));
+})();
+"""
+
+PRESS = r"""
+var pendStates=pendActs('tunnels').map(function(a){return a.state});   // read before the press clears it
+cur='tunnels'; FLEET=[]; ACTS={}; ADISM={};
+confirmBox=function(){return Promise.resolve(true)};
+post=function(){return Promise.resolve({ok:true,d:{ok:true,act:'link:L1'}})};
+refreshActs=function(){return Promise.resolve()};
+toast=function(){}; setChk=function(){};
+var drew={};
+(async function(){
+ var cases=[['rebuild',function(){return rebuildLink('L1')}],
+            ['restart',function(){return restartLink('L1')}],
+            ['delete', function(){return delLink('L1')}],
+            ['cancel', function(){return actCancel('link:L1')}]];
+ for(var i=0;i<cases.length;i++){
+  var name=cases[i][0]; drew[name]=false;
+  refreshFleet=(function(n){return function(){drew[n]=true;return Promise.resolve()}})(name);
+  await cases[i][1]();
+  for(var k=0;k<8;k++)await Promise.resolve();     // let the handler's own tail settle
+ }
+ console.log(JSON.stringify({rows:out,pend:pendStates,cardShowsAtOnce:drew}));
+})();
+"""
+
+
+def part_wire(state):
+    """Everything an action puts on the wire is something the page reads.
+
+    A field nobody reads is a field nobody maintains, and it is read as a promise by whoever comes next.
+    The handle is taken from a REAL action rather than a list here, so a field added to it and forgotten
+    is caught the same day it is added."""
+    print("== 6b) the wire carries what the page reads, and nothing else ==")
+    P = load(state)
+    P.save_json(P.NODES_FILE, [dict(n) for n in NODES])
+    P.save_json(P.LINKS_FILE, [])
+    P._ping_both = lambda a, b: ({"ips": {"eth0": ["203.0.113.5"]}}, {"ips": {"eth0": ["198.51.100.7"]}})
+    P._refresh_cache = lambda *a, **k: None
+    P.node_call = lambda *a, **k: {"ok": True, "configs": []}
+    P._node_tunnel = lambda n, b: {"ok": True, "tunnel_ip": "x"}
+    r = P.api_create_tunnel({"a_node": "n1", "b_node": "n2", "type": "vxlan"})
+    settled(P, r["act"])
+    check(sorted(r) == ["act", "ok"], "starting one answers with the key and nothing else", sorted(r))
+    js = max(re.findall(r"<script[^>]*>(.*?)</script>", P.INDEX_HTML, re.S), key=len)
+    h = P.api_acts({})["acts"][r["act"]]
+    # Grepping for `a.field` would pass on a coincidence -- any function with a local named `a` and a
+    # matching property satisfies it. So the PAGE reads the handle instead, through a proxy that records
+    # which keys it touched, and a field nothing reached is a field nothing reads.
+    reached = _touched(js, h)
+    unread = [f for f in sorted(h) if f not in reached]
+    check(not unread, "every field on a handle is one the page reads", unread)
+
+
+def _touched(js, handle):
+    """Which of a handle's fields the page reads -- by letting it read one, in every state it can be in.
+
+    A field is justified if SOME reachable state reads it: the row draws different things while it runs,
+    when it fails and when it is done, and the placeholder reads what a card never does. Grepping for
+    `a.field` instead would pass on any coincidence in a page this size."""
+    states = [dict(handle, key="link:L1", state="run", can=True, si=1, sn=4, pct=25),
+              dict(handle, key="link:L1", state="run", can=False, si=3, sn=4, pct=75),
+              dict(handle, key="link:L1", state="run", can=True, si=0, sn=0, pct=0),
+              dict(handle, key="link:L1", state="fail", err="boom", ended=9),
+              dict(handle, key="link:L1", state="cancel", ended=9),
+              dict(handle, key="link:L1", state="done", note="n", ended=9),
+              dict(handle, key="new:ab", state="run", page="tunnels", can=True, si=1, sn=4)]
+    harness = ("""
+var HIT={};
+function prox(a){return new Proxy(a,{get:function(t,k){HIT[k]=true;return t[k]}})}
+var STATES=%s;
+try{ACTNOW=9e9}catch(e){}
+STATES.forEach(function(H){
+ try{ADISM={};_ASTEP={};actRow(prox(H))}catch(e){}
+ try{apendCard(prox(H))}catch(e){}
+ try{ACTS={};ACTS[H.key]=prox(H);pendActs('tunnels');withPending('tunnels',[])}catch(e){}
+ try{ACTS={};ACTS['link:L1']=prox(H);actOf({id:'L1'});cardActCls({id:'L1'})}catch(e){}
+});
+globalThis.setTimeout=function(f){Promise.resolve().then(f);return 0};
+globalThis.fetch=function(){return Promise.resolve({ok:true,json:function(){
+  return Promise.resolve({ok:true,acts:{'k':prox(STATES[0])},now:1})}})};
+actAccepted('k').then(function(){console.log(JSON.stringify(Object.keys(HIT)))},
+                      function(){console.log(JSON.stringify(Object.keys(HIT)))});
+""" % json.dumps(states, ensure_ascii=False))
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "w.js"
+        f.write_text(G.PRELUDE + chr(10) + js + chr(10) + harness, encoding="utf-8")
+        r = subprocess.run(["node", str(f)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    if r.returncode or not r.stdout.strip():
+        raise AssertionError("the page would not read a handle: " + (r.stderr or "")[:300])
+    return set(json.loads(r.stdout.strip().splitlines()[-1]))
+
+
 def part_browser(state):
     print("== 7) the page draws the action, and nothing of the queue is left in it ==")
     P = load(state)
@@ -334,9 +551,7 @@ def part_browser(state):
             for s in ({"state": "run"}, {"state": "done"}, {"state": "fail"}, {"state": "cancel"})]
     harness = ("ACTNOW=200;\nconst out=%s.map(function(a){ACTS={};ACTS[a.key]=a;_ASTEP={};"
                "return actRow(a)});\nACTS={};ADISM={};%s.forEach(function(a){ACTS[a.key]=a});\n"
-               "console.log(JSON.stringify({rows:out,"
-               "pend:pendActs('tunnels').map(function(a){return a.state})}));"
-               % (json.dumps([c[0] for c in ROW_CASES]), json.dumps(pend)))
+               % (json.dumps([c[0] for c in ROW_CASES]), json.dumps(pend))) + PRESS
     with tempfile.TemporaryDirectory() as td:
         f = Path(td) / "t.js"
         f.write_text(G.PRELUDE + "\n" + js + "\n" + harness, encoding="utf-8")
@@ -344,7 +559,31 @@ def part_browser(state):
     if r.returncode:
         check(False, "the page's own script runs", (r.stderr or "")[:400])
         return
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "a.js"
+        f.write_text(G.PRELUDE + chr(10) + js + chr(10) + ACCEPT, encoding="utf-8")
+        ra = subprocess.run(["node", str(f)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    if ra.returncode or not ra.stdout.strip():
+        check(False, "the form's own wait runs", (ra.stderr or "")[:400])
+    else:
+        v = json.loads(ra.stdout.strip().splitlines()[-1])
+        check(v["readingThenAccepted"] == {"ok": True},
+              "the form waits while the panel reads, then lets go at the first node write",
+              v["readingThenAccepted"])
+        check("تداخل" in (v["refusedBeforeAnyNode"].get("err") or ""),
+              "a refusal before any node comes back for the form to show", v["refusedBeforeAnyNode"])
+        check(v["finishedAtStepZero"] == {"ok": True},
+              "an action that finished at step 0 does not hold the form open", v["finishedAtStepZero"])
+        check(bool(v["stoppedByHand"].get("err")), "a stop comes back as something to say",
+              v["stoppedByHand"])
+        check(v["alreadyForgotten"] == {"ok": True},
+              "an action already forgotten is not an error", v["alreadyForgotten"])
+        check(v["formClosed"] == {"gone": True},
+              "and it lets go at once when the operator closed the form", v["formClosed"])
+
     got = json.loads(r.stdout.strip().splitlines()[-1])
+    check(got["cardShowsAtOnce"] == {"rebuild": True, "restart": True, "delete": True, "cancel": True},
+          "a press on a card draws its row without waiting for the next poll", got["cardShowsAtOnce"])
     check(sorted(got["pend"]) == ["cancel", "fail", "run"],
           "a build stops being a placeholder the moment its real card exists", got["pend"])
     for (a, must, mustnot), html in zip(ROW_CASES, got["rows"]):
@@ -360,8 +599,11 @@ def main():
     P = load(tempfile.mkdtemp())
     part_runs(P, fleet(P, gate), gate)
     part_roster(tempfile.mkdtemp())
+    part_keep(tempfile.mkdtemp())
     part_steps(tempfile.mkdtemp())
+    part_promise(tempfile.mkdtemp())
     part_own_answer(tempfile.mkdtemp())
+    part_wire(tempfile.mkdtemp())
     part_browser(tempfile.mkdtemp())
     print()
     if FAILS:

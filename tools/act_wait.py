@@ -27,11 +27,6 @@ def run(P, start, timeout=30):
     raise AssertionError("action %r never finished within %ss" % (key, timeout))
 
 
-def err(P, start, timeout=30):
-    """The sentence the operator would read on the card. '' when the action succeeded."""
-    return run(P, start, timeout).get("err") or ""
-
-
 def raising(P, start, timeout=30):
     """Run the action and re-raise its failure as the ValueError the request thread used to carry.
 
