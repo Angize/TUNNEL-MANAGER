@@ -1,26 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Guard: retry is the same job again, and the node's English is answered in Persian.
+"""Guard: every error a node's own tools produce comes back to the operator in Persian.
 
-Two things the operator hit on the live panel:
+A build that failed because a kernel module is missing said «RTNETLINK answers: No such file or
+directory» -- to an operator who wants to know whether to try again. Every error a node's own tools
+produce arrives in English, and this panel is Persian-only, so `terr` is where it is answered.
 
-  * «تلاش دوباره» enqueued a COPY. The failed job stayed on the page and a second card appeared beside
-    it, so three presses on one tunnel that would not build left three identical cards and three rows,
-    each one a job of its own. A job is one card for its whole life.
-  * a build that failed because a kernel module is missing said «RTNETLINK answers: No such file or
-    directory» — to an operator who wants to know whether to try again. Every error a node's own tools
-    produce arrives in English and this panel is Persian-only.
+The messages below are what the operator actually saw, and the ones beside them. Each must come back
+with no English SENTENCE left in it: an identifier (a device name, a command, TLS) is not one.
 
 Exit 1 on any failure.
 """
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -62,40 +58,10 @@ def check(ok, msg):
 
 
 def main():
-    spec = importlib.util.spec_from_file_location("tnl_onejob", HERE.parent / "tnl-central.py")
+    spec = importlib.util.spec_from_file_location("tnl_terr", HERE.parent / "tnl-central.py")
     P = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(P)
 
-    print("== 1) «تلاش دوباره» is THIS job again, not a copy of it ==")
-    d = tempfile.mkdtemp()
-    P.CENTRAL_DIR, P.JOBS_FILE = d, os.path.join(d, "jobs.json")
-    P.log_event = lambda *a, **k: None
-    P.JOB_RETRY_BACKOFF = (0.02,) * 8
-    P.API["t-guard-fail"] = lambda dd: (_ for _ in ()).throw(RuntimeError("boom"))
-    P.JOB_KINDS["t-guard-fail"] = ("t", lambda _x: [])
-    P.QUEUED = frozenset(P.JOB_KINDS)
-
-    jid = P.jq_enqueue("t-guard-fail", {})["job"]
-    for _ in range(200):
-        if P._jobs[jid]["state"] == "fail":
-            break
-        time.sleep(0.05)
-    check(P._jobs[jid]["state"] == "fail", "it failed first, so there is something to retry")
-    before = len(P._jobs)
-    r = P.api_job_retry({"job": jid})
-    check(r.get("job") == jid, "retry answers with the SAME job id (%r)" % r.get("job"))
-    check(len(P._jobs) == before, "no second job was created (%d -> %d)" % (before, len(P._jobs)))
-    check(P._jobs[jid]["state"] == "wait" and P._jobs[jid]["tries"] == 0 and not P._jobs[jid]["err"],
-          "the job went back to «در صف» with its counters cleared")
-    for _ in range(200):
-        if P._jobs[jid]["state"] == "fail":
-            break
-        time.sleep(0.05)
-    check(len(P._jobs) == before, "and after running again it is still ONE job (%d)" % len(P._jobs))
-    check(P.api_job_clear({"job": jid})["ok"] and jid not in P._jobs,
-          "one finished job can be put away on its own")
-
-    print("== 2) every English error sentence comes back in Persian ==")
     js = max(re.findall(r"<script[^>]*>(.*?)</script>", P.INDEX_HTML, re.S), key=len)
     if "function terr(" not in js:
         print("FAIL: terr is not in the rendered page")
@@ -120,7 +86,7 @@ def main():
     if fails:
         print("%d failure(s)." % len(fails))
         return 1
-    print("one job is one card, and the node's English is answered in Persian.")
+    print("every English error a node produces is answered in Persian.")
     return 0
 
 

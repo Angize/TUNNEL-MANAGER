@@ -23,6 +23,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import act_wait as A     # noqa: E402  (a rebuild answers with a key, so A.raising waits for its verdict)
+
 LINK = {"id": "L1", "name": "core4", "type": "core", "a_node": "n1", "b_node": "n2",
         "a_name": "TEST2", "b_name": "IR02", "a_ip": "10.0.0.1", "b_ip": "10.0.0.2",
         "subnet": "192.168.4.0/24", "tunnel_id": 4, "enabled": True, "psk": "must-not-leak"}
@@ -60,19 +63,19 @@ def main():
         return next(x for x in P.api_fleet({})["links"] if x["id"] == "L1").get("rb")
 
     # ---- the panel keeps its own verdict, so a lost answer cannot erase the reason
-    P._rebuild_link_impl = lambda d: (_ for _ in ()).throw(ValueError(REASON))
+    P._rebuild_link_impl = lambda d, h=None: (_ for _ in ()).throw(ValueError(REASON))
     raised = ""
     try:
-        P.api_rebuild_link({"id": "L1"})
+        A.raising(P, lambda: P.api_rebuild_link({"id": "L1"}))
     except ValueError as e:
         raised = str(e)
-    chk("a refusal still reaches the caller", raised, REASON)
+    chk("a refusal still reaches the operator", raised, REASON)
     chk("the panel remembers WHY it refused", (P.rb_last("L1") or {}).get("error"), REASON)
     chk("and the link carries it to the browser", (fleet_rb() or {}).get("error"), REASON)
     chk("carrying it never leaks the psk", "psk" in next(x for x in P.api_fleet({})["links"]), False)
 
-    P._rebuild_link_impl = lambda d: {"ok": True, "name": "core4"}
-    P.api_rebuild_link({"id": "L1"})
+    P._rebuild_link_impl = lambda d, h=None: {"ok": True, "name": "core4"}
+    A.run(P, lambda: P.api_rebuild_link({"id": "L1"}))
     chk("a later success replaces the failure", (fleet_rb() or {}).get("ok"), True)
 
     with P._rb_lock:                       # an old verdict must not haunt the card for ever

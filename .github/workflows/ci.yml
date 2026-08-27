@@ -70,19 +70,16 @@ name: ci
 #   subnet_parity         the browser and the panel derive the same subnet, AND the core edit form's
 #                         range picker round-trips: opening it and saving must send back the address
 #                         the tunnel already has, or a rebuild renumbers both ends for nothing.
-#   actions_go_through_the_queue  an ACTION is queued and a READ is not. The queue is wired by NAME,
-#                         so a kind spelled wrong is an action that can never run, a read that joins
-#                         the table hands the page a job id instead of its data, and a new action
-#                         that never joins it quietly goes back to blocking the request.
-#   queue_page_controls   the queue page offers the control each state actually HAS, and its line
-#                         says something the title did not. Both defects reached the operator: every
-#                         finished job carried a retry the panel then refused, and the line under the
-#                         title fell back to the title, so the page said everything twice.
-#   one_job_one_card      «تلاش دوباره» puts THIS job back in the queue instead of enqueuing a copy,
-#                         and every error a node's own tools produce comes back in Persian. Both
-#                         reached the operator: three presses on one tunnel left three identical
-#                         cards, and a missing kernel module reported itself as «RTNETLINK answers:
-#                         No such file or directory».
+#   an_action_reports_...  an action that has to talk to a node answers with a KEY, reports its own
+#                         steps against it and stops where it runs; an endpoint that HAS an answer
+#                         keeps answering with it. Four defects reached the operator when a central
+#                         queue stood in between: the node install's step list was polled with the
+#                         queue's id and never filled in, «لغو» on a running job only changed a
+#                         label, the bar showed percentages no action ever wrote, and an edge probe
+#                         returned a ticket so its box was re-read before anything was sent.
+#   node_errors_answer_in_persian  every error a node's own tools produce comes back in Persian. A
+#                         missing kernel module reported itself as «RTNETLINK answers: No such file
+#                         or directory» to an operator deciding whether to try again.
 #   panel_says_what_...   a sentence or a toast that the code contradicts. Both cases it holds were
 #                         true when written and were left beside code that stopped making them true:
 #                         the CDN_PROFILES header describing "cf" as an empty entry after #295 filled
@@ -222,12 +219,9 @@ jobs:
       - name: the browser and the panel derive the same subnet, and the edit form round-trips it
         working-directory: TUNNEL-MANAGER
         run: python tools/subnet_parity_check.py
-      - name: every action goes through the queue, every read goes around it
+      - name: an action reports where it runs, and can be stopped there
         working-directory: TUNNEL-MANAGER
-        run: python tools/actions_go_through_the_queue_check.py
-      - name: the queue page offers the control each state has
+        run: python tools/an_action_reports_where_it_runs_check.py
+      - name: every English error a node produces is answered in Persian
         working-directory: TUNNEL-MANAGER
-        run: python tools/queue_page_controls_check.py
-      - name: one job is one card, and the node's English is answered in Persian
-        working-directory: TUNNEL-MANAGER
-        run: python tools/one_job_one_card_check.py
+        run: python tools/node_errors_answer_in_persian_check.py

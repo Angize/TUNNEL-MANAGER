@@ -28,6 +28,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
+sys.path.insert(0, str(ROOT / "tools"))
+import act_wait as A     # noqa: E402  (building a tunnel answers with a key, so A.raising waits for its verdict)
 FAILED = []
 
 
@@ -117,7 +119,10 @@ def part_gate(m):
 
     ops = [
         ("افزودن نود", lambda: m.api_node_install({"name": "new", "ssh_host": "10.0.0.9", "ssh_pass": "p"}), True),
-        ("ساختِ تونلِ هسته", lambda: m.api_create_tunnel({"a_node": "n1", "b_node": "n2", "type": "core"}), False),
+        # A build answers with an action key; its refusal lands on the action, so the gate is read there.
+        ("ساختِ تونلِ هسته",
+         lambda: A.raising(m, lambda: m.api_create_tunnel({"a_node": "n1", "b_node": "n2", "type": "core"})),
+         False),
     ]
     for agent, arches in ((False, ()), (True, ()), (True, ("amd64",)), (False, ("amd64", "arm64"))):
         put_agent(m, agent)
@@ -148,7 +153,7 @@ def part_gate(m):
     put_core(m, ())
     touched.clear()
     try:
-        m.api_create_tunnel({"a_node": "n1", "b_node": "n2", "type": "gre"})
+        A.raising(m, lambda: m.api_create_tunnel({"a_node": "n1", "b_node": "n2", "type": "gre"}))
         err = ""
     except ValueError as e:
         err = str(e)
