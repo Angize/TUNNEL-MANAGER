@@ -56,6 +56,12 @@ CASES = [
     ("raw/tcp+fixed sport",
      {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport": 4500},
      {"transport": "raw", "raw_profile": "tcp", "raw_sport": 4500}),
+    # The port-draw budget is per-tunnel state too: a rebuild that replays everything but this one
+    # drops the ladder back to the core default while the form goes on showing the number chosen.
+    ("raw/tcp+port_tries",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_random": True,
+      "port_tries": 9},
+     {"transport": "raw", "raw_profile": "tcp", "raw_sport_random": True, "port_tries": 9}),
     ("raw/bare native", {"transport": "raw", "cipher": "auto", "raw_profile": "bare"},
      {"transport": "raw", "raw_profile": "bare"}),
     # The extra TUN queues are NOT here, and must not be added back: they are per-END state now
