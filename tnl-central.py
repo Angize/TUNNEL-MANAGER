@@ -6824,8 +6824,15 @@ def ech_refresh_loop():
 # best-effort reason, and AUTOMATIC edge-IP changes. Operator-driven actions are deliberately not logged:
 # the detector records STATE TRANSITIONS only, seeds new entities silently and skips disabled tunnels.
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
-EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives the 500-cap)
-EVENTS_CAP = 500
+EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives pruning)
+# An event is kept for a DAY, not for a place in a list of 500: on a fleet having a bad hour the five
+# hundredth event can be half an hour old, and the log is the one place an operator goes to find out
+# what happened while they were asleep.
+EVENTS_TTL = 24 * 3600
+# ...and a ceiling, which is a guard and NOT the retention rule. log_event re-reads and re-writes the
+# whole file per event, so two nodes flapping every 15s could put tens of thousands in a day and make
+# writing the log the slowest thing the panel does. Reaching this means something is flapping.
+EVENTS_MAX = 5000
 _events_lock = threading.Lock()
 _ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
 _ev_count = None  # lazy-loaded current (capped) event count, mirrored in memory so api_summary needn't re-parse events.json
@@ -7059,8 +7066,46 @@ def _ev_count_get():
     return _ev_count
 
 
+# kind -> the chip it is filed under. The ONE place this mapping lives: the browser reads `cat` off the
+# event instead of deriving it again, so a chip's count and the rows behind it cannot disagree.
+EV_CATS = ("tunnel", "rot", "ech", "node", "sys")
+
+
+def _ev_cat(kind):
+    if kind == "link":
+        return "tunnel"
+    if kind in ("rot", "edge", "burn", "heal"):
+        return "rot"
+    if kind in ("ech", "node"):
+        return kind
+    return "sys"
+
+
+def _ev_prune(evs, now=None):
+    """Drop what is older than a day, newest first. The ceiling is applied after, as a guard."""
+    cut = (time.time() if now is None else now) - EVENTS_TTL
+    return [e for e in evs if isinstance(e, dict) and _sint(e.get("ts")) >= cut][:EVENTS_MAX]
+
+
+def ev_sweep():
+    """Take out what has aged out, on a clock rather than on the next write. A quiet panel still has to
+    forget: nothing new arriving is not a reason for yesterday to stay on the page."""
+    global _ev_count
+    with _events_lock:
+        evs = load_events()
+        kept = _ev_prune(evs)
+        _ev_count = len(kept)
+        if len(kept) == len(evs):
+            return 0
+        try:
+            save_json(EVENTS_FILE, kept)
+        except OSError:
+            pass
+        return len(evs) - len(kept)
+
+
 def log_event(level, kind, fa, dfa=""):
-    """Append one system event (newest first), capped at EVENTS_CAP. level: ok|warn|bad.
+    """Append one system event (newest first). level: ok|warn|bad.
     fa is the one-line TITLE; dfa is an optional detail/reason that may contain "\\n" for
     multiple lines (e.g. an edge switch's from/to) — the UI renders each line separately."""
     global _ev_seq_total, _ev_count
@@ -7068,8 +7113,7 @@ def log_event(level, kind, fa, dfa=""):
         evs = load_events()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
                        "fa": fa, "dfa": dfa})
-        if len(evs) > EVENTS_CAP:
-            evs = evs[:EVENTS_CAP]
+        evs = _ev_prune(evs)
         _ev_count = len(evs)   # keep the in-memory count in step with the file (read lock-free by api_summary)
         try:
             save_json(EVENTS_FILE, evs)
@@ -7362,14 +7406,24 @@ def events_loop():
         time.sleep(15)
         try:
             _events_once()
+            ev_sweep()
         except Exception:
             pass
 
 
 def api_events(d):
+    """The WHOLE kept day, newest first, each event carrying the chip it is filed under.
+
+    Nothing is filtered here. The browser holds the day, so it searches and files without a round trip
+    and answers as fast as the operator types. `seq` and `count` are what let it tell that nothing has
+    changed, so a day of log is not re-read every couple of seconds to find that out."""
     d = d or {}
-    lim = max(1, min(EVENTS_CAP, _sint((d or {}).get("limit")) or 200))
-    return {"ok": True, "events": load_events()[:lim]}
+    lim = max(1, min(EVENTS_MAX, _sint(d.get("limit")) or EVENTS_MAX))
+    evs = _ev_prune(load_events())[:lim]
+    for e in evs:
+        e["cat"] = _ev_cat(e.get("kind"))
+    return {"ok": True, "events": evs, "seq": _ev_seq_get(), "count": len(evs),
+            "kept_hours": EVENTS_TTL // 3600}
 
 
 def api_events_clear(d):
@@ -9360,7 +9414,8 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ سیستم — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ ۲۴ ساعتِ گذشته — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه. قدیمی‌تر از یک روز خودکار پاک می‌شود (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_no_match:"چیزی با این عبارت پیدا نشد",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
@@ -9918,8 +9973,8 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
-var LIM=25,PG={tunnels:0,portfw:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
+var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,LOGN=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
+var LIM=25,PG={tunnels:0,portfw:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:'',logs:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
 /* The queue ceiling, injected from CORE_MAX_WORKERS -- the same number the submit validator refuses
    above, so the segment can never offer a queue the panel would then reject. */
@@ -9941,7 +9996,7 @@ function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
  setT('ct_nodes',num(s.nodes_total));setT('ct_proxies',num(s.proxies));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
- setT('ct_logs',num(s.log_count));   // ALWAYS the total number of logs (like the other nav counts)
+ setT('ct_logs',num(s.log_count));LOGN=num(s.log_count);   // ALWAYS the total number of logs (like the other nav counts)
  if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   // live-refresh cadence, from settings
  // Pool/peer retest-bar denominator must mirror the core's TUNED schedule, not the literals: the summary
  // surfaces the live suspect_backoff / dead_retest_secs (same path as ui_interval above); fall back to defaults.
@@ -12435,6 +12490,7 @@ function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='no
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML=vhead('list','logs_title','logs_sub')+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
+ toolbar('logs',T('logs_search'))+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';markLogsSeen();refreshLogs();}
 // One skeleton log card — same geometry as the real logcard (stripe + icon chip + two text bars + time),
@@ -12448,12 +12504,6 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
  '</div></div>';}
 // Map an event to a filter CATEGORY: tunnel (link up/down), rot (rotation/pin/burn/heal = the pool),
 // ech, node, else sys. Kept in one place so the chips and the per-card badge always agree.
-function logCat(e){var k=e.kind;
- if(k=='link')return 'tunnel';
- if(k=='rot'||k=='edge'||k=='burn'||k=='heal')return 'rot';
- if(k=='ech')return 'ech';
- if(k=='node')return 'node';
- return 'sys';}
 // The badge says WHAT HAPPENED, not how alarming it is. A destination rotation and a CDN edge switch are
 // the same move on different carriers, so both wear the swap arrows; a burn keeps the warning triangle,
 // because it is the one thing here that took an endpoint out; and an endpoint coming back is a tick.
@@ -12463,20 +12513,27 @@ function logIco(e){var k=e.kind;
  if(k=='burn')return 'warn';
  if(k=='heal')return 'check';
  return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
-var LOGEVS=[],LOGFILTER='all';
+var LOGEVS=[],LOGFILTER='all',LOGSIG='';   // LOGSIG = the panel's seq:count the held day was read at
 // The horizontal, sideways-scrolling category filter row. Counts are live; empty categories are hidden
 // (but the active one always stays visible). "errors only" spans every category.
 function logChipsHTML(){
- var c={all:LOGEVS.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
- LOGEVS.forEach(function(e){c[logCat(e)]++;if(e.level=='bad')c.err++;});
+ // Counted over what the SEARCH left, so a chip never offers rows the box in front of it has ruled out.
+ var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
+ found.forEach(function(e){c[e.cat]++;if(e.level=='bad')c.err++;});
  if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';   // an emptied category (e.g. «فقط خطاها» at 0) can't stay active — fall back to «همه»
  var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   // «فقط خطاها» now hides at 0 just like every other category
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 // The filtered list. Each card carries a colored category badge before the title.
+// What the search box left, out of the whole day the panel handed over. Matched against the title AND
+// the detail, because half of what an operator comes here looking for -- an address, a node's name, the
+// reason a tunnel went down -- lives in the detail and never in the title.
+function logFound(){var q=(QRY.logs||'').trim().toLowerCase();
+ if(!q)return LOGEVS;
+ return LOGEVS.filter(function(e){return ((e.fa||'')+' '+(e.dfa||'')).toLowerCase().indexOf(q)>=0})}
 function logRows(){
- var evs=LOGEVS.filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':logCat(e)==LOGFILTER;});
- if(!evs.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T('logc_none'))+'</div>'}];
+ var evs=logFound().filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':e.cat==LOGFILTER;});
+ if(!evs.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T(QRY.logs?'logs_no_match':'logc_none'))+'</div>'}];
  return evs.map(function(e){
    var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
@@ -12562,14 +12619,26 @@ function logFold(id,e){
  var c=e&&e.currentTarget;if(c&&c.setAttribute)c.setAttribute('aria-expanded',LOGOPEN[id]?'true':'false');}
 function logKey(e,id){if(e.key===' '||e.key==='Enter'){e.preventDefault();logFold(id,e)}}
 
-async function refreshLogs(){var r=await j('events').catch(function(){return{}});var box=el('logList');if(!box)return;LOGEVS=(r&&r.events)||[];
+// The panel hands over the WHOLE kept day, so this only asks for it when the day has actually moved:
+// the sidebar's own poll already carries the sequence and the size, and between two events that pair
+// does not change. Without this the page would pull a day of log every couple of seconds to redraw
+// exactly the same rows -- on a phone, over and over.
+async function refreshLogs(){
+ var box=el('logList');if(!box)return;
+ var sig=EVSEQ+':'+LOGN;
+ if(sig!==LOGSIG||!LOGEVS.length){
+  var r=await j('events').catch(function(){return null});
+  if(r&&r.events){LOGEVS=r.events;LOGSIG=sig}}
  var ch=el('logChips');
+ // Nothing kept at all is «the log is empty»; nothing MATCHING the search is a different sentence, and
+ // logRows says that one — the chips have to stay up so the operator can get back out of the filter.
  if(!LOGEVS.length){if(ch)ch.innerHTML='';setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T('logs_empty'))+'</div>'}]);return;}
  // Preserve the row's horizontal scroll across the rebuild — the periodic poll calls refreshLogs, and a
  // bare innerHTML swap would reset scrollLeft to 0 and snap the tabs back to the start every few seconds.
  if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML();var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl;}
  setList(box,logRows());}
-async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');refreshLogs();}
+async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');
+ LOGEVS=[];LOGSIG='';refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}

@@ -77,6 +77,10 @@ name: ci
 #                         queue's id and never filled in, «لغو» on a running job only changed a
 #                         label, the bar showed percentages no action ever wrote, and an edge probe
 #                         returned a ticket so its box was re-read before anything was sent.
+#   the_log_keeps_a_day  the log is kept by AGE, forgotten on a clock, and searched where it is
+#                         held. A list of 500 threw away events that were minutes old on a fleet
+#                         having a bad hour -- from the one page an operator opens to find out what
+#                         happened overnight -- and nothing said so.
 #   node_errors_answer_in_persian  every error a node's own tools produce comes back in Persian. A
 #                         missing kernel module reported itself as «RTNETLINK answers: No such file
 #                         or directory» to an operator deciding whether to try again.
@@ -225,3 +229,6 @@ jobs:
       - name: every English error a node produces is answered in Persian
         working-directory: TUNNEL-MANAGER
         run: python tools/node_errors_answer_in_persian_check.py
+      - name: the log keeps a day and is searched where it is held
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_log_keeps_a_day_check.py
