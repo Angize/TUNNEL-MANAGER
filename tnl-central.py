@@ -15,6 +15,7 @@
 
 import base64
 import getpass
+import gzip
 import hashlib
 import hmac
 import http.client
@@ -5368,7 +5369,7 @@ def api_create_tunnel(d):
         with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
             return _create_tunnel_impl(d, h)
 
-    return act_start("new:" + secrets.token_hex(4), "ساختِ تونل", build,
+    return act_start("new:" + secrets.token_hex(4), build,
                      target="%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?")),
                      page="core" if ttype == "core" else "tunnels",
                      ttype=str(d.get("transport") or ttype))
@@ -5629,7 +5630,7 @@ def _create_tunnel_impl(d, h=None):
     if not ra.get("ok"):
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
     try:
-        act_step(h, "ساخت روی نودِ «%s»" % B["name"], 2, CREATE_STEPS)
+        act_step(h, "ساخت روی نودِ «%s»" % B["name"], 2, CREATE_STEPS, more=False)
     except ActCancelled:
         node_call(A, "delete", "POST", {"name": name})   # cancelled with one end already up: take it back down
         raise
@@ -5663,7 +5664,7 @@ def _create_tunnel_impl(d, h=None):
 
 
 def api_delete_link(d):
-    return act_link("حذفِ تونل", d, lambda h: _delete_link_impl(d, h))
+    return act_link(d, lambda h: _delete_link_impl(d, h))
 
 
 DELETE_STEPS = 3
@@ -5699,9 +5700,9 @@ def _delete_link_impl(d, h=None):
                 _refresh_cache([L["a_node"], L["b_node"]])
                 return {"ok": False, "msg": "نودِ «" + "»، «".join(off) + "» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         errs, deferred = [], []
-        # The last point this can be stopped: past here an end is torn down, and a tunnel half-removed is
-        # a shape the operator has no name for.
-        act_step(h, "برچیدنِ تونل روی دو نود", 1, DELETE_STEPS, stop=False)
+        # The last point this can be stopped: past here an end is torn down, and a tunnel half-removed
+        # is a shape the operator has no name for.
+        act_step(h, "برچیدنِ تونل روی دو نود", 1, DELETE_STEPS, more=False)
         for nid, nm in ends:
             n = get_node(nid)
             if not n:
@@ -5829,7 +5830,7 @@ def api_edit_link(d):
         with _PairLock(a, b):  # serialize only with ops touching the same node(s)
             return _edit_link_impl(d, h)
 
-    return act_link("ویرایشِ تونل", d, edit)
+    return act_link(d, edit)
 
 
 def api_edge_status(d):
@@ -6161,7 +6162,7 @@ def _edit_link_impl(d, h=None):
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
     try:
-        act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS)
+        act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS, more=False)
     except ActCancelled:
         _restore_link(A, B, L)   # cancelled with only one end moved: put the tunnel back the way it was
         raise
@@ -6223,7 +6224,7 @@ def api_restart_link(d):
         with _PairLock(a, b):
             return _restart_link_impl(d, h)
 
-    return act_link("ری‌استارتِ هسته", d, restart)
+    return act_link(d, restart)
 
 
 def _restart_link_impl(d, h=None):
@@ -6246,9 +6247,9 @@ def _restart_link_impl(d, h=None):
         raise ValueError("a node of this link is no longer registered")
     ends, errs = [], []
     for i, (side, N) in enumerate((("a", A), ("b", B))):
-        # Stopping between the two ends is safe: the end already bounced re-handshakes with the one that
-        # was not, so a half-done restart heals itself rather than leaving a shape nothing describes.
-        act_step(h, "ری‌استارتِ هسته روی نودِ «%s»" % N["name"], i, 2)
+        # Only the first end can be stopped before. Bouncing one end and leaving its peer on a live
+        # session is the wedged state this whole action exists to clear.
+        act_step(h, "ری‌استارتِ هسته روی نودِ «%s»" % N["name"], i, 2, stop=(i == 0), more=False)
         r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=30)
         ok = bool(r.get("ok"))
         ends.append({"side": side, "node": N["name"], "ok": ok})
@@ -6294,7 +6295,7 @@ def api_rebuild_link(d):
             _rb_note(str(d.get("id") or ""), bool(r.get("ok")))
             return r
 
-    return act_link("بازسازیِ تونل", d, rebuild)
+    return act_link(d, rebuild)
 
 
 REBUILD_STEPS = 4
@@ -6349,7 +6350,7 @@ def _rebuild_link_impl(d, h=None):
         _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
     try:
-        act_step(h, "ساخت روی نودِ «%s»" % B["name"], 3, REBUILD_STEPS)
+        act_step(h, "ساخت روی نودِ «%s»" % B["name"], 3, REBUILD_STEPS, more=False)
     except ActCancelled:
         _restore_link(A, B, L, extra)   # cancelled with one end rebuilt: put both back the way they were
         raise
@@ -6825,17 +6826,19 @@ def ech_refresh_loop():
 # the detector records STATE TRANSITIONS only, seeds new entities silently and skips disabled tunnels.
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives pruning)
-# An event is kept for a DAY, not for a place in a list of 500: on a fleet having a bad hour the five
-# hundredth event can be half an hour old, and the log is the one place an operator goes to find out
-# what happened while they were asleep.
+# An event is kept for a DAY. The log is the one place an operator goes to find out what happened
+# while they were asleep, so what decides how long it holds has to be a length of TIME: a fixed number
+# of rows throws away the small hours as soon as a fleet has a bad one.
 EVENTS_TTL = 24 * 3600
-# ...and a ceiling, which is a guard and NOT the retention rule. log_event re-reads and re-writes the
-# whole file per event, so two nodes flapping every 15s could put tens of thousands in a day and make
-# writing the log the slowest thing the panel does. Reaching this means something is flapping.
+# ...and a ceiling, which is a guard and NOT the retention rule. Everything kept is held in memory and
+# written out whole by the sweep, so a pair of nodes flapping would grow both without one. Reaching it
+# means something is flapping, not that a day is long.
 EVENTS_MAX = 5000
 _events_lock = threading.Lock()
 _ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
-_ev_count = None  # lazy-loaded current (capped) event count, mirrored in memory so api_summary needn't re-parse events.json
+_ev_count = None  # lazy-loaded current event count, mirrored in memory so api_summary needn't count the store
+_ev_list = None   # the store itself, newest first (lazy-loaded); events.json is a copy of it
+_ev_dirty = False  # the store has something the file does not; ev_sweep is what writes it
 _ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}  # last-seen state (in-memory); rotip[lid:axis]=last source/dest IP, for from→to on a rotation
 
 
@@ -7033,19 +7036,49 @@ def _ev_core_text(kind, code, detail, nm):
     return None
 
 
+def _ev_all():
+    """The log itself, newest first. Caller holds _events_lock, and does not mutate what it gets back
+    except through log_event -- this list IS the store, and the file is a copy of it."""
+    global _ev_list, _ev_dirty
+    if _ev_list is None:
+        try:
+            with open(EVENTS_FILE) as f:
+                raw = json.load(f)
+        except (OSError, ValueError):
+            raw = []
+        raw = raw if isinstance(raw, list) else []
+        _ev_list = _ev_prune(raw)
+        if len(_ev_list) != len(raw):
+            _ev_dirty = True      # what was read is not what is held; the next sweep puts that right
+    return _ev_list
+
+
 def load_events():
+    """A snapshot for a reader, newest first."""
+    with _events_lock:
+        return list(_ev_all())
+
+
+def _ev_flush():
+    """Put the store on disk. Caller holds _events_lock.
+
+    A log must not write its whole file once per event: that is the same O(n) write n times over, held
+    under the lock every other writer needs, and it gets slower as the day it is keeping fills up."""
+    global _ev_dirty
+    if not _ev_dirty:
+        return
     try:
-        with open(EVENTS_FILE) as f:
-            evs = json.load(f)
-        return evs if isinstance(evs, list) else []
-    except (OSError, ValueError):
-        return []
+        save_json(EVENTS_FILE, _ev_list)
+        save_json(EVENTS_SEQ_FILE, _ev_seq_get())   # lazy: a clear can be the first thing that flushes
+        _ev_dirty = False
+    except OSError:
+        pass          # a log that cannot be written still works; the next sweep tries again
 
 
 def _ev_seq_get():
-    """Monotonic count of ALL events ever logged. Unlike len(events) it keeps growing past the
-    500-cap, so the sidebar 'logs' unread badge (this minus the client's last-seen value) stays
-    correct forever. Starts at zero when the seq file is missing (fresh install)."""
+    """Monotonic count of ALL events ever logged. Unlike the number held it keeps growing past what
+    ages out, so the sidebar's unread badge (this minus the client's last-seen value) stays correct
+    forever. Starts at zero when the seq file is missing (fresh install)."""
     global _ev_seq_total
     if _ev_seq_total is None:
         try:
@@ -7057,20 +7090,17 @@ def _ev_seq_get():
 
 
 def _ev_count_get():
-    """Current (capped) number of stored events, kept in memory so the hot api_summary poll doesn't
-    re-parse events.json every call. Seeded once from the file, then maintained by log_event and
-    api_events_clear — the only writers, both under _events_lock."""
+    """How many events are held. Every writer keeps it in step, so api_summary's hot poll never counts
+    and never takes the lock; only the first call, before anything has been written, does."""
     global _ev_count
     if _ev_count is None:
-        _ev_count = len(load_events())
+        with _events_lock:
+            _ev_count = len(_ev_all())
     return _ev_count
 
 
 # kind -> the chip it is filed under. The ONE place this mapping lives: the browser reads `cat` off the
 # event instead of deriving it again, so a chip's count and the rows behind it cannot disagree.
-EV_CATS = ("tunnel", "rot", "ech", "node", "sys")
-
-
 def _ev_cat(kind):
     if kind == "link":
         return "tunnel"
@@ -7088,42 +7118,33 @@ def _ev_prune(evs, now=None):
 
 
 def ev_sweep():
-    """Take out what has aged out, on a clock rather than on the next write. A quiet panel still has to
-    forget: nothing new arriving is not a reason for yesterday to stay on the page."""
-    global _ev_count
+    """Take out what has aged out, and put the store on disk. Both on a clock rather than per event: a
+    quiet panel still has to forget, and nothing new arriving is not a reason for yesterday to stay."""
+    global _ev_list, _ev_count, _ev_dirty
     with _events_lock:
-        evs = load_events()
-        kept = _ev_prune(evs)
-        _ev_count = len(kept)
-        if len(kept) == len(evs):
-            return 0
-        try:
-            save_json(EVENTS_FILE, kept)
-        except OSError:
-            pass
-        return len(evs) - len(kept)
+        before = len(_ev_all())
+        _ev_list = _ev_prune(_ev_list)
+        _ev_count = len(_ev_list)
+        if len(_ev_list) != before:
+            _ev_dirty = True
+        _ev_flush()
+        return before - len(_ev_list)
 
 
 def log_event(level, kind, fa, dfa=""):
     """Append one system event (newest first). level: ok|warn|bad.
     fa is the one-line TITLE; dfa is an optional detail/reason that may contain "\\n" for
     multiple lines (e.g. an edge switch's from/to) — the UI renders each line separately."""
-    global _ev_seq_total, _ev_count
+    global _ev_seq_total, _ev_count, _ev_dirty
     with _events_lock:
-        evs = load_events()
+        evs = _ev_all()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
                        "fa": fa, "dfa": dfa})
-        evs = _ev_prune(evs)
-        _ev_count = len(evs)   # keep the in-memory count in step with the file (read lock-free by api_summary)
-        try:
-            save_json(EVENTS_FILE, evs)
-        except OSError:
-            pass
-        _ev_seq_total = _ev_seq_get() + 1  # bump the monotonic counter for the unread badge
-        try:
-            save_json(EVENTS_SEQ_FILE, _ev_seq_total)
-        except OSError:
-            pass
+        if len(evs) > EVENTS_MAX:      # the age cut is the sweep's; this is only the runaway guard
+            del evs[EVENTS_MAX:]
+        _ev_count = len(evs)   # kept in step with the store (read lock-free by api_summary)
+        _ev_seq_total = _ev_seq_get() + 1  # the monotonic counter behind the unread badge
+        _ev_dirty = True
 
 
 def _node_online(nid):
@@ -7415,25 +7436,25 @@ def api_events(d):
     """The WHOLE kept day, newest first, each event carrying the chip it is filed under.
 
     Nothing is filtered here. The browser holds the day, so it searches and files without a round trip
-    and answers as fast as the operator types. `seq` and `count` are what let it tell that nothing has
-    changed, so a day of log is not re-read every couple of seconds to find that out."""
+    and answers as fast as the operator types. Whether the day has MOVED is a different question, and
+    it is answered by the summary poll the page already makes -- so this is asked for only when it has."""
     d = d or {}
     lim = max(1, min(EVENTS_MAX, _sint(d.get("limit")) or EVENTS_MAX))
-    evs = _ev_prune(load_events())[:lim]
-    for e in evs:
-        e["cat"] = _ev_cat(e.get("kind"))
-    return {"ok": True, "events": evs, "seq": _ev_seq_get(), "count": len(evs),
-            "kept_hours": EVENTS_TTL // 3600}
+    cut = time.time() - EVENTS_TTL       # the sweep is on a clock, so a read can be up to one tick stale
+    # Snapshot first, build after: the lock is held for the copy alone, not for the thousands of dicts
+    # this makes out of it -- a writer waiting on it is a node event nobody is holding still for.
+    evs = [dict(e, cat=_ev_cat(e.get("kind")))
+           for e in load_events()[:lim] if _sint(e.get("ts")) >= cut]
+    return {"ok": True, "events": evs}
 
 
 def api_events_clear(d):
-    global _ev_count
+    global _ev_count, _ev_dirty
     with _events_lock:
-        try:
-            save_json(EVENTS_FILE, [])
-        except OSError:
-            pass
+        _ev_all()[:] = []       # in place: the store is the list, and readers hold copies of it
         _ev_count = 0
+        _ev_dirty = True
+        _ev_flush()        # the operator asked for it to be gone; it is gone from the disk too
     return {"ok": True}
 
 
@@ -8064,27 +8085,29 @@ class ActCancelled(Exception):
     """Raised inside an action when the operator cancels it. Never reaches them as an error."""
 
 
-def act_step(h, step, i=0, n=0, stop=True):
+def act_step(h, step, i=0, n=0, stop=True, more=None):
     """Say which step this action is on, and stop it here if the operator asked for that.
 
     Reporting and cancelling are ONE call on purpose: a step that reports without checking cannot be
     stopped, and a check that reports nothing is a bar that does not move. So every progress point is a
     cancel point and vice versa, and neither can be forgotten on its own.
 
-    stop=False marks a step past the point of no return, where the work is already done on the nodes and
-    abandoning it would leave them holding something nothing on the panel knows about."""
+    Two different questions, and conflating them draws a button that does nothing:
+
+      stop  -- is THIS a safe place to stop? A cancel that has already arrived is honoured here.
+               False past the point of no return, where the work is on the nodes and abandoning it
+               would leave them holding something nothing on the panel knows about.
+      more  -- is a LATER step also safe to stop at? That is what the page draws «لغو» from, because a
+               press lands at the NEXT checkpoint, not this one. The last safe step passes more=False,
+               so the button goes as the final node write begins rather than after it returns.
+               Defaults to `stop`, which is right for every step but that one."""
     if h is None:
         return
     with _act_lock:
         if stop and h.get("cancel"):
             raise ActCancelled()
-        h.update(step=step, si=i, sn=n, pct=int(i * 100 / n) if n else 0, can=bool(stop))
-
-
-def act_dead(h):
-    """For a node call's should_abort=: True once the operator has cancelled."""
-    with _act_lock:
-        return bool(h and h.get("cancel"))
+        h.update(step=step, si=i, sn=n, pct=int(i * 100 / n) if n else 0,
+                 can=bool(stop if more is None else more))
 
 
 def _act_prune():
@@ -8095,7 +8118,7 @@ def _act_prune():
         _acts.pop(k, None)
 
 
-def act_start(key, title, fn, target="", page="", ttype=""):
+def act_start(key, fn, target="", page="", ttype=""):
     """Run fn(h) on its own thread and answer with the key the page watches.
 
     Whatever fn raises is the verdict, and a result dict that says ok:False is one too -- delete-link
@@ -8105,7 +8128,7 @@ def act_start(key, title, fn, target="", page="", ttype=""):
         cur = _acts.get(key)
         if cur and cur["state"] == "run":
             raise ValueError("همین کار روی این مورد در جریان است — تا تمام‌شدنش صبر کن")
-        h = {"key": key, "title": title, "target": target, "page": page, "ttype": ttype,
+        h = {"key": key, "target": target, "page": page, "ttype": ttype,
              "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "note": "",
              "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
         _acts[key] = h
@@ -8131,33 +8154,42 @@ def act_start(key, title, fn, target="", page="", ttype=""):
                 h.update(state="fail", step="", err=str(e)[:300], ended=int(time.time()))
 
     threading.Thread(target=run, daemon=True).start()
-    return {"ok": True, "act": key, "title": title, "target": target}
+    return {"ok": True, "act": key}
 
 
-def act_link(cmd_title, d, fn):
+def act_link(d, fn):
     """Start an action on a tunnel that already exists. The link is read HERE, not on the thread, so a
     bad id is a 400 the operator sees at once rather than a card that appears and then fails."""
     lid = (d or {}).get("id")
     L = next((x for x in load_links() if x["id"] == lid), None)   # compared as the impls compare it
     if not L:
         raise ValueError("link not found")
-    return act_start("link:" + str(lid), cmd_title, fn, target=L.get("name") or "")
+    return act_start("link:" + str(lid), fn, target=L.get("name") or "")
 
 
 def api_acts(_d):
-    """Every action still running, and the ones that just finished. One read feeds every card."""
+    """Every action still running, and the ones that just finished. One read feeds every card.
+
+    `cancel` stays behind: it is how the panel remembers a press, and the page is already told the same
+    thing by the step the press writes."""
     with _act_lock:
         _act_prune()
-        return {"ok": True, "acts": {k: dict(v) for k, v in _acts.items()}, "now": int(time.time())}
+        out = {k: {x: y for x, y in v.items() if x != "cancel"} for k, v in _acts.items()}
+    return {"ok": True, "acts": out, "now": int(time.time())}
 
 
 def api_act_cancel(d):
-    """Stop ONE action, where it runs. It stops at its next step; it is never killed mid-write."""
+    """Stop ONE action, where it runs: it stops at its next step and is never killed mid-write.
+
+    Refused once the action has passed the point where stopping is safe. Answering ok there would tell
+    the operator something that is not going to happen."""
     key = str((d or {}).get("act") or "")
     with _act_lock:
         h = _acts.get(key)
         if not h or h["state"] != "run":
             raise ValueError("این کار دیگر در جریان نیست")
+        if not h.get("can"):
+            raise ValueError("این کار از مرحله‌ای گذشته که بشود جلویش را گرفت — تا تمام‌شدنش صبر کن")
         h["cancel"] = True
         h["step"] = "در حالِ لغو…"
     return {"ok": True, "act": key}
@@ -8234,12 +8266,24 @@ class Handler(BaseHTTPRequestHandler):
     # has stopped reading trips it, a peer crawling at a few KB/s does not.
     BIG_SEND_TIMEOUT = 120
 
+    # Below this the header and the round trip cost more than the bytes saved. Above it the log page
+    # is the case that decides: a day of events is repeated Persian, which compresses hard, and the
+    # panel is reached over a phone connection.
+    GZIP_MIN = 4096
+
     def _send(self, code, body, ctype="application/json", extra=None, big=False):
         if isinstance(body, (dict, list)):
             body = json.dumps(body)
         data = body.encode() if isinstance(body, str) else body
+        enc = ""
+        # `big` is the megabyte-binary path: it streams, and a core binary does not compress.
+        if not big and len(data) >= self.GZIP_MIN and "gzip" in self.headers.get("Accept-Encoding", ""):
+            data, enc = gzip.compress(data, 6), "gzip"
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if enc:
+            self.send_header("Content-Encoding", enc)
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -8665,6 +8709,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
    skPfCard/skAgRow), so each page's loading state is pixel-identical to its loaded card. */
 @media(prefers-reduced-motion:reduce){.sk{animation:none}}
 /* ===== system-log category filter: a SINGLE horizontal row that scrolls sideways (never wraps) ===== */
+.logmore{cursor:pointer;text-align:center;font-weight:700}
+.logmore:active{opacity:.6}
 .logchips{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;margin:0 0 12px;padding:2px 1px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
 .logchips::-webkit-scrollbar{height:7px}
 .logchips::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--sub) 40%,transparent);border-radius:99px}
@@ -9414,9 +9460,9 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ ۲۴ ساعتِ گذشته — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه. قدیمی‌تر از یک روز خودکار پاک می‌شود (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
- logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_no_match:"چیزی با این عبارت پیدا نشد",
- logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",logc_none:"در این دسته لاگی نیست",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه. قدیمی‌تر از آن خودکار پاک می‌شود (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
+ logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
@@ -10114,12 +10160,12 @@ function actWords(a){
  if(a.state=='cancel')return esc(T('a_stopped'));
  if(a.state=='done')return esc(a.note?terr(a.note):T('a_took').replace('{t}',actAge(a)));
  return esc(a.step||T('a_working'))}
-// A bar that knows which step it is on fills to it; one that does not says so by sweeping. Inventing a
-// percentage puts a number on the screen that nothing measured.
+// A bar fills to the step it is on. Only «done» is full: a failure or a stop fills to where it GOT
+// to, because filling it says the work finished, which is the one thing that did not happen.
 function actBar(a){
- if(a.state!='run')return '<div class="abar '+esc(a.state)+'"><i style="width:100%"></i></div>';
- if(!num(a.sn))return '<div class="abar spin"><i></i></div>';
- return '<div class="abar"><i style="width:'+Math.max(5,num(a.pct))+'%"></i></div>'}
+ if(a.state=='run'&&!num(a.sn))return '<div class="abar spin"><i></i></div>';
+ var pct=a.state=='done'?100:Math.max(5,num(a.pct));
+ return '<div class="abar'+(a.state=='run'?'':' '+esc(a.state))+'"><i style="width:'+pct+'%"></i></div>'}
 // The row a card grows while something is happening to it. No action, no row -- the card is exactly
 // what it was. «لغو» is drawn only while the panel can still honour it: once the work is on the nodes,
 // offering it would be a button that does nothing.
@@ -10153,9 +10199,12 @@ function apendCard(a){var fam=String(a.ttype||'').toLowerCase();
 // The ones being built go first: they are what the operator is waiting on.
 function withPending(page,rows){
  return pendActs(page).map(function(a){return {k:'pend_'+a.key,h:apendCard(a)}}).concat(rows)}
+// The row lives on a card, and cards are drawn by the fleet list -- so re-reading the actions is only
+// half of showing one. Both, or the press does nothing visible until the next poll comes round.
+async function actStarted(){await refreshActs();return refreshFleet()}
 async function actCancel(key){var r=await post('act-cancel',{act:key});
  if(!(r.ok&&r.d.ok))toast(perr(r),'err');
- refreshActs()}
+ actStarted()}
 // Put a finished row away where it stands. The panel forgets it on its own soon enough; this is for the
 // operator who has read it and wants the card back now.
 function actDismiss(seen){ADISM[seen]=true;refresh().catch(function(){})}
@@ -10164,8 +10213,9 @@ function actDismiss(seen){ADISM[seen]=true;refresh().catch(function(){})}
 // that is going to be refused -- an overlapping subnet, a port already taken, a core nothing has staged
 // -- is refused while the operator is still looking at the form they can fix, instead of closing it onto
 // a card that dies. Past that, the card carries the rest.
-async function actAccepted(key){var end=Date.now()+45000;
+async function actAccepted(key,box){var end=Date.now()+45000;
  while(Date.now()<end){
+  if(box&&!box.isConnected)return {gone:true};   // the form was closed; nothing is waiting for this
   var r=await j('acts').catch(function(){return null});
   if(r&&r.acts){ACTS=r.acts;ACTNOW=num(r.now);
    var a=r.acts[key];
@@ -10750,7 +10800,8 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
  var r=await post('edit-link',body);
  if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
- var vr=await actAccepted(r.d.act);
+ var vr=await actAccepted(r.d.act,m);
+ if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  delete CHK[id];closeModal(m.closest('.modalov'))}
 function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
@@ -10787,11 +10838,11 @@ async function rebuildLink(id){
  var r=await post('rebuild-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r,'rebuild_failed'),'err');return}
  delete CHK[id];   // the card's own row carries this now; a stale check verdict beside it would contradict it
- refreshActs()}
+ actStarted()}
 async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('restart_yes')))return;
  var r=await post('restart-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r,'restart_failed'),'err');return}
- delete CHK[id];refreshActs()}
+ delete CHK[id];actStarted()}
 async function flipView(id){var r=await post('link-view',{id:id});
  if(r.ok&&r.d.ok){var L=FLEET.filter(function(x){return x.id==id})[0];var nm=L?(r.d.view_side=='b'?L.b_name:L.a_name):'';
   setChk(id,'ok',ic('swap')+esc(T('view_switched')+nm+T('view_switched2')));
@@ -10846,7 +10897,8 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
  // A rebuild can be refused for a reason only the node knows. A toast fades, and on a phone that reads
  // as "the button does nothing" -- so the reason goes in the sheet, the way every other form reports one.
  if(!(r.ok&&r.d.act)){if(m)formErr(m,perr(r,'rebuild_failed'));else toast(perr(r,'rebuild_failed'),'err');return}
- var vr=await actAccepted(r.d.act);
+ var vr=await actAccepted(r.d.act,m);
+ if(vr.gone)return;
  if(vr.err){if(m)formErr(m,vr.err);else toast(vr.err,'err');return}
  if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
 async function delLink(id){
@@ -10855,11 +10907,11 @@ async function delLink(id){
   if(!await confirmBox(T('del_force_ask'),T('del_force_yes')))return;
   var rf=await post('delete-link',{id:id,force:true});
   if(!(rf.ok&&rf.d.act)){toast(perr(rf),'err');return}
-  delete CHK[id];editingId=null;refreshActs();return}
+  delete CHK[id];editingId=null;actStarted();return}
  if(!await confirmBox(T('del_tun_confirm')))return;   // both endpoints online -> normal delete
  var r=await post('delete-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r),'err');return}
- delete CHK[id];editingId=null;refreshActs()}
+ delete CHK[id];editingId=null;actStarted()}
 
 // ===== Create
 // one endpoint's IP field for the create forms: multi-IP -> dropdown; single-IP -> disabled box (like the edit form)
@@ -10900,7 +10952,8 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
  m.textContent=T('creating_tun');
  var r=await post('create-tunnel',body);
  if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
- var vr=await actAccepted(r.d.act);
+ var vr=await actAccepted(r.d.act,m);
+ if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshTunnels()}
 
@@ -11918,7 +11971,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  m.textContent=T('creating_core');
  var r=await post('create-tunnel',body);
  if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
- var vr=await actAccepted(r.d.act);
+ var vr=await actAccepted(r.d.act,m);
+ if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
 // ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
@@ -12042,7 +12096,8 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var port=v('ee_port');if(port)body.port=port;
  var r=await post('edit-link',body);
  if(!(r.ok&&r.d.act)){formErr(m,perr(r));return}
- var vr=await actAccepted(r.d.act);
+ var vr=await actAccepted(r.d.act,m);
+ if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  editingId=null;closeModal(m.closest('.modalov'));refreshCore()}
 
@@ -12492,7 +12547,8 @@ function logsSkel(){el('view').innerHTML=vhead('list','logs_title','logs_sub')+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  toolbar('logs',T('logs_search'))+
  '<div id="logChips"></div>'+
- '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';markLogsSeen();refreshLogs();}
+ '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';
+ LOGPAINT='';markLogsSeen();refreshLogs();}   // a fresh list holds nothing the last paint left
 // One skeleton log card — same geometry as the real logcard (stripe + icon chip + two text bars + time),
 // so the loading state is pixel-identical to the loaded list (matches every other page's skeleton).
 function skLog(){return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
@@ -12513,28 +12569,42 @@ function logIco(e){var k=e.kind;
  if(k=='burn')return 'warn';
  if(k=='heal')return 'check';
  return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
-var LOGEVS=[],LOGFILTER='all',LOGSIG='';   // LOGSIG = the panel's seq:count the held day was read at
+var LOGEVS=[],LOGFILTER='all',LOGSIG='',LOGQ='',LOGPAINT='',LOGSHOW=200;
+var LOGPAGE=200;   // rows DRAWN at once. The day is all held and all searched; nobody reads it as cards.
+// LOGSIG = the panel's seq:count the held day was read at; LOGPAINT = what the list was last built from
 // The horizontal, sideways-scrolling category filter row. Counts are live; empty categories are hidden
 // (but the active one always stays visible). "errors only" spans every category.
-function logChipsHTML(){
- // Counted over what the SEARCH left, so a chip never offers rows the box in front of it has ruled out.
- var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
- found.forEach(function(e){c[e.cat]++;if(e.level=='bad')c.err++;});
- if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';   // an emptied category (e.g. «فقط خطاها» at 0) can't stay active — fall back to «همه»
+// How many of each, over what the SEARCH left -- so a chip never offers rows the box in front of it
+// has already ruled out.
+function logCounts(){var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
+ found.forEach(function(e){c[e.cat]++;if(e.level=='bad')c.err++});return c}
+// An emptied category (e.g. «فقط خطاها» at 0) cannot stay active. This is a decision, not a rendering:
+// it happens before the paint measures anything against the filter, or the paint runs twice.
+function logResolveFilter(){var c=logCounts();
+ if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';
+ return c}
+function logChipsHTML(c){
+ c=c||logCounts();   // the paint has them already; nobody counts twice
  var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   // «فقط خطاها» now hides at 0 just like every other category
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
-// The filtered list. Each card carries a colored category badge before the title.
 // What the search box left, out of the whole day the panel handed over. Matched against the title AND
 // the detail, because half of what an operator comes here looking for -- an address, a node's name, the
 // reason a tunnel went down -- lives in the detail and never in the title.
+var _lfQ=null,_lfSrc=null,_lfOut=null;
 function logFound(){var q=(QRY.logs||'').trim().toLowerCase();
  if(!q)return LOGEVS;
- return LOGEVS.filter(function(e){return ((e.fa||'')+' '+(e.dfa||'')).toLowerCase().indexOf(q)>=0})}
+ if(q===_lfQ&&LOGEVS===_lfSrc)return _lfOut;   // the chips and the rows ask this back to back
+ _lfQ=q;_lfSrc=LOGEVS;
+ return (_lfOut=LOGEVS.filter(function(e){return ((e.fa||'')+' '+(e.dfa||'')).toLowerCase().indexOf(q)>=0}))}
+// The filtered list. Each card carries a colored category badge before the title.
 function logRows(){
- var evs=logFound().filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':e.cat==LOGFILTER;});
- if(!evs.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T(QRY.logs?'logs_no_match':'logc_none'))+'</div>'}];
- return evs.map(function(e){
+ var all=logFound().filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':e.cat==LOGFILTER;});
+ if(!all.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T('logs_no_match'))+'</div>'}];
+ // Every row is a card's worth of markup, and a day can be thousands. Searching and counting still read
+ // the whole day -- only what is BUILT is bounded, and the rest is one tap away.
+ var evs=all.slice(0,LOGSHOW),rest=all.length-evs.length;
+ var rows=evs.map(function(e){
    var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
    var p=evParts(e);
@@ -12551,7 +12621,12 @@ function logRows(){
          '<div class="lhead"><span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
            '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span></div>'+
          evDetail(p.lines,evKey(e))+'</div>'+
-     '</div></div>'};});}
+     '</div></div>'};});
+ if(rest>0)rows.push({k:'__more',h:'<div class="card muted logmore" role="button" tabindex="0" onclick="logMore()" onkeydown="logMoreKey(event)">'+
+   esc(T('logs_more').replace('{n}',rest))+'</div>'});
+ return rows}
+function logMore(){LOGSHOW+=LOGPAGE;logPaint()}
+function logMoreKey(e){if(e.key===' '||e.key==='Enter'){e.preventDefault();logMore()}}
 // A stable per-card key. Events carry no id, so it comes from the content — which never changes once
 // logged. It is both the fold state's key and the row's, which is what lets a poll that brings nothing
 // new leave every card exactly where it is. Hashed to a bare number so it is safe as a DOM id and
@@ -12559,12 +12634,27 @@ function logRows(){
 function evKey(e){var s=(e.ts||0)+'|'+(e.fa||'')+'|'+(e.dfa||''),h=0;
  for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;
  return 'k'+(h>>>0);}
-// Only toggle the active class on the existing chips (do NOT rebuild the row) — rebuilding resets the
-// horizontal scrollLeft, which snapped the row back to the start when picking a scrolled-to tab. Counts
-// don't change on a filter pick, so an in-place highlight is enough; a full refreshLogs still rebuilds.
-function logFilter(k){LOGFILTER=k;var ch=el('logChips');
- if(ch){var cs=ch.querySelectorAll('.fchip');for(var i=0;i<cs.length;i++)cs[i].classList.toggle('on',cs[i].getAttribute('data-f')===k);}
- var box=el('logList');if(box)setList(box,logRows());}
+function logFilter(k){LOGFILTER=k;logPaint()}
+// Building the list is what costs on this page, so it happens when something that CHANGES the list
+// changes -- not on the poll that brought nothing. A new question (another chip, another search) is
+// answered from its first row rather than from wherever the last one had been scrolled open to.
+function logPaint(){
+ var box=el('logList');if(!box)return;
+ // The cheapest question first: nothing that could change the list has changed, so nothing is counted,
+ // filtered or built. Only the day itself, the chip, the search box and the window feed the list, and
+ // all four are in here.
+ if(LOGSIG+'|'+LOGFILTER+'|'+(QRY.logs||'')+'|'+LOGSHOW===LOGPAINT)return;
+ var counts=logResolveFilter();     // may drop a chip the search emptied back to «همه»
+ var q=LOGFILTER+'|'+(QRY.logs||'');
+ if(q!==LOGQ){LOGQ=q;LOGSHOW=LOGPAGE}
+ LOGPAINT=LOGSIG+'|'+q+'|'+LOGSHOW;
+ var ch=el('logChips');
+ // Nothing kept at all is «the log is empty»; nothing MATCHING the search is a different sentence, and
+ // logRows says that one — the chips have to stay up so the operator can get back out of the filter.
+ if(!LOGEVS.length){if(ch)ch.innerHTML='';setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T('logs_empty'))+'</div>'}]);return}
+ // Preserve the row's horizontal scroll across the rebuild, or the tabs snap back to the start.
+ if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML(counts);var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl}
+ setList(box,logRows())}
 // Split an event into a clean title + detail lines. Every event carries its structure in dfa
 // (detail, possibly multi-line); an event with no detail is title-only.
 function evParts(e){
@@ -12624,21 +12714,14 @@ function logKey(e,id){if(e.key===' '||e.key==='Enter'){e.preventDefault();logFol
 // does not change. Without this the page would pull a day of log every couple of seconds to redraw
 // exactly the same rows -- on a phone, over and over.
 async function refreshLogs(){
- var box=el('logList');if(!box)return;
+ if(!el('logList'))return;
  var sig=EVSEQ+':'+LOGN;
- if(sig!==LOGSIG||!LOGEVS.length){
+ if(sig!==LOGSIG){
   var r=await j('events').catch(function(){return null});
   if(r&&r.events){LOGEVS=r.events;LOGSIG=sig}}
- var ch=el('logChips');
- // Nothing kept at all is «the log is empty»; nothing MATCHING the search is a different sentence, and
- // logRows says that one — the chips have to stay up so the operator can get back out of the filter.
- if(!LOGEVS.length){if(ch)ch.innerHTML='';setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T('logs_empty'))+'</div>'}]);return;}
- // Preserve the row's horizontal scroll across the rebuild — the periodic poll calls refreshLogs, and a
- // bare innerHTML swap would reset scrollLeft to 0 and snap the tabs back to the start every few seconds.
- if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML();var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl;}
- setList(box,logRows());}
+ logPaint()}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');
- LOGEVS=[];LOGSIG='';refreshLogs();}
+ LOGEVS=[];LOGSIG='';LOGPAINT='';refreshLogs();}
 function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
@@ -12794,6 +12877,7 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
 # tools/tuning_consistency.py guard enforces the remaining panel<->core<->node agreement.
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
+INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
 # The panel-side half of the same card. `tuning` is already injected above as _TUNDEF.
 INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
     {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))

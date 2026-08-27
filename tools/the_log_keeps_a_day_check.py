@@ -67,12 +67,19 @@ def ev(P, age, kind="sys", fa="e", level="ok", dfa=""):
     return {"ts": int(time.time()) - age, "level": level, "kind": kind, "fa": fa, "dfa": dfa}
 
 
+def seed(P, rows):
+    """Start the panel on this log. The store is in memory and the file is a copy of it, so putting a
+    log there means writing the file AND letting the store be read from it again."""
+    P.save_json(P.EVENTS_FILE, rows)
+    P._ev_list, P._ev_count, P._ev_dirty = None, None, False
+
+
 def part_age(P):
     print("== 1) a day is the rule, and the count is not ==")
     now = int(time.time())
     rows = [(1, "just now"), (6 * H, "six hours"), (24 * H - 120, "a day less two minutes"),
             (24 * H + 60, "a day and a minute"), (3 * 24 * H, "three days")]
-    P.save_json(P.EVENTS_FILE, [ev(P, a, fa=n) for a, n in rows])
+    seed(P, [ev(P, a, fa=n) for a, n in rows])
     P.ev_sweep()
     kept = [e["fa"] for e in P.load_events()]
     check(kept == ["just now", "six hours", "a day less two minutes"],
@@ -82,14 +89,14 @@ def part_age(P):
     check(P.EVENTS_TTL == 24 * H, "the day is 24 hours", P.EVENTS_TTL)
 
     # The defect this replaces: a list of 500 threw away events that were minutes old.
-    P.save_json(P.EVENTS_FILE, [ev(P, 3600, fa="e%d" % i) for i in range(601)])
+    seed(P, [ev(P, 3600, fa="e%d" % i) for i in range(601)])
     P.ev_sweep()
     check(len(P.load_events()) == 601,
           "six hundred and one events an hour old are ALL still there", len(P.load_events()))
     check(not hasattr(P, "EVENTS_CAP"), "there is no count-based cap left to decide this")
 
     print("== 2) the ceiling is a guard, and it sits far above a day's worth ==")
-    P.save_json(P.EVENTS_FILE, [ev(P, 60, fa="e%d" % i) for i in range(P.EVENTS_MAX + 300)])
+    seed(P, [ev(P, 60, fa="e%d" % i) for i in range(P.EVENTS_MAX + 300)])
     P.ev_sweep()
     check(len(P.load_events()) == P.EVENTS_MAX,
           "a runaway is bounded at EVENTS_MAX=%d" % P.EVENTS_MAX, len(P.load_events()))
@@ -98,10 +105,21 @@ def part_age(P):
 
 def part_clock(P):
     print("== 3) forgetting happens on a clock, not only on the next write ==")
-    P.save_json(P.EVENTS_FILE, [ev(P, 30 * H, fa="yesterday"), ev(P, 60, fa="recent")])
-    dropped = P.ev_sweep()                       # nothing was logged; the sweep alone must do it
+    seed(P, [ev(P, 30 * H, fa="yesterday"), ev(P, 60, fa="recent")])
+    check([e["fa"] for e in P.load_events()] == ["recent"],
+          "a panel starting on a stale log has already forgotten it", [e["fa"] for e in P.load_events()])
+
+    # Time passing, on a panel that is up and logging nothing: the two events are both inside the day
+    # when the store is read, and one of them ages out while it sits there. Nothing writes; the sweep
+    # alone has to notice.
+    seed(P, [ev(P, 60, fa="recent"), ev(P, 60, fa="ages out")])
+    P.load_events()
+    with P._events_lock:
+        P._ev_list[1]["ts"] -= 2 * 24 * H
+    dropped = P.ev_sweep()
     check(dropped == 1 and [e["fa"] for e in P.load_events()] == ["recent"],
-          "a sweep with no new event still takes yesterday out", [e["fa"] for e in P.load_events()])
+          "a sweep with no new event still takes out what aged while it sat there",
+          "dropped=%s kept=%s" % (dropped, [e["fa"] for e in P.load_events()]))
     before = os.path.getmtime(P.EVENTS_FILE)
     time.sleep(0.05)
     check(P.ev_sweep() == 0 and os.path.getmtime(P.EVENTS_FILE) == before,
@@ -112,41 +130,97 @@ def part_clock(P):
                  if isinstance(n, ast.FunctionDef) and n.name == "events_loop"), None)
     calls = {n.func.id for n in ast.walk(loop) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     check("ev_sweep" in calls, "events_loop is what runs it", sorted(calls))
-    check("events_loop" in PANEL.read_text(encoding="utf-8"),
-          "...and events_loop is a thread the panel starts")
+    # ...and that loop has to be a thread somebody starts. Looking for the NAME proves nothing: it is
+    # in the file because the function is defined there.
+    started = {kw.value.id for n in ast.walk(src)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr == "Thread"
+               for kw in n.keywords
+               if kw.arg == "target" and isinstance(kw.value, ast.Name)}
+    check("events_loop" in started, "...and the panel starts it as a thread", sorted(started))
 
-    print("== 4) writing a log prunes too ==")
-    P.save_json(P.EVENTS_FILE, [ev(P, 30 * H, fa="yesterday")])
-    P.log_event("ok", "sys", "now", "")
-    check([e["fa"] for e in P.load_events()] == ["now"],
-          "one write is enough to carry yesterday out", [e["fa"] for e in P.load_events()])
+    print("== 4) a write costs nothing, because it does not touch the file ==")
+    # The defect this shape replaces: log_event re-read and re-wrote the WHOLE file per event, so at a
+    # day's worth each one cost tens of milliseconds under the lock, and a burst was quadratic. The
+    # structural claim is the one that cannot flake -- the file is untouched until the sweep.
+    seed(P, [])
+    P.load_events()
+    t0 = time.perf_counter()
+    for i in range(800):
+        P.log_event("ok", "sys", "e%d" % i, "detail")
+    burst = time.perf_counter() - t0
+    with open(P.EVENTS_FILE, encoding="utf-8") as f:
+        on_disk = len(json.load(f))
+    check(on_disk == 0, "800 events written, and the file was not touched once", on_disk)
+    check(len(P.load_events()) == 800, "...they are all in the store", len(P.load_events()))
+    check(burst < 1.0, "...and the burst took %.0f ms, not seconds" % (burst * 1000))
+    P.ev_sweep()
+    with open(P.EVENTS_FILE, encoding="utf-8") as f:
+        check(len(json.load(f)) == 800, "the sweep is what puts them on disk")
+
+    print("== 4a) newest first, which is what the ceiling and the page both lean on ==")
+    # The runaway cut is a slice off the FRONT, and the page renders in the order it is handed. Both are
+    # silently wrong if the store ever drifts out of order, and nothing else would say so.
+    seed(P, [])
+    P.load_events()
+    for i in range(5):
+        P.log_event("ok", "sys", "e%d" % i, "")
+        time.sleep(0.002)
+    held = [e["fa"] for e in P.load_events()]
+    check(held == ["e4", "e3", "e2", "e1", "e0"], "the store is newest first", held)
+    check([e["fa"] for e in P.api_events({})["events"]] == held,
+          "...and that is the order the page is handed")
+    ts = [e["ts"] for e in P.load_events()]
+    check(ts == sorted(ts, reverse=True), "...and the timestamps agree with it", ts)
+
+    print("== 4b) the ceiling is the one cut a write does make ==")
+    seed(P, [ev(P, 60, fa="e%d" % i) for i in range(P.EVENTS_MAX)])
+    P.load_events()
+    P.log_event("ok", "sys", "one more", "")
+    kept = P.load_events()
+    check(len(kept) == P.EVENTS_MAX and kept[0]["fa"] == "one more",
+          "at the ceiling a write pushes the oldest out and the count holds", len(kept))
+    check(kept[-1]["fa"] == "e%d" % (P.EVENTS_MAX - 2),
+          "...and it is the OLDEST that went, not the newest", kept[-1]["fa"])
 
 
 def part_api(P):
     print("== 5) the browser is handed the WHOLE kept day ==")
-    P.save_json(P.EVENTS_FILE, [ev(P, 60 + i, fa="e%d" % i) for i in range(900)])
+    seed(P, [ev(P, 60 + i, fa="e%d" % i) for i in range(900)])
     r = P.api_events({})
     check(len(r["events"]) == 900, "no default limit cuts it (900 in, %d out)" % len(r["events"]))
-    check(r.get("kept_hours") == 24, "...and it says how long it keeps", r.get("kept_hours"))
-    check("seq" in r and "count" in r,
-          "...and carries what lets a page tell nothing has changed", sorted(r))
+    check(sorted(r) == ["events", "ok"], "...and carries nothing the page does not read", sorted(r))
+    # How long it keeps is written in one place. A sentence with its own copy of the number goes wrong
+    # the day the constant moves, and every check would still be green.
+    said = re.search(r'logs_sub:"([^"]*)"', P.INDEX_HTML)
+    check(bool(said) and (" %d " % (P.EVENTS_TTL // 3600)) in said.group(1),
+          "the page's own sentence says the hours EVENTS_TTL holds",
+          said.group(1)[:60] if said else None)
 
     print("== 6) the chip an event is filed under is decided once, and travels with it ==")
     for kind, want in (("link", "tunnel"), ("rot", "rot"), ("edge", "rot"), ("burn", "rot"),
                        ("heal", "rot"), ("ech", "ech"), ("node", "node"), ("whatever", "sys")):
         check(P._ev_cat(kind) == want, "%-9s -> %s" % (kind, want), P._ev_cat(kind))
-    P.save_json(P.EVENTS_FILE, [ev(P, 60, kind="edge")])
+    seed(P, [ev(P, 60, kind="edge")])
     check((P.api_events({})["events"][0] or {}).get("cat") == "rot",
           "...and the event carries it to the page")
 
     page = P.INDEX_HTML
     check("function logCat(" not in page,
           "the browser does not derive it a second time")
+    # Every kind the panel really logs, read off the log_event calls themselves rather than a list that
+    # can fall behind them -- so a chip the page draws that nothing can fill would fail here.
+    src = ast.parse(PANEL.read_text(encoding="utf-8"))
+    kinds = {n.args[1].value for n in ast.walk(src)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "log_event"
+             and len(n.args) > 1 and isinstance(n.args[1], ast.Constant)}
+    check(len(kinds) >= 4, "the panel logs %d different kinds" % len(kinds), sorted(kinds))
+    produced = {P._ev_cat(k) for k in kinds} | {"all", "err"}
     chips = re.search(r"var order=\[(.*?)\];", page)
     drawn = set(re.findall(r"\['(\w+)'", chips.group(1))) if chips else set()
-    check(drawn == set(P.EV_CATS) | {"all", "err"},
-          "every chip the page draws is a category the panel produces",
-          "page=%s panel=%s" % (sorted(drawn), sorted(set(P.EV_CATS) | {"all", "err"})))
+    check(drawn == produced,
+          "every chip the page draws is one the panel can actually fill",
+          "page=%s panel=%s (from kinds %s)" % (sorted(drawn), sorted(produced), sorted(kinds)))
 
 
 DAY = [
@@ -174,6 +248,8 @@ document.getElementById=function(id){if(REG[id])return REG[id];
 setList=function(box,rows){PAINTED=rows};
 function counts(){var h=logChipsHTML(),o={},m,re=/data-f="(\w+)"[^>]*>[^<]*<span class="ct">(\d+)</g;
  while((m=re.exec(h)))o[m[1]]=+m[2];return o}
+function mkDay(n){var a=[];for(var i=0;i<n;i++)a.push({ts:2000-i,level:'ok',kind:'sys',cat:'sys',
+  fa:'e'+i,dfa:'d'+i});return a}
 var out={};
 (async function(){
  cur='logs'; EVSEQ=1; LOGN=DAY.length; LOGEVS=[]; LOGSIG=''; LOGFILTER='all'; QRY.logs='';
@@ -196,11 +272,59 @@ var out={};
  LOGFILTER='node';                      // a chip on top of the search narrows it further
  out.searchPlusChip=logRows().length;
  LOGFILTER='all';
- QRY.logs='چیزی که نیست';
- out.noMatch=logRows()[0].h;
+ // Every empty state the page can reach, enumerated: each chip, with and without a search that misses,
+ // plus the empty log. A category with nothing in it is dropped back to «همه» before the list is built,
+ // so «this category is empty» is a sentence nothing can produce -- and a message nothing can reach is
+ // one nobody maintains.
+ out.emptyStates=[];
+ ['all','tunnel','rot','ech','node','sys','err'].forEach(function(f){
+  ['','zzzz-no-such-thing'].forEach(function(qq){
+   LOGEVS=DAY.slice(); LOGFILTER=f; QRY.logs=qq; LOGSIG='s'+f+qq; LOGQ=''; LOGPAINT=''; LOGSHOW=LOGPAGE;
+   var rows=logRows();
+   if(rows.length===1&&rows[0].k==='__empty')out.emptyStates.push(rows[0].h.replace(/<[^>]*>/g,''))})});
+ LOGEVS=[]; LOGFILTER='all'; QRY.logs=''; LOGSIG='e'; LOGQ=''; LOGPAINT=''; logPaint();
+ out.emptyStates.push(PAINTED[0].h.replace(/<[^>]*>/g,''));
+ out.noMatch=out.emptyStates[0];
 
- // polls that bring nothing new must not pull the day down again
- QRY.logs=''; FETCHES.length=0;
+ // a day is HELD and SEARCHED whole, but only a window of it is built into cards -- and the rest is
+ // one tap away, with the count saying how much is left
+ QRY.logs=''; LOGFILTER='all'; LOGEVS=mkDay(1200); LOGSIG='x'; LOGQ=''; LOGPAINT=''; LOGSHOW=LOGPAGE;
+ logPaint();
+ out.window={drawn:PAINTED.length,page:LOGPAGE,last:PAINTED[PAINTED.length-1].k};
+ logMore();
+ out.afterMore=PAINTED.length;
+ QRY.logs='e7'; logPaint();                 // a fresh question starts at the top of its own answer
+ out.searchResetsWindow=LOGSHOW;
+
+ // building the list is THE cost on this page; a poll that brings nothing must not pay it
+ QRY.logs=''; LOGFILTER='all'; LOGEVS=DAY.slice(); LOGSIG='y'; LOGQ=''; LOGPAINT='';
+ var built=0,realRows=logRows,counted=0,realCounts=logCounts;
+ logRows=function(){built++;return realRows()};
+ logCounts=function(){counted++;return realCounts()};
+ logPaint();
+ var afterFirst=built,countedFirst=counted;
+ logPaint(); logPaint(); logPaint();
+ out.paintsWhenNothingChanged={first:afterFirst,afterThreeMore:built};
+ // a tick that changes nothing must not count, filter or build -- not just skip the building
+ out.workWhenNothingChanged={countedFirst:countedFirst,countedAfterThreeMore:counted};
+ logCounts=realCounts;
+ LOGFILTER='node'; logPaint();
+ out.paintsWhenTheChipChanged=built;
+ logRows=realRows; LOGFILTER='all'; LOGPAINT=''; LOGQ='';
+
+ // a chip whose category the search emptied cannot stay active -- and falling back to «همه» is a
+ // decision, so it costs ONE paint and not a second one to notice itself
+ LOGEVS=DAY.slice(); LOGSIG='z'; LOGQ=''; LOGPAINT=''; QRY.logs=''; LOGFILTER='rot';   // nothing in DAY is a rotation
+ var b2=0,rr=logRows; logRows=function(){b2++;return rr()};
+ logPaint();
+ out.emptiedChip={filter:LOGFILTER,paints:b2};
+ logPaint();
+ out.emptiedChipSettles=b2;
+ logRows=rr;
+
+ // polls that bring nothing new must not pull the day down again. Put the page back where the section
+ // above found it first, or the fake signature this one used would count as a change.
+ QRY.logs=''; LOGEVS=DAY.slice(); LOGSIG=EVSEQ+':'+LOGN; FETCHES.length=0;
  await refreshLogs(); await refreshLogs(); await refreshLogs();
  out.quietPolls=FETCHES.length;
  EVSEQ=2; LOGN=DAY.length+1;
@@ -241,11 +365,33 @@ def part_browser(P):
           "the chips are counted over what the search left", o["chipsFollowSearch"])
     check(o["searchPlusChip"] == 1, "a chip narrows the search further", o["searchPlusChip"])
     check("پیدا نشد" in (o["noMatch"] or ""), "nothing matching says so, in its own words", o["noMatch"])
+    check(len(set(o["emptyStates"])) == 2,
+          "the page has exactly two empty states, and both are reachable",
+          sorted(set(o["emptyStates"])))
     check(o["quietPolls"] == 0, "three polls with nothing new pull nothing", o["quietPolls"])
     check(o["afterAnEvent"] == {"fetches": 1, "held": len(DAY) + 1},
           "a new event pulls once, and lands", o["afterAnEvent"])
     check(o["afterAPrune"] == {"fetches": 2, "held": len(DAY)},
           "a prune does too, though the sequence never moved", o["afterAPrune"])
+
+    print("== 8) a day is held and searched whole, but drawn a window at a time ==")
+    check(o["window"]["drawn"] == o["window"]["page"] + 1 and o["window"]["last"] == "__more",
+          "1200 events draw %d rows and one «more»" % o["window"]["page"], o["window"])
+    check(o["afterMore"] == 2 * o["window"]["page"] + 1,
+          "...and «more» adds another page", o["afterMore"])
+    check(o["searchResetsWindow"] == o["window"]["page"],
+          "a new search is answered from its first row", o["searchResetsWindow"])
+    check(o["paintsWhenNothingChanged"] == {"first": 1, "afterThreeMore": 1},
+          "three paints with nothing changed build the list once",
+          o["paintsWhenNothingChanged"])
+    check(o["workWhenNothingChanged"] == {"countedFirst": 1, "countedAfterThreeMore": 1},
+          "...and count the day once too, not once per tick", o["workWhenNothingChanged"])
+    check(o["paintsWhenTheChipChanged"] == 2,
+          "...and a chip that changed builds it again", o["paintsWhenTheChipChanged"])
+    check(o["emptiedChip"] == {"filter": "all", "paints": 1},
+          "a chip the search emptied falls back to «همه» in one paint", o["emptiedChip"])
+    check(o["emptiedChipSettles"] == 1,
+          "...and the paint after it does nothing at all", o["emptiedChipSettles"])
 
 
 def main():
