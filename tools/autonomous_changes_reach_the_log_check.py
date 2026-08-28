@@ -91,10 +91,10 @@ def main():
           'port-roll' not in "".join(v for k, v in src.items() if k != "core_status.go"),
           "no carrier writes a port line of its own; only the one place that knows whether it worked")
     cs = src.get("core_status.go", "")
-    check("rollPending" in cs and re.search(r'func \(s \*coreStatus\) portRedrawn\(\)', cs),
-          "the draw is remembered rather than written")
-    check(re.search(r'"port-roll", "sport:"', cs),
-          "and the line names the port it recovered on")
+    check("rollTries" in cs and re.search(r'func \(s \*coreStatus\) portRedrawn\(\)', cs),
+          "the draw is COUNTED rather than written")
+    check('"port-roll",' in cs and '"sport:"' in cs and '" tries:"' in cs,
+          "and the line names the port it recovered on AND how many draws it cost")
     lvl, fa = P._EV_ROT_CODE.get("port-roll", ("", ""))
     check(lvl == "ok" and "برگشت" in fa,
           "the panel's text says the redraw WORKED (%r/%r) — it used to describe the moment it was "
