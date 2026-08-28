@@ -3206,7 +3206,7 @@ def api_node_adopt_ip(d):
         t["host"], t["port"] = new, newp
         save_json(NODES_FILE, nodes)
     _moved_clear(n["id"])
-    log_event("ok", "node", f"دلیل: تنظیمِ نشانیِ تازهٔ نودِ «{n['name']}»",
+    log_event("ok", "node", f"نودِ «{n['name']}»: تنظیمِ نشانیِ تازه",
               f"نشانی از {old}:{oldp} به {new}:{newp} عوض شد — تونل‌هایش را بازسازی کن")
     _refresh_cache([n["id"]])
     return {"ok": True, "host": new, "port": newp}
@@ -3904,7 +3904,7 @@ def api_push_cancel(d):
         for j in live:
             j["cancel"] = True
             _skip_waiting(j)
-    log_event("warn", "node", "دلیل: لغوِ آپلود به فلیت توسطِ اپراتور")
+    log_event("warn", "node", "لغوِ آپلود به فلیت توسطِ اپراتور")
     return {"ok": True, "job": jid}
 
 
@@ -6268,9 +6268,9 @@ def _restart_link_impl(d, h=None):
         if not ok:
             errs.append(f"{N['name']}: {r.get('error') or r.get('msg') or '?'}")
     if errs:
-        log_event("bad", "link", f"دلیل: ری‌استارتِ ناموفقِ هستهٔ تونلِ «{L['name']}»", "؛ ".join(errs))
+        log_event("bad", "link", f"تونلِ «{L['name']}»: ری‌استارتِ ناموفقِ هسته", "؛ ".join(errs))
         raise ValueError("؛ ".join(errs))
-    log_event("ok", "link", f"دلیل: ری‌استارتِ هستهٔ تونلِ «{L['name']}»",
+    log_event("ok", "link", f"تونلِ «{L['name']}»: ری‌استارتِ هسته",
               "پروسه روی هر دو نود تازه شد؛ کانفیگ دست‌نخورده")
     return {"ok": True, "ends": ends}
 
@@ -6659,9 +6659,9 @@ def _ech_refresh_once():
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome, not an optimistic guess
-                    log_event("warn", "ech", f"دلیل: حذفِ رکوردِ ECH تونلِ «{nm}»", "به wss ساده تنزل یافت و بازسازی شد")
+                    log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "به wss ساده تنزل یافت و بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"دلیل: حذفِ رکوردِ ECH تونلِ «{nm}»", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
+                    log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
         if changed and chmap:
@@ -6687,9 +6687,9 @@ def _ech_refresh_once():
                 _ech_down_rebuilt.add(lid)
                 why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
                 if _ech_safe_rebuild(lid):   # log the ACTUAL outcome; a failed rebuild must not read as success
-                    log_event("ok", "ech", f"دلیل: چرخشِ کلیدِ ECH تونلِ «{nm}»", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
+                    log_event("ok", "ech", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"دلیل: چرخشِ کلیدِ ECH تونلِ «{nm}»", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
+                    log_event("bad", "ech", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
                     _ech_down_rebuilt.discard(lid)   # let the NEXT cycle retry (don't burn the episode on a failed rebuild)
         else:
             _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
@@ -6719,9 +6719,9 @@ def _ech_heal_once():
         _ech_down_rebuilt.add(lid)
         why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
         if _ech_safe_rebuild(lid):
-            log_event("ok", "ech", f"دلیل: بازسازیِ سریعِ ECH تونلِ «{nm}»", f"{why_fa}")
+            log_event("ok", "ech", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}")
         else:
-            log_event("bad", "ech", f"دلیل: بازسازیِ سریعِ ECH تونلِ «{nm}»", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
+            log_event("bad", "ech", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
             _ech_down_rebuilt.discard(lid)   # let the next tick retry (don't burn the episode on a failed rebuild)
 
 
@@ -6977,26 +6977,18 @@ def _ev_core_text(kind, code, detail, nm):
         rot = _EV_ROT_CODE.get(code)
         if rot:   # an intentional rotation/pin, not a fault — informational, not a red "disconnected"
             lvl, fa = rot
-            if code == "port-roll":
-                # The core sends «sport:<p> tries:<n>»: the port it came back on, and how many
-                # draws it took. Both belong in the sentence — «it came back» alone does not say
-                # whether the budget was nearly spent.
-                kv = dict(w.split(":", 1) for w in key.split() if ":" in w)
-                return (lvl, "rot",
-                        f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ پس از {kv.get('tries', '?')} تلاش، "
-                        f"با پورتِ {kv.get('sport', '?')} برگشت", "")
             return (lvl, "rot", f"تونلِ «{nm}»: {fa}", "")
         rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
-        return ("bad", "link", f"دلیل: قطعِ تونلِ «{nm}»", rf)
+        return ("bad", "link", f"تونلِ «{nm}»: قطع شد", rf)
     if kind == "up":
         rf = _EV_UP_CODE.get(code, "تونل وصل شد")
-        return ("ok", "link", f"دلیل: وصلِ مجددِ تونلِ «{nm}»", rf)
+        return ("ok", "link", f"تونلِ «{nm}»: وصلِ مجدد", rf)
     if kind == "burn":
         # The reason string repeated what the title already says, so the card carried two sentences for
         # one fact. The endpoint is the useful part; keep only that -- and name the AXIS it sits on,
         # because a destination IP is not an edge.
         what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
-        return ("warn", "burn", f"دلیل: سوختنِ {what} تونلِ «{nm}»", f"{what}: {key}")
+        return ("warn", "burn", f"تونلِ «{nm}»: سوختنِ {what}", f"{what}: {key}")
     if kind == "cfg":
         # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
         # opens its sockets, and they used to reach only the core unit's journal, which the node reads on
@@ -7020,7 +7012,7 @@ def _ev_core_text(kind, code, detail, nm):
         # the detail. Distinct from the active-carrier up/reconnect.
         if code == "tun-probe":
             what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
-            return ("ok", "heal", f"دلیل: بازگشتِ {what} تونلِ «{nm}»",
+            return ("ok", "heal", f"تونلِ «{nm}»: بازگشتِ {what}",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
     if kind == "pool":
         # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 edges it
@@ -7028,7 +7020,7 @@ def _ev_core_text(kind, code, detail, nm):
         # those too -- so when only one is left the tunnel keeps working but STOPS switching edges (which
         # is why the rotation log goes quiet). detail is "reachable/total".
         if code == "degraded":
-            return ("warn", "edge", f"دلیل: توقفِ چرخش تونلِ «{nm}» — فقط یک لبه در دسترس مانده",
+            return ("warn", "edge", f"تونلِ «{nm}»: توقفِ چرخش — فقط یک لبه در دسترس مانده",
                     "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
             # The operator pinned something that turned out not to work. Rather than hold the tunnel down
@@ -7039,11 +7031,11 @@ def _ev_core_text(kind, code, detail, nm):
             axis, _, why = key.partition(":")
             what = _PIN_AXIS.get(axis, "لبهٔ")
             if why == "cannot-land":
-                return ("warn", "edge", f"دلیل: آزادشدنِ پینِ {what} تونلِ «{nm}» — اصلاً وصل نشد",
+                return ("warn", "edge", f"تونلِ «{nm}»: آزادشدنِ پینِ {what} — اصلاً وصل نشد",
                         "چیزی که پین کردی در دسترس نبود؛ برای جلوگیری از قطعی، چرخش به انتخابِ سالم برگشت")
-            return ("warn", "edge", f"دلیل: آزادشدنِ پینِ {what} تونلِ «{nm}» — مسدود بود",
+            return ("warn", "edge", f"تونلِ «{nm}»: آزادشدنِ پینِ {what} — مسدود بود",
                     "پروبِ نود دید هیچ ترافیکی از آن مسیر رد نمی‌شود؛ برای جلوگیری از قطعی، چرخش برگشت")
-        return ("ok", "edge", f"دلیل: ازسرگیریِ چرخش تونلِ «{nm}»",
+        return ("ok", "edge", f"تونلِ «{nm}»: ازسرگیریِ چرخش",
                 "لبهٔ دیگری دوباره در دسترسِ چرخش است")
     if kind == "ech":
         # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
@@ -7052,7 +7044,7 @@ def _ev_core_text(kind, code, detail, nm):
         # it so the (long) key lands in its OWN labeled box instead of being dumped inline in the message.
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
-        return ("ok", "ech", f"دلیل: ترمیمِ خودکارِ کلیدِ ECH تونلِ «{nm}»", dfa)
+        return ("ok", "ech", f"تونلِ «{nm}»: ترمیمِ خودکارِ کلیدِ ECH", dfa)
     return None
 
 
@@ -7221,9 +7213,9 @@ def _events_once():
             continue
         nm = n.get("name", "")
         if online:
-            log_event("ok", "node", f"دلیل: آنلاین‌شدنِ نودِ «{nm}»")
+            log_event("ok", "node", f"نودِ «{nm}»: آنلاین شد")
         else:
-            log_event("bad", "node", f"دلیل: آفلاین‌شدنِ نودِ «{nm}»")
+            log_event("bad", "node", f"نودِ «{nm}»: آفلاین شد")
     for nid in [k for k in _ev_state["nodes"] if k not in seen]:
         _ev_state["nodes"].pop(nid, None)
 
@@ -7268,7 +7260,7 @@ def _events_once():
             if precise_core and lid not in _ev_state["links_coarse_down"]:
                 pass  # the paired "up" comes from the core event ring
             else:
-                log_event("ok", "link", f"دلیل: وصلِ تونلِ «{nm}»")
+                log_event("ok", "link", f"تونلِ «{nm}»: وصل شد")
             _ev_state["links_coarse_down"].discard(lid)
         else:
             # The core records the PRECISE down reason itself (see the edge section) — don't also emit a
@@ -7279,7 +7271,7 @@ def _events_once():
                 pass  # core-sourced precise "down" (and its paired "up") come from the event ring
             else:
                 rf = _link_down_reason(L, nmap)
-                log_event("bad", "link", f"دلیل: قطعِ تونلِ «{nm}»", rf)
+                log_event("bad", "link", f"تونلِ «{nm}»: قطع شد", rf)
                 if precise_core:
                     _ev_state["links_coarse_down"].add(lid)  # coarse (node-offline) down -> pair with a coarse up
     for lid in [k for k in _ev_state["links"] if k not in seen]:
@@ -7380,8 +7372,20 @@ def _events_once():
                         # moved, which is the whole answer.
                         lvl, fa = _EV_ROT_CODE[ecode]
                         rotated.add(lid)
-                        log_event(lvl, "rot", f"دلیل: {fa} تونلِ «{nm}»",
+                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}",
                                   f"به: {_ev_value(edet)}" if _ev_value(edet) else "")
+                        continue
+                    if ekind == "down" and ecode == "port-roll":
+                        # The core sends «sport:<p> tries:<n>»: the port it came back on and how many
+                        # draws that cost. Handled HERE and not in _ev_core_text, because every code in
+                        # _EV_ROT_CODE is answered in this loop and never reaches it. There is no IP in
+                        # the detail, so it must not fall into the pair state below either.
+                        kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
+                        lvl = _EV_ROT_CODE[ecode][0]
+                        rotated.add(lid)
+                        log_event(lvl, "rot",
+                                  f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ پس از {kv.get('tries', '?')} تلاش، "
+                                  f"با پورتِ {kv.get('sport', '?')} برگشت", "")
                         continue
                     if ekind == "down" and ecode in _EV_ROT_CODE:
                         # source/dest IP rotation. Show the whole PAIR on each side, like a ws edge switch
@@ -7406,7 +7410,7 @@ def _events_once():
                                 _ev_state["rotip"][other_k] = other
                         lvl, fa = _EV_ROT_CODE[ecode]
                         dfa = _rot_pair(axis, prev, ip, other)
-                        log_event(lvl, "rot", f"دلیل: {fa} تونلِ «{nm}»", dfa)
+                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", dfa)
                         continue
                     txt = _ev_core_text(ekind, ecode, edet, nm)
                     if txt:
@@ -7429,7 +7433,7 @@ def _events_once():
                 if lid in rotated:
                     pass
                 elif not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
-                    log_event("ok", "edge", f"دلیل: چرخش لبه تونلِ «{nm}»", f"از: {prev}\nبه: {active}")
+                    log_event("ok", "edge", f"تونلِ «{nm}»: چرخش لبه", f"از: {prev}\nبه: {active}")
         except Exception:
             continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
@@ -7918,7 +7922,7 @@ def api_proxy_add(d):
              "scheme": scheme, "host": host, "port": port, "user": user, "pass": pw or ""}
         ps.append(p)
         save_json(PROXIES_FILE, ps)
-    log_event("ok", "node", f"دلیل: افزودنِ پروکسیِ «{p['name']}»", f"{scheme}://{host}:{port}")
+    log_event("ok", "node", f"پروکسیِ «{p['name']}»: افزوده شد", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
@@ -7939,7 +7943,7 @@ def api_proxy_edit(d):
         elif not user:
             p["pass"] = ""      # no user means no auth at all; a kept password would be dead weight
         save_json(PROXIES_FILE, ps)
-    log_event("ok", "node", f"دلیل: ویرایشِ پروکسیِ «{p['name']}»", f"{scheme}://{host}:{port}")
+    log_event("ok", "node", f"پروکسیِ «{p['name']}»: ویرایش شد", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
@@ -7966,7 +7970,7 @@ def api_proxy_del(d):
             # Deleting it would drop those nodes back to a DIRECT connection without anyone saying so.
             raise ValueError("این پروکسی روی این نودها فعال است: " + "، ".join(used))
         save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
-    log_event("ok", "node", f"دلیل: حذفِ پروکسیِ «{p['name']}»")
+    log_event("ok", "node", f"پروکسیِ «{p['name']}»: حذف شد")
     return {"ok": True}
 
 
@@ -8065,7 +8069,7 @@ def api_checkin_impl(source_ip, d):
     if get_settings().get("reconcile_mode") != "auto":
         # manual: the operator moves it. Say WHERE it moved to, or they have no way to know the address.
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
-            log_event("warn", "node", f"دلیل: جابه‌جاییِ نشانیِ نودِ «{n_snap.get('name')}»",
+            log_event("warn", "node", f"نودِ «{n_snap.get('name')}»: جابه‌جاییِ نشانی",
                       f"از {host}:{port} به {want_host}:{want_port} رفته و از نشانیِ تازه جواب می‌دهد — روی"
                       " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
                       " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
@@ -9620,7 +9624,7 @@ var I18N={fa:{
 
 
 
- raw_porttries_lbl:"چند بار پورتِ مبدأ عوض شود",raw_porttries_hint:"وقتی پروب می‌گوید چیزی رد نمی‌شود، هسته اول پورتِ مبدأِ جعلی را عوض می‌کند و دوباره امتحان می‌کند؛ این عدد می‌گوید چند بار. هر قرعه یک وردیکتِ پروب خرج می‌کند و پورت از فهرستِ ۲۰۰ پورتِ سرویسِ پرترافیک برداشته می‌شود. تونلی که فقط یک مقصد و یک مبدأ دارد بعد از این قرعه‌ها و یک دست‌دادنِ دوباره دیگر کاری ندارد. خالی = ۲.", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ raw_porttries_lbl:"چند بار پورتِ مبدأ عوض شود", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
@@ -11560,7 +11564,6 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
     long that is worth trying is a property of the path this tunnel takes. */
  +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
- +'<p class="srnote">'+esc(T('raw_porttries_hint'))+'</p>'
  +'</div>'}
 // workersSection: how many TUN queues this tunnel's receive path gets. Revealed by {cor,ce}WorkersVis on
 // raw with FEC off — the one pair the core spends queues on. The budget line under it is what keeps the
