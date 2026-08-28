@@ -26,7 +26,13 @@ TUNING_KNOBS = [
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
     ("min_liveness_secs",      "minLiveness",         "MinLivenessSecs",      False),
+    ("ladder_revive",          "ladderRevive",        "LadderRevive",         True),
 ]
+
+# Every list-shaped knob, which both the panel and the node carry as an explicit roster. A knob missing
+# from either is dropped in silence: the core keeps its compiled-in default while Settings shows the
+# operator a number that never travelled.
+LIST_KNOBS = {k for k, _v, _f, is_list in TUNING_KNOBS if is_list}
 
 fails = []
 def check(ok, msg):
@@ -371,13 +377,23 @@ def main():
                   f"step (a single reply), and anything under it is the same verdict wearing a "
                   f"different number")
 
-    print("== 3) node _TUNING_INT_KEYS roster ==")
+    print("== 3) list-knob rosters: panel and node vs core ==")
+    for who, src in (("panel", panel_src), ("node ", node_src)):
+        try:
+            got = set(panel_const(src, "_TUNING_LIST_KEYS"))
+        except KeyError:
+            check(False, f"{who} _TUNING_LIST_KEYS: MISSING -- every list knob is silently dropped")
+            continue
+        check(got == LIST_KNOBS,
+              f"{who} _TUNING_LIST_KEYS: extra={sorted(got - LIST_KNOBS)} missing={sorted(LIST_KNOBS - got)}")
+
+    print("== 3b) node _TUNING_INT_KEYS roster ==")
     expected = {k for k, _v, _f, is_list in TUNING_KNOBS if not is_list}  # scalar tuning-object knobs
     check(n_keys == expected,
           f"node keys: extra={sorted(n_keys - expected)} missing={sorted(expected - n_keys)}")
 
     print("== 4) panel dict rosters agree ==")
-    scalar_defaults = {k for k in p_def if k != "suspect_backoff"}
+    scalar_defaults = {k for k in p_def if k not in LIST_KNOBS}
     check(scalar_defaults == set(p_rng),
           f"defaults-vs-ranges: only-in-defaults={sorted(scalar_defaults - set(p_rng))} "
           f"only-in-ranges={sorted(set(p_rng) - scalar_defaults)}")

@@ -43,6 +43,9 @@ STORED = {
     "min_liveness_secs": 30,
     "probe_min_pct": 25,
     "sock_buf_mb": 8,
+    # seconds, and deliberately sub-minute in the first entry: this is the one list knob the form takes
+    # in SECONDS rather than minutes, so a copy-paste of the suspect_backoff row would fail right here.
+    "ladder_revive": [20, 75, 300],
 }
 
 PRELUDE = r"""

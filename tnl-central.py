@@ -211,12 +211,22 @@ _TUNING_DEFAULTS = {
     # it decides whether an endpoint is burned or has its burn cleared. 1 = any single reply (what this
     # was before the knob existed), 100 = every sample must answer.
     "probe_min_pct": 15,
+    # 2c - the ladder's way back, which is why it sits with the connection knobs and not the pool ones:
+    # when the core has spent every free rung (source-port draws, then one re-handshake) and the walk
+    # found no endpoint to move to, the climb is over and nothing would ever begin another. These are
+    # the SECONDS it waits before handing the rungs back, one entry per dead end, the last repeating.
+    # Seconds, not minutes like the pool knobs: the first step has to be shorter than a reboot.
+    "ladder_revive": [45, 180, 600],
     # 3 - throughput
     # sock_buf_mb is MiB for the operator; the core's `sock_buf` is BYTES, so _apply_core_tuning converts.
     # 4 matches the core's own default, so an untouched knob stamps nothing. 0 means OFF and is stamped as
     # -1, the core's "leave the kernel default" sentinel. Only the datagram carriers use it.
     "sock_buf_mb": 4,
 }
+# The knobs whose value is a LIST of seconds. Mirrored by the node's _TUNING_LIST_KEYS and guarded by
+# tools/tuning_consistency.py -- one missing on either side is passed through as nothing, and the core
+# keeps its compiled-in default while Settings shows the operator a number that never travelled.
+_TUNING_LIST_KEYS = ("suspect_backoff", "ladder_revive")
 # The node's PROBE_COUNT, mirrored so the Settings form can show what a percentage actually BUYS
 # ("15% = at least 3 of 20"). Only the display needs it -- the stored unit stays a percentage, which is
 # what keeps the threshold correct on a sweep that managed fewer sockets than this. Guarded against the
@@ -262,7 +272,7 @@ def _check_raw_proto(proto):
 def _validate_tuning(raw, base=None):
     """Merge a partial tuning update onto the current tuning (or defaults), coercing+clamping each knob
     to its range. Unknown keys and malformed values are ignored (the knob keeps its prior value), so a
-    bad field can never poison the stored settings. suspect_backoff must be a non-empty list of positive
+    bad field can never poison the stored settings. A list knob must be a non-empty list of positive
     ints or it is left unchanged."""
     out = dict(_TUNING_DEFAULTS)
     if isinstance(base, dict):
@@ -279,19 +289,19 @@ def _validate_tuning(raw, base=None):
             if step and v % step:
                 raise ValueError("«%s» باید مضربی از %d باشد — %d پذیرفته نیست" % (label, step, v))
             out[k] = max(lo, min(hi, v))
-    if "suspect_backoff" in raw:
-        sb = raw["suspect_backoff"]
-        if isinstance(sb, (list, tuple)):
-            steps = []
-            for x in sb:
-                try:
-                    iv = int(x)
-                except (TypeError, ValueError):
-                    continue
-                if 1 <= iv <= 86400:
-                    steps.append(iv)
-            if steps:
-                out["suspect_backoff"] = steps
+    for k in _TUNING_LIST_KEYS:
+        if k not in raw or not isinstance(raw[k], (list, tuple)):
+            continue
+        steps = []
+        for x in raw[k]:
+            try:
+                iv = int(x)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= iv <= 86400:
+                steps.append(iv)
+        if steps:
+            out[k] = steps
     return out
 
 
@@ -305,7 +315,7 @@ def _settings_tuning():
     out = {}
     for k, dv in _TUNING_DEFAULTS.items():
         v = s.get(k, dv)
-        if k == "suspect_backoff":
+        if k in _TUNING_LIST_KEYS:
             try:
                 lv = [int(x) for x in v]
             except (TypeError, ValueError):
@@ -6925,6 +6935,9 @@ _EV_ROT_CODE = {
     # A ws client whose carriers keep dying too fast for the probe to judge them walks its edges once.
     # Also once per outage: the lap that follows is the same fact repeated.
     "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
+    # Every rung was spent and the walk had nowhere to go, so the climb had ended. This is the ladder
+    # being handed back after its wait — news, because until it lands the tunnel is trying nothing.
+    "ladder-revive": ("warn", "ازسرگیریِ نردبان پس از بن‌بست"),
 }
 
 
@@ -9619,6 +9632,7 @@ var I18N={fa:{
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ این کارت به پیش‌فرض برگردند؟",set_reset_yes:"بازگردان",
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
+ set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. کمتر از ۵ ثانیه پذیرفته نمی‌شود: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، و صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود.",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
 
 
@@ -12805,7 +12819,8 @@ function settingsGroups(s){
  var conn=
   qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
   qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
-  '<p class="srnote" id="tun_pmhint"></p>';
+  '<p class="srnote" id="tun_pmhint"></p>'+
+  qr(T('set_t_revive'),'set_t_revive_d','set_x_revive','<input id="set_t_revive" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'ladder_revive').join(', '))+'">');
  var pool=
   qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
   qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440));
@@ -12819,8 +12834,10 @@ function settingsGroups(s){
   sgCard('bolt','set_g5','set_g5c','sc-perf',perf)}
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
+ var rv=(v('set_t_revive')||'').split(',').map(function(x){return parseInt(x.trim(),10)}).filter(function(n){return n>=5&&n<=86400});
  var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
+ if(rv.length)t.ladder_revive=rv;
  return t}
 // A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
 // 5th percent is a distinct verdict, so 11..15 all mean "3 of 20" while 15->16 jumps to 4. The form
