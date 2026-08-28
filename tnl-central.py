@@ -211,25 +211,26 @@ _TUNING_DEFAULTS = {
     # it decides whether an endpoint is burned or has its burn cleared. 1 = any single reply (what this
     # was before the knob existed), 100 = every sample must answer.
     "probe_min_pct": 15,
+    # 2c - the ladder's way back, which is why it sits with the connection knobs and not the pool ones:
+    # when the core has spent every free rung (source-port draws, then one re-handshake) and the walk
+    # found no endpoint to move to, the climb is over and nothing would ever begin another. These are
+    # the SECONDS it waits before handing the rungs back, one entry per dead end, the last repeating.
+    # Seconds, not minutes like the pool knobs: the first step has to be shorter than a reboot.
+    "ladder_revive": [45, 180, 600],
     # 3 - throughput
     # sock_buf_mb is MiB for the operator; the core's `sock_buf` is BYTES, so _apply_core_tuning converts.
     # 4 matches the core's own default, so an untouched knob stamps nothing. 0 means OFF and is stamped as
     # -1, the core's "leave the kernel default" sentinel. Only the datagram carriers use it.
     "sock_buf_mb": 4,
-    # 4 - the ladder's way back. When the core has spent every free rung (source-port draws, then one
-    # re-handshake) and the walk found no endpoint to move to, the climb is over and nothing would ever
-    # begin another. These are the SECONDS it waits before handing the rungs back, one entry per dead
-    # end, the last repeating. Seconds, not minutes: the first step has to be shorter than a reboot.
-    "ladder_revive": [45, 180, 600],
 }
-# The node's PROBE_COUNT, mirrored so the Settings form can show what a percentage actually BUYS
-# ("15% = at least 3 of 20"). Only the display needs it -- the stored unit stays a percentage, which is
-# what keeps the threshold correct on a sweep that managed fewer sockets than this. Guarded against the
-# node's own constant by tools/tuning_consistency.py; without that this number quietly starts lying.
 # The knobs whose value is a LIST of seconds. Mirrored by the node's _TUNING_LIST_KEYS and guarded by
 # tools/tuning_consistency.py -- one missing on either side is passed through as nothing, and the core
 # keeps its compiled-in default while Settings shows the operator a number that never travelled.
 _TUNING_LIST_KEYS = ("suspect_backoff", "ladder_revive")
+# The node's PROBE_COUNT, mirrored so the Settings form can show what a percentage actually BUYS
+# ("15% = at least 3 of 20"). Only the display needs it -- the stored unit stays a percentage, which is
+# what keeps the threshold correct on a sweep that managed fewer sockets than this. Guarded against the
+# node's own constant by tools/tuning_consistency.py; without that this number quietly starts lying.
 _PROBE_SAMPLES = 20
 # Knobs whose value is only meaningful in steps: the probe sends 20 packets, so each 5% is exactly one
 # more packet that must come back. 16/18/21 cannot be expressed and are refused rather than silently
