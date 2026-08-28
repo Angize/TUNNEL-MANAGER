@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-# tnl-central — control plane for a fleet of tnl nodes.
-#
-# Runs ONLY on the central server. A human logs in; the panel keeps a registry of node agents
-# (host:port + token) and drives them over HTTP to build node<->node tunnels, view the fleet, and see
-# each node's live status and stats. The central is a controller only — tunnel traffic flows directly
-# between the two nodes, never through here.
-#
-# Usage:
-#   sudo python3 tnl-central.py --install    # set user/password/port, install+start systemd service
-#   sudo python3 tnl-central.py --set-pass   # change login credentials
-#   sudo python3 tnl-central.py              # run (used by systemd)
-#
-# Plain HTTP: the session cookie is sniffable — run on a trusted network, or front with TLS.
 
 import base64
 import getpass
@@ -46,78 +33,56 @@ NODES_FILE = os.path.join(CENTRAL_DIR, "nodes.json")
 PROXIES_FILE = os.path.join(CENTRAL_DIR, "proxies.json")
 LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
 TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
-SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")  # operator-tunable panel settings (reconcile mode, intervals, …)
-PENDING_FILE = os.path.join(CENTRAL_DIR, "pending_del.json")  # {node_id: [tunnel_name,…]} teardowns owed to a node that was unreachable at delete/wipe time; drained by the poller when the node reconnects, pruned when the node is removed
-UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")     # persisted per-minute up/down history so the bar survives restarts
-PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")  # operator's manual card order for port-forwards (list of node_id+name keys)
-AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")          # the node-agent source the operator uploaded, pushed to nodes
-AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")   # {version, sha256, size, uploaded_ts}
-CORE_BLOB = os.path.join(CENTRAL_DIR, "core.bin")        # a custom core binary the operator uploaded, pushed to nodes
-CORE_BLOB_META = os.path.join(CENTRAL_DIR, "core.meta.json")  # {sha256, size, name, uploaded_ts}
+SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")
+PENDING_FILE = os.path.join(CENTRAL_DIR, "pending_del.json")
+UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")
+PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")
+AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")
+AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")
+CORE_BLOB = os.path.join(CENTRAL_DIR, "core.bin")
+CORE_BLOB_META = os.path.join(CENTRAL_DIR, "core.meta.json")
 SERVICE_FILE = "/etc/systemd/system/tnl-central.service"
 SELF_PATH = os.path.realpath(__file__)
-INSTALLED = os.path.join(CENTRAL_DIR, "tnl-central.py")  # stable path the systemd unit points at
+INSTALLED = os.path.join(CENTRAL_DIR, "tnl-central.py")
 
 SESSION_TTL = 8 * 3600
 PBKDF2_ITERS = 150_000
 TYPES = ("vxlan", "gre", "sit", "ipip", "l2tpv3", "fou", "ipsec", "core")
-IPIP_FAMILY = ("ipip", "fou")  # both are proto-4 ipip tunnels keyed only by (local,remote) — one per ip-pair
-# Ciphers the custom core accepts (see TUNNEL-MANAGER-CORE). "auto" resolves core-side to a fixed
-# choice so both ends match; "none" disables encryption. Kept in sync with the core's crypto factory.
+IPIP_FAMILY = ("ipip", "fou")
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
-# raw-transport encapsulation profiles and the IP protocol number each one OWNS. A copy of the core's
-# rawprofile.go map, guarded by tools/tuning_consistency.py. The numbers are what makes bare's raw_proto
-# refusable: bare (and the bare-like spoof carrier) writes no L4 header, so borrowing an owned number puts
-# ciphertext where a middlebox expects that protocol's header and the flow is dropped in the path.
 CORE_RAW_PROFILE_PROTOS = {"bare": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 17, "tcp": 6, "esp": 50,
                            "ah": 51, "etherip": 97, "ipcomp": 108, "l2tpv3": 115}
 CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
-# Core transport carriers + the capability sub-families used across validation AND the browser UI
-# (injected into the page below). Single source of truth so a new carrier lands in ONE place.
-CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # every core carrier
-DIRECT_TRANSPORTS     = ("udp", "tcp", "raw", "flux")               # direct carriers (support IP rotation); spoof is NOT here — it never rotates
-DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux", "spoof")             # handshake-less carriers (fec)
-DESYNC_TRANSPORTS     = ("raw", "flux", "spoof", "tcp", "ws")       # carriers that support fake-desync
-DESYNC_INJECT_TRANSPORTS = ("tcp", "ws")   # carriers whose decoys ride the REAL connection's 4-tuple
-DESYNC_INJECT_TTL_MAX = 8   # core's injectMaxTTL (internal/packet/desync.go): the ceiling on those
-# The disorder head must EXPIRE in transit, so split_ttl answers to the same ceiling: core's
-# MaxHopBudget, which is injectMaxTTL under the name both knobs share. Above it the head reaches the
-# server and sni_mode=disorder is a no-op every layer still reports as active.
+CORE_TRANSPORTS       = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")
+DIRECT_TRANSPORTS     = ("udp", "tcp", "raw", "flux")
+DATAGRAM_TRANSPORTS   = ("udp", "raw", "flux", "spoof")
+DESYNC_TRANSPORTS     = ("raw", "flux", "spoof", "tcp", "ws")
+DESYNC_INJECT_TRANSPORTS = ("tcp", "ws")
+DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
-# The most TUN queues one tunnel may take: the core's maxWorkers (config.go), which clamps silently, so
-# the panel refuses above it instead of letting the form promise a fourth queue it will not get. A queue
-# costs a read buffer and a share of a cpu the node's OTHER tunnels also want, which is what the form's
-# budget line weighs. tools/workers_gate_check.py compares this against the core's own constant.
 CORE_MAX_WORKERS = 4
-# The carriers whose core drains every queue it is given, mirroring the core's queueingCarrier and the
-# node's QUEUEING_TRANSPORTS. tools/workers_gate_check.py compares this against the core's own source.
 QUEUEING_TRANSPORTS = ("raw", "udp")
-STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")  # carriers that write a precise status ring (the direct tcp/cover client writes one too)
-_reg_lock = threading.Lock()     # serialize every nodes.json / links.json read-modify-write
-_pending_lock = threading.Lock()   # serialize pending_del.json read-modify-write (deferred teardowns)
-_agent_lock = threading.Lock()   # serialize agent.py + agent.meta.json writes so they never tear apart
-_core_blob_lock = threading.Lock()   # serialize the custom core binary + its meta writes
-_node_locks = {}                 # per-node build locks: ops sharing a node serialize (no id collision) while
-_node_locks_guard = threading.Lock()   # ops on disjoint nodes run concurrently — one hung node can't stall the fleet
-_settings = {}                   # in-memory copy of settings.json (read hot-path by the loops); seeded in serve()
-_settings_lock = threading.RLock()  # reentrant: api_settings_set holds it across validate_settings() -> get_settings()
-_drift = {}                      # link_id -> True when a node IP has drifted and a rebuild is pending/needed
+STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "flux", "spoof", "ws", "dns")
+_reg_lock = threading.Lock()
+_pending_lock = threading.Lock()
+_agent_lock = threading.Lock()
+_core_blob_lock = threading.Lock()
+_node_locks = {}
+_node_locks_guard = threading.Lock()
+_settings = {}
+_settings_lock = threading.RLock()
+_drift = {}
 _drift_lock = threading.Lock()
-_CENTRAL_PORT = 0                # panel port, advertised to nodes (X-Central-Port) so they can call back /api/checkin
-_CENTRAL_TLS = False             # ...and whether that port speaks TLS, so a node follows the scheme too
+_CENTRAL_PORT = 0
+_CENTRAL_TLS = False
 
 
 class _PairLock:
-    """Acquire the per-node build locks for the given node ids in a stable (sorted) order — deadlock-free."""
     def __init__(self, *node_ids):
-        self._ids = sorted({str(i) for i in node_ids if i})  # sorted -> stable lock order, no deadlock
+        self._ids = sorted({str(i) for i in node_ids if i})
         self._held = []
 
     def __enter__(self):
-        # Acquire the canonical per-node lock for each id. The poller can pop an IDLE lock, and another
-        # thread recreate it, between our setdefault and our acquire — leaving two threads on DIFFERENT
-        # lock objects for one node. So re-check after acquiring and retry with the new canonical lock.
-        # The poller only pops a lock that is NOT held, so the two rules together are race-free.
         for i in self._ids:
             while True:
                 with _node_locks_guard:
@@ -126,7 +91,7 @@ class _PairLock:
                 with _node_locks_guard:
                     if _node_locks.get(i) is lk:
                         break
-                lk.release()  # popped + recreated under us -> retry with the current canonical lock
+                lk.release()
             self._held.append(lk)
         return self
 
@@ -149,7 +114,6 @@ def _sflt(v):
     except Exception:
         return 0.0
 
-# ----------------------------------------------------------------------------- auth / conf
 
 def load_conf():
     with open(WEB_CONF) as f:
@@ -175,80 +139,36 @@ def save_text(path, txt):
 
 
 def save_bytes(path, data, mode=0o644):
-    """Write a binary blob ATOMICALLY (tmp in the same dir + fsync + os.replace). A plain open(wb)
-    truncates then fills, so a concurrent reader (e.g. a node push computing the sha) could read
-    half-written bytes and push a corrupt-but-self-consistent binary. os.replace is atomic on POSIX,
-    so a reader sees either the whole old file or the whole new one — never a partial."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())   # durable before the rename: a crash mid-write can't leave a truncated staged binary
+        os.fsync(f.fileno())
     os.chmod(tmp, mode)
     os.replace(tmp, path)
 
-# ----------------------------------------------------------------------------- settings
-# Operator-tunable knobs, persisted to settings.json and cached in memory. Kept deliberately open so
-# new keys can be added later: unknown stored keys are preserved and unset keys fall back to defaults.
 
-# Operational self-heal / pool-health timing knobs, exposed fleet-wide in Settings and stamped into
-# every core config on build. Defaults MUST match the core's compiled-in defaults (tuning.go) so an
-# unchanged knob is a no-op. Each scalar carries the core's own (min, max) clamp; the core clamps
-# again, so this is convenience-validation, not the authority. Grouped by category for the UI.
 _TUNING_DEFAULTS = {
-    # 1 - pool health FSM
-    # suspect_backoff / dead_retest_secs are stored and stamped in SECONDS; the Settings form takes them
-    # in MINUTES and converts, the way sock_buf_mb does for MiB.
     "suspect_backoff": [600, 1800, 3600],
     "dead_retest_secs": 21600,
-    # 2 - dead detection / self-heal
     "min_liveness_secs": 20,
-    # 2b - the NODE's liveness verdict. Unlike everything else here this knob is consumed by the node
-    # itself (tnl-node.py health_of), not passed through to the core, so it is stamped as a top-level
-    # body field on EVERY tunnel type rather than riding in the `tuning` object. Percent of the tun
-    # probe's sample set that must answer for the tunnel to count as carrying: it colours the dot, and
-    # it decides whether an endpoint is burned or has its burn cleared. 1 = any single reply (what this
-    # was before the knob existed), 100 = every sample must answer.
     "probe_min_pct": 15,
-    # 2c - the ladder's way back, which is why it sits with the connection knobs and not the pool ones:
-    # when the core has spent every free rung (source-port draws, then one re-handshake) and the walk
-    # found no endpoint to move to, the climb is over and nothing would ever begin another. These are
-    # the SECONDS it waits before handing the rungs back, one entry per dead end, the last repeating.
-    # Seconds, not minutes like the pool knobs: the first step has to be shorter than a reboot.
     "ladder_revive": [45, 180, 600],
-    # 3 - throughput
-    # sock_buf_mb is MiB for the operator; the core's `sock_buf` is BYTES, so _apply_core_tuning converts.
-    # 4 matches the core's own default, so an untouched knob stamps nothing. 0 means OFF and is stamped as
-    # -1, the core's "leave the kernel default" sentinel. Only the datagram carriers use it.
     "sock_buf_mb": 4,
 }
-# The knobs whose value is a LIST of seconds. Mirrored by the node's _TUNING_LIST_KEYS and guarded by
-# tools/tuning_consistency.py -- one missing on either side is passed through as nothing, and the core
-# keeps its compiled-in default while Settings shows the operator a number that never travelled.
 _TUNING_LIST_KEYS = ("suspect_backoff", "ladder_revive")
-# The node's PROBE_COUNT, mirrored so the Settings form can show what a percentage actually BUYS
-# ("15% = at least 3 of 20"). Only the display needs it -- the stored unit stays a percentage, which is
-# what keeps the threshold correct on a sweep that managed fewer sockets than this. Guarded against the
-# node's own constant by tools/tuning_consistency.py; without that this number quietly starts lying.
 _PROBE_SAMPLES = 20
-# Knobs whose value is only meaningful in steps: the probe sends 20 packets, so each 5% is exactly one
-# more packet that must come back. 16/18/21 cannot be expressed and are refused rather than silently
-# rounded, which would show the operator a number the core never used.
-_TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشتی")}   # (step, the label the operator sees)
+_TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشتی")}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "min_liveness_secs": (1, 3600),
-    # percent; mirrored by the node's PROBE_MIN_PCT_RANGE. Deliberately WIDER than the form, which
-    # steps by 5: with 20 samples only every 5th percent is a distinct verdict, so the form offers the
-    # 20 real settings while a hand-edited settings.json is still accepted and clamped rather than lost.
-    "probe_min_pct": (5, 100),   # steps of 5; see _TUNING_STEPS
-    "sock_buf_mb": (0, 64),   # MiB; 0 = off (kernel default). The core clamps the byte value to 64 MiB.
+    "probe_min_pct": (5, 100),
+    "sock_buf_mb": (0, 64),
 }
 
 
 def _raw_proto_owner(proto):
-    """The profile that owns this IP protocol number, or "" — bare's own 253 does not count as borrowed."""
     for name, num in CORE_RAW_PROFILE_PROTOS.items():
         if num == int(proto) and name != "bare":
             return name
@@ -256,9 +176,6 @@ def _raw_proto_owner(proto):
 
 
 def _check_raw_proto(proto):
-    """Refuse an outer IP protocol number that a raw PROFILE owns, for the two headerless carriers that
-    can set one (bare and spoof). Mirrors config.go's rawProtoBorrowed — without this the operator saves
-    a form, the node stores it, and the core exits on validate() with nothing in between saying why."""
     if not 1 <= int(proto) <= 255:
         raise ValueError("شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد")
     owner = _raw_proto_owner(proto)
@@ -270,10 +187,6 @@ def _check_raw_proto(proto):
 
 
 def _validate_tuning(raw, base=None):
-    """Merge a partial tuning update onto the current tuning (or defaults), coercing+clamping each knob
-    to its range. Unknown keys and malformed values are ignored (the knob keeps its prior value), so a
-    bad field can never poison the stored settings. A list knob must be a non-empty list of positive
-    ints or it is left unchanged."""
     out = dict(_TUNING_DEFAULTS)
     if isinstance(base, dict):
         out.update({k: base[k] for k in _TUNING_DEFAULTS if k in base})
@@ -306,12 +219,9 @@ def _validate_tuning(raw, base=None):
 
 
 def _settings_tuning():
-    """The tuning overrides to stamp into a core config: only the knobs that DIFFER from the core's
-    built-in defaults, so an unchanged knob is omitted and the core keeps its own default (panel and
-    core defaults stay in lock-step automatically). Returns {} when everything is at default."""
     s = get_settings().get("tuning")
-    if not isinstance(s, dict):   # a hand-edited settings.json could make this a truthy non-dict; guard so
-        s = {}                    # a build never crashes on `.get` — fall back to all-defaults (empty diff)
+    if not isinstance(s, dict):
+        s = {}
     out = {}
     for k, dv in _TUNING_DEFAULTS.items():
         v = s.get(k, dv)
@@ -334,27 +244,18 @@ def _settings_tuning():
 
 def settings_defaults():
     return {
-        "reconcile_mode": "alert",  # default. Governs the WHOLE self-heal chain, not just the rebuild:
-                                    # "alert" = a node that moved is only reported, and the operator fixes
-                                    # its address and rebuilds. "auto" = the panel adopts the new address
-                                    # from the check-in and rebuilds the drifted tunnel itself (single-IP).
-        "reconcile_interval": 15,   # seconds between reconcile sweeps (5–3600)
-        "poll_interval": 2,         # seconds the fleet poller rests between sweeps (0.3–60, fractional OK)
-        "ui_interval": 2,           # seconds the UI waits between live redraws / modal polls (0.3–60, fractional OK)
-        "uptime_window": 1,         # uptime-bar span in hours (1/3/6/8/12/24); always 60 cells, each = window/60
-        "ech_refresh_mins": 15,     # minutes between background ECH re-fetches for ECH links (0 = off; min 1)
-        "agent_delivery": "push",   # who moves the agent's bytes to a node (see DELIVERY_MODES)
-        "core_delivery": "push",    # the same choice for the core binary, made separately
-        "tuning": dict(_TUNING_DEFAULTS),  # operational self-heal / pool-health timings (see _TUNING_DEFAULTS)
+        "reconcile_mode": "alert",
+        "reconcile_interval": 15,
+        "poll_interval": 2,
+        "ui_interval": 2,
+        "uptime_window": 1,
+        "ech_refresh_mins": 15,
+        "agent_delivery": "push",
+        "core_delivery": "push",
+        "tuning": dict(_TUNING_DEFAULTS),
     }
 
 
-# Who carries an artifact's bytes the last hop to a node. The panel decides WHAT is installed in all
-# three — it always sends the sha256 and its signature over that sha, and the node verifies both — so
-# these differ only in who pays the bandwidth and which way the connection is opened.
-#   push   = the panel uploads the bytes in the update / core-install call (the original behaviour)
-#   github = the node downloads them from GitHub itself
-#   panel  = the node downloads them from the panel's own HTTP server
 DELIVERY_MODES = ("push", "github", "panel")
 
 
@@ -364,7 +265,7 @@ def load_settings():
         with open(SETTINGS_FILE) as f:
             stored = json.load(f)
         if isinstance(stored, dict):
-            d.update(stored)  # merge over defaults so a missing key falls back and extra keys survive
+            d.update(stored)
     except Exception:
         pass
     return d
@@ -382,7 +283,6 @@ def _seed_settings():
 
 
 def validate_settings(d):
-    """Merge a partial update onto the current settings, coercing/clamping the known knobs."""
     out = get_settings()
     if "reconcile_mode" in d:
         m = str(d["reconcile_mode"]).strip().lower()
@@ -392,15 +292,15 @@ def validate_settings(d):
     if "reconcile_interval" in d and d["reconcile_interval"] not in (None, ""):
         out["reconcile_interval"] = max(5, min(3600, int(d["reconcile_interval"])))
     if "poll_interval" in d and d["poll_interval"] not in (None, ""):
-        out["poll_interval"] = max(0.3, min(60.0, round(float(d["poll_interval"]), 2)))  # fractional (sub-second) OK
+        out["poll_interval"] = max(0.3, min(60.0, round(float(d["poll_interval"]), 2)))
     if "ui_interval" in d and d["ui_interval"] not in (None, ""):
-        out["ui_interval"] = max(0.3, min(60.0, round(float(d["ui_interval"]), 2)))       # fractional (sub-second) OK
+        out["ui_interval"] = max(0.3, min(60.0, round(float(d["ui_interval"]), 2)))
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
         w = int(d["uptime_window"])
         out["uptime_window"] = w if w in (1, 3, 6, 8, 12, 24) else 1
     if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
         m = round(float(d["ech_refresh_mins"]), 2)
-        out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))  # 0 = off; else 1min–24h
+        out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))
     for k in ("agent_delivery", "core_delivery"):
         if k in d:
             m = str(d[k]).strip().lower()
@@ -412,15 +312,11 @@ def validate_settings(d):
     return out
 
 
-_moved = {}                      # node id -> {"name", "from", "to"}: it phoned home from a new address and
-_moved_lock = threading.Lock()   # the panel was told not to adopt it, so the operator has to be shown where
+_moved = {}
+_moved_lock = threading.Lock()
 
 
 def _moved_note(nid, name, old, new, new_port):
-    """Record a node that moved. Returns True the first time this destination is seen, so the log gets one
-    line per move and not one per check-in (the node keeps calling every 20s until it is acknowledged).
-    The PORT is part of the destination: a node can move one without the other, and adopting the host
-    alone would leave the panel dialling the old port."""
     with _moved_lock:
         prev = _moved.get(nid)
         _moved[nid] = {"name": name, "from": old, "to": new, "to_port": new_port}
@@ -433,7 +329,6 @@ def _moved_clear(nid):
 
 
 def moved_to(nid):
-    """The HOST it moved to — bare, because api_node_adopt_ip writes it straight into node["host"]."""
     with _moved_lock:
         v = _moved.get(nid)
         return v["to"] if v else ""
@@ -446,7 +341,6 @@ def moved_port(nid):
 
 
 def moved_addr(nid):
-    """"host:port" for the operator to read. Display only — never the value anything adopts."""
     with _moved_lock:
         v = _moved.get(nid)
         return ("%s:%d" % (v["to"], int(v.get("to_port") or 0))) if v else ""
@@ -515,7 +409,7 @@ def rate_limited(ip):
 def note_fail(ip):
     with _fails_lock:
         now = time.time()
-        for k in [k for k, v in _fails.items() if now - v[1] > 300]:  # drop stale IPs so the map can't grow unbounded
+        for k in [k for k, v in _fails.items() if now - v[1] > 300]:
             _fails.pop(k, None)
         rec = _fails.get(ip)
         if not rec or now - rec[1] > 300:
@@ -523,7 +417,6 @@ def note_fail(ip):
         else:
             rec[0] += 1
 
-# ----------------------------------------------------------------------------- registry + node client
 
 def is_ipv4(s):
     try:
@@ -565,23 +458,12 @@ def get_proxy(pid):
 
 
 def node_proxy(node):
-    """The proxy URL a node's traffic must take, or '' for a direct connection.
-
-    THE single resolution point. Both ways out to a node go through it -- node_call for every agent
-    HTTP request and the SSH ProxyCommand at install time -- so a node either has all of its traffic
-    proxied or none of it. A proxy_id naming a deleted entry resolves to '' (direct) rather than
-    failing the call: the operator sees the node go offline, which is the honest symptom.
-    """
     if not (node or {}).get("proxy_on"):
         return ""
     p = get_proxy(str(node.get("proxy_id") or ""))
     return proxy_url(p) if p else ""
 
 
-# --------------------------------------------------------------------------- deferred teardown queue
-# When a force-delete or a best-effort wipe cannot reach a node, the panel record is removed anyway and
-# the owed teardown is parked here as {node_id: [names]}. The poller drains it the moment that node
-# answers again, sending the same idempotent `delete` op. Entries are pruned when the node is removed.
 def _pending_load():
     try:
         with open(PENDING_FILE) as f:
@@ -592,9 +474,6 @@ def _pending_load():
 
 
 def _pending_add(node_id, name):
-    """Park a teardown owed to node_id (dedup); return True once it is DURABLY persisted (False if the
-    write failed — the caller must then keep its own record so the owed teardown isn't silently lost).
-    A blank node/name is a no-op that reports success."""
     if not node_id or not name:
         return True
     with _pending_lock:
@@ -611,7 +490,6 @@ def _pending_add(node_id, name):
 
 
 def _pending_remove(node_id, name):
-    """Drop one owed teardown (after it succeeds), removing the node key when its list empties."""
     with _pending_lock:
         d = _pending_load()
         lst = [x for x in (d.get(node_id) or []) if x != name]
@@ -626,7 +504,6 @@ def _pending_remove(node_id, name):
 
 
 def _pending_prune_node(node_id):
-    """Drop ALL teardowns owed to a node (called when the node itself is removed)."""
     with _pending_lock:
         d = _pending_load()
         if node_id in d:
@@ -638,19 +515,14 @@ def _pending_prune_node(node_id):
 
 
 def _pending_names(node_id):
-    """The tunnel names still owed a teardown on node_id (a copy, safe to iterate)."""
     return list(_pending_load().get(node_id) or [])
 
 
 def _pending_counts():
-    """{node_id: count} for the UI badge."""
     return {k: len(v) for k, v in _pending_load().items() if v}
 
 
 def _pending_gc(valid):
-    """Drop deferred teardowns owed to node ids NOT in `valid` (the current registry). Closes the
-    add-after-prune race (a force-delete's _pending_add landing just after the node was removed) and GCs
-    any stale key, so pending_del.json can never grow unbounded. Called from the poller's reap sweep."""
     with _pending_lock:
         d = _pending_load()
         drop = [k for k in d if k not in valid]
@@ -664,8 +536,6 @@ def _pending_gc(valid):
 
 
 def _client_node(L):
-    """The registered CLIENT-side node of a core link — the end that dials (server_side names the
-    listener; the other end is the client). Returns the node dict or None; callers handle not-found."""
     server_side = L.get("server_side", "a")
     return get_node(L.get("b_node") if server_side == "a" else L.get("a_node"))
 
@@ -681,11 +551,10 @@ def _recvn(s, n):
 
 
 def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
-    """Open a socket to dh:dp through a SOCKS5 proxy (stdlib, no PySocks)."""
     s = socket.create_connection((ph, pp), timeout)
-    try:  # close the connected socket on any handshake failure instead of leaking it to GC
+    try:
         s.settimeout(timeout)
-        s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")  # offer no-auth (+ user/pass if creds given)
+        s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")
         _, method = _recvn(s, 2)
         if method == 2:
             if not pu:
@@ -697,15 +566,15 @@ def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
         elif method != 0:
             raise OSError("socks5 no supported auth method")
         try:
-            addr = b"\x01" + socket.inet_aton(dh)          # IPv4 literal
+            addr = b"\x01" + socket.inet_aton(dh)
         except OSError:
             hb = dh.encode()
-            addr = b"\x03" + bytes([len(hb)]) + hb          # domain name
+            addr = b"\x03" + bytes([len(hb)]) + hb
         s.sendall(b"\x05\x01\x00" + addr + int(dp).to_bytes(2, "big"))
         rep = _recvn(s, 4)
         if rep[1] != 0:
             raise OSError(f"socks5 connect failed (code {rep[1]})")
-        atyp = rep[3]  # drain the bound address so the socket is left at the tunnel body
+        atyp = rep[3]
         _recvn(s, 4 if atyp == 1 else 16 if atyp == 4 else _recvn(s, 1)[0])
         _recvn(s, 2)
         return s
@@ -715,9 +584,8 @@ def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
 
 
 def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
-    """Open a socket to dh:dp through an HTTP CONNECT proxy."""
     s = socket.create_connection((ph, pp), timeout)
-    try:  # close the connected socket on any handshake failure instead of leaking it to GC
+    try:
         s.settimeout(timeout)
         req = f"CONNECT {dh}:{dp} HTTP/1.1\r\nHost: {dh}:{dp}\r\n"
         if pu:
@@ -740,12 +608,6 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
         raise
 
 
-# The name on the WIRE, which is not the name in the code. The panel->node control channel is plain
-# HTTP, so the request line crosses the border in the clear — and MEASURED on the Iran→Germany path, a URI
-# containing the string "tunnel" is dropped (5/5 lost, while `tunne1` and `xunnel` arrive 5/5). Every other
-# op got through, which is why only BUILDING a tunnel on a foreign node ever timed out, for 200s, while
-# ping/delete/kernel-tune worked. So every call site keeps its readable name and only the URL is opaque.
-# Node side: WIRE in tnl-node.py, kept in step by tools/wire_names_check.py.
 NODE_WIRE = {
     "ping": "pg", "list": "ls", "check": "ck", "tunnel": "mk", "delete": "dl", "apply": "ap",
     "update": "up", "wipe": "wz", "portfw": "pf", "portfw-edit": "pe", "portfw-next": "pn",
@@ -757,17 +619,11 @@ NODE_WIRE = {
 }
 
 
-# How long a node gets to answer. A config write is milliseconds of work on the node (measured: 0.14 s to
-# build a core tunnel, and its own lock is held ~8-16 s at worst), so 30 s is generous and a dead path
-# fails while the operator is still watching instead of three minutes later. Only the two calls that carry
-# MEGABYTES keep a long one -- a 15 MB base64 core over a slow link needs it.
 NODE_OP_TIMEOUT = 30
 NODE_UPLOAD_TIMEOUT = 200
 
 
 def wire(endpoint):
-    """The path this endpoint takes on the wire. Unknown names are a programming error, not a request to
-    invent a path: a typo must fail here rather than reach a node as a 404 nobody reads."""
     try:
         return NODE_WIRE[endpoint]
     except KeyError:
@@ -775,8 +631,6 @@ def wire(endpoint):
 
 
 def _proxy_socket(proxy, dh, dp, timeout):
-    """A socket to dh:dp through `proxy`. THE one place a proxy tunnel is opened, so node_call and the
-    chunked push cannot end up honouring the proxy differently."""
     pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
     scheme = (pu.scheme or "socks5").lower()
     if not pu.hostname or not pu.port:
@@ -794,12 +648,12 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
     try:
         sock = _proxy_socket(proxy, dh, dp, timeout)
         conn = http.client.HTTPConnection(dh, dp, timeout=timeout)
-        conn.sock = sock  # reuse the proxy-tunneled socket (skips conn.connect())
+        conn.sock = sock
         data = json.dumps(body or {}).encode() if method == "POST" else None
         path = f"/api/{wire(endpoint)}"
         headers = dict(_auth_headers(node, method, path, data))
         if _CENTRAL_PORT:
-            headers["X-Central-Port"] = str(_CENTRAL_PORT)  # teach the node our callback origin
+            headers["X-Central-Port"] = str(_CENTRAL_PORT)
             headers["X-Central-TLS"] = "1" if _CENTRAL_TLS else "0"
         if data is not None:
             headers["Content-Type"] = "application/json"
@@ -807,18 +661,18 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
         r = conn.getresponse()
         raw = r.read()
         conn.close()
-        sock = None  # conn.close() closed the tunneled socket; nothing left to clean up
+        sock = None
         try:
             out = json.loads(raw.decode())
         except Exception:
             return {"ok": False, "error": f"HTTP {r.status}"}
-        if _retry and _stale_ctr(node, out):        # resynced; one more go, never a loop
+        if _retry and _stale_ctr(node, out):
             return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
         return out
     except Exception as e:
         return {"ok": False, "offline": True, "error": ("proxy: " + str(e).split("] ")[-1])[:90]}
     finally:
-        if sock is not None:  # request/response raised after the tunnel was up -> close the fd, don't lean on GC
+        if sock is not None:
             try:
                 sock.close()
             except Exception:
@@ -829,9 +683,6 @@ _SIGN_KEY = None
 
 
 def _signing_keys():
-    """Ensure the panel's RSA update-signing keypair exists in the config dir; return (priv_path, pub_pem).
-    The private key (600, panel-only) signs update / core-install payloads; nodes hold only the public key
-    and verify with it — so a stolen node token can no longer authorize a malicious root-code push."""
     global _SIGN_KEY
     if _SIGN_KEY:
         return _SIGN_KEY
@@ -845,8 +696,6 @@ def _signing_keys():
 
 
 def _sign_sha(sha_hex):
-    """RSA-SHA256 signature (base64) over the sha256 hex string a code push carries; '' if unavailable
-    (a node with no key provisioned rejects the unsigned push -> the push fails loudly, fail-closed)."""
     try:
         priv, _ = _signing_keys()
         sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", priv],
@@ -857,11 +706,6 @@ def _sign_sha(sha_hex):
 
 
 def _ensure_update_key(node):
-    """Provision the panel's update-signing PUBLIC key onto a node right before a code/binary push, so the
-    node always holds the key it needs to verify the signature. First-set-only + idempotent on the node,
-    so calling it before every push is cheap and safe; it only actually writes on the very first contact.
-    This is what makes the node's fail-closed verification non-bricking: any push path self-provisions the
-    key, so a node reached for the first time (or one whose add-time provisioning blipped) still verifies."""
     try:
         _, pub = _signing_keys()
         node_call(node, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
@@ -869,19 +713,11 @@ def _ensure_update_key(node):
         pass
 
 
-# ----------------------------------------------------------------------------- proving we are the panel
-# An HMAC over this request's own method, path, counter and body hash. The shared secret is what the MAC
-# is keyed on and is never transmitted, so an observer of this plaintext path learns nothing reusable,
-# and the counter makes a captured request worthless the second time.
 _ctr_lock = threading.Lock()
-_ctr_next = {}          # node id -> the next counter to spend
+_ctr_next = {}
 
 
 def _take_ctr(nid):
-    """A counter for one request, strictly increasing within this process and across restarts.
-
-    Seeded from the clock so a restarted panel resumes ABOVE what it already spent without persisting
-    anything, and only ever pushed forward -- never back -- so two threads cannot reuse one."""
     with _ctr_lock:
         c = max(_ctr_next.get(nid, 0), int(time.time() * 1000))
         _ctr_next[nid] = c + 1
@@ -889,25 +725,16 @@ def _take_ctr(nid):
 
 
 def _bump_ctr(nid, at_least):
-    """Adopt a mark the NODE reported. That is what makes a panel whose counter fell behind -- a clock
-    that went backwards, a restored backup -- recover in one retry instead of being locked out."""
     with _ctr_lock:
         if at_least > _ctr_next.get(nid, 0):
             _ctr_next[nid] = at_least
 
 
 def _sig_msg(method, path, ctr, body_sha):
-    """What gets signed. Byte-for-byte the node's own _sig_msg — if these two ever drift, every request
-    is refused, so it is written once here and once there and pinned by a guard."""
     return "%s\n%s\n%s\n%s" % (method, path, ctr, body_sha)
 
 
 def _auth_headers(node, method, path, data):
-    """The headers that prove this request came from the panel.
-
-    There is one way now. The bearer token was removed rather than left behind a switch: every node
-    refuses it, so a switch back could only ever brick the fleet -- and the tokens themselves were
-    never rotated, so anyone who watched the wire before the changeover still holds them."""
     tok = node.get("token", "")
     ctr = _take_ctr(node.get("id") or node.get("host") or "")
     bs = hashlib.sha256(data).hexdigest() if data else ""
@@ -917,8 +744,6 @@ def _auth_headers(node, method, path, data):
 
 
 def _stale_ctr(node, res):
-    """A 409 means the signature verified but the counter did not. Take the node's mark and say whether
-    the caller should try once more."""
     if not isinstance(res, dict) or "stale counter" not in str(res.get("error") or ""):
         return False
     try:
@@ -930,7 +755,7 @@ def _stale_ctr(node, res):
 
 def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
     proxy = node_proxy(node)
-    if proxy:  # route this node's control traffic through its SOCKS5/HTTP proxy
+    if proxy:
         return _node_call_proxied(node, proxy, endpoint, method, body, timeout)
     path = f"/api/{wire(endpoint)}"
     url = f"http://{node['host']}:{int(node['port'])}{path}"
@@ -939,7 +764,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
     for k, v in _auth_headers(node, method, path, data).items():
         req.add_header(k, v)
     if _CENTRAL_PORT:
-        req.add_header("X-Central-Port", str(_CENTRAL_PORT))  # teach the node our callback origin
+        req.add_header("X-Central-Port", str(_CENTRAL_PORT))
         req.add_header("X-Central-TLS", "1" if _CENTRAL_TLS else "0")
     if data is not None:
         req.add_header("Content-Type", "application/json")
@@ -954,7 +779,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
             return {"ok": False, "error": f"HTTP {e.code}"}
         if not isinstance(out, dict):
             return {"ok": False, "error": f"HTTP {e.code}"}
-        if _retry and _stale_ctr(node, out):        # resynced; one more go, never a loop
+        if _retry and _stale_ctr(node, out):
             return node_call(node, endpoint, method, body, timeout, _retry=False)
         return out
     except Exception as e:
@@ -963,26 +788,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
 
 def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024,
               should_abort=None, _retry=True):
-    """POST a large body to a node, reporting REAL bytes sent as it goes.
-
-    node_call cannot do this: urllib hands the whole body to the kernel and returns, so there is nothing
-    to report until the answer arrives. Here the request line and headers go first, then the body in
-    chunks, and on_progress(sent, total) fires per chunk -- that is what the per-node bar shows.
-
-    should_abort() is consulted between chunks AND while the answer is awaited, so a cancel lands at
-    every point of every step, not only while bytes are moving. The socket is dropped and
-    {"cancelled": True} comes back, with `delivered` saying whether the node already held the whole
-    request. Dropping mid-body is safe: the node parses the JSON before it touches disk, a body cut
-    short fails json.loads, and even one that parsed would fail the sha256 gate. Dropping while WAITING
-    is a different thing -- the node has the request and may carry it out -- which is why `delivered`
-    is reported rather than assumed either way.
-
-    Goes through the node's proxy when it has one, because it uses the same _proxy_socket() node_call
-    does: a push must not fall out to a direct connection that the control plane would never take.
-    """
     dh, dp = node["host"], int(node["port"])
-    # bytes = already serialised by the caller. json.dumps of a 20MB base64 body costs ~87ms and holds
-    # the GIL, which with PUSH_WORKERS threads stalls every OTHER node's progress for that long.
     data = bytes(body) if isinstance(body, (bytes, bytearray)) else json.dumps(body or {}).encode()
     total = len(data)
     proxy = node_proxy(node)
@@ -995,8 +801,6 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         head = ["POST %s HTTP/1.1" % path, "Host: %s:%d" % (dh, dp),
                 "Content-Type: application/json", "Content-Length: %d" % total,
                 "Connection: close"]
-        # signed over the WHOLE body, which is already serialised here -- the chunking below only
-        # decides how it leaves, not what it is
         head += ["%s: %s" % kv for kv in _auth_headers(node, "POST", path, data).items()]
         if _CENTRAL_PORT:
             head.append("X-Central-Port: %s" % _CENTRAL_PORT)
@@ -1008,11 +812,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             on_progress(0, total)
         while sent < total:
             if should_abort and should_abort():
-                return {"ok": False, "cancelled": True, "delivered": False}   # socket dropped mid-body
-            # An answer arriving mid-body is a refusal decided from the HEADERS alone -- an unproven
-            # signature, a stale counter. Take it NOW. The node has stopped reading, so the rest of a
-            # large body earns nothing but a broken pipe, and the answer is lost with it: the operator
-            # is told the node is offline by a node that just answered.
+                return {"ok": False, "cancelled": True, "delivered": False}
             if select.select([sock], [], [], 0)[0]:
                 pre = sock.recv(65536)
                 if not pre:
@@ -1024,11 +824,8 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             sent += n
             if on_progress:
                 on_progress(sent, total)
-        # ONE read loop, so all three framings land correctly: headers split across recv calls, a
-        # Content-Length body, and a close-framed body with no Content-Length at all -- which the earlier
-        # two-loop version truncated to whatever the first recv happened to hold.
         raw, head_blob, rest, clen = pre, b"", b"", None
-        sock.settimeout(min(0.25, timeout))      # wake often enough to answer a cancel
+        sock.settimeout(min(0.25, timeout))
         while True:
             head_blob, sep, rest = raw.partition(b"\r\n\r\n")
             if sep:
@@ -1043,9 +840,9 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             try:
                 b = sock.recv(65536)
             except socket.timeout:
-                continue                         # nothing yet: back round to the cancel check
+                continue
             if not b:
-                break                            # EOF: close-framed reply is complete
+                break
             raw += b
             if len(raw) > 1048576:
                 raise OSError("response too large")
@@ -1057,9 +854,6 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         if not isinstance(out, dict):
             return {"ok": False, "error": "non-dict node response"}
         if _retry and _stale_ctr(node, out):
-            # The counter is refused from the HEADERS, before a byte of the body is read, so the whole
-            # upload is still ahead of us and resending it is the only way through. The bar restarts,
-            # which is the truth: those bytes are being sent again.
             return node_push(node, endpoint, body, on_progress, timeout, chunk, should_abort,
                              _retry=False)
         return out
@@ -1074,31 +868,26 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
 
 
 def parallel_map(fn, items, workers=32):
-    """Run fn over items concurrently (I/O-bound node calls), preserving order."""
     items = list(items)
     if not items:
         return []
     with ThreadPoolExecutor(max_workers=min(workers, len(items))) as ex:
         return list(ex.map(fn, items))
 
-# ----------------------------------------------------------------------------- fleet cache + poller
-# The panel scales to hundreds of nodes by NEVER probing the fleet on the request path. A background
-# poller continuously refreshes every node's ping+list into an in-memory cache; API endpoints read
-# from that cache (O(page), not O(fleet)), so page loads stay instant no matter how big the fleet is.
 
-POLL_WORKERS = 64          # concurrent node probes per sweep
-POLL_GAP = 2               # seconds to rest between full sweeps
-_pc = {}                   # node_id -> {"ping":..., "list":..., "ping_ts":t, "list_ts":t}
+POLL_WORKERS = 64
+POLL_GAP = 2
+_pc = {}
 _pc_lock = threading.Lock()
-_tf = {}                   # node_id -> {prev_ts, prev_up, if:{key:{prx,ptx,rx_bps,tx_bps,crx,ctx}}, seed:{}}
+_tf = {}
 _tf_lock = threading.Lock()
-TF_MAX_GAP = 120.0         # a poll gap bigger than this: keep the byte delta but suppress the smeared rate
-TF_BPS_CEIL = 100e9        # 100 Gbit/s sanity ceiling — a larger computed rate is a garbage read -> treat as reset
-_uh = {}                   # node_id -> {"ring":[float 0..1,...], "bts":ts, "up":int, "tot":int} — rolling per-minute up-fraction history
+TF_MAX_GAP = 120.0
+TF_BPS_CEIL = 100e9
+_uh = {}
 _uh_lock = threading.Lock()
-UPTIME_BUCKET = 60         # seconds per uptime sample (one minute; a bucket stores the up-FRACTION = up polls / total polls in it)
-UPTIME_KEEP = 1440         # ring length -> 24h of per-minute history (aggregated to 60 cells for display)
-_tomb = {}                 # node_id -> expiry ts: a node deleted mid-poll must not have its cache resurrected
+UPTIME_BUCKET = 60
+UPTIME_KEEP = 1440
+_tomb = {}
 _tomb_lock = threading.Lock()
 
 
@@ -1109,78 +898,60 @@ def _cache_get(nid):
 
 
 def _tombed(nid, ts):
-    """True if this node was deleted recently enough (short tombstone) that an in-flight poll must
-    NOT resurrect its cache/traffic/uptime."""
     with _tomb_lock:
         exp = _tomb.get(nid)
         return bool(exp and ts < exp)
 
 
 def _pending_drain(n):
-    """Finish the teardowns owed to node n now that it has answered. Uses the idempotent `delete` op, so
-    a tunnel that is already gone (or never existed on a re-imaged node) still clears cleanly. Best-effort:
-    a delete that still fails stays queued for the next successful poll. Usually a no-op (queue empty).
-    CRITICAL: a parked name that a CURRENTLY-REGISTERED link owns on this node is STALE — a recycled
-    tunnel_id gave a brand-new live tunnel the same name (e.g. reused core42) — so drop it WITHOUT deleting;
-    otherwise the drain would tear down a legitimate re-created tunnel."""
     nid = n["id"]
     names = _pending_names(nid)
     if not names:
         return
     live = {L["name"] for L in load_links() if L.get("a_node") == nid or L.get("b_node") == nid}
     for nm in names:
-        if nm in live:                       # a registered tunnel now owns this name here -> stale park, drop it
+        if nm in live:
             _pending_remove(nid, nm)
             continue
         r = node_call(n, "delete", "POST", {"name": nm}, timeout=8)
         if r.get("ok"):
             _pending_remove(nid, nm)
-            _tf_forget(nid, [nm])   # drop stale traffic totals so a reused tunnel name starts fresh
+            _tf_forget(nid, [nm])
 
 
 def _poll_node(n):
     _t0 = time.perf_counter()
     ping = node_call(n, "ping", "GET", timeout=6)
-    if ping.get("ok"):   # the control-plane RTT, measured around the call the way api_node_test does, so
-        ping = {**ping, "rtt_ms": int((time.perf_counter() - _t0) * 1000)}   # the CACHE carries it too
-    t_ping = time.time()   # stamp the rate at ping-return time, not after the slower list call
-    # Publish traffic + uptime from the ping IMMEDIATELY — don't make the live rate wait for the
-    # (slower) list call. The rate's dt uses this accurate ping timestamp, so it's correct even at a
-    # sub-second poll interval.
+    if ping.get("ok"):
+        ping = {**ping, "rtt_ms": int((time.perf_counter() - _t0) * 1000)}
+    t_ping = time.time()
     if not _tombed(n["id"], t_ping):
         if ping.get("ok"):
             s = ping.get("stats") or {}
             _tf_ingest(n["id"], s.get("net"), s.get("uptime"), t_ping)
-        else:               # unreachable -> decay rates to 0 so a dead node isn't counted as still flowing
+        else:
             _tf_zero_rates(n["id"])
         _uh_sample(n["id"], bool(ping.get("ok")), t_ping)
-    lst = node_call(n, "list", "GET", timeout=12)   # health/configs (for tunnel up/down status)
+    lst = node_call(n, "list", "GET", timeout=12)
     now = time.time()
-    if _tombed(n["id"], now):  # node deleted while this poll was in flight? don't resurrect its cache
+    if _tombed(n["id"], now):
         return
-    with _pc_lock:  # publish ping+list together so readers never see a torn (fresh-ping / stale-list) pair
+    with _pc_lock:
         _pc[n["id"]] = {"ping": ping, "list": lst, "ping_ts": t_ping, "list_ts": now}
-    if ping.get("ok"):   # node answered -> finish any teardowns owed to it (rare; no-op when the queue is empty)
+    if ping.get("ok"):
         _pending_drain(n)
 
 
 def _refresh_cache(nids):
-    """Synchronously refresh the cache for a few nodes (after a mutation) so the UI updates at once."""
     nodes = {n["id"]: n for n in load_nodes()}
     parallel_map(_poll_node, [nodes[i] for i in dict.fromkeys(nids) if i in nodes])
 
 
-_warm_inflight = set()          # node ids being warmed by a background _ensure_cached poll
+_warm_inflight = set()
 _warm_lock = threading.Lock()
 
 
 def _ensure_cached(nodes):
-    """Warm the cache for a page's nodes WITHOUT blocking the request. A node the poller hasn't
-    reached yet (cold start / just-added / poller behind on a slow fleet) is polled in the
-    BACKGROUND — the request returns whatever is cached right now (an uncached node reads as offline
-    until the poll lands, and the UI's periodic refresh picks it up seconds later). This is the fix
-    for the page hanging on reload: a slow/unreachable node used to block /api/nodes here for up to
-    ping+list (~18s). Polls are deduped so repeated reloads don't pile up on the same node."""
     miss = [n for n in nodes if not _cache_get(n["id"])]
     if not miss:
         return
@@ -1202,34 +973,30 @@ def _ensure_cached(nodes):
     threading.Thread(target=_warm, daemon=True).start()
 
 
-# Every store keyed by node id, in ONE place. It was six stanzas inline in the poller, and the store added
-# last (_moved) was simply left out of them -- a deleted node kept its entry for the life of the process.
-# A named list is also drivable: a test can delete a node and assert nothing survives anywhere.
 NODE_STATE = ("_pc", "_tf", "_uh", "_moved")
 
 
 def _prune_node_state(valid):
-    """Drop per-node transient state for ids that are no longer registered."""
     g = globals()
     for name in NODE_STATE:
         with g[name + "_lock"]:
             store = g[name]
             for nid in [k for k in store if k not in valid]:
                 store.pop(nid, None)
-    with _tomb_lock:      # tombstones expire by TIME, not by whether the node still exists
+    with _tomb_lock:
         for nid in [k for k, exp in _tomb.items() if time.time() > exp]:
             _tomb.pop(nid, None)
-    with _node_locks_guard:   # a build lock may only be dropped while nobody holds it
+    with _node_locks_guard:
         for nid in [k for k in _node_locks if k not in valid]:
             lk = _node_locks.get(nid)
             if lk is not None and not lk.locked():
                 _node_locks.pop(nid, None)
-    _pending_gc(valid)    # deferred teardowns owed to a node that is gone
+    _pending_gc(valid)
 
 
 def poller_loop():
-    ex = ThreadPoolExecutor(max_workers=POLL_WORKERS)  # persistent; stragglers can't block the next sweep
-    inflight = set()            # node ids whose poll from a previous sweep hasn't finished yet
+    ex = ThreadPoolExecutor(max_workers=POLL_WORKERS)
+    inflight = set()
     inflight_lock = threading.Lock()
 
     def _run(n):
@@ -1252,22 +1019,11 @@ def poller_loop():
             valid = {n["id"] for n in nodes}
             _prune_node_state(valid)
             if nodes:
-                # Only submit nodes that are not still being polled from an earlier sweep. Otherwise a
-                # fleet of slow or unreachable nodes piles a fresh copy of every node onto the unbounded
-                # work queue each sweep — growing memory and starving fresh submissions behind old ones
-                # exactly during an outage. Skipping in-flight nodes bounds the queue to one poll per node.
                 with inflight_lock:
                     todo = [n for n in nodes if n["id"] not in inflight]
                     inflight.update(n["id"] for n in todo)
-                # Fire each due node's poll and immediately loop — do NOT wait for the batch. A slow or
-                # offline node stays in `inflight`, so it is never resubmitted mid-flight, but it can no
-                # longer delay the others: every healthy node is resampled each poll_interval, so live
-                # rates stay fresh even while part of the fleet is unreachable.
                 for n in todo:
                     ex.submit(_run, n)
-            # Proxies ride the same sweep, so their dot refreshes on the same poll_interval as a node's
-            # and there is no second loop to keep alive. Each one is reached on its own, and takes the
-            # same in-flight slot rule as a node so a slow proxy cannot pile up copies of itself.
             pxs = load_proxies()
             live_px = {p["id"] for p in pxs}
             with _px_lock:
@@ -1284,30 +1040,17 @@ def poller_loop():
         except Exception:
             pass
         try:
-            gap = max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP))  # fractional/sub-second OK
+            gap = max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP))
         except Exception:
-            gap = POLL_GAP   # a hand-edited settings.json with a non-numeric poll_interval must not kill the poller thread
+            gap = POLL_GAP
         time.sleep(gap)
 
 
 _px_lock = threading.Lock()
-_px = {}          # proxy id -> {ok, ms, error, ts}
+_px = {}
 
 
 def _proxy_probe(p, timeout=6):
-    """Is this proxy WILLING to work? Speak its protocol, do not just open a socket.
-
-    A TCP connect only proves something is listening: a proxy that has been blocked, or whose account is
-    disabled, still accepts the connection and then refuses to relay -- so a bare connect reported it
-    GREEN while every node behind it was cut off (measured by the operator).
-
-    So the probe runs the real negotiation: SOCKS5 greeting plus user/pass auth, or an HTTP CONNECT, and
-    reads the proxy's own answer. Still the proxy alone -- no node is involved, and no third-party
-    destination whose reachability would be misreported as the proxy's.
-
-    Remaining limit, stated: a proxy that authenticates us and then refuses one particular destination
-    cannot be caught without naming a destination, so that case still reads as up.
-    """
     t0 = time.monotonic()
     host, port = p["host"], int(p["port"])
     user, pw = p.get("user") or "", p.get("pass") or ""
@@ -1341,7 +1084,7 @@ def _proxy_probe(p, timeout=6):
                     ares += c
                 if ares[1] != 0:
                     raise OSError("یوزر/پسوردِ پروکسی پذیرفته نشد")
-        else:                                   # http: the CONNECT verb is the only thing that answers
+        else:
             s.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n" % (host, port, host, port)).encode()
                       + ((b"Proxy-Authorization: Basic "
                           + base64.b64encode(("%s:%s" % (user, pw)).encode()) + b"\r\n") if user else b"")
@@ -1370,27 +1113,21 @@ def _proxy_probe(p, timeout=6):
     return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
 
 
-PX_RELAY_GAP = 15        # seconds between deep (does it actually CARRY anything?) checks per proxy
-PX_ECHO_TTL = 120        # how long the panel's "can I get my own answer back?" result is trusted
-_px_relay = {}           # proxy id -> {"ok", "error", "skipped", "ts"} — last deep check
+PX_RELAY_GAP = 15
+PX_ECHO_TTL = 120
+_px_relay = {}
 _px_echo = {"ts": 0.0, "addr": None}
 _px_echo_lock = threading.Lock()
 
 
 def _echo_over(sock, host, port, timeout):
-    """Push one tiny request and demand an HTTP status line back.
-
-    This is the ONLY thing that proves a proxy relays. Measured on a live xray whose routing was set to
-    `block`: it answers a full SOCKS5 CONNECT with REP=0x00 succeeded -- it replies before it dials -- and
-    then drops the payload. So the handshake and the CONNECT code both read healthy, and only bytes tell
-    the difference (that proxy closed 14 ms after the request, no answer)."""
     end = time.monotonic() + timeout
     sock.settimeout(timeout)
     sock.sendall(("GET /px-echo HTTP/1.0\r\nHost: %s:%d\r\nConnection: close\r\n\r\n"
                   % (host, port)).encode())
     line = b""
     while b"\r\n" not in line:
-        sock.settimeout(max(0.05, end - time.monotonic()))   # ONE deadline for the whole read, not per recv
+        sock.settimeout(max(0.05, end - time.monotonic()))
         c = sock.recv(128)
         if not c:
             raise OSError("چیزی برنگشت")
@@ -1402,11 +1139,6 @@ def _echo_over(sock, host, port, timeout):
 
 
 def _panel_echo_addr():
-    """The panel's own address — but only if the panel can get its OWN answer back from it.
-
-    A TLS-terminated panel, a NATed one or a closed port fails this, and then the deep check is skipped
-    instead of painting every proxy red for something that is not the proxy's fault. Any status line will
-    do (an unknown path answers 404 with no session), so this needs no route of its own."""
     with _px_echo_lock:
         now = time.time()
         if now - _px_echo["ts"] < PX_ECHO_TTL:
@@ -1415,8 +1147,6 @@ def _panel_echo_addr():
 
 
 def _panel_echo_probe(now):
-    """Recompute it. Called only with _px_echo_lock held, so ONE thread pays for the shell pipeline
-    central_ip() spawns (measured 10.2 ms) and the dial, instead of every proxy's thread paying it at once."""
     addr, ip, port = None, central_ip(), _CENTRAL_PORT
     if is_ipv4(ip) and port:
         s = None
@@ -1437,7 +1167,6 @@ def _panel_echo_probe(now):
 
 
 def _proxy_relay(p, timeout=6):
-    """Does this proxy actually carry a stream? No node is involved — the far end is the panel itself."""
     addr = _panel_echo_addr()
     if not addr:
         return {"ok": True, "skipped": True, "error": "", "ts": time.time()}
@@ -1458,14 +1187,12 @@ def _proxy_relay(p, timeout=6):
 
 
 def _px_deep(p, st):
-    """Fold the deep check into a handshake verdict. It runs on its own, slower cadence: the handshake is
-    cheap enough for every sweep, a relayed request is not."""
     if not st.get("ok"):
-        return st                      # already red — nothing to add, and no reason to dial again
+        return st
     with _px_lock:
         prev = _px_relay.get(p["id"])
     if not prev or time.time() - prev["ts"] >= PX_RELAY_GAP:
-        prev = _proxy_relay(p)          # dialled OUTSIDE the lock — it can take seconds
+        prev = _proxy_relay(p)
         with _px_lock:
             _px_relay[p["id"]] = prev
     if prev.get("skipped") or prev.get("ok"):
@@ -1474,8 +1201,6 @@ def _px_deep(p, st):
 
 
 def _px_sweep(p):
-    """One proxy's whole verdict: the handshake every sweep, the deep check on its own cadence. The poller
-    calls THIS and nothing else, so a test that drives it is testing what the poller really does."""
     _px_publish(p["id"], _px_deep(p, _proxy_probe(p)))
 
 
@@ -1497,15 +1222,11 @@ def _cached_list(nid):
     return (_cache_get(nid) or {}).get("list") or {}
 
 
-# ----------------------------------------------------------------------------- traffic accounting
-# Rates and lifetime totals are computed CENTRAL-side from the node's raw /proc/net/dev counters, folded
-# into the same 2s poll — the poll cadence IS the sample clock. Reset, reboot and counter-wrap all
-# collapse to "delta:=0, re-baseline", and `cum` only ever adds validated (>=0) deltas.
 
-TF_IF_MAX = 512            # max interfaces tracked per node — a compromised node must not grow this map unbounded
-TF_IF_KEY_MAX = 32         # max interface-name length stored (Linux ifname is <=15; slack for exotic names)
-TF_CTR_CEIL = 1 << 64      # /proc counters are uint64 — reject implausibly large values (bigint-accumulation DoS)
-TF_IF_PRUNE_MISSES = 15    # prune an iface not reported for this many consecutive sweeps
+TF_IF_MAX = 512
+TF_IF_KEY_MAX = 32
+TF_CTR_CEIL = 1 << 64
+TF_IF_PRUNE_MISSES = 15
 
 
 def _tf_valid_key(key):
@@ -1520,15 +1241,15 @@ def _tf_ingest(nid, net, up, now):
         e = _tf.get(nid)
         if e is None:
             e = _tf[nid] = {"prev_ts": 0.0, "prev_up": None, "if": {}, "seed": {}}
-        if e["prev_ts"] and now < e["prev_ts"]:   # overlapping polls: an out-of-order stale sample would
-            return                                # roll the baseline/clock backwards and re-count -> drop it
+        if e["prev_ts"] and now < e["prev_ts"]:
+            return
         dt = (now - e["prev_ts"]) if e["prev_ts"] else 0
         reboot = e["prev_up"] is not None and up is not None and up < e["prev_up"]
-        emit = (0 < dt <= TF_MAX_GAP) and not reboot   # normal sample: emit rate + accumulate bytes
-        gap = dt > TF_MAX_GAP and not reboot            # long stall: keep the bytes, suppress the smeared rate
+        emit = (0 < dt <= TF_MAX_GAP) and not reboot
+        gap = dt > TF_MAX_GAP and not reboot
         ifs = e["if"]
         for key, v in net.items():
-            if not _tf_valid_key(key):                  # ignore malformed / abusive interface keys (len/charset)
+            if not _tf_valid_key(key):
                 continue
             if not (isinstance(v, list) and len(v) == 2):
                 continue
@@ -1537,39 +1258,39 @@ def _tf_ingest(nid, net, up, now):
             except (TypeError, ValueError):
                 continue
             if not (0 <= rx < TF_CTR_CEIL and 0 <= tx < TF_CTR_CEIL):
-                continue                                # counters are uint64 on the wire -> reject implausible bigints
+                continue
             s = ifs.get(key)
-            if s is None:                               # first sample -> baseline; restore lifetime cum from seed
+            if s is None:
                 if len(ifs) >= TF_IF_MAX:
-                    continue                            # per-node iface cap: a node can't grow this map unbounded
+                    continue
                 sd = e["seed"].get(key)
                 ifs[key] = {"prx": rx, "ptx": tx, "rx_bps": 0.0, "tx_bps": 0.0,
                             "crx": sd[0] if sd else 0, "ctx": sd[1] if sd else 0, "miss": 0}
                 continue
-            s["miss"] = 0                               # reported this sweep -> reset its prune counter
+            s["miss"] = 0
             for raw, pk, ck, bk in ((rx, "prx", "crx", "rx_bps"), (tx, "ptx", "ctx", "tx_bps")):
                 draw = raw - s[pk]
-                if draw < 0 or reboot:                  # counter went backwards / node rebooted -> don't fabricate
+                if draw < 0 or reboot:
                     s[bk] = 0.0
                 elif emit:
                     bps = draw * 8.0 / dt
-                    if bps > TF_BPS_CEIL:               # garbage read
+                    if bps > TF_BPS_CEIL:
                         s[bk] = 0.0
                     else:
                         s[bk] = bps
                         s[ck] += draw
                 elif gap:
                     s[bk] = 0.0
-                    if draw <= TF_BPS_CEIL / 8.0 * dt:   # bound the gap credit too: ignore an implausibly large delta
+                    if draw <= TF_BPS_CEIL / 8.0 * dt:
                         s[ck] += draw
                 s[pk] = raw
         stale = []
-        for key, s in e["if"].items():    # an iface that dropped out of the report (deleted / mid-rebuild /
-            if key not in net:            # no default route) must decay its rate, else it shows phantom throughput
+        for key, s in e["if"].items():
+            if key not in net:
                 s["rx_bps"] = 0.0
                 s["tx_bps"] = 0.0
-                s["miss"] = s.get("miss", 0) + 1   # ...and after enough absent sweeps, prune it so a node that
-                if s["miss"] > TF_IF_PRUNE_MISSES:  # rotates iface names cannot grow the map (paired with TF_IF_MAX)
+                s["miss"] = s.get("miss", 0) + 1
+                if s["miss"] > TF_IF_PRUNE_MISSES:
                     stale.append(key)
         for key in stale:
             e["if"].pop(key, None)
@@ -1578,8 +1299,6 @@ def _tf_ingest(nid, net, up, now):
 
 
 def _tf_forget(nid, keys):
-    """Drop per-iface accounting state (rates + lifetime cum + seed) for deleted tunnels/port-forwards,
-    so a later tunnel that reuses the same name doesn't inherit the removed one's lifetime totals."""
     if not keys:
         return
     with _tf_lock:
@@ -1592,8 +1311,6 @@ def _tf_forget(nid, keys):
 
 
 def _tf_reset(nid, keys):
-    """Zero the lifetime totals (crx/ctx) and drop the seed for the given iface keys, but keep the live
-    baseline (prx/ptx) so running counters don't re-count — the 'total' figure just restarts from zero."""
     if not keys:
         return
     with _tf_lock:
@@ -1608,17 +1325,12 @@ def _tf_reset(nid, keys):
 
 
 def _tf_read(nid):
-    """A copied-out snapshot of one node's per-iface rates + totals."""
     with _tf_lock:
         e = _tf.get(nid)
         return {k: dict(v) for k, v in e["if"].items()} if e else {}
 
 
 def _tf_node_view(nid):
-    """The node's own throughput + lifetime totals, or None when nothing has been sampled yet.
-
-    THE one place "_node" is turned into the browser's shape, so the list row and the details sheet
-    cannot disagree about what the figure means."""
     s = _tf_read(nid).get("_node")
     if not s:
         return None
@@ -1626,8 +1338,6 @@ def _tf_node_view(nid):
 
 
 def _tf_zero_rates(nid):
-    """Node is unreachable this sweep -> zero its instantaneous rates (totals/baselines untouched)
-    so a dead node stops contributing phantom throughput to the fleet/card figures."""
     with _tf_lock:
         e = _tf.get(nid)
         if e:
@@ -1637,9 +1347,6 @@ def _tf_zero_rates(nid):
 
 
 def _uh_sample(nid, up, now):
-    """Record up/down into the rolling uptime ring as a per-bucket UP-FRACTION (up polls / total polls
-    in the bucket), so a short blip counts by its REAL duration — a 5s outage is ~5s of downtime, not a
-    whole minute/cell. One bucket per UPTIME_BUCKET seconds; the ring holds floats in [0,1]."""
     with _uh_lock:
         e = _uh.get(nid)
         if e is None:
@@ -1648,8 +1355,8 @@ def _uh_sample(nid, up, now):
         e["up"] = e.get("up", 0) + (1 if up else 0)
         e["tot"] = e.get("tot", 0) + 1
         if now - e["bts"] >= UPTIME_BUCKET:
-            frac = e["up"] / e["tot"] if e["tot"] else 1.0   # fraction of this bucket the node was reachable
-            missed = min(int((now - e["bts"]) / UPTIME_BUCKET), UPTIME_KEEP)  # backfill a multi-bucket gap, don't compress it
+            frac = e["up"] / e["tot"] if e["tot"] else 1.0
+            missed = min(int((now - e["bts"]) / UPTIME_BUCKET), UPTIME_KEEP)
             e["ring"].extend([frac] * missed)
             if len(e["ring"]) > UPTIME_KEEP:
                 e["ring"] = e["ring"][-UPTIME_KEEP:]
@@ -1658,33 +1365,27 @@ def _uh_sample(nid, up, now):
 
 
 def _uh_cells(nid, window_hours, cells=60):
-    """Aggregate the per-minute ring into exactly `cells` bars for the given window (hours). Each bar
-    spans window/cells minutes -> down(0) if any minute in it was down, up(1) if all up, None if no data
-    yet (rendered gray). Uptime-kuma style: fixed bar count, coarser bars for a longer window."""
     try:
         wh = int(window_hours)
     except Exception:
         wh = 1
     if wh not in (1, 3, 6, 8, 12, 24):
         wh = 1
-    per = wh  # minutes per cell (cells*per = wh*60 minutes covered)
+    per = wh
     total = cells * per
     with _uh_lock:
         e = _uh.get(nid)
         ring = list(e["ring"]) if e else []
     ring = ring[-total:]
-    slots = [None] * (total - len(ring)) + ring  # front-pad missing history with no-data
+    slots = [None] * (total - len(ring)) + ring
     out = []
     for i in range(cells):
         chunk = [x for x in slots[i * per:(i + 1) * per] if x is not None]
-        out.append(None if not chunk else (0 if min(chunk) < 1.0 else 1))  # red if ANY downtime in the cell (visual)
+        out.append(None if not chunk else (0 if min(chunk) < 1.0 else 1))
     return out
 
 
 def _uh_pct(nid, window_hours):
-    """True TIME-WEIGHTED uptime % over the window: the mean of the per-bucket up-fractions (each ~1
-    minute), so a 5-second blip lowers it by ~5s/window — not by a whole cell/minute like counting red
-    bars would. Returns 100.0 when there is no history yet."""
     try:
         wh = int(window_hours)
     except Exception:
@@ -1698,10 +1399,8 @@ def _uh_pct(nid, window_hours):
     if not ring:
         return 100.0
     total, n = sum(ring), len(ring)
-    if total >= n:            # genuinely zero downtime in the window -> a clean 100%
+    if total >= n:
         return 100.0
-    # Any downtime at all (even a few seconds -> at least one red bar): FLOOR to 2 decimals instead of
-    # rounding, so it reads as 99.99% and never rounds UP to 100% while the bars show red. Truncation.
     return int(total / n * 10000) / 100
 
 
@@ -1719,12 +1418,11 @@ def _uh_load():
     now = time.time()
     with _uh_lock:
         for nid, ring in (data or {}).items():
-            if isinstance(ring, list):  # bts=now so the offline gap isn't backfilled; floats in [0,1]
+            if isinstance(ring, list):
                 _uh[nid] = {"ring": [max(0.0, min(1.0, float(x))) for x in ring][-UPTIME_KEEP:], "bts": now, "up": 0, "tot": 0}
 
 
 def _tf_snapshot():
-    """{nid: {ifkey: [cum_rx, cum_tx]}} for persistence (seed values survive for un-polled nodes)."""
     out = {}
     with _tf_lock:
         for nid, e in _tf.items():
@@ -1756,13 +1454,12 @@ def traffic_persist_loop():
         try:
             valid = {n["id"] for n in load_nodes()}
             save_json(TRAFFIC_FILE, {k: v for k, v in _tf_snapshot().items() if k in valid})
-            save_json(UPTIME_FILE, {k: v for k, v in _uh_snapshot().items() if k in valid})  # persist uptime history
+            save_json(UPTIME_FILE, {k: v for k, v in _uh_snapshot().items() if k in valid})
         except Exception:
             pass
 
 
 def query_dict(path):
-    """Parse a GET path's query string into a flat {key: value} dict (last value wins)."""
     return {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(path).query).items()}
 
 
@@ -1779,59 +1476,33 @@ def _paginate(d, default_limit=25, max_limit=100):
     return off, lim, str(d.get("q") or "").strip().lower()
 
 
-# A tunnel id is unique across the WHOLE fleet, and the interface name and the overlay addresses are
-# both read off it. Each tunnel gets its own /24 so the last octet is always the same two numbers: the
-# SERVER is x.x.x.1 and the client x.x.x.2, whichever tunnel you are looking at. The id indexes the /24
-# across the whole base, not just one octet, so the ceiling is the base's size rather than 255:
-#
-#   base -> (network, prefix). One /24 each, so a base of prefix p addresses 2^(24-p) tunnels:
-#   192.168/16 -> 255      172.16/12 -> 4,095      10/8 -> 65,535
-#
-# The default UDP port is NOT derived from the id: a port only has to be unique on the IP that binds it.
 SUBNET_BASES = {"192.168": ("192.168.0.0", 16), "172.16": ("172.16.0.0", 12), "10": ("10.0.0.0", 8)}
 SUBNET_BASE_DEFAULT = "192.168"
 
 
 def subnet_cap(base=None):
-    """How many tunnel ids a base can address, one /24 each. Ids run 1..cap."""
     _, prefix = SUBNET_BASES.get(str(base or SUBNET_BASE_DEFAULT), SUBNET_BASES[SUBNET_BASE_DEFAULT])
     return (1 << (24 - prefix)) - 1
 
 
 TID_MIN = 1
-TID_MAX = max(subnet_cap(b) for b in SUBNET_BASES)   # the widest base; a narrower one caps itself
+TID_MAX = max(subnet_cap(b) for b in SUBNET_BASES)
 
 
 def tunnel_name(ttype, tid):
-    """The interface name — from the id alone, so create / edit / rebuild cannot disagree on it.
-
-    Every kernel type shares one `native<id>` spelling: nothing anywhere reads the type back out of the
-    name, and a per-type prefix meant a type change was also a rename, which is a second thing to get
-    right for no gain. Ids being unique fleet-wide is what makes the name unique too."""
     return f"core{tid}" if ttype == "core" else f"native{tid}"
 
 
 def overlay_host(ttype, server_side, is_a):
-    """Which host number this end takes inside the overlay subnet: the SERVER is always .1 and the client
-    .2, so a glance at either end says which role it is. A kernel tunnel has no server, so side A takes
-    .1. The panel decides — the two ends used to derive it themselves by comparing their PUBLIC IPs,
-    which made the overlay address depend on which provider handed out the larger address."""
     if ttype == "core":
         return 1 if (server_side == "a") == bool(is_a) else 2
     return 1 if is_a else 2
 
 
 def subnet_default(ttype, tid, base=None):
-    """The tunnel's own /24, from the id alone. The two ends are always .1 (server) and .2 (client), so
-    an address tells you the role at a glance and every tunnel reads the same way. A base too small for
-    the id is a loud refusal rather than a wrapped address that would quietly collide with another."""
     if ttype == "sit":
         return "fd00:%x:%x::/64" % (tid >> 16, tid & 0xFFFF)
     if not base:
-        # No base was ASKED for, so this is a re-derive rather than a choice -- a type change on a tunnel
-        # whose stored subnet is the wrong IP version, say. Pick the narrowest range that can still hold
-        # this id: falling back to the default's 255 dead-ends every id above it, with a message naming a
-        # range the operator never picked. An EXPLICIT base that is too small still refuses, below.
         base = next((b for b in ("192.168", "172.16", "10") if tid <= subnet_cap(b)), "10")
     net, prefix = SUBNET_BASES.get(str(base), SUBNET_BASES[SUBNET_BASE_DEFAULT])
     cap = subnet_cap(base)
@@ -1842,12 +1513,6 @@ def subnet_default(ttype, tid, base=None):
 
 
 def free_tunnel_port(A, B, exclude_id=None, start=20000):
-    """The lowest port at or above `start` that no link touching either node already claims.
-
-    The default used to be 20000+id, which coupled two things that never needed coupling and put a
-    second ceiling on the id at 45535. A port has to be unique on the IP that BINDS it, not fleet-wide,
-    so this only has to pick a sane default — the precise per-binding conflict guard still runs after.
-    Scoping to links that touch either node keeps the number small and readable on a small fleet."""
     nodes = {A["id"], B["id"]}
     used = set()
     for L in load_links():
@@ -1867,9 +1532,6 @@ def free_tunnel_port(A, B, exclude_id=None, start=20000):
 
 
 def norm_subnet(ttype, tid, provided, base=None):
-    """A subnet valid for the type: keep the provided one if its IP version fits (v6 for SIT,
-    v4 otherwise), else fall back to the type's default (optionally in a chosen private range).
-    Prevents a v4 subnet reaching a SIT tunnel."""
     sub = provided or subnet_default(ttype, tid, base)
     want6 = (ttype == "sit")
     try:
@@ -1879,30 +1541,12 @@ def norm_subnet(ttype, tid, provided, base=None):
     return sub if ok else subnet_default(ttype, tid, base)
 
 
-# Keys the panel keeps for itself: the node either has no use for them or does not whitelist them at
-# all, and an unwhitelisted key is dropped there in silence. Pool blacklists are the operator's own
-# memory of which edges are burned and the node/core never consume them.
 _PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned")
 
-# IP-rotation config lives in the LINK record and is consumed by _core_rotation_bodies to derive each
-# node's PER-ROLE fields (peer_ips/src_ips on the client, pool_listen on the server). The raw keys must
-# NOT be spread into a node body as-is (the node whitelists only the per-role fields), so drop them.
 _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 
-# The TUN-queue count is per END, and _core_workers_bodies turns it into each node's own `workers`.
-# The raw a_/b_ pair is the panel's own bookkeeping for exactly the reason the rotation pools are, so it
-# is dropped here too — otherwise create and edit ship it to a node that has no use for it while rebuild
-# does not, and the three paths stop agreeing.
 _WORKERS_KEYS = ("a_workers", "b_workers")
 
-# The extras an edit may leave in a stored link record. Present-and-set, absent-and-dropped, so an edit
-# that turns rotation off actually clears the stored pools rather than leaving them to be replayed.
-#
-# Module-level rather than a literal inside api_edit_link because the omission has no symptom the edit
-# itself can show: the node is rebuilt with the value the operator chose and reports success, while the
-# record loses it — so the next rebuild silently reverts, and the form that reads the record shows the
-# old setting as if it were the live one. Every _core_extra key is checked against this list by
-# tools/config_contract.py, which is only possible because the list is reachable from outside.
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
                     "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
                     "flux_carrier", "flux_rotate_secs", "flux_shape", "flux_epoch_offset",
@@ -1916,70 +1560,36 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
 
 
 def _node_extra(extra):
-    """Turn a panel-side extras dict into the body a NODE receives: drop the keys that are the panel's
-    own bookkeeping and pass the rest through.
-
-    EVERY path to a node goes through here — create, edit, and rebuild (via _tunnel_extra's return).
-    That is the whole point: a key handled on one path and not the others reaches the node on that
-    path alone, and a node drops what it does not whitelist in silence, so the difference has no
-    symptom until someone measures the tunnel.
-
-    Keep this the only funnel. `tools/config_contract.py` fails the build if the three paths drift."""
     e = dict(extra)
     skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS + _WORKERS_KEYS
     return {k: v for k, v in e.items() if k not in skip}
 
 
 def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
-    """Set a core node's per-role IP-rotation fields in place. The CLIENT gets its own node's IPs as the
-    source pool (src_ips) and the peer node's IPs as the destination pool (peer_ips) plus the rotation
-    settings; the SERVER binds exactly its OWN selected pool IPs (pool_listen + listen_ips) so the core
-    opens one socket per IP — the reply then egresses from the exact IP the client dialed, and the
-    server accepts only on the pool IPs rather than every host IP."""
     if is_client:
         if peer_pool:
-            body["peer_ips"] = list(peer_pool)   # the server's IPs — the client cycles the destination
+            body["peer_ips"] = list(peer_pool)
         if own_pool:
-            body["src_ips"] = list(own_pool)      # this node's own IPs — the client cycles the source
+            body["src_ips"] = list(own_pool)
         body["peer_rotate_secs"] = rotate_secs
     else:
-        body["pool_listen"] = True                # accept the client dialing any of this server's IPs
-        # ...but listen_ips only where a server READS it. config.go refuses it outright on anything but
-        # udp/tcp ("listen_ips is read only by the udp and tcp servers"), and raw must bind 0.0.0.0
-        # anyway — a concrete bind makes its socket deaf to every other pool IP. Today the node's
-        # whitelist happens to drop it again; the day that widens, both ends exit at startup instead.
+        body["pool_listen"] = True
         if own_pool and body.get("transport") in ("udp", "tcp"):
-            body["listen_ips"] = list(own_pool)   # bind exactly these (this server's own selected IPs)
+            body["listen_ips"] = list(own_pool)
         if peer_pool:
-            # The CLIENT's source pool — the IPs it sends FROM as it rotates its source. raw/flux servers
-            # receive on a socket that sees every host and pre-filter by the learned peer source, so a rotated
-            # client source would be dropped pre-crypto and never re-learned, and the tunnel dies on a source
-            # rotation until a rebuild. udp/tcp re-learn on their own, so the node forwards this for raw/flux only.
             body["peer_src_ips"] = list(peer_pool)
 
 
 def _core_rotation_bodies(src, a_body, b_body):
-    """Apply IP rotation to BOTH core node bodies from a create/edit request or a stored link `src`
-    (which carries ip_rotate + a_ip_pool/b_ip_pool + rotate_secs). a_body is node A, b_body
-    node B; the client/server split comes from each body's already-set role. No-op when rotation is off
-    or the transport isn't direct (peer_ips/src_ips are meaningless on ws)."""
     if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
         return
     ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
     rs = max(0, min(86400, int(src.get("rotate_secs") or 0)))
-    _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)  # A: own=ap, peer=bp
-    _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)  # B: own=bp, peer=ap
+    _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)
+    _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
 
 
 def _core_workers_bodies(src, a_body, b_body):
-    """Give each core node body its OWN TUN-queue count from a create/edit request or a stored link.
-
-    Per end, not per tunnel, because the queues are a SEND-side lever and the two ends do not send into
-    the same hardware: MEASURED on the test pair, four queues on a node whose NIC has four transmit
-    queues carry 74% more, and on a node whose NIC has one they carry 9% LESS. One number for both ends
-    can only be right for one of them.
-
-    a_body is node A, b_body node B, matching a_ip_pool/b_ip_pool."""
     for body, key in ((a_body, "a_workers"), (b_body, "b_workers")):
         n = _link_workers(src, key)
         if n > 1:
@@ -1987,21 +1597,10 @@ def _core_workers_bodies(src, a_body, b_body):
 
 
 def _apply_core_tuning(a_body, b_body):
-    """Stamp the fleet-wide operational-timing overrides (only the knobs that differ from the core's
-    built-in defaults) onto BOTH core node bodies. Called from EVERY core build path — create, edit and
-    rebuild — so a tunnel picks up the current Settings timing on any (re)build, uniformly. Empty diff
-    (all knobs at default) leaves both bodies untouched so the core keeps its own defaults."""
     tn = _settings_tuning()
-    # sock_buf is a top-level core field, and the one knob the operator sets in a different unit than the
-    # core reads: MiB here, BYTES on the wire. 0 means "off", which the core spells as a negative value.
-    # _settings_tuning already omits the knob when it equals the panel default, which is the core's own
-    # default, so an untouched fleet stamps nothing.
     if "sock_buf_mb" in tn:
         _mb = max(0, min(64, int(tn["sock_buf_mb"])))
         a_body["sock_buf"] = b_body["sock_buf"] = -1 if _mb == 0 else _mb * (1 << 20)
-    # everything else rides in the `tuning` object (the core clamps it); strip the top-level knobs so
-    # they never appear twice on the wire. probe_min_pct is stripped for a different reason: the core
-    # has no such knob at all. It is the NODE's, and _apply_probe_tuning stamps it on every type.
     _tn = {k: v for k, v in tn.items()
            if k not in ("sock_buf_mb", "probe_min_pct")}
     if _tn:
@@ -2010,16 +1609,6 @@ def _apply_core_tuning(a_body, b_body):
 
 
 def _apply_probe_tuning(*bodies):
-    """Stamp the node's tun-probe carrying threshold onto every body, whatever the tunnel TYPE.
-
-    Separate from _apply_core_tuning because the scope is different, not just the destination: the tun
-    probe judges every tunnel it can address, so a vxlan and a core tunnel on the same dashboard must be
-    coloured — and have their endpoints burned — by the same rule. _apply_core_tuning is called inside
-    `if ttype == "core"` at every site; this one must not be.
-
-    Only when the operator moved it off the default, so an untouched fleet sends nothing and the node
-    keeps its own PROBE_MIN_PCT. Called from all FOUR paths that build a node body: create, edit,
-    rebuild, and the rollback restore."""
     tn = _settings_tuning()
     if "probe_min_pct" not in tn:
         return
@@ -2029,25 +1618,12 @@ def _apply_probe_tuning(*bodies):
         b["probe_min_pct"] = v
 
 
-# The carrier shape an operator may set on an http-carrier tunnel, and the range the CORE accepts. It
-# REJECTS rather than clamps, so a value outside these never starts a tunnel. The upstream window is
-# workers x batch and it is spent per round trip, so what a far edge needs is a BIGGER batch, not more
-# workers — a worker is a concurrent socket and socket count is what a CDN's limiter counts. The
-# download streams are the same lever the other way: each one is its own connection the server can
-# write down, and the first is what carries the session.
 HTTP_SHAPE = {"http_up_workers": (1, 16, 8), "http_up_batch_kb": (8, 512, 512),
               "http_streams": (1, 16, 1)}
-# The POST ladder is the http carrier's alone — the core refuses those three on grpc. The stream count
-# belongs to both: http stripes its download over them, grpc its whole duplex call.
 HTTP_SHAPE_GRPC = ("http_streams",)
 
 
 def _tunnel_extra(src, refetch_ech=True):
-    """Type-specific fields that must reach BOTH tunnel ends identically: the UDP port (l2tpv3/fou/core),
-    the shared key (IPsec psk / core AEAD psk) and the core cipher. Read from a stored link record
-    (edit/rebuild) or a create request. NOTE: the core role is per-node, so it is NOT here — inject it
-    separately with _core_role(). refetch_ech=False reuses the stored per-SNI ECH verbatim (no DNS
-    fetch, never raises) — used only as a last-resort restore path when a fresh fetch failed."""
     e = {}
     if src.get("port"):
         e["port"] = src["port"]
@@ -2059,101 +1635,84 @@ def _tunnel_extra(src, refetch_ech=True):
         e["transport"] = src["transport"]
     if src.get("obfs"):
         e["obfs"] = True
-    if src.get("cover"):                 # TLS camouflage (HTTPS cover); core TCP-only
+    if src.get("cover"):
         e["cover"] = True
         if src.get("cover_sni"):
             e["cover_sni"] = src["cover_sni"]
-    if src.get("raw_profile"):           # raw-IP carrier encapsulation (transport=raw only)
+    if src.get("raw_profile"):
         e["raw_profile"] = src["raw_profile"]
-    if src.get("raw_proto"):             # bare custom outer IP protocol number (whitelist evasion; bare only)
+    if src.get("raw_proto"):
         e["raw_proto"] = src["raw_proto"]
-    if src.get("raw_port"):              # udp/tcp forged server port
+    if src.get("raw_port"):
         e["raw_port"] = src["raw_port"]
-    if src.get("port_tries"):            # how many source ports THIS tunnel's ladder may draw
+    if src.get("port_tries"):
         e["port_tries"] = src["port_tries"]
-    if src.get("raw_sport_random"):      # ...and whether the udp/tcp CLIENT source port rolls
+    if src.get("raw_sport_random"):
         e["raw_sport_random"] = True
-    elif src.get("raw_sport"):           # ...or the fixed number it is pinned to instead
+    elif src.get("raw_sport"):
         e["raw_sport"] = src["raw_sport"]
-    if src.get("dns_zone"):              # dns-tunnel carrier: delegated zone + client resolver list
+    if src.get("dns_zone"):
         e["dns_zone"] = src["dns_zone"]
         if src.get("dns_resolvers"):
             e["dns_resolvers"] = src["dns_resolvers"]
-    if src.get("flux_carrier"):          # flux moving-target carrier (transport=flux only)
+    if src.get("flux_carrier"):
         e["flux_carrier"] = src["flux_carrier"]
-    if src.get("flux_rotate_secs"):      # flux epoch length in seconds
+    if src.get("flux_rotate_secs"):
         e["flux_rotate_secs"] = src["flux_rotate_secs"]
-    if src.get("flux_shape"):            # flux statistical size profile
+    if src.get("flux_shape"):
         e["flux_shape"] = src["flux_shape"]
-    if "flux_epoch_offset" in src:       # flux manual "rotate now" epoch bump; 0 is a VALUE, not absence
-        # Presence, not truthiness. _flux_fields writes this key unconditionally, so a flux tunnel that has
-        # never been bumped stores 0 — and `if src.get(...)` drops it, leaving create/edit and rebuild
-        # building different bodies. The node normalises both to 0, so nothing breaks; the CONTRACT does, and
-        # config_contract.py fails on exactly this. Matching the writer is the fix.
+    if "flux_epoch_offset" in src:
         e["flux_epoch_offset"] = int(src.get("flux_epoch_offset") or 0)
-    if src.get("fec"):                   # flux FEC (loss recovery); carry the block geometry too
+    if src.get("fec"):
         e["fec"] = True
         e["fec_data"] = src.get("fec_data") or 10
         e["fec_parity"] = src.get("fec_parity") or 3
-    if src.get("fake_desync"):           # fake-packet desync (raw/flux client anti-DPI); carry the decoy knobs
+    if src.get("fake_desync"):
         e["fake_desync"] = True
         e["fake_ttl"] = src.get("fake_ttl") or 4
         e["fake_count"] = src.get("fake_count") or 2
         e["fake_mode"] = src.get("fake_mode") or "ttl"
-    if src.get("ws_host"):               # ws (WebSocket/CDN) Host header + TLS SNI
+    if src.get("ws_host"):
         e["ws_host"] = src["ws_host"]
-    if src.get("ws_path"):               # ws request path
+    if src.get("ws_path"):
         e["ws_path"] = src["ws_path"]
-    if src.get("ws_tls"):                # ws client speaks wss (TLS to the CDN edge)
+    if src.get("ws_tls"):
         e["ws_tls"] = True
-    if src.get("sni_split"):             # SNI fragmentation: split the wss ClientHello across TCP segments
+    if src.get("sni_split"):
         e["sni_split"] = True
         if src.get("split_pos"):
             e["split_pos"] = int(src["split_pos"])
-        if src.get("sni_mode") in ("disorder", "fake"):   # anti-reassembly modes (low-TTL head / fake overlap)
+        if src.get("sni_mode") in ("disorder", "fake"):
             e["sni_mode"] = src["sni_mode"]
             if src.get("split_ttl"):
                 e["split_ttl"] = int(src["split_ttl"])
-    if src.get("cdn_carrier"):           # the shape this CDN carrier takes
-        # Whatever is STORED, which is the rule the writers use. _ws_pool_fields stores cdn_carrier ALWAYS
-        # while _ws_fields stores it only when it is not "ws" — so on a POOL create/edit the node body carries
-        # `cdn_carrier: "ws"` and this path dropped it. The node defaults an absent one to "ws", so nothing
-        # broke; the three paths still disagreed, which is the one thing this funnel exists to prevent.
+    if src.get("cdn_carrier"):
         e["cdn_carrier"] = src["cdn_carrier"]
-        # The shape reaches the node as numbers, on this path exactly as on create and edit. grpc
-        # carries the stream count and not the ladder, the same split _cdn_shape_fields makes.
         if src.get("cdn_carrier") in ("http", "grpc"):
             for k in HTTP_SHAPE:
                 if src.get("cdn_carrier") == "grpc" and k not in HTTP_SHAPE_GRPC:
                     continue
                 if src.get(k):
                     e[k] = int(src[k])
-    if src.get("ech"):                   # ECH: hide the SNI (carries ws_ech, the base64 config)
+    if src.get("ech"):
         e["ech"] = True
         host = src.get("ws_host")
         if refetch_ech and host:
-            # Re-fetch fresh on rebuild — a stored single-edge ws_ech goes stale when the CDN rotates
-            # its key (~hourly), and a stale key fails the ws-upgrade (same failure the pool branch
-            # guards). NO fallback: raise rather than replay a stale key (caller runs this BEFORE teardown).
             ec = _fetch_ech(host, _ech_px(src))
             if not ec:
                 raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % host)
             e["ws_ech"] = ec
         elif src.get("ws_ech"):
-            e["ws_ech"] = src["ws_ech"]  # restore path (refetch_ech=False): reuse the stored key verbatim
-    if src.get("edge_ip"):               # ws client dials this CDN edge instead of the origin
+            e["ws_ech"] = src["ws_ech"]
+    if src.get("edge_ip"):
         e["edge_ip"] = src["edge_ip"]
-    if src.get("ws_pool") and src.get("ws_edge_ips") and src.get("ws_edge_snis"):  # rotating edge pool (clean lists only)
+    if src.get("ws_pool") and src.get("ws_edge_ips") and src.get("ws_edge_snis"):
         e["ws_pool"] = True
         e["ws_tls"] = True
         e["ws_edge_ips"] = src["ws_edge_ips"]
-        # Re-fetch each SNI's ECHConfigList fresh on rebuild — a stored key goes stale when the CDN rotates it
-        # and a stale key fails the ws-upgrade on EVERY edge, so the whole pool goes dark. NO fallback: if ECH
-        # is on and a key cannot be fetched, the rebuild FAILS rather than replaying a stale one, and the
-        # caller must run this BEFORE tearing the tunnel down so a failure leaves it intact.
         pool_ech = bool(src.get("ech"))
         hosts = [s.get("host") for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
-        ech_map = _fetch_ech_map(hosts, _ech_px(src)) if (pool_ech and refetch_ech) else {}   # concurrent — not host-by-host
+        ech_map = _fetch_ech_map(hosts, _ech_px(src)) if (pool_ech and refetch_ech) else {}
         psnis = []
         for s in src["ws_edge_snis"]:
             if not (isinstance(s, dict) and s.get("host")):
@@ -2164,33 +1723,26 @@ def _tunnel_extra(src, refetch_ech=True):
                 if pool_ech and not ec:
                     raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % h)
             else:
-                ec = s.get("ech", "") if pool_ech else ""   # last-resort restore: reuse the stored key verbatim
+                ec = s.get("ech", "") if pool_ech else ""
             psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
         e["ws_edge_snis"] = psnis
-        _rs = src.get("ws_rotate_secs")   # 0 = rotation off (failover-only); a truthiness `or 600` would force 600
+        _rs = src.get("ws_rotate_secs")
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
-    if src.get("gso"):                   # TUN segmentation offload (throughput)
+    if src.get("gso"):
         e["gso"] = True
-    if src.get("spoof_src"):             # forge the outer source (raw bare; client only, node applies by role)
+    if src.get("spoof_src"):
         e["spoof_src"] = src["spoof_src"]
-    if src.get("spoof_dst"):             # decoy destination (raw bare; the node wires the AF_PACKET side by role)
+    if src.get("spoof_dst"):
         e["spoof_dst"] = src["spoof_dst"]
-    # Through the SAME funnel create and edit use, so a name-to-numbers expansion can never again exist
-    # on one path only. The rebuild callers splat this straight into the node body (`**extra`) and so
-    # cannot apply it themselves; returning it already funnelled is what makes "one funnel" true rather
-    # than aspirational. Verified to strip nothing from any rebuild body across all 13 carriers.
     return _node_extra(e)
 
 
 def _core_role(L, node_id):
-    """Which role a given node plays in an core link. The record stores server_side ('a'|'b'); the node
-    on that side listens (server), the other dials (client). Returns None for non-core links."""
     if L.get("type") != "core":
         return None
     server_node = L.get("b_node") if L.get("server_side") == "b" else L.get("a_node")
     return "server" if node_id == server_node else "client"
 
-# ----------------------------------------------------------------------------- central API
 
 def _require(d, keys):
     for k in keys:
@@ -2199,11 +1751,6 @@ def _require(d, keys):
 
 
 def valid_proxy_ref(d):
-    """Read {proxy_on, proxy_id} off a request body and check the id resolves. Returns the pair.
-
-    An id that names nothing is refused HERE rather than silently falling back to a direct connection:
-    a node the operator believes is proxied, quietly reaching out in the clear, is the one failure this
-    whole feature exists to prevent."""
     on = bool(d.get("proxy_on"))
     pid = str(d.get("proxy_id") or "").strip()
     if not on:
@@ -2214,7 +1761,6 @@ def valid_proxy_ref(d):
 
 
 def valid_proxy(p):
-    """Accept '' or a scheme://[user:pass@]host:port proxy (socks5/http). Returns the normalized value."""
     p = str(p or "").strip()
     if not p:
         return ""
@@ -2230,22 +1776,16 @@ def _proxy_names():
 
 def _node_view(n, pend=None, pxn=None):
     _uw = get_settings().get("uptime_window", 1)
-    # proxy_name is what the card and the details sheet SHOW; resolving it here means the browser never
-    # needs the registry to say which proxy a node takes, and cannot disagree with node_proxy about it.
     _pon = bool(n.get("proxy_on"))
     _pid = str(n.get("proxy_id") or "")
     base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"],
             "proxy_on": _pon, "proxy_id": _pid,
             "proxy_name": (pxn if pxn is not None else _proxy_names()).get(_pid, "") if _pon else "",
-            "disabled": bool(n.get("disabled")),   # operator hid it from the create-tunnel/portfw pickers (still connected/polled)
-            "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),   # teardowns owed to this node, waiting for it to reconnect
-            "moved_to": moved_addr(n["id"]),   # DISPLAY only ("host:port"); adopt reads the stored pair
-            # The origin this node SHOULD have learned. Beside info.central (what it actually believes)
-            # this is what makes a fleet being moved to a new address watchable instead of guessed at.
+            "disabled": bool(n.get("disabled")),
+            "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),
+            "moved_to": moved_addr(n["id"]),
             "central_want": _panel_origin_for(n),
-            "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw),  # cells=visual bar, pct=time-weighted %
-            # The node's OWN figure — the sum over its physical NICs, the same "_node" key the details
-            # sheet reads. Carried on the row so the list shows it without a second call per node.
+            "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw),
             "traffic": _tf_node_view(n["id"])}
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -2256,26 +1796,22 @@ def _node_view(n, pend=None, pxn=None):
 
 
 def api_nodes(d):
-    """The WHOLE fleet, filtered by the search box and nothing else. It is not paged: the operator reads
-    this list to find one node among all of them, and a page boundary hid half the fleet behind a
-    «next» nobody wanted to press."""
     q = str((d or {}).get("q") or "").strip().lower()
     nodes = load_nodes()
     if q:
         nodes = [n for n in nodes if q in n["name"].lower() or q in n["host"].lower()]
     _ensure_cached(nodes)
-    _pend = _pending_counts()   # read the deferred-teardown queue once for the whole fleet
-    _pxn = _proxy_names()       # and the proxy registry once, not once per node
+    _pend = _pending_counts()
+    _pxn = _proxy_names()
     return {"nodes": [_node_view(n, _pend, _pxn) for n in nodes], "total": len(nodes),
             "uptime_window": get_settings().get("uptime_window", 1)}
 
 
 def api_node_names(d):
-    """Compact list (id/name/host/online) of ALL nodes — for the create-tunnel pickers."""
     q = str(d.get("q") or "").strip().lower()
     out = []
     for n in load_nodes():
-        if n.get("disabled"):   # operator hid this node from the create-tunnel/portfw pickers
+        if n.get("disabled"):
             continue
         if q and q not in n["name"].lower() and q not in n["host"].lower():
             continue
@@ -2286,9 +1822,6 @@ def api_node_names(d):
 
 
 def api_spoof_probe(d):
-    """Ask a node whether IP spoofing (decoy) can run on it — local CAP_NET_RAW / AF_PACKET capability
-    only (it can't prove the datacenter forwards a forged source). The create/edit forms call this for
-    both ends to enable or disable the spoofing controls and show the reason when it can't."""
     n = get_node(str(d.get("node") or ""))
     if not n:
         return {"ok": False, "reason": "node not found"}
@@ -2301,15 +1834,6 @@ def api_spoof_probe(d):
 
 
 def api_spoof_egress_probe(d):
-    """END-TO-END spoof probe: does a forged source / decoy destination actually arrive, on THIS pair,
-    in the direction the tunnel will use? Unlike spoof-probe (a local can-the-sockets-open check), this
-    forges real packets on one node and listens for them on the other. The CLIENT side forges+sends; the
-    SERVER side receives — so receiver = the server-side node, sender = the client-side node.
-
-    The receiver starts a bounded background capture (returns a token), the sender forges a baseline
-    (real->real), a forged SOURCE, and (when a decoy is given) a decoy DESTINATION; then we read the
-    verdict by token. baseline distinguishes "the whole path/proto is blocked" from "the forge was
-    dropped". No stored state changes; it just sends a handful of probe packets."""
     an, bn = str(d.get("a_node") or ""), str(d.get("b_node") or "")
     if an == bn or not an or not bn:
         return {"ok": False, "error": "دو نودِ متفاوت لازم است"}
@@ -2317,38 +1841,34 @@ def api_spoof_egress_probe(d):
     if not a or not b:
         return {"ok": False, "error": "node not found"}
     srv = "b" if str(d.get("server_side")) == "b" else "a"
-    receiver, sender = (a, b) if srv == "a" else (b, a)   # server listens, client forges
+    receiver, sender = (a, b) if srv == "a" else (b, a)
     try:
         proto = int(d.get("proto") or 253)
     except (TypeError, ValueError):
         proto = 253
     if not 1 <= proto <= 255:
         return {"ok": False, "error": "proto out of range"}
-    forged_src = str(d.get("spoof_src") or "").strip() or "192.0.2.7"   # test the operator's IP, else TEST-NET-1
+    forged_src = str(d.get("spoof_src") or "").strip() or "192.0.2.7"
     decoy = str(d.get("spoof_dst") or "").strip()
     if forged_src and not is_ipv4(forged_src):
         return {"ok": False, "error": "spoof_src must be IPv4"}
     if decoy and not is_ipv4(decoy):
         return {"ok": False, "error": "spoof_dst must be IPv4"}
-    # Aim at the IPs THIS TUNNEL will use, not at the node registry's management host: uRPF and decoy
-    # routing are per-IP on these providers, so a multi-IP node can come back green on its management IP
-    # while the tunnel's chosen IP is filtered. It also works for a node registered by HOSTNAME, where
-    # `host` never parses as IPv4 while a_ip/b_ip come from the node's live IP list.
     def _node_ips(node):
         ips = _flat_ips(_cached_ping(node["id"]))
-        if not ips:   # cold poll cache (a node added moments ago) — ask it directly rather than give up
+        if not ips:
             ips = _flat_ips(node_call(node, "ping", "GET", timeout=10))
         return ips
 
     def _pick(want, ips, node):
         want = str(want or "").strip()
-        if want and want in ips:   # the operator's explicit pick, validated exactly as create/edit do
+        if want and want in ips:
             return want
         return ips[0] if ips else str(node.get("host") or "").strip()
 
     a_ip = _pick(d.get("a_ip"), _node_ips(a), a)
     b_ip = _pick(d.get("b_ip"), _node_ips(b), b)
-    peer_ip, real_src = (a_ip, b_ip) if srv == "a" else (b_ip, a_ip)   # receiver listens, sender forges
+    peer_ip, real_src = (a_ip, b_ip) if srv == "a" else (b_ip, a_ip)
     if not is_ipv4(peer_ip):
         return {"ok": False, "error": "نودِ گیرنده «%s» هیچ آی‌پیِ قابل‌استفاده‌ای گزارش نکرد" % receiver["name"]}
     nonce = secrets.token_hex(8)
@@ -2360,14 +1880,10 @@ def api_spoof_egress_probe(d):
         return {"ok": False, "error": "نودِ گیرنده «%s» شنود را شروع نکرد: %s"
                 % (receiver["name"], (lr.get("error") or lr.get("reason") if isinstance(lr, dict) else "بی‌پاسخ"))}
     token = lr["token"]
-    time.sleep(0.4)   # let the AF_PACKET socket be up before the sender fires
+    time.sleep(0.4)
 
     send_body = {"nonce": nonce, "proto": proto, "peer": peer_ip,
                  "forged_src": forged_src, "decoy_dst": decoy}
-    # real_src is the BASELINE's source: without it the node falls back to the route-local source toward
-    # whatever we aimed at. The baseline is the line that separates "the whole proto is blocked" from "the
-    # forge was dropped", and per-IP directional filtering is this project's documented reality — so it
-    # has to leave from the tunnel's own IP too, not just arrive at it.
     if is_ipv4(real_src):
         send_body["real_src"] = real_src
     sr = node_call(sender, "spoof-egress-send", "POST", send_body, timeout=15)
@@ -2395,7 +1911,7 @@ def api_spoof_egress_probe(d):
 def _link_side_health(L, node_key):
     lst = _cached_list(L[node_key])
     if lst.get("configs") is None:
-        return None, False  # node unreachable / not yet cached
+        return None, False
     return (lst.get("health") or {}).get(L["name"]), True
 
 
@@ -2407,7 +1923,6 @@ def _cpu_snap():
 
 
 def central_stats():
-    """CPU/RAM/disk/load of the CENTRAL host itself (this panel's server), read live from /proc."""
     st = {"cpus": os.cpu_count()}
     try:
         t1, i1 = _cpu_snap(); time.sleep(0.1); t2, i2 = _cpu_snap(); dt = t2 - t1
@@ -2443,8 +1958,8 @@ def central_stats():
     return st
 
 
-UP_CRIT = 85    # a node metric at/above this is "critical" (red)
-PING_BAD = 150  # tunnel rtt (ms) above this counts as a real quality problem
+UP_CRIT = 85
+PING_BAD = 150
 
 
 def api_summary(d):
@@ -2464,10 +1979,10 @@ def api_summary(d):
         p = _cached_ping(nid)
         if not p.get("ok"):
             heat.append({"id": nid, "name": nm, "pct": None, "online": False})
-            if _cache_get(nid):  # actually probed and found offline (not merely un-probed yet)
+            if _cache_get(nid):
                 alerts.append({"level": "bad", "kind": "node", "id": nid, "msg": f"نودِ «{nm}» آفلاین است"})
             mv = moved_to(nid)
-            if mv:   # unreachable at its stored host, but it told us where it went — the operator must move it
+            if mv:
                 alerts.append({"level": "warn", "kind": "node", "id": nid,
                                "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
             continue
@@ -2497,62 +2012,45 @@ def api_summary(d):
     worst_tun = None
     rtts = []
     for L in links:
-        # An operator-disabled tunnel is not a fault. Its unit is stopped (core: the TUN is gone, counted
-        # «قطع» and −10 score) or its netdev is admin-down (non-core: the probe fails, counted «بدونِ پینگ»
-        # and −3) — three different answers for one deliberate action, while the card correctly greys it out
-        # as «خاموش». Report it as its own bucket instead of as breakage.
         if not L.get("enabled", True):
             types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
             off_n += 1
             continue
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
-        # health {"up": None} means "this node has not published its first sweep yet", NOT "down". The card
-        # already renders it grey «در حال بررسی…»; here `None` is simply falsy, so every tunnel on a node
-        # whose agent had just restarted was counted «قطع», raised a red alert and docked 10 score each, for
-        # the seconds until the node's first health sweep published.
         if (isinstance(ah, dict) and ah.get("up") is None) or (isinstance(bh, dict) and bh.get("up") is None):
             types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
             continue
         if L.get("type") == "core":
-            types["core"] = types.get("core", 0) + 1   # count core tunnels in the overview breakdown too
+            types["core"] = types.get("core", 0) + 1
             if link_drift(L["id"]):
                 drift_n += 1
-            # Judge a core tunnel by the SAME rule the card paints it with. _link_up is only "both ifaces exist
-            # AND neither is positively dead" and never consults `alive`, so an up-but-unproven tunnel — a core
-            # client before its first authenticated frame, or any carrier with no heartbeat and filtered ICMP —
-            # showed AMBER on the card and «متصل» on the dashboard at the same moment.
             elif not _link_up(L):
                 down += 1
             elif (isinstance(ah, dict) and ah.get("alive") is True) or (isinstance(bh, dict) and bh.get("alive") is True):
                 up += 1
             else:
                 noping += 1
-            continue  # but emit NO link/drift alert for core: those navigate to the tunnels page, which hides core
+            continue
         types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
         both_up = isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
         if both_up:
-            # a busy tunnel is proven live by traffic-flow / the core heartbeat (alive), which the node
-            # reports for every core tunnel — the ICMP probe is only a tiebreaker it may skip entirely.
             pinged = (ah.get("alive") is True) or (bh.get("alive") is True)
             if pinged:
                 up += 1
             else:
                 noping += 1
-            # worst view of the tunnel = the higher loss / rtt reported by either end
             sides = [h for h in (ah, bh) if isinstance(h, dict)]
             lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
-            lbad = any(h.get("alive") is False for h in sides)   # a side whose probe went unanswered
+            lbad = any(h.get("alive") is False for h in sides)
             lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
             if lrtt > 0:
                 rtts.append(lrtt)
-            # only a *real* quality problem qualifies: an unanswered probe, or genuinely high ping
             if lbad or lrtt > PING_BAD:
                 cand = {"name": L.get("name"),
                         "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
                         "b": nmap.get(L.get("b_node"), L.get("b_name", "")),
                         "rtt": lrtt if lrtt > 0 else None, "loss": lloss}
-                # rank by loss first (most important), then by rtt
                 if worst_tun is None or (cand["loss"], _sflt(cand["rtt"])) > (worst_tun["loss"], _sflt(worst_tun["rtt"])):
                     worst_tun = cand
         else:
@@ -2571,7 +2069,7 @@ def api_summary(d):
     for n in nodes:
         cells = _uh_cells(n["id"], win)
         if any(c is not None for c in cells):
-            ups.append(_uh_pct(n["id"], win))   # time-weighted, not red-cell-counting
+            ups.append(_uh_pct(n["id"], win))
             if any(c == 0 for c in cells):
                 downcnt += 1
 
@@ -2586,7 +2084,7 @@ def api_summary(d):
     score = max(0, min(100, 100 - offline * 8 - len(crit) * 6 - down * 10 - drift_n * 4 - noping * 3))
     n_core = sum(1 for L in links if L.get("type") == "core")
     return {"nodes_online": on, "nodes_total": len(nodes),
-            "proxies": len(load_proxies()),   # the nav counter, from the same place as every other one
+            "proxies": len(load_proxies()),
             "links": len(links) - n_core, "core": n_core, "link_total": len(links),
             "links_healthy": up, "tunnels": tun, "portfw": pf,
             "health_score": score,
@@ -2595,10 +2093,10 @@ def api_summary(d):
             "crit": len(crit), "outdated": outdated,
             "alerts": alerts[:10],
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
-            "link_off": off_n,   # operator-disabled: its own bucket, so it stops reading as breakage
+            "link_off": off_n,
             "link_types": types, "worst_tunnel": worst_tun,
             "fleet_avg_ping": round(sum(rtts) / len(rtts)) if rtts else None,
-            "uptime_avg": (int(sum(ups) / len(ups) * 10) / 10 if ups else 100), "uptime_down_nodes": downcnt, "uptime_window": win,  # FLOOR to 1 decimal so the fleet avg never rounds up to 100 when a node had downtime
+            "uptime_avg": (int(sum(ups) / len(ups) * 10) / 10 if ups else 100), "uptime_down_nodes": downcnt, "uptime_window": win,
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
@@ -2609,28 +2107,21 @@ def api_summary(d):
 
 
 def _name_taken(nodes, name, exclude_id=None):
-    """A node name must be unique across the fleet (case-insensitive), so it always identifies one node."""
     key = str(name).strip().lower()
     return any(n.get("id") != exclude_id and str(n.get("name", "")).strip().lower() == key for n in nodes)
 
 
 def _host_taken(nodes, host, exclude_id=None):
-    """One node per host/IP — a second node on the same address is never needed."""
     key = str(host).strip().lower()
     return any(n.get("id") != exclude_id and str(n.get("host", "")).strip().lower() == key for n in nodes)
 
 
 def _node_first_contact(node):
-    """Ping a freshly added node, pin the signing key, push the staged core. Off the request thread:
-    every step here can wait on a node that is not there yet."""
     p = node_call(node, "ping", "GET")
     _refresh_cache([node["id"]])
     if not p.get("ok"):
         return
     try:
-        # Pin the panel's update-signing key before any code push, so even the first core install is
-        # signature-verified — closes the bootstrap window where an unprovisioned node accepts unsigned
-        # pushes. First-set-only on the node side; best-effort, provision-key can retry if this blips.
         _, _pub = _signing_keys()
         node_call(get_node(node["id"]) or node, "set-update-key", "POST", {"pubkey": _pub}, timeout=15)
     except Exception:
@@ -2639,8 +2130,6 @@ def _node_first_contact(node):
 
 
 def _refresh_bg(nids):
-    """Refresh these nodes' cache WITHOUT holding the request. _refresh_cache is the blocking twin,
-    and it is the right one only where the caller genuinely needs the answer before replying."""
     threading.Thread(target=_refresh_cache, args=(list(nids),), daemon=True).start()
 
 
@@ -2658,7 +2147,7 @@ def api_node_add(d):
     token = str(d["token"]).strip()
     if not token:
         raise ValueError("token required")
-    if len(token) < 16:   # token-strength floor: reject weak manual tokens (auto-provisioned ones are long)
+    if len(token) < 16:
         raise ValueError("token too short — use at least 16 characters")
     pon, pid = valid_proxy_ref(d)
     node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
@@ -2671,16 +2160,10 @@ def api_node_add(d):
             raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
         nodes.append(node)
         save_json(NODES_FILE, nodes)
-    # Everything past this point talks to the node, and the node may be unreachable -- which is a
-    # normal state for one being added, not an error the operator should wait out. The registry
-    # entry above is already durable, so the request answers now and the contact happens behind it.
     threading.Thread(target=_node_first_contact, args=(node,), daemon=True).start()
     return {"ok": True, "id": node["id"], "checking": True}
 
 
-# ----------------------------------------------------------------------------- SSH auto-provision
-# The panel can SSH into a fresh server, install the (public) node agent non-interactively, read the
-# generated token back and register the node — all steps streamed to the operator via a polling job.
 NODE_RAW_URL = "https://raw.githubusercontent.com/Angize/TUNNEL-MANAGER-NODE/main/tnl-node.py"
 _INSTALL_STEPS = [("ssh", "اتصالِ SSH"), ("agent", "رساندنِ ایجنت به نود"),
                   ("install", "نصب و راه‌اندازیِ سرویس"), ("register", "ثبت و اتصال در پنل")]
@@ -2696,7 +2179,7 @@ def _scrub(s):
 def _install_get(jid):
     with _install_lock:
         j = _install_jobs.get(jid)
-        return json.loads(json.dumps(j)) if j else None  # deep copy for a race-free read
+        return json.loads(json.dumps(j)) if j else None
 
 
 def _install_step(jid, key, state, detail=None, log=None):
@@ -2723,10 +2206,6 @@ def _install_finish(jid, ok, banner):
 
 SSH_KNOWN_HOSTS = os.path.join(CENTRAL_DIR, "known_hosts")
 
-# ProxyCommand relay: OpenSSH has no built-in SOCKS client, so when a node's control proxy is set we
-# tunnel the SSH TCP connection through it by pointing `-o ProxyCommand=` at this tiny relay. It does
-# the SAME SOCKS5 / HTTP-CONNECT handshake as the agent-HTTP path, then splices ssh's stdin/stdout to
-# the tunneled socket. Proxy details arrive via TNL_PXY_* env vars, so credentials never sit in argv.
 _PROXY_RELAY_SRC = r'''#!/usr/bin/env python3
 import os, sys, socket, base64, select
 
@@ -2841,7 +2320,6 @@ _proxy_relay_lock = threading.Lock()
 
 
 def _ensure_proxy_relay():
-    """Write the ProxyCommand relay to CENTRAL_DIR once (atomically) and return its path."""
     global _proxy_relay_path
     with _proxy_relay_lock:
         if _proxy_relay_path and os.path.exists(_proxy_relay_path):
@@ -2856,17 +2334,11 @@ def _ensure_proxy_relay():
 
 
 def _ssh_argv(cfg, remote_cmd):
-    # TOFU: accept a host key the first time we see a node — needed for unattended provisioning — but
-    # PERSIST it and reject any later change. "StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null"
-    # trusts every key blindly on every connect, so an on-path attacker could MITM the install session and
-    # capture the SSH password or inject a malicious agent as root.
     opts = ["-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={SSH_KNOWN_HOSTS}",
             "-o", "ConnectTimeout=15", "-p", str(cfg["port"])]
     env = dict(os.environ)
     proxy = (cfg.get("proxy") or "").strip()
     if proxy:
-        # route the SSH TCP connection through the SAME control proxy as the agent HTTP, so a node
-        # whose IP is filtered from the panel is reachable at install time — not only after register.
         pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
         env["TNL_PXY_SCHEME"] = (pu.scheme or "socks5").lower()
         env["TNL_PXY_HOST"] = pu.hostname or ""
@@ -2882,9 +2354,6 @@ def _ssh_argv(cfg, remote_cmd):
 
 
 def _ssh_run(cfg, remote_cmd, timeout, stdin_text=None):
-    """Run remote_cmd over SSH. stdin_text, when given, is fed to the remote command's stdin — which is
-    how the agent source reaches a node that has no agent yet: at install time the SSH session is the
-    only channel that exists."""
     argv, env = _ssh_argv(cfg, remote_cmd)
     try:
         p = subprocess.run(argv, env=env, input=stdin_text, capture_output=True, text=True, timeout=timeout)
@@ -2916,11 +2385,6 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
         except OSError:
             return fail("agent", "ایجنتی روی پنل آماده نیست",
                         "در «تنظیمات» ایجنت را از گیت‌هاب بگیر یا فایلش را بارگذاری کن، بعد دوباره امتحان کن.")
-        # Whatever the source, the file that gets run is the one the panel staged: its sha256 is checked
-        # on the node before --auto-install ever sees it. There are only TWO sources over this leg -- the
-        # node has no agent yet, so the SSH session is the only channel, and "the node fetches it from the
-        # panel" has no panel URL it could be authenticated at. So "github" curls, and the other two
-        # modes send the bytes down this session.
         verify = f"echo '{ameta['sha256']}  /tmp/tnl-node.py' | sha256sum -c - >/dev/null; echo TNL_RECV_OK"
         if _delivery_mode("agent") == "github":
             recv = (f"set -e; umask 077; (curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py"
@@ -2953,7 +2417,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
                 "port": agent_port, "token": token, "proxy_on": pon, "proxy_id": pid}
         with _reg_lock:
             nodes = load_nodes()
-            if _name_taken(nodes, name):  # a same-name node was added during the (minutes-long) install
+            if _name_taken(nodes, name):
                 return fail("register", f"نودی با نامِ «{name}» در این فاصله اضافه شد — نام باید یکتا باشد")
             if _host_taken(nodes, cfg["host"]):
                 return fail("register", f"نودی با آی‌پیِ «{cfg['host']}» در این فاصله اضافه شد")
@@ -2961,14 +2425,14 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             save_json(NODES_FILE, nodes)
         _refresh_cache([node["id"]])
         online = False
-        for _ in range(6):  # the service just started; give it a few seconds to answer
+        for _ in range(6):
             if node_call(node, "ping", "GET").get("ok"):
                 online = True
                 break
             time.sleep(2)
         with _install_lock:
             _install_jobs[jid]["node_id"] = node["id"]
-        if online:                       # push the staged core now so the node is ready before any tunnel build
+        if online:
             _push_staged_on_add(get_node(node["id"]) or node)
         _install_step(jid, "register", "ok" if online else "warn",
                       "نود وصل شد و آنلاین است" if online else "ثبت شد ولی هنوز پاسخ نمی‌دهد (پورتِ ایجنت را به سرورِ مرکزی باز کن)")
@@ -2985,7 +2449,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
 
 
 def api_node_install(d):
-    _gate_ready(True)   # both: the agent is what gets installed, the core is pushed before any build
+    _gate_ready(True)
     _require(d, ["name", "ssh_host"])
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
@@ -3012,7 +2476,6 @@ def api_node_install(d):
     key = str(d.get("ssh_key") or "").strip()
     if not password and not key:
         raise ValueError("رمزِ SSH یا کلیدِ خصوصی لازم است")
-    # the SSH leg takes the SAME resolved URL as the agent HTTP, so install and control never disagree
     cfg = {"host": host, "port": ssh_port, "user": user, "password": password,
            "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
     if key:
@@ -3024,7 +2487,7 @@ def api_node_install(d):
     now = int(time.time())
     jid = secrets.token_hex(6)
     with _install_lock:
-        for k in [k for k, v in _install_jobs.items() if now - v.get("ts", now) > 3600]:  # prune stale
+        for k in [k for k, v in _install_jobs.items() if now - v.get("ts", now) > 3600]:
             _install_jobs.pop(k, None)
         _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
                                         for k, l in _INSTALL_STEPS],
@@ -3038,9 +2501,6 @@ def api_node_install_status(d):
     j = _install_get(d["job"])
     if not j:
         raise ValueError("job not found")
-    # "ok" = this poll is valid (ALWAYS true for a live job); the install's own success is "success".
-    # (j carries its own "ok" = install result; exposing it as the response "ok" made every running poll
-    #  look like a failed request to the browser, which then gave up with "ارتباط با پنل قطع شد".)
     return {**j, "ok": True, "success": bool(j.get("ok"))}
 
 
@@ -3056,22 +2516,22 @@ def api_node_edit(d):
     if not 1 <= port <= 65535:
         raise ValueError("bad port")
     token = str(d.get("token") or "").strip()
-    pon, pid = valid_proxy_ref(d)  # validated here so a dangling id never reaches the registry
+    pon, pid = valid_proxy_ref(d)
     with _reg_lock:
         nodes = load_nodes()
         n = next((x for x in nodes if x["id"] == d["id"]), None)
         if not n:
             raise ValueError("node not found")
-        if _name_taken(nodes, name, exclude_id=d["id"]):  # can't rename onto another node's name
+        if _name_taken(nodes, name, exclude_id=d["id"]):
             raise ValueError(f"نودِ دیگری با نامِ «{name}» وجود دارد — نام باید یکتا باشد")
-        if _host_taken(nodes, host, exclude_id=d["id"]):  # can't move onto another node's IP
+        if _host_taken(nodes, host, exclude_id=d["id"]):
             raise ValueError(f"نودِ دیگری با آی‌پیِ «{host}» وجود دارد")
         n["name"], n["host"], n["port"] = name, host, port
         n["proxy_on"], n["proxy_id"] = pon, pid
         if token:
-            n["token"] = token  # blank = keep the existing token
+            n["token"] = token
         save_json(NODES_FILE, nodes)
-        links = load_links()  # keep the denormalized link names in sync with the rename
+        links = load_links()
         chg = False
         for L in links:
             if L.get("a_node") == d["id"] and L.get("a_name") != name:
@@ -3080,14 +2540,11 @@ def api_node_edit(d):
                 L["b_name"], chg = name, True
         if chg:
             save_json(LINKS_FILE, links)
-    _refresh_bg([d["id"]])   # the node may be down, and the save above does not depend on it
+    _refresh_bg([d["id"]])
     return {"ok": True, "checking": True}
 
 
 def api_node_toggle(d):
-    # Hide/show a node in the create-tunnel & port-forward pickers. This is ONLY a display flag — it never
-    # touches the node, its tunnels or its connection (api_node_names filters on it; the node stays polled
-    # and listed on the Nodes page). Clean toggle: the key is dropped entirely when re-enabled.
     _require(d, ["id"])
     want = bool(d.get("disabled"))
     with _reg_lock:
@@ -3107,10 +2564,6 @@ def api_node_del(d):
     _require(d, ["id"])
     nid = d["id"]
     wipe = bool(d.get("wipe"))
-    # force = the operator asserts the node's server is DEAD/gone: wipe best-effort instead of
-    # all-or-nothing — skip the (impossible) node-side wipe if unreachable, but STILL close every
-    # reachable peer's half now and remove the node + its links from the panel. An unreachable peer's
-    # teardown is parked (pending_del) for its own reconnect, so no live server keeps an orphan.
     force = bool(d.get("wipe_force") or d.get("force"))
     out = {"ok": True, "wiped": wipe}
     if wipe:
@@ -3118,49 +2571,38 @@ def api_node_del(d):
         if not n:
             raise ValueError("نود پیدا نشد")
         if force and _cached_ping(nid).get("ok") is False:
-            # The operator forced AND the poller already reports this node offline -> skip the doomed
-            # ~60s node-side wipe and go straight to best-effort. No blocking call, no wait. Safe against
-            # orphaning a LIVE node: best-effort runs ONLY on a node the poller currently sees as offline
-            # (a reachable node reads online, so it takes the normal-wipe branch below instead).
             node_ok = False
         else:
             r = node_call(n, "wipe", "POST", {}, timeout=NODE_OP_TIMEOUT)
             node_ok = bool(r.get("ok"))
             if not node_ok:
-                # The poller saw this node as UP (or never polled it) yet the wipe failed — it may be a LIVE
-                # node returning an error, which best-effort would ORPHAN. Keep all-or-nothing. If the node
-                # is really down its status flips to offline within a poll, and a retry force-wipes instantly.
                 raise ValueError("پاک‌سازیِ سمتِ نود ناتمام ماند: " + (r.get("error") or r.get("msg") or "خطا")
                                  + " — اگر نود قطع است چند لحظه صبر کن تا وضعیتش قرمز شود بعد «پاک‌سازیِ اجباری» بزن؛ وگرنه «فقط از پنل جدا کن».")
-        with _reg_lock:  # snapshot this node's links; they are removed only AFTER the peer teardowns are durably parked
+        with _reg_lock:
             links = load_links()
             mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
             mine_ids = {L["id"] for L in mine}
         _park_failed = []
-        def _del_peer_half(L):  # tear the peer's half of each tunnel down too, so no live server is left an orphan
+        def _del_peer_half(L):
             peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
             pn = get_node(peer_id)
             if not pn:
                 return
-            with _PairLock(peer_id, peer_id):  # lock ONLY the peer (nid is being wiped/removed): a shared nid lock
-                rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)  # would serialize all N calls -> N*timeout. Still mutually excludes a rebuild on this pair (it holds peer_id too).
+            with _PairLock(peer_id, peer_id):
+                rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)
             if not rr.get("ok") and not _pending_add(peer_id, L["name"]):
-                _park_failed.append(L["id"])   # unreachable peer's teardown couldn't be persisted (rare disk error)
-        parallel_map(_del_peer_half, mine, workers=32)  # fan out: N offline peers must not serialize to N*timeout
-        if _park_failed:  # a park write failed -> abort BEFORE removing links/node, so nothing is left an orphan; the operator retries
+                _park_failed.append(L["id"])
+        parallel_map(_del_peer_half, mine, workers=32)
+        if _park_failed:
             raise ValueError("صفِ حذفِ معلق نوشته نشد؛ برای پرهیز از تونلِ یتیم چیزی حذف نشد — دوباره تلاش کن.")
-        with _reg_lock:  # NOW drop the links — every offline peer's teardown is durably parked (crash-safe: a crash before this leaves the record retryable, never record-gone-but-unparked)
+        with _reg_lock:
             save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
         out["links_removed"] = len(mine_ids)
-        out["node_wiped"] = node_ok   # False when a DEAD node was force-removed (its own server wasn't cleaned)
+        out["node_wiped"] = node_ok
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
-    _pending_prune_node(nid)   # node removed from the panel -> the poller can no longer drain its owed teardowns, so drop them
-    # Set the tombstone BEFORE popping the caches. _poll_node checks _tombed() right before each cache
-    # write, so a poll already mid-flight must see the tomb by the time it writes — otherwise it writes
-    # the caches back AFTER we popped them and the deleted node is resurrected, with phantom throughput
-    # in api_summary, until the next poller sweep.
-    with _tomb_lock:  # block an in-flight poll (submitted before this delete) from re-inserting the popped cache
+    _pending_prune_node(nid)
+    with _tomb_lock:
         _tomb[nid] = time.time() + 20
     with _pc_lock:
         _pc.pop(nid, None)
@@ -3176,22 +2618,14 @@ def api_node_test(d):
     n = get_node(d["id"])
     if not n:
         raise ValueError("not found")
-    # Measure the REAL panel->node control-plane RTT server-side (around the ping HTTP call itself), not
-    # browser-side where it would also include the browser<->panel hop and the panel's own processing.
     t0 = time.perf_counter()
     p = node_call(n, "ping", "GET")
     if p.get("ok"):
-        p = {**p, "rtt_ms": int((time.perf_counter() - t0) * 1000)}  # true node ping (only when reachable)
-    # OFFLINE: intentionally no rtt — the time spent waiting for the request to TIME OUT is not a latency,
-    # so we don't report it as a "ping" (that was the misleading multi-second number on dead nodes).
+        p = {**p, "rtt_ms": int((time.perf_counter() - t0) * 1000)}
     return {"ok": bool(p.get("ok")), "info": p}
 
 
 def api_node_adopt_ip(d):
-    """Take the address the node checked in FROM and make it the node's host. One button instead of
-    retyping an IP the operator can only read off a warning. It re-proves the address answers first: the
-    check-in that reported it may be minutes old, and writing a host nobody can reach is worse than the
-    warning it replaces."""
     _require(d, ["id"])
     n = get_node(str(d["id"]))
     if not n:
@@ -3223,9 +2657,6 @@ def api_node_adopt_ip(d):
 
 
 def api_node_kernel_tune(d):
-    """Host network tuning (part ب) on one node: apply / revert BBR+fq+buffer-ceilings, or read
-    status. Operator-triggered from the node card; apply and revert mutate host-wide sysctls on the
-    node, status is a read-only snapshot the button uses to show current state."""
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
@@ -3241,7 +2672,6 @@ def api_node_kernel_tune(d):
 
 
 def api_node_stats(d):
-    """Fresh live stats for the node-details popup (CPU/RAM/Disk gauges) — bypasses the cache."""
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
@@ -3254,7 +2684,6 @@ def api_node_stats(d):
 
 
 def api_node_traffic(d):
-    """Live traffic for the node-details popup: node throughput/totals + per-tunnel rows (from _tf)."""
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
@@ -3287,18 +2716,13 @@ def api_node_traffic(d):
 
 
 def _store_agent_src(src, msgs, extra_meta=None):
-    """Validate a node-agent source (size cap, py-compile gate, agent sentinel, version pull) and store
-    it + meta as the current pushable agent. `msgs` supplies the four Persian error variants
-    (too_big / bad_py-prefix / not_agent / no_ver); `extra_meta` merges into AGENT_META (e.g.
-    {"source": "git"}). Shared by api_agent_upload and api_agent_fetch_git; the per-caller empty/source
-    check stays at the call site. Returns {ok, version, sha256[:12]}."""
     if len(src.encode()) > 262144:
         raise ValueError(msgs["too_big"])
     try:
-        compile(src, "tnl-node.py", "exec")            # same compile gate the node uses — a broken paste never gets stored
+        compile(src, "tnl-node.py", "exec")
     except SyntaxError as e:
         raise ValueError(msgs["bad_py"] + str(e))
-    if '"agent": "tnl-node"' not in src:               # sentinel: only the node agent can be pushed (never tnl-central.py)
+    if '"agent": "tnl-node"' not in src:
         raise ValueError(msgs["not_agent"])
     m = re.search(r'"version":\s*(\d+)', src)
     if not m:
@@ -3314,7 +2738,6 @@ def _store_agent_src(src, msgs, extra_meta=None):
 
 
 def api_agent_upload(d):
-    """Store a new node-agent source in the panel (validated) so it can be pushed to the fleet."""
     _require(d, ["code"])
     src = d["code"]
     if not isinstance(src, str) or not src.strip():
@@ -3328,8 +2751,6 @@ def api_agent_upload(d):
 
 
 def api_agent_fetch_git(d):
-    """Download the latest node agent from its public GitHub repo, validate it (same gates as an
-    upload) and store it as the current agent so it can be pushed to the fleet."""
     try:
         req = urllib.request.Request(NODE_RAW_URL, headers={"User-Agent": "tnl-central"})
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -3347,8 +2768,6 @@ def api_agent_fetch_git(d):
 
 
 def api_agent_info(d):
-    """The stored agent's metadata (for the banner + per-node outdated badges), plus how it is delivered.
-    The delivery mode rides along because this endpoint is already polled wherever the switch is drawn."""
     try:
         with open(AGENT_META) as f:
             meta = json.load(f)
@@ -3358,8 +2777,6 @@ def api_agent_info(d):
 
 
 def _staged_agent():
-    """(source, meta) of the agent staged on the panel. Read under _agent_lock so the pair can never be
-    the code of one upload with the metadata of another. Raises OSError when nothing is staged."""
     with _agent_lock:
         with open(AGENT_FILE) as f:
             src = f.read()
@@ -3368,30 +2785,18 @@ def _staged_agent():
     return src, meta
 
 
-# ----------------------------------------------------------------------------- delivery mode
-# Which end opens the connection that carries an artifact's bytes. The panel decides WHAT gets installed
-# in every mode: it sends the sha256 and its RSA signature over that sha, and the node refuses anything
-# whose bytes do not hash to that sha or whose signature does not verify. So a URL here is only a
-# shortcut for the bytes, never a second source of authority.
 
 
 def _delivery_mode(kind):
-    """"push" / "github" / "panel" for kind in ("agent", "core")."""
     m = str(get_settings().get(kind + "_delivery") or "push")
     return m if m in DELIVERY_MODES else "push"
 
 
-_route_src_cache = {}      # host -> (ts, ip)
+_route_src_cache = {}
 ROUTE_SRC_TTL = 60
 
 
 def _route_src(host):
-    """The local address the kernel would send to `host` from — i.e. the source address `host` sees.
-    A UDP connect() only selects the route; no packet leaves. "" when the route cannot be resolved.
-
-    Cached: this is asked once per node per fleet poll now that the node view shows it, and a `host`
-    that is a NAME makes connect() resolve DNS. A route change takes up to the TTL to show, which is
-    well inside the time anything acts on it."""
     now = time.time()
     hit = _route_src_cache.get(host)
     if hit and now - hit[0] < ROUTE_SRC_TTL:
@@ -3408,33 +2813,16 @@ def _route_src(host):
 
 
 def _panel_origin_for(node):
-    """"scheme://ip:port" as THIS node reaches the panel, or "" when the panel cannot know it.
-
-    The node accepts a fetch from exactly one origin: the one our own requests announce -- the address
-    they arrive from, the port in X-Central-Port and the scheme in X-Central-TLS. So the URL built here
-    has to carry the SAME scheme those headers do, or a TLS-fronted panel would announce https and then
-    hand out an http url its own nodes are bound to refuse.
-
-    The address is the source the kernel picks for the route to this node. A node reached through a
-    proxy sees the PROXY's address instead, and the panel has no way to name that, so it reports no
-    origin rather than handing the node a URL that cannot match."""
     if node_proxy(node) or not _CENTRAL_PORT:
         return ""
     ip = _route_src(str(node.get("host") or ""))
     return f"{'https' if _CENTRAL_TLS else 'http'}://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
 
 
-DL_TICKET_TTL = 3600    # seconds a download URL stays valid
+DL_TICKET_TTL = 3600
 
 
 def _range_start(hdr, size):
-    """The first byte a `Range` header asks for: 0 when there is no header, None when it is unusable.
-
-    Only the one form a resuming download sends -- `bytes=N-`. A suffix range or a multi-range is not
-    something this endpoint's client ever asks for, and answering a request shape nobody makes is how a
-    server grows a parser it cannot test. Anything else is refused with 416 rather than quietly served
-    from zero, which would hand the node the whole file again and it would append it to what it had.
-    """
     h = str(hdr or "").strip().lower()
     if not h:
         return 0
@@ -3442,7 +2830,7 @@ def _range_start(hdr, size):
     if not m:
         return None
     start = int(m.group(1))
-    if start >= size:          # nothing left to send: not an error the node can act on, so say 416
+    if start >= size:
         return None
     if m.group(2) and int(m.group(2)) < start:
         return None
@@ -3450,24 +2838,10 @@ def _range_start(hdr, size):
 
 
 def _dl_ticket_msg(q):
-    """The canonical string a download ticket is signed over: every field except the signature."""
     return "&".join("%s=%s" % (k, q[k]) for k in sorted(q) if k != "sig")
 
 
 def _panel_dl_url(node, kind, arch=""):
-    """The panel URL this node fetches a staged artifact from, or "" when there is no reachable origin.
-
-    The node's fetch carries no headers of its own, so everything that authorises it has to be in the
-    query string. It used to be the node's TOKEN. That was defensible while the token also rode in a
-    header on every control call -- it gave nothing away that was not already given -- and it stopped
-    being defensible the moment the token left the wire everywhere else, because this was then the one
-    place it still travelled.
-
-    So it carries a signed TICKET instead: a fingerprint of the token, which identifies without
-    proving, the artifact being asked for, an expiry, and an HMAC over all of it. Stateless, so nothing
-    has to be remembered between minting and serving. A captured ticket is worth only what it was
-    minted for -- one artifact, for one hour -- and the artifacts themselves are a public agent source
-    and a published release binary."""
     origin = _panel_origin_for(node)
     if not origin:
         return ""
@@ -3482,7 +2856,6 @@ def _panel_dl_url(node, kind, arch=""):
 
 
 def _dl_ticket_node(q):
-    """The node a download ticket was minted for, or None if it does not verify or has expired."""
     fp, sig = str(q.get("fp") or ""), str(q.get("sig") or "")
     if len(fp) != 64 or not sig:
         return None
@@ -3506,17 +2879,12 @@ _NO_ORIGIN = ("پنل نمی‌داند این نود او را با چه آدر
 
 
 def _agent_delivery_check(meta, mode):
-    """Refuse a mode that cannot deliver THIS agent at all, whatever node it is aimed at."""
     if mode == "github" and meta.get("source") != "git":
         raise ValueError("این ایجنت از فایل بارگذاری شده و روی گیت‌هاب نیست — یا «دریافت از گیت‌هاب» را بزن، "
                          "یا حالتِ تحویلِ ایجنت را عوض کن")
 
 
 def _agent_update_body(node, src, meta, sig):
-    """The `update` body for this node in the chosen delivery mode.
-
-    Pure on purpose: the caller reads the agent and signs its sha ONCE for the whole job, because
-    signing spawns openssl and a push asks per node."""
     mode = _delivery_mode("agent")
     _agent_delivery_check(meta, mode)
     body = {"sha256": meta["sha256"], "sig": sig}
@@ -3531,17 +2899,12 @@ def _agent_update_body(node, src, meta, sig):
 
 
 def _core_delivery_check(mode, custom):
-    """Refuse a mode that cannot deliver THIS core binary at all."""
     if mode == "github" and custom:
         raise ValueError("این باینری روی پنل بارگذاری شده و روی گیت‌هاب نیست — "
                          "حالتِ تحویلِ هسته را روی «پنل آپلود کند» یا «نود از پنل بگیرد» بگذار")
 
 
 def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
-    """The `core-install` body for this node: the bytes, or the URL that serves exactly those bytes.
-
-    Pure, for the same reason as _agent_update_body — and here the byte form is a ~14MB base64 string,
-    so the caller encodes it once per architecture and hands it in."""
     mode = _delivery_mode("core")
     _core_delivery_check(mode, custom)
     body = {"sha256": sha, "version": ver, "sig": sig}
@@ -3556,13 +2919,6 @@ def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
 
 
 def _readiness():
-    """What the panel must already hold before a node can be installed or a core tunnel built.
-
-    BOTH architectures count for the core. nodes.json carries no arch and no write path adds one, so the
-    panel cannot know which one the next node will report -- a stage that got only amd64 would read
-    ready and then refuse the first arm64 node it met. Presence on disk is the test, not the `arches`
-    list in the meta: that list records what one stage run managed to fetch, and the files are what a
-    push actually has to send."""
     try:
         _staged_agent()
         agent = True
@@ -3581,10 +2937,6 @@ def api_readiness(d):
 
 
 def _gate_ready(need_agent):
-    """Refuse an operation the panel is not equipped for, naming what is missing.
-
-    The disabled button is not the gate: the browser can be stale, and both of these operations end in
-    a half-built state if they start without the artifact. This is the gate."""
     r = _readiness()
     miss = []
     if need_agent and not r["agent"]:
@@ -3597,9 +2949,6 @@ def _gate_ready(need_agent):
 
 
 def _dl_artifact(kind, arch):
-    """The exact bytes a node was told to fetch, or None when the panel holds none. `kind` mirrors what
-    _panel_dl_url puts in the URL: ag = the staged agent, co = the staged core for `arch`, cb = the
-    core binary the operator uploaded."""
     if kind == "ag":
         return _staged_agent()[0].encode()
     if kind == "co":
@@ -3613,17 +2962,10 @@ def _dl_artifact(kind, arch):
 
 
 def _body_cache(build):
-    """Wrap a per-node body builder so identical bodies are json-encoded once for the whole job.
-
-    Only the panel-fetch URL varies per node (it carries that node's token); "push" and "github" produce
-    one body for the whole fleet, and re-encoding it per node is what once made each push worker freeze
-    every other worker for ~350ms on a 20MB agent-sized payload."""
     cache = {}
 
     def enc(node):
         body = build(node)
-        # The sha keys the byte push, so the two architectures of one core release stay two entries --
-        # handing an arm64 node the amd64 body is the failure that kills every core tunnel on it.
         key = body.get("url") or body["sha256"]
         if key not in cache:
             cache[key] = json.dumps(body).encode()
@@ -3633,45 +2975,26 @@ def _body_cache(build):
 
 
 _push_lock = threading.Lock()
-_push_jobs = {}       # jid -> {kind, order:[nid], nodes:{nid:{name,state,pct,error}}, done, ts, cancel, paused}
+_push_jobs = {}
 PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
-PUSH_WORKERS = 4      # nodes uploading CONCURRENTLY across ALL jobs (operator's choice: bounded, not all-at-once)
-# The bound is GLOBAL, not per job. It used to be per job, which is why only one job could run at a time:
-# two jobs would have put 2x the uploads on the panel's uplink. Holding it here instead means any number
-# of jobs can be in flight -- per-node updates while a fleet push runs -- and the uplink still sees at
-# most PUSH_WORKERS at once. A worker takes a slot BEFORE it claims a node, so a node waiting for a slot
-# still reads «در نوبت» rather than sitting at 0% pretending to upload.
+PUSH_WORKERS = 4
 _push_slots = threading.BoundedSemaphore(PUSH_WORKERS)
 
 
-PUSH_BUSY_STATES = ("wait", "run")     # a node still owed something by a live job
+PUSH_BUSY_STATES = ("wait", "run")
 
 
 def _busy_nodes(kind):
-    """Node ids a live job OF THIS KIND still has work for. Caller holds _push_lock.
-
-    Scoped by kind on purpose: the agent and the core are different files, different node ops and
-    different locks on the node, so updating both at once is something the operator asked to be able
-    to do. Two updates of the SAME kind still race each other over one staged file, and that is what
-    stays refused."""
     return {nid for v in _push_jobs.values() if not v["done"] and v["kind"] == kind
             for nid, s in v["nodes"].items() if s["state"] in PUSH_BUSY_STATES}
 
 
 def _push_job_new(kind, nodes):
-    """Create the job. What is refused is a node that already has an update of THIS KIND running.
-
-    One-job-at-a-time used to be the rule because PUSH_WORKERS was per job. The bound is global now, so
-    the only thing left that must not overlap is two updates of one kind on one node -- they would race
-    each other over the same staged file. An agent update and a core update on the same node run side
-    by side; the node serialises them itself, under the lock its handler already holds.
-
-    Checked under the lock, so two simultaneous POSTs for one node cannot both win."""
     jid = secrets.token_hex(6)
     now = int(time.time())
     with _push_lock:
         for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
-            _push_jobs.pop(k, None)                       # prune stale jobs, like the install jobs do
+            _push_jobs.pop(k, None)
         busy = _busy_nodes(kind)
         nodes = [x for x in nodes if x["id"] not in busy]
         if not nodes:
@@ -3685,7 +3008,6 @@ def _push_job_new(kind, nodes):
 
 
 def _push_start(kind, nodes, plan):
-    """Create the job and run it. The ONE way a push job is launched. Returns None for an empty list."""
     if not nodes:
         return None
     jid = _push_job_new(kind, nodes)
@@ -3693,25 +3015,15 @@ def _push_start(kind, nodes, plan):
     return jid
 
 
-PUSH_ALL = "*"        # the job id meaning "every upload still running"
+PUSH_ALL = "*"
 
 
 def _push_live():
-    """The jids of every upload still running, oldest first. Caller holds _push_lock."""
     return [jid for jid, j in sorted(_push_jobs.items(), key=lambda kv: kv[1].get("ts", 0))
             if not j["done"]]
 
 
 def _push_merged():
-    """Every live job as ONE view.
-
-    The browser tracks a single upload -- one pill, one cancel, one set of per-node bars -- and that was
-    fine while only one job could exist. Now that a per-node update can run beside a fleet push, the
-    panel presents the union instead of asking the page to juggle several. A node can only be in one
-    live job at a time, so the maps cannot collide.
-
-    The worker runs on the panel and never depended on the browser: this is what lets a freshly loaded
-    page find the uploads again instead of being told they are gone."""
     with _push_lock:
         live = _push_live()
         if not live:
@@ -3733,7 +3045,7 @@ def _push_merged():
 
 def _push_set(jid, nid, **kw):
     if "state" in kw and kw["state"] not in PUSH_STATES:
-        raise ValueError("unknown push state: %r" % kw["state"])   # a typo'd state paints a blank bar
+        raise ValueError("unknown push state: %r" % kw["state"])
     with _push_lock:
         j = _push_jobs.get(jid)
         if j and nid in j["nodes"]:
@@ -3741,7 +3053,6 @@ def _push_set(jid, nid, **kw):
 
 
 def _skip_waiting(j):
-    """Mark every node still queued in `j` as skipped. Caller holds _push_lock."""
     for nid in j["order"]:
         if j["nodes"][nid]["state"] == "wait":
             j["nodes"][nid].update(state="skip", pct=0)
@@ -3754,20 +3065,9 @@ def _push_cancelled(jid):
 
 
 def _push_one(jid, nid, plan):
-    """Walk ONE node through the plan's steps, in order. A failure or a timeout is recorded on that node
-    alone -- it never propagates, so a dead node cannot end the sweep.
-
-    Cancel is honoured at every boundary AND inside the byte send: a node that has not started its next
-    step never starts it, and one that is mid-upload has its socket dropped. The step the operator sees
-    is the step the panel is issuing, because the panel issues them one at a time.
-
-    The percentage covers the WHOLE plan, not the step in hand: each step owns a slice of the bar and
-    the bytes fill that slice, so the bar only ever moves forward. Per-step it rewound to zero at every
-    boundary -- twice on a core install -- which reads as the upload having restarted."""
     n = len(plan)
 
     def at(i, frac):
-        """The overall percentage `frac` of the way through step `i`."""
         return int(max(0.0, min(1.0, (i + frac) / n)) * 100)
 
     try:
@@ -3777,16 +3077,16 @@ def _push_one(jid, nid, plan):
                 _push_set(jid, nid, state="skip", step=code)
                 return
             fresh = get_node(nid)
-            if not fresh:                          # deleted while the queue was working through the fleet
+            if not fresh:
                 _push_set(jid, nid, state="err", err="node_gone")
                 return
             _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0))
-            if not keyed:      # one round trip per NODE: fail-closed verification needs the key, once
+            if not keyed:
                 _ensure_update_key(fresh)
                 keyed = True
             try:
                 body = build(fresh)
-            except ValueError as e:                # nothing pushable for this node (unknown arch, no origin)
+            except ValueError as e:
                 _push_set(jid, nid, state="err", err="unbuildable", detail=str(e))
                 return
             if body is None:
@@ -3794,15 +3094,11 @@ def _push_one(jid, nid, plan):
                 return
 
             def prog(sent, total, _nid=nid, _i=i):
-                # The last sliver of a step's slice belongs to the node's own work on what it was sent.
                 _push_set(jid, _nid, pct=at(_i, (sent / total) * 0.95 if total and sent < total else 0.96))
 
             r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
                           should_abort=lambda: _push_cancelled(jid))
             if r.get("cancelled"):
-                # Dropped mid-body the node kept nothing. Dropped while the answer was awaited it had
-                # the whole request, so say so instead of implying the node was left untouched.
-                # The bar freezes where it stopped: that is how far this actually got.
                 _push_set(jid, nid, state="skip", step=code,
                           detail="درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
                                  if r.get("delivered") else "")
@@ -3812,48 +3108,34 @@ def _push_one(jid, nid, plan):
                           err=str(r.get("code") or ("offline" if r.get("offline") else "failed")),
                           detail=str(r.get("error") or r.get("msg") or ""))
                 return
-            if gate and gate(r):               # already running what we came to install: send nothing more
+            if gate and gate(r):
                 _push_set(jid, nid, state="same", step=code, pct=100)
                 return
             _push_set(jid, nid, pct=at(i + 1, 0), restarted=r.get("restarted"))
-        # Reaching the end means work was done: every plan opens with a step whose gate settles a node
-        # that already has the artifact, so «nothing to do» never gets this far.
         _push_set(jid, nid, state="ok", pct=100)
-    except Exception as e:                         # never let one node's surprise end the sweep
+    except Exception as e:
         _push_set(jid, nid, state="err", err="panel", detail=str(e)[:120])
 
 
 def _push_next(jid, first):
-    """Hand out the next node id to a pool worker, honouring pause and cancel. Returns:
-      a node id  -> push it
-      "wait"     -> paused; the worker sleeps briefly and asks again (in-flight pushes keep running)
-      None       -> nothing left to do (cancelled, or every node already has a verdict) -> the worker exits.
-    Cancel marks every still-waiting node skipped so the job can reach done."""
     with _push_lock:
         j = _push_jobs.get(jid)
         if not j:
             return None
         if j.get("cancel"):
-            return None                         # api_push_cancel already skipped the queue, under this lock
+            return None
         if j.get("paused"):
             return "wait" if any(v["state"] == "wait" for v in j["nodes"].values()) else None
         for nid in j["order"]:
             if j["nodes"][nid]["state"] == "wait":
-                # Claimed AND labelled in one write: a poll landing between the two would find a node
-                # «running» with no step, and the row would name the wrong one.
                 j["nodes"][nid].update(state="run", step=first[0], si=1, sn=first[1], pct=0)
                 return nid
     return None
 
 
 def _push_worker(jid, kind, nodes, payload):
-    """Push to the fleet with a BOUNDED pool (PUSH_WORKERS at once), not one at a time and not all at once.
-    Each worker pulls the next waiting node from _push_next; a node that fails is recorded on itself and the
-    pool keeps going. Pause stops handing out NEW nodes (in-flight ones finish); cancel skips the rest."""
     def loop():
         while True:
-            # The slot is taken BEFORE a node is claimed, so a worker that is only waiting its turn is
-            # not holding a node hostage in «در حالِ آپلود», and the global bound covers every job.
             _push_slots.acquire()
             try:
                 nid = _push_next(jid, (payload[0][0], len(payload)))
@@ -3864,18 +3146,16 @@ def _push_worker(jid, kind, nodes, payload):
                     continue
             finally:
                 _push_slots.release()
-            time.sleep(0.3)                      # paused: the slot is free while we wait
+            time.sleep(0.3)
 
     try:
-        n = min(PUSH_WORKERS, max(1, len(nodes)))   # threads; the SLOTS are what actually bound the uploads
+        n = min(PUSH_WORKERS, max(1, len(nodes)))
         workers = [threading.Thread(target=loop, daemon=True) for _ in range(n)]
         for w in workers:
             w.start()
         for w in workers:
             w.join()
     finally:
-        # unconditional: a job left not-done would hold its nodes "busy" until the 1h prune, and nothing
-        # could update them in the meantime
         with _push_lock:
             j = _push_jobs.get(jid)
             if j:
@@ -3883,8 +3163,6 @@ def _push_worker(jid, kind, nodes, payload):
 
 
 def api_push_status(d):
-    """With a job id: that job. WITHOUT one: whichever upload is still running, so a page that was just
-    reloaded reattaches to it instead of being told the upload is gone."""
     jid = str((d or {}).get("job") or "")
     if not jid or jid == PUSH_ALL:
         return _push_merged() or {"ok": True, "job": "", "idle": True, "done": True}
@@ -3898,10 +3176,6 @@ def api_push_status(d):
 
 
 def api_push_cancel(d):
-    """Stop the whole job NOW. Everything still queued is marked skipped here rather than waiting for a
-    worker to come ask -- leaving it to _push_next means the queue keeps reading «در نوبت» until an upload
-    finishes, which on a core push is tens of seconds, long enough to look like the button did nothing.
-    The uploads already in flight see the flag between chunks and drop their sockets mid-body."""
     jid = str((d or {}).get("job") or "") or PUSH_ALL
     with _push_lock:
         targets = _push_live() if jid == PUSH_ALL else [jid]
@@ -3919,9 +3193,6 @@ def api_push_cancel(d):
 
 
 def api_push_pause(d):
-    """Pause = stop handing out NEW nodes; the pool keeps its in-flight pushes and holds the rest at
-    «در نوبت». Resume hands them out again. d.paused sets the state explicitly (a toggle would race two
-    quick taps into the wrong state)."""
     jid = str((d or {}).get("job") or "") or PUSH_ALL
     want = bool((d or {}).get("paused", True))
     with _push_lock:
@@ -3938,8 +3209,6 @@ def api_push_pause(d):
 
 
 def _update_targets(d):
-    """The nodes this update is for. An offline node is kept in the list and marked, not dropped: the
-    operator asked for it, and a row that silently vanishes reads as one that was done."""
     _require(d, ["ids"])
     if not isinstance(d.get("ids"), list):
         raise ValueError("ids must be a list")
@@ -3950,22 +3219,16 @@ def _update_targets(d):
 
 
 def _core_current(ping, sha):
-    """Whether the node already runs this exact core. It reports the sha truncated to 12."""
     got = str(ping.get("core_sha") or "")
     return bool(got) and sha.startswith(got)
 
 
 def _update_start(kind, nodes, plan):
-    """Start one update job. An offline node is NOT filtered out here: it goes into the job like any
-    other and fails its first step with «آفلاین», which is the honest thing for a row the operator
-    asked for. Nothing is delivered to it — the first contact is what fails."""
     jid = _push_start(kind, nodes, plan)
     return {"ok": True, "job": jid} if jid else {"ok": True, "none": True}
 
 
 def api_update_agent(d):
-    """Update the AGENT on the given nodes. One step: the node validates the code, swaps it and comes
-    back on it, which is also how a node that has never seen this panel's newer ops gets them."""
     nodes = _update_targets(d)
     try:
         src, meta = _staged_agent()
@@ -3981,10 +3244,6 @@ def api_update_agent(d):
 
 
 def api_update_core(d):
-    """Update the CORE on the given nodes, in two steps the panel drives: the bytes are staged first and
-    installed second, so the operator watches it happen and a cancel while the bytes move leaves the node
-    untouched. `version` is a release tag, "latest", "custom" (the uploaded binary), or absent for
-    whatever the panel already has staged."""
     nodes = _update_targets(d)
     version = str((d or {}).get("version") or "").strip()
     if version == "custom":
@@ -4005,14 +3264,13 @@ def api_update_core(d):
         return _update_start("core", nodes, plan)
 
     if version:
-        _stage_core(version)                       # onto the panel first; raises if it cannot be fetched
+        _stage_core(version)
     elif not _staged_info():
         raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
 
     parts, shas = {}, {}
 
     def prep(n):
-        """The bytes to send this node, encoded and signed ONCE per architecture, not once per node."""
         arch = _node_arch(n)
         if not arch:
             raise ValueError("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود")
@@ -4035,11 +3293,9 @@ def api_update_core(d):
         return {"sha256": sha, "version": ver, "sig": sig}
 
     def current(r):
-        """Read the checksum once per ARCHITECTURE, not once per node: the point of this step is to skip
-        the megabytes, and re-hashing the staged file for every node gives that saving back."""
         arch = str(r.get("arch") or "")
         if arch not in CORE_ARCHES:
-            return False                  # the deliver step is where an unknown arch gets its message
+            return False
         if arch not in shas:
             b = _staged_bytes(arch)
             shas[arch] = b[1] if b else ""
@@ -4052,13 +3308,11 @@ def api_update_core(d):
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
-_core_versions_cache = {"ts": 0.0, "data": None}   # filled ONLY by api_core_check (the button)
+_core_versions_cache = {"ts": 0.0, "data": None}
 _core_versions_lock = threading.Lock()
 
 
 def _fetch_core_versions():
-    """Fetch the core repo's GitHub releases (SLOW — runs OFF the request path). Returns the version
-    list, or None on failure so the caller keeps the existing cache instead of blanking it."""
     try:
         req = urllib.request.Request(_CORE_RELEASES_API,
                                      headers={"User-Agent": "tnl-central", "Accept": "application/vnd.github+json"})
@@ -4075,18 +3329,12 @@ def _fetch_core_versions():
 
 
 def api_core_versions(d):
-    """The core versions the operator can install/downgrade to — served PURELY from cache, never
-    fetching. GitHub is often slow or blocked from the deployment region, and a background refresh on
-    every settings/agent page load meant the panel reached out on its own schedule for something the
-    operator had not asked for. api_core_check is the one place that talks to GitHub now, and it only
-    runs when the button is pressed. An empty list until then is the honest state: the panel does not
-    know what releases exist."""
     vers = list(_core_versions_cache["data"] or [])
-    out = list(vers)  # newest first
-    if out:  # tag the newest real release "(latest)" instead of a synthetic "latest" item
+    out = list(vers)
+    if out:
         out[0] = {**out[0], "label": (out[0].get("label") or out[0]["id"]) + " (latest)", "latest": True}
     info = _core_blob_info()
-    if info:                                          # offer the operator-uploaded binary as its own choice
+    if info:
         out.append({"id": "custom", "label": "\u0628\u0627\u06cc\u0646\u0631\u06cc\u0650 \u0622\u067e\u0644\u0648\u062f\u0634\u062f\u0647" + (" \u00b7 " + info["name"] if info.get("name") else ""),
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
     return {"versions": out, "staged": _staged_info(), "checked_ts": int(_core_versions_cache["ts"] or 0),
@@ -4094,8 +3342,6 @@ def api_core_versions(d):
 
 
 def api_core_delete_blob(d):
-    """Throw away the uploaded custom binary. Nothing else refers to it: it is offered as its own choice
-    in the version list and staged from there, so removing the two files removes the choice."""
     with _core_blob_lock:
         gone = False
         for path in (CORE_BLOB, CORE_BLOB_META):
@@ -4111,15 +3357,10 @@ def api_core_delete_blob(d):
 
 
 def api_core_check(d):
-    """Ask GitHub for the release list, NOW, because the operator pressed the button. Synchronous on
-    purpose: the button reports what happened, so it has to wait for the answer. Returns how many
-    versions are known and whether the newest one is different from what we had, so the UI can say
-    "there is a new version" instead of just silently reordering a dropdown."""
     before = list(_core_versions_cache["data"] or [])
     prev_top = (before[0].get("id") if before else "")
     vers = _fetch_core_versions()
     if vers is None:
-        # Keep the previous list rather than blanking it — a failed check must not lose what we knew.
         return {"ok": False, "error": "\u062f\u0631\u06cc\u0627\u0641\u062a \u0627\u0632 \u06af\u06cc\u062a\u200c\u0647\u0627\u0628 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062f"}
     with _core_versions_lock:
         _core_versions_cache["data"] = vers
@@ -4130,7 +3371,6 @@ def api_core_check(d):
 
 
 def _core_blob_info():
-    """Metadata for the custom core binary the operator uploaded, or None if none is stored."""
     try:
         with open(CORE_BLOB_META) as f:
             m = json.load(f)
@@ -4142,8 +3382,6 @@ def _core_blob_info():
 
 
 def api_core_upload(d):
-    """Store a custom core binary (base64) in the panel so it can be pushed to nodes as version 'custom'.
-    Verifies it looks like a Linux ELF and isn't absurdly small/large before saving."""
     _require(d, ["data"])
     try:
         raw = base64.b64decode(d["data"], validate=True)
@@ -4153,35 +3391,25 @@ def api_core_upload(d):
         raise ValueError("فایل خیلی کوچک است — این باینریِ هسته نیست")
     if len(raw) > 15 * 1024 * 1024:
         raise ValueError("فایل بیش از حد بزرگ است")
-    if raw[:4] != b"\x7fELF":                       # a Linux core binary must be an ELF — reject anything else early
+    if raw[:4] != b"\x7fELF":
         raise ValueError("این یک باینریِ ELF لینوکسی نیست")
     sha = hashlib.sha256(raw).hexdigest()
     name = str(d.get("name") or "core.bin")[:80]
     with _core_blob_lock:
-        # Atomic, like every other on-disk write here. A raw open("wb") truncates first, so a crash or a
-        # full disk mid-write leaves a SHORT binary on disk while CORE_BLOB_META still describes the
-        # previous upload — and core-push verifies against that meta, so it would ship a truncated ELF to
-        # the fleet believing it was the good one.
         save_bytes(CORE_BLOB, raw)
         save_json(CORE_BLOB_META, {"sha256": sha, "size": len(raw), "name": name, "uploaded_ts": int(time.time())})
     return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name}
 
 
-# ----------------------------------------------------------------------------- core staging
-# The panel always stages the binary on its own disk (downloaded from GitHub, per arch) and decides what
-# may be installed. `core_delivery` then decides who carries those bytes the last hop — the default is
-# still the panel pushing them, because a node may have no internet at all (e.g. an Iran node).
 _CORE_REL_DL = "https://github.com/Angize/TUNNEL-MANAGER-CORE/releases"
-_CORE_TAG_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")  # release-tag charset: forbids "/" and ".." so a version can't traverse the GitHub path
-CORE_ARCHES = ("amd64", "arm64")   # the arches a release publishes; a node must be pushed its own
-CORE_STAGE_DIR = os.path.join(CENTRAL_DIR, "core-stage")            # tnl-core-<arch> binaries, ready to push
-CORE_STAGE_META = os.path.join(CENTRAL_DIR, "core-stage.meta.json")  # {version, arches, ts}
+_CORE_TAG_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
+CORE_ARCHES = ("amd64", "arm64")
+CORE_STAGE_DIR = os.path.join(CENTRAL_DIR, "core-stage")
+CORE_STAGE_META = os.path.join(CENTRAL_DIR, "core-stage.meta.json")
 _core_stage_lock = threading.Lock()
 
 
 def _resolve_core_version(version):
-    """Turn "latest"/"" into the newest concrete release tag, so a staged/pushed node records a real
-    version rather than the abstract "latest". Falls back to "latest" if the release list is unknown."""
     version = (version or "latest").strip() or "latest"
     if version != "latest":
         if version in (".", "..") or not _CORE_TAG_RE.match(version):
@@ -4190,9 +3418,6 @@ def _resolve_core_version(version):
     for v in (api_core_versions({}).get("versions") or []):
         if v.get("id") and v["id"] != "custom":
             return v["id"]
-    # Cache still cold — the operator has not pressed «بررسی آپدیت» yet. This IS an explicit stage/install
-    # action, not a page load, so a one-off synchronous fetch here is fine and beats recording the
-    # abstract "latest" against a node.
     fetched = _fetch_core_versions()
     if fetched:
         with _core_versions_lock:
@@ -4211,10 +3436,7 @@ def _dl(url, timeout):
 
 
 def _release_asset_url(version, arch):
-    """The GitHub download URL for one core release asset. The ONE place that shape is written, so the
-    panel's own fetch and the URL a node is handed in "github" delivery can never point at different
-    assets."""
-    if arch not in CORE_ARCHES:   # never interpolate an unvetted arch into a GitHub asset URL
+    if arch not in CORE_ARCHES:
         raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
     asset = f"tnl-core-linux-{arch}"
     return (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
@@ -4222,8 +3444,6 @@ def _release_asset_url(version, arch):
 
 
 def _fetch_release(version, arch):
-    """Download + verify a core release asset (binary + its .sha256) from GitHub. Returns (raw, sha).
-    Raises on any failure — this is the ONLY place that talks to GitHub for the core binary."""
     base = _release_asset_url(version, arch)
     sha = _dl(base + ".sha256", 30).decode().split()[0].strip().lower()
     if len(sha) != 64:
@@ -4235,7 +3455,6 @@ def _fetch_release(version, arch):
 
 
 def _staged_info():
-    """{version, arches, ts} for the core currently staged on the panel, or None if nothing is staged."""
     try:
         with open(CORE_STAGE_META) as f:
             info = json.load(f)
@@ -4245,10 +3464,6 @@ def _staged_info():
 
 
 def _stage_core(version):
-    """Download the resolved version for amd64 (required) and arm64 (best-effort) and persist it on the
-    panel as the staged core. Returns {version, arches, missing} — `missing` is what the operator has to
-    retry for, because readiness needs BOTH arches and a silent partial stage reads as done. Raises if
-    the panel itself cannot fetch the amd64 asset (e.g. the panel has no internet)."""
     rel = _resolve_core_version(version)
     os.makedirs(CORE_STAGE_DIR, exist_ok=True)
     got, shas, sizes = [], {}, {}
@@ -4259,20 +3474,17 @@ def _stage_core(version):
             except Exception:
                 if arch == "amd64":
                     raise
-                continue           # arm64 is optional; fetched on demand at push time if a node needs it
-            save_bytes(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), raw)   # atomic: a concurrent push must not read a half-written binary
+                continue
+            save_bytes(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), raw)
             got.append(arch)
-            shas[arch] = sha       # per-arch sha lets the panel tell which nodes are out of date
+            shas[arch] = sha
             sizes[arch] = len(raw)
         save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": sizes, "ts": int(time.time())})
     return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
 
 
 def _staged_bytes(arch):
-    """(raw, sha, version) for the staged core at arch — fetching+persisting that arch on demand if the
-    staged version is set but its file isn't present yet. None if nothing is staged (or the arch can't
-    be fetched and isn't cached)."""
-    if arch not in CORE_ARCHES:   # arch reaches a local file path + a GitHub asset URL — whitelist
+    if arch not in CORE_ARCHES:
         raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
     info = _staged_info()
     if not info:
@@ -4284,7 +3496,7 @@ def _staged_bytes(arch):
             raw, sha = _fetch_release(ver, arch)
         except Exception:
             return None
-        save_bytes(p, raw)   # atomic on-demand persist so a racing reader/push never sees partial bytes
+        save_bytes(p, raw)
         return raw, sha, ver
     with open(p, "rb") as f:
         raw = f.read()
@@ -4292,20 +3504,6 @@ def _staged_bytes(arch):
 
 
 def _node_arch(node):
-    """The CPU architecture to push a core binary for, or "" when it cannot be established.
-
-    nodes.json has NEVER carried an `arch` key — no write path adds one (api_node_add, the SSH
-    installer and api_node_edit all build the record without it) — so reading it off the record and
-    defaulting to amd64 sent the x86-64 asset to EVERY node. An arm64 node then chmod-755'd that binary
-    into CORE_BIN and rebuilt its tunnels: each core died with "Exec format error", every core tunnel on
-    that node stayed down, and it never self-corrected because the agent page compares the node's
-    reported sha against the staged one, so it read "update available" forever and each retry pushed the
-    same wrong binary.
-
-    The node already reports its arch in the ping payload, so take it from there: an explicit record
-    value first (the freshly-added-node path passes one in), then the poll cache, then one live ping for
-    a node that has not been polled yet. Returning "" instead of guessing is deliberate — a wrong-arch
-    push is far more damaging than a refused one, and the caller turns it into a clear operator error."""
     a = str(node.get("arch") or "").strip()
     if a in CORE_ARCHES:
         return a
@@ -4317,11 +3515,6 @@ def _node_arch(node):
 
 
 def _push_staged(node):
-    """Deliver the staged core to one node, in the operator's delivery mode. Returns a result dict. Used
-    by the two paths that are NOT the fleet job: the freshly-added node and the core-tunnel build's retry.
-
-    Same two node ops the fleet job drives — staging the bytes and then installing them — so there is one
-    install path on the node, not one per caller."""
     arch = _node_arch(node)
     if not arch:
         return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
@@ -4334,7 +3527,7 @@ def _push_staged(node):
         body = _core_install_body(node, base64.b64encode(raw).decode(), sha, ver, sig, arch)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
-    _ensure_update_key(node)   # guarantee the node holds the verify key before a signed root-binary push (fail-closed on the node side)
+    _ensure_update_key(node)
     r = node_call(node, "core-put", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
     if not r.get("ok") or r.get("code") == "same":
         return r
@@ -4343,8 +3536,6 @@ def _push_staged(node):
 
 
 def _push_staged_on_add(node):
-    """Best-effort: push the staged core to a freshly-added node so it is ready before any tunnel build.
-    Silent on failure (the node may be briefly unreachable; the build path relays as a fallback)."""
     try:
         if _staged_info():
             _push_staged(node)
@@ -4353,9 +3544,6 @@ def _push_staged_on_add(node):
 
 
 def _node_tunnel(node, body):
-    """node_call the tunnel op; if a core tunnel fails because the node has no core binary (it never
-    downloads its own), push the staged binary from the panel and retry once — so building a core tunnel
-    on an internet-less node just works. If the panel has nothing staged, surface a clear message."""
     r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
     err = str(r.get("error") or r.get("msg") or "")
     if not r.get("ok") and "core not installed" in err:
@@ -4368,8 +3556,6 @@ def _node_tunnel(node, body):
 
 
 def api_core_stage(d):
-    """Download a core version onto the PANEL and keep it staged (ready to push). This is the
-    'get from GitHub' action for the core. version defaults to latest."""
     info = _stage_core(str((d or {}).get("version") or "latest").strip())
     return {"ok": True, **info}
 
@@ -4377,8 +3563,7 @@ def api_core_stage(d):
 def api_fleet(d):
     off, lim, q = _paginate(d)
     nodes = {n["id"]: n for n in load_nodes()}
-    # resolve node names LIVE from the registry so a renamed node shows its current name here too
-    kind = (d or {}).get("kind")   # "core" -> only core links; "tunnels" -> everything else; None -> all
+    kind = (d or {}).get("kind")
     links = []
     for L in load_links():
         if kind == "core" and L.get("type") != "core":
@@ -4393,13 +3578,13 @@ def api_fleet(d):
     total = len(links)
     page = links[off:off + lim]
     need = {L[k] for L in page for k in ("a_node", "b_node")}
-    _ensure_cached([nodes[i] for i in need if i in nodes])  # bounded to the page's nodes
-    with _tf_lock:  # snapshot per-link traffic once under the lock (either side carries the same iface name)
+    _ensure_cached([nodes[i] for i in need if i in nodes])
+    with _tf_lock:
         tfl = {}
         for L in page:
-            side = "b" if L.get("view_side") == "b" else "a"   # figures are shown from ONE chosen node's iface
-            nid = L["b_node"] if side == "b" else L["a_node"]  # (rx/tx are that node's; the peer sees the mirror)
-            s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])   # no silent fallback to the other side
+            side = "b" if L.get("view_side") == "b" else "a"
+            nid = L["b_node"] if side == "b" else L["a_node"]
+            s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])
             if s:
                 tfl[L["id"]] = {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"],
                                 "rx_total": s["crx"], "tx_total": s["ctx"]}
@@ -4411,30 +3596,23 @@ def api_fleet(d):
         a_ips = _flat_ips(_cached_ping(L["a_node"]))
         b_ips = _flat_ips(_cached_ping(L["b_node"]))
         side = "b" if L.get("view_side") == "b" else "a"
-        pub = {k: v for k, v in L.items() if k != "psk"}   # never expose the shared crypto key (IPsec / core AEAD psk) to the browser
+        pub = {k: v for k, v in L.items() if k != "psk"}
         rec = {**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), **tfl.get(L["id"], {})}
-        # The forged client source port the tunnel is on RIGHT NOW. Only the CLIENT end publishes a
-        # path, so read it off that node -- the same cached list the pools come out of, no extra call.
-        # A rolled port exists nowhere else at all: the stored config only says that it rolls.
         if L.get("type") == "core":
             _cl = lb if (L.get("server_side") != "b") else la
             _sp = (_cl.get("sports") or {}).get(L["name"])
             if _sp:
                 rec["sport_live"] = int(_sp)
-        # Live active pool IP: the CLIENT node writes .peerpool (active destination) and .srcpool (active
-        # source), surfaced per side. `*_ip_rot` is a property of the POOL, not of the status file — a
-        # one-entry source pool exists to PIN a source IP and writes a status file like a real one — so
-        # read the pool, and set it unconditionally: rotation is configuration, the address is live state.
         if L.get("type") == "core" and L.get("ip_rotate"):
             srvA = (L.get("server_side") != "b")
-            cl = lb if srvA else la  # the client is the non-server node
+            cl = lb if srvA else la
             pd = (cl.get("pools") or {}).get(L["name"]) or {}
-            dact = str(pd.get("dst") or "").split(":")[0]  # active destination (bare IP)
-            sact = str(pd.get("src") or "").split(":")[0]  # active source (bare IP)
+            dact = str(pd.get("dst") or "").split(":")[0]
+            sact = str(pd.get("src") or "").split(":")[0]
             a_act, b_act = (dact, sact) if srvA else (sact, dact)
             rec["a_ip_rot"] = len([x for x in (L.get("a_ip_pool") or []) if x]) >= 2
             rec["b_ip_rot"] = len([x for x in (L.get("b_ip_pool") or []) if x]) >= 2
@@ -4447,14 +3625,13 @@ def api_fleet(d):
 
 
 def api_link_view(d):
-    """Toggle which node's iface the tunnel's traffic figures are read from (a<->b)."""
     _require(d, ["id"])
     with _reg_lock:
         links = load_links()
         side = None
         for x in links:
             if x["id"] == d["id"]:
-                side = "a" if x.get("view_side") == "b" else "b"   # flip
+                side = "a" if x.get("view_side") == "b" else "b"
                 x["view_side"] = side
                 break
         if side is None:
@@ -4464,9 +3641,6 @@ def api_link_view(d):
 
 
 def api_traffic_reset(d):
-    """Zero a cumulative traffic total; live rates untouched. Three subjects: a tunnel (both ends), a
-    port-forward, or the NODE's own figure — the sum over its physical NICs, which no other shape here
-    reaches. `name` is what separates the last two, so the node case must be tested after it."""
     d = d or {}
     if d.get("id"):
         L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -4498,17 +3672,6 @@ def _default_tunnel_port(ttype, tid):
 
 
 def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_ip=None, a_pool=None, b_pool=None):
-    """The (node, ip, port, proto) sockets a tunnel will actually LISTEN on — the set whose
-    freeness must be verified before building. The core server binds its self_ip:port, so the
-    bind IP is carried too: two ws tunnels on one host but different IPs share a port without a
-    false conflict. Scope per the tunnel model:
-      core (bare): only the server node binds; the client dials from a random ephemeral port, so it
-                    is never checked. proto follows transport (udp|tcp). A UNpooled server binds its
-                    single self_ip; a udp/tcp server UNDER a destination pool binds EACH of its
-                    selected pool IPs explicitly (one socket/listener per IP), so every one is a
-                    distinct binding to check — a_pool/b_pool carry that selected set.
-      fou/l2tpv3/vxlan: BOTH nodes decap on that UDP port (any-IP, ip=None).
-      gre/sit/ipip/ipsec: no listening L4 port -> nothing to check."""
     p = int(port or _default_tunnel_port(ttype, tid) or 0)
     if not p:
         return []
@@ -4519,17 +3682,13 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
         srv_pool = (a_pool if server_a else b_pool) or []
         t = (transport or "udp").lower()
         if t in ("raw", "flux"):
-            return []                        # raw-IP / rotating-protocol: genuinely no L4 port to portcheck
+            return []
         if t == "dns":
-            # dns DOES have an L4 port, and the most contended one on the box: the server core binds
-            # <self_ip>:53 as an authoritative NS. Lumping it with raw/flux exempts it from the guard entirely,
-            # so a second dns tunnel on the same node — or any node already running systemd-resolved, dnsmasq or
-            # bind — builds cleanly and then fails at core start with an address-in-use nobody sees.
             return [(srv, srv_ip, 53, "udp")]
-        proto = "tcp" if t in ("tcp", "ws") else "udp"  # ws is a TCP/WebSocket carrier
+        proto = "tcp" if t in ("tcp", "ws") else "udp"
         pool_ips = [ip for ip in srv_pool if ip] if t in ("udp", "tcp") else []
         if pool_ips:
-            return [(srv, ip, p, proto) for ip in pool_ips]  # pooled server: one bind per selected IP
+            return [(srv, ip, p, proto) for ip in pool_ips]
         return [(srv, srv_ip, p, proto)]
     if ttype in ("fou", "l2tpv3", "vxlan"):
         return [(A, None, p, "udp"), (B, None, p, "udp")]
@@ -4537,19 +3696,12 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
 
 
 def _guard_port_conflicts(bindings, exclude=frozenset()):
-    """Ask each target node whether the port it will bind is already in use (by ANY
-    service — Xray/nginx/x-ui/…, not just our tunnels) and raise a clear Persian error
-    if so. `exclude` holds (node_id, ip, port, proto) tuples the edited tunnel already owns,
-    so a tunnel never conflicts with itself — including, for a pooled server, every one of its
-    selected pool IPs (each is a distinct binding now that the server binds them explicitly rather
-    than 0.0.0.0). A node that can't answer (briefly unreachable / timing out) is skipped rather
-    than hard-blocked."""
     for node, ip, port, proto in bindings:
         if (node["id"], ip or "", int(port), proto) in exclude:
             continue
         r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or ""}, timeout=10)
         if not r.get("ok"):
-            continue  # node unreachable -> can't verify, don't block the build
+            continue
         if r.get("busy"):
             who = str(r.get("who") or "").strip()
             tail = f" — {who}" if who else ""
@@ -4558,20 +3710,14 @@ def _guard_port_conflicts(bindings, exclude=frozenset()):
 
 
 def _core_bind_keys(bindings):
-    """Normalize _port_bindings output to a comparable key set {(node_id, ip, port, proto)}."""
     return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
 
 
-# The UDP destination ports each flux carrier rotates across. MIRRORS the core's flux.go
-# (fluxDportPool / fluxStunDports); tools/tuning_consistency.py fails if they drift.
 FLUX_UDP_DPORTS = (443, 3478, 19302, 5349, 8801)
 FLUX_STUN_DPORTS = (3478, 19302, 5349)
 
 
 def _peer_addrs(rec, side):
-    """Every address a link's `side` end can present: its anchor plus, when IP rotation is on, each
-    selected pool IP. The conflict guards must reason over ALL of them — a rotating peer is reachable
-    from any pool member, so an anchor-only comparison silently under-reports."""
     out = []
     ip = rec.get(side + "_ip")
     if ip:
@@ -4584,43 +3730,24 @@ def _peer_addrs(rec, side):
 
 
 def _flux_drop_points(rec):
-    """[(node_id, peer_ip, udp_port)] a flux tunnel's anti-leak rules DROP inbound traffic on.
-
-    flux receives via AF_PACKET — before the IP stack — so the kernel sees frames nobody is listening
-    for and answers ICMP port-unreachable, revealing that no real STUN/QUIC service runs here. A
-    raw-PREROUTING DROP silences that. The rule covers EVERY pool port at once rather than the current
-    epoch's, deliberately, so an epoch rotation never has to touch iptables — and that is exactly why
-    it can also swallow an UNRELATED tunnel's traffic from the same peer.
-    Both ends install it: the client at dial, the server on the first authenticated frame."""
     if str(rec.get("type") or "") != "core" or str(rec.get("transport") or "").lower() != "flux":
         return []
     carrier = str(rec.get("flux_carrier") or "udp").lower()
     ports = FLUX_STUN_DPORTS if carrier == "stun" else FLUX_UDP_DPORTS
     out = []
     for p in ports:
-        # Every peer address, not just the anchor. Under IP rotation the peer reaches us from any IP in
-        # its pool, so the node installs a DROP per pool IP — a guard that only knew the anchor missed
-        # every collision on the other pool members and let the panel build a tunnel it would black-hole.
         for b_addr in _peer_addrs(rec, "b"):
-            out.append((rec.get("a_node"), b_addr, p))   # on A, dropping traffic from B
+            out.append((rec.get("a_node"), b_addr, p))
         for a_addr in _peer_addrs(rec, "a"):
-            out.append((rec.get("b_node"), a_addr, p))   # on B, dropping traffic from A
+            out.append((rec.get("b_node"), a_addr, p))
     return out
 
 
 def _udp_recv_points(rec):
-    """[(node_id, peer_ip, udp_port)] this tunnel RECEIVES UDP on — exactly what a flux DROP rule on
-    the same node, from the same peer, on the same port would swallow.
-
-    Only a LISTENING side counts: a core udp client dials from a random ephemeral source port, which
-    the pool can never match. fou/l2tpv3/vxlan decap on that port at BOTH ends."""
     ttype = str(rec.get("type") or "")
     p = int(rec.get("port") or _default_tunnel_port(ttype, rec.get("tunnel_id")) or 0)
     if not p:
         return []
-    # Same widening as _flux_drop_points: a rotating peer sends from any IP in its pool, so the traffic
-    # a DROP rule could swallow is not limited to the anchor. Comparing anchor-to-anchor made the guard
-    # blind to every collision that involved a non-anchor pool member on either side.
     if ttype in ("fou", "l2tpv3", "vxlan"):
         return ([(rec.get("a_node"), b_addr, p) for b_addr in _peer_addrs(rec, "b")] +
                 [(rec.get("b_node"), a_addr, p) for a_addr in _peer_addrs(rec, "a")])
@@ -4632,16 +3759,6 @@ def _udp_recv_points(rec):
 
 
 def _flux_drop_conflict(src, exclude_id=None):
-    """The stored link a flux anti-leak DROP rule would black-hole (or that would black-hole THIS
-    tunnel), or None.
-
-    The core cannot make this call: it has no idea what else runs on the node. The panel does, and it
-    already owns port-conflict checking, so the collision is refused at build time with a clear error
-    instead of silently killing a previously healthy tunnel — the failure mode is a tunnel that just
-    stops carrying traffic, with no event, no log and a perfectly healthy network.
-
-    Two flux tunnels between the same pair are NOT a conflict: neither receives UDP on a pool port, so
-    their identical rules are harmless."""
     drop = set(_flux_drop_points(src))
     recv = set(_udp_recv_points(src))
     if not drop and not recv:
@@ -4657,24 +3774,14 @@ def _flux_drop_conflict(src, exclude_id=None):
 
 
 def _core_l4_conflict(new_binds, exclude_id=None):
-    """Registry-level conflict check for a core tunnel. Core is CARRIER-MULTIPLEXED on its server IP:
-    only udp/tcp/ws (and dns, on the fixed :53) bind an EXCLUSIVE kernel port (returned by
-    _port_bindings), so two core tunnels
-    truly clash ONLY when their server (node, ip, port, L4-proto) coincide. raw/flux return no bindings
-    — they use shared raw/AF_PACKET sockets and every frame is AEAD-authenticated, so any number
-    coexist on one server IP (each drops the others' frames). So a raw-vs-udp, a udp:9000-vs-udp:9001,
-    or a udp-vs-tcp-on-the-same-port pair on the same IPs is fine; only a same (ip,port,proto) L4 bind
-    is a real conflict. This catches a conflict even when the other tunnel is currently DOWN (the live
-    _guard_port_conflicts only sees running binds); the two together also catch non-tunnel services on
-    the port. Returns the first conflicting stored core link (or None); exclude_id skips self on edit."""
     keys = _core_bind_keys(new_binds)
-    if not keys:  # raw/flux (or no port) — nothing exclusive to clash on
+    if not keys:
         return None
     for L in load_links():
         if L.get("type") != "core" or L.get("id") == exclude_id:
             continue
         LA, LB = get_node(L.get("a_node")), get_node(L.get("b_node"))
-        if not LA or not LB:  # orphaned link (a node was deleted) — can't compute its bind
+        if not LA or not LB:
             continue
         eb = _port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
                             L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
@@ -4685,15 +3792,6 @@ def _core_l4_conflict(new_binds, exclude_id=None):
 
 
 def _spoof_fields(d, transport, cur=None):
-    """Validate and return the spoof-carrier outer-IPv4 forgery fields to store on a core link.
-
-    Both forge a field of the outer IPv4 header so an on-path censor sees something other than the
-    real flow: spoof_dst is the decoy destination, spoof_src the forged source. raw_proto overrides
-    the carrier's native protocol number (1..255, e.g. 58) to slip past a protocol-whitelist filter.
-    At least one forged field is required — a spoof carrier that forges nothing is just raw/bare, and
-    both the node and the core reject it. The node applies these per role (see tnl-node _core_config).
-    cur (the existing link) supplies edit defaults so an edit that omits the fields keeps the stored
-    values (mirroring _flux_fields/_ws_fields/_fec_fields) instead of silently wiping the config."""
     out = {}
     if transport != "spoof":
         return out
@@ -4715,18 +3813,12 @@ def _spoof_fields(d, transport, cur=None):
     except (TypeError, ValueError):
         proto = 0
     if proto:
-        _check_raw_proto(proto)   # spoof is bare-like and headerless: the same numbers are unusable
+        _check_raw_proto(proto)
         out["raw_proto"] = proto
     return out
 
 
 def _dns_fields(d, transport, cipher, cur=None):
-    """Validate and return the dns-carrier fields to store on a core link: the delegated zone (whose
-    authoritative NS is the server) and the client's recursive-resolver list. The dns tunnel rides
-    inside DNS queries to (typically domestic) resolvers, so the client never sends a packet to the
-    server IP — the last-resort carrier under a full protocol+destination whitelist. Crypto is
-    mandatory (the session handshake and every datagram are AEAD-authenticated). cur (the existing
-    link) supplies edit defaults so a partial edit keeps stored values."""
     out = {}
     if transport != "dns":
         return out
@@ -4743,7 +3835,7 @@ def _dns_fields(d, transport, cipher, cur=None):
         rs = str(r).strip()
         if not rs:
             continue
-        if rs.count(":") == 1:                       # ip:port — validate BOTH halves, not just the host
+        if rs.count(":") == 1:
             host, _, port = rs.partition(":")
             if not (port.isdigit() and 1 <= int(port) <= 65535):
                 raise ValueError("پورتِ resolverِ dns نامعتبر است — باید 1 تا 65535 باشد: " + rs)
@@ -4759,10 +3851,6 @@ def _dns_fields(d, transport, cipher, cur=None):
 
 
 def _flux_fields(d, transport, cipher, cur=None):
-    """Validate and return the flux carrier fields to store on a core link. flux is a polymorphic
-    moving-target transport whose IP protocol (raw carrier) or UDP ports (udp carrier) rotate every
-    epoch on a clock-derived schedule both ends compute with no wire signal. Crypto is mandatory —
-    the rotating shape is derived from the AEAD PSK. cur (the existing link) supplies edit defaults."""
     out = {}
     if transport != "flux":
         return out
@@ -4781,22 +3869,11 @@ def _flux_fields(d, transport, cipher, cur=None):
     if shape not in ("random", "quic", "video", "webrtc"):
         raise ValueError("پروفایلِ شکلِ flux نامعتبر است")
     out["flux_shape"] = shape
-    # The manual epoch offset ("rotate now") is not a form field: preserve it across edits,
-    # and let a caller (api_flux_rotate) pass an explicit bumped value.
     out["flux_epoch_offset"] = int(d.get("flux_epoch_offset") or cur.get("flux_epoch_offset") or 0)
     return out
 
 
 def _workers_field(d, transport, fec_on, cur=None):
-    """How many TUN queues this tunnel gets (the core's `workers`), so its packets are read and written
-    by several goroutines instead of queueing behind one file's lock. Only the carriers in
-    QUEUEING_TRANSPORTS, and only with FEC off, spend them: main.go gates its queue count on exactly
-    that pair, and FEC's decoder rebuilds a block out of consecutive frames. Returns {} for the
-    single-queue default, so only a raised value is stored.
-
-    Inherit-vs-ask, the rule raw_port already follows: a value carried in from `cur` is dropped when the
-    new carrier cannot use it (switching carrier IS the request to leave it behind), while one asked for
-    in THIS request is refused rather than persisted as a setting the wire ignores."""
     cur = cur or {}
     out, asked_any = {}, False
     for key in ("a_workers", "b_workers"):
@@ -4804,13 +3881,13 @@ def _workers_field(d, transport, fec_on, cur=None):
         asked_any = asked_any or asked
         if asked:
             try:
-                n = int(d[key] or 1)   # 0/absent both mean "the default", like every other count here
+                n = int(d[key] or 1)
             except (TypeError, ValueError):
                 raise ValueError("تعدادِ صفِ موازی نامعتبر است")
             if not 1 <= n <= CORE_MAX_WORKERS:
                 raise ValueError(f"تعدادِ صفِ موازی باید بینِ 1 تا {CORE_MAX_WORKERS} باشد")
         else:
-            n = int(cur.get(key) or 1)   # our own stored value: written by this function, in range
+            n = int(cur.get(key) or 1)
         if n > 1:
             out[key] = n
     if not out:
@@ -4824,17 +3901,10 @@ def _workers_field(d, transport, fec_on, cur=None):
 
 
 def _link_workers(L, key):
-    """The TUN queues one stored core link holds ON ONE END: the raised count where the operator set
-    one, and one everywhere else — every core tunnel owns a queue on both ends whatever its carrier.
-    key is "a_workers" or "b_workers"."""
     return max(1, min(CORE_MAX_WORKERS, int(L.get(key) or 1)))
 
 
 def _fec_fields(d, transport, cur=None):
-    """FEC (forward error correction) on the datagram carriers (udp/raw/flux): repairs lost
-    packets from parity so a throttled/high-loss link stays usable without retransmits. It is
-    ignored on tcp/ws (TCP is already reliable). Both ends get the same setting (this link).
-    cur (the existing link) supplies edit defaults. Returns {} when off / not applicable."""
     out = {}
     if transport not in DATAGRAM_TRANSPORTS:
         return out
@@ -4847,10 +3917,6 @@ def _fec_fields(d, transport, cur=None):
     fp = int(d.get("fec_parity") or cur.get("fec_parity") or 3)
     if fd < 1 or fp < 1 or fd + fp > 255:
         raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥1، مجموع ≤255)")
-    # ...and the RECEIVER has to be able to repair the block, which the sum rule says nothing about. The
-    # core's decoder hands intact shards over on arrival and parity-recovered ones last, so a repaired
-    # frame reaches the AEAD up to blocksize-1 sequences behind the newest — and its 64-slot replay window
-    # refuses anything a full window behind. Past that the parity costs full bandwidth and repairs nothing.
     if fd > 64:
         raise ValueError("دادهٔ FEC حداکثر 64 است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)")
     out["fec_data"] = fd
@@ -4859,19 +3925,11 @@ def _fec_fields(d, transport, cur=None):
 
 
 def _desync_fields(d, transport, cur=None, is_http=False):
-    """Fake-packet desync (anti-DPI): the client emits decoy packets that reach an on-path DPI but
-    not the server, mis-syncing a stateful DPI while the real session is untouched. raw/flux forge
-    whole IPv4 decoys; tcp/ws inject decoy TCP segments on the kernel connection's 4-tuple. Not on
-    plain udp (no injection hook), and NOT on the ws carrier's HTTP shape — its conn is synthetic, so
-    the injector's *net.TCPAddr assertion fails and no decoy is ever emitted. cur (the existing link)
-    supplies edit defaults so a partial edit
-    keeps the stored config. Returns {} when off / not applicable — so switching to udp cleanly
-    drops the fields."""
     out = {}
     if transport not in DESYNC_TRANSPORTS:
         return out
     if transport == "ws" and is_http:
-        return out   # the HTTP carrier has no real TCP 4-tuple for the injector to mirror; the core rejects it
+        return out
     cur = cur or {}
     on = bool(d.get("fake_desync")) if ("fake_desync" in d) else bool(cur.get("fake_desync"))
     if not on:
@@ -4880,10 +3938,6 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
         raise ValueError("TTLِ طعمه باید بین 1 تا 255 باشد")
-    # On tcp/ws the decoy rides the REAL connection's 4-tuple, so the core clamps it to injectMaxTTL — a
-    # well-formed segment reaching the server would draw an RST. raw/flux/spoof forge a whole IPv4 header
-    # toward a peer we hold no kernel connection to, so there the full 1..255 is honoured. This is the one
-    # gate all three build paths share, so clamping here keeps the stored number and the wire in step.
     if transport in DESYNC_INJECT_TRANSPORTS:
         ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
     out["fake_ttl"] = ttl
@@ -4895,10 +3949,6 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     if mode not in ("ttl", "badsum", "both"):
         raise ValueError("حالتِ طعمه نامعتبر است")
     if mode == "both" and cnt == 1:
-        # One decoy cannot be both a low-TTL packet and a bad-checksum one. The core says exactly that
-        # and REFUSES the config (config.go: `fake_mode "both" needs fake_count >= 2`), so letting it
-        # through here means both ends of a live tunnel die on the next core-update — with the panel
-        # reporting the edit as saved.
         raise ValueError("حالتِ «هر دو» به حداقل 2 طعمه نیاز دارد (یک طعمه نمی‌تواند هم‌زمان TTL‌پایین و چک‌سام‌خراب باشد)")
     out["fake_mode"] = mode
     return out
@@ -4909,19 +3959,16 @@ _GENERIC_RE = re.compile(r'\\#\s+\d+\s+([0-9A-Fa-f][0-9A-Fa-f\s]+)')
 
 
 def _ech_from_svcb(raw):
-    """Parse HTTPS/SVCB RDATA (2-byte priority + target name + SvcParams) and return the base64 of
-    SvcParamKey 5 (ech), or '' if absent/malformed. Used when a resolver returns the RFC 3597
-    generic form (\\# len hex) instead of the presentation form."""
     try:
-        i = 2  # skip 2-byte SvcPriority
-        while i < len(raw) and raw[i] != 0:   # skip the target name (length-prefixed labels)
+        i = 2
+        while i < len(raw) and raw[i] != 0:
             i += 1 + raw[i]
-        i += 1                                 # skip the root (zero-length) label
+        i += 1
         while i + 4 <= len(raw):
             key = int.from_bytes(raw[i:i + 2], "big"); i += 2
             ln = int.from_bytes(raw[i:i + 2], "big"); i += 2
             val = raw[i:i + ln]; i += ln
-            if key == 5:                       # SvcParamKey 5 == ech
+            if key == 5:
                 return base64.b64encode(val).decode()
     except Exception:
         pass
@@ -4929,8 +3976,6 @@ def _ech_from_svcb(raw):
 
 
 def _ech_from_text(s):
-    """Pull the base64 ECHConfigList out of a record string in either the presentation form
-    (ech="...") or the RFC 3597 generic form (\\# len hex...). '' if neither is present."""
     m = _ECH_RE.search(s)
     if m:
         return m.group(1)
@@ -4944,7 +3989,6 @@ def _ech_from_text(s):
 
 
 def _ech_from_doh_answers(data):
-    """Return the first ECH key found in a DoH JSON reply's HTTPS (type-65) answers, else ''."""
     for ans in data.get("Answer", []):
         if ans.get("type") in (65, "65", "HTTPS"):
             v = _ech_from_text(str(ans.get("data", "")))
@@ -4954,13 +3998,6 @@ def _ech_from_doh_answers(data):
 
 
 def _fetch_ech(host, proxy=""):
-    """Return the base64 ECHConfigList from host's HTTPS (type 65) DNS record — for THIS host only
-    (no fallback to another domain's key). To kill the transient "not found" that a single slow or
-    stale resolver caused, we RACE dig + several public DoH resolvers (Cloudflare & Google, by name
-    and by IP for censorship resilience) in parallel and take the first that returns an ech=, and
-    RETRY the whole race a few times with a short backoff (helps a record that was just published and
-    is still propagating). Handles both the presentation (ech=...) and RFC 3597 generic forms.
-    Returns '' only when no source yields an ECH key after all rounds. Never raises."""
     import urllib.request, concurrent.futures, time
     host = str(host or "").strip()
     if not host or not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
@@ -4985,7 +4022,7 @@ def _fetch_ech(host, proxy=""):
             pass
         return ""
 
-    def via_doh_proxy(dhost, dpath):   # DoH through a SOCKS5/HTTP proxy — a clean egress for a FILTERED domain
+    def via_doh_proxy(dhost, dpath):
         sock = None
         try:
             pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
@@ -4998,10 +4035,10 @@ def _fetch_ech(host, proxy=""):
                 sock = _http_connect_socket(pu.hostname, pu.port, pu.username, pu.password, dhost, 443, 7)
             else:
                 return ""
-            tls = ssl.create_default_context().wrap_socket(sock, server_hostname=dhost)  # verify the DoH resolver's cert
-            sock = None   # the TLS socket owns the fd now (closed via conn.close())
+            tls = ssl.create_default_context().wrap_socket(sock, server_hostname=dhost)
+            sock = None
             conn = http.client.HTTPConnection(dhost, 443, timeout=7)
-            conn.sock = tls   # write HTTP over the proxy-tunneled TLS socket (skips conn.connect())
+            conn.sock = tls
             conn.request("GET", "%s?name=%s&type=HTTPS" % (dpath, host),
                          headers={"accept": "application/dns-json", "user-agent": "tnl-central"})
             data = json.loads(conn.getresponse().read().decode("utf-8", "replace"))
@@ -5020,7 +4057,7 @@ def _fetch_ech(host, proxy=""):
     doh = ["https://cloudflare-dns.com/dns-query", "https://1.1.1.1/dns-query",
            "https://dns.google/resolve", "https://8.8.8.8/resolve"]
     tasks = [via_dig] + [(lambda b=b: via_doh(b)) for b in doh]
-    if proxy:   # per-tunnel proxy set -> add DoH-over-proxy racers; for a filtered domain these win the race
+    if proxy:
         tasks += [lambda: via_doh_proxy("cloudflare-dns.com", "/dns-query"),
                   lambda: via_doh_proxy("dns.google", "/resolve")]
     for attempt in range(3):
@@ -5038,7 +4075,7 @@ def _fetch_ech(host, proxy=""):
                     break
         except Exception:
             pass
-        ex.shutdown(wait=False)   # return as soon as one source answers; don't wait on slow ones
+        ex.shutdown(wait=False)
         if found:
             return found
         if attempt < 2:
@@ -5047,10 +4084,6 @@ def _fetch_ech(host, proxy=""):
 
 
 def _fetch_ech_map(hosts, proxy=""):
-    """Fetch the ECHConfigList for MANY hosts CONCURRENTLY. _fetch_ech already races resolvers per
-    host, but calling it host-by-host serializes a whole pool — a 64-host pool with blackholed DoH
-    could hold the caller (and the _PairLock, blocking reconcile) for minutes. Returns {host: ech};
-    ech is '' when a host has no key. Never raises."""
     import concurrent.futures
     uniq = list(dict.fromkeys(h for h in hosts if h))
     if not uniq:
@@ -5067,14 +4100,10 @@ def _fetch_ech_map(hosts, proxy=""):
 
 
 def _ech_px(src):
-    """The stored per-tunnel ECH-fetch proxy (socks5/http) when its toggle is on, else '' (direct)."""
     return str(src.get("ech_proxy_url") or "").strip() if src.get("ech_proxy") else ""
 
 
 def _ech_proxy_fields(d, cur, out):
-    """Per-tunnel proxy for the ECH-key fetch (reaches a FILTERED domain via a clean egress). Validate +
-    store ech_proxy/ech_proxy_url into `out` (only when the toggle is on), and return the proxy URL to
-    fetch through, else '' (direct fetch). valid_proxy raises on a malformed URL -> the save fails loudly."""
     on = bool(d.get("ech_proxy") if "ech_proxy" in d else cur.get("ech_proxy"))
     url = valid_proxy((d.get("ech_proxy_url") if "ech_proxy_url" in d else cur.get("ech_proxy_url")) or "")
     if on:
@@ -5085,10 +4114,6 @@ def _ech_proxy_fields(d, cur, out):
 
 
 def _sni_split_fields(d, cur):
-    """SNI fragmentation fields, shared by the single-edge and pool ws builders. Splits the wss
-    ClientHello so the cleartext SNI crosses a TCP segment boundary — a stateless SNI-blocklist DPI
-    can't match the full hostname (a cheap complement to ECH). split_pos is the byte offset into the
-    ClientHello (0 = auto: middle of the hostname). Returns {} when off; caller ensures wss is on."""
     on = d.get("sni_split") if ("sni_split" in d) else cur.get("sni_split")
     if not on:
         return {}
@@ -5098,17 +4123,11 @@ def _sni_split_fields(d, cur):
     out = {"sni_split": True}
     if sp:
         out["split_pos"] = sp
-    # mode: "split" = two in-order segments | "disorder" = head segment at a low TTL |
-    # "fake" = a decoy ClientHello at the same seq, against a DPI that reassembles.
     mode = str((d.get("sni_mode") if "sni_mode" in d else cur.get("sni_mode")) or "split").strip().lower()
     if mode not in ("split", "disorder", "fake"):
         raise ValueError("حالتِ SNI نامعتبر است (split / disorder / fake)")
     if mode != "split":
         out["sni_mode"] = mode
-    # split_ttl is a DISORDER knob and nothing else. The two modes want opposite values out of the one
-    # stored number — disorder needs it LOW so the head segment expires before the server, fake needs a
-    # normal TTL because its decoy is killed by a bad TCP checksum and has to REACH the on-path DPI. The
-    # core no longer reads it in fake mode at all, so offering it here would be a knob nothing consumes.
     if mode == "disorder":
         st = int((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0)
         if st < 0 or st > SPLIT_TTL_MAX:
@@ -5119,18 +4138,11 @@ def _sni_split_fields(d, cur):
     return out
 
 
-# The ports a CDN proxies, split by scheme. An edge port from the wrong side breaks every fronted tunnel:
-# with wss on, a client aimed at :80 hands a TLS ClientHello to a plaintext edge and the handshake dies
-# first — which reads as "this CDN doesn't support the carrier" and is nothing of the sort. A WHITELIST,
-# because a port outside these lists fronts nothing and just fails later.
 _EDGE_PLAIN_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
 _EDGE_TLS_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 
 
 def _edge_port_ok(port, tls):
-    """Raise unless an explicit edge port matches the scheme wss selects. Runs on create AND edit:
-    both go through _core_extra -> _ws_fields, the create form with cur={} and the edit with the
-    stored link."""
     allowed = _EDGE_TLS_PORTS if tls else _EDGE_PLAIN_PORTS
     if port in allowed:
         return
@@ -5145,16 +4157,6 @@ def _edge_port_ok(port, tls):
 
 
 def _cdn_shape_fields(d, cur, cdn):
-    """The operator's carrier shape for a `http` CDN carrier, validated and stored as numbers. Empty
-    for any other carrier: grpc has no POST ladder and no stream fan-out, and plain ws has neither.
-
-    Every value is written, never left to the core's own default, so a core that retunes its defaults
-    cannot silently move a tunnel the operator had already sized.
-
-    Shared by the single-edge builder and the edge-POOL one. It used to exist only in the single-edge
-    branch, and _ws_fields returns to the pool builder BEFORE reaching it, so on a pooled tunnel the
-    operator's choice was dropped on EVERY path — rebuild included — while the panel kept showing it
-    as set. One definition, two call sites, so the two cannot drift again."""
     if cdn not in ("http", "grpc"):
         return {}
     cur = cur or {}
@@ -5177,18 +4179,12 @@ def _cdn_shape_fields(d, cur, cdn):
 
 
 def _ws_fields(d, transport, cur=None):
-    """Validate and return the ws (WebSocket/CDN) carrier fields. ws_host is the Host
-    header + TLS SNI (the fronting/origin domain); ws_path the request path; ws_tls makes
-    the client speak wss to a CDN edge. cur supplies edit defaults."""
     out = {}
     if transport != "ws":
         return out
     cur = cur or {}
-    # Edge pool overrides the single-edge fields: when on, delegate to the pool builder.
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
         return _ws_pool_fields(d, cur)
-    # "key in d" (not `or cur`) so an explicit empty value from an edit CLEARS the field; an
-    # omitted key keeps the stored one. The ws form always sends these keys, so blanking works.
     host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip()
     if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         raise ValueError("دامنهٔ WebSocket (ws_host) نامعتبر است")
@@ -5204,7 +4200,7 @@ def _ws_fields(d, transport, cur=None):
         if not host:
             raise ValueError("برای wss (TLS به CDN) باید دامنه (ws_host) را وارد کنی")
         out["ws_tls"] = True
-    edge = str((d["edge_ip"] if "edge_ip" in d else cur.get("edge_ip")) or "").strip()  # CDN edge; explicit empty clears
+    edge = str((d["edge_ip"] if "edge_ip" in d else cur.get("edge_ip")) or "").strip()
     if edge:
         eh = edge.rpartition(":")[0] or edge
         if not re.match(r"^[A-Za-z0-9.\-]{1,253}$", eh):
@@ -5213,10 +4209,6 @@ def _ws_fields(d, transport, cur=None):
         if ep.isdigit():
             _edge_port_ok(int(ep), bool(out.get("ws_tls")))
         out["edge_ip"] = edge
-    # ECH (Encrypted ClientHello) hides the SNI so an SNI-blocklisting censor cannot see the real domain.
-    # It rides the TLS ClientHello, so it only makes sense with wss. We fetch the ECHConfigList from the
-    # domain's HTTPS DNS record over DoH here — the panel has clean internet, the in-country client's DNS
-    # is often poisoned — and store the base64 so the node forwards it verbatim. Re-fetched on every save.
     ech = d.get("ech") if ("ech" in d) else cur.get("ech")
     if ech:
         if not out.get("ws_tls"):
@@ -5226,28 +4218,16 @@ def _ws_fields(d, transport, cur=None):
             raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد)" % host)
         out["ech"] = True
         out["ws_ech"] = cfg
-    # http: carry the stream over a GET(down)+POST(up) HTTP request pair instead of a WebSocket upgrade,
-    # so it passes a CDN or account that blocks WebSocket. Independent of wss, though wss is the usual
-    # fronting choice. Single-edge path only — the pool branch above returns first and builds its OWN
-    # carrier fields, including the shape, through the SAME _cdn_shape_fields helper.
     cdn = str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws").strip().lower()
     if cdn not in ("ws", "http", "grpc"):
         raise ValueError("حاملِ CDN نامعتبر است")
     xh = cdn != "ws"
     if bool(xh):
         if cdn == "grpc" and not out.get("ws_tls"):
-            # The core refuses it (config.go: `cdn_carrier "grpc" requires ws_tls`) because a gRPC call
-            # needs HTTP/2 to the edge and only wss negotiates h2 there. The browser forces the wss
-            # toggle on and greys it out for grpc, which is why this looked closed — but the toggle is
-            # not the funnel; this is, and it is reachable straight from the API.
             raise ValueError("حاملِ grpc به wss نیاز دارد (برای HTTP/2 به لبه) — اول wss را روشن کن")
         out["cdn_carrier"] = cdn
-        # Upstream style: post (default, many short POSTs — the most CDN-compatible) or grpc (a single
-        # full-duplex request as a real gRPC call, so a CDN streams it over h2c instead of buffering; needs
-        # wss). The shape below applies only to the http carrier: the ladder and the stream fan-out are
-        # what a WAF counts, and grpc has neither.
         out.update(_cdn_shape_fields(d, cur, cdn))
-    ss = _sni_split_fields(d, cur)  # SNI fragmentation (wss only)
+    ss = _sni_split_fields(d, cur)
     if ss:
         if not out.get("ws_tls"):
             raise ValueError("تقسیمِ SNI به wss نیاز دارد — اول wss (TLS به CDN) را روشن کن")
@@ -5255,18 +4235,11 @@ def _ws_fields(d, transport, cur=None):
     return out
 
 
-# An edge IP must be a real IPv4 (four 0-255 octets) or a real domain (labels + alphabetic
-# TLD); an SNI must be a real domain. This rejects both "876889767" (no dots) and
-# "543.45534.453453" (dotted but neither a valid IP nor a domain). Mirrors the browser
-# _ip4Re / _domRe so the client and server reject the same inputs.
 _IP4_RE = r"^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$"
 _DOMAIN_RE = r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
 
 
 def _ws_rotate_default(d, cur):
-    """ws_rotate_secs with 0 (rotation off / failover-only) PRESERVED: the request's value when it
-    sends one, else the stored value (even 0), else 600 — never coerce a legitimate 0 to 600 with a
-    truthiness `or`."""
     if "ws_rotate_secs" in d and d.get("ws_rotate_secs") is not None:
         return d["ws_rotate_secs"]
     v = cur.get("ws_rotate_secs")
@@ -5274,11 +4247,6 @@ def _ws_rotate_default(d, cur):
 
 
 def _ws_pool_fields(d, cur=None):
-    """Validate + build the ws edge-POOL fields. The form sends clean/burned edge-IP lists and
-    clean/burned SNI host lists (+ rotation); we fetch the ECHConfigList for each clean SNI and
-    store the pool. A non-empty pool overrides the single ws_host/edge_ip and is always wss.
-    Clean lists go to the node; the burned lists are panel-side memory so a burned IP/SNI is not
-    re-sent as clean. Missing input on an edit falls back to the stored value (key-presence keyed)."""
     cur = cur or {}
 
     def _list(key):
@@ -5290,15 +4258,11 @@ def _ws_pool_fields(d, cur=None):
             x = str(x).strip()
             if not x:
                 continue
-            # The core dials each edge as a literal ip:port with no DNS step (config.go
-            # validatePoolEndpoint, needPort=true): the host MUST be an IPv4 and a port is REQUIRED.
-            # Reject domains/IPv6 and default a port-less IPv4 to :443 so the ip:port we store always
-            # loads in the core (a domain or a bare IP passes here but fails the core config load).
             h = x.rpartition(":")[0] if ":" in x else x
             p = x.rpartition(":")[2] if ":" in x else "443"
             if not re.match(_IP4_RE, h) or not (p.isdigit() and 1 <= int(p) <= 65535):
                 raise ValueError("آی‌پیِ لبهٔ نامعتبر (باید IPv4:port باشد؛ دامنه مجاز نیست — استخر مستقیم به آی‌پی وصل می‌شود): %s" % x)
-            _edge_port_ok(int(p), True)   # a pool is always wss
+            _edge_port_ok(int(p), True)
             v = "%s:%s" % (h, p)
             if v in seen:
                 continue
@@ -5309,10 +4273,6 @@ def _ws_pool_fields(d, cur=None):
     def _hosts(key):
         seen, res = set(), []
         for x in _list(key):
-            # The stored ws_edge_snis shape is a list of {host,ech,path} dicts. The documented edit fallback feeds
-            # that stored value straight back here whenever the request omits the key, so accept the dict form —
-            # taking its host — alongside the plain host string the form sends. ech and path are rebuilt below, so
-            # the host is all we carry; without this an edit that omits the key fails on the domain regex.
             if isinstance(x, dict):
                 x = x.get("host", "")
             x = str(x).strip().lower()
@@ -5335,14 +4295,10 @@ def _ws_pool_fields(d, cur=None):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise ValueError("مسیر (path) نامعتبر است")
-    # ECH is driven by the shared "ech" toggle, the same one as the single edge: when on we fetch the
-    # ECHConfigList for each clean SNI to hide it, when off every SNI is used with no ECH. Re-fetch FRESH
-    # on every save — the CDN rotates its key, and a stale one fails the ws-upgrade on every edge. NO
-    # fallback: if ECH is on and a SNI's key cannot be fetched the save FAILS, matching the single-edge path.
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
     _epx_store = {}
-    _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""   # per-tunnel proxy for a filtered domain
-    ech_map = _fetch_ech_map(clean_hosts, _epx) if ech_on else {}   # concurrent — never serialize the pool host-by-host
+    _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""
+    ech_map = _fetch_ech_map(clean_hosts, _epx) if ech_on else {}
     snis = []
     for h in clean_hosts:
         ec = ech_map.get(h, "") if ech_on else ""
@@ -5352,33 +4308,28 @@ def _ws_pool_fields(d, cur=None):
     res = {
         "ws_pool": True,
         "ws_tls": True,
-        "ech": ech_on,   # shared toggle; per-SNI ECHConfigList lives inside ws_edge_snis
-        "cdn_carrier": str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws"),  # carrier shape over the pool
+        "ech": ech_on,
+        "cdn_carrier": str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws"),
         "ws_edge_ips": clean_ips,
         "ws_edge_ips_burned": burned_ips,
-        "ws_edge_snis": snis,                # [{host,ech,path}] — sent to the node + stored
-        "ws_edge_snis_burned": burned_hosts,  # host list — panel-side only
-        "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),   # 0 (rotation off) preserved, not coerced to 600
+        "ws_edge_snis": snis,
+        "ws_edge_snis_burned": burned_hosts,
+        "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),
         "ws_path": path,
     }
-    # cdn_carrier is stored ALWAYS here (see the dict above), not only when it is non-default. The shape
-    # applies to a pool exactly as it does to a single edge — the ladder and the streams are the same over
-    # a pool, only the endpoint rotates — so it is built here through the same helper.
     res.update(_cdn_shape_fields(d, cur, res["cdn_carrier"]))
-    res.update(_sni_split_fields(d, cur))  # SNI fragmentation (the pool is always wss)
-    res.update(_epx_store)                 # ech_proxy / ech_proxy_url (only present when the toggle is on)
+    res.update(_sni_split_fields(d, cur))
+    res.update(_epx_store)
     return res
 
 
 def api_create_tunnel(d):
-    """Build on a panel thread and answer with the key the card watches. A tunnel that does not exist
-    yet has no id to be named by, so the panel mints the slot its placeholder card takes."""
     d = d or {}
     A, B = get_node(d.get("a_node")), get_node(d.get("b_node"))
     ttype = str(d.get("type") or "")
 
     def build(h):
-        with _PairLock(d.get("a_node"), d.get("b_node")):  # lock only the two nodes involved; unrelated pairs build concurrently
+        with _PairLock(d.get("a_node"), d.get("b_node")):
             return _create_tunnel_impl(d, h)
 
     return act_start("new:" + secrets.token_hex(4), build,
@@ -5388,31 +4339,24 @@ def api_create_tunnel(d):
 
 
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
-    """Build the core-carrier fields for a tunnel record from request `d`, falling back to the stored
-    link `cur` for any field `d` omits (so a partial edit — e.g. flux "rotate now" — never strips obfs /
-    cover / gso / rotation). Pass cur={} on CREATE: every cur.get(...) is then None, so this reduces
-    EXACTLY to the old create block (the sub-helpers all normalize cur to {} too, so cur=None and cur={}
-    are equivalent). Returns (ce, server_side): ce is merged into `extra`; server_side is the local the
-    caller uses afterwards. Raises ValueError on any invalid field (same messages as before)."""
     ce = {}
     cipher = str(d.get("cipher") or cur.get("cipher") or "auto").strip().lower()
     if cipher not in CORE_CIPHERS:
         raise ValueError("روشِ رمزنگاری نامعتبر است")
     ce["cipher"] = cipher
-    if cipher != "none":   # keep the existing key when crypto stays on; make one when turning it on
+    if cipher != "none":
         ce["psk"] = cur.get("psk") or secrets.token_hex(32)
     transport = str(d.get("transport") or cur.get("transport") or "udp").strip().lower()
     if transport not in CORE_TRANSPORTS:
         raise ValueError("حاملِ اتصال نامعتبر است")
     ce["transport"] = transport
-    if transport == "raw":                     # raw-IP carrier: which protocol wraps the sealed frame
+    if transport == "raw":
         if cipher == "none":
             raise ValueError("حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
         profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bare").strip().lower()
         if profile not in CORE_RAW_PROFILES:
             raise ValueError("پروفایلِ raw نامعتبر است")
         ce["raw_profile"] = profile
-        # bare-only: the outer IP protocol-number override (the spoof carrier carries its own copy).
         try:
             _rp = int((d["raw_proto"] if "raw_proto" in d else cur.get("raw_proto")) or 0)
         except (TypeError, ValueError):
@@ -5420,8 +4364,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         if profile == "bare" and _rp:
             _check_raw_proto(_rp)
             ce["raw_proto"] = _rp
-        # udp/tcp only: the SERVER port stamped on the forged L4 header. No socket binds it — the raw
-        # carrier's socket is opened on a PROTOCOL NUMBER — so this only changes what a middlebox reads.
         try:
             _rport = int((d["raw_port"] if "raw_port" in d else cur.get("raw_port")) or 0)
         except (TypeError, ValueError):
@@ -5431,24 +4373,12 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                 raise ValueError("پورتِ حامل باید بینِ 1 تا 65535 باشد")
             ce["raw_port"] = _rport
         elif _rport and "raw_port" in d:
-            # Asked for HERE, on a profile that forges no ports -- refuse, or it persists and reads as
-            # set while the wire ignores it. A port inherited from `cur` is a different thing entirely:
-            # it is what the tunnel used under its PREVIOUS profile, and the operator switching profile
-            # is exactly the request to leave it behind. Raising on that made a profile change
-            # impossible on any tunnel that had ever been udp/tcp -- which is every one of them, since
-            # the form fills in the effective 443.
             raise ValueError(f"«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
-        # The CLIENT's forged SOURCE port: ONE choice with two shapes -- a number the operator picked, or
-        # rolled over the ephemeral range for the life of the tunnel. Same inherit-vs-ask rule as raw_port
-        # above: a value carried in from the PREVIOUS profile is dropped on a profile that forges no
-        # ports, and only one asked for in THIS request is refused.
         _srand = bool(d["raw_sport_random"] if "raw_sport_random" in d else cur.get("raw_sport_random"))
         try:
             _rsport = int((d["raw_sport"] if "raw_sport" in d else cur.get("raw_sport")) or 0)
         except (TypeError, ValueError):
             _rsport = 0
-        # Both asked for in THIS request: refuse. The core refuses the pair as well, so storing it would
-        # only move the failure to a rebuild whose reason the operator never sees.
         if _srand and _rsport and "raw_sport" in d and "raw_sport_random" in d:
             raise ValueError("«پورتِ مبدأ» یا ثابت است یا چرخان — هر دو با هم نمی‌شود")
         if profile in ("udp", "tcp"):
@@ -5463,47 +4393,36 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                 raise ValueError(f"«پورتِ مبدأِ چرخان» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
             if _rsport and "raw_sport" in d:
                 raise ValueError(f"«پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
-    if transport == "spoof":                   # standalone IP-spoofing carrier (bare-like, never rotates)
+    if transport == "spoof":
         if cipher == "none":
             raise ValueError("حاملِ جعل به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-        ce.update(_spoof_fields(d, transport, cur))   # forged source / decoy destination + raw_proto
-    if transport == "dns":                     # DNS-tunnel carrier (last resort), crypto required
+        ce.update(_spoof_fields(d, transport, cur))
+    if transport == "dns":
         ce.update(_dns_fields(d, transport, cipher, cur))
-    if transport == "flux":                    # polymorphic moving-target carrier (udp|stun), crypto required
+    if transport == "flux":
         ce.update(_flux_fields(d, transport, cipher, cur))
-    if transport == "ws":                      # WebSocket carrier (CDN-frontable)
+    if transport == "ws":
         ce.update(_ws_fields(d, transport, cur))
-    ce.update(_fec_fields(d, transport, cur))    # FEC (datagram carriers only); {} elsewhere
-    # AFTER the FEC fields: a raw carrier that ends up with FEC on gets no extra queues, so this has to
-    # read the RESOLVED setting rather than the request's.
+    ce.update(_fec_fields(d, transport, cur))
     ce.update(_workers_field(d, transport, bool(ce.get("fec")), cur))
-    ce.update(_desync_fields(d, transport, cur, ce.get("cdn_carrier", "ws") != "ws"))  # fake-packet desync; {} when off / not applicable
-    # obfs/cover/gso fall back to the stored value when the request omits the key, so a PARTIAL edit
-    # doesn't strip the anti-DPI layer, TLS cover, or throughput offload. On create cur={} makes each
-    # fallback None/False — identical to reading only d.
-    if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):   # anti-DPI needs the AEAD key
+    ce.update(_desync_fields(d, transport, cur, ce.get("cdn_carrier", "ws") != "ws"))
+    if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
         if cipher == "none":
             raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
         if transport == "dns":
-            # The core refuses this combination outright (config.go: "obfs is not supported on the dns
-            # transport"), so accepting it here builds a tunnel that cannot start on EITHER end. The
-            # browser hides the toggle for dns, which is why it looked closed — but this funnel is what
-            # create, edit and rebuild all go through, and the API is reachable without the browser.
             raise ValueError("استتار روی حاملِ dns پشتیبانی نمی‌شود (کریرِ DNS اصلاً فریمِ obfs ندارد) — استتار را خاموش کن")
         ce["obfs"] = True
-    cover = (bool(d.get("cover")) if "cover" in d else bool(cur.get("cover"))) and transport == "tcp"   # TLS cover is TCP-only
-    if cover and cipher == "none":   # the REALITY-style cover carries a PSK-authenticated token — it needs the AEAD key
+    cover = (bool(d.get("cover")) if "cover" in d else bool(cur.get("cover"))) and transport == "tcp"
+    if cover and cipher == "none":
         raise ValueError("پوششِ TLS به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
     cover_sni = str((d["cover_sni"] if "cover_sni" in d else cur.get("cover_sni")) or "").strip()
     if cover_sni and not re.match(r"^[A-Za-z0-9.-]{1,253}$", cover_sni):
         raise ValueError("دامنهٔ نمایشی (SNI) نامعتبر است")
-    if cover and not cover_sni:   # required: no imposed default SNI
+    if cover and not cover_sni:
         raise ValueError("برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی")
     if cover:
         ce["cover"] = True
         ce["cover_sni"] = cover_sni
-    # How many source ports THIS tunnel's ladder may draw. Per tunnel, not fleet-wide: what a path is
-    # worth trying is a property of the path. 0 / absent leaves the core on its own default.
     try:
         _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
     except (TypeError, ValueError):
@@ -5512,24 +4431,21 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         if not 1 <= _ptries <= 50:
             raise ValueError("تعدادِ قرعهٔ پورتِ مبدأ باید بینِ 1 تا 50 باشد")
         ce["port_tries"] = _ptries
-    if (bool(d.get("gso")) if "gso" in d else bool(cur.get("gso"))):   # TUN segmentation offload (throughput); any transport
+    if (bool(d.get("gso")) if "gso" in d else bool(cur.get("gso"))):
         ce["gso"] = True
-    # IP rotation (direct transports): a full form edit sends ip_rotate + pools; a partial edit omits them,
-    # so preserve the stored config. On create cur={} => the elif is dead and "ip_rotate" in d gates it
-    # exactly as the old create block (which added nothing when ip_rotate was absent/false).
     if "ip_rotate" in d:
         if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
             ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
             bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
             if a_ip not in ap:
-                ap = [a_ip] + ap   # the tunnel's primary IP anchors each side's pool
+                ap = [a_ip] + ap
             if b_ip not in bp:
                 bp = [b_ip] + bp
-            if len(ap) >= 2 or len(bp) >= 2:   # at least one side actually has enough to rotate
+            if len(ap) >= 2 or len(bp) >= 2:
                 ce["ip_rotate"] = True
                 ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
                 ce["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
-    elif cur.get("ip_rotate"):   # partial edit — carry the stored rotation config forward unchanged
+    elif cur.get("ip_rotate"):
         for _k in _ROTATION_KEYS:
             if cur.get(_k) is not None:
                 ce[_k] = cur[_k]
@@ -5552,11 +4468,11 @@ def _create_tunnel_impl(d, h=None):
     if ttype not in TYPES:
         raise ValueError("bad type")
     if ttype == "core":
-        _gate_ready(False)   # before any node is touched: a build with nothing to install ends half-made
+        _gate_ready(False)
     pa, pb = _ping_both(A, B)
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
-    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()
     if want_a and want_a not in a_ips:
         raise ValueError(f"آی‌پیِ «{want_a}» روی نودِ «{A['name']}» نیست")
     if want_b and want_b not in b_ips:
@@ -5567,23 +4483,18 @@ def _create_tunnel_impl(d, h=None):
         raise ValueError("could not determine node IPs")
     if a_ip == b_ip:
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
-    _guard_dup_pair(A, B, a_ip, b_ip, ttype)  # reject a TRUE duplicate (same non-core type / any ipip-fou on this ip-pair)
+    _guard_dup_pair(A, B, a_ip, b_ip, ttype)
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
         raise ValueError("could not read existing tunnels from a node (busy/offline); aborted to avoid an id collision")
-    # The id space is the PANEL's, not the pair's. Scoping it to the two nodes let every pair start over
-    # at the same number, so three unrelated links could all be called core42 — and the id is also the
-    # overlay subnet, so those three shared 192.168.42.0/24 too.
     used = {int(x["tunnel_id"]) for x in load_links() if str(x.get("tunnel_id", "")).isdigit()}
-    for L in (la, lb):   # plus whatever is already on either node, so a hand-built tunnel is not overrun
+    for L in (la, lb):
         for c in L.get("configs", []):
             try:
                 used.add(int(c.get("id")))
             except Exception:
                 pass
-    # The id must fit the range the operator picked, because the id IS the /24 inside it. A custom
-    # subnet is the operator's own address, so it takes the widest ceiling instead.
     _cap = TID_MAX if str(d.get("subnet") or "").strip() else subnet_cap(d.get("subnet_base"))
     explicit = int(d.get("id") or 0)
     if explicit and not TID_MIN <= explicit <= _cap:
@@ -5601,39 +4512,33 @@ def _create_tunnel_impl(d, h=None):
     name = tunnel_name(ttype, tid)
     _guard_subnet_overlap(A, B, subnet)
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
-    extra = {}   # values generated ONCE here so both ends match and edit/rebuild can replay them
+    extra = {}
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or free_tunnel_port(A, B)
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
-    if ttype == "vxlan":   # VXLAN UDP port is settable (default 4789) — stored so edit/rebuild replay it
+    if ttype == "vxlan":
         port = int(d.get("port") or 4789)
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
     if ttype == "ipsec":
-        extra["psk"] = secrets.token_hex(32)   # shared ESP key material for both sides
+        extra["psk"] = secrets.token_hex(32)
     server_side = None
     if ttype == "core":
-        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips)  # cur={} => the create form; server_side used below
+        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips)
         extra.update(ce)
-    # Precise same-server-IP conflict: another core tunnel that binds the SAME (server ip, port, L4
-    # proto). Different carrier, different port, or a raw/flux carrier (shared sockets) is allowed.
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
         if _clash:
             raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن — روی یک آی‌پی، حاملِ متفاوت یا پورتِ متفاوت مجاز است.")
-    # A flux udp/stun tunnel DROPs inbound UDP from its peer on every rotation port, so it would
-    # silently black-hole an unrelated tunnel that receives UDP from that same peer on one of them.
-    # Checked for BOTH tunnel types (core and the kernel UDP carriers), in both directions.
     _fx = _flux_drop_conflict({**extra, "type": ttype, "a_node": A["id"], "b_node": B["id"],
                                "a_ip": a_ip, "b_ip": b_ip, "tunnel_id": tid, "server_side": server_side})
     if _fx:
         raise ValueError(f"با تونلِ «{_fx.get('name')}» تداخل دارد: حاملِ flux روی پورت‌های چرخشی‌اش "
                          f"({', '.join(str(x) for x in FLUX_UDP_DPORTS)}) ترافیکِ UDPِ ورودی از همان نود را "
                          f"می‌اندازد و آن تونل بی‌صدا می‌میرد؛ پورتِ دیگری برای یکی از این دو انتخاب کن")
-    # Refuse to build if the chosen port is already taken on a node that will bind it.
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
@@ -5646,7 +4551,7 @@ def _create_tunnel_impl(d, h=None):
         _core_rotation_bodies(extra, a_body, b_body)
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
-    _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
+    _apply_probe_tuning(a_body, b_body)
     act_step(h, "ساخت روی نودِ «%s»" % A["name"], 1, CREATE_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
@@ -5654,28 +4559,25 @@ def _create_tunnel_impl(d, h=None):
     try:
         act_step(h, "ساخت روی نودِ «%s»" % B["name"], 2, CREATE_STEPS, more=False)
     except ActCancelled:
-        node_call(A, "delete", "POST", {"name": name})   # cancelled with one end already up: take it back down
+        node_call(A, "delete", "POST", {"name": name})
         raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
-        rr = node_call(A, "delete", "POST", {"name": name})  # roll back A side
+        rr = node_call(A, "delete", "POST", {"name": name})
         warn = "" if rr.get("ok") else f" — هشدار: '{name}' روی {A['name']} پاک نشد، دستی تمیزش کن"
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تغییرات روی {A['name']} برگردانده شد){warn}")
-    # Both ends are up: stopping here would leave them on the nodes with nothing on the panel knowing.
     act_step(h, "ثبتِ تونل", 3, CREATE_STEPS, stop=False)
     try:
-        with _reg_lock:  # atomic append so a concurrent delete-link can't lose/resurrect a record
+        with _reg_lock:
             links = load_links()
             links.append({"id": secrets.token_hex(6), "name": name, "type": ttype, "subnet": subnet,
                           "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
                           "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, "created": int(time.time()),
                           **extra, **({"server_side": server_side} if ttype == "core" else {})})
             save_json(LINKS_FILE, links)
-        # This create OWNS `name` now (tunnel_ids recycle, so a freed name can be reused): supersede any
-        # teardown still parked for it on either node so the poller's drain can never reap this live tunnel.
         _pending_remove(A["id"], name)
         _pending_remove(B["id"], name)
-    except Exception as e:  # tunnels are live on BOTH nodes but the record failed to persist — tear them back down
+    except Exception as e:
         da = node_call(A, "delete", "POST", {"name": name})
         db = node_call(B, "delete", "POST", {"name": name})
         stuck = "، ".join(N["name"] for N, r in ((A, da), (B, db)) if not r.get("ok"))
@@ -5698,39 +4600,24 @@ def _delete_link_impl(d, h=None):
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
         raise ValueError("link not found")
-    # Serialize with create/edit/rebuild on the same node pair. Without this lock a
-    # delete can interleave with an in-flight rebuild: the rebuild tears both ends
-    # down, delete removes the record, then the rebuild recreates the interfaces
-    # with no registry record behind them -> permanent orphan tunnels.
     with _PairLock(L["a_node"], L["b_node"]):
-        L = next((x for x in load_links() if x["id"] == d["id"]), None)  # re-read under the lock
+        L = next((x for x in load_links() if x["id"] == d["id"]), None)
         if not L:
-            return {"ok": True}  # a concurrent op already deleted it
-        # force = the operator accepts removing the record even if a node can't be reached now: the
-        # reachable end is torn down at once, and each unreachable end's teardown is PARKED (pending_del)
-        # for the poller to finish on reconnect — so no live server is left an orphan and the operator
-        # is never stuck. Without force we keep the record (the original no-orphan guard).
+            return {"ok": True}
         force = bool(d.get("force"))
         ends = [(L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])]
-        # NON-FORCE must be truthful: if we're going to KEEP the record (a node is unreachable) we must not
-        # have already torn down the OTHER end. So pre-check reachability from the poll cache — if any end
-        # is offline, keep BOTH halves untouched and offer force, instead of deleting the reachable half and
-        # then reporting "link kept".
         if not force:
             off = [nm for nid, nm in ends if not _cached_ping(nid).get("ok")]
             if off:
                 _refresh_cache([L["a_node"], L["b_node"]])
                 return {"ok": False, "msg": "نودِ «" + "»، «".join(off) + "» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         errs, deferred = [], []
-        # The last point this can be stopped: past here an end is torn down, and a tunnel half-removed
-        # is a shape the operator has no name for.
         act_step(h, "برچیدنِ تونل روی دو نود", 1, DELETE_STEPS, more=False)
         for nid, nm in ends:
             n = get_node(nid)
             if not n:
-                continue   # node no longer registered -> nothing to tear down on it
+                continue
             if force and _cached_ping(nid).get("ok") is False:
-                # the poller already knows this end is offline -> don't block on a doomed delete; park it now
                 if _pending_add(nid, L["name"]):
                     deferred.append(nm)
                 else:
@@ -5739,18 +4626,18 @@ def _delete_link_impl(d, h=None):
             r = node_call(n, "delete", "POST", {"name": L["name"]})
             if not r.get("ok"):
                 if not force:
-                    errs.append(f"{nm}: {r.get('error')}")   # cache said online but it failed (raced offline)
-                elif _pending_add(nid, L["name"]):            # force: park this end's teardown for reconnect
+                    errs.append(f"{nm}: {r.get('error')}")
+                elif _pending_add(nid, L["name"]):
                     deferred.append(nm)
                 else:
-                    errs.append(f"{nm}: صفِ حذفِ معلق نوشته نشد")   # park write failed -> keep the record, retry later
-        if errs:  # non-force + a node failed/offline — KEEP the record so a later delete can finish teardown (no orphans)
+                    errs.append(f"{nm}: صفِ حذفِ معلق نوشته نشد")
+        if errs:
             _refresh_cache([L["a_node"], L["b_node"]])
             return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         act_step(h, "برداشتنِ رکورد", 2, DELETE_STEPS, stop=False)
-        with _reg_lock:  # atomic RMW; re-read so a concurrent create isn't clobbered
+        with _reg_lock:
             save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
-        _tf_forget(L["a_node"], [L["name"]])   # drop stale traffic totals so a reused tunnel name starts fresh
+        _tf_forget(L["a_node"], [L["name"]])
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
         if deferred:
@@ -5759,18 +4646,10 @@ def _delete_link_impl(d, h=None):
         return {"ok": True}
 
 
-# The client sends the WHOLE chain a drag crossed, in order, and it is applied under one lock. One
-# request per crossed neighbour meant a three-place drag was three round-trips, and a failure part way
-# through persisted a PREFIX of a move the browser had already finished drawing.
 REORDER_MAX = 256
 
 
 def api_reorder(d):
-    # Manual card ordering. For nodes/core/tunnels we swap the two items' positions in the persisted array,
-    # which api_fleet/api_nodes iterate in order, so a raw swap moves the cards in every browser
-    # permanently — no extra "ord" field and no migration. Port-forwards have no central array and use a
-    # key-order overlay instead. Each target was a VISIBLE neighbour at the moment it was crossed, so
-    # replaying them in order reproduces exactly what the operator saw.
     _require(d, ["kind", "id", "targets"])
     kind = d["kind"]
     aid = str(d["id"])
@@ -5780,7 +4659,7 @@ def api_reorder(d):
     targets = [str(t) for t in targets if str(t) != aid]
     if not targets:
         return {"ok": True}
-    if kind == "portfw":                   # no central array -> reorder via the key overlay (see _reorder_portfw)
+    if kind == "portfw":
         return _reorder_portfw(aid, targets)
     if kind == "nodes":
         path, loader = NODES_FILE, load_nodes
@@ -5788,11 +4667,9 @@ def api_reorder(d):
         path, loader = LINKS_FILE, load_links
     else:
         raise ValueError("bad kind")
-    with _reg_lock:  # same RMW lock as every other nodes.json / links.json write
+    with _reg_lock:
         items = loader()
         pos = {str(it.get("id")): i for i, it in enumerate(items)}
-        # Validate the WHOLE chain before touching anything: a bad id half way through would otherwise
-        # save a partial order, which is the failure this function stopped having.
         if aid not in pos or any(t not in pos for t in targets):
             raise ValueError("item not found")
         for bid in targets:
@@ -5804,27 +4681,18 @@ def api_reorder(d):
 
 
 def _restore_link(A, B, L, extra=None):
-    """Best-effort rebuild of the OLD tunnel on both sides (roll back a failed edit/rebuild). NEVER
-    raises — a restore failure must not mask the real error or leave the tunnel down. `extra` may be
-    passed pre-computed (rebuild already ran _tunnel_extra(L) before teardown); otherwise it is
-    computed here, and if the fresh-ECH fetch raises we fall back to the stored key verbatim so the
-    old tunnel still comes back up instead of a misleading ECH error stranding it."""
     tid = int(L["tunnel_id"])
     if extra is None:
         try:
-            extra = _tunnel_extra(L)                     # prefer a fresh ECH key
+            extra = _tunnel_extra(L)
         except Exception:
-            extra = _tunnel_extra(L, refetch_ech=False)  # last resort: stored key verbatim, never raises
+            extra = _tunnel_extra(L, refetch_ech=False)
     _rot = L.get("ip_rotate") and L.get("transport") in DIRECT_TRANSPORTS
     _ap, _bp = list(L.get("a_ip_pool") or []), list(L.get("b_ip_pool") or [])
     _rs = max(0, min(86400, int(L.get("rotate_secs") or 0)))
     for N, self_ip, peer_ip, own, peer, is_a in ((A, L["a_ip"], L["b_ip"], _ap, _bp, True),
                                                  (B, L["b_ip"], L["a_ip"], _bp, _ap, False)):
         if N:
-            # `enabled` must be explicit. The rebuild path op_delete's both ends BEFORE it builds, and op_delete
-            # removes the persisted config — so by the time a rollback runs there is no stored value left for the
-            # node to carry forward and its own default falls through to True. A tunnel the operator had
-            # deliberately switched OFF would come back ON after any failed edit. All three real build paths pass it.
             body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
                     "subnet": L["subnet"], "id": tid, "name": L["name"],
                     "host": overlay_host(L["type"], L.get("server_side"), is_a),
@@ -5832,44 +4700,31 @@ def _restore_link(A, B, L, extra=None):
             role = _core_role(L, N["id"])
             if role:
                 body["role"] = role
-                if _rot:   # replay the stored IP-rotation pools for this node's role
+                if _rot:
                     _apply_core_rotation(body, role == "client", own, peer, _rs)
-                # ...and the fleet-wide timing, exactly like the three real build paths. Without it a rolled-back
-                # tunnel comes back UP with the core's compiled-in timings instead of the
-                # operator's, silently, on the very path where they are already reading an error about something
-                # else. Both args are this one body; _apply_core_tuning stamps them identically.
                 _apply_core_tuning(body, body)
-            _apply_probe_tuning(body)   # OUTSIDE the role check: the probe judges every type, not just core
+            _apply_probe_tuning(body)
             try:
                 node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
             except Exception:
-                pass   # best-effort; swallow so restore never masks the original failure
+                pass
 
 
 def api_edit_link(d):
     def edit(h):
         a, b = _link_nodes(d)
-        with _PairLock(a, b):  # serialize only with ops touching the same node(s)
+        with _PairLock(a, b):
             return _edit_link_impl(d, h)
 
     return act_link(d, edit)
 
 
 def api_edge_status(d):
-    """Poll the ws edge pool's live health for a link: read the client node's core status file
-    (active edge + per-entry health FSM) and return it so the panel can render سالم/موقت/دائمی
-    with live retest countdowns. It does NOT persist anything into the link's stored lists — the
-    core's health is transient and self-healing (a temporary block clears on its own retest), so
-    baking it into the operator's permanent burned list would defeat the auto-recovery. The
-    operator's clean/burned curation stays exactly as they set it."""
     d = d or {}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core":
         return {"ok": True, "pool": False, "active": "", "health": [], "events": []}
-    # Any core tunnel may have a status file: a ws pool writes the rich pool state, and a datagram
-    # client (udp/raw/flux) writes a lightweight event ring (self-heal reasons). Read whichever
-    # exists; `pool` stays accurate so pool-only UI keeps behaving.
     is_pool = bool(L.get("ws_pool"))
     node = _client_node(L)
     if not node:
@@ -5888,15 +4743,9 @@ def api_edge_status(d):
             "fails": int(h.get("fails") or 0),
             "next_retest_unix": int(h.get("next_retest_unix") or 0),
         })
-    # Use the CLIENT NODE's clock as "now" (it shares the core's clock that stamped next_retest_unix),
-    # so retest countdowns are correct even if the panel's clock is skewed from the node's. `ts` is the
-    # status file's write time -> the UI can flag a stale file (dead tunnel) as offline.
     node_now = int(r.get("now") or 0)
     pair = r.get("pair") if isinstance(r.get("pair"), dict) else {}
     return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
-            # `ready` is the core's own "a carrier is up on this path RIGHT NOW". `active` is a display
-            # label the core only ever WRITES -- it is never cleared on a disconnect -- so anything that
-            # asks "is this tunnel down?" has to read this, not the emptiness of that.
             "ready": bool(r.get("ready")),
             "pair": {"low": str(pair.get("low") or ""), "high": str(pair.get("high") or ""),
                      "low_kind": str(pair.get("low_kind") or ""),
@@ -5905,10 +4754,6 @@ def api_edge_status(d):
 
 
 def _retest_now(d, resolve):
-    """Shared 'try this one again now': end ONE entry's backoff so the next rotation hands it live
-    traffic and the tun probe can judge it. Nothing is dialled -- neither pool has a prober, and a
-    control handshake cannot tell a filtered endpoint from a live one. Per ENTRY, not per pool: one
-    button that zeroed every wait made the others' backoff a lie."""
     d = d or {}
     _require(d, ["id", "kind", "key"])
     if d["kind"] not in ("ip", "sni", "dst", "src"):
@@ -5922,14 +4767,10 @@ def _retest_now(d, resolve):
 
 
 def api_pool_retest_now(d):
-    """End ONE ws edge (or SNI) entry's backoff. No rebuild, no dial."""
     return _retest_now(d, _ws_pool_client)
 
 
 def api_pool_select(d):
-    """Live 'pin this edge': tell the client node to write a command file the running core polls
-    so it jumps its rotation onto THIS specific IP/SNI (kind+key) and re-dials onto it — no
-    rebuild, TUN stays up. Backs the per-edge select button."""
     d = d or {}
     _require(d, ["id", "kind", "key"])
     if d["kind"] not in ("ip", "sni"):
@@ -5939,19 +4780,17 @@ def api_pool_select(d):
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
     now = int(time.time())
-    _ev_suppress[d["id"]] = now + 45  # operator pin: don't log the edge change it causes
-    try:  # prune expired entries so the map can't grow unbounded (esp. after links are deleted)
+    _ev_suppress[d["id"]] = now + 45
+    try:
         for k, ts in list(_ev_suppress.items()):
             if ts < now:
                 _ev_suppress.pop(k, None)
     except RuntimeError:
-        pass  # a concurrent pin mutated it mid-iteration; the next call prunes
+        pass
     return {"ok": True}
 
 
 def _ws_pool_client(d):
-    """Resolve (link, client node) for a ws EDGE-pool link, raising a clear error when the link isn't a
-    pooled-ws core or its client node is gone. Mirror of _peer_pool_client for the ws-pool live-status ops."""
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ws_pool"):
@@ -5963,8 +4802,6 @@ def _ws_pool_client(d):
 
 
 def _peer_pool_client(d):
-    """Resolve (link, client node) for a direct-transport IP-rotation link, raising a clear error when
-    the link isn't a pooled core or its client node is gone. Shared by the peer-pool live-status ops."""
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ip_rotate"):
@@ -5975,20 +4812,14 @@ def _peer_pool_client(d):
     return L, node
 
 
-_PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")  # IPv4/IPv6/ip:port only
+_PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")
 
 
 def _peer_addr_ok(s):
-    """A pool endpoint is always a bare IP or ip:port. Reject anything else BEFORE it reaches the panel
-    UI: these strings originate from the client node's status file (attacker-influenceable if a node is
-    compromised) and are rendered into the live view, so a strict IP charset whitelist here neutralizes
-    any injection at the source, independent of how the JS renders it."""
     return bool(s) and bool(_PEER_ADDR_RE.match(s))
 
 
 def _peer_sec_norm(sec):
-    """Normalize one pool section (dst/src) from the node into the shape the panel reads, dropping any
-    endpoint that isn't a clean IP/ip:port (defense-in-depth against a malicious/malformed node)."""
     sec = sec if isinstance(sec, dict) else {}
     health = []
     for h in (sec.get("health") or []):
@@ -6007,10 +4838,6 @@ def _peer_sec_norm(sec):
 
 
 def api_peer_status(d):
-    """Live status of a direct-transport IP-rotation link: ask the client node for BOTH pools —
-    destination (the server IPs it dials) and source (this node's own egress IPs) — each with the
-    active endpoint, the per-endpoint health FSM (suspect/dead + retest countdown), and any manual
-    pin. `now` is the client node's clock (which stamped the retest times) so countdowns stay correct."""
     d = d or {}
     empty = {"active": "", "addrs": [], "health": [], "pin": "", "ts": 0}
     _require(d, ["id"])
@@ -6028,14 +4855,10 @@ def api_peer_status(d):
 
 
 def api_peer_retest_now(d):
-    """End ONE direct-pool endpoint's backoff. No rebuild, no dial."""
     return _retest_now(d, _peer_pool_client)
 
 
 def api_peer_select(d):
-    """'Pin this IP' for a direct-transport pool: tell the client node to write a command file the core
-    polls so it jumps onto THIS endpoint (side 'src' pins the source pool, else the destination) and
-    re-points onto it — no rebuild, TUN stays up. Backs the per-IP pin button."""
     d = d or {}
     _require(d, ["id", "key"])
     side = "src" if str(d.get("side")) == "src" else "dst"
@@ -6047,10 +4870,6 @@ def api_peer_select(d):
 
 
 def api_flux_rotate(d):
-    """'Rotate now' for a flux link: bump the manual epoch offset by one and rebuild both
-    ends with it. Both ends get the same offset, so the moving target jumps a shape ahead
-    fleet-wide with no wire signal. Delegates to the edit path (which does the clean
-    both-ends-down rebuild); only the offset changes, everything else stays as stored."""
     d = d or {}
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -6083,7 +4902,7 @@ def _edit_link_impl(d, h=None):
     tid = int(L["tunnel_id"])
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
-    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()
     if want_a and want_a not in a_ips:
         raise ValueError(f"آی‌پیِ «{want_a}» روی نودِ «{A['name']}» نیست")
     if want_b and want_b not in b_ips:
@@ -6096,21 +4915,18 @@ def _edit_link_impl(d, h=None):
         raise ValueError("could not determine node IPs")
     if a_ip == b_ip:
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
-    _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])  # same as create, but never conflict with self
+    _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
-    # Fall back to the stored subnet when the request omits it, so a PARTIAL edit (e.g. flux
-    # "rotate now", which sends only the epoch offset) doesn't silently reset a custom overlay
-    # subnet to the type default and renumber both ends of the tunnel.
     subnet = norm_subnet(ttype, tid, d.get("subnet") or L.get("subnet"))
     _guard_subnet_overlap(A, B, subnet, exclude_id=L["id"])
     old_name = L["name"]
     new_name = tunnel_name(ttype, tid)
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {old_name, new_name})
     name_changed = new_name != old_name
-    type_changed = ttype != L["type"]   # kernel types share one name, so a type change is no longer a rename
-    extra = {}   # computed BEFORE the no-change check so a port-only edit isn't silently dropped as "unchanged"
+    type_changed = ttype != L["type"]
+    extra = {}
     if ttype in ("l2tpv3", "fou", "core"):
         port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0) or free_tunnel_port(A, B, exclude_id=L["id"])
         if not 1 <= port <= 65535:
@@ -6125,30 +4941,17 @@ def _edit_link_impl(d, h=None):
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
     server_side = None
     if ttype == "core":
-        ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)  # cur=L => stored fields fill in whatever a partial edit omits
+        ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)
         extra.update(ce)
-    # api_create_link always stores an explicit port, so compare straight against the record.
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
-    # Non-core links may short-circuit an unchanged edit (avoids a needless outage). Core links must
-    # NOT: the button is "save AND rebuild", and a core edit always does a clean both-ends-down rebuild
-    # below (the only reliable way to un-wedge a tunnel), so never silently no-op it — which is exactly
-    # why the guard leads with `ttype != "core"` and no per-field core comparison is needed here.
     if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "unchanged": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
-    # Port-conflict guard: verify only bindings that DIFFER from what this tunnel already occupies — its
-    # current port/proto/server node are excluded so it cannot clash with itself. A pooled server binds
-    # each SELECTED pool IP explicitly, so _own expands to that exact per-IP set: a rebuild that keeps the
-    # same pool finds every binding already in _own and skips it, while a newly ADDED IP is genuinely checked.
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
                      _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
-    # Same precise same-server-IP core conflict as create, but skip THIS tunnel (an edit that keeps its
-    # own binding must not clash with itself).
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
         if _clash:
             raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن.")
-    # Same flux anti-leak check as create — an edit can introduce the collision either way round: by
-    # switching this tunnel TO flux/udp, or by moving another one ONTO a rotation port.
     _fx = _flux_drop_conflict({**extra, "type": ttype, "a_node": A["id"], "b_node": B["id"],
                                "a_ip": a_ip, "b_ip": b_ip, "tunnel_id": tid, "server_side": server_side},
                               exclude_id=L.get("id"))
@@ -6157,11 +4960,6 @@ def _edit_link_impl(d, h=None):
                          f"({', '.join(str(x) for x in FLUX_UDP_DPORTS)}) ترافیکِ UDPِ ورودی از همان نود را "
                          f"می‌اندازد و آن تونل بی‌صدا می‌میرد؛ پورتِ دیگری برای یکی از این دو انتخاب کن")
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
-    # Pre-delete BOTH ends before rebuilding when the iface name changed (shared veth/OVS ids), when the
-    # netdev KIND changed under an unchanged name, OR for any core link. Core needs it because an
-    # in-place, one-end-at-a-time restart leaves the peer running its old crypto session: the freshly
-    # restarted server latches onto the stale still-live client and never re-handshakes, so the tunnel
-    # stays wedged. Tearing both ends down forces a clean re-handshake.
     if name_changed or type_changed or ttype == "core":
         act_step(h, "برچیدنِ پیکربندیِ قبلی", 1, EDIT_STEPS)
         node_call(A, "delete", "POST", {"name": old_name})
@@ -6177,7 +4975,7 @@ def _edit_link_impl(d, h=None):
         _core_rotation_bodies(extra, a_body, b_body)
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
-    _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
+    _apply_probe_tuning(a_body, b_body)
     act_step(h, "اعمال روی نودِ «%s»" % A["name"], 2, EDIT_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
@@ -6186,7 +4984,7 @@ def _edit_link_impl(d, h=None):
     try:
         act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS, more=False)
     except ActCancelled:
-        _restore_link(A, B, L)   # cancelled with only one end moved: put the tunnel back the way it was
+        _restore_link(A, B, L)
         raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
@@ -6195,7 +4993,6 @@ def _edit_link_impl(d, h=None):
             node_call(B, "delete", "POST", {"name": new_name})
         _restore_link(A, B, L)
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
-    # Both ends carry the new shape: stopping now would leave the record describing the old one.
     act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
     with _reg_lock:
         links = load_links()
@@ -6232,9 +5029,9 @@ def api_check_link(d):
             return {"online": True, "health": r.get("health")}
         if r.get("offline"):
             return {"online": False, "health": None}
-        return {"online": True, "health": None}  # node up but tunnel unknown/error
+        return {"online": True, "health": None}
 
-    a, b = parallel_map(chk, [L["a_node"], L["b_node"]])  # probe both ends at once (halves the wait)
+    a, b = parallel_map(chk, [L["a_node"], L["b_node"]])
     ah, bh = a["health"], b["health"]
     return {"ok": True, "name": L["name"], "a_online": a["online"], "b_online": b["online"],
             "a_health": ah, "b_health": bh}
@@ -6250,14 +5047,6 @@ def api_restart_link(d):
 
 
 def _restart_link_impl(d, h=None):
-    """Bounce both ends' core process on the config they already hold.
-
-    Deliberately NOT a rebuild: nothing is torn down, no config is rewritten, no ECH is re-fetched and
-    the node IPs are not re-picked, so the stored pool survives verbatim. It is the cheap remedy for a
-    core that is alive but stuck in state it cannot clear itself.
-
-    Reports per END, keyed by side rather than by node name: two nodes may share a name, and one end
-    coming back while the other does not is exactly the case the operator has to see."""
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -6269,8 +5058,6 @@ def _restart_link_impl(d, h=None):
         raise ValueError("a node of this link is no longer registered")
     ends, errs = [], []
     for i, (side, N) in enumerate((("a", A), ("b", B))):
-        # Only the first end can be stopped before. Bouncing one end and leaving its peer on a live
-        # session is the wedged state this whole action exists to clear.
         act_step(h, "ری‌استارتِ هسته روی نودِ «%s»" % N["name"], i, 2, stop=(i == 0), more=False)
         r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=30)
         ok = bool(r.get("ok"))
@@ -6286,8 +5073,8 @@ def _restart_link_impl(d, h=None):
 
 
 _rb_lock = threading.Lock()
-_rb_last = {}          # link id -> {"ok", "error", "ts"} — the last rebuild verdict, kept so a lost answer
-RB_KEEP = 900          # cannot erase it: the browser can be gone and the reason still reaches the card
+_rb_last = {}
+RB_KEEP = 900
 
 
 def _rb_note(lid, ok, error=""):
@@ -6307,8 +5094,6 @@ def api_rebuild_link(d):
     def rebuild(h):
         a, b = _link_nodes(d)
         with _PairLock(a, b):
-            # The verdict is recorded on the link as well as on the action: a page opened long after the
-            # action has been pruned still finds out how the last rebuild went.
             try:
                 r = _rebuild_link_impl(d, h)
             except Exception as e:
@@ -6324,7 +5109,6 @@ REBUILD_STEPS = 4
 
 
 def _rebuild_link_impl(d, h=None):
-    """Tear the tunnel down on both nodes and build it again with the SAME params (id/type/subnet)."""
     act_step(h, "خواندنِ وضعیتِ دو نود", 0, REBUILD_STEPS)
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -6337,44 +5121,43 @@ def _rebuild_link_impl(d, h=None):
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
-    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()  # operator's explicit pick
+    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()
     a_ip = (want_a if want_a in a_ips else
             (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
     b_ip = (want_b if want_b in b_ips else
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
         raise ValueError("could not determine node IPs")
-    if ttype in IPIP_FAMILY:  # rebuild may re-bind to a different live IP — don't land an ipip/fou onto a pair another owns
+    if ttype in IPIP_FAMILY:
         new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
         for x in load_links():
             if (x.get("id") != L["id"] and x.get("type") in IPIP_FAMILY
                     and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
                 raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
-    extra = _tunnel_extra(L)   # same UDP port / key / cipher as before; also re-fetches fresh ECH and
-                               # MAY RAISE — do it BEFORE teardown so a fetch failure leaves the tunnel intact
+    extra = _tunnel_extra(L)
     act_step(h, "برچیدنِ هر دو سر", 1, REBUILD_STEPS)
-    node_call(A, "delete", "POST", {"name": name})  # tear down both ends first
+    node_call(A, "delete", "POST", {"name": name})
     node_call(B, "delete", "POST", {"name": name})
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
-    if ttype == "core":   # role is per-node, replayed from the stored server_side
+    if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-        _core_rotation_bodies(L, a_body, b_body)   # replay the stored IP-rotation pools
-        _core_workers_bodies(L, a_body, b_body)    # ...and each end's own queue count
-        _apply_core_tuning(a_body, b_body)         # re-stamp current fleet-wide timing on rebuild
-    _apply_probe_tuning(a_body, b_body)   # every type: the probe judges them all
+        _core_rotation_bodies(L, a_body, b_body)
+        _core_workers_bodies(L, a_body, b_body)
+        _apply_core_tuning(a_body, b_body)
+    _apply_probe_tuning(a_body, b_body)
     act_step(h, "ساخت روی نودِ «%s»" % A["name"], 2, REBUILD_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
-        _restore_link(A, B, L, extra)   # reuse the extra already fetched above — no second ECH fetch, no raise
+        _restore_link(A, B, L, extra)
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
     try:
         act_step(h, "ساخت روی نودِ «%s»" % B["name"], 3, REBUILD_STEPS, more=False)
     except ActCancelled:
-        _restore_link(A, B, L, extra)   # cancelled with one end rebuilt: put both back the way they were
+        _restore_link(A, B, L, extra)
         raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
@@ -6388,23 +5171,17 @@ def _rebuild_link_impl(d, h=None):
                     x.update({"a_ip": a_ip, "b_ip": b_ip})
                     break
             save_json(LINKS_FILE, links)
-    _set_drift(L["id"], False)  # rebuilt with live IPs -> any pending drift warning is resolved
+    _set_drift(L["id"], False)
     _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True, "name": name}
 
 
 def api_link_toggle(d):
-    """Turn a tunnel on/off — bring its interface down/up on both nodes without rebuilding it. The panel
-    record's `enabled` flag is the source of truth and is replayed to the nodes on edit/rebuild too, so a
-    disabled tunnel stays down across reboots."""
     _require(d, ["id"])
     enabled = bool(d.get("enabled"))
-    a, b = _link_nodes(d)  # resolve the two node ids so we can serialize with any in-flight edit/rebuild on this pair
+    a, b = _link_nodes(d)
     if not a or not b:
         raise ValueError("link not found")
-    # Hold the pair lock across BOTH the record flip and the node push, so a concurrent edit/rebuild can't
-    # interleave and leave a node in the opposite `enabled` state from the record. Lock order mirrors the
-    # edit/rebuild paths: _PairLock outer, _reg_lock inner (deadlock-free).
     with _PairLock(a, b):
         with _reg_lock:
             links = load_links()
@@ -6424,22 +5201,18 @@ def api_link_toggle(d):
     return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
 
 
-# --------------------------------------------------------------------------- link reconciler
-# When a node's public IP changes, apply_all() on THAT node self-heals its own local_ip — but the PEER
-# still points remote_ip at the old address, so the tunnel stays down until an operator rebuilds it.
-# This loop watches every link for a stored endpoint IP that has drifted off the node's live IP set.
 
-RECONCILE_GAP = 15       # default seconds between reconcile sweeps (overridable via settings)
-RECONCILE_RETRY = 60     # per-link cool-down so a failing rebuild can't hammer the pair
-_reconcile_last = {}     # link_id -> last rebuild-attempt ts (touched only by the single reconcile thread)
+RECONCILE_GAP = 15
+RECONCILE_RETRY = 60
+_reconcile_last = {}
 
 
 def _reconcile_once():
-    mode = get_settings().get("reconcile_mode", "alert")   # match settings_defaults(): default to alert-only, never auto-rebuild
+    mode = get_settings().get("reconcile_mode", "alert")
     now = time.time()
     links = load_links()
     valid_ids = {L["id"] for L in links}
-    for k in [k for k in _reconcile_last if k not in valid_ids]:  # prune records for deleted links
+    for k in [k for k in _reconcile_last if k not in valid_ids]:
         _reconcile_last.pop(k, None)
     with _drift_lock:
         for k in [k for k in _drift if k not in valid_ids]:
@@ -6447,34 +5220,31 @@ def _reconcile_once():
     for L in links:
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         if not pa.get("ok") or not pb.get("ok"):
-            continue  # only reconcile when BOTH ends are up — a rebuild needs both reachable
+            continue
         a_ips = _flat_ips(pa)
         b_ips = _flat_ips(pb)
         if not a_ips or not b_ips:
             continue
         a_ok, b_ok = L.get("a_ip") in a_ips, L.get("b_ip") in b_ips
         if a_ok and b_ok:
-            _set_drift(L["id"], False)  # both endpoints valid (healed / IP came back) -> clear the flag
+            _set_drift(L["id"], False)
             continue
-        _set_drift(L["id"], True)       # a node IP has drifted off the link
+        _set_drift(L["id"], True)
         if mode != "auto":
-            continue                    # global "alert" mode: only flag it; the operator rebuilds from the UI
-        # auto mode heals ONLY when every drifted side is unambiguous — the node has exactly one live IP,
-        # so there is no doubt which IP replaced the old one. A multi-IP node is left flagged for the
-        # operator to pick the right IP in the UI (guessing among several IPs isn't safe).
+            continue
         ambiguous = (not a_ok and len(a_ips) != 1) or (not b_ok and len(b_ips) != 1)
         if ambiguous:
             continue
         if now - _reconcile_last.get(L["id"], 0) < RECONCILE_RETRY:
             continue
         try:
-            r = api_rebuild_link({"id": L["id"]})  # single-IP side(s): rebuild binds to the only live IP
+            r = api_rebuild_link({"id": L["id"]})
             if r.get("ok"):
-                _set_drift(L["id"], False)          # healed -> no cool-down (drift cleared, won't retry)
+                _set_drift(L["id"], False)
             else:
-                _reconcile_last[L["id"]] = now      # ran and definitively failed -> back off before retrying
+                _reconcile_last[L["id"]] = now
         except Exception:
-            _reconcile_last[L["id"]] = now          # errored after a real attempt -> back off, don't hammer
+            _reconcile_last[L["id"]] = now
 
 
 def reconcile_loop():
@@ -6482,7 +5252,7 @@ def reconcile_loop():
         try:
             gap = max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP))
         except Exception:
-            gap = RECONCILE_GAP   # a hand-edited non-numeric reconcile_interval must not kill the reconcile thread
+            gap = RECONCILE_GAP
         time.sleep(gap)
         try:
             _reconcile_once()
@@ -6490,20 +5260,14 @@ def reconcile_loop():
             pass
 
 
-# --------------------------------------------------------------------------- automatic ECH refresh
-# A CDN rotates its ECH key roughly hourly, and a stale stored ECHConfigList then fails the ws-upgrade on
-# EVERY edge. The client core and the in-country node sit behind poisoned DNS, so ONLY the panel can
-# re-resolve it; this loop re-fetches for every ECH-enabled core link and acts on what it finds.
-_ECH_EMPTY_CYCLES = 3   # consecutive empty fetches before an ECH record counts as truly REMOVED (blip guard)
-_ech_empty = {}         # (link_id, host) -> consecutive-empty count
+_ECH_EMPTY_CYCLES = 3
+_ech_empty = {}
 _ech_empty_lock = threading.Lock()
-_ech_down_rebuilt = set()  # link_ids already rebuilt during their CURRENT down-episode (touched only by the single ech_refresh_loop thread)
-_ech_healed_seq = {}       # G2: lid -> highest core self_heal event seq already persisted (ech_refresh_loop thread only)
+_ech_down_rebuilt = set()
+_ech_healed_seq = {}
 
 
 def _ech_link_hosts(L):
-    """(kind, hosts) for an ECH-carrying core link, else None. Single edge carries one ws_host; a pool
-    carries one ech per ws_edge_snis entry."""
     if L.get("type") != "core" or not L.get("ech") or not L.get("enabled", True):
         return None
     if L.get("ws_pool") and L.get("ws_edge_snis"):
@@ -6515,19 +5279,12 @@ def _ech_link_hosts(L):
 
 
 def _ech_live_push(lid, chmap):
-    """Push a freshly-rotated ECH key to the RUNNING client-side ws core so it hot-swaps it with NO
-    rebuild (op ech-update -> the core's <status>.echcmd poll). Works for a ws edge-POOL (retestLoop
-    reads it) and a SINGLE ws edge (dialLoop reads it into b.wsECH) — same sidecar. Best-effort: on any
-    failure the core just keeps its old key until it self-heals in-band or the next rebuild. chmap is
-    {host: base64_ech}. Returns a short label of the client node the key actually landed on (name +
-    host) on a SUCCESSFUL push, else "" (skipped / node offline / core rejected) — the caller shows it
-    in the refresh log so an operator sees which node got the live key."""
     if not chmap:
         return ""
     L = next((x for x in load_links() if x.get("id") == lid), None)
     if not L or L.get("type") != "core" or not (L.get("ws_pool") or L.get("ws_host")):
         return ""
-    node = _client_node(L)   # the CLIENT is the non-server side (it dials the CDN with ECH)
+    node = _client_node(L)
     if not node:
         return ""
     try:
@@ -6535,30 +5292,13 @@ def _ech_live_push(lid, chmap):
     except Exception:
         return ""
     if not isinstance(r, dict) or not r.get("ok"):
-        return ""   # node offline or core rejected -> don't claim a push that didn't land
+        return ""
     nm = str(node.get("name") or "").strip()
     host = str(node.get("host") or "").strip()
-    # «name • host», not «name (host)»: the pair reads as ONE value inside one labelled pill, and a
-    # parenthesis wrapped around an LTR address inside an RTL line renders mirrored.
     return "%s \u2022 %s" % (nm, host) if nm and host else (nm or host or str(node.get("id") or ""))
 
 
 def _ech_pool_state(lid):
-    """Read the client core's live edge health once and classify it for the ECH auto-heal. Returns
-    (reachable, down, stalled):
-      reachable — the client node answered (a merely-offline node is not actionable; a rebuild can't help).
-      down      — reachable and the core reports NO live carrier: the 'ECH rotation broke the live
-                  tunnel' signal. Read from `ready`, not from `active`: the core writes `active` on a
-                  successful connect and never clears it on a disconnect, so `not active` was False for
-                  the life of the process once the pool had connected once -- and this whole auto-heal
-                  could never fire for a ws pool.
-      stalled   — reachable WITH a live carrier still coasting on an already-open connection, YET the pool
-                  can no longer build a fresh edge because new establishes fail on TLS/ECH: at least one IP
-                  edge is suspect/dead AND the event ring carries a recent tls-coded failure (the stale-ECH
-                  cert-verify signature — cloudflare-ech.com). This is the stale-ECH-but-active-still-up
-                  window: failover/rotation/reconnect are broken but the live edge hasn't died, so `down`
-                  is False and nothing used to rebuild until the tunnel finally went fully down (minutes).
-                  Requiring BOTH a dead edge AND a tls event keeps a normal single-edge blip from rebuilding."""
     try:
         st = api_edge_status({"id": lid})
     except Exception:
@@ -6572,7 +5312,7 @@ def _ech_pool_state(lid):
     now = int(st.get("now") or 0) or int(time.time())
     tls_recent = any(
         str(e.get("code")) == "tls" and str(e.get("kind")) in ("down", "burn")
-        and (now - int(e.get("ts") or 0)) <= 900          # within the last 15 min (one refresh window)
+        and (now - int(e.get("ts") or 0)) <= 900
         for e in (st.get("events") or []) if isinstance(e, dict)
     )
     stalled = ready and any_bad and tls_recent
@@ -6580,9 +5320,6 @@ def _ech_pool_state(lid):
 
 
 def _ech_write(lid, kind, updates, degrade):
-    """Under the registry lock, apply refreshed per-host ECH (updates: host->new_key) or, on a
-    confirmed removal, turn ECH off. Returns (changed, chmap): changed is True if the stored record
-    actually changed; chmap maps each host whose key rotated to its new base64 key (empty on degrade)."""
     changed = False
     chmap = {}
     with _reg_lock:
@@ -6592,7 +5329,7 @@ def _ech_write(lid, kind, updates, degrade):
                 continue
             if degrade:
                 if x.get("ech"):
-                    x["ech"] = False          # confirmed removed -> plain wss so a rebuild can't hard-fail on a missing key
+                    x["ech"] = False
                     x.pop("ws_ech", None)
                     changed = True
                 for s in (x.get("ws_edge_snis") or []):
@@ -6621,9 +5358,6 @@ def _ech_write(lid, kind, updates, degrade):
 
 
 def _ech_safe_rebuild(lid):
-    """Rebuild the link (re-fetches ECH itself; applies the fresh/now-off key to both ends). Returns True
-    on success, False on ANY failure — never raises, so the caller can log the ACTUAL outcome instead of
-    an optimistic guess (a failed rebuild leaves the tunnel down and must not read as success)."""
     try:
         api_rebuild_link({"id": lid})
         return True
@@ -6633,26 +5367,22 @@ def _ech_safe_rebuild(lid):
 
 def _ech_refresh_once():
     try:
-        _mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)   # the interval, for the log tag
+        _mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)
     except Exception:
         _mins_label = "15"
     links = load_links()
-    # Prune ECH bookkeeping for links that no longer exist. A deleted link is never iterated again, so
-    # its residue in _ech_empty (keyed by (lid,host)) and _ech_down_rebuilt (lids) would otherwise stay
-    # forever and grow without bound under create/delete churn. Sweep against the live id set, exactly
-    # like every other churned map in this file (_reconcile_last, _tomb, _uh, _install_jobs, ...).
     live_ids = {L.get("id") for L in links}
     with _ech_empty_lock:
         for k in [k for k in _ech_empty if k[0] not in live_ids]:
             _ech_empty.pop(k, None)
-    _ech_down_rebuilt.intersection_update(live_ids)   # single-threaded (ech_refresh_loop only) — no lock needed
+    _ech_down_rebuilt.intersection_update(live_ids)
     for L in links:
         hk = _ech_link_hosts(L)
         if not hk:
             continue
         kind, hosts = hk
         lid, nm = L.get("id"), L.get("name")
-        ech_map = _fetch_ech_map(hosts, _ech_px(L))   # concurrent DNS fetch (per-tunnel proxy if set) — NO lock held here
+        ech_map = _fetch_ech_map(hosts, _ech_px(L))
         updates, empty_flags = {}, []
         for h in hosts:
             nk = ech_map.get(h, "")
@@ -6665,21 +5395,17 @@ def _ech_refresh_once():
                 with _ech_empty_lock:
                     _ech_empty[key] = _ech_empty.get(key, 0) + 1
                     empty_flags.append(_ech_empty[key] >= _ECH_EMPTY_CYCLES)
-        removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)  # every host gone, persistently
+        removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
-                if _ech_safe_rebuild(lid):   # log the ACTUAL outcome, not an optimistic guess
+                if _ech_safe_rebuild(lid):
                     log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "به wss ساده تنزل یافت و بازسازی شد")
                 else:
                     log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
             continue
-        changed, chmap = _ech_write(lid, kind, updates, degrade=False)   # freshen the stored key (keeps restarts/rebuilds valid)
+        changed, chmap = _ech_write(lid, kind, updates, degrade=False)
         if changed and chmap:
-            # LIVE-push the fresh key to the RUNNING ws core (pool OR single edge) so it hot-swaps it with
-            # NO rebuild — the core then stays a step ahead of Cloudflare's key rotation and never hits a
-            # stale-key rejection (the freshen alone only helped the NEXT rebuild/restart, not the live core).
             pushed = _ech_live_push(lid, chmap) if kind in ("pool", "single") else ""
-            # Boxes per host (domain + fresh base64 key), then — when the push actually landed — the node.
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             if pushed:
                 dfa += "\nنودِ مقصد: %s" % pushed
@@ -6687,66 +5413,45 @@ def _ech_refresh_once():
             else:
                 fa = "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label)
             log_event("ok", "ech", fa, dfa)
-        # Down-detection needs a live status file, which only a pool writes; a single edge is left to the
-        # core's in-band retry plus the freshened stored key. For a pool, rebuild one we can SEE is down —
-        # LEVEL-triggered on the state, once per down-episode, again if the key rotates while still down.
-        # STALLED counts too: an active edge can coast on an open connection while every other is suspect.
         reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
         if kind == "pool" and (down or stalled):
-            if lid not in _ech_down_rebuilt or changed:   # the live core didn't self-heal in-band -> rebuild with the fresh key
+            if lid not in _ech_down_rebuilt or changed:
                 _ech_down_rebuilt.add(lid)
                 why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
-                if _ech_safe_rebuild(lid):   # log the ACTUAL outcome; a failed rebuild must not read as success
+                if _ech_safe_rebuild(lid):
                     log_event("ok", "ech", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
                 else:
                     log_event("bad", "ech", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
-                    _ech_down_rebuilt.discard(lid)   # let the NEXT cycle retry (don't burn the episode on a failed rebuild)
+                    _ech_down_rebuilt.discard(lid)
         else:
-            _ech_down_rebuilt.discard(lid)   # healthy pool / single edge / not down -> clear the episode (a future drop rebuilds again)
+            _ech_down_rebuilt.discard(lid)
 
 
 def _ech_heal_once():
-    """Fast lane: rebuild any ECH POOL that is DOWN or STALLED, on a ~1-minute cadence, so a
-    stale-ECH tunnel heals in ~1 min instead of waiting up to a full ech_refresh interval (the delay
-    the operator hit: the tunnel sat un-rotatable for minutes while the slow timer had not ticked).
-    Only a BROKEN pool does a (targeted) DoH fetch + rebuild — healthy pools cost nothing and DoH load
-    stays negligible. Shares _ech_down_rebuilt with _ech_refresh_once; both run on the SAME thread
-    (ech_refresh_loop), so the episode set stays single-threaded — no lock needed."""
     for L in load_links():
         hk = _ech_link_hosts(L)
-        if not hk or hk[0] != "pool":   # pools only — single-edge ECH has no failover to auto-rebuild
+        if not hk or hk[0] != "pool":
             continue
         kind, hosts = hk
         lid, nm = L.get("id"), L.get("name")
         _reachable, down, stalled = _ech_pool_state(lid)
         if not (down or stalled):
-            _ech_down_rebuilt.discard(lid)   # healthy / recovered -> clear the episode (a future drop rebuilds again)
+            _ech_down_rebuilt.discard(lid)
             continue
         if lid in _ech_down_rebuilt:
-            continue   # already rebuilt this episode; the slow loop re-arms on a genuine key rotation
-        updates = {h: k for h, k in _fetch_ech_map(hosts, _ech_px(L)).items() if k}   # targeted DoH (per-tunnel proxy if set) for THIS broken pool only
-        _ech_write(lid, kind, updates, degrade=False)                     # freshen the stored key (no-op if DoH empty)
+            continue
+        updates = {h: k for h, k in _fetch_ech_map(hosts, _ech_px(L)).items() if k}
+        _ech_write(lid, kind, updates, degrade=False)
         _ech_down_rebuilt.add(lid)
         why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
         if _ech_safe_rebuild(lid):
             log_event("ok", "ech", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}")
         else:
             log_event("bad", "ech", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
-            _ech_down_rebuilt.discard(lid)   # let the next tick retry (don't burn the episode on a failed rebuild)
+            _ech_down_rebuilt.discard(lid)
 
 
 def _ech_ingest_selfheal():
-    """G2 — persist the core's IN-BAND ECH self-heal (G1) back into the panel's stored config. When the
-    core harvests a fresh key from a handshake reject it hot-swaps the key AND emits an
-    ("ech","self_heal","<host> <base64>") event. Here we read that event ring and write the fresh key
-    into the stored record, so a later rebuild/restart no longer regresses to the panel's stale key
-    (the exact gap: G1 fixes the live core, but the panel's stored key stayed old and every rebuild
-    re-injected it). Direction is the mirror of _ech_live_push: core -> panel, not panel -> core.
-
-    Each self_heal is ingested exactly once, keyed by its monotonic event seq, so a heal that already
-    landed can never be re-applied over a newer key sitting in the ring; the write itself is
-    transition-gated by _ech_write. Runs on the ech_refresh_loop thread (~1 min), so _ech_healed_seq
-    needs no lock. Applies to pools and single edges alike (both self-heal via the core's uEdgeHandshake)."""
     live_ids = set()
     for L in load_links():
         hk = _ech_link_hosts(L)
@@ -6764,10 +5469,6 @@ def _ech_ingest_selfheal():
         hostset = set(hosts)
         events = st.get("events") or []
         seen_max = _ech_healed_seq.get(lid, 0)
-        # The core's seq counts from 1 in each PROCESS. A restart -- rebuild, reboot, tunnel restart --
-        # starts it over, and a high-water mark kept across that swallows every heal the new process
-        # ever reports: G2 goes quiet for good and every rebuild puts the stale key back. The ring only
-        # grows, so a top seq below the mark can only mean the counter restarted underneath us.
         ring_max = 0
         for e in events:
             if isinstance(e, dict):
@@ -6780,7 +5481,7 @@ def _ech_ingest_selfheal():
                       "شمارندهٔ رویدادِ هستهٔ تونلِ «%s» صفر شده (ری‌استارتِ هسته)؛ ثبتِ خودترمیمِ ECH از نو باز شد" % nm)
             seen_max = 0
         new_max = seen_max
-        latest = {}   # host -> (seq, base64): newest not-yet-persisted self-heal per host (robust to ring order)
+        latest = {}
         for e in events:
             if not isinstance(e, dict) or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
                 continue
@@ -6789,7 +5490,7 @@ def _ech_ingest_selfheal():
             except (TypeError, ValueError):
                 continue
             if seq <= seen_max:
-                continue   # already persisted this heal (or older) — never regress on a stale ring entry
+                continue
             if seq > new_max:
                 new_max = seq
             parts = str(e.get("detail") or "").split(" ", 1)
@@ -6809,78 +5510,58 @@ def _ech_ingest_selfheal():
                       "کلیدِ ECHِ خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
                       dfa)
     for dead in [k for k in _ech_healed_seq if k not in live_ids]:
-        _ech_healed_seq.pop(dead, None)   # drop bookkeeping for deleted/disabled links
+        _ech_healed_seq.pop(dead, None)
 
 
 def ech_refresh_loop():
     last_full = 0.0
     while True:
-        time.sleep(60.0)   # wake every minute: the fast heal lane runs each tick, the DoH sweep every `mins`
+        time.sleep(60.0)
         try:
             mins = float(get_settings().get("ech_refresh_mins", 15) or 0)
         except Exception:
             mins = 15.0
-        # Resilience lanes run EVERY tick regardless of ech_refresh_mins — they are recovery, not the
-        # proactive refresh cadence, so disabling the timer must not silently disable them (else a
-        # self-heal never persists and a rebuild regresses to the stale key; a down pool never recovers).
         try:
-            _ech_heal_once()   # backstop: rebuild a down/stalled pool with a fresh key (~1 min latency)
+            _ech_heal_once()
         except Exception:
             pass
         try:
-            _ech_ingest_selfheal()   # G2: persist the core's in-band self-heal back to the stored config
+            _ech_ingest_selfheal()
         except Exception:
             pass
         if mins <= 0:
-            continue   # only the PROACTIVE DoH refresh (below) honors the timer; 0 disables just that
+            continue
         now = time.time()
         if (now - last_full) >= max(60.0, mins * 60.0):
             last_full = now
             try:
-                _ech_refresh_once()   # slow: DoH-refresh every host's key on the scheduled interval
+                _ech_refresh_once()
             except Exception:
                 pass
 
 
-# --------------------------------------------------------------------------- system event log
-# A rolling, persisted record of what the SYSTEM did on its own — node up/down, tunnel up/down with a
-# best-effort reason, and AUTOMATIC edge-IP changes. Operator-driven actions are deliberately not logged:
-# the detector records STATE TRANSITIONS only, seeds new entities silently and skips disabled tunnels.
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
-EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")  # monotonic total-ever counter (survives pruning)
-# An event is kept for a DAY. The log is the one place an operator goes to find out what happened
-# while they were asleep, so what decides how long it holds has to be a length of TIME: a fixed number
-# of rows throws away the small hours as soon as a fleet has a bad one.
+EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")
 EVENTS_TTL = 24 * 3600
-# ...and a ceiling, which is a guard and NOT the retention rule. Everything kept is held in memory and
-# written out whole by the sweep, so a pair of nodes flapping would grow both without one. Reaching it
-# means something is flapping, not that a day is long.
 EVENTS_MAX = 5000
 _events_lock = threading.Lock()
-_ev_seq_total = None  # lazy-loaded; the sidebar 'logs' badge = this minus what the client last saw
-_ev_count = None  # lazy-loaded current event count, mirrored in memory so api_summary needn't count the store
-_ev_list = None   # the store itself, newest first (lazy-loaded); events.json is a copy of it
-_ev_dirty = False  # the store has something the file does not; ev_sweep is what writes it
-_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}  # last-seen state (in-memory); rotip[lid:axis]=last source/dest IP, for from→to on a rotation
+_ev_seq_total = None
+_ev_count = None
+_ev_list = None
+_ev_dirty = False
+_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}
 
 
 def _ev_ip(detail):
-    """Pull an IPv4[:port] out of a core event's free-form detail (e.g. 'ip:1.2.3.4:443'). Empty if none —
-    then the rotation event renders exactly as before (no box), so a non-IP detail can never mislabel."""
     m = re.search(r"\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?", str(detail or ""))
     return m.group(0) if m else ""
 def _ev_value(detail):
-    """The value out of a core event's tagged detail («ip:1.2.3.4:443», «sni:a.example»). Unlike _ev_ip
-    this keeps a DOMAIN, which the edge pool's own axis carries. Empty when there is no tag to strip,
-    so a detail in some other shape renders as no box rather than as a mislabelled one."""
     tag, _, rest = str(detail or "").partition(":")
     return rest.strip() if tag in ("ip", "sni") and rest.strip() else ""
 
 
-_ev_suppress = {}  # link_id -> unix ts until which an edge auto-change is suppressed (operator pin)
+_ev_suppress = {}
 
-# Map the CORE's stable reason codes (it saw the real error) to bilingual text for the log. This is
-# the precise, core-level "why" the operator asked for — not the panel's coarse guess.
 _EV_DOWN_CODE = {
     "ping_timeout": "بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش",
     "reset": "اتصال ریست شد (RST — احتمالاً کشتنِ DPI)",
@@ -6891,68 +5572,31 @@ _EV_DOWN_CODE = {
     "ws_upgrade": "ارتقاءِ WebSocket رد شد (Origin/CDN)",
     "closed": "اتصال قطع شد",
     "dropped": "اتصال قطع شد",
-    # dns: the tunnel rides a reliable session inside DNS, and that session ended on its own — the
-    # resolver path stopped carrying it. The next connect is a recovery.
     "session-dead": "سشنِ DNS تمام شد — مسیرِ ریزالور دیگر آن را حمل نمی‌کند",
-    # datagram transports (udp/raw/flux) — connectionless self-heal reasons
-    # A timed destination rotation keeps the AEAD session, so a dead endpoint produces no handshake
-    # failure to notice it — the carrier probes the jumped-to IP every second instead and gives up after
-    # the same threshold. The SESSION is fine here; this one ADDRESS went silent.
     "peer-dead": "آی‌پیِ مقصدی که چرخش روی آن رفت جواب نداد — سوزانده شد و رفت روی آی‌پیِ بعدی",
 }
-# Which axis a burn/heal names. The core tags every health row and every burn/heal detail with these.
 _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
               "ip": "آی‌پیِ لبه", "sni": "دامنه (SNI)"}
 
-# The same axes where the sentence needs a possessive («پینِ ... تونلِ»). «edge» is both halves of an
-# edge pool at once; the default covers it.
 _PIN_AXIS = {"dst": "آی‌پیِ مقصدِ", "src": "آی‌پیِ مبدأِ",
              "ip": "لبهٔ", "sni": "دامنهٔ"}
 
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
 }
-# Deliberate steps a carrier takes DURING an outage, on every transport. The core reports them as a
-# "down" because they cause a brief re-handshake, but they are NOT faults — a proactive/failover rotation,
-# a free rung of the ladder, or an operator pin. Render them as informational (ok) events, not a red
-# "disconnected". (level, fa)
 _EV_ROT_CODE = {
     "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
     "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
     "edge-rotate": ("ok", "چرخش لبهٔ CDN"),
     "sni-rotate":  ("ok", "چرخش دامنه"),
-    # The core gave up its session and handshaked again BEFORE condemning any address — a peer that
-    # restarted makes a good path carry nothing, and one round trip settles that. It is a deliberate
-    # step during an outage, so warn rather than the red "disconnected" an unknown code would get.
     "rehandshake": ("warn", "دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی"),
-    # The cheapest step of all: the source port is redrawn because THIS 4-tuple stopped answering.
-    # Written once per outage, not once per redraw — the core keeps redrawing every few seconds while
-    # the tuple stays dead, and a line each would bury the burn and the re-handshake that follow.
-    # Written only once the tunnel is CARRYING again, and only for the port it came back on. A draw
-    # that did not work is not news: the ladder redraws every few seconds, so writing at the draw meant
-    # a line per draw for a tunnel that never returned.
     "port-roll": ("ok", "با چرخشِ پورتِ مبدأ برگشت"),
-    # A ws client whose carriers keep dying too fast for the probe to judge them walks its edges once.
-    # Also once per outage: the lap that follows is the same fact repeated.
     "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
-    # Every rung was spent and the walk had nowhere to go, so the climb had ended. This is the ladder
-    # being handed back after its wait — news, because until it lands the tunnel is trying nothing.
     "ladder-revive": ("warn", "ازسرگیریِ نردبان پس از بن‌بست"),
 }
 
 
 def _rot_pair(axis, prev, cur, other):
-    """The «از»/«به» detail for one rotation, as the pair the tunnel was on.
-
-    Written DESTINATION first with a LEFT arrow — «49.13.34.234 ← 94.183.210.128». The page is read
-    right to left, so that order puts the SOURCE under the reader's eye first and the arrow carries it to
-    the destination. Source-first with a right arrow is the same fact written for the wrong reading
-    direction, and on this page it lands as «destination, then source».
-
-    axis says which half moved; `other` is the half that did not, and may be unknown — the two axes
-    rotate on separate beats, so the ring can report one before it has ever reported the other. With no
-    other half it degrades to the single endpoint, which is what it always showed. With no `cur` at all
-    (a core that sent no IP) there is nothing to say and the card stays title-only."""
     if not cur:
         return ""
     pair = (lambda one: f"{other} ← {one}" if other else one) if axis == "src" \
@@ -6963,8 +5607,6 @@ def _rot_pair(axis, prev, cur, other):
 
 
 def _mib(b):
-    """Bytes -> a short human size for a log detail. Falls back to the raw string when it is not a
-    number, because a core that sends something unexpected must still render as SOMETHING."""
     try:
         n = int(b)
     except (TypeError, ValueError):
@@ -6977,10 +5619,6 @@ def _mib(b):
 
 
 def _ev_core_text(kind, code, detail, nm):
-    """Render a core event into (level, kind, title, detail) for log_event(*...).
-    Splitting title from detail lets the UI show the reason on its own line."""
-    # The core tags an endpoint with the axis it belongs to: "dst"/"src" on a direct pool, "ip"/"sni" on
-    # an edge one. The operator wants the address, not the tag.
     key = str(detail or "")
     for tag in ("dst:", "src:", "ip:", "sni:"):
         if key.startswith(tag):
@@ -6988,7 +5626,7 @@ def _ev_core_text(kind, code, detail, nm):
             break
     if kind == "down":
         rot = _EV_ROT_CODE.get(code)
-        if rot:   # an intentional rotation/pin, not a fault — informational, not a red "disconnected"
+        if rot:
             lvl, fa = rot
             return (lvl, "rot", f"تونلِ «{nm}»: {fa}", "")
         rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
@@ -6997,16 +5635,9 @@ def _ev_core_text(kind, code, detail, nm):
         rf = _EV_UP_CODE.get(code, "تونل وصل شد")
         return ("ok", "link", f"تونلِ «{nm}»: وصلِ مجدد", rf)
     if kind == "burn":
-        # The reason string repeated what the title already says, so the card carried two sentences for
-        # one fact. The endpoint is the useful part; keep only that -- and name the AXIS it sits on,
-        # because a destination IP is not an edge.
         what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
         return ("warn", "burn", f"تونلِ «{nm}»: سوختنِ {what}", f"{what}: {key}")
     if kind == "cfg":
-        # A setting the operator CHOSE that the host did not actually grant. The core discovers these as it
-        # opens its sockets, and they used to reach only the core unit's journal, which the node reads on
-        # exactly one branch. detail is DATA, never prose; the two directions are written out rather than
-        # interpolated so tools/log_labels_check.py can recognise the label statically.
         if code == "sockbuf-clamped":
             parts = key.split()
             title = f"تونلِ «{nm}»: بافرِ سوکت به‌اندازه‌ای که خواستی اعمال نشد"
@@ -7020,27 +5651,15 @@ def _ev_core_text(kind, code, detail, nm):
                         f"چاره: net.core.rmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
         return ("warn", "cfg", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
     if kind == "heal":
-        # A previously-sidelined member is back in the rotation. Only the node's tun probe readmits
-        # anything, so there is ONE code; which axis recovered comes from the tag the pool stamps on
-        # the detail. Distinct from the active-carrier up/reconnect.
         if code == "tun-probe":
             what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
             return ("ok", "heal", f"تونلِ «{nm}»: بازگشتِ {what}",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
     if kind == "pool":
-        # The edge pool crossed the "can it still rotate its IP axis?" line: rotation needs >=2 edges it
-        # can REACH -- healthy, or burned with their backoff elapsed, since the walk spends a live try on
-        # those too -- so when only one is left the tunnel keeps working but STOPS switching edges (which
-        # is why the rotation log goes quiet). detail is "reachable/total".
         if code == "degraded":
             return ("warn", "edge", f"تونلِ «{nm}»: توقفِ چرخش — فقط یک لبه در دسترس مانده",
                     "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
-            # The operator pinned something that turned out not to work. Rather than hold the tunnel down
-            # for the whole pin window, the pin self-releases and rotation resumes. detail is
-            # «axis:reason» — every pool sends it, so the line names WHAT was un-pinned and WHY. The
-            # edge pool releases ONE axis when a dial is refused (that only condemns the edge) and both
-            # when the tun probe judges the pair, which is what «edge» means here.
             axis, _, why = key.partition(":")
             what = _PIN_AXIS.get(axis, "لبهٔ")
             if why == "cannot-land":
@@ -7051,10 +5670,6 @@ def _ev_core_text(kind, code, detail, nm):
         return ("ok", "edge", f"تونلِ «{nm}»: ازسرگیریِ چرخش",
                 "لبهٔ دیگری دوباره در دسترسِ چرخش است")
     if kind == "ech":
-        # REACTIVE in-band self-heal reported by the core (Layer 1): the live handshake hit a stale ECH
-        # key and healed inline. Tagged distinctly from the panel's SCHEDULED ech_refresh timer (below),
-        # so the operator can tell the two apart. detail is "<host> <fresh base64 ECHConfigList>" — split
-        # it so the (long) key lands in its OWN labeled box instead of being dumped inline in the message.
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
         return ("ok", "ech", f"تونلِ «{nm}»: ترمیمِ خودکارِ کلیدِ ECH", dfa)
@@ -7062,8 +5677,6 @@ def _ev_core_text(kind, code, detail, nm):
 
 
 def _ev_all():
-    """The log itself, newest first. Caller holds _events_lock, and does not mutate what it gets back
-    except through log_event -- this list IS the store, and the file is a copy of it."""
     global _ev_list, _ev_dirty
     if _ev_list is None:
         try:
@@ -7074,36 +5687,28 @@ def _ev_all():
         raw = raw if isinstance(raw, list) else []
         _ev_list = _ev_prune(raw)
         if len(_ev_list) != len(raw):
-            _ev_dirty = True      # what was read is not what is held; the next sweep puts that right
+            _ev_dirty = True
     return _ev_list
 
 
 def load_events():
-    """A snapshot for a reader, newest first."""
     with _events_lock:
         return list(_ev_all())
 
 
 def _ev_flush():
-    """Put the store on disk. Caller holds _events_lock.
-
-    A log must not write its whole file once per event: that is the same O(n) write n times over, held
-    under the lock every other writer needs, and it gets slower as the day it is keeping fills up."""
     global _ev_dirty
     if not _ev_dirty:
         return
     try:
         save_json(EVENTS_FILE, _ev_list)
-        save_json(EVENTS_SEQ_FILE, _ev_seq_get())   # lazy: a clear can be the first thing that flushes
+        save_json(EVENTS_SEQ_FILE, _ev_seq_get())
         _ev_dirty = False
     except OSError:
-        pass          # a log that cannot be written still works; the next sweep tries again
+        pass
 
 
 def _ev_seq_get():
-    """Monotonic count of ALL events ever logged. Unlike the number held it keeps growing past what
-    ages out, so the sidebar's unread badge (this minus the client's last-seen value) stays correct
-    forever. Starts at zero when the seq file is missing (fresh install)."""
     global _ev_seq_total
     if _ev_seq_total is None:
         try:
@@ -7115,8 +5720,6 @@ def _ev_seq_get():
 
 
 def _ev_count_get():
-    """How many events are held. Every writer keeps it in step, so api_summary's hot poll never counts
-    and never takes the lock; only the first call, before anything has been written, does."""
     global _ev_count
     if _ev_count is None:
         with _events_lock:
@@ -7124,8 +5727,6 @@ def _ev_count_get():
     return _ev_count
 
 
-# kind -> the chip it is filed under. The ONE place this mapping lives: the browser reads `cat` off the
-# event instead of deriving it again, so a chip's count and the rows behind it cannot disagree.
 def _ev_cat(kind):
     if kind == "link":
         return "tunnel"
@@ -7137,14 +5738,11 @@ def _ev_cat(kind):
 
 
 def _ev_prune(evs, now=None):
-    """Drop what is older than a day, newest first. The ceiling is applied after, as a guard."""
     cut = (time.time() if now is None else now) - EVENTS_TTL
     return [e for e in evs if isinstance(e, dict) and _sint(e.get("ts")) >= cut][:EVENTS_MAX]
 
 
 def ev_sweep():
-    """Take out what has aged out, and put the store on disk. Both on a clock rather than per event: a
-    quiet panel still has to forget, and nothing new arriving is not a reason for yesterday to stay."""
     global _ev_list, _ev_count, _ev_dirty
     with _events_lock:
         before = len(_ev_all())
@@ -7157,18 +5755,15 @@ def ev_sweep():
 
 
 def log_event(level, kind, fa, dfa=""):
-    """Append one system event (newest first). level: ok|warn|bad.
-    fa is the one-line TITLE; dfa is an optional detail/reason that may contain "\\n" for
-    multiple lines (e.g. an edge switch's from/to) — the UI renders each line separately."""
     global _ev_seq_total, _ev_count, _ev_dirty
     with _events_lock:
         evs = _ev_all()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
                        "fa": fa, "dfa": dfa})
-        if len(evs) > EVENTS_MAX:      # the age cut is the sweep's; this is only the runaway guard
+        if len(evs) > EVENTS_MAX:
             del evs[EVENTS_MAX:]
-        _ev_count = len(evs)   # kept in step with the store (read lock-free by api_summary)
-        _ev_seq_total = _ev_seq_get() + 1  # the monotonic counter behind the unread badge
+        _ev_count = len(evs)
+        _ev_seq_total = _ev_seq_get() + 1
         _ev_dirty = True
 
 
@@ -7181,12 +5776,10 @@ def _link_up(L):
     bh, _b = _link_side_health(L, "b_node")
     if not (isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")):
         return False
-    # a confirmed-dead core tunnel (frozen client heartbeat) is NOT up even though both ifaces still exist
     return not (ah.get("dead") or bh.get("dead"))
 
 
 def _link_down_reason(L, nmap):
-    """Best-effort classification of WHY a tunnel went down, from signals the panel already has."""
     for key in ("a_node", "b_node"):
         nid = L.get(key)
         if _cache_get(nid) and not _node_online(nid):
@@ -7210,9 +5803,8 @@ def _events_once():
     links = load_links()
     nmap = {n["id"]: n.get("name", "") for n in nodes}
     first = not _ev_state["init"]
-    rotated = set()   # links whose ring already reported a rotation this pass; the poll-diff defers to it
+    rotated = set()
 
-    # --- nodes: online <-> offline (only for nodes actually probed at least once) ---
     seen = set()
     for n in nodes:
         nid = n["id"]
@@ -7232,24 +5824,18 @@ def _events_once():
     for nid in [k for k in _ev_state["nodes"] if k not in seen]:
         _ev_state["nodes"].pop(nid, None)
 
-    # --- tunnels: up <-> down (skip operator-disabled ones; reason on the down edge) ---
     seen = set()
     for L in links:
         lid = L["id"]
         seen.add(lid)
         if not L.get("enabled", True):
-            _ev_state["links"].pop(lid, None)  # operator turned it off -> not a system event
-            _ev_state["links_coarse_down"].discard(lid)  # clear paired state too (lid stays in `seen`, so the tail cleanup skips it)
+            _ev_state["links"].pop(lid, None)
+            _ev_state["links_coarse_down"].discard(lid)
             continue
-        # need both ends reachable to judge "up"; if a node isn't probed yet, hold state as-is
         a_probed = _cache_get(L.get("a_node")) is not None
         b_probed = _cache_get(L.get("b_node")) is not None
         if not (a_probed and b_probed):
             continue
-        # "Probed" is not the same as "judged". A node that has just restarted its agent answers the list op
-        # immediately, but its background health sweep publishes only at the END of its first round, so every
-        # config comes back as {"up": None} for a couple of seconds — and _link_up reads that None as falsy,
-        # i.e. as DOWN. None means unknown: hold the state we have.
         _ah, _ = _link_side_health(L, "a_node")
         _bh, _ = _link_side_health(L, "b_node")
         if (isinstance(_ah, dict) and _ah.get("up") is None) or (isinstance(_bh, dict) and _bh.get("up") is None):
@@ -7260,56 +5846,33 @@ def _events_once():
         if first or prev is None or prev == up:
             continue
         nm = L.get("name", "")
-        # A core that writes a status ring records its OWN precise down/up — a ws pool, a datagram transport,
-        # a direct tcp/cover client, or a single-edge ws/http. For ALL of those, do not ALSO emit a coarse
-        # event here or every drop is double-counted. A core with no status ring at all, e.g. a client node
-        # offline so the core is dead, relies on the coarse classification below.
         precise_core = L.get("type") == "core" and (
             bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)
         if up:
-            # The precise reconnect ("up") comes from the core event ring — UNLESS this link's down was
-            # itself coarse (a client node was offline, so the core was dead and logged nothing); then
-            # pair it coarsely too.
             if precise_core and lid not in _ev_state["links_coarse_down"]:
-                pass  # the paired "up" comes from the core event ring
+                pass
             else:
                 log_event("ok", "link", f"تونلِ «{nm}»: وصل شد")
             _ev_state["links_coarse_down"].discard(lid)
         else:
-            # The core records the PRECISE down reason itself (see the edge section) — don't also emit a
-            # coarse one, unless a client node is offline (the core is dead then and can't report).
             a_off = _cache_get(L.get("a_node")) and not _node_online(L.get("a_node"))
             b_off = _cache_get(L.get("b_node")) and not _node_online(L.get("b_node"))
             if precise_core and not (a_off or b_off):
-                pass  # core-sourced precise "down" (and its paired "up") come from the event ring
+                pass
             else:
                 rf = _link_down_reason(L, nmap)
                 log_event("bad", "link", f"تونلِ «{nm}»: قطع شد", rf)
                 if precise_core:
-                    _ev_state["links_coarse_down"].add(lid)  # coarse (node-offline) down -> pair with a coarse up
+                    _ev_state["links_coarse_down"].add(lid)
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
         _ev_state["links_coarse_down"].discard(lid)
 
-    # --- core tunnels: PRECISE core-recorded events — the down reason and burns for a ws pool,
-    #     self-heal reasons for a datagram client, src/peer-rotate for a direct tcp/cover client, in-band
-    #     ECH self-heal for a single-edge ws/http client — and, for a pool, the automatic edge-IP change.
-    #     The core saw the real error; the panel just renders it. ---
     seen = set()
     now = int(time.time())
-    # Prefetch every status-ring core tunnel's edge-status IN PARALLEL first. api_edge_status is a live
-    # per-node RPC with a 10s timeout, so doing it serially in the loop below made the sweep cost the SUM
-    # of one call per tunnel, and a handful of slow clients could stall event detection for the whole
-    # fleet. The per-link PROCESSING stays sequential — ordering and the _ev_state mutations must be.
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
             and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)]
 
-    # A rotation card names the src→dst PAIR, and each half is remembered from the ring's own events. The
-    # SOURCE has no other witness: the core's status `active` names only the destination, so a fresh panel
-    # knows no source until one happens to rotate — and the destination rotates far more often, so right
-    # after a restart the cards that matter most are the ones missing it. Seed it from the live pool, in
-    # the SAME parallel prefetch (never serially in the loop below, which is what that cost buys), and
-    # only for the links still missing it — so it is a handful of calls once, not one per sweep.
     srcneed = [L for L in links if L.get("type") == "core" and L.get("enabled", True) and L.get("ip_rotate")
                and not _ev_state["rotip"].get(L["id"] + ":src")]
 
@@ -7336,22 +5899,14 @@ def _events_once():
         is_pool = bool(L.get("ws_pool"))
         tr = str(L.get("transport") or "").lower()
         if not is_pool and tr not in STATUSRING_TRANSPORTS:
-            continue  # no core status file -> nothing precise to read (direct udp/tcp/raw/flux + single-edge ws all write one)
+            continue
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
-        r = pre.get(lid)   # prefetched in parallel above; per-link processing below stays sequential + ordered
-        # A FAILED fetch must change nothing. api_edge_status never returns a falsy value on failure — both
-        # failure branches return ok:True with empty active/health/events plus an `error` key — so `if not
-        # r` would not catch an unreachable node, and the empty payload would reset this link's event
-        # high-water and store the active edge as "".
+        r = pre.get(lid)
         if not r or "error" in r:
             continue
 
-        # core event ring (down/up/burn) — consume each exactly once by seq; seed silently on first pass. A
-        # single MALFORMED event from one node must never throw out of this loop: that would kill _events_once
-        # and stop event logging for the WHOLE fleet, and on the first pass prevent init from ever being set.
-        # So coerce seq defensively and wrap the per-link body, so one bad link is skipped, not fatal.
         try:
             raw_evs = r.get("events")
             clean = []
@@ -7362,17 +5917,13 @@ def _events_once():
                     try:
                         sq = int(e.get("seq") or 0)
                     except (TypeError, ValueError):
-                        continue  # a node that emits a non-numeric seq must not break ingestion
+                        continue
                     clean.append((sq, e))
             mx = max([0] + [sq for sq, _ in clean])
             if first:
                 _ev_state["evseq"][lid] = mx
             else:
                 last = _ev_state["evseq"].get(lid, 0)
-                # The core's event seq restarts at 0 on every (re)start. Once mx has fallen BELOW our high-water
-                # the core restarted, and the stale high-water would then skip every post-restart event forever,
-                # so re-baseline from 0. It requires a ring to reason from: an EMPTY one is "no evidence", not
-                # "the core restarted" — a rebuild deletes the status file and the core recreates it empty.
                 if clean and mx < last:
                     last = 0
                 for sq, e in sorted(clean, key=lambda x: x[0]):
@@ -7380,19 +5931,12 @@ def _events_once():
                         continue
                     ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
                     if ekind == "down" and ecode in ("edge-rotate", "sni-rotate"):
-                        # The edge pool's own axes. They do not go through the dst/src pair state below:
-                        # that pairs two IPs, and one half of this pair is a domain. The core names what
-                        # moved, which is the whole answer.
                         lvl, fa = _EV_ROT_CODE[ecode]
                         rotated.add(lid)
                         log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}",
                                   f"به: {_ev_value(edet)}" if _ev_value(edet) else "")
                         continue
                     if ekind == "down" and ecode == "port-roll":
-                        # The core sends «sport:<p> tries:<n>»: the port it came back on and how many
-                        # draws that cost. Handled HERE and not in _ev_core_text, because every code in
-                        # _EV_ROT_CODE is answered in this loop and never reaches it. There is no IP in
-                        # the detail, so it must not fall into the pair state below either.
                         kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
                         lvl = _EV_ROT_CODE[ecode][0]
                         rotated.add(lid)
@@ -7401,20 +5945,12 @@ def _events_once():
                                   f"با پورتِ {kv.get('sport', '?')} برگشت", "")
                         continue
                     if ekind == "down" and ecode in _EV_ROT_CODE:
-                        # source/dest IP rotation. Show the whole PAIR on each side, like a ws edge switch
-                        # shows «ip · sni»: one endpoint alone does not say what the tunnel became, and the
-                        # two axes rotate on their own beats, so «94.183.210.129 -> 94.183.210.128» left the
-                        # operator to remember which destination that was against. The other axis comes from
-                        # what this same ring already reported, so it stays in step with the event order.
                         ip = _ev_ip(edet)
                         axis = "src" if "src" in ecode else "dst"
                         rk = lid + ":" + axis
                         prev = _ev_state["rotip"].get(rk)
                         if ip:
                             _ev_state["rotip"][rk] = ip
-                        # The destination is also in the status file's `active` («raw:bare · 1.2.3.4»), which
-                        # is how the FIRST source rotation can name one — the destination axis may not have
-                        # rotated yet, and until it does the ring says nothing about it.
                         other_k = lid + ":" + ("dst" if axis == "src" else "src")
                         other = _ev_state["rotip"].get(other_k) or ""
                         if axis == "src" and not other:
@@ -7431,24 +5967,16 @@ def _events_once():
                 _ev_state["evseq"][lid] = max(last, mx)
 
             if is_pool:
-                # automatic active-edge switch (suppressed briefly after an operator pin)
                 active = str(r.get("active") or "")
                 prev = _ev_state["edge"].get(lid)
-                # Remember only a REAL edge. An empty `active` is "the core has not picked one yet", not "the
-                # edge changed to nothing" — and storing it poisons prev, so the next sweep sees ""->1.2.3.4 and
-                # logs a warn «چرخش لبه» with a blank «از:» for an edge that never moved. The guard below already
-                # refuses to log on the empty sweep itself; this keeps the empty value out of the state too.
                 if active:
                     _ev_state["edge"][lid] = active
-                # Only when the ring did NOT already report it. The core reports its own rotation now;
-                # this diff stays as the fallback for an edge that changed for some other reason -- a
-                # reconnect landing elsewhere, a burn -- which has no event of its own.
                 if lid in rotated:
                     pass
                 elif not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
                     log_event("ok", "edge", f"تونلِ «{nm}»: چرخش لبه", f"از: {prev}\nبه: {active}")
         except Exception:
-            continue  # one bad link's data must not skip the WHOLE sweep (and stall init) — isolate + move on
+            continue
     for lid in [k for k in _ev_state["edge"] if k not in seen]:
         _ev_state["edge"].pop(lid, None)
     for lid in [k for k in _ev_state["evseq"] if k not in seen]:
@@ -7470,16 +5998,9 @@ def events_loop():
 
 
 def api_events(d):
-    """The WHOLE kept day, newest first, each event carrying the chip it is filed under.
-
-    Nothing is filtered here. The browser holds the day, so it searches and files without a round trip
-    and answers as fast as the operator types. Whether the day has MOVED is a different question, and
-    it is answered by the summary poll the page already makes -- so this is asked for only when it has."""
     d = d or {}
     lim = max(1, min(EVENTS_MAX, _sint(d.get("limit")) or EVENTS_MAX))
-    cut = time.time() - EVENTS_TTL       # the sweep is on a clock, so a read can be up to one tick stale
-    # Snapshot first, build after: the lock is held for the copy alone, not for the thousands of dicts
-    # this makes out of it -- a writer waiting on it is a node event nobody is holding still for.
+    cut = time.time() - EVENTS_TTL
     evs = [dict(e, cat=_ev_cat(e.get("kind")))
            for e in load_events()[:lim] if _sint(e.get("ts")) >= cut]
     return {"ok": True, "events": evs}
@@ -7488,28 +6009,20 @@ def api_events(d):
 def api_events_clear(d):
     global _ev_count, _ev_dirty
     with _events_lock:
-        _ev_all()[:] = []       # in place: the store is the list, and readers hold copies of it
+        _ev_all()[:] = []
         _ev_count = 0
         _ev_dirty = True
-        _ev_flush()        # the operator asked for it to be gone; it is gone from the disk too
+        _ev_flush()
     return {"ok": True}
 
 
 def _pf_field(k, v):
-    """Validate+coerce ONE port-forward field before it is forwarded to a root node's iptables/ip
-    handler. Port-forward is the fleet's most injection-prone endpoint (dst_ips/listen_ip/iface feed
-    straight into `ip`/`iptables`), yet unlike every sibling tunnel-build endpoint it was relayed
-    unvalidated. Raise ValueError on anything malformed so central never becomes the conduit; return
-    the coerced value."""
     if k in ("listen_port", "dst_port"):
         p = _sint(v)
         if not 1 <= p <= 65535:
             raise ValueError(f"bad {k} (1..65535)")
         return p
     if k == "dst_ips":
-        # The forms send this as a comma/space-separated STRING ("10.0.0.1, 10.0.0.2"); a rebuild/API
-        # caller may send a real list. Split a string so multi-target (rotating) port-forward validates
-        # instead of failing with the whole string treated as one bogus IP.
         raw = v if isinstance(v, list) else re.split(r"[\s,]+", str(v))
         ips = [str(x).strip() for x in raw if str(x).strip()]
         if not ips or not all(is_ipv4(x) for x in ips):
@@ -7522,7 +6035,7 @@ def _pf_field(k, v):
         return s
     if k == "iface":
         s = str(v).strip()
-        if not re.match(r"^[A-Za-z0-9._-]{1,15}$", s):   # Linux ifname charset + 15-char limit
+        if not re.match(r"^[A-Za-z0-9._-]{1,15}$", s):
             raise ValueError("bad iface")
         return s
     if k == "interval_min":
@@ -7534,12 +6047,6 @@ def _pf_field(k, v):
 
 
 def _pf_name(v):
-    """Validate a port-forward / chain identifier before it reaches the node's iptables/ip handlers,
-    the delete path, or the traffic-store key. The name is a raw identifier central never generated
-    itself (the caller supplies it on edit/next/del/reset), so — like every sibling portfw field — it
-    must be constrained instead of relayed as-is. Same safe charset as node NAME/iface (letters, digits
-    and «._-», 1..40 chars). Defense-in-depth so central never becomes the conduit for an unvalidated
-    identifier; raises a clear Persian ValueError on anything malformed; returns the stripped name."""
     s = str(v).strip()
     if not re.match(r"^[A-Za-z0-9_.-]{1,40}$", s):
         raise ValueError("نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «._-» (1 تا 40 کاراکتر) مجاز است")
@@ -7547,10 +6054,6 @@ def _pf_name(v):
 
 
 def _pf_push(n, endpoint, body, timeout=NODE_OP_TIMEOUT, ret="name"):
-    """Push a port-forward op to node n and normalize the reply: raise its Persian/error text on failure,
-    refresh n's cache, and return {ok, <ret>: r[ret]}. Shared by portfw / portfw-edit / portfw-next
-    (portfw-del is intentionally NOT routed here — it doesn't raise on !ok and also drops its byte
-    counters)."""
     r = node_call(n, endpoint, "POST", body, timeout=timeout)
     if not r.get("ok"):
         raise ValueError(r.get("error") or r.get("msg") or "failed")
@@ -7574,10 +6077,6 @@ def api_portfw(d):
     return _pf_push(n, "portfw", body)
 
 
-# Port-forwards have no central array — they live in each node's core configs and are aggregated from the
-# RAM cache, so their order is node-order × config-order. To let the operator reorder the cards persistently
-# we keep a thin overlay: an ordered list of stable keys (node_id + name; node_id is a fixed-width token_hex
-# so the concatenation is collision-free). Empty overlay = natural order = unchanged behaviour, so no migration.
 def _pf_key(node_id, name):
     return str(node_id) + str(name)
 
@@ -7591,7 +6090,6 @@ def _pf_load_order():
 
 
 def _pf_sorted(seq, key_of):
-    # stable: overlay-ranked items first in overlay order, everything else keeps its natural order
     order = _pf_load_order()
     rank = {k: i for i, k in enumerate(order)}
     big = len(order)
@@ -7611,35 +6109,35 @@ def _pf_natural_keys():
 
 
 def _reorder_portfw(a, targets):
-    natural = _pf_natural_keys()          # RAM-cache read; do it BEFORE taking _reg_lock (no lock nesting)
+    natural = _pf_natural_keys()
     with _reg_lock:
-        cur = _pf_sorted(natural, lambda k: k)   # current full order = natural set under the existing overlay
+        cur = _pf_sorted(natural, lambda k: k)
         if a not in cur or any(b not in cur for b in targets):
             raise ValueError("item not found")
         for b in targets:
             ia, ib = cur.index(a), cur.index(b)
             cur[ia], cur[ib] = cur[ib], cur[ia]
-        save_json(PORTFW_ORDER_FILE, cur)         # persist the whole order so later swaps are always well-defined
+        save_json(PORTFW_ORDER_FILE, cur)
     return {"ok": True}
 
 
 def api_portfw_list(d):
     off, lim, q = _paginate(d)
     all_pf = []
-    for n in load_nodes():  # aggregate from the cache (RAM) — no live probing on the request path
+    for n in load_nodes():
         r = _cached_list(n["id"])
         if r.get("configs") is None:
             continue
         h = r.get("health") or {}
         node_ips = _flat_ips(_cached_ping(n["id"]))
-        node_ip = node_ips[0] if len(node_ips) == 1 else ""  # single-IP node: its sole IP is the effective listen IP
+        node_ip = node_ips[0] if len(node_ips) == 1 else ""
         tf = _tf_read(n["id"])
         for c in r["configs"]:
             if c.get("type") != "portfw":
                 continue
             if q and q not in n["name"].lower() and q not in str(c.get("name", "")).lower():
                 continue
-            t = tf.get("pf:" + str(c.get("name") or ""))  # live rx/tx rates + lifetime totals (may be absent)
+            t = tf.get("pf:" + str(c.get("name") or ""))
             bw = ({"rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"], "rx_total": t["crx"], "tx_total": t["ctx"]}
                   if t else {"rx_bps": 0.0, "tx_bps": 0.0, "rx_total": 0, "tx_total": 0})
             all_pf.append({"node": n["name"], "node_id": n["id"], "name": c.get("name"),
@@ -7648,7 +6146,7 @@ def api_portfw_list(d):
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
                            "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name")),
                            **bw})
-    all_pf = _pf_sorted(all_pf, lambda it: _pf_key(it["node_id"], it["name"]))  # apply the operator's manual order
+    all_pf = _pf_sorted(all_pf, lambda it: _pf_key(it["node_id"], it["name"]))
     return {"portfw": all_pf[off:off + lim], "total": len(all_pf), "offset": off, "limit": lim}
 
 
@@ -7682,7 +6180,7 @@ def api_portfw_del(d):
     name = _pf_name(d["name"])
     r = node_call(n, "delete", "POST", {"name": name})
     if r.get("ok"):
-        _tf_forget(n["id"], ["pf:" + name])   # drop stale totals so a reused portfw id starts fresh
+        _tf_forget(n["id"], ["pf:" + name])
     _refresh_cache([n["id"]])
     return {"ok": bool(r.get("ok")), "msg": r.get("error", "")}
 
@@ -7692,9 +6190,6 @@ def _flat_ips(ping):
 
 
 def _ping_both(A, B):
-    """Ping both endpoints of a link; raise the Persian "<node> offline" error for whichever is down.
-    Returns (pa, pb) — the raw ping replies the caller flattens with _flat_ips. Shared by
-    create/edit/rebuild."""
     pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
     if not pa.get("ok"):
         raise ValueError(f"نودِ «{A['name']}» آفلاین است")
@@ -7704,18 +6199,6 @@ def _ping_both(A, B):
 
 
 def _guard_addr_on_another_iface(pa, pb, A, B, subnet, skip_ifaces):
-    """Refuse an overlay subnet a node ALREADY holds on some other network card.
-
-    Linux does not complain when two interfaces carry the same prefix — `ip addr add` succeeds, the
-    netdev exists, and the build reports success. What you get instead is a SECOND route for that
-    prefix, and the kernel then sends the peer's address down whichever device it picked. The tunnel
-    comes up, the dashboard paints it green — the probe is bound to the tun device with SO_BINDTODEVICE,
-    so it still gets through — and real traffic leaves by the other card. Nothing anywhere reports it.
-
-    The panel's other two nets do not catch this: the id union only sees addresses that belong to a
-    TUNNEL, and _guard_subnet_overlap only compares against tunnels the panel itself knows. An address
-    put on eth0 by hand is invisible to both. `skip_ifaces` is this tunnel's own device(s), which is
-    exactly where the address is supposed to be."""
     try:
         want = ipaddress.ip_network(subnet, strict=False)
     except ValueError:
@@ -7738,12 +6221,6 @@ def _guard_addr_on_another_iface(pa, pb, A, B, subnet, skip_ifaces):
 
 
 def _guard_subnet_overlap(A, B, subnet, exclude_id=None):
-    """Refuse an overlay subnet that overlaps another tunnel's ON A NODE THE TWO SHARE.
-
-    Unique ids already give unique DEFAULT subnets — this is for the custom one the operator can type.
-    Two tunnels on unrelated pairs may reuse a range (the addresses live on different machines), but two
-    that meet on one node both `ip addr add` out of it, and the kernel then sends the peer's address down
-    whichever device it picked. Nothing anywhere reports it; the tunnel is simply wrong."""
     try:
         want = ipaddress.ip_network(subnet, strict=False)
     except ValueError:
@@ -7759,18 +6236,12 @@ def _guard_subnet_overlap(A, B, subnet, exclude_id=None):
         except ValueError:
             continue
         if want.version == other.version and want.overlaps(other):
-            # The other tunnel's range is worth naming only when it DIFFERS -- an overlap is usually an
-            # exact repeat, and printing the same prefix twice in one sentence reads as a stutter.
             its = "" if other == want else f" ({other})"
             raise ValueError(f"سابنتِ «{subnet}» با تونلِ «{L.get('name')}»{its} روی یک نودِ مشترک "
                              f"هم‌پوشانی دارد؛ بازهٔ دیگری انتخاب کن")
 
 
 def _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=None):
-    """Reject a TRUE duplicate tunnel: the same NON-core type on the same ip-pair, or any ipip/fou sharing
-    an ip-pair. `exclude_id` skips one link so an edit never conflicts with itself. A multi-ip pair may
-    legitimately host several tunnels on different ips; core is carrier-multiplexed (checked precisely by
-    the per-carrier/port logic elsewhere), so it is not blocked here by ip-pair alone. Shared create/edit."""
     new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
     for L in load_links():
         if exclude_id is not None and L.get("id") == exclude_id:
@@ -7778,14 +6249,11 @@ def _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=None):
         same_pair = frozenset([(L.get("a_node"), L.get("a_ip")), (L.get("b_node"), L.get("b_ip"))]) == new_pair
         if L.get("type") == ttype and same_pair and ttype != "core":
             raise ValueError(f"یک تونلِ {ttype} با همین آی‌پی‌ها بینِ این دو نود از قبل هست")
-        if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:  # ipip/fou can't share an ip-pair
+        if ttype in IPIP_FAMILY and L.get("type") in IPIP_FAMILY and same_pair:
             raise ValueError(f"تونلِ «{L.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
 
 
 def _node_ip_tags(nid):
-    """Each current live IP of a node, tagged with which peer node(s) it's tunneled to and the tunnel
-    type of each — so the operator can tell where an IP is used (and pick a free one for a drifted link).
-    Each peer entry is {node, type}; an IP with no peers is 'free'."""
     n = get_node(nid)
     if not n:
         return []
@@ -7799,15 +6267,12 @@ def _node_ip_tags(nid):
             if L.get(mine) != nid:
                 continue
             ent = {"node": L.get(theirs) or "", "type": L.get("type") or "", "name": L.get("name") or ""}
-            # The endpoint IP, AND every IP of a rotation pool. A pooled tunnel spends its whole life
-            # cycling through those, so calling one «آزاد» invites the operator to hand a LIVE address to
-            # another tunnel -- and only the pool's own IPs are ever in it, so nothing else is affected.
             side = "a_ip" if mine == "a_node" else "b_ip"
             for ip in ([L.get(side)] + (list(L.get(pool) or []) if L.get("ip_rotate") else [])):
                 if ip and not any(e["name"] == ent["name"] for e in peers.setdefault(ip, [])):
                     peers[ip].append(ent)
-    pf = {}  # ip -> [portfw names] using it (an IP carrying a forward is in use, not free)
-    only_ip = live[0] if len(live) == 1 else ""   # single-IP node: a forward with no pin still uses that lone IP
+    pf = {}
+    only_ip = live[0] if len(live) == 1 else ""
     for c in (_cached_list(nid).get("configs") or []):
         if c.get("type") == "portfw":
             ip = c.get("listen_ip") or only_ip
@@ -7831,7 +6296,6 @@ def api_node_ips(d):
 
 
 def api_link_rebuild_info(d):
-    """For the manual-rebuild picker: each side's current IPs (tagged) + which side has drifted."""
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -7850,13 +6314,8 @@ def api_link_rebuild_info(d):
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
 
 
-# ----------------------------------------------------------------------------- proxies registry
-# One named proxy, reusable by any number of nodes. The URL carries the credentials and NEVER leaves
-# the server: every read path redacts the userinfo, so the browser sees scheme://host:port and the
-# operator re-types a password only when they mean to change it.
 
 def _proxy_nodes(nodes=None):
-    """{proxy_id: [node, …]} — THE one definition of "which nodes take this proxy"."""
     out = {}
     for n in (load_nodes() if nodes is None else nodes):
         if n.get("proxy_on"):
@@ -7869,7 +6328,6 @@ def _proxy_users(nodes=None):
 
 
 def proxy_url(p):
-    """Compose the dial string from the stored fields. THE one place a proxy becomes a URL."""
     auth = ""
     if p.get("user"):
         auth = "%s:%s@" % (p["user"], p.get("pass") or "")
@@ -7877,18 +6335,16 @@ def proxy_url(p):
 
 
 def _proxy_row(p, users=None):
-    """What the browser is allowed to see. The password never appears — only whether one is set."""
     st = _px_get(p["id"])
     return {"id": p["id"], "name": p["name"], "scheme": p["scheme"], "host": p["host"],
             "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
             "addr": "%s://%s:%d" % (p["scheme"], p["host"], int(p["port"])),
             "nodes": (users if users is not None else _proxy_users()).get(p["id"], []),
-            # the dot: pending until the poller has judged it once, so a fresh proxy is grey, not red
             "online": bool(st.get("ok")), "pending": not st, "status": st}
 
 
 def api_proxies(d):
-    users = _proxy_users()   # read the node list once for the page, not once per proxy
+    users = _proxy_users()
     return {"proxies": [_proxy_row(p, users) for p in load_proxies()]}
 
 
@@ -7902,10 +6358,6 @@ def _proxy_name(d, taken):
 
 
 def _proxy_fields(d):
-    """Validate {scheme, host, port, user, pass} off a request body. Returns them, pass possibly None.
-
-    A credential carrying @ : / or whitespace would compose into a URL that parses as a different host
-    entirely, so it is refused here rather than silently misdialled later."""
     scheme = str(d.get("scheme") or "socks5").strip().lower()
     if scheme not in ("socks5", "http"):
         raise ValueError("نوعِ پروکسی باید socks5 یا http باشد")
@@ -7949,25 +6401,22 @@ def api_proxy_edit(d):
             raise ValueError("پروکسی پیدا نشد")
         p["name"] = _proxy_name(d, {x["name"].lower() for x in ps if x["id"] != p["id"]})
         p["scheme"], p["host"], p["port"], p["user"] = scheme, host, port, user
-        # A blank password means "keep the stored one", the way a blank node token does: the browser is
-        # never sent the password, so submitting the form it was shown must not wipe it.
         if pw:
             p["pass"] = pw
         elif not user:
-            p["pass"] = ""      # no user means no auth at all; a kept password would be dead weight
+            p["pass"] = ""
         save_json(PROXIES_FILE, ps)
     log_event("ok", "node", f"پروکسیِ «{p['name']}»: ویرایش شد", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
 def api_proxy_test(d):
-    """Reach the proxy itself, now, and report its own latency. Same measurement as the dot's."""
     _require(d, ["id"])
     p = get_proxy(str(d["id"]))
     if not p:
         raise ValueError("پروکسی پیدا نشد")
     out = _px_deep(p, _proxy_probe(p, timeout=8))
-    _px_publish(p["id"], out)   # the button and the dot must never disagree
+    _px_publish(p["id"], out)
     return out
 
 
@@ -7980,7 +6429,6 @@ def api_proxy_del(d):
             raise ValueError("پروکسی پیدا نشد")
         used = _proxy_users().get(p["id"], [])
         if used:
-            # Deleting it would drop those nodes back to a DIRECT connection without anyone saying so.
             raise ValueError("این پروکسی روی این نودها فعال است: " + "، ".join(used))
         save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
     log_event("ok", "node", f"پروکسیِ «{p['name']}»: حذف شد")
@@ -7992,28 +6440,19 @@ def api_settings(d):
 
 
 def api_settings_set(d):
-    with _settings_lock:   # atomic read-modify-write (RLock so validate_settings' get_settings re-enters);
-        obj = validate_settings(d or {})   # a concurrent set can't now merge onto a stale snapshot and clobber
+    with _settings_lock:
+        obj = validate_settings(d or {})
         _settings.clear()
         _settings.update(obj)
-        save_json(SETTINGS_FILE, obj)   # write under the lock — concurrent settings-set share one .tmp path and would corrupt it
+        save_json(SETTINGS_FILE, obj)
     return {"ok": True, "settings": obj}
 
 
-_checkin_ctr = {}          # node id -> the highest check-in counter accepted
+_checkin_ctr = {}
 _checkin_ctr_lock = threading.Lock()
 
 
 def _checkin_claimant(d):
-    """The node this check-in is really from, or None.
-
-    It carries a FINGERPRINT of the token rather than the token, and an HMAC over the rest of the body
-    keyed on that token. So the secret never travels in this direction either, and the fingerprint on
-    its own proves nothing: a listener who copies it cannot produce the signature, and a captured
-    check-in cannot be replayed because the counter must strictly increase.
-
-    Being able to move a node's address is worth as much as being able to command it -- the panel
-    follows the claim and then sends that node's control traffic to wherever it points."""
     fp = str(d.get("fp") or "")
     sig = str(d.get("sig") or "")
     if len(fp) != 64 or not sig:
@@ -8036,20 +6475,13 @@ def _checkin_claimant(d):
             return None
         with _checkin_ctr_lock:
             if ctr <= _checkin_ctr.get(node["id"], 0):
-                return None          # a replay: the same check-in, or an older one, sent again
+                return None
             _checkin_ctr[node["id"]] = ctr
         return node
     return None
 
 
 def api_checkin_impl(source_ip, d):
-    """Node -> central check-in. Authenticated by the node's own token (NOT a panel session). Lets a node
-    whose public IP changed tell the panel where it moved to, so control traffic can find it again — the
-    reconciler then heals the tunnels. We only adopt the new address when the panel currently CAN'T reach
-    the node at its stored host, so a working DNS name / static host is never clobbered.
-
-    Adopting is the first step of the self-heal chain, so it obeys the same `reconcile_mode` as the rebuild
-    at the end of it: on "alert" the panel reports where the node moved to and changes nothing."""
     n = _checkin_claimant(d or {})
     if not n:
         return {"ok": False, "error": "unsigned or unknown node"}
@@ -8059,8 +6491,6 @@ def api_checkin_impl(source_ip, d):
         if not n:
             return {"ok": False, "error": "unknown node"}
         n_snap, host, port = dict(n), n.get("host"), int(n.get("port") or 0)
-    # Where the node says it is now: the address this request arrived from, and the agent port it
-    # reports. Either can move without the other, so what is compared and adopted is the PAIR.
     want_host = source_ip if (source_ip and is_ipv4(source_ip)) else host
     try:
         want_port = int((d or {}).get("port") or 0)
@@ -8070,17 +6500,14 @@ def api_checkin_impl(source_ip, d):
         want_port = port
     if (want_host, want_port) == (host, port):
         return {"ok": True, "updated": False, "host": host, "port": port}
-    # probe the CONFIGURED address LIVE (not the cached poll, which may have transiently failed); a
-    # working DNS/static host must never be clobbered on a blip. node_call runs outside _reg_lock.
     if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
         _moved_clear(n_snap["id"])
         return {"ok": True, "updated": False, "host": host, "port": port}
     probe = dict(n_snap)
     probe["host"], probe["port"] = want_host, want_port
     if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
-        return {"ok": True, "updated": False, "host": host, "port": port}  # old address down but the new one does not reach us -> reject
+        return {"ok": True, "updated": False, "host": host, "port": port}
     if get_settings().get("reconcile_mode") != "auto":
-        # manual: the operator moves it. Say WHERE it moved to, or they have no way to know the address.
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
             log_event("warn", "node", f"نودِ «{n_snap.get('name')}»: جابه‌جاییِ نشانی",
                       f"از {host}:{port} به {want_host}:{want_port} رفته و از نشانیِ تازه جواب می‌دهد — روی"
@@ -8088,7 +6515,7 @@ def api_checkin_impl(source_ip, d):
                       " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
         return {"ok": True, "updated": False, "host": host, "port": port, "moved_to": want_host}
     _moved_clear(n_snap["id"])
-    with _reg_lock:  # re-find under lock (registry may have changed during the probes) and persist
+    with _reg_lock:
         nodes = load_nodes()
         n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
         if not n:
@@ -8096,48 +6523,22 @@ def api_checkin_impl(source_ip, d):
         n["host"], n["port"] = want_host, want_port
         host, port, nid = want_host, want_port, n["id"]
         save_json(NODES_FILE, nodes)
-    _refresh_cache([nid])  # re-probe at the new address at once so the fleet view + reconciler catch up
+    _refresh_cache([nid])
     return {"ok": True, "updated": True, "host": host, "port": port}
 
 
-# ----------------------------------------------------------------------------- actions in flight
-# An action that has to talk to a node runs on a panel thread, and the page watches it where the
-# operator started it -- on the card, in the list, in the form. The request that begins one answers as
-# soon as the thread is up, so nothing a node does can time it out.
-#
-# This is not a queue. Nothing waits for a turn, nothing is ordered, there is no worker pool: an action
-# starts at once. Two actions touching the same nodes are serialised by _PairLock, which every one of
-# them already holds.
-#
-# The key IS the place: `link:<id>` for an action on a tunnel that exists, `new:<slot>` for one still
-# being built. One place, one action -- a second press on the same tunnel is refused, not queued.
-ACT_KEEP = 20          # seconds a finished action stays readable where it ran
-ACT_KEEP_FAIL = 600    # a failure waits far longer: the operator has to be able to come back and read it
+ACT_KEEP = 20
+ACT_KEEP_FAIL = 600
 
-_acts = {}             # key -> handle
+_acts = {}
 _act_lock = threading.RLock()
 
 
 class ActCancelled(Exception):
-    """Raised inside an action when the operator cancels it. Never reaches them as an error."""
+    pass
 
 
 def act_step(h, step, i=0, n=0, stop=True, more=None):
-    """Say which step this action is on, and stop it here if the operator asked for that.
-
-    Reporting and cancelling are ONE call on purpose: a step that reports without checking cannot be
-    stopped, and a check that reports nothing is a bar that does not move. So every progress point is a
-    cancel point and vice versa, and neither can be forgotten on its own.
-
-    Two different questions, and conflating them draws a button that does nothing:
-
-      stop  -- is THIS a safe place to stop? A cancel that has already arrived is honoured here.
-               False past the point of no return, where the work is on the nodes and abandoning it
-               would leave them holding something nothing on the panel knows about.
-      more  -- is a LATER step also safe to stop at? That is what the page draws «لغو» from, because a
-               press lands at the NEXT checkpoint, not this one. The last safe step passes more=False,
-               so the button goes as the final node write begins rather than after it returns.
-               Defaults to `stop`, which is right for every step but that one."""
     if h is None:
         return
     with _act_lock:
@@ -8148,7 +6549,6 @@ def act_step(h, step, i=0, n=0, stop=True, more=None):
 
 
 def _act_prune():
-    """Drop finished actions once they have been readable long enough. Caller holds _act_lock."""
     now = time.time()
     for k in [k for k, v in _acts.items() if v["state"] != "run"
               and now - v["ended"] > (ACT_KEEP_FAIL if v["state"] == "fail" else ACT_KEEP)]:
@@ -8156,10 +6556,6 @@ def _act_prune():
 
 
 def act_start(key, fn, target="", page="", ttype=""):
-    """Run fn(h) on its own thread and answer with the key the page watches.
-
-    Whatever fn raises is the verdict, and a result dict that says ok:False is one too -- delete-link
-    refuses that way when a node is unreachable, and its `msg` is the sentence the operator must read."""
     with _act_lock:
         _act_prune()
         cur = _acts.get(key)
@@ -8179,8 +6575,6 @@ def act_start(key, fn, target="", page="", ttype=""):
                 if bad:
                     h.update(state="fail", step="", err=str(bad)[:300], ended=int(time.time()))
                 else:
-                    # An action can succeed and still have something to say -- a force-delete parks the
-                    # teardown of an unreachable end, and the operator has to be told it is coming.
                     h.update(state="done", step="", pct=100, si=h["sn"], can=False,
                              note=str(res.get("msg") or "")[:300], ended=int(time.time()))
         except ActCancelled:
@@ -8195,20 +6589,14 @@ def act_start(key, fn, target="", page="", ttype=""):
 
 
 def act_link(d, fn):
-    """Start an action on a tunnel that already exists. The link is read HERE, not on the thread, so a
-    bad id is a 400 the operator sees at once rather than a card that appears and then fails."""
     lid = (d or {}).get("id")
-    L = next((x for x in load_links() if x["id"] == lid), None)   # compared as the impls compare it
+    L = next((x for x in load_links() if x["id"] == lid), None)
     if not L:
         raise ValueError("link not found")
     return act_start("link:" + str(lid), fn, target=L.get("name") or "")
 
 
 def api_acts(_d):
-    """Every action still running, and the ones that just finished. One read feeds every card.
-
-    `cancel` stays behind: it is how the panel remembers a press, and the page is already told the same
-    thing by the step the press writes."""
     with _act_lock:
         _act_prune()
         out = {k: {x: y for x, y in v.items() if x != "cancel"} for k, v in _acts.items()}
@@ -8216,10 +6604,6 @@ def api_acts(_d):
 
 
 def api_act_cancel(d):
-    """Stop ONE action, where it runs: it stops at its next step and is never killed mid-write.
-
-    Refused once the action has passed the point where stopping is safe. Answering ok there would tell
-    the operator something that is not going to happen."""
     key = str((d or {}).get("act") or "")
     with _act_lock:
         h = _acts.get(key)
@@ -8275,11 +6659,10 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "reorder",
              "act-cancel"}
 
-# ----------------------------------------------------------------------------- HTTP
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "tnl-central"
-    timeout = 60   # per-connection socket timeout so a slow/silent client can't pin a worker thread forever (slowloris)
+    timeout = 60
 
     def log_message(self, *a):
         pass
@@ -8291,21 +6674,9 @@ class Handler(BaseHTTPRequestHandler):
         c = SimpleCookie(self.headers.get("Cookie", ""))
         return check_token(self._conf(), c["tnl_session"].value) if "tnl_session" in c else None
 
-    # How much of a response body goes out per write. `self.timeout` is a socket timeout, and a socket
-    # timeout is applied PER BLOCKING CALL -- so one write of the whole body puts a single deadline on
-    # the entire transfer. MEASURED: an 11 MB core to a node on a ~60-140 KB/s link needs 80-190 s, the
-    # write died at its deadline, and the node read a SHORT body behind a full Content-Length and
-    # reported «checksum mismatch». One write per slice gives each slice its own deadline, so a peer
-    # that is merely slow is never cut, while a peer that has actually stalled still trips it inside one
-    # slice -- which is the slowloris protection the timeout is there for.
     SEND_CHUNK = 64 * 1024
-    # ...and how long ONE such slice may take. Still a stall detector, not a transfer budget: a peer that
-    # has stopped reading trips it, a peer crawling at a few KB/s does not.
     BIG_SEND_TIMEOUT = 120
 
-    # Below this the header and the round trip cost more than the bytes saved. Above it the log page
-    # is the case that decides: a day of events is repeated Persian, which compresses hard, and the
-    # panel is reached over a phone connection.
     GZIP_MIN = 4096
 
     def _send(self, code, body, ctype="application/json", extra=None, big=False):
@@ -8313,7 +6684,6 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps(body)
         data = body.encode() if isinstance(body, str) else body
         enc = ""
-        # `big` is the megabyte-binary path: it streams, and a core binary does not compress.
         if not big and len(data) >= self.GZIP_MIN and "gzip" in self.headers.get("Accept-Encoding", ""):
             data, enc = gzip.compress(data, 6), "gzip"
         self.send_response(code)
@@ -8324,15 +6694,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        # defense-in-depth CSP: the UI leans on inline scripts/handlers/styles and a Google-Fonts @import,
-        # so 'unsafe-inline' is required for script/style; everything else is locked down.
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'self' 'unsafe-inline'; "
                          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
                          "font-src https://fonts.gstatic.com; img-src 'self' data:; "
                          "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-        # never cache: live JSON polls must stay fresh, and the HTML shell must never serve a stale
-        # (old-JS) page after the panel is updated on the server — that stranded users on old behavior.
         self.send_header("Cache-Control", "no-store")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
@@ -8340,17 +6706,12 @@ class Handler(BaseHTTPRequestHandler):
         if not big:
             self.wfile.write(data)
             return
-        # `timeout` above is a per-blocking-call deadline meant to unstick a slowloris on an API call.
-        # A megabyte body is the one place it is the wrong rule: MEASURED panel->Germany, the same 11 MB
-        # took 0.11 s to a node next door and, on a bad minute, delivered 365 KB in 200 s. At that rate a
-        # single chunk can sit in one sendall for most of a minute, and the deadline cuts a transfer that
-        # was moving. Widen it for the body only, and put it back -- every other endpoint keeps the 60 s.
         sock = getattr(self, "connection", None)
         prev = sock.gettimeout() if sock else None
         if sock:
             sock.settimeout(self.BIG_SEND_TIMEOUT)
         try:
-            mv = memoryview(data)   # slice without copying the megabytes
+            mv = memoryview(data)
             for i in range(0, len(mv), self.SEND_CHUNK):
                 self.wfile.write(mv[i:i + self.SEND_CHUNK])
         finally:
@@ -8362,20 +6723,20 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             n = 0
-        n = min(max(n, 0), cap)   # 1MB default — headroom for the agent-upload source (JSON-escaped)
+        n = min(max(n, 0), cap)
         raw = self.rfile.read(n) if n > 0 else b""
         try:
             obj = json.loads(raw.decode()) if raw else {}
         except Exception:
             return {}
-        return obj if isinstance(obj, dict) else {}   # a top-level array/string/number must not reach handlers as non-dict
+        return obj if isinstance(obj, dict) else {}
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             self._send(200, INDEX_HTML if self._user() else LOGIN_HTML, "text/html; charset=utf-8")
         elif path == "/api/dl":
-            self._dl()  # node -> central; token-authenticated inside, no panel session required
+            self._dl()
         elif path.startswith("/api/"):
             self._api(path[5:], "GET")
         else:
@@ -8386,7 +6747,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/login":
             self._login()
         elif path == "/api/checkin":
-            self._checkin()  # node -> central; token-authenticated inside, no panel session required
+            self._checkin()
         elif path == "/api/logout":
             secure = "; Secure" if self._conf().get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
@@ -8396,10 +6757,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def _client_ip(self):
-        # Behind a trusted TLS-terminating proxy every request shares the proxy's TCP address, so keying the
-        # login limiter on it would let one attacker lock out ALL clients. Use the forwarded IP — but ONLY
-        # when the direct TCP peer is actually a trusted proxy, or a client could spoof X-Forwarded-For on
-        # every request and dodge the brute-force limiter entirely. Set conf['trusted_proxies'] if needed.
         peer = self.client_address[0]
         conf = self._conf()
         if conf.get("tls"):
@@ -8425,13 +6782,10 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body()
         conf = self._conf()
         time.sleep(0.3)
-        # Always run the (expensive) PBKDF2 check, even when the username is wrong,
-        # so response time doesn't reveal whether a username exists. compare_digest
-        # keeps the username check constant-time too.
         user_ok = hmac.compare_digest(str(d.get("user", "")), str(conf.get("user") or ""))
         pass_ok = verify_password(conf, str(d.get("pass", "")))
         if user_ok and pass_ok:
-            secure = "; Secure" if conf.get("tls") else ""   # set conf["tls"]=true when TLS-fronted so the cookie never rides plain HTTP
+            secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
@@ -8439,14 +6793,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(401, {"error": "wrong username or password"})
 
     def _dl(self):
-        """Serve a staged artifact to a NODE — the "node fetches it from the panel" delivery mode.
-
-        Authorised by a signed TICKET in the query string, because the node's fetch sends no headers of
-        its own. The ticket names the artifact and expires; it is not a credential for anything else,
-        and no secret of the node's appears in it. What the node installs is still decided by the
-        sha256 and the RSA signature the panel sent it — this endpoint only hands over bytes."""
         ip = self._client_ip()
-        if rate_limited(ip):   # per-source-IP brute-force cap on guessing (same limiter as _login)
+        if rate_limited(ip):
             self._send(429, {"error": "too many attempts, wait a few minutes"})
             return
         q = {k: v[0] for k, v in
@@ -8462,8 +6810,6 @@ class Handler(BaseHTTPRequestHandler):
         if not raw:
             self._send(404, {"error": "not staged"})
             return
-        # A node on a slow path cannot always finish in one go, and starting from zero every time it is
-        # cut never converges. Serving a byte range lets it keep what already arrived.
         start = _range_start(self.headers.get("Range", ""), len(raw))
         if start is None:
             self._send(416, {"error": "bad range"}, extra={"Content-Range": "bytes */%d" % len(raw)})
@@ -8473,15 +6819,15 @@ class Handler(BaseHTTPRequestHandler):
                        extra={"Accept-Ranges": "bytes",
                               "Content-Range": "bytes %d-%d/%d" % (start, len(raw) - 1, len(raw))})
             return
-        self._send(200, raw, "application/octet-stream", big=True,   # megabytes: one deadline per slice
+        self._send(200, raw, "application/octet-stream", big=True,
                    extra={"Accept-Ranges": "bytes"})
 
     def _checkin(self):
         ip = self._client_ip()
-        if rate_limited(ip):   # per-source-IP brute-force cap on token guessing (same limiter as _login)
+        if rate_limited(ip):
             self._send(429, {"error": "too many attempts, wait a few minutes"})
             return
-        try:  # like _api: a handler exception (e.g. mid-refresh) must still yield a clean response
+        try:
             res = api_checkin_impl(self.client_address[0], self._body())
         except ValueError as e:
             self._send(400, {"error": str(e)})
@@ -8507,7 +6853,6 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("X-Requested-With") != "tnl-central":
                 self._send(403, {"error": "bad request"})
                 return
-        # a custom core binary (base64) needs far more than the 1MB default; everything else keeps the tight cap
         d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
         try:
             self._send(200, _dispatch(cmd, d))
@@ -8516,7 +6861,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send(500, {"error": f"internal error: {str(e)[:120]}"})
 
-# ----------------------------------------------------------------------------- UI
 
 LOGIN_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>ورود · کنترل فلیت</title>
@@ -8582,9 +6926,9 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .navi:hover{background:var(--glass)}
 .navi.on{color:var(--acc);background:var(--accw);font-weight:700}
 .navi.on .ct{color:var(--acc);background:transparent;border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
-.navi .ctwrap{margin-inline-end:auto;display:flex;gap:4px;align-items:center;direction:ltr}  /* [total][unread] L->R, pinned to the far LEFT edge like other counts. NOTE: the wrap is direction:ltr, so in the RTL nav row the auto margin must sit on inline-END (=physical right=main-start) to push the cluster left — margin-inline-START:auto would (wrongly) shove it toward the label. */
+.navi .ctwrap{margin-inline-end:auto;display:flex;gap:4px;align-items:center;direction:ltr}  
 .navi .ctwrap .ct{margin-inline-start:0}
-.navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;min-width:20px}  /* unread-logs badge: accent, distinct from the neutral total */
+.navi .ct.ctun{color:#fff;background:var(--acc);border-color:transparent;min-width:20px}  
 .navi.on .ct.ctun{color:#fff;background:var(--acc);border-color:transparent}
 .live{margin-top:14px;padding:12px;border-radius:13px;background:var(--glass);border:1px solid var(--bord)}
 .main{flex:1;min-width:0;max-width:1120px;padding:22px 26px 64px}
@@ -8597,7 +6941,6 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .ic{display:inline-flex;width:1.15em;height:1.15em;vertical-align:-3px;flex:0 0 auto;stroke:currentColor}
 @media(max-width:840px){
  .side{position:fixed;top:0;width:250px;flex-basis:250px;transition:transform .25s}
- /* RTL (fa): drawer docks/opens from the RIGHT; LTR (en): from the LEFT */
  [dir="rtl"] .side{right:0;left:auto;transform:translateX(100%);box-shadow:-20px 0 50px -24px rgba(20,30,60,.4)}
  [dir="ltr"] .side{left:0;right:auto;transform:translateX(-100%);box-shadow:20px 0 50px -24px rgba(20,30,60,.4)}
  body.navopen .side{transform:translateX(0)}
@@ -8612,8 +6955,6 @@ h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin
 .card.rdrag{z-index:60;overflow:visible;cursor:grabbing;box-shadow:0 20px 44px -14px rgba(20,40,90,.5);border-color:color-mix(in srgb,var(--acc) 45%,transparent);opacity:.98;transition:none}
 body.rdragging{cursor:grabbing;-webkit-user-select:none;user-select:none}
 body.rdragging .card:not(.rdrag){transition:transform .12s ease}
-/* explicit reorder mode: a grip appears on each card and ONLY the grip drags (touch-action:none), so
-   normal tap / scroll / text-copy keep working everywhere else. Toggled from the toolbar button. */
 .rgrip{display:none}
 body.reord-on .rgrip{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:27px;height:27px;border-radius:8px;color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent);cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;margin-inline-end:2px}
 body.reord-on.rdragging .rgrip{cursor:grabbing}
@@ -8622,7 +6963,6 @@ body.reord-on .card[data-rid]{border-color:color-mix(in srgb,var(--acc) 32%,tran
 .reordbtn svg{width:19px;height:19px}
 body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparent}
 .grid .card{margin-bottom:0}
-/* accordion tunnel/core cards */
 .card.acc{padding:0}
 .card.acc.off{opacity:.72}
 .chead{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none}
@@ -8643,7 +6983,7 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .chev{width:16px;height:16px;color:var(--sub);transition:transform .2s;flex:0 0 auto}
 .card.open .chev{transform:rotate(180deg)}
 .cbody{max-height:0;overflow:hidden;transition:max-height .28s ease}
-body.reord-on .cbody{transition:none}   /* reordDown reads scrollHeight right after collapsing a card */
+body.reord-on .cbody{transition:none}   
 .card.open .cbody{max-height:720px}
 .cbody-in{padding:12px 14px 14px;border-top:1px solid var(--bord)}
 .offtxt{color:var(--bad);font-weight:700}
@@ -8670,7 +7010,6 @@ body.reord-on .cbody{transition:none}   /* reordDown reads scrollHeight right af
 .badge.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 32%,transparent)}
 .badge.na{background:var(--glass);color:var(--sub);border:1px solid var(--bord)}
 .badge.warn{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 34%,transparent)}
-/* line-height pinned: at `normal` the font metrics set the pill height, not the padding */
 .tag{font-size:10.5px;line-height:1.5;text-transform:uppercase;letter-spacing:.4px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);color:var(--acc);border-radius:7px;padding:0 6px;font-weight:700}
 .tag.sit{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .tag.gre{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
@@ -8696,9 +7035,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .chh{font-weight:700;margin-bottom:3px}.chl{padding:1.5px 0;line-height:1.6}
 .link{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.arrow{color:var(--acc);font-weight:800;font-size:16px}
 .msbtn{width:100%;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13.5px;cursor:pointer;text-align:start;display:flex;align-items:center;justify-content:space-between;font-family:inherit}
-/* The count is its own LTR island so the bidi algorithm cannot pull it into the label -- and the auto
-   margin is PHYSICAL on purpose: margin-inline-start resolves against the ELEMENT's direction, which
-   is ltr here, so it landed on the left and pushed the count right instead of left. */
 .mssub{margin-right:auto;color:var(--sub);font-size:12px;direction:ltr;unicode-bidi:isolate}
 .msbtn.ph{color:var(--sub)}.msbtn .cv{color:var(--sub);transition:.2s;font-size:12px}.msbtn.open .cv{transform:rotate(180deg);color:var(--acc)}
 .mslist{margin-top:7px;border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--card)}
@@ -8731,21 +7067,15 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pinfo{color:var(--sub);font-size:12px;min-width:120px;text-align:center}
 @media(prefers-reduced-motion:no-preference){#view>*{animation:rise .45s cubic-bezier(.22,.61,.36,1) both}}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-/* desktop: node/tunnel/portfw cards in two columns */
 @media(min-width:900px){
  #nodeList,#linkList,#pfList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
  #nodeList>.card,#linkList>.card,#pfList>.card{margin-bottom:0}
  #nodeList>.card.muted,#linkList>.card.muted,#pfList>.card.muted{grid-column:1/-1}
 }
-/* skeleton shimmer: a visible placeholder grey (--sk-base) with a clearly brighter sweep (--sk-hi),
-   so it reads as a loading placeholder in BOTH themes (the old glass/field pair was near-invisible in light). */
 .sk{display:block;background:linear-gradient(90deg,var(--sk-base) 0%,var(--sk-base) 38%,var(--sk-hi) 50%,var(--sk-base) 62%,var(--sk-base) 100%);background-color:var(--sk-base);background-size:220% 100%;border-radius:7px;animation:shim 1.25s ease-in-out infinite}
 @keyframes shim{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}
-/* skeleton loading: shimmer bars laid out INSIDE the real card classes (skNodeCard/skAccCard/
-   skPfCard/skAgRow), so each page's loading state is pixel-identical to its loaded card. */
 @media(prefers-reduced-motion:reduce){.sk{animation:none}}
-/* ===== system-log category filter: a SINGLE horizontal row that scrolls sideways (never wraps) ===== */
 .logmore{cursor:pointer;text-align:center;font-weight:700}
 .logmore:active{opacity:.6}
 .logchips{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;margin:0 0 12px;padding:2px 1px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
@@ -8757,50 +7087,28 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .fchip.on{color:#fff;background:var(--acc);border-color:var(--acc)}
 .fchip .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sub) 18%,transparent);border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
 .fchip.on .ct{background:rgba(255,255,255,.25);color:#fff}
-/* --- system log ------------------------------------------------------------------------------ */
 .logcard{display:flex;margin-bottom:9px;padding:0;overflow:hidden;box-shadow:var(--sh-sm)}
 .logcard .lstripe{width:4px;flex:0 0 auto}
 .logcard .lbody{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;flex:1;min-width:0}
 .logcard .lico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto;margin-top:1px}
 .logcard .lico .ic{width:15px;height:15px}
 .logcard .lmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
-/* The title carries the whole reason, on its own line. */
 .logcard .ltitle{font-size:13px;font-weight:800;line-height:1.6;overflow-wrap:anywhere;color:var(--tx)}
-/* The timestamp shares the TITLE's line, not the whole card's. It never shrinks (a Persian date is wide
-   and must not wrap), so as a sibling of the detail column it took a third of a phone's width away from
-   it — and an endpoint pair that no longer fits wraps, which is the one thing these boxes must not do. */
 .logcard .lhead{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
 .logcard .ltime{flex:0 0 auto;color:var(--sub);font-size:10.5px;white-space:nowrap;margin-top:2px}
-/* from -> to: one row per side, the label fixed-width so the two values line up under each other. */
 .lfromto{display:flex;flex-direction:column;gap:5px}
-/* baseline, not center: against a value that wraps to several lines the label must sit on the
-   FIRST line, not float halfway down the pill. */
 .lft{display:flex;align-items:baseline;gap:6px;min-width:0}
-/* No fixed label width: «از:» and «به:» are the same length anyway, so a fixed column only pushed
-   the value away from the edge it should sit against. */
 .lft .k{flex:0 0 auto;font-size:11px;color:var(--sub);text-align:start}
-/* The pill hugs its value, so a bare IP stays a small chip. A value too long for the row — an
-   «IP:port · SNI» endpoint, a base64 ECH key — WRAPS inside the pill. It used to scroll instead,
-   which hid the rest of the value behind a horizontal gesture nobody would think to make on a log
-   entry; showing the value whole is the entire point of the box. */
 .lft .v{flex:0 1 auto;max-width:100%;min-width:0;direction:ltr;unicode-bidi:isolate;text-align:left;
   font-size:11.5px;line-height:1.8;padding:4px 9px;border-radius:8px;background:var(--field);
   border:1px solid var(--bord);color:var(--tx);overflow-wrap:anywhere;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .lft.to .v{color:var(--acc);background:var(--accw);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
-/* An endpoint is one word. The pair may wrap, but only at the arrow — an address split across two
-   lines reads as two addresses. */
 .ep{white-space:nowrap}
 .ep-a{padding:0 5px;opacity:.65}
 .lnote{font-size:11.5px;color:var(--sub);line-height:1.85;overflow-wrap:anywhere}
-/* The fold. Collapsed is the default so the reason line is what a glance lands on; the endpoints are
-   one tap away. Height is not animated — the body's height depends on how many rows and how far each
-   value wraps, so a fixed max-height either clips a long pair or leaves a gap under a short one. */
 .lfold .lfbody{display:none;margin-top:7px}
 .lfold.open .lfbody{display:block}
-/* The whole card is the control now, so it has to LOOK like one — there is no chevron left to say so.
-   Only a card with something to open gets this; the rest stay plain, which is the difference an
-   operator reads before tapping. */
 .logcard.logtap{cursor:pointer}
 .logcard.logtap:hover{border-color:color-mix(in srgb,var(--acc) 38%,transparent)}
 .logcard.logtap:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
@@ -8810,7 +7118,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .lcat-ech{color:#8a63f0;background:color-mix(in srgb,#8a63f0 16%,transparent)}
 .lcat-node{color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
 .lcat-sys{color:var(--sub);background:color-mix(in srgb,var(--sub) 15%,transparent)}
-/* ===== popup modal shell (edit forms + node details) — gated behind .wide so confirmBox's .modal is untouched ===== */
 .modal.wide{width:414px;max-width:100%;display:flex;flex-direction:column;max-height:min(88vh,760px);padding:0;overflow:hidden;background:var(--card);animation:modrise .2s cubic-bezier(.2,.7,.3,1)}
 @keyframes modrise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
 .msticky{flex:0 0 auto;padding:15px 18px 12px;border-bottom:1px solid var(--bord);background:var(--card);display:flex;align-items:center;gap:10px}
@@ -8829,11 +7136,9 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .mbody label.first{margin-top:2px}
 .mfoot{flex:0 0 auto;padding:12px 18px 15px;border-top:1px solid var(--bord);background:var(--card);display:flex;gap:10px}
 .mfoot .primary,.mfoot .ghost{flex:1;margin:0}
-/* hug = buttons sized to their text, sitting at the start edge (the right, in RTL) like confirmBox */
 .mfoot.hug .primary,.mfoot.hug .ghost{flex:0 0 auto}
 .lpill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--ok);background:var(--okw);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent);border-radius:20px;padding:2px 8px}
 .lpill .pd{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:lpulse 1.4s infinite}
-/* per-node upload bar: one push at a time, so this is the only place the fleet's progress is drawn */
 .pushbar{height:6px;border-radius:4px;background:var(--field);border:1px solid var(--bord);overflow:hidden;margin-top:6px}
 .pushbar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s linear}
 .pushbar.ok>i{background:var(--ok)}.pushbar.err>i{background:var(--bad)}
@@ -8848,7 +7153,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .lpill.off{color:var(--sub);background:transparent;border-color:var(--bord)}
 .lpill.off .pd{background:var(--sub);animation:none}
 @keyframes lpulse{0%,100%{opacity:1}50%{opacity:.25}}
-/* node-details content */
 .nd-head{display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--bord);margin-bottom:14px}
 .nd-head .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
 .nd-head .dot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--okw)}
@@ -8878,7 +7182,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .nd-tile b.ltr{direction:ltr;text-align:right}
 .nd-off{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:26px 10px;background:var(--badw);border:1px solid var(--bord);border-radius:12px}
 .nd-off .ic{width:30px;height:30px;color:var(--bad)}.nd-off b{font-size:14px;color:var(--tx)}.nd-off span{font-size:12px;color:var(--sub)}
-/* traffic section (node-details) */
 .nd-sec{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--sub);margin:2px 2px 10px}
 .nd-sec .ic{width:15px;height:15px;color:var(--acc)}
 .nd-divider{height:1px;background:var(--bord);margin:15px 0 13px}
@@ -8889,8 +7192,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ttiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .ttile{background:var(--field);border:1px solid var(--bord);border-radius:11px;padding:9px 11px}
 .ttile>span{font-size:11px}.ttile b{display:block;font-size:14px;margin-top:2px;font-variant-numeric:tabular-nums;direction:ltr;text-align:right}
-#view .gauges{margin-bottom:0}#view .ttiles{margin-bottom:0}   /* overview reuses node-detail gauges/tiles in a standalone card — drop the modal's trailing gap */
-/* ===== overview: accurate fleet stats ===== */
+#view .gauges{margin-bottom:0}#view .ttiles{margin-bottom:0}   
 .ohero{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .oscore{font-size:44px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
 .oscore-l{font-size:11.5px;color:var(--sub);margin-top:3px}
@@ -8936,35 +7238,25 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .tf-tuns .tf-row:first-child{border-top:0}
 .tf-nm{display:flex;align-items:center;gap:6px;min-width:0;font-weight:700}.tf-nm .mono{font-size:11.5px}
 .tf-fig{margin-inline-start:auto;display:flex;align-items:center;gap:10px;white-space:nowrap;font-variant-numeric:tabular-nums}.tf-fig .tot{color:var(--sub)}
-/* traffic line on the tunnel card */
 .ltraf{margin-top:10px;padding-top:9px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:13px;font-size:12px;font-variant-numeric:tabular-nums}
-/* the node row's copy hangs off the head, not the collapsible body, so it carries the head's own inline padding */
 .ndtraf{margin:0 14px;padding:9px 0 12px}.ltraf .tot{color:var(--sub);margin-inline-start:auto;display:flex;align-items:center;gap:6px}
-.iso{direction:ltr;unicode-bidi:isolate}   /* keep a value+unit (and its ↓/↑) LTR so it never jumbles inside the RTL layout */
+.iso{direction:ltr;unicode-bidi:isolate}   
 .tot .iso{display:inline-flex;gap:8px}
 .act.flip{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,transparent)}
 .act.reset{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
-/* slimmed node card: plain meta labels (NOT boxed — distinct from the .chip icon badge) */
 .nchips{display:grid;grid-template-columns:auto auto;justify-content:start;gap:7px 16px;margin-top:9px}
 .nchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--sub)}
 .nchip b{color:var(--tx);font-weight:700}.nchip .ic{width:13px;height:13px;color:var(--sub)}
-/* uptime bar on the node card */
 .upwrap{margin-top:11px}
 .uptop{display:flex;align-items:center;font-size:11.5px;color:var(--sub);margin-bottom:6px}.uptop b{color:var(--tx)}.uptop .r{margin-inline-start:auto}
 .upbar{display:flex;gap:2px;height:22px;direction:ltr}
 .upbar i{flex:1;border-radius:2px;background:var(--ok);min-width:1px}.upbar i.d{background:var(--bad)}.upbar i.g{background:color-mix(in srgb,var(--sub) 28%,transparent)}
-/* agent update page */
 .drop{border:1.5px dashed color-mix(in srgb,var(--acc) 45%,transparent);border-radius:13px;padding:18px;text-align:center;background:var(--accw);color:var(--sub);font-size:12.5px;cursor:pointer;margin-top:4px}.drop b{color:var(--acc)}
 .banner{display:flex;align-items:center;gap:12px}.banner .v{font-size:13.5px;font-weight:800}
-/* ---- settings + update page ------------------------------------------------------------------
-   ONE ruler for the whole page: every control is --sc-h tall and every control column --sc-w wide, so
-   the inner edge of a card is a straight line whatever sits in each row. Two columns wherever there
-   is room: the setting groups, the two update cards, and the node list. */
 .stpage{--sc-h:38px;--sc-w:186px;--sc-g:12px}
 .stgrid>.card{margin-bottom:var(--sc-g)}
 @media(min-width:900px){.stgrid{column-count:2;column-gap:var(--sc-g)}
  .stgrid>.card{break-inside:avoid}}
-/* the two update cards DO share a row, so they stretch to each other and their go buttons line up */
 .opgrid{display:grid;grid-template-columns:1fr;gap:var(--sc-g);align-items:stretch}
 @media(min-width:900px){.opgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .sg{padding:0;overflow:hidden}
@@ -9006,15 +7298,12 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .srexp .srex{margin-top:5px;color:var(--sub)}
 .srexp .srex b{color:var(--acc);font-weight:700}
 .srnote{margin:8px 2px 0;font-size:11px;line-height:1.85;color:var(--sub)}
-/* The save bar rides the bottom of the viewport: the groups are two columns tall, and a save that
-   scrolls away is one the operator has to hunt for after every edit. */
 .stsave{position:sticky;bottom:10px;z-index:5;display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap;margin-top:var(--sc-g);
   padding:9px 13px;border-radius:14px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
 .stnote{margin:2px 2px 10px;font-size:11px;line-height:1.85;color:var(--sub)}
 .stsave button{margin:0;flex:none;height:var(--sc-h);padding:0 15px;border-radius:10px;font-size:12.5px;
   display:inline-flex;align-items:center;gap:6px}
 .stsave .msg{flex:none;margin:0}
-/* the two update cards share one skeleton, so agent and core cannot drift apart visually */
 .opc{padding:14px;display:flex;flex-direction:column;gap:10px}
 .opc .ophd{display:flex;align-items:center;gap:9px}
 .opc .ophd .sgt{width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;
@@ -9042,8 +7331,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
   align-items:center;justify-content:center;gap:7px}
 .opgo .ic{width:15px;height:15px}
 .ophint{font-size:10.5px;color:var(--sub);line-height:1.7;margin:0}
-/* ---- one node, one card, two columns. The action row is pinned to the bottom, so the buttons of a
-   card that is carrying a progress bar still line up with the buttons of the card beside it. */
 #agList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sc-g);align-items:stretch}
 .nx{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--bord);
   border-radius:14px;padding:11px 13px;box-shadow:var(--dsh)}
@@ -9065,10 +7352,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .nxa{display:flex;gap:7px;margin-top:auto}
 .nxa .ib{width:34px;height:34px;border-radius:10px}
 .nx .agres{margin:0;min-height:0;font-size:11.5px}
-.nx .agres:empty{display:none}   /* costs no gap until there IS a result, so the list never jumps */
+.nx .agres:empty{display:none}   
 .nx .pushbar{margin-top:0}
-/* readiness bar: the panel is missing something the install / core-build needs. Above the view, so it
-   is the same warning on whatever page the operator happens to be on. */
 .rdbar{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:11px 13px;border-radius:13px;
   background:color-mix(in srgb,var(--gold) 12%,var(--card));border:1px solid color-mix(in srgb,var(--gold) 38%,transparent)}
 .rdbar .ic{width:17px;height:17px;flex:0 0 auto;stroke:var(--gold)}
@@ -9081,7 +7366,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .ib .ic{width:15px;height:15px}
 .ib.up{background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent)}
 .ib:disabled{opacity:.42;cursor:not-allowed}
-/* the running job's controls: a floating pill within thumb reach, so they stay put while the list scrolls */
 .pfab{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:999px;background:var(--card);border:1px solid color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:var(--dsh)}
 .pfab .pfn{font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;padding-inline-start:4px}
 .pfab .pfn s{text-decoration:none;color:var(--sub);font-weight:700}
@@ -9090,31 +7374,21 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pfb.stop{border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:var(--bad)}
 .pfb:disabled{opacity:.35;cursor:not-allowed}
 body.pushing .toast{bottom:74px}
-/* icon-only card action buttons */
-/* A core card carries SEVEN of these and the row is 315px on a 375px phone: at gap 8 the seventh
-   wraps onto a line of its own. Six is what fits, so the icon-only row takes a tighter gap. */
 .nact.iconly{gap:6px}
 .nact.iconly .act{padding:8px 11px}
 .nact.iconly .act .ic{width:15px;height:15px}
-/* prominent check-all button */
 .chkall{display:inline-flex;align-items:center;gap:6px;background:#2f9e6f;color:#fff;border:0;font-weight:800;font-size:13px;padding:12px 18px;border-radius:12px;cursor:pointer;font-family:inherit;box-shadow:0 9px 20px -11px color-mix(in srgb,var(--ok) 70%,transparent)}
-body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA contrast in dark mode */
+body.dark .chkall{background:#1f7a56}   
 .chkall .ic{width:15px;height:15px}
 .chkall:active{transform:scale(.97)}
-/* tunnels toolbar: make «افزودن تونل» and «بررسی اتصال همگانی» pixel-identical (equal width + height + font) */
 .tbtnrow{display:flex;gap:8px;margin:14px 0 10px;flex-wrap:wrap}
-/* Action buttons were full-bleed slabs: 13px text in a 12x14 box stretched edge to edge, which on a
-   phone reads as a banner rather than a control. Size them to their label, keep a 40px tap target. */
 .tbtnrow>button{flex:0 1 auto;min-width:0;display:inline-flex;align-items:center;justify-content:center;
   gap:6px;margin:0;font-size:12.5px;line-height:1.2;padding:9px 15px;min-height:38px;border-radius:10px}
 .tbtnrow>button.primary{flex:0 1 auto}
 .tbtnrow>button .ic{width:14px;height:14px}
-/* «بازگردانی به پیش‌فرض» sat on --glass with --sub text and was nearly invisible on the card's own
-   background. It needs to be readable without competing with Save — a legible outline, not a fill. */
 .tbtnrow>button.ghost{background:var(--glass);border:1px solid var(--bord);color:var(--tx);font-weight:700}
 .tbtnrow>button.ghost:hover{background:var(--field);border-color:var(--sub)}
 .tbtnrow>button .ic{width:15px;height:15px}
-/* command palette (Ctrl+K) */
 .modalov.palov{align-items:flex-start;padding-top:64px}
 .pal{width:460px;max-width:94%;background:var(--card);border:1px solid var(--bord);border-radius:16px;box-shadow:0 30px 70px -24px rgba(0,0,0,.55);overflow:hidden;max-height:70vh;display:flex;flex-direction:column;animation:modrise .18s ease}
 .palin{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--bord);flex:0 0 auto}
@@ -9127,25 +7401,17 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .palrow .gi{width:26px;height:26px;border-radius:8px;background:var(--field);display:grid;place-items:center;color:var(--acc);flex:0 0 auto}.palrow .gi .ic{width:14px;height:14px}
 .palrow .sub{color:var(--sub);font-size:11.5px;margin-inline-start:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .palfoot{display:flex;gap:14px;padding:9px 15px;border-top:1px solid var(--bord);font-size:10.5px;color:var(--sub);flex:0 0 auto}
-/* node cards are accordion (chead + collapsing cbody) — no forced flex-column/equal-height (that would block the collapse) */
-/* tunnel card: two node tiles (name + status pill + address) with ↔ between them, then a 2-col meta grid */
 .tninfo{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:2px;direction:ltr}
-.tninfo>*{direction:rtl}   /* columns flow LTR, so the last child is the right one; each box keeps RTL content */
+.tninfo>*{direction:rtl}   
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
-/* The FRAME carries the state, never the fill: a filled box drowns the address and the role chip it
-   sits behind. Only the COLOUR changes — the width stays the 1px the action buttons use, so the box
-   keeps the same weight as everything around it and nothing reflows. */
 .tnnode.st-ok{border-color:var(--ok)}
 .tnnode.st-warn{border-color:var(--gold)}
 .tnnode.st-bad{border-color:var(--bad)}
 .tnnode.st-na{border-color:var(--bord)}
-/* The status span is empty whenever there is nothing to say, and an empty flex child still collects the
-   row's gap — which left the role chip floating away from the edge once the dot moved to the header. */
 .tnend .stat:empty,.tnhead .stat:empty{display:none}
 .tnhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
 .tnnode .tnn{font-size:13px;font-weight:800;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tnnode .tna{font-size:13px;font-weight:700;color:var(--sub);overflow-wrap:anywhere}
-/* ── an action, drawn on the thing it is happening to ── */
 .arow{margin-top:11px;padding-top:10px;border-top:1px dashed var(--bord);display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--sub);flex-wrap:wrap}
 .ast{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;flex:0 0 auto;display:inline-flex;align-items:center;gap:5px}
 .ast.run{color:var(--acc);background:var(--accw)}
@@ -9153,15 +7419,12 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .ast.fail{color:var(--bad);background:var(--badw)}
 .ast.done{color:var(--ok);background:var(--okw)}
 .astep{flex:1 1 auto;min-width:0;line-height:1.7;color:var(--tx);font-weight:600;overflow-wrap:anywhere}
-/* the class rides only on the paint where the words changed, so the step reads as one line giving way
-   to the next instead of a label being overwritten */
 .astep.sw{animation:astepin .34s cubic-bezier(.22,.7,.3,1)}
 @keyframes astepin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .aclock{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:11px;color:var(--sub);flex:0 0 auto}
 .abar{flex:1 1 100%;height:5px;border-radius:3px;background:var(--bord);overflow:hidden}
 .abar>i{display:block;height:100%;width:0;background:var(--acc);border-radius:3px;transition:width .6s cubic-bezier(.4,0,.2,1)}
 .abar.cancel>i{background:var(--gold)}.abar.fail>i{background:var(--bad)}.abar.done>i{background:var(--ok)}
-/* nothing to fill to: sweep, rather than invent a percentage */
 .abar.spin>i{width:38%;background:linear-gradient(90deg,transparent,var(--acc),transparent);transition:none;animation:asweep 1.25s ease-in-out infinite}
 @keyframes asweep{from{transform:translateX(-100%)}to{transform:translateX(263%)}}
 .abtn{flex:0 0 auto;font:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:9px;border:1px solid var(--bord);background:var(--field);color:var(--sub);transition:.15s}
@@ -9170,41 +7433,29 @@ body.dark .chkall{background:#1f7a56}   /* darker green so white text keeps AA c
 .abtn.danger:hover{background:var(--badw)}
 .apulse{width:7px;height:7px;border-radius:50%;background:var(--acc);flex:0 0 auto;animation:jp 1.5s ease-in-out infinite}
 @keyframes jp{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
-/* a card with something happening to it: one line travelling along its top edge, and the figures below
-   dimmed, because they describe the shape being replaced. .card already clips, so ::after stays inside */
 .card.acting::after{content:'';position:absolute;top:0;left:0;height:2px;width:34%;border-radius:2px;pointer-events:none;
  background:linear-gradient(90deg,transparent,var(--acc),transparent);animation:acardsweep 1.9s ease-in-out infinite}
 @keyframes acardsweep{from{transform:translateX(-100%)}to{transform:translateX(194%)}}
 .card.acting .tninfo,.card.acting .enmeta{opacity:.72}
 @media (prefers-reduced-motion:reduce){.apulse{animation:none;opacity:.9}.abar>i{transition:none}
  .abar.spin>i,.card.acting::after,.astep.sw{animation:none}}
-/* tap-to-copy value: dotted underline hugs the glyphs, so it reads the same on a block .tna and on an
-   inline <b> inside a meta row. */
 .cpv{cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}
 .cpv:active{opacity:.5}
-/* A card that has just arrived settles in instead of appearing. The one case this is FOR is the
-   swap at the end of a build: the placeholder goes and the real card takes its place in the same
-   frame, which without this reads as a flicker. */
 @keyframes jcardin{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:none}}
 .card.jin{animation:jcardin .34s cubic-bezier(.22,.7,.3,1)}
-/* the placeholder is a tunnel that does not exist yet -- it should look like it is coming, not like
-   a card that failed to load */
 @keyframes jbreathe{0%,100%{opacity:.72}50%{opacity:1}}
 .card.apend .hname{animation:jbreathe 2.1s ease-in-out infinite}
 .card.apend{border-style:dashed}
 @media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.apend .hname{animation:none}}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
-/* portfw card: two columns — ports on one side, destinations/rotation on the other */
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
 .card.node .noff .ic{width:15px;height:15px;color:var(--bad)}
 .card.node .noff b{font-size:12px;color:var(--bad)}.card.node .noff span{font-size:11px;color:var(--sub)}
-/* semantic action-button colors */
 button.act.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 42%,transparent)}
 button.act.info{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 38%,transparent)}
 button.act.warn{color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)}
 button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}
 @media(prefers-reduced-motion:reduce){.modal.wide{animation:none}.gfill{transition:none}.lpill .pd{animation:none}}
-/* IP tag rows (node details) + rebuild IP picker — additive, new classes only */
 .ndips{margin-top:2px}
 .iptag{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--bord)}
 .iptag .tgs{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
@@ -9215,8 +7466,6 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .rbrow.sel .rbdot{border-color:var(--acc)}
 .rbrow.sel .rbdot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
 .rbrow .rbtags{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
-/* IP peer chips (node details + picker): tap a node chip to reveal the tunnel type */
-/* IP peer chip: tap to swap the label in place between node name and interface name */
 .ippeer{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;background:var(--accw);color:var(--acc);cursor:pointer;user-select:none;transition:transform .12s,background .15s,color .15s}
 .ippeer:active{transform:scale(.95)}
 .ippeer .ipn{display:inline-flex;align-items:center;gap:4px}
@@ -9224,7 +7473,6 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .ippeer.show .ipn{display:none}
 .ippeer.show .ipi{display:inline}
 .ippeer.show{background:var(--acc);color:#fff}
-/* ===== add-node: mode switch + SSH auto-install progress ===== */
 .seg{display:flex;background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:4px;gap:4px;margin-bottom:14px}
 .seg button{flex:1;border:0;background:transparent;color:var(--sub);font-family:inherit;font-weight:800;font-size:13px;padding:9px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .seg button.on{background:var(--card);color:var(--acc);box-shadow:0 1px 3px rgba(20,30,50,.12)}
@@ -9266,7 +7514,6 @@ button.act.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%
 .primary.done{background:var(--ok);box-shadow:none}
 .bspin{display:block;margin:1px auto;width:19px;height:19px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:isp .9s linear infinite}
 button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transform:none}
-/* ===== delete-node: two-mode chooser ===== */
 .medi.medi-bad{background:var(--badw);color:var(--bad)}
 .delopt{display:block;width:100%;text-align:start;border:1px solid var(--bord);background:var(--field);border-radius:13px;padding:13px 14px;margin-bottom:11px;cursor:pointer;font-family:inherit;color:var(--tx);transition:border-color .14s,background .14s}
 .delopt:hover{border-color:var(--acc)}.delopt:disabled{opacity:.5;pointer-events:none}
@@ -9279,7 +7526,6 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .delopt.danger .do-s{color:color-mix(in srgb,var(--bad) 72%,var(--sub))}
 .ipfree{font-size:10.5px;font-weight:700;color:var(--sub);border:1px dashed var(--bord);padding:2px 8px;border-radius:8px}
 .ippf{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,#fb923c 15%,transparent);color:#fb923c}.ippf .ic{width:12px;height:12px}
-/* settings: mode field + minimal mode popup */
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
 .pxhd{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .pxurl{font-size:12.5px;color:var(--sub);margin-top:6px;word-break:break-all}
@@ -9295,7 +7541,6 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .mopt.on .mrad::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
 .mopt .mt{font-weight:800;font-size:15.5px}
 .mopt .mdf{margin-inline-start:auto;font-size:10px;font-weight:800;color:var(--gold);background:var(--goldw,color-mix(in srgb,var(--gold) 16%,transparent));padding:3px 9px;border-radius:20px}
-/* dropdown-as-popup list (scrollable + search) */
 .modal.sssheet{max-width:360px;padding:8px}
 .sspop{display:flex;flex-direction:column;min-height:0}
 .sspop .sspopq{margin-bottom:8px;flex:0 0 auto}
@@ -9307,13 +7552,11 @@ body.dark .tag.core{color:#a78bfa}
 .tglbox{display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field)}
 .tglbox .tt{flex:1}.tglbox .tt b{font-size:12.5px;font-weight:700;display:block}
 .tglbox .tt small{font-size:10.5px;color:var(--sub);display:block;margin-top:1px;line-height:1.5}
-/* core modal two-tab bar («آی‌پی‌ها» / «تنظیمات») — accent-wash active, matching .navi.on */
 .ctabs{display:flex;gap:8px;margin:2px 0 6px}
 .ctab{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:42px;border-radius:12px;background:var(--field);color:var(--sub);border:1px solid transparent;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;transition:.15s}
 .ctab svg{width:16px;height:16px}
 .ctab.on{background:var(--accw);color:var(--acc);border-color:color-mix(in srgb,var(--acc) 30%,transparent)}
 .ctabp{display:none}.ctabp.on{display:block}
-/* rotation multi-IP pool (icon-only status, like the ws CDN pool): pick which of a node's IPs to cycle */
 .rpool{border:1px solid var(--bord);border-radius:11px;overflow:hidden;background:var(--field)}
 .rrow{display:flex;align-items:center;gap:7px;padding:0 9px;min-height:40px;border-bottom:1px solid var(--bord);cursor:pointer;user-select:none}
 .rrow:last-child{border-bottom:none}
@@ -9326,7 +7569,7 @@ body.dark .tag.core{color:#a78bfa}
 .pacc{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--field);margin-top:12px}
 .pacchd{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;gap:10px}
 .pacct{font-size:13px;font-weight:700}
-.pacchd .pacctl{display:flex;align-items:center;gap:8px;flex:1;min-width:0}   /* title + badges share ONE line */
+.pacchd .pacctl{display:flex;align-items:center;gap:8px;flex:1;min-width:0}   
 .paccs{margin-inline-start:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 .pbadge{font-size:10px;font-weight:700;border-radius:99px;padding:1px 8px}
 .pbadge.ok{background:rgba(78,201,154,.16);color:var(--ok)}
@@ -9335,7 +7578,6 @@ body.dark .tag.core{color:#a78bfa}
 .pchev{color:var(--sub);transition:transform .2s;font-size:12px;flex:0 0 auto}
 .pchev.open{transform:rotate(180deg)}
 .paccbody{padding:0 11px 11px}
-/* edge health rows — colored start-stripe card, right-aligned IP, icon state + icon actions */
 .erow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bord);border-radius:10px;border-inline-start-width:3px;border-inline-start-color:var(--bord);flex-wrap:wrap;row-gap:7px}
 .erow.ok{border-inline-start-color:var(--ok)}
 .erow.warn{border-inline-start-color:var(--gold)}
@@ -9344,8 +7586,6 @@ body.dark .tag.core{color:#a78bfa}
 .estat{flex:0 0 auto;display:grid;place-items:center}
 .estat .ic{width:16px;height:16px}
 .estat.ok{color:var(--ok)}.estat.warn{color:var(--gold)}.estat.bad{color:var(--bad)}.estat.mut{color:var(--sub)}
-/* IP takes the whole first line on narrow screens (basis 150px), so it never truncates and the
-   retest + action buttons wrap onto a second line; on a wide row everything stays on one line. */
 .eip{flex:1 1 150px;min-width:0;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;unicode-bidi:isolate;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ert{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
 .eacts{display:flex;gap:5px;flex:0 0 auto;margin-inline-start:auto}
@@ -9358,13 +7598,11 @@ body.dark .tag.core{color:#a78bfa}
 .pbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--bord);overflow:hidden;flex:0 0 auto}
 .pbar>i{display:block;height:100%;background:var(--gold);transition:width .5s linear}
 .pbar.bad>i{background:var(--bad)}
-/* live peer-pool status (direct-transport rotation): «مقصد» + «مبدأ» boxes of health rows + per-IP pin */
 .peerlive{margin-top:12px;display:flex;flex-direction:column}
-.peerlive .pacc{margin-top:8px}                       /* each side is its own card now, not a row in one box */
+.peerlive .pacc{margin-top:8px}                       
 .peerlive .pllabel{margin-bottom:2px}
 .peerlive .pllabel{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700}
 .peerlive .rpool{border:none;background:transparent;display:flex;flex-direction:column;gap:6px;overflow:visible}
-/* peer-pool row is a COLUMN: top line (icon+ip+actions) then the retest countdown UNDER it, indented */
 .erow.pcol{flex-direction:column;align-items:stretch;flex-wrap:nowrap;row-gap:0}
 .erow.pcol .etop{display:flex;align-items:center;gap:8px}
 .erow.pcol .ecd{display:flex;align-items:center;gap:8px;margin-top:7px;margin-inline-start:24px}
@@ -9372,13 +7610,12 @@ body.dark .tag.core{color:#a78bfa}
 .eib.aim.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .rl{font-size:8px;font-weight:800;border-radius:5px;padding:1px 4px;letter-spacing:.2px;flex:0 0 auto}
-.rl.srv{color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent)}  /* stronger than the near-white --accw so the tint reads as clearly as the client's gold */
+.rl.srv{color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent)}  
 .rl.cli{color:var(--gold);background:var(--goldw)}
 .enc{color:var(--bad);font-weight:700;display:inline-flex;align-items:center;gap:3px}.enc .ic{width:12px;height:12px}
-/* two meta columns aligned EXACTLY under the two node boxes (same grid + hidden arrow as .tninfo) */
 .enmeta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:start;margin-top:11px;font-size:11.5px;color:var(--sub)}
 .tninfo + .enmeta{direction:ltr}
-.tninfo + .enmeta>*{direction:rtl}   /* meta columns follow the boxes' new LTR order (only the core/tunnel enmeta that directly follows a .tninfo; portfw's enmeta is left as-is) */
+.tninfo + .enmeta>*{direction:rtl}   
 .enmeta .emcol{min-width:0;display:flex;flex-direction:column;gap:4px}
 .enmeta .emcol>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .enmeta .emcol>div.wrap{white-space:normal;overflow:visible}
@@ -9395,8 +7632,8 @@ body.dark .tag.core{color:#a78bfa}
 .cedge.live .cv{color:var(--ok)}
 .cedge .echips{display:flex;flex-wrap:nowrap;gap:6px;margin-top:8px;min-width:0}
 .cedge .echip{font-family:ui-monospace,Consolas,monospace;direction:ltr;unicode-bidi:isolate;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:9px;background:var(--card);border:1px solid var(--bord);color:var(--tx);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-.cedge .echip.ip{flex:0 0 auto}      /* IP:port always shown in full */
-.cedge .echip.dom{flex:0 1 auto;font-weight:600;color:var(--sub)}   /* domain shrinks with … if the row is tight */
+.cedge .echip.ip{flex:0 0 auto}      
+.cedge .echip.dom{flex:0 1 auto;font-weight:600;color:var(--sub)}   
 .cedge .echip.wait{font-family:inherit;font-weight:600;color:var(--sub)}
 .enmeta .emcol>div.enc-line{white-space:nowrap;overflow:visible}
 .enmeta .enc-line .encval{color:var(--ok);font-weight:700;direction:ltr}
@@ -9431,7 +7668,6 @@ body.dark .tag.core{color:#a78bfa}
 .ptile .pwarn{position:absolute;top:9px;inset-inline-start:9px;width:7px;height:7px;border-radius:50%;background:var(--gold)}
 .seg2 .segopt.on{border-color:var(--acc);background:var(--accw)}
 .seg2 .segopt.on span{color:color-mix(in srgb,var(--acc) 80%,var(--sub))}
-/* trbar: the connection-carrier segment as a horizontal scrollable bar (fixed-width tiles + edge fade) */
 .trwrap{position:relative;margin:2px 0 11px}
 .trwrap .trbar{margin:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;scrollbar-width:none}
 .trwrap .trbar::-webkit-scrollbar{display:none}
@@ -9465,8 +7701,7 @@ body.dark .tag.core{color:#a78bfa}
 </div>
 <div id="pushFab"></div>
 <script>
-// ===== i18n — Persian only (the English layer + language toggle were removed). =====
-var _corS={},_eeS={};   // create/edit form state (folded from the old _corX/_eeX scalars)
+var _corS={},_eeS={};   
 var I18N={fa:{
  nav_overview:"نمای کلی",nav_nodes:"نودها",nav_proxies:"پروکسی‌ها",
  a_pending:"در حالِ ساخت",a_working:"در حالِ انجام…",a_cancel:"لغو",a_dismiss:"بستن",
@@ -9480,7 +7715,6 @@ var I18N={fa:{
  px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",
- // the update's steps, and every reason it can stop — the node sends a code, these are the words
  ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",ups_restarted:"{n} تونل دوباره بالا آمد",
  upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
  upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
@@ -9506,7 +7740,6 @@ var I18N={fa:{
  no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
  prev:"قبلی",next:"بعدی",page:"صفحه",of:"از",items:"مورد",search:"جستجو…",
  disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
- // overview
  ov_sub:"آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده",ov_health:"سلامتِ فلیت",ov_attention:"نیازمندِ توجه",ov_allnodes:"همهٔ نودها یک‌نگاه",
  st_healthy:"سالم",st_warn:"هشدار (>60٪)",st_crit:"بحرانی (>85٪)",ov_central:"سرورِ مرکزی (این پنل)",ov_worst:"پرمصرف‌ترین نودها",
  ov_tunbreak:"وضعیتِ تفکیکیِ تونل‌ها",ov_traffic:"ترافیکِ فلیت",ov_uptime:"آپ‌تایم",ov_rxtot:"↓ ورودیِ کل",ov_txtot:"↑ خروجیِ کل",
@@ -9514,28 +7747,21 @@ var I18N={fa:{
  ov_noalert:"همه‌چیز مرتب است — هشداری نیست",ov_no_nodes:"نودی نیست",ov_no_online:"نودِ آنلاینی نیست",ov_no_tunnel:"تونلی نیست",
  ov_heat_note:"نود · هر میله = بدترین متریکِ آن نود (دیسک/رم/CPU) · خاکستری = آفلاین",
  tst_connected:"متصل",tst_noping:"بدونِ پینگ",tst_down:"قطع",tst_rebuild:"نیازمندِ بازسازی",
- // Tooltip per DOT state. The dot used to carry title=«متصل» whenever sideState returned no status
- // word — which is three of its outcomes, two of them YELLOW — so a not-proven-live tunnel told the
- // operator the exact opposite of what its colour meant, while every RED dot (the ones that actually
- // need explaining) had no title at all.
  tst_dead:"هیچ‌کدام از بسته‌های آزمایشی برنگشت — چیزی از این تونل رد نمی‌شود",
  ov_worst_q:"بدترین کیفیت: تونلِ",ov_loss:"اتلاف",ov_ping:"پینگ",ov_all_good:"کیفیتِ همهٔ تونل‌ها خوب است",ov_fleet_ping:"میانگینِ پینگِ فلیت",
  ov_uptime_lbl:"میانگینِ آپ‌تایمِ",ov_hours_recent:"ساعتِ اخیر",load:"لود",
- // nodes
  nodes_sub:"افزودن و وضعیت زنده‌ی نودها",add_node:"افزودن نود",nodes_fleet:"نودهای فلیت",nodes_search:"جستجوی نام یا آی‌پی…",
  nodes_empty:"هنوز نودی اضافه نشده — دکمهٔ «افزودن نود» بالا.",
  tip_test:"تست",tip_details:"مشخصات",tip_edit:"ویرایش",tip_delete:"حذف",tip_tune:"تیونینگِ شبکه",tip_nreset:"صفر کردنِ ترافیکِ نود",nreset_confirm:"مجموعِ ترافیکِ این نود صفر شود؟ فقط شمارشِ پنل پاک می‌شود — خودِ نود و تونل‌هایش دست نمی‌خورند.",
  kt_title:"تیونینگِ کرنل (BBR)",kt_sub:"شتاب‌دهیِ شبکه‌ی سرور",kt_desc:"BBR + fq + بافرهای بزرگ‌تر را روی این سرور روشن می‌کند. روی مسیرِ پرتلفات و پرتأخیرِ ایران، سرعتِ حامل‌های TCP را بالا می‌برد. اختیاری و برگشت‌پذیر.",kt_state:"وضعیت",kt_cc:"کنترلِ ازدحام",kt_qdisc:"صف‌بندی",kt_on:"روشن",kt_off:"خاموش",kt_enable:"روشن کردن",kt_disable:"خاموش کردن",kt_nobbr:"کرنلِ این سرور BBR ندارد — روشن‌کردن ممکن نیست.",kt_working:"در حال اعمال…",kt_enabled:"تیونینگ روشن شد",kt_disabled:"تیونینگ خاموش شد",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
- // tunnels
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
  st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
- // core view
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
  core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
  server:"سرور",client:"کلاینت",profile:"پروفایل",port:"پورت",port_dst:"پورتِ مقصد",port_src:"پورتِ مبدأ",port_src_rand:"رندوم",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
@@ -9551,20 +7777,15 @@ var I18N={fa:{
  err_nofile:"چنین فایل یا مسیری نیست",err_afam:"این نوع آدرس پشتیبانی نمی‌شود",
  err_pipe:"اتصال وسطِ کار قطع شد",err_cert_unknown:"گواهیِ TLSِ این سرور شناخته نشد",err_cert_expired:"گواهیِ TLSِ این سرور منقضی شده",err_eof:"اتصال بی‌جواب بسته شد",err_cert:"مشکلِ گواهیِ TLS",
  copied:"کپی شد",copy_fail:"کپی نشد",tip_copy:"بزن تا کپی شود",port_src_fixed:"ثابت",
- // portfw
  pf_sub:"فوروارد پورت روی یک نود (با چرخشِ چند مقصد)",pf_add:"افزودن پورت‌فوروارد",pf_active:"پورت‌فورواردهای فعال",pf_search:"جستجوی نود / نام…",
  pf_empty:"پورت‌فورواردی نیست.",pf_no_online:"هیچ نودِ آنلاینی نیست",
- // settings
  set_sub:"رفتار خودکارِ پنل و بازه‌های بررسی",set_saved:"تنظیمات ذخیره شد",
- // toasts common
- t_rebuilt:"بازسازی شد",t_reset_done:"حجمِ کل صفر شد",
+ t_reset_done:"حجمِ کل صفر شد",
 }};
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  ram:"رم",cores_word:"هسته",unit_mb:"م‌ب",unit_gb:"گیگ",refresh2s:"به‌روزرسانیِ زنده",
- // node details
  nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
  ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
- // node edit / add
  nd_edit:"ویرایشِ نود",f_name:"نام",f_host_ip:"هاست / آی‌پی",f_port:"پورت",f_token:"توکن",tok_keep:"خالی = توکن فعلی بماند",
  need_nhp:"نام، هاست و پورت لازم است",
  
@@ -9573,7 +7794,6 @@ var I18N={fa:{
  connecting_dots:"در حال اتصال…",
  need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added_checking:"نود اضافه شد — وضعیتش تا چند لحظهٔ دیگر روی کارتش می‌آید",
  inst_done:"انجام شد",
- // node delete
  nd_del:"حذفِ نود",del_how:"می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:",del_detach_t:"فقط از پنل جدا کن",
  del_detach_s:"نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.",
  del_wipe_t:"پاک‌سازیِ کاملِ نود",del_wipe_s:"روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!",
@@ -9583,7 +7803,6 @@ var I18N={fa:{
  del_wipe_force_ask:"سرور قطع است — «پاک‌سازیِ اجباری»؟ رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند؛ خودِ این سرور اگر روزی برگشت باید دستی پاک شود.",del_wipe_force_yes:"پاک‌سازیِ اجباری",del_wipe_force_s:"سرور قطع است، پس روی خودش کاری نمی‌شود کرد: رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند. برگشت‌ناپذیر است!",del_force_wiping:"در حالِ پاک‌سازیِ اجباری…",node_force_wiped:"نود از پنل پاک شد (سرور در دسترس نبود؛ سمتِ مقابل بسته شد)",
  pend_del_t:"حذفِ معلق — وقتی این نود دوباره وصل شد، خودکار پاک‌سازی می‌شود",
  test_testing:"در حال تست…",
- // tunnels
  t_side_off:"نود آفلاین (به agent وصل نشد — شاید پورت/توکن عوض شده)",t_side_notun:"قطع (تونل روی نود نیست)",t_side_ifdown:"قطع (اینترفیس پایین)",
  t_side_conn:"متصل",t_side_nopingr:"پینگ جواب نداد",t_side_up_unk:"بالا (پینگ نامشخص)",t_ping:"پینگ",t_loss:"اتلاف",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
@@ -9593,9 +7812,7 @@ var I18N={fa:{
  pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",
  view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
  tip_flip:"تعویضِ دیدِ مصرف — فعلاً: ",
- // create tunnel
  add_tunnel_t:"افزودنِ تونل",create_sub:"سیستمی · یک مبدأ ↔ یک مقصد",src_node:"نودِ مبدأ",dst_node:"نودِ مقصد",
- // Core form only; the generic modal keeps src_node/dst_node (it has no server/client role).
  srv_node:"نودِ سرور",cli_node:"نودِ کلاینت",
  tun_type:"نوع تونل",local_range:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه، بدون تداخل)",custom_subnet:"سابنتِ دلخواه",range:"رنج",
  create_tun_btn:"ساخت تونل",two_diff_nodes:"دو نودِ متفاوت انتخاب کن",creating_tun:"در حال ساختِ تونل…",
@@ -9605,10 +7822,8 @@ var I18N={fa:{
  rot_min2:"برای چرخش باید حداقل 2 آی‌پی در هر استخر انتخاب شود",
  
  
- // rebuild picker
  rb_title:"بازسازیِ تونل",rb_newip:"آی‌پیِ جدید",rb_no_ip:"آی‌پیِ قابلِ انتخابی نیست",rb_info:"آی‌پیِ قبلی دیگر روی نود نیست. آی‌پیِ جدیدِ این تونل را انتخاب کن — تگ‌ها نشان می‌دهند هر آی‌پی به کجا وصل است.",
  rb_no_link:"اطلاعاتِ لینک در دسترس نیست",rb_no_drift:"این تونل driftی ندارد",rebuilding:"در حال بازسازی…",rb_fetch_err:"خطا در دریافتِ اطلاعات",
- // core roles / meta
  core_edit_t:"ویرایشِ تونلِ هسته",not_found:"یافت نشد",core_tun_t:"تونلِ هسته",core_tun_sub:"هستهٔ اختصاصی · packet/core",
  raw_need_enc:"حاملِ raw به رمزنگاری نیاز دارد",flux_need_enc:"حاملِ flux به رمزنگاری نیاز دارد",
  wss_need_host:"برای wss باید دامنه (Host) را وارد کنی",ech_need_wss:"ECH به wss نیاز دارد — اول wss را روشن کن",sni_need_wss:"تقسیمِ SNI به wss نیاز دارد — اول wss را روشن کن",
@@ -9617,7 +7832,6 @@ var I18N={fa:{
  spoof_src_need_ip:"آی‌پیِ مبدأِ جعلی را وارد کن",spoof_need_one:"حاملِ جعل حداقل به یکی از «جعلِ مقصد» یا «جعلِ مبدأ» نیاز دارد",
  spoof_need_enc:"حاملِ جعل به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",
  creating_core:"در حال ساختِ تونلِ هسته روی دو نود…",saving_rebuild_both:"در حال ذخیره و بازسازیِ دو سر…",
- // portfw
  pf_add_t:"افزودنِ پورت‌فوروارد",pf_edit_t:"ویرایشِ پورت‌فوروارد",pf_node:"نود",pf_listen_port:"پورتِ ورودی",pf_dst_port:"پورتِ مقصد",
  pf_dst_ips:"آی‌پی(های) مقصد — با کاما جدا کن",pf_rot_min:"چرخش هر (دقیقه) — اگر چند آی‌پی دادی",pf_rot_between:"چرخش بینِ مقصدها",
  pf_rot_interval:"بازهٔ چرخش (دقیقه)",pf_lip:"آی‌پیِ ورودی (شنود)",pf_lip_note:"پورت فقط روی این آی‌پی فوروارد می‌شود",
@@ -9626,7 +7840,6 @@ var I18N={fa:{
  pf_created:"پورت‌فوروارد ساخته شد: ",pf_del_confirm:"این پورت‌فوروارد حذف شود؟",pf_active_now:"هم‌اکنون روی: ",pf_targets:"مقصدها: ",
  pf_iface:"اینترفیس: ",pf_lip_lbl:"آی‌پیِ ورودی: ",pf_lp_lbl:"پورتِ ورودی: ",pf_dp_lbl:"پورتِ مقصد: ",pf_active_badge:"فعال · مقصد",
  pf_disabled:"غیرفعال",pf_rule:"قانون",pf_rotate_now:"چرخش الان",pf_rotate_done:"چرخش انجام شد ← ",pf_rotate_failed:"چرخش ناموفق",
- // settings
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"«خودکار»: هوستِ نود و بازسازیِ تونل، هر دو خودکار. «هشدار»: پنل فقط می‌گوید نود کجا رفته و خودت انجام می‌دهی",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
  set_rec_range:"5 تا 3600",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"0٫3 تا 60 — زیرِ 1 هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"0٫3 تا 60 — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"0 = خاموش، وگرنه 1 تا 1440 — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
@@ -9660,16 +7873,13 @@ var I18N={fa:{
  set_pm_hint:"= حداقل {n} بسته از {c} باید جواب بدهد",
  set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw / flux.",
  h1:"ساعت",h3:"3 ساعت",h6:"6 ساعت",h8:"8 ساعت",h12:"12 ساعت",h24:"24 ساعت",
- // generic states
  pending_check:"در حال بررسی…",off_word:"خاموش",on_word:"روشن",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  pf_dest:"مقصد",
- // command palette
  pal_search:"جستجوی نود، تونل یا دستور…",pal_move:"حرکت",pal_pick:"انتخاب",pal_close:"بستن",pal_none:"موردی یافت نشد",
  pal_g_nodes:"نودها",pal_g_tuns:"تونل‌ها",pal_g_acts:"دستورها",
  pal_add_tun:"افزودن تونل",pal_agent:"بروزرسانیِ ایجنت",pal_checkall:"تستِ همهٔ تونل‌های صفحه",pal_theme:"تغییرِ تمِ روشن/تیره",
- // agent/core update page (partial)
  ag_title:"ایجنت و هسته",ag_sub:"آپدیت و ری‌استارتِ ایجنت و هستهٔ نودها از پنل، بدونِ SSH",
  cor_del_blob:"حذفِ باینریِ آپلودشده",cor_del_blob_q:"باینریِ سفارشی از پنل حذف شود؟ نودهایی که همین حالا رویش هستند دست‌نخورده می‌مانند.",cor_del_blob_ok:"باینریِ سفارشی حذف شد",cor_deleting:"در حالِ حذف…",
  cor_check:"بررسی آپدیت",cor_checking:"در حال بررسی…",cor_check_new:"نسخهٔ تازه پیدا شد — از لیست انتخابش کن و «دریافت از گیت‌هاب» را بزن",cor_check_same:"تازه‌ترین نسخه همینی است که داری",cor_check_first:"{n} نسخه پیدا شد — یکی را انتخاب کن",cor_check_none:"هیچ نسخه‌ای پیدا نشد",cor_ver_empty:"هنوز بررسی نشده — «بررسی آپدیت» را بزن",
@@ -9706,31 +7916,22 @@ var I18N={fa:{
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
- // ---- core create/edit form + shared section builders (Gap 1)
- // subnet ranges
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
- // raw profiles
  rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
- // the CDN carrier tiles + the http carrier shape
  cdn_shape_lbl:"شکلِ حاملِ http",
  cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",
  cdn_shape_note:"آپلود در هر رفت‌وبرگشت فقط «کارگر × اندازه» بایت جا دارد؛ برای لبهٔ دور اندازه را بالا ببر، نه تعدادِ کارگر را. جریانِ حاملِ بیشتر سرعت را بالا می‌برد (روی grpc خیلی زیاد، چون هر جریان پنجرهٔ خودش را می‌گیرد) ولی بسته‌ها نامرتب می‌رسند و گیرنده باید نگه‌شان دارد، پس تأخیر و حافظه هم بالا می‌رود. روی http هر جریان یک اتصالِ جداست و CDN می‌شماردش؛ روی grpc همه روی یک اتصال‌اند.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
- // flux rotation presets + shapes
  frot_180:"هر 3 دقیقه",frot_300:"هر 5 دقیقه",frot_600:"هر 10 دقیقه (پیش‌فرض)",frot_900:"هر 15 دقیقه",frot_1800:"هر 30 دقیقه",frot_3600:"هر 1 ساعت",
  fsh_random_n:"تصادفی",fsh_random_m:"بدونِ تقلید",fsh_quic_m:"شبیهِ HTTP/3",fsh_video_n:"ویدیوکال",fsh_video_m:"بسته‌های بزرگ",fsh_webrtc_m:"RTPِ کوچک",
- // fec presets
  fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"20٪ سربار",fec_ov30:"30٪ سربار",fec_ov50:"50٪ سربار",
- // flux section
  flux_carrier_lbl:"پروفایلِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",
  flux_shape_lbl:"پروفایلِ شکل — شبیهِ چه ترافیکی",flux_rot_lbl:"بازهٔ چرخش",flux_rot_ph:"بازه",flux_rotate_btn:"چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)",
  flux_note:"شکلِ سیم هر بازه <b>بی‌سیگنال</b> می‌چرخد — هر دو سر از ساعت یک epoch می‌سازند. هر دو حامل UDPِ واقعی‌اند و رویِ اینترنت رد می‌شوند. رمزنگاری الزامی است.",
  flux_live:"شکلِ زنده",flux_carrier_word:"پروفایل",flux_next_pre:"چرخشِ بعدی تا",flux_next_post:"دیگر",
- // spoof section
  spoof_hd:"جعلِ آی‌پی (استتار)",spoof_decoy_t:"جعلِ مقصد (Decoy)",spoof_decoy_d:"روی سیم وانمود می‌شود ترافیک به آی‌پیِ زیر می‌رود، ولی واقعاً به سرورت می‌رسد.",spoof_decoy_ph:"آی‌پیِ طُعمه (مقصدِ جعلی) — مثلاً 185.51.200.10",
  spoof_src_t:"جعلِ مبدأ",spoof_src_d:"آی‌پیِ مبدأِ واقعی روی سیم مخفی می‌شود (اختیاری).",spoof_src_ph:"آی‌پیِ مبدأِ جعلی — مثلاً 198.51.100.9",spoof_checking:"بررسیِ امکانِ جعل روی نودها…",
- // State the limits instead of promising camouflage that cannot be delivered.
  spoof_decoy_warn:"<b>آی‌پیِ طُعمه باید به همین سرور روت شود</b> — یعنی یک آی‌پیِ اضافه که دیتاسنتر به همین ماشین می‌فرستد. یک آی‌پیِ دلخواه (مثلاً سایتی محبوب) کار <b>نمی‌کند</b>: روترهای مسیر بسته را بر اساسِ همان مقصدِ جعلی می‌برند و هرگز به سرورت نمی‌رسد. (اندازه‌گیری‌شده روی همین دو نود.)",
  spoof_src_warn:"<b>روی دیتاسنترهایی که ضدِجعل (uRPF/BCP38) دارند کار نمی‌کند</b> — و هر دو سرورِ فعلیِ ما دارند: بستهٔ با مبدأِ جعلی از نود خارج می‌شود ولی هرگز به آن‌طرف نمی‌رسد. حتی آی‌پی‌ای از /24ِ خودت که مالکش نیستی هم رد می‌شود. اگر پرووایدرت اجازه بدهد کار می‌کند؛ اول تست کن.",
  spoof_cap_ok:"<b>هر دو نود از نظرِ فنی مجازند.</b> ولی اینکه واقعاً کار کند به خروجیِ دیتاسنتر و مسیر هم بستگی دارد — این چک فقط قابلیتِ نودها را می‌سنجد، نه آن را؛ با دکمهٔ زیر تستِ واقعی بگیر.",
@@ -9747,27 +7948,22 @@ var I18N={fa:{
  spoof_egr_dst_ok:"طُعمه به سرور می‌رسد — این آی‌پی به گیرنده روت می‌شود.",
  spoof_egr_dst_no:"طُعمه نرسید — این آی‌پی به سرورِ گیرنده روت نمی‌شود؛ باید آی‌پیِ اضافه‌ای باشد که به همین ماشین می‌رسد.",
  spoof_cap_bad_pre:"<b>غیرفعال — روی نودِ «",spoof_cap_bad_mid:"» نمی‌شود.</b> علت: ",spoof_reason_unknown:"نامشخص",spoof_cap_err:"<b>بررسی ناموفق بود.</b> نتوانستم امکانِ جعل را از نودها بپرسم.",
- // fec section
  fec_t:"تصحیحِ خطا (FEC)",fec_d:"بسته‌های گم‌شده را خودش بازمی‌سازد بدون اینکه دوباره بفرستد — برای خطِ پُرافت. کمی پهنای‌باند بیشتر می‌خورد. فقط روی حامل‌های دیتاگرامی.",fec_rate_lbl:"نرخِ افزونگیِ FEC",
  fec_note:"«10+3» یعنی هر 10 پکتِ داده، 3 پکتِ پریتی؛ گیرنده تا 3 تا از هر 13 تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند. درصدِ روی کاشی برای بلوکِ پُر است: روی تونلِ کم‌ترافیک بلوک با پکتِ کمتری بسته می‌شود و همیشه دستِ‌کم یک پکتِ پریتی می‌رود، پس سربارِ لحظه‌ای بالاتر می‌رود (برای بلوکِ تک‌پکتی تا 100٪). نسبتِ محافظت هرگز از عددِ انتخابی کمتر نمی‌شود.",
  ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"چند بستهٔ قلابی می‌فرستد تا فیلترچی ردِ اتصالِ واقعی را گم کند؛ خودِ تونل دست‌نخورده می‌ماند. روی حاملِ UDP و HTTP در دسترس نیست.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
  ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (1 برای رله‌ٔ کوتاه، 3 تا 5 برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
  ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود. روی raw/flux/spoof کلِ 1 تا 255 اعمال می‌شود.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
- // ws toggle rows
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
  ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
- // ws section
  ws_prof_lbl:"نوعِ اتصال روی CDN",
  ws_pool_t:"استخرِ لبه (چرخش + بلک‌لیست)",ws_pool_d:"چند IP و چند دامنه؛ هسته می‌چرخد و سوخته‌ها را کنار می‌گذارد. خاموش = یک لبهٔ ثابت.",
  ws_host_lbl:"دامنهٔ فرانت (Host / SNI)",ph_cdn_domain:"مثلاً cdn.example.com",ws_edge_lbl:"آی‌پیِ لبهٔ CDN (اختیاری) — کلاینت به‌جای مبدأ به این وصل می‌شود",ph_edge_ip:"مثلاً 104.16.0.1 یا 104.16.0.1:443",ws_path_lbl:"مسیر (path)",
  ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ 80. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
- // ws pool inner
  rot_3m:"هر 3 دقیقه",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",rot_15m:"هر 15 دقیقه",rot_30m:"هر 30 دقیقه",rot_1h:"هر 1 ساعت",rot_4h:"هر 4 ساعت",rot_8h:"هر 8 ساعت",rot_off_fo:"خاموش (فقط failover)",
  pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل 2 آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
- // core modal general
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
@@ -9789,7 +7985,6 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  pct:"٪",list_sep:"، ",unit_kb:"کیلوبایت",unit_mb_full:"مگابایت",app_title:"tnl · کنترل فلیت",
  ip_toggle_hint:"بزن تا بینِ نامِ نود و اینترفیس جابه‌جا شود",
- // ---- node-add modal
  nadd_auto:"خودکار",nadd_manual:"دستی",nadd_title:"افزودنِ نود",
  nadd_autonote:"مشخصاتِ SSHِ سرورِ نود را بده؛ پنل خودش وارد می‌شود، ایجنت را نصب می‌کند، توکن می‌سازد و نود را وصل می‌کند.",
  nadd_node_name:"نامِ نود",nadd_srv_ip:"آی‌پیِ سرور",nadd_ssh_port:"پورتِ SSH",nadd_ssh_user:"کاربرِ SSH",
@@ -9800,18 +7995,15 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  nadd_manual_name:"نام",nadd_manual_host:"هاست / آی‌پی",nadd_agent_port2:"پورت agent",nadd_node_tok:"توکن نود",
  nadd_install_connect:"نصب و اتصالِ خودکار",nadd_add_connect:"افزودن و اتصال",
  nadd_pass_word:"رمزِ SSH",nadd_is_required:" لازم است",nadd_need_name_ip:"نام و آی‌پیِ سرور لازم است",
- // ---- live install steps
  inst_ssh:"اتصالِ SSH",inst_agent:"رساندنِ ایجنت به نود",inst_service:"نصب و راه‌اندازیِ سرویس",inst_register:"ثبت و اتصال در پنل",
  inst_connecting:"در حالِ اتصال…",inst_waiting:"در انتظار…",inst_installing:"در حالِ نصب…",inst_done:"انجام شد",
  inst_status_notfound:"وضعیتِ نصب یافت نشد",inst_panel_lost:"ارتباط با پنل قطع شد",inst_node_installed:"نود نصب شد",inst_retry:"تلاشِ مجدد",
- // ---- classic tunnel create form
  custom_subnet_ph:"مثلا 192.168.99.0/24 یا fd00:99::/64",ttype_port_ph:"مثلا 51820",
  ttype_port_auto_lbl:"پورتِ UDP (اختیاری — خالی = خودکار از شناسه)",
  ttype_l2_note:"روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.",
  ttype_vxlan_lbl:"پورتِ UDP (خالی = 4789)",
  ttype_vxlan_note:"پورتِ استانداردِ VXLAN؛ برای دورزدنِ فیلتر می‌توانی عوضش کنی (مثلاً 443).",
  ttype_ipsec_note:"رمزنگاری‌شده (ESP). کلید خودکار ساخته و امن به هر دو سر داده می‌شود — بدونِ دیمنِ خارجی.",
- // ---- agent / core staging
  ag_word_agent:"ایجنت",ag_word_core:"هسته",ag_pick_version:"انتخاب نسخه",err_github:"ناموفق — پنل به گیت‌هاب دسترسی دارد؟",
  ag_no_agent_loaded:"هنوز ایجنتی بارگذاری نشده — «دریافت از گیت‌هاب» یا «فایلِ ایجنت».",
  ag_no_core_staged:"هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.",
@@ -9822,15 +8014,6 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  ag_fetching_git:"در حال دریافت از گیت‌هاب…",ag_fetched_pre:"دریافت شد: v",ag_fetched_post:" — حالا «پوشِ همه» را بزن",
 }});
 function T(k){return (k in I18N.fa)?I18N.fa[k]:k}
-// ---- backend error translator (Gap 2): backend raises Persian; translate the STATIC ones on the
-// client for the EN locale. Unmatched messages (interpolated / dynamic) fall back to the original.
-// English the operator never asked for. Every one of these comes off the node's own tools -- iproute2
-// and the kernel behind it -- and travels through the panel untouched, so a build that failed because
-// a kernel module is missing said «RTNETLINK answers: No such file or directory» to somebody who wants
-// to know whether to try again. The phrase is replaced IN PLACE, so the sentence the panel built
-// around it (which node, what was rolled back) survives, and so does the command in brackets.
-// The prefixes the tools wrap their own errors in. They name no fault and cannot be translated into
-// anything -- dropping them is what leaves a sentence that is Persian all the way through.
 var ERRNOISE=[/^(dial|read|write) (tcp|udp)\\s*/i,/connect:\\s*/i,
  /context deadline exceeded:?\\s*/i,/^bash: line \\d+:\\s*/i,/^sh: \\d+:\\s*/i,/^ssh:\\s*/i,
  /^connect:\\s*/i,/^Error:\\s*/i,/^error:\\s*/i];
@@ -9868,29 +8051,17 @@ function terr(msg){msg=String(msg==null?'':msg);
  for(var i=0;i<ERRFA.length;i++)msg=msg.replace(ERRFA[i][0],T(ERRFA[i][1]));
  return msg.trim()}
 function perr(r,fbk){return r&&r.net?T(r.net=='timeout'?'net_timeout':'net_drop')
- :terr((r.d&&(r.d.error||r.d.msg))||T(fbk||'failed'))}   // no answer, then error, then msg, then a fallback
-function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1><p class="sub">'+esc(T(subK))+'</p>'}   // page header shared by every *Skel view
+ :terr((r.d&&(r.d.error||r.d.msg))||T(fbk||'failed'))}   
+function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1><p class="sub">'+esc(T(subK))+'</p>'}   
 function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
 function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
 (function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
 var H={'Content-Type':'application/json','X-Requested-With':'tnl-central'};
-// fetch has NO timeout of its own, so a stalled request never settles and whatever guard flag its
-// caller holds stays held forever: one hung `reorder` left RSAVE true, killing every list refresh and
-// every later drag until a reload. Two bounds, because the two kinds of request differ: a GET is a list
-// read, while a POST is work the operator waits on — the panel budgets 200s for ONE node's build op
-// alone (_node_tunnel), so a 20s bound there would abort rebuilds and pushes and call them failures.
 var NET_TIMEOUT=20000,NET_POST_TIMEOUT=300000;
 function _abo(ms){var ac=window.AbortController?new AbortController():null;
  return{s:ac?ac.signal:undefined,t:ac?setTimeout(function(){ac.abort()},ms||NET_TIMEOUT):0}}
-// j REJECTS on failure on purpose: refreshX aborts before setHTML, so a blip leaves the list as it is
-// rather than blanking it. Only the hang becomes bounded.
 function j(u){var g=_abo();return fetch('/api/'+u,{signal:g.s}).then(function(r){return r.json()})
  .then(function(v){clearTimeout(g.t);return v},function(e){clearTimeout(g.t);throw e})}
-// post RESOLVES {ok:false} instead: all but one of its callers await it with no try, so a rejection
-// took the whole handler down silently and left its flag set. ms overrides the bound, for a caller
-// holding a flag the UI needs back promptly.
-// `net` marks a request that never got an answer -- a dropped connection or our own abort. That is NOT
-// the same as the panel refusing, and saying "failed" for it is a lie: the work may have finished.
 function post(u,b,ms){var g=_abo(ms||NET_POST_TIMEOUT);
  return fetch('/api/'+u,{method:'POST',headers:H,body:JSON.stringify(b||{}),signal:g.s})
   .then(async function(r){return{ok:r.ok,d:await r.json().catch(function(){return{}})}})
@@ -9901,19 +8072,11 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function el(id){return document.getElementById(id)}
 function v(id){var e=el(id);return e?e.value.trim():''}
 function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t}
-function setHTML(box,html){if(!box)return;if(box._sig===html)return;box._sig=html;box.innerHTML=html}  // compare against the LAST ASSIGNED string (innerHTML read-back is re-serialized and never matches) — skip identical re-renders: no flicker/lag on mobile
+function setHTML(box,html){if(!box)return;if(box._sig===html)return;box._sig=html;box.innerHTML=html}  
 var _rowBox=null;
-// A row parsed out of its markup. The key goes on the element so the next pass can find it again, and
-// the markup goes on it so the next pass can tell whether the row moved on. A fresh row is either put
-// in the list or, when the list already holds that key, used as the shape to bring the old one up to.
 function rowNode(k,h){if(!_rowBox)_rowBox=document.createElement('div');_rowBox.innerHTML=h;
  var n=_rowBox.firstElementChild||document.createElement('div');
  n.setAttribute('data-k',k);n._h=h;return n}
-// Bring a row that changed up to date where it stands, instead of swapping it out. A card carrying a
-// live figure changes on every poll, and swapping it takes everything the document holds per node with
-// it — a selection the operator is making, a scroll position, whatever another loop wrote inside. This
-// walks the two in step and touches only what differs. False means they are not the same kind of node,
-// which is the caller's cue to swap after all.
 function morphNode(a,b){
  if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName)return false;
  if(a.nodeType!==1){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue;return true}
@@ -9929,28 +8092,13 @@ function morphNode(a,b){
   an=ax;bn=bx}
  while(an){var dead=an;an=an.nextSibling;a.removeChild(dead)}
  return true}
-// Bring a list up to date without taking it apart. innerHTML= tears out every row, including the ones
-// that came back identical; a row this finds by key is either left alone or updated where it stands,
-// so nothing the document holds per node is thrown away — a selection the operator is half way through
-// making, an edge box edgesLoop filled on its own cadence, a live upload bar, a focused control. A
-// reorder moves the nodes the list already has.
-//
-// The caller passes every row it wants, in order, including its own empty-state row: one path, so a
-// list cannot be half-updated and half-assigned.
 function setList(box,rows){if(!box)return;
  if(!rows.length){box._sig='';box.textContent='';return}
- // Most ticks bring nothing. One compare of the whole list answers that far more cheaply than the
- // row-by-row compare the diff below has to do once it knows something moved. Each key rides in front
- // of its own markup, length first, so no two different lists can build the same string.
  var i,j='';for(i=0;i<rows.length;i++)j+=rows[i].k.length+':'+rows[i].k+rows[i].h;
  if(j===box._sig)return;
  box._sig=j;
  var have=Object.create(null),c=box.children,k,keyed=false;
  for(i=0;i<c.length;i++){k=c[i].getAttribute('data-k');if(k!==null){have[k]=c[i];keyed=true}}
- // Nothing keyed in there yet — a fresh page, or a skeleton. Parsing the whole list in one go beats
- // building it a row at a time, and a box with no rows in it has nothing to preserve. It only lines up
- // while every row is one element; tools/list_diff_keeps_untouched_rows_check.py is what says so, and
- // the row-at-a-time path below is what carries a list it stops being true for.
  if(!keyed){box.innerHTML=rows.map(function(r){return r.h}).join('');
   if(box.children.length===rows.length){
    for(i=0;i<rows.length;i++){box.children[i].setAttribute('data-k',rows[i].k);box.children[i]._h=rows[i].h}
@@ -9961,8 +8109,6 @@ function setList(box,rows){if(!box)return;
   if(old&&old._h===r.h)node=old;
   else{var fresh=rowNode(r.k,r.h);
    if(old&&morphNode(old,fresh)){old._h=r.h;node=old}
-   // Only a row that was not there settles in. A row that was SWAPPED (same key, different element
-   // kind) is an update, and animating those makes an ordinary poll look like the list rebuilt itself.
    else{if(old)old.remove();node=fresh;if(keyed&&!old)fresh.classList.add('jin')}}
   delete have[r.k];
   var want=prev?prev.nextSibling:box.firstChild;
@@ -10057,19 +8203,15 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,LOGN=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   // UIV = live-refresh interval (ms); EDGEV = last active edge per link (anti-flicker); RORD = active card-drag, RSAVE = persisting a reorder
+var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,LOGN=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   
 var LIM=25,PG={tunnels:0,portfw:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:'',logs:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
-var _ENUMS=__ENUMS_JSON__;   /* transport families + ciphers, injected from the Python source of truth */
-/* The queue ceiling, injected from CORE_MAX_WORKERS -- the same number the submit validator refuses
-   above, so the segment can never offer a queue the panel would then reject. */
+var _ENUMS=__ENUMS_JSON__;   
 var _WKMAX=[],_WKN=__WORKERSMAX__;for(var _i=1;_i<=_WKN;_i++)_WKMAX.push(_i);
 function wkClamp(n){n=parseInt(n,10);return (n>=1&&n<=_WKN)?n:1}
-/* Which carriers spend the queues, mirroring the core's queueingCarrier and the node's
-   QUEUEING_TRANSPORTS. FEC is out everywhere: its decoder rebuilds a block out of consecutive frames. */
 function wkCarrier(S){return (S.Tr=='raw'||S.Tr=='udp')&&!S.Fec}
-var _TUNDEF=__TUNDEF_JSON__;   /* injected at import from the panel's _TUNING_DEFAULTS — single source of truth */
-var _SETDEF=__SETDEF_JSON__;   /* injected from settings_defaults() minus tuning; feeds the form AND the reset */
-var _PROBESAMP=__PROBE_SAMPLES__;   /* the node's PROBE_COUNT, injected; guarded by tools/tuning_consistency.py */
+var _TUNDEF=__TUNDEF_JSON__;   
+var _SETDEF=__SETDEF_JSON__;   
+var _PROBESAMP=__PROBE_SAMPLES__;   
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){function it(b,k){return {v:b,label:T(k),sub:'('+subnetFree(b)+')'}}
@@ -10080,13 +8222,10 @@ function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
 async function updateSidebar(){var s=await j('summary').catch(function(){return{}});
  setT('ct_nodes',num(s.nodes_total));setT('ct_proxies',num(s.proxies));setT('ct_tunnels',num(s.links));setT('ct_portfw',num(s.portfw));setT('ct_core',num(s.core));
- setT('ct_logs',num(s.log_count));LOGN=num(s.log_count);   // ALWAYS the total number of logs (like the other nav counts)
- if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   // live-refresh cadence, from settings
- // Pool/peer retest-bar denominator must mirror the core's TUNED schedule, not the literals: the summary
- // surfaces the live suspect_backoff / dead_retest_secs (same path as ui_interval above); fall back to defaults.
+ setT('ct_logs',num(s.log_count));LOGN=num(s.log_count);   
+ if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   
  if(Array.isArray(s.suspect_backoff)&&s.suspect_backoff.length)_poolBackoff=s.suspect_backoff.map(Number);
  if(s.dead_retest_secs)_poolDeadStep=num(s.dead_retest_secs);
- // separate UNREAD badge (accent color): events logged since the operator last opened the log page.
  EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
  if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
  var un=EVSEQ-seen;setUnread(un);
@@ -10094,10 +8233,8 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
 function setUnread(un){var e=el('ct_logs_un');if(!e)return;e.textContent=un>0?(un>99?'99+':String(un)):'';e.style.display=un>0?'':'none'}
 function getLS(k){try{return localStorage.getItem(k)||''}catch(e){return ''}}
 function setLS(k,v){try{localStorage.setItem(k,v)}catch(e){}}
-function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setUnread(0)}  // clear ONLY the unread badge; the total stays
+function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setUnread(0)}  
 
-// ===== styled single-select dropdown (same look as the node/target lists) =====
-// items:[{v,label,sub}]  key:unique id  cb:optional fn-name called after a pick
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
@@ -10105,7 +8242,7 @@ function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
 function _ssph(ph){return ph||T('select')}
 function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="mssub">'+esc(it.sub)+'</span>':'')+'</div>'}
 var SS_OV={};
-function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  // open the list as a centered popup (scrolls; search for long lists)
+function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  
  var search=items.length>10?'<input class="search sspopq" placeholder="'+esc(T('search'))+'" oninput="msFilter(this)" autocomplete="off">':'';
  SS_OV[key]=openModal('<div class="sspop">'+search+'<div class="sspoplist">'+items.map(function(it){return ssRow(key,it)}).join('')+'</div></div>',{cls:'sssheet'})}
 function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
@@ -10114,13 +8251,11 @@ function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
  if(SS_OV[key]){closeModal(SS_OV[key]);SS_OV[key]=null}
  if(SSCB[key]&&window[SSCB[key]])window[SSCB[key]]()}
 function ssVal(key){return SEL[key]||''}
-// click-away: close any open styled list when clicking outside it
 document.addEventListener('click',function(e){document.querySelectorAll('.mslist').forEach(function(l){
  if(l.style.display=='none')return;var b=l.previousElementSibling;
  if(l.contains(e.target)||(b&&b.contains(e.target)))return;
  l.style.display='none';if(b&&b.classList)b.classList.remove('open')})});
 
-// ===== styled confirm modal + toast (replace native alert/confirm) =====
 function confirmBox(msg,yes){return new Promise(function(resolve){
  var ov=document.createElement('div');ov.className='modalov';
  ov.innerHTML='<div class="modal"><div class="mtext"></div><div class="mbtns"><button class="primary myes"></button><button class="ghost mno">'+esc(T('cancel'))+'</button></div></div>';
@@ -10133,14 +8268,7 @@ function confirmBox(msg,yes){return new Promise(function(resolve){
  ov.querySelector('.mno').onclick=function(){done(false)};
  ov.onclick=function(e){if(e.target==ov)done(false)};
  ov.querySelector('.myes').focus()})}
-// Every form error used to be written ONLY into the .msg strip at the bottom of the sheet, which the
-// operator has to scroll to -- so an error could be reported and never seen, and the form just looked
-// like it had done nothing. It still goes there (the strip is what stays put while they fix the field)
-// AND it pops, so nothing can be refused silently.
-function formErr(m,txt){if(m){m.className='msg';m.textContent=''}   // the strip below is no longer used
- // A refusal takes the middle of the screen and STAYS until it is dismissed -- the strip at the bottom
- // of the sheet was below the fold on a phone, and a toast that fades on its own is the same problem
- // with extra steps. Same shape as confirmBox so the two never look like different products.
+function formErr(m,txt){if(m){m.className='msg';m.textContent=''}   
  var ov=document.createElement('div');ov.className='modalov';
  ov.innerHTML='<div class="modal"><div class="mtext"></div><div class="mbtns"><button class="primary mok"></button></div></div>';
  ov.querySelector('.mtext').textContent=txt;
@@ -10158,10 +8286,6 @@ function toast(msg,kind){var t=document.createElement('div');t.className='toast 
  document.body.appendChild(t);setTimeout(function(){t.classList.add('show')},10);
  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove()},320)},3400)}
 
-// ===== tap-to-copy =====
-// The panel is reached over plain http on an IP, so window.isSecureContext is false and
-// navigator.clipboard is not there at all: the textarea+execCommand path is the one that actually runs.
-// The async API stays first for whoever fronts the panel with TLS.
 function copyFallback(t){try{var ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');
  ta.style.cssText='position:fixed;top:0;left:-9999px;opacity:0';document.body.appendChild(ta);
  ta.select();ta.setSelectionRange(0,t.length);var ok=document.execCommand('copy');ta.remove();return !!ok}catch(_){return false}}
@@ -10170,43 +8294,29 @@ function copyTxt(t,e){if(e)e.stopPropagation();t=String(t||'').trim();if(!t)retu
  if(window.isSecureContext&&navigator.clipboard&&navigator.clipboard.writeText){
   navigator.clipboard.writeText(t).then(function(){done(true)},function(){done(copyFallback(t))});return}
  done(copyFallback(t))}
-// A card value the operator can lift out with one tap. The text is read back off the element, so nothing
-// has to survive a trip through an onclick string.
 function cpv(t,cls){t=String(t||'');if(!t)return '<b class="mono">—</b>';
  return '<b class="mono cpv'+(cls?' '+cls:'')+'" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(t)+'</b>'}
 
-// ===== an action, where it runs =====
-// An action that has to talk to a node keeps going on the panel, and this is what draws it on the thing
-// the operator started it from. One read feeds every card; there is no page for these, and no list.
 var ACTS={},ACTNOW=0,ADISM={},_ASTEP={},_ABUILDS=-1;
-function actSeen(a){return a.key+':'+a.ended}                 // a NEW action on the same key is not the dismissed one
+function actSeen(a){return a.key+':'+a.ended}                 
 function actLive(a){return !!a&&!ADISM[actSeen(a)]}
 function actOf(l){var a=ACTS['link:'+l.id];return actLive(a)?a:null}
 async function refreshActs(){var r=await j('acts').catch(function(){return null});if(!r)return;
  ACTS=r.acts||{};ACTNOW=num(r.now);
- // A build that just landed leaves its placeholder behind until the fleet is re-read. Re-read it, so
- // the real card arrives in the same beat the placeholder goes.
  var n=0;for(var k in ACTS)if(k.indexOf('new:')===0&&ACTS[k].state=='run')n++;
  if(n!==_ABUILDS){_ABUILDS=n;if(cur=='core'||cur=='tunnels')refreshFleet()}}
 function actAge(a){var t=(a.state=='run')?(ACTNOW-num(a.started)):(num(a.ended||ACTNOW)-num(a.started));
  t=Math.max(0,num(t));var m=Math.floor(t/60),s=t%60;return (m<10?'0':'')+m+':'+(s<10?'0':'')+s}
 function actPill(a){return '<span class="ast '+esc(a.state)+'">'+(a.state=='run'?'<span class="apulse"></span>':'')+esc(T('a_st_'+a.state))+'</span>'}
-// What it is doing, in words -- the step the action itself reported, never a guess. terr, because a
-// node's own tools answer in English and this is where the operator reads them.
 function actWords(a){
  if(a.state=='fail')return esc(terr(a.err)||T('a_st_fail'));
  if(a.state=='cancel')return esc(T('a_stopped'));
  if(a.state=='done')return esc(a.note?terr(a.note):T('a_took').replace('{t}',actAge(a)));
  return esc(a.step||T('a_working'))}
-// A bar fills to the step it is on. Only «done» is full: a failure or a stop fills to where it GOT
-// to, because filling it says the work finished, which is the one thing that did not happen.
 function actBar(a){
  if(a.state=='run'&&!num(a.sn))return '<div class="abar spin"><i></i></div>';
  var pct=a.state=='done'?100:Math.max(5,num(a.pct));
  return '<div class="abar'+(a.state=='run'?'':' '+esc(a.state))+'"><i style="width:'+pct+'%"></i></div>'}
-// The row a card grows while something is happening to it. No action, no row -- the card is exactly
-// what it was. «لغو» is drawn only while the panel can still honour it: once the work is on the nodes,
-// offering it would be a button that does nothing.
 function actRow(a){if(!actLive(a))return '';
  var sw=(_ASTEP[a.key]!==a.step);_ASTEP[a.key]=a.step;
  var btn=(a.state=='run')
@@ -10217,13 +8327,7 @@ function actRow(a){if(!actLive(a))return '';
   (a.state=='run'?'<span class="aclock">'+esc(actAge(a))+'</span>':'')+btn+actBar(a)+'</div>'}
 function linkActRow(l){return actRow(actOf(l))}
 function cardActCls(l){var a=actOf(l);return (a&&a.state=='run')?' acting':''}
-// A tunnel the operator has asked for but that does not exist yet. It takes its place in the list it is
-// destined for from the moment the button is pressed: the alternative is a form that closes onto an
-// unchanged page, and a card that pops into being some seconds later with no account of where it came
-// from. Everything it draws with rides on the action itself, put there by the build that was started.
 function pendActs(page){var out=[],k;
- // A build that SUCCEEDED has a real card now, and the placeholder standing beside it would read as
- // two tunnels. One that failed or was stopped has no card at all, so it stays until it is read.
  for(k in ACTS)if(k.indexOf('new:')===0&&ACTS[k].page==page&&ACTS[k].state!='done'&&actLive(ACTS[k]))out.push(ACTS[k]);
  return out.sort(function(x,y){return num(x.started)-num(y.started)})}
 function apendCard(a){var fam=String(a.ttype||'').toLowerCase();
@@ -10234,37 +8338,26 @@ function apendCard(a){var fam=String(a.ttype||'').toLowerCase();
    '<span class="hpeers" dir="ltr">'+esc(a.target||'')+'</span>'+
   '</div></div></div>'+
   '<div class="cbody"><div class="cbody-in">'+actRow(a)+'</div></div></div>'}
-// The ones being built go first: they are what the operator is waiting on.
 function withPending(page,rows){
  return pendActs(page).map(function(a){return {k:'pend_'+a.key,h:apendCard(a)}}).concat(rows)}
-// The row lives on a card, and cards are drawn by the fleet list -- so re-reading the actions is only
-// half of showing one. Both, or the press does nothing visible until the next poll comes round.
 async function actStarted(){await refreshActs();return refreshFleet()}
 async function actCancel(key){var r=await post('act-cancel',{act:key});
  if(!(r.ok&&r.d.ok))toast(perr(r),'err');
  actStarted()}
-// Put a finished row away where it stands. The panel forgets it on its own soon enough; this is for the
-// operator who has read it and wants the card back now.
 function actDismiss(seen){ADISM[seen]=true;refresh().catch(function(){})}
-// A form stays open until the panel has ACCEPTED what it sent. si is how the panel says so: step 0 is
-// what it checks and reads, and every step past it has already been written to a node. So a request
-// that is going to be refused -- an overlapping subnet, a port already taken, a core nothing has staged
-// -- is refused while the operator is still looking at the form they can fix, instead of closing it onto
-// a card that dies. Past that, the card carries the rest.
 async function actAccepted(key,box){var end=Date.now()+45000;
  while(Date.now()<end){
-  if(box&&!box.isConnected)return {gone:true};   // the form was closed; nothing is waiting for this
+  if(box&&!box.isConnected)return {gone:true};   
   var r=await j('acts').catch(function(){return null});
   if(r&&r.acts){ACTS=r.acts;ACTNOW=num(r.now);
    var a=r.acts[key];
-   if(!a)return {ok:true};                                    // already finished and forgotten
+   if(!a)return {ok:true};                                    
    if(a.state=='fail')return {err:terr(a.err)||T('failed')};
    if(a.state=='cancel')return {err:T('a_stopped')};
    if(a.state=='done'||num(a.si)>=1)return {ok:true}}
   await new Promise(function(f){setTimeout(f,280)})}
  return {ok:true}}
 
-// ===== pagination + search =====
 function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
  return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')">'+rb+'</div>'}
 function pagerBottom(kind){return '<div class="pager" id="pgb_'+kind+'"></div>'}
@@ -10272,33 +8365,21 @@ function renderPager(kind){var total=TOT[kind]||0,pages=Math.max(1,Math.ceil(tot
  var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">'+esc(T('prev'))+'</button><span class="pinfo">'+esc(T('page'))+' '+cur+' '+esc(T('of'))+' '+pages+' · '+total+' '+esc(T('items'))+'</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">'+esc(T('next'))+'</button>';
  var a=el('pg_'+kind),b=el('pgb_'+kind);if(a)a.innerHTML=pages>1?h:'';if(b)b.innerHTML=pages>1?h:''}
 function goPage(kind,delta){var pages=Math.max(1,Math.ceil((TOT[kind]||0)/LIM));PG[kind]=Math.max(0,Math.min(pages-1,PG[kind]+delta));refresh()}
-// A search jumps a PAGED list back to its first page. The node lists are not paged, so there is no
-// page to reset -- writing one here would invent a key nothing reads.
 function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);if(PG[kind]!=null)PG[kind]=0;refresh()},280)}
 function msFilter(inp){var q=inp.value.trim().toLowerCase(),list=inp.parentNode;
  list.querySelectorAll('.msrow').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().indexOf(q)>=0)?'':'none'})}
-// The SAME arithmetic subnet_default() runs server-side: one /24 per tunnel, indexed across the whole
-// base. A second, drifting copy here would show the operator an address the tunnel never gets.
 var SUBNET_BASE_NETS={'192.168':[3232235520,16],'172.16':[2886729728,12],'10':[167772160,8]};
 function subnetCap(base){var b=SUBNET_BASE_NETS[base]||SUBNET_BASE_NETS['192.168'];return (1<<(24-b[1]))-1}
 function subnetForBase(type,tid,base){tid=num(tid)||0;
  if(type=='sit')return 'fd00:'+(tid>>16).toString(16)+':'+(tid&0xFFFF).toString(16)+'::/64';
- // Same widening subnet_default() does: a range that cannot hold this id would leave the field EMPTY,
- // which reads as "this tunnel has no subnet" rather than "pick another range".
  if(tid>subnetCap(base))base=['192.168','172.16','10'].filter(function(x){return tid<=subnetCap(x)})[0];
- // No range can hold it: say nothing rather than compute an address PAST the end of the last one.
  if(!base||tid<1||tid>subnetCap(base))return '';
  var b=SUBNET_BASE_NETS[base];
  var n=(b[0]+tid*256)>>>0;
  return ((n>>>24)&255)+'.'+((n>>>16)&255)+'.'+((n>>>8)&255)+'.'+(n&255)+'/24'}
-// How many ids this range still has. Counted off FLEET, which IS the panel's registry, so the number
-// the operator reads is the one the allocator will use.
 function subnetFree(base){var cap=subnetCap(base),n=0;
  (window.FLEET||[]).forEach(function(l){var t=num(l.tunnel_id);if(t>=1&&t<=cap)n++});
  return Math.max(0,cap-n)}
-// Which range a stored subnet came out of, so the edit form opens on the range the tunnel is ALREADY in.
-// The cap test is what keeps a widened answer honest: subnetForBase silently moves an id past a range's
-// ceiling into the next one, so without it the picker would light up a range that cannot hold this id.
 function subnetBaseOf(l){var tid=num(l.tunnel_id);
  return ['192.168','172.16','10'].filter(function(x){return tid<=subnetCap(x)&&subnetForBase(l.type,tid,x)==l.subnet})[0]||'custom'}
 function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){return x.id==EDID})[0];if(!L)return;
@@ -10310,7 +8391,6 @@ function renderEditPort(id){var w=el('lpx_'+id);if(!w)return;var t=ssVal('lt_'+i
  else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>'+esc(T('le_port_auto'))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="'+esc(T('ttype_port_ph'))+'" value="'+esc(pre)+'">';
  else w.innerHTML=''}
 
-// ===== Overview
 function go(t){cur=t;drawer(false);render()}
 function ocol(p){return p>85?cssv('--bad'):p>60?cssv('--gold'):cssv('--ok')}
 function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box.querySelector('.htip');
@@ -10318,26 +8398,22 @@ function heatTip(ev,bar){ev.stopPropagation();var box=bar.parentNode;var tip=box
  tip.innerHTML='<span>'+esc(bar.dataset.nm)+'</span> '+bar.dataset.info;
  tip.style.left=(bar.offsetLeft+bar.offsetWidth/2)+'px';tip.style.display='block';
  clearTimeout(box._tt);box._tt=setTimeout(function(){if(tip)tip.style.display='none'},2400)}
-// ===== skeleton loading cards: shown while a list's data loads, so a page reload never leaves a
-// blank gap. Each shell mirrors its real card's wrapper classes, so it lands in the same grid and
-// the swap to live data is seamless; the page's last-known count keeps the height stable.
-// skb() = one shimmer bar.
 function skb(w,h,r){return '<span class="sk" style="width:'+w+';height:'+(h||12)+'px'+(r!=null?';border-radius:'+r+'px':'')+'"></span>'}
-function skNodeCard(){return '<div class="card node acc"><div class="chead">'+   // collapsed node accordion header
+function skNodeCard(){return '<div class="card node acc"><div class="chead">'+   
   '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
   '<span class="grow"></span><div class="hmain" style="gap:6px;min-width:0;flex:0 0 auto">'+skb('90px',14)+skb('150px',11)+'</div>'+
   '<span class="sk" style="width:10px;height:10px;border-radius:50%;flex:0 0 auto"></span>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
-function skAccCard(core){return '<div class="card acc"><div class="chead">'+   // exact collapsed accordion header
+function skAccCard(core){return '<div class="card acc"><div class="chead">'+   
   '<span class="sk" style="width:38px;height:22px;border-radius:20px;flex:0 0 auto"></span>'+
   '<div class="hmain"><div class="hrow1">'+skb('96px',13)+skb('40px',15,20)+
     '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('58px',11)+'<span class="sk" style="width:14px;height:8px"></span>'+skb('58px',11)+'</span></div></div>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
-function skPfCard(){return '<div class="card acc"><div class="chead">'+     // collapsed port-forward accordion header (no on/off toggle)
+function skPfCard(){return '<div class="card acc"><div class="chead">'+     
   '<div class="hmain"><div class="hrow1">'+skb('90px',13)+skb('40px',15,20)+
     '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:5px">'+skb('54px',12)+skb('60px',18,20)+'</span></div></div>'+
   '<span class="sk" style="width:14px;height:14px;border-radius:4px;flex:0 0 auto"></span></div></div>'}
-function skAgRow(){return '<div class="nx">'+             // the shape one node card takes
+function skAgRow(){return '<div class="nx">'+             
   '<div class="nxh"><span class="sk" style="width:9px;height:9px;border-radius:50%"></span>'+
   '<span class="nmwrap">'+skb('92px',13)+skb('70px',11)+'</span></div>'+
   '<div class="nxv">'+skb('62px',25,8)+skb('62px',25,8)+'</div>'+
@@ -10346,7 +8422,7 @@ function skCards(kind){
  var arr=(kind=='nodes'?NODES:kind=='portfw'?PF:kind=='agent'?NODES:FLEET)||[];
  var n=Math.max(3,Math.min(8,num(arr.length)||6));
  var one=kind=='nodes'?skNodeCard:kind=='portfw'?skPfCard:kind=='agent'?skAgRow:function(){return skAccCard(kind=='core')};
- var out='';for(var i=0;i<n;i++)out+=one();return out}   // direct children of the list grid — no wrapper
+ var out='';for(var i=0;i<n;i++)out+=one();return out}   
 function overviewSkel(){el('view').innerHTML=vhead('dash','nav_overview','ov_sub')+
  '<div class="card ohero"><div><div class="oscore" id="o_score">—</div><div class="oscore-l">'+esc(T('ov_health'))+'</div></div><div class="ochips" id="o_chips"></div></div>'+
  '<div class="sec">'+ic('warn','var(--acc)')+' '+esc(T('ov_attention'))+'</div><div class="card" id="o_alerts"><div class="muted" style="padding:8px 0">…</div></div>'+
@@ -10358,34 +8434,26 @@ function overviewSkel(){el('view').innerHTML=vhead('dash','nav_overview','ov_sub
  '<div class="sec">'+ic('clock','var(--acc)')+' '+esc(T('ov_uptime'))+'</div><div class="ostat2"><div class="card"><div class="big" id="o_uptime" style="color:var(--ok)">—</div><div class="muted" style="font-size:11.5px" id="o_uptime_l">'+esc(T('ov_uptime_avg'))+'</div></div><div class="card"><div class="big" id="o_updown">—</div><div class="muted" style="font-size:11.5px">'+esc(T('ov_down_nodes'))+'</div></div></div>'}
 async function refreshOverview(){var s=await j('summary');if(!el('o_score'))return;
  var on=num(s.nodes_online),tot=num(s.nodes_total),links=num(s.links),alerts=s.alerts||[];
- // ---- health score + chips
  var sc=num(s.health_score),scol=sc>=85?cssv('--ok'):sc>=60?cssv('--gold'):cssv('--bad');
  var se=el('o_score');se.textContent=sc;se.style.color=scol;
  el('o_chips').innerHTML='<span class="ochip a">'+esc(T('ov_chip_node'))+' <b dir="ltr">'+on+'/'+tot+'</b></span>'+
-  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+((num(s.link_total)-num(s.link_off))||links)+'</b></span>'+   // a tunnel the operator switched off is not part of "how many are healthy"
+  '<span class="ochip o">'+esc(T('ov_chip_uplink'))+' <b dir="ltr">'+num(s.link_up)+'/'+((num(s.link_total)-num(s.link_off))||links)+'</b></span>'+   
   '<span class="ochip a">'+esc(T('ov_chip_tunnel'))+' <b>'+num(s.tunnels)+'</b></span>'+
   (alerts.length?'<span class="ochip b">'+esc(T('ov_chip_alert'))+' <b>'+alerts.length+'</b></span>':'<span class="ochip o">'+esc(T('ov_chip_noalert'))+'</span>');
- // ---- alerts feed
  var goMap={node:'nodes',link:'tunnels',drift:'tunnels',disk:'nodes',ram:'nodes',cpu:'nodes',agent:'settings'};
  var goLbl={nodes:T('nav_nodes'),tunnels:T('nav_tunnels'),settings:T('nav_settings')};
  el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" onclick="go(\\''+g+'\\')">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' '+esc(T('ov_noalert'))+'</div>';
- // ---- heat row (every node at a glance; height = worst metric)
  var heat=s.heat||[];
  setHTML(el('o_heat'),heat.length?heat.map(function(h){var nm=esc(h.name);if(!h.online)return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+esc(T('offline'))+'" title="'+nm+' — '+esc(T('offline'))+'" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+p+T('pct')+'" title="'+nm+' — '+p+T('pct')+'" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">'+esc(T('ov_no_nodes'))+'</div>');
  setT('o_heat_c',(heat.length||0)+' '+T('ov_heat_note'));
- // ---- central server gauges
  var c=s.central||{},cl=(c.load||[])[0];
  setGauge('scpu',c.cpu_pct,T('load')+' '+(cl!=null?cl:'—')+' · '+(num(c.cpus)||'?')+' '+T('cores_word'));
  setGauge('sram',c.ram_pct,c.mem_used_mb!=null?(num(c.mem_used_mb)+' / '+num(c.mem_total_mb)+' '+T('unit_mb')):'—');
  setGauge('sdisk',c.disk_pct,c.disk_used_mb!=null?(Math.round(num(c.disk_used_mb)/1024)+' / '+Math.round(num(c.disk_total_mb)/1024)+' '+T('unit_gb')):'—');
- // ---- worst nodes per metric
  var w=s.worst||{},wr=function(k,o){if(!o)return '';var p=num(o.pct),cc=ocol(p);return '<div class="wrow"><span class="wk">'+k+'</span><span class="wnm">'+esc(o.name)+'</span><span class="wbar"><i style="width:'+p+'%;background:'+cc+'"></i></span><span class="wpc" style="color:'+cc+'">'+p+T('pct')+'</span></div>'};
  var wh=wr(T('disk'),w.disk)+wr(T('ram'),w.ram)+wr('CPU',w.cpu);
  el('o_worst').innerHTML=wh||'<div class="muted" style="text-align:center;padding:8px 0;font-size:12.5px">'+esc(T('ov_no_online'))+'</div>';
- // ---- tunnel status breakdown
  var lu=num(s.link_up),ln=num(s.link_noping),ld=num(s.link_down),ldr=num(s.link_drift),lo=num(s.link_off);
- // A disabled tunnel gets its OWN tile and only when there is one, so the usual four-tile row is
- // unchanged — it used to be counted «قطع» (core) or «بدونِ پینگ» (the rest) and docked the score.
  el('o_tst').innerHTML='<div class="tb"><div class="n" style="color:var(--ok)">'+lu+'</div><div class="l">'+esc(T('tst_connected'))+'</div></div>'+
   '<div class="tb"><div class="n" style="color:var(--gold)">'+ln+'</div><div class="l">'+esc(T('tst_noping'))+'</div></div>'+
   '<div class="tb"><div class="n" style="color:'+(ld?'var(--bad)':'var(--tx)')+'">'+ld+'</div><div class="l">'+esc(T('tst_down'))+'</div></div>'+
@@ -10400,22 +8468,19 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
  if(wt){var pr=(wt.a&&wt.b)?' <span dir="ltr" style="color:var(--tx);font-weight:800">'+esc(wt.a)+' ↔ '+esc(wt.b)+'</span>':'';
   setHTML(el('o_wtun'),'<div class="onote">📡 '+esc(T('ov_worst_q'))+' <b>'+esc(wt.name)+'</b>'+pr+(num(wt.loss)>0?' · '+esc(T('ov_loss'))+' <b style="color:var(--bad)">'+Math.round(num(wt.loss))+T('pct')+'</b>':'')+(wt.rtt!=null?' · '+esc(T('ov_ping'))+' <b>'+Math.round(num(wt.rtt))+'ms</b>':'')+'</div>');}
  else{setHTML(el('o_wtun'),'<div class="onote">'+ic('okc','var(--ok)')+' '+esc(T('ov_all_good'))+(s.fleet_avg_ping!=null?' · '+esc(T('ov_fleet_ping'))+' <b style="color:var(--tx)">'+num(s.fleet_avg_ping)+'ms</b>':'')+'</div>');}
- // ---- fleet traffic
  var frx=num(s.fleet_rx_bps),ftx=num(s.fleet_tx_bps);
  setT('o_frx',fmtRate(frx));setT('o_ftx',fmtRate(ftx));
  setT('o_ftin',fmtBytes(s.fleet_rx_total));setT('o_ftout',fmtBytes(s.fleet_tx_total));
  FRXHIST.push(frx);FTXHIST.push(ftx);if(FRXHIST.length>26){FRXHIST.shift();FTXHIST.shift()}dualSpark('o_traf',FRXHIST,FTXHIST);
- // ---- uptime
  var uw=num(s.uptime_window)||1;
  setT('o_uptime',num(s.uptime_avg)+T('pct'));setT('o_uptime_l',T('ov_uptime_lbl')+' '+uw+' '+T('ov_hours_recent'));
  setT('o_updown',num(s.uptime_down_nodes))}
 
-// ===== Nodes
 function nodesSkel(){el('view').innerHTML=vhead('server','nav_nodes','nodes_sub')+
  '<button class="primary" onclick="openNodeAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('add_node'))+'</button>'+
  '<div class="sec">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+toolbar('nodes',T('nodes_search'))+'<div id="nodeList">'+skCards('nodes')+'</div>'}
 var _naddMode='auto';
-async function openNodeAddModal(){await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
+async function openNodeAddModal(){await pxLoad();   
  _naddMode='auto';_authMode='pass';_installDone=null;_instStop();
  var seg='<div class="seg" id="nadd_seg"><button data-m="auto" class="on" onclick="naddSwitch(\\'auto\\')">'+ic('bolt')+esc(T('nadd_auto'))+'</button><button data-m="manual" onclick="naddSwitch(\\'manual\\')">'+ic('pen')+esc(T('nadd_manual'))+'</button></div>';
  var auto='<div id="nadd_auto">'+
@@ -10437,12 +8502,9 @@ function naddSwitch(m){_naddMode=m;_installDone=null;_instStop();
  var btn=el('nadd_go');if(btn){btn.disabled=false;btn.className='primary';btn.innerHTML=(m=='auto'?ic('bolt')+esc(T('nadd_install_connect')):ic('plus')+esc(T('nadd_add_connect')))}
  var pr=el('nadd_prog');if(pr&&m=='manual')pr.innerHTML='';
  var msg=el('n_msg');if(msg){msg.className='msg';msg.textContent=''}}
-var _installDone=null;  // null = idle/retry, 'ok' = finished successfully (button just closes)
+var _installDone=null;  
 function naddSubmit(){if(_naddMode=='auto'){if(_installDone=='ok'){var ov=el('nadd_go').closest('.modalov');if(ov)closeModal(ov);return}return doAutoInstall()}return addNode()}
 function instIcon(st){return st=='ok'?'<span class="istep-i ok">'+CK+'</span>':st=='err'?'<span class="istep-i err">'+XK+'</span>':st=='warn'?'<span class="istep-i warn">'+ic('warn')+'</span>':st=='run'?'<span class="istep-i run"><span class="ispin"></span></span>':'<span class="istep-i wait"></span>'}
-// live install: reveal steps one-by-one on a CLIENT clock (elapsed-time based, so Android timer-
-// throttling can't collapse them), clamped to the backend's real progress. ONE self-terminating loop
-// that stops the instant the modal closes — no leaked/duplicate pollers, no infinite retry.
 var _inst=null,_MINSPIN=600;
 function _insteps(){return [{label:T('inst_ssh'),detail:T('inst_connecting')},{label:T('inst_agent'),detail:T('inst_waiting')},{label:T('inst_service'),detail:T('inst_waiting')},{label:T('inst_register'),detail:T('inst_waiting')}]}
 function _instStop(){if(_inst){_inst.cancelled=true;if(_inst.timer)clearTimeout(_inst.timer);_inst=null}}
@@ -10454,12 +8516,10 @@ function _instPoll(c){j('install-status?job='+encodeURIComponent(c.job)+'&_='+Da
  .catch(function(){c.polling=false;c.failN++;if(c.failN>=45){c.err=T('inst_panel_lost');c.bDone=true;c.bOk=false}})}
 function _instRender(c){var box=el('nadd_prog');if(!box)return;var anim=!c.finished;
  var bicon=anim?'<span class="ispin"></span>':(c.bOk?CK:XK);
- var btext=anim?T('inst_installing'):(c.err||c.banner||T('inst_done'));   // don't flash the backend's "done" banner while steps are still revealing
+ var btext=anim?T('inst_installing'):(c.err||c.banner||T('inst_done'));   
  var html='<div class="ibanner '+(anim?'run':(c.bOk?'ok':'err'))+'">'+bicon+'<span>'+esc(btext)+'</span></div>';
  var steps=c.steps||[],conf=c.confirmed||[];
  for(var i=0;i<c.revealIdx;i++){var s=steps[i]||{},cst=conf[i]||'',disp;
-   // a step ONLY ticks when the backend actually confirmed it 'ok'; still-running shows a spinner while
-   // animating, and an unconfirmed step at a failed/aborted finish shows an error — never a false tick.
    if(cst=='ok')disp='ok';else if(cst=='warn')disp='warn';else if(cst=='err')disp='err';else if(anim)disp='run';else disp='err';
    var lg=(disp=='err'&&s.log)?'<div class="ilog">'+esc(s.log)+'</div>':'';
    html+='<div class="istep '+disp+'">'+instIcon(disp)+'<div class="istep-b"><div class="istep-t">'+esc(s.label||'')+'</div>'+(s.detail?'<div class="istep-s">'+esc(s.detail)+'</div>':'')+lg+'</div></div>'}
@@ -10470,17 +8530,15 @@ function _instFinish(c){c.finished=true;_instRender(c);var btn=el('nadd_go');
  if(c.timer)clearTimeout(c.timer);_inst=null}
 function _instNow(){return (window.performance&&performance.now)?performance.now():Date.now()}
 function _instTick(){var c=_inst;if(!c)return;
- if(c.cancelled||!el('nadd_prog')){_instStop();return}   // modal closed -> loop dies (no leak)
+ if(c.cancelled||!el('nadd_prog')){_instStop();return}   
  var now=_instNow();
  if(!c.polling&&now-c.lastPoll>=380){c.polling=true;c.lastPoll=now;_instPoll(c)}
  var conf=c.confirmed||[],started=0;
  for(var i=0;i<conf.length;i++){if(conf[i]&&conf[i]!='wait')started=i+1}
  var cur=c.revealIdx-1,curTerm=cur<0||(conf[cur]&&conf[cur]!='wait'&&conf[cur]!='run');
- if(c.revealIdx<started&&now-c.lastReveal>=_MINSPIN&&curTerm){c.revealIdx++;c.lastReveal=now}  // advance one step per beat, never past the backend
+ if(c.revealIdx<started&&now-c.lastReveal>=_MINSPIN&&curTerm){c.revealIdx++;c.lastReveal=now}  
  if(!c.finished&&c.bDone&&c.revealIdx>=started&&now-c.lastReveal>=_MINSPIN&&(started>0||c.err)){_instFinish(c);return}
  _instRender(c);c.timer=setTimeout(_instTick,150)}
-// proxyBlock is the node forms' half of the proxy feature: a toggle, and the registry list only when
-// it is on. The proxy itself is defined once on the Proxies page — a node only ever names one.
 function proxyBlock(pfx){return pxFields(pfx, _pxNode[pfx]||null)}
 var _pxNode={};
 var _authMode='pass';
@@ -10492,38 +8550,29 @@ function authMode(m){_authMode=m;
  var f=(m=='pass')?pf:kf;if(f){try{f.focus()}catch(e){}}}
 function agBtnBusy(btn,on,label){if(!btn)return;btn.disabled=on;
  btn.innerHTML=on?'<span class="bspin"></span>':label}
-async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go');   // never start a second install while one is live
+async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go');   
  var name=v('a_name'),host=v('a_host');
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){formErr(m,T('nadd_need_name_ip'));return}
  if(!pass&&!key){formErr(m,(_authMode=='key'?T('nadd_privkey'):T('nadd_pass_word'))+T('nadd_is_required'));return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
- // show the FIRST step (SSH), spinning, the instant install is clicked — no "در حالِ نصب…" placeholder gap
  var _st0=_insteps()[0];
  var pr=el('nadd_prog');if(pr){pr.innerHTML='<div class="iwrap"><div class="ibanner run"><span class="ispin"></span><span>'+esc(T('inst_installing'))+'</span></div><div class="istep run"><span class="istep-i run"><span class="ispin"></span></span><div class="istep-b"><div class="istep-t">'+esc(_st0.label)+'</div><div class="istep-s">'+esc(_st0.detail)+'</div></div></div></div>';pr.scrollIntoView({behavior:'smooth',block:'center'})}
  var r=await post('node-install',Object.assign({name:name,ssh_host:host,ssh_port:v('a_sshport'),ssh_user:v('a_user'),agent_port:v('a_aport'),ssh_pass:pass,ssh_key:key},pxBody('a_'))).catch(function(){return{ok:false,d:{}}});
  if(!(r.ok&&r.d.ok)){formErr(m,terr((r.d&&r.d.error))||T('failed'));if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+esc(T('nadd_install_connect')));return}
- // seed step 0 as revealed+running so the reveal continues seamlessly from the skeleton (no flicker back to the banner)
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
-// listBusy is read TWICE by every list refresh: once before the fetch and once again before setHTML.
-// The fetch is a whole round-trip, and a drag started inside that window is invisible to the first read —
-// setHTML then replaces every card including the one under the finger, and the drag dies holding a node
-// that is no longer in the document. That is the "it lets go by itself for a second or two after a drop".
 function listBusy(){return !!(editingId||CHECKING||RORD||RSAVE)}
-async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   
  var rows=[],bn=cnBanner(NODES);
  if(bn)rows.push({k:'__banner',h:bn});
  NODES.forEach(function(n){rows.push({k:n.id,h:nodeCard(n)})});
  if(!NODES.length)rows.push({k:'__empty',h:'<div class="card muted">'+(QRY.nodes?T('no_results'):T('nodes_empty'))+'</div>'});
  setList(box,rows)}
-// The count is the whole point: while the panel is being moved to a new address you can watch the
-// fleet arrive, instead of guessing when it is safe to retire the old one.
 function cnBanner(ns){var k=(ns||[]).filter(cnStale).length;if(!k)return '';
  return '<div class="rdbar" style="margin-bottom:12px">'+ic('warn')+'<div class="rdtx"><b>'+
   esc(k==1?T('cn_stale_one'):T('cn_stale_n').replace('{n}',k))+'</b><span>'+esc(T('cn_stale_sub'))+'</span></div></div>'}
 function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
-// ===== popup modal shell (edit forms + node-details) =====
 function openModal(html,opts){opts=opts||{};
  var ov=document.createElement('div');ov.className='modalov';
  ov.innerHTML='<div class="modal wide'+(opts.cls?' '+opts.cls:'')+'">'+html+'</div>';
@@ -10538,7 +8587,7 @@ function closeModal(ov){if(!ov||ov._closed)return;ov._closed=true;
  document.removeEventListener('keydown',ov._esc);
  if(ov._onclose){try{ov._onclose()}catch(e){}}
  ov.remove();
- if(!document.querySelector('.modalov')){editingId=null;EDID=null}  // only clear edit state when the LAST modal closes — a nested dropdown popup must not wipe the parent edit modal's EDID
+ if(!document.querySelector('.modalov')){editingId=null;EDID=null}  
  try{if(!document.querySelector('.modalov'))document.body.style.overflow=''}catch(e){}
  refresh().catch(function(){})}
 function glvl(p){return p>=88?'crit':p>=70?'warn':'ok'}
@@ -10547,9 +8596,6 @@ function setGauge(key,pct,sub){var C=207.3,g=el('g_'+key),t=el('gt_'+key),s=el('
  pct=Math.max(0,Math.min(100,Math.round(num(pct))));
  g.setAttribute('stroke-dashoffset',(C*(1-pct/100)).toFixed(1));g.setAttribute('class','gfill '+glvl(pct));
  t.innerHTML=pct+'<i>'+T('pct')+'</i>';if(s&&sub!=null)s.textContent=sub}
-// What this node thinks the panel's address is, against what the panel would actually hand it. They
-// differ for exactly as long as it takes the panel to reach the node once, so a lasting difference is
-// the thing worth seeing -- it is what «MMD-GE» looked like from the outside for weeks with no way to ask.
 function cnStale(n){var got=(n.info&&n.info.central)||'',want=n.central_want||'';return !!(got&&want&&got!==want)}
 function cnCell(n){var got=(n.info&&n.info.central)||'';
  if(!got)return '<span class="muted">'+esc(T('nd_central_none'))+'</span>';
@@ -10582,10 +8628,10 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
     tfin.push(num(nd.rx_bps));tfout.push(num(nd.tx_bps));if(tfin.length>30){tfin.shift();tfout.shift()}dualSpark('tf_spark',tfin,tfout);
     var rows=(r.tunnels||[]).concat(r.portfw||[]);
     var tb=el('tf_tuns');if(tb)tb.innerHTML=rows.length?rows.map(tfRow).join(''):'<div class="muted" style="font-size:11.5px;padding:7px 2px">'+esc(T('nd_no_tp'))+'</div>'}).catch(function(){})};
-  poll();ov._iv=setInterval(poll,UIV)}}   // live CPU/RAM/disk + traffic, at the settings-driven cadence
+  poll();ov._iv=setInterval(poll,UIV)}}   
 function ndRetest(id){j('node-stats?id='+id).then(function(r){if(r&&r.online){toast(T('online'),'ok')}else{toast(T('offline')+': '+((r&&r.error)||T('not_available')),'err')}}).catch(function(){toast(T('err_check'),'err')})}
 async function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});if(!n)return;
- await pxLoad();   // proxyBlock renders off PX -- an unfetched registry shows an empty picker
+ await pxLoad();   
  _pxNode['ne_']=n;
  var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div>'+proxyBlock('ne_')+'<div class="msg" id="em_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
@@ -10602,27 +8648,25 @@ function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)r
  openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>'+esc(T('edit_tun_t'))+'</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{onclose:function(){EDID=null}});
  renderEditPort(id)}
 async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
- var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);   // load node IPs for the listen-IP picker
+ var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);   
  var lipsec=(ips.length>1)?'<label class="first">'+esc(T('pf_lip'))+'</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),T('ip'),'')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">'+esc(T('pf_lip_note'))+'</div>':'';
  var fc=lipsec?'':' class="first"';
  var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(T('pf_listen_port'))+'</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(T('pf_dst_port'))+'</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem_'+i+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
- var en=(n.disabled!==true);   // shown in the create-tunnel/portfw pickers unless the operator hid it
- var dotk=n.online?'on':(n.pending?'':'off');   // green / grey(pending) / red — an icon, never a text badge
+ var en=(n.disabled!==true);   
+ var dotk=n.online?'on':(n.pending?'':'off');   
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic(AG_IC)+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act reset" title="'+esc(T('tip_nreset'))+'" onclick="resetNodeTraffic(\\''+n.id+'\\')">'+ic('reset')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+ndTraf(n)+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
-async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  // hide/show in the create pickers — never disconnects
+async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  
  var dis=!(n.disabled===true);n.disabled=dis;
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
  var r=await post('node-toggle',{id:id,disabled:dis});
  if(!(r.ok&&r.d.ok)){n.disabled=!dis;if(c){var s2=c.querySelector('.tsw');if(s2)s2.classList.toggle('on',dis);c.classList.toggle('off',!dis)}toast(T('failed'),'err')}
  else{toast(dis?T('nd_hidden'):T('nd_shown'),'ok')}}
-// The address the node reported, and one button that takes it. This used to be a line of prose inside a
-// folded card body: the operator had to read an IP out of a sentence and retype it in the edit form.
 function openMovedIp(el,e){if(e)e.stopPropagation();
  var id=(el&&el.getAttribute)?el.getAttribute('data-nid'):el;
  var n=NODES.filter(function(x){return x.id==id})[0]||{};
@@ -10634,13 +8678,13 @@ function openMovedIp(el,e){if(e)e.stopPropagation();
   +'<div class="msg" data-mv></div></div>'
   +'<div class="mfoot hug"><button class="primary" data-nid="'+esc(id)+'" onclick="adoptMovedIp(this)">'+ic('check')+esc(T('mv_set'))+'</button>'
   +'<button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('close'))+'</button></div>')}
-async function adoptMovedIp(btn){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('[data-mv]'):null;   // a data hook, not a class: formErr resets className and would strip it
+async function adoptMovedIp(btn){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('[data-mv]'):null;   
  btn.disabled=true;if(m){m.className='msg';m.textContent=T('mv_setting')}
  var r=await post('node-adopt-ip',{id:btn.getAttribute('data-nid')});
  if(r.ok&&r.d.ok){if(ov)closeModal(ov);toast(T('mv_done')+r.d.host,'ok');refreshNodes()}
  else{if(m)formErr(m,perr(r));btn.disabled=false}}
-function upBar(n){var r=n.uptime||[];  // 60 cells: 1=up(green), 0=down(red), null=no-data(gray)
- var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  // TIME-WEIGHTED % from the server (a 5s blip != a whole red cell)
+function upBar(n){var r=n.uptime||[];  
+ var pct=(n.uptime_pct!=null)?n.uptime_pct:100;  
  var cells=r.map(function(v){return '<i class="'+(v==null?'g':(v?'':'d'))+'"></i>'}).join('');
  return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+T('pct')+'</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
@@ -10654,16 +8698,11 @@ async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host')
  var r=await post('node-add',Object.assign({name:name,host:host,port:port,token:tok},pxBody('n_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added_checking'),'ok');refreshNodes()}
  else{formErr(m,terr(r.d.error||T('failed')))}}
-// CHECKING is held for the whole test, the way checkLink holds it: refreshNodes replaces EVERY card, so
-// a repaint landing mid-test detaches the strip this writes into -- «در حال تست…» vanishes and the answer
-// is painted into an orphan.
 async function testNode(id){CHECKING++;
  try{
  var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
  var r=await post('node-test',{id:id});
  var info=(r.d&&r.d.info)||{};if(!m)return;
- // Online: show the SERVER-measured panel->node RTT (the real control-plane ping). Offline: show only the
- // reason — a timed-out request has no latency to report, so no misleading "· 8164ms" on a dead node.
  if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
  else{formErr(m,T('offline')+': '+(terr(info.error)||T('not_available')))}
  }finally{CHECKING--}}
@@ -10675,22 +8714,20 @@ function ktRows(s){var active=!!s.active;
  var val=function(v){return '<span class="mono">'+esc(v||'?')+'</span>'};
  return '<div class="nd-grid">'+ndTile('activity',T('kt_state'),pill,true)
   +ndTile('traf',T('kt_cc'),val(s.cc))+ndTile('swap',T('kt_qdisc'),val(s.qdisc))+'</div>'}
-function ktShow(id,s){var ex=document.querySelector('.modal.ktmodal');if(ex)closeModal(ex.closest('.modalov'));  // never stack two kt modals (double-click / re-render)
+function ktShow(id,s){var ex=document.querySelector('.modal.ktmodal');if(ex)closeModal(ex.closest('.modalov'));  
  var bbr=!!s.bbr_available,active=!!s.active;
  var note=bbr?'':'<div class="msg err" style="margin-top:9px">'+esc(T('kt_nobbr'))+'</div>';
- // one filled action + one ghost cancel in BOTH states -- two ghosts side by side hide which one acts
  var btn=active?'<button class="primary" onclick="ktDo(this,\\''+id+'\\',\\'revert\\')">'+esc(T('kt_disable'))+'</button>'
   :'<button class="primary"'+(bbr?'':' disabled')+' onclick="ktDo(this,\\''+id+'\\',\\'apply\\')">'+esc(T('kt_enable'))+'</button>';
  openModal('<div class="msticky"><span class="medi">'+ic('gauge')+'</span><div class="ttl"><h3>'+esc(T('kt_title'))+'</h3><div class="sb">'+esc(T('kt_sub'))+'</div></div></div><div class="mbody"><div class="kt-desc">'+esc(T('kt_desc'))+'</div>'+ktRows(s)+note+'<div class="msg kt_msg"></div></div><div class="mfoot hug">'+btn+'<button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'ktmodal'})}
-async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('.kt_msg'):null;  // resolve controls from THIS modal, not a global id (two kt modals could share it)
+async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('.kt_msg'):null;  
  btn.disabled=true;if(m){m.className='msg kt_msg';m.textContent=T('kt_working')}
  var r=await post('node-kernel-tune',{id:id,action:action});
  if(r.ok&&r.d.ok){toast(action=='apply'?T('kt_enabled'):T('kt_disabled'),'ok');
-  if(ov&&document.body.contains(ov))ktShow(id,r.d)}  // re-render fresh state (ktShow closes this one first); skip if the operator dismissed it mid-request
+  if(ov&&document.body.contains(ov))ktShow(id,r.d)}  
  else{if(m){m.className='msg err kt_msg';m.textContent=terr((r.d&&r.d.error)||T('failed'))}btn.disabled=false}}
 function doForceWipe(id){return confirmBox(T('del_wipe_force_ask'),T('del_wipe_force_yes')).then(function(ok){if(ok)return doDelNode(id,true,true)})}
 function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');var offline=btn.getAttribute('data-online')==='0';
- // Node OFFLINE -> the destructive option is best-effort force-wipe DIRECTLY (one confirm, no doomed full-wipe + timeout).
  var wipeOpt=offline
   ?'<button type="button" class="delopt danger" onclick="doForceWipe(\\''+id+'\\')"><div class="do-t">'+ic('warn')+esc(T('del_wipe_force_yes'))+'</div><div class="do-s">'+esc(T('del_wipe_force_s'))+'</div></button>'
   :'<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>';
@@ -10710,19 +8747,14 @@ async function doDelNode(id,wipe,force){var m=el('del_msg');
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false});
  if(m){formErr(m,terr((r.d&&r.d.error)||T('failed')))}}
 
-// ===== Tunnels
 function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','tun_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
-// The latency shown is the probe's own round trip, measured through the tunnel itself.
 function pingInfo(h){if(!h)return '';var p=[];
  if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));
  if(h.loss_pct!=null&&h.loss_pct>0)p.push(T('t_loss')+' '+Math.round(h.loss_pct)+T('pct'));
  return p.join(' · ')}
-// A side is connected or it is not. The node decides that from a majority of its samples and holds the
-// verdict across one unlucky sweep, so `alive` is already the whole answer and the panel adds no
-// threshold of its own — a second one here could only ever disagree with the one that measured.
 function sideTxt(online,h,peer){
  if(!online)return T('t_side_off');
  if(!h)return T('t_side_notun');
@@ -10731,30 +8763,21 @@ function sideTxt(online,h,peer){
  if(h.alive===true){var e2=pingInfo(h);return T('t_side_conn')+(e2?' · '+e2:'')}
  if(h.alive===false)return T('t_side_nopingr')+(h.loss_pct!=null?' ('+T('t_loss')+' '+Math.round(h.loss_pct)+T('pct')+')':'');
  return T('t_side_up_unk')}
-// k: dot color class · w: the word to show ONLY when there's a problem · t: the tooltip, ALWAYS.
-// Every cause carries its own tooltip — no answer, no such tunnel, iface down, dead session. A wordless
-// dot must never inherit title=«متصل» from the "no word means connected" shortcut when that is not what
-// it means. Two colours plus the neutral not-yet-measured: there is no degraded state to paint.
 function sideState(online,h,peer){
- if(!online)return {k:'bad',w:T('st_disc'),t:T('t_side_off')};        // the agent itself did not answer
- if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           // node answered, but has no such tunnel
+ if(!online)return {k:'bad',w:T('st_disc'),t:T('t_side_off')};        
+ if(!h)return {k:'bad',w:T('st_disc'),t:T('t_side_notun')};           
  if(h.up==null)return {k:'na',w:'…',t:T('checking')};
  if(!h.up)return {k:'bad',w:T('st_disc'),t:T('t_side_ifdown')};
- if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         // something still crosses
- if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  // nothing does
- return {k:'na',w:'…',t:T('checking')}}                               // no verdict yet
-// boxCls/boxTitle paint the node box's FRAME from the same verdict the header dot uses. The dot itself is
-// gone from inside the box — the card header already carries one per end, and two dots for one fact only
-// competed for a line that also holds the name, the role chip and the protocol.
+ if(h.alive===true)return {k:'ok',w:'',t:T('tst_connected')};         
+ if(h.alive===false)return {k:'bad',w:T('st_disc'),t:T('tst_dead')};  
+ return {k:'na',w:'…',t:T('checking')}}                               
 function boxCls(online,h,peer){return 'st-'+sideState(online,h,peer).k}
-// paintBox re-frames one box in place. The check writes the dots straight into their spans, so without
-// this the frame would keep the colour the last fleet refresh left and disagree with the words under it.
 function paintBox(id,online,h,peer){var e=el(id);if(!e)return;
  e.className='tnnode '+boxCls(online,h,peer);e.title=boxTitle(online,h,peer)}
 function boxTitle(online,h,peer){return sideState(online,h,peer).t}
-function sideDot(online,h,peer){var s=sideState(online,h,peer);   // the WORD only; the frame carries the colour
+function sideDot(online,h,peer){var s=sideState(online,h,peer);   
  return s.w?'<span class="stw '+s.k+'">'+esc(s.w)+'</span>':''}
-function metaCols(l){   // two meta columns placed exactly under the two node boxes
+function metaCols(l){   
  var sub='<div>'+esc(T('subnet'))+': '+cpv(l.subnet)+'</div>';
  var idr='<div>'+esc(T('tid'))+': <b>'+esc(l.tunnel_id)+'</b></div>';
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
@@ -10762,38 +8785,29 @@ function metaCols(l){   // two meta columns placed exactly under the two node bo
  var right,left;
  if(l.type=='ipsec'){right=sub+idr+ifc;left=typ+'<div class="wrap">'+esc(T('enc'))+': <span class="enc">'+ic('lock','var(--bad)')+esc(T('encrypted'))+'</span></div>'}
  else if((l.type=='l2tpv3'||l.type=='fou'||l.type=='vxlan')&&l.port){right=sub+idr+ifc;left=typ+'<div>'+esc(T('udp_port'))+': <b class="mono">'+esc(l.port)+'</b></div>'}
- else{right=sub+ifc;left=idr+typ}   // plain (gre/ipip/sit, or vxlan without a custom port): balanced 2+2
+ else{right=sub+ifc;left=idr+typ}   
  return '<div class="enmeta"><div class="emcol">'+right+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+left+'</div></div>'}
-// ===== accordion cards (collapsed row -> click to expand) + on/off toggle =====
-var TOPEN={};   // per-link open state, kept across the periodic re-render
-// per-link+side {ip,rot}: the live active pool IP + whether it rotates. coreCard syncs it from the fleet
-// data's l.*_ip_active and persists here, seeded from localStorage so a RELOAD shows the last-known
-// active IP immediately instead of flashing the stored anchor (a_ip) until the first fleet fetch lands.
+var TOPEN={};   
 var PEERST=(function(){try{return JSON.parse(localStorage.getItem('tnl_peerst')||'{}')||{}}catch(e){return {}}})();
 function peerStSave(){try{localStorage.setItem('tnl_peerst',JSON.stringify(PEERST))}catch(e){}}
 var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 function cardTog(id,e){TOPEN[id]=!TOPEN[id];var c=el('c_'+id);if(c)c.classList.toggle('open',TOPEN[id])}
-function cardTogFromEl(elm){var c=elm.closest&&elm.closest('.card[data-rid]');if(!c)return;var id=c.getAttribute('data-rid');TOPEN[id]=!TOPEN[id];c.classList.toggle('open',TOPEN[id])}  // portfw head: derive the key from data-rid (no fragile onclick string)
+function cardTogFromEl(elm){var c=elm.closest&&elm.closest('.card[data-rid]');if(!c)return;var id=c.getAttribute('data-rid');TOPEN[id]=!TOPEN[id];c.classList.toggle('open',TOPEN[id])}  
 async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(x){return x.id==id})[0];if(!L)return;
- var next=(L.enabled===false);L.enabled=next;   // optimistic flip
+ var next=(L.enabled===false);L.enabled=next;   
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',next);c.classList.toggle('off',!next)}
  var r=await post('link-toggle',{id:id,enabled:next});
  if(!(r.ok&&r.d.ok)){L.enabled=!next;toast(T('failed'),'err')}else{toast(next?T('turned_on'):T('turned_off'),'ok')}
  refreshFleet()}
 function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="'+esc(T('st_off'))+'"></span>';
  var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health, side=='a'?l.b_health:l.a_health);
- return '<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}   // the collapsed head is often the ONLY dot on screen — it needs the reason too
+ return '<span class="sdot '+s.k+'" title="'+esc(s.t)+'"></span>'}   
 function accStat(l,side){if(l.enabled===false)return '<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
  return side=='a'?sideDot(l.a_online,l.a_health,l.b_health):sideDot(l.b_online,l.b_health,l.a_health)}
-// srvIsA reports whether end A is the listening (server) end.
 function srvIsA(l){return l.server_side!='b'}
-// sideOrder returns [left,right]. Server goes right; non-core tunnels have no role, so a then b.
-// Both .tninfo and .hpeers flow LTR, so the right slot is the last one.
 function sideOrder(l,isCore){return (isCore&&srvIsA(l))?['b','a']:['a','b']}
 function accHead(l,isCore){var on=l.enabled!==false;
  var so=sideOrder(l,isCore),sl=so[0],sr=so[1];
- // Every card on the core page is a core tunnel, so the word "Core" said nothing; the carrier is what
-// differs between them. System cards have always named their type here — this is the same idea.
 var typ=isCore?'<span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l))+'</span>'
               :'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
@@ -10814,8 +8828,6 @@ function linkFooter(l,editFn){
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
- // The panel's own verdict on the last rebuild. It is here because the reason cannot ride the reply the
- // operator lost: a rebuild allows each node 200s, so the request can outlive the connection that asked.
  if(l.rb&&!l.rb.ok)drift+='<div class="msg err" style="margin:0 0 9px">'+esc(T('rb_last_fail'))+esc(terr(l.rb.error||T('rebuild_failed')))+'</div>';
  return {drift:drift,acts:acts,msg:msg}}
 function linkCard(l){
@@ -10827,7 +8839,7 @@ function linkCard(l){
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
  return accShell(l,false,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
-async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   
  var _rows=withPending('tunnels',FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}));
  setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
@@ -10850,32 +8862,26 @@ async function checkLink(id){CHECKING++;
   var r=await post('check-link',{id:id});
   var L=FLEET.filter(function(x){return x.id==id})[0]||{};
   if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
-  // The probe REPORTS; it does not decide — sideState reads none of its output, so what gets painted
-  // here is the node's CONTINUOUS data, just fetched fresh. Repainting from it is not the probe setting
-  // state; it is skipping the two poll hops the periodic path would have waited for. The lines below
-  // say what the probe measured, and stay separate from the colours.
   var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
   if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
   paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
   var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
-  // BOTH ends must have got their handshake back. One end answered is not the tunnel working: it is
-  // half of it working, and the card would be claiming more than was measured.
   var okAll=aup&&bup&&d.a_health.alive===true&&d.b_health.alive===true;
   setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
     (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health,d.b_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health,d.a_health)));
  }finally{CHECKING--}}
 async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast(T('no_tunnel_check'),'err');return}
- if(b){b.disabled=true;b.style.opacity='.6'}CHECKING++;  // hold guard across the whole batch
+ if(b){b.disabled=true;b.style.opacity='.6'}CHECKING++;  
  try{await Promise.all(FLEET.map(function(l){return checkLink(l.id)}))}
  finally{CHECKING--;if(b){b.disabled=false;b.style.opacity=''}}
  toast(T('checkall_done'),'ok')}
 async function rebuildLink(id){
  var _L=FLEET.filter(function(x){return x.id==id})[0];
- if(_L&&_L.drift){openRebuildPicker(id);return}   // IP drifted -> let the operator pick the new IP
+ if(_L&&_L.drift){openRebuildPicker(id);return}   
  if(!await confirmBox(T('rebuild_confirm')))return;
  var r=await post('rebuild-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r,'rebuild_failed'),'err');return}
- delete CHK[id];   // the card's own row carries this now; a stale check verdict beside it would contradict it
+ delete CHK[id];   
  actStarted()}
 async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('restart_yes')))return;
  var r=await post('restart-link',{id:id});
@@ -10887,18 +8893,11 @@ async function flipView(id){var r=await post('link-view',{id:id});
   setTimeout(function(){if(CHK[id]){CHK[id]=null;var m=el('lchk_'+id);if(m){m.className='msg';m.innerHTML=''}}},4000);
   refreshFleet()}
  else{toast(T('failed'),'err')}}
-// The node's OWN throughput and lifetime totals, in the same shape a tunnel gets — and the same class,
-// so the dashed rule above it is the divider under the address.
-//
-// It sits OUTSIDE .cbody on purpose. Inside it, the figure is only there once the card is opened, and a
-// list you have to expand row by row is not one you can read at a glance. .card.acc has no padding of
-// its own, so the row carries the head's.
 function ndTraf(n){var t=n.traffic;if(!t)return '';
  return '<div class="ltraf ndtraf"><span class="din iso">↓ '+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(t.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b><b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></span></div>'}
 async function resetNodeTraffic(id){if(!await confirmBox(T('nreset_confirm')))return;var r=await post('traffic-reset',{node:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshNodes()}else{toast(perr(r),'err')}}
 async function resetTraffic(id){if(!await confirmBox(T('reset_confirm')))return;var r=await post('traffic-reset',{id:id});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshFleet()}else{toast(perr(r),'err')}}
 async function resetPfTraffic(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_reset_confirm')))return;var r=await post('traffic-reset',{node:p.node_id,name:p.name});if(r.ok&&r.d.ok){toast(T('t_reset_done'),'ok');refreshPortfw()}else{toast(perr(r),'err')}}
-// ===== IP tags + rebuild IP picker (opens on rebuild for a drift-flagged tunnel) =====
 var LINKI='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8"/></svg>';
 var CK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M20 6 9 17l-5-5"/></svg>';
 var XK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-inline-start:3px"><path d="M18 6 6 18M6 6l12 12"/></svg>';
@@ -10932,8 +8931,6 @@ function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
 async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSel.a_ip;if(_rbSel.b_ip)body.b_ip=_rbSel.b_ip;
  var m=el('rb_msg');if(m){m.className='msg';m.textContent=T('rebuilding')}
  var r=await post('rebuild-link',body);
- // A rebuild can be refused for a reason only the node knows. A toast fades, and on a phone that reads
- // as "the button does nothing" -- so the reason goes in the sheet, the way every other form reports one.
  if(!(r.ok&&r.d.act)){if(m)formErr(m,perr(r,'rebuild_failed'));else toast(perr(r,'rebuild_failed'),'err');return}
  var vr=await actAccepted(r.d.act,m);
  if(vr.gone)return;
@@ -10941,18 +8938,16 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
  if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
 async function delLink(id){
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
- if(l.a_online===false||l.b_online===false){          // an endpoint is KNOWN-offline -> straight to force: one dialog, no wait
+ if(l.a_online===false||l.b_online===false){          
   if(!await confirmBox(T('del_force_ask'),T('del_force_yes')))return;
   var rf=await post('delete-link',{id:id,force:true});
   if(!(rf.ok&&rf.d.act)){toast(perr(rf),'err');return}
   delete CHK[id];editingId=null;actStarted();return}
- if(!await confirmBox(T('del_tun_confirm')))return;   // both endpoints online -> normal delete
+ if(!await confirmBox(T('del_tun_confirm')))return;   
  var r=await post('delete-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r),'err');return}
  delete CHK[id];editingId=null;actStarted()}
 
-// ===== Create
-// one endpoint's IP field for the create forms: multi-IP -> dropdown; single-IP -> disabled box (like the edit form)
 function ipField(k,ips,lab){
  if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),T('ip'),'');
  delete SEL[k];return '<label class="first">'+lab+'</label><input class="mono" value="'+esc(ips[0]||'—')+'" disabled style="opacity:.6">'}
@@ -10983,7 +8978,7 @@ function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a'),b=ssVal('c_b');
  if(a==b){formErr(m,T('two_diff_nodes'));return}
  var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet');
- var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bare=el('ssb_c_bare')?ssVal('c_bare'):'';   // only send an IP when its picker exists (multi-IP node)
+ var aip=el('ssb_c_aip')?ssVal('c_aip'):'',bare=el('ssb_c_bare')?ssVal('c_bare'):'';   
  var body={a_node:a,b_node:b,type:type,a_ip:aip,b_ip:bare};
  if(range=='custom')body.subnet=custom;else body.subnet_base=range;
  if((type=='l2tpv3'||type=='fou'||type=='vxlan')&&el('c_port')&&v('c_port'))body.port=v('c_port');
@@ -10995,23 +8990,14 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshTunnels()}
 
-// ===== Custom core (packet/core) — its own view, list and create form
 function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
-async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   
  var _rows=withPending('core',FLEET.map(function(l){return {k:l.id,h:coreCard(l)}}));
- setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   // the edge boxes are filled by edgesLoop's own cadence; the extra 300ms kick here doubled every core-page refresh into two full RPC fan-outs
-// ===== reorder cards: explicit "reorder mode" (toolbar toggle) + drag by the grip handle =====
-// The user taps the toggle; each card then shows a grip, and dragging THAT live-swaps with the
-// neighbour and persists server-side. Outside reorder mode nothing here fires, so tap / scroll /
-// copy behave normally. touch-action:none on the grip = no scroll-race.
-var REORDMODE=false,RORD_AS=0;   // RORD_AS = rAF id for edge auto-scroll during a drag
+ setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   
+var REORDMODE=false,RORD_AS=0;   
 function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);if(REORDMODE)reordCollapse();}
-// An OPEN card is several times taller than a collapsed one: it hides the neighbours it is supposed to
-// swap with, and reordApply compares midpoints, so the swap point sits far from the finger. Entering
-// reorder mode collapses every open card; reordDown collapses one opened while the mode was already on.
-// TOPEN and .card.acc are shared by nodes / tunnels / core / portfw, so this covers all four sections.
 function reordCollapse(one){
  var cs=one?[one]:document.querySelectorAll('.card.acc.open');
  for(var i=0;i<cs.length;i++){var c=cs[i];
@@ -11024,24 +9010,20 @@ function reordDown(e){
  if(RORD||RSAVE||!REORDMODE)return;
  if(e.isPrimary===false)return;
  if(e.pointerType==='mouse'&&e.button!==0)return;
- var g=e.target.closest?e.target.closest('.rgrip'):null;if(!g)return;   // drag ONLY from the grip handle
+ var g=e.target.closest?e.target.closest('.rgrip'):null;if(!g)return;   
  var card=g.closest('.card[data-rid]');if(!card)return;
  var box=card.parentNode;if(!box)return;
  if(e.cancelable)e.preventDefault();
  reordCollapse(card);
- // The auto-scroll ceiling, measured BEFORE the drag transform exists. .card.rdrag is overflow:visible,
- // so translateY extends the document's scrollable area downward — and reordAutoScroll then scrolls into
- // the room it just made, forever. Reordering never changes the total height, so one measurement bounds
- // the whole drag; reordCollapse above must therefore settle synchronously (see body.reord-on .cbody).
  var vh0=window.innerHeight||document.documentElement.clientHeight;
  RORD={card:card,box:box,id:card.getAttribute('data-rid'),kind:card.getAttribute('data-rk'),pid:e.pointerId,grabY:e.clientY,lastY:e.clientY,swaps:[],
        maxY:Math.max(0,(document.documentElement.scrollHeight||0)-vh0)};
  try{card.setPointerCapture(e.pointerId)}catch(_){}
  card.classList.add('rdrag');document.body.classList.add('rdragging');
  if(navigator.vibrate){try{navigator.vibrate(10)}catch(_){}}
- RORD_AS=requestAnimationFrame(reordAutoScroll);   // keep the page scrolling while a dragged card sits at an edge
+ RORD_AS=requestAnimationFrame(reordAutoScroll);   
 }
-function reordApply(){   // re-place the dragged card at RORD.lastY and swap with the neighbour it has crossed
+function reordApply(){   
  var c=RORD.card;
  c.style.transform='translateY('+(RORD.lastY-RORD.grabY)+'px)';
  var cr=c.getBoundingClientRect(),cy=cr.top+cr.height/2;
@@ -11056,34 +9038,28 @@ function reordMove(e){
  RORD.lastY=e.clientY;
  reordApply();
 }
-function reordAutoScroll(){   // touch-action:none means the browser won't scroll during a drag, so do it ourselves near the edges
+function reordAutoScroll(){   
  if(!RORD){RORD_AS=0;return}
  var y=RORD.lastY,vh=window.innerHeight||document.documentElement.clientHeight,edge=76,ds=0;
  if(y<edge)ds=-Math.min(24,((edge-y)/3|0)+3);
  else if(y>vh-edge)ds=Math.min(24,((y-(vh-edge))/3|0)+3);
- var cur=window.pageYOffset;   // clamp to the pre-drag scroll range, or the card's own overflow feeds the scroll
+ var cur=window.pageYOffset;   
  if(ds>0)ds=Math.min(ds,RORD.maxY-cur);else if(ds<0)ds=Math.max(ds,-cur);
- if(ds>0||ds<0){var b=cur;window.scrollBy(0,ds);var a=window.pageYOffset-b;if(a){RORD.grabY-=a;reordApply();}}   // grabY-=scrolled keeps the card pinned under the finger
+ if(ds>0||ds<0){var b=cur;window.scrollBy(0,ds);var a=window.pageYOffset-b;if(a){RORD.grabY-=a;reordApply();}}   
  RORD_AS=requestAnimationFrame(reordAutoScroll);
 }
 function reordShift(nb,up){
  var c=RORD.card;
  var cBefore=c.getBoundingClientRect().top,nBefore=nb.getBoundingClientRect().top;
- // NEVER move the dragged card. It holds the pointer capture, and moving a node is a remove+insert,
- // so the browser releases the capture and the gesture ends — one row per swap. Moving the NEIGHBOUR
- // to the card's other side gives the identical order and leaves the capture alone. The downward
- // branch always did this, which is why only dragging UP let go.
  RORD.box.insertBefore(nb,up?c.nextSibling:c);
- RORD.grabY+=(c.getBoundingClientRect().top-cBefore);          // keep the card pinned under the finger
+ RORD.grabY+=(c.getBoundingClientRect().top-cBefore);          
  c.style.transform='translateY('+(RORD.lastY-RORD.grabY)+'px)';
- var dy=nBefore-nb.getBoundingClientRect().top;                 // FLIP the neighbour so it glides, not jumps
+ var dy=nBefore-nb.getBoundingClientRect().top;                 
  if(dy){nb.style.transition='none';nb.style.transform='translateY('+dy+'px)';void nb.offsetHeight;nb.style.transition='';nb.style.transform=''}
  RORD.swaps.push(nb.getAttribute('data-rid'));
 }
 function reordEnd(e){
  if(!RORD)return;
- // Only THIS drag's pointer ends it. Any other pointer's up — a second finger, a palm — used to end a
- // drag the real finger was still holding, and the card then followed nothing.
  if(e&&e.pointerId!=null&&e.pointerId!==RORD.pid)return;
  var d=RORD;RORD=null;
  if(RORD_AS){cancelAnimationFrame(RORD_AS);RORD_AS=0;}
@@ -11091,12 +9067,9 @@ function reordEnd(e){
  d.card.classList.remove('rdrag');d.card.style.transform='';document.body.classList.remove('rdragging');
  if(d.swaps.length)reordPersist(d.kind,d.id,d.swaps);
 }
-// ONE request for the whole chain. It used to be one per crossed neighbour, awaited in sequence: a
-// three-place drag was three round-trips with RSAVE held across all of them, and a failure half way
-// left the server holding a PREFIX of a move the screen had already finished drawing.
 async function reordPersist(kind,id,targets){
  RSAVE=true;
- try{var r=await post('reorder',{kind:kind,id:id,targets:targets},NET_TIMEOUT);   // RSAVE gates every list refresh AND the next drag: bound this one tight
+ try{var r=await post('reorder',{kind:kind,id:id,targets:targets},NET_TIMEOUT);   
   if(!r.ok||!r.d.ok)toast((r.d&&r.d.error)||T('reorder_err'),'err');}
  catch(_){toast(T('reorder_err'),'err')}
  finally{RSAVE=false}
@@ -11106,17 +9079,13 @@ document.addEventListener('pointerdown',reordDown,true);
 document.addEventListener('pointermove',reordMove,true);
 document.addEventListener('pointerup',reordEnd,true);
 document.addEventListener('pointercancel',reordEnd,true);
-// A capture that goes away must NOT end the drag — that is the bug above wearing a different hat. Take it
-// back and carry on; the document-level listeners deliver the moves either way.
 document.addEventListener('lostpointercapture',function(e){
  if(RORD&&e.pointerId===RORD.pid){try{RORD.card.setPointerCapture(e.pointerId)}catch(_){}}},true);
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
-function coreMeta(l){   // right col under box A, left col under box B (lock at the START, green)
+function coreMeta(l){   
  var sub='<div>'+esc(T('subnet'))+': '+cpv(l.subnet)+'</div>';
  var prt=portRows(l);
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
- // «نوع» is the SAME chip the card header carries, and the profile row under it is that carrier's own
- // sub-choice. Header and body used to name two different things here — «RAW» above, «Core» below.
  var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l))+'</span></div>';
  var _pf=carrierProfile(l);
  var prof=_pf?'<div>'+esc(T('profile'))+': <b class="mono">'+esc(_pf)+'</b></div>':'';
@@ -11130,26 +9099,18 @@ function coreMeta(l){   // right col under box A, left col under box B (lock at 
    ?'<span class="encval">'+esc(l.cipher=='auto'?'aes-256-gcm':l.cipher)+'</span>'
    :'<b>'+esc(T('no_cipher'))+'</b>';
  var enc='<div class="enc-line">'+esc(T('enc'))+': '+encv+'</div>';
- // WS/CDN edge box: pool -> the LIVE active edge (refreshCardEdges fills it from the core status
- // file); single edge -> the fixed SNI · edge, static, nothing polls it.
-// edgeHost drops the port: it is either what the operator typed or the 443/80 the node derives from
-// wss, and carrying it pushed a long IPv4 onto a second line. Stored and dialled value unchanged.
 function edgeHost(v){v=String(v||'');var i=v.lastIndexOf(':');return (i>0&&v.indexOf(':')==i)?v.slice(0,i):v}
  var edge='';
  if(l.transport=='ws'){
    if(l.ws_pool){edge='<div class="cedge live"><div class="ct"><span class="cdot"></span>'+esc(T('active_edge'))+'</div><div class="echips" id="cardedge_'+l.id+'">'+edgeChips(EDGEV[l.id]||'')+'</div></div>';}
    else{var eip=l.edge_ip?edgeHost(l.edge_ip):'',edom=l.ws_host||'';
-     // Fixed edge: same chips, neutral wrapper — nothing polls it, so no live tint and no dot.
      if(eip||edom)edge='<div class="cedge"><div class="ct">'+esc(T('cdn_edge'))+'</div><div class="echips">'+edgeChipsOf(eip,edom)+'</div></div>';}
  }
  return '<div class="enmeta"><div class="emcol">'+sub+prt+ifc+'</div><span class="tnarrow earrow">↔</span><div class="emcol">'+typ+prof+cap+enc+'</div></div>'+edge}
 function coreCard(l){
- var srvA=(l.server_side!='b');   // which end listens; stored on the record
- // Prefer the backend's FRESH active pool IP (api_fleet reads it from the client node); sync it into the
- // cache so a RELOAD paints the last active instantly from localStorage, then fall back to that cache,
- // then the stored anchor. No separate per-tunnel poll — the fleet refresh already carries the live IP.
+ var srvA=(l.server_side!='b');   
  var _aA=l.a_ip_active||'',_aB=l.b_ip_active||'',ka=l.id+'_a',kb=l.id+'_b';
- if(!l.ip_rotate){   // rotation OFF: evict any stale cached rotating IP so the icon + active-IP don't linger from a prior rotation
+ if(!l.ip_rotate){   
    var ce=false;if(PEERST[ka]){delete PEERST[ka];ce=true}if(PEERST[kb]){delete PEERST[kb];ce=true}if(ce)peerStSave();
  }else if(_aA||_aB){var ch=false;
    if(_aA&&(PEERST[ka]||{}).ip!==_aA){PEERST[ka]={ip:_aA};ch=true}
@@ -11157,16 +9118,11 @@ function coreCard(l){
    if(ch)peerStSave();}
  var _pa=PEERST[ka]||{},_pb=PEERST[kb]||{};
  var _aip=_aA||_pa.ip||l.a_ip,_bip=_aB||_pb.ip||l.b_ip;
- // The rotation mark comes from the record ONLY. The cache holds the last active IP so a reload
- // paints instantly, but it must not carry `rot`: the entry is rewritten only when the IP CHANGES,
- // so a side that stops rotating (a pool trimmed to one) would keep a stale rot:true forever.
  var _arot=l.a_ip_rot?rotMark():'',_brot=l.b_ip_rot?rotMark():'';
- // One builder for both ends, so the pair can be emitted in either order. Ids stay keyed by the end
- // (cpip_a_/lba_/cprot_a_), never by screen position — the live-status poll looks them up by end.
  var _ip={a:_aip,b:_bip},_rt={a:_arot,b:_brot};
  var nbox=function(s){var isSrv=(s=='a')==srvA;
   return '<div class="tnnode '+boxCls(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health'])+'" id="bx'+s+'_'+l.id+'" title="'+esc(boxTitle(l[s+'_online'],l[s+'_health'],l[(s=='a'?'b':'a')+'_health']))+'"><div class="tnhead"><span class="tnn">'+esc(l[s+'_name'])+'</span><span class="tnend"><span class="rl '+(isSrv?'srv':'cli')+'">'+(isSrv?T('server'):T('client'))+'</span><span class="cprot" id="cprot_'+s+'_'+l.id+'">'+_rt[s]+'</span><span class="stat" id="lb'+s+'_'+l.id+'">'+accStat(l,s)+'</span></span></div><div class="tna mono cpv" id="cpip_'+s+'_'+l.id+'" title="'+esc(T('tip_copy'))+'" onclick="copyTxt(this.textContent,event)">'+esc(_ip[s])+'</div></div>'};
- var _so=sideOrder(l,true);   // [left, right]
+ var _so=sideOrder(l,true);   
  var body='<div class="tninfo">'+
   nbox(_so[0])+
   '<span class="tnarrow">↔</span>'+
@@ -11176,9 +9132,6 @@ function coreCard(l){
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=false,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
-// A core tunnel's carrier, in one place: the header chip and the body's «نوع» row read the SAME family,
-// and the profile row under it carries that family's own sub-choice. Families with nothing to choose
-// (udp/tcp, and the three CDN shapes which ARE the family) return '' and the row is dropped.
 function carrierFamily(l){var t=l.transport||'udp';
  return (t=='ws')?((l.cdn_carrier=='grpc')?'grpc':(l.cdn_carrier=='http')?'http':'ws'):t}
 function carrierLabel(l){return carrierFamily(l).toUpperCase()}
@@ -11188,22 +9141,12 @@ function carrierProfile(l){var t=l.transport||'udp';
  if(t=='spoof')return (l.spoof_src&&l.spoof_dst)?'SRC+DST':(l.spoof_dst?'DST':'SRC');
  if(t=='dns')return (l.dns_zone||'').toUpperCase();
  return ''}
-// «bare» forges no header, so its outer IP protocol number is CHOSEN rather than implied by the name —
-// show it. Every other profile's number is fixed and printing it is noise.
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-// The forged L4 ports of raw's udp/tcp profiles, mirroring the core's rawPorts(): a server port the
-// middlebox reads and a client source port that is either the fixed constant or rolled per tunnel.
-// Nothing binds either — the raw socket is opened on a protocol number — but the card was showing no
-// port at all on the one carrier that has two. Every other carrier dials the single stored port.
 var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820;
 function portRows(l){var t=l.transport||'udp';
  if(t=='raw'){
   if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
-  // The source row names the MODE and, in brackets, the port actually in force: the live one the
-  // client's core publishes when we have it, else the configured number. A rolled port has no other
-  // home — the stored config only says that it rolls — so with no live value the brackets are dropped
-  // rather than filled with a number the wire never carried.
   var _mode=l.raw_sport_random?T('port_src_rand'):T('port_src_fixed');
   var _now=num(l.sport_live)||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
   return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
@@ -11212,46 +9155,28 @@ function portRows(l){var t=l.transport||'udp';
  return '<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'}
 function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best'),warn:1},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m'),warn:1},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-// The three ways to cross a CDN, as ONE choice. They are three separate transports everywhere
-// else, and only looked like a family here because
-// grpc happened to live in the same file and share one config flag with http — an implementation
-// detail that had leaked into the UI as a second picker. The value stored is now the tile itself.
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
-// the selector value for a stored link
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
-// The http carrier's shape: the upstream window (workers x batch, spent per round trip) and how many
-// download streams the client opens. Only the http carrier has either, so this row appears for it
-// alone. The min/max here must match HTTP_SHAPE on the API side — tools/http_shape_consistency.py
-// fails the build if they drift.
 var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},downw:{k:'http_streams',lo:1,hi:16,d:1}};
 function cdnNum(idp,n,lbl,l){var f=CDN_SHAPE[n];var cur=(l&&l[f.k])||f.d;return '<div style="flex:1;min-width:92px"><label style="margin-top:0">'+esc(lbl)+'</label><input id="'+idp+'cdn'+n+'" type="number" min="'+f.lo+'" max="'+f.hi+'" value="'+cur+'"></div>'}
 function cdnShapeInputs(idp,l){return '<div id="'+idp+'cdnup" style="display:flex;gap:8px;flex:2">'+cdnNum(idp,'upw',T('cdn_upw_lbl'),l)+cdnNum(idp,'upkb',T('cdn_upkb_lbl'),l)+'</div>'+cdnNum(idp,'downw',T('cdn_strm_lbl'),l)}
 function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(cdn!='http'&&f.k!='http_streams')return;var x=parseInt(v(px+'cdn'+n));if(!(x>=f.lo&&x<=f.hi))x=f.d;body[f.k]=x})}
-// the row is meaningful only on the HTTP carrier (ws has no POSTs, grpc has no ladder)
 function cdnShapeOn(S){return S.Tr=='ws'&&(S.Cdn=='http'||S.Cdn=='grpc')}
 function corCdnShapeGate(){cdnShapeRow('e_',_corS);grpcZoneGate(_corS,'e_')}
 function ceCdnShapeGate(){cdnShapeRow('ee_',_eeS);grpcZoneGate(_eeS,'ee_')}
-// The POST ladder is the http carrier's; the stream count is both carriers'.
 function cdnShapeRow(px,S){var r=el(px+'cdnprow');if(r)r.style.display=cdnShapeOn(S)?'':'none';var u=el(px+'cdnup');if(u)u.style.display=(S.Cdn=='http')?'flex':'none'}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
-// grpcZoneGate reveals the "your CDN zone must have gRPC turned on" warning for the grpc carrier.
-// A Cloudflare zone with gRPC off refuses the grpc content-type at the edge, so the tunnel cannot
-// come up and the only clue is an HTTP status in the node's log. ArvanCloud needs no such switch,
-// which is why this is a warning and not a block.
 function grpcZoneGate(S,px){var w=el(px+'grpczone');if(w)w.style.display=(S.Cdn=='grpc')?'':'none'}
 function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
 function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnShapeGate()}
 function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnShapeGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='spoof'?'جعل':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   /* obfs is unavailable on dns -- re-gate on every transport change, not just on a cipher change */
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='spoof'?'جعل':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corS.Tr=='flux')?'':'none';fluxTick()}
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
 function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
 function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m=='disorder')?'':'none'}
-// wss is MANDATORY for an edge pool and for the grpc carrier (both need HTTP/2 to the
-// edge). In those cases force the toggle on and grey it (pointer-events:none) so it can't be turned
-// off in the UI only to be silently forced back on at save — the bug the user hit. Free otherwise.
 function corWssGate(){var mand=poolGet('e_').pool||_corS.Cdn=='grpc';var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corS.Ech=!_corS.Ech;var s=el('e_wsech');if(s)s.classList.toggle('on',_corS.Ech);corEchPxGate()}
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
@@ -11262,28 +9187,17 @@ function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_r
   ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
   sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return (s&&s.host)||''}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
-// An edge IP must be a real IPv4 (four 0-255 octets, optional :port) or a real domain
-// (labels + an alphabetic TLD); an SNI must be a real domain. This rejects garbage like
-// "876889767" (no dots) AND "543.45534.453453" (dotted but not a valid IP or domain).
 var _ip4Re=/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$/;
 function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
-// _cdRemain: seconds until `next`, from the server clock `now` sampled at local time `polledMs`
-// plus the time elapsed since — so the countdown ticks smoothly between polls.
-// _cdTick: refresh every .pcd text and .pbar fill inside host against that clock. Shared by the ws
-// edge pool view and the direct peer pool view.
 function _cdRemain(now,polledMs,next){if(!next||!now)return -1;var e=now+(Date.now()-(polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
 function _cdTick(host,now,polledMs){if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=_cdRemain(now,polledMs,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
   Array.prototype.forEach.call(host.querySelectorAll('.pbar'),function(bar){var tot=+bar.getAttribute('data-tot')||1,rem=_cdRemain(now,polledMs,+bar.getAttribute('data-next'));if(rem<0)return;var i=bar.firstChild;if(i)i.style.width=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)))+'%'})}
 function poolRemain(d,next){return _cdRemain(d.srvNow,d.polledMs,next);}
-// h:mm:ss once the wait passes an hour — the dead-retest step is hours long, and a bare minute count
-// there reads as a clock ("330:00").
 function poolCdTxt(r){var h=Math.floor(r/3600),m=Math.floor(r%3600/60),s=r%60;
  return (h?h+':'+(m<10?'0'+m:m):m)+':'+(s<10?'0'+s:s);}
 function poolCd(d,next){var r=poolRemain(d,next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
-// Backoff schedule (must mirror the core): a suspect entry's current step length by fail count;
-// a dead entry retests slowly. Used to draw the fill bar (elapsed / step) like the mockup.
 var _poolBackoff=_TUNDEF.suspect_backoff.slice(),_poolDeadStep=_TUNDEF.dead_retest_secs;
 function poolStepTotal(h){return h.state=='dead'?_poolDeadStep:(_poolBackoff[Math.min(h.fails||0,_poolBackoff.length-1)]||600);}
 function poolBarPct(d,h){var tot=poolStepTotal(h),rem=poolRemain(d,h.next);if(rem<0)return -1;return Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));}
@@ -11294,12 +9208,7 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   var host=el(pfx+'lst_'+kind);if(!host)return;
   function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
     var h=(!dead)?lv[kind+':'+v]:null;
-    var rowc,sc,sic,stt;   // row stripe class, state-icon color class, state icon, tooltip
-    // A burned entry that is ALSO the active one is the rotation working, not a contradiction: the walk
-    // hands a member whose backoff has elapsed real traffic, because carrying is the only thing that can
-    // prove it recovered. Health alone won this chain, so that row lost its bolt and read as merely
-    // sidelined — the operator could not tell which entry the tunnel was actually on. Keep the warn/bad
-    // stripe and the countdown (the probation is real), and say BOTH things.
+    var rowc,sc,sic,stt;   
     if(dead){rowc='bad';sc='mut';sic='xc';stt=T('ph_burned_manual');}
     else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic=act?'bolt':'xc';stt=act?T('ph_active_retry'):T('ph_dead');}
     else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic=act?'bolt':'warn';stt=act?T('ph_active_retry'):T('ph_suspect');}
@@ -11338,78 +9247,51 @@ function corSetFluxShape(s){_corS.FluxShape=s;var g=el('e_fluxblk');if(g)Array.p
 function corFluxRotChg(){_corS.FluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
 function fecDatagram(S){return S.Tr=='udp'||S.Tr=='raw'||S.Tr=='flux'||S.Tr=='spoof'}
 function corFecDatagram(){return fecDatagram(_corS)}
-function corToggleFec(){if(!corFecDatagram())return;_corS.Fec=!_corS.Fec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corS.Fec);var r=el('e_fecrates');if(r)r.style.display=_corS.Fec?'':'none';corWorkersVis()}   /* FEC takes the extra queues away: its decoder needs consecutive frames, so the core drops back to one */
+function corToggleFec(){if(!corFecDatagram())return;_corS.Fec=!_corS.Fec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corS.Fec);var r=el('e_fecrates');if(r)r.style.display=_corS.Fec?'':'none';corWorkersVis()}   
 function corSetFecRate(d,p){_corS.FecData=d;_corS.FecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corS.Fec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
 async function doFluxRotate(id){var r=await post('flux-rotate',{id:id});if(r.ok&&r.d.ok){toast(T('flux_rotated'),'ok');fluxTick()}else{toast(perr(r),'err')}}
-// Live edge-pool status: poll the active edge for the open edit link and reflect it (active
-// row highlight + live bar), plus mirror any auto-burns the core reported. doPoolRotate signals
-// the core to jump one dimension with no rebuild, then re-polls shortly after.
 _eeS.PoolLid='';
 function poolApplyStatus(pfx,st){var d=poolGet(pfx);var pr=st.pair||{};
-  // The machine-readable pair, not the display label: splitting «active» by eye is what let a verdict
-  // be keyed on a combination the carrier had already left.
-  // Map by the kind the core stamped, never by position: which axis is the cheap one is the core's
-  // decision and it has changed once already.
   d.act={ip:'',sni:''};
   if(pr.low_kind)d.act[pr.low_kind]=String(pr.low||'');
   if(pr.high_kind)d.act[pr.high_kind]=String(pr.high||'');
   d.live={};(st.health||[]).forEach(function(h){if(h&&h.key)d.live[(h.kind=='sni'?'sni':'ip')+':'+h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
   d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
-  // release the pin lock once the chosen edge is confirmed active (or after a 12s safety timeout)
   if(d.pinPending){var pk=d.pinPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.pinPending=null;}
-  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  // live health («سالم»/«موقت»/«دائمی») + active edge overlay onto the rows
+  poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  
 async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
-(function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   // live-cadence self-loop
-// Tick the retest countdown spans between polls so «سوختهٔ موقت/دائمی» rows show a live timer.
+(function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){_cdTick(el('ee_lst_'+k),d.srvNow,d.polledMs)})}
 setInterval(poolCdTick,1000);
-// "Probe now": SIGHUP the core (via node) to retest every suspect/dead edge at once.
 async function poolRetestNow(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var r=await post('pool-retest-now',{id:lid,kind:kind,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
-// "select this edge": pin a specific IP/SNI as the active one (exact jump, no rebuild).
 async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var d=poolGet('ee_');
-  if(d.pinPending)return;                                   // a pin is already in flight — ignore spam clicks
-  d.pinPending={kind:kind,key:key,ts:Date.now()};           // lock ALL pin buttons until this edge is confirmed active
+  if(d.pinPending)return;                                   
+  d.pinPending={kind:kind,key:key,ts:Date.now()};           
   poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');
   var r=await post('pool-select',{id:lid,kind:kind,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
   else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(perr(r),'err')}}
-// Split the active edge "IP:port · domain" into two clean chips (IP primary, domain muted).
-// edgeChipsOf renders the address as two chips. Both edge boxes use it; only the wrapper differs.
 function edgeChipsOf(ip,dom){
  if(!ip&&!dom)return '<span class="echip wait">…</span>';
  var h=ip?'<span class="echip ip">'+esc(ip)+'</span>':'';
  if(dom)h+='<span class="echip dom">'+esc(dom)+'</span>';
  return h}
-// edgeChips splits the core status file's "ip · domain" value.
 function edgeChips(v){v=String(v||'');var p=v.split(' · ');return edgeChipsOf(p[0]||'',p.slice(1).join(' · '))}
-// Fleet cards: fill each pool card's «لبهٔ فعالِ فعلی» box from the core status file.
 async function refreshCardEdges(){var els=document.querySelectorAll('[id^="cardedge_"]');
- await Promise.all(Array.prototype.map.call(els,function(elm){var lid=elm.id.slice(9);   // parallel, not one-by-one
+ await Promise.all(Array.prototype.map.call(els,function(elm){var lid=elm.id.slice(9);   
   return post('edge-status',{id:lid}).then(function(r){if(r.ok&&r.d&&r.d.ok&&r.d.pool){var v=r.d.active||'';
-    if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   // only rewrite when the edge actually changed (no dash flicker)
-// Live-cadence self-loop. Back off in a hidden tab exactly like tick() does: this fires one POST per
-// visible pool card and each one costs the panel a live node RPC, so a full page of 25 cards at the
-// default 2s interval was 12.5 requests/second from a single tab — and it kept going with the tab in
-// the background, where tick() has always stood down.
+    if(v&&v!==EDGEV[lid]){EDGEV[lid]=v;var e=el('cardedge_'+lid);if(e)e.innerHTML=edgeChips(v)}}},function(){})}))}   
 (function edgesLoop(){var d=document.hidden?Math.max(UIV,4000):UIV;
  setTimeout(function(){if(document.hidden){edgesLoop();return}refreshCardEdges().then(edgesLoop,edgesLoop)},d)})();
-// Fleet cards for direct-transport IP-rotation tunnels show the CURRENTLY-ACTIVE pool IP in each node box
-// (server box = active destination, client box = active source) plus a rotation mark on any node whose
-// IPs rotate. The active IP arrives with the fleet data (api_fleet reads it from the client node), so
-// coreCard just renders l.*_ip_active — no separate poll — and syncs it to localStorage for instant reload.
 function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'}
-// ===== live status for a direct-transport IP-rotation pool (udp/tcp/raw/flux) — the ws edge pool's
-// per-edge health/pin/probe view, adapted to the peer pool's two single-axis boxes («مقصد» + «مبدأ»). Shown
-// in the core edit modal for a running pooled tunnel; poll -> render rows («فعال» / «در چرخش» / «سوختهٔ موقت»
-// / «سوختهٔ دائمی») with a retest countdown and a per-IP pin button, plus a "test all" (probe-now) button.
 var _peerLid='';
-var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
+var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
 async function peerTick(){if(!_peerLid||!el('ee_peerlive'))return;var r=await post('peer-status',{id:_peerLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)peerApply(r.d);}
-(function peerLoop(){setTimeout(function(){Promise.resolve(peerTick()).then(peerLoop,peerLoop)},UIV)})();   // live-cadence self-loop
+(function peerLoop(){setTimeout(function(){Promise.resolve(peerTick()).then(peerLoop,peerLoop)},UIV)})();   
 function peerApply(st){
   _peerData.now=+st.now||Math.floor(Date.now()/1000);_peerData.polledMs=Date.now();
   ['dst','src'].forEach(function(side){var sec=st[side]||{};var live={};
@@ -11422,50 +9304,28 @@ function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span clas
 function peerBar(h){var tot=poolStepTotal(h),rem=peerRemain(h.next);if(rem<0)return '';var p=Math.max(0,Math.min(100,Math.round((tot-rem)/tot*100)));return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+tot+'"><i style="width:'+p+'%"></i></span>';}
 function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip);
   var rowc,sc,sic,stt;
-  // Same rule as the CDN rows: the entry the tunnel is on keeps its bolt even while it is on probation,
-  // or the operator cannot tell which IP is carrying. See poolRenderKind.
   if(h&&h.state=='dead'){rowc='bad';sc='bad';sic=act?'bolt':'xc';stt=act?T('peer_st_active_retry'):T('ph_dead');}
   else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic=act?'bolt':'warn';stt=act?T('peer_st_active_retry'):T('ph_suspect');}
   else if(act){rowc='ok';sc='ok';sic='bolt';stt=T('peer_st_active');}
   else{rowc='ok';sc='ok';sic='okc';stt=T('peer_st_rot');}
   var burned=(h&&(h.state=='suspect'||h.state=='dead'));
-  // Countdown now lives UNDER the IP (its own indented line) so the box grows to two lines instead of
-  // squeezing the retest timer beside the address — matches the WS-CDN-parity mockup the user approved.
   var cd=burned?'<div class="ecd">'+peerCd(h.next)+peerBar(h)+'</div>':'';
   var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
-  // Per-IP test button, only on a BURNED (suspect/dead) row: it pulls the pool's retest forward so
-  // the edge can rejoin rotation sooner. A healthy IP has nothing to test, and there is no single-IP
-  // probe op — the core retests every burned edge at once, the same pool-wide SIGHUP the WS-CDN
-  // per-row probe uses.
   if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerRetestNow(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('redo')+'</button>';
-  // The IP goes in a data-* attribute (read via getAttribute in the handler), NOT interpolated into the
-  // onclick JS string — the browser HTML-decodes an attribute before compiling a handler, so esc() alone
-  // would let a crafted addr from the node's status file break out of the string (XSS). data-* is inert.
   if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
   else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
-  // No delete button here on purpose: an IP is removed from the pool in the rotation-config section
-  // (drop it + Save rebuilds), so a second live-view delete would just be a redundant path.
   return '<div class="erow pcol '+rowc+((h&&h.state=='dead')?' dead':'')+'"><div class="etop"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span><span class="eacts">'+acts+'</span></div>'+cd+'</div>';}
-// Above this many addresses a side collapses into an accordion. Three rows read at a glance; a fourth
-// starts pushing the OTHER side (and the roles/save controls) off a phone screen, which is exactly the
-// state a rotating tunnel is normally in.
 var PEER_ACC_MIN=3;
 function peerAccOpen(side){var d=_peerData[side];if(!d)return true;
-  if(d.addrs.length<=PEER_ACC_MIN)return true;                 // short list: no chevron, never collapsed
+  if(d.addrs.length<=PEER_ACC_MIN)return true;                 
   if(!_peerData.open)_peerData.open={};
-  return _peerData.open[side]!==false;}                        // long list: open by default, remembered
+  return _peerData.open[side]!==false;}                        
 function peerAcc(side){if(!_peerData.open)_peerData.open={};
   _peerData.open[side]=!peerAccOpen(side);peerRender();}
-// «وضعیت زندهٔ استخر» shows POOLS, so a side with one address gets no card. main.go builds a
-// destination pool at >=2 peers but a SOURCE pool at >=1, because a 1-entry source pool also pins
-// the client's egress IP, which bind_ip cannot do on udp/raw/flux — and only a pool that is built
-// writes a status file. Gating on the address count makes both sides read the same.
 function peerBox(side,lab){var d=_peerData[side];if(!d||d.addrs.length<2)return '';
   var live=d.live||{},ns=0,nd=0;d.addrs.forEach(function(ip){var h=live[ip];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
   var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
   var acc=d.addrs.length>PEER_ACC_MIN,open=peerAccOpen(side);
-  // Same .pacc card the CDN-edge / SNI sections use, so both pool views read as the same component:
-  // one card per axis, title and badges on ONE line, chevron only when the list is long enough to hide.
   var chev=acc?'<div class="pchev'+(open?' open':'')+'">&#9662;</div>':'';
   var hd='<div class="pacchd"'+(acc?' data-acc role="button" tabindex="0" onclick="peerAcc(\\''+side+'\\')"':' style="cursor:default"')+'>'
     +'<div class="pacctl"><div class="pacct">'+esc(lab)+'</div><div class="paccs">'+badges+'</div></div>'
@@ -11475,9 +9335,6 @@ function peerBox(side,lab){var d=_peerData[side];if(!d||d.addrs.length<2)return 
   return '<div class="pacc">'+hd+body+'</div>';}
 function peerRender(){var host=el('ee_peerlive');if(!host)return;
   var boxes=peerBox('dst',T('dst_ip'))+peerBox('src',T('src_ip'));
-  // No live data yet: rather than a blank gap (which reads as "the feature is missing"), show WHY — the
-  // pool status appears only once the tunnel is running on the up-to-date node/core. peerTick only calls
-  // this on a pool:true response, and _peerLid is set only for a rotating tunnel, so the hint is apt.
   if(!boxes){host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div><div class="muted" style="font-size:11px;line-height:1.7">'+esc(T('peer_live_empty'))+'</div></div>';return;}
   host.innerHTML='<div class="peerlive"><div class="pllabel">'+esc(T('peer_live_hd'))+'</div>'+boxes+'</div>';}
 function peerCdTick(){if(!_peerLid)return;_cdTick(el('ee_peerlive'),_peerData.now,_peerData.polledMs)}
@@ -11488,16 +9345,10 @@ async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.ge
   var r=await post('peer-select',{id:_peerLid,side:side,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
-// «الان تست کن», on both pools. It must NOT claim a probe was sent: core's probeAllNow only sets
-// nextRetest = now, and nothing dials until the next rotation or failover.
 async function peerRetestNow(side,key){if(!_peerLid)return;
   var r=await post('peer-retest-now',{id:_peerLid,kind:(side=='src'?'src':'dst'),key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
   else{toast(perr(r),'err')}}
-// ---- IP spoofing section — shared markup + per-form logic. Only for the "spoof" transport.
-// Each toggle carries its own limit: a decoy destination only arrives when that IP routes to the
-// same server, and a forged source is dropped by any datacenter running anti-spoofing. The warnings
-// show as soon as the toggle is on, so the operator sees the constraint before entering an IP.
 function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk" style="display:none">'
  +'<div class="spoofhd">'+ic('shield')+esc(T('spoof_hd'))+'</div>'
  +'<div class="tglbox" id="'+idp+'decoyrow"><div class="tglsw" id="'+idp+'decoysw" onclick="'+fnp+'ToggleDecoy()"></div><div class="tt"><b>'+esc(T('spoof_decoy_t'))+'</b><small>'+esc(T('spoof_decoy_d'))+'</small></div></div>'
@@ -11510,17 +9361,9 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
  +'<button type="button" class="gbtn sm" id="'+idp+'egrbtn" style="margin-top:10px;width:100%" onclick="spoofEgressTest(\\''+idp+'\\')">'+ic('redo')+'<span>'+esc(T('spoof_egr_btn'))+'</span></button>'
  +'<div class="muted" style="font-size:10.5px;line-height:1.6;margin-top:6px">'+esc(T('spoof_egr_hint'))+'</div>'
  +'<div id="'+idp+'egr" style="display:none;margin-top:8px"></div></div>'}
-// The capability caption (spoofcap) only says the sockets can OPEN. spoofEgressTest actually forges a
-// packet on one node and listens on the other, so the operator learns — for THIS pair, in the tunnel's
-// direction — whether a forged source survives the sender's datacenter and whether a decoy routes to
-// the server. It reads the same form fields the tunnel will use, so the answer is about the real config.
 function spoofFormCtx(idp){
-  // aip/bare come from pickedIP, the same helper the create and edit submits use, so the probe really
-  // does test "the same form fields the tunnel will use" instead of the node's management host.
   if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv,
                        aip:pickedIP('e_','a',''),bare:pickedIP('e_','b','')};
-  // The same source the edit submit (doCoreEdit) reads its anchors from, so the probe and the save
-  // cannot disagree about which IP this tunnel is on.
   var l=(FLEET||[]).filter(function(x){return x.id==editingId})[0]||{};
   return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv,
           aip:pickedIP('ee_','a',l.a_ip||''),bare:pickedIP('ee_','b',l.b_ip||'')};}
@@ -11543,17 +9386,12 @@ async function spoofEgressTest(idp){
   html+=_egrRow(d.src, d.src?(T('spoof_egr_src_ok')+(d.tested_src?(' ('+d.tested_src+')'):'')):T('spoof_egr_src_no'));
   if(d.tested_dst)html+=_egrRow(d.dst, d.dst?T('spoof_egr_dst_ok'):T('spoof_egr_dst_no'));
   out.innerHTML=html;}
-// protoSection: the bare-only outer-IP protocol-number picker. bare carries no L4 header, so only the
-// outer protocol number changes — set it to slip past a protocol-number filter. Revealed by
-// {cor,ce}ProtoVis on raw+bare.
 function protoSection(idp,fnp){return '<div id="'+idp+'protorow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('raw_proto_lbl'))+'</label>'
  +'<div class="seg2" id="'+idp+'ppg" style="margin-bottom:8px"><button type="button" class="segopt on" id="'+idp+'pp_253" onclick="'+fnp+'SetProto(253)"><b>253</b><span>'+esc(T('raw_proto_native'))+'</span></button><button type="button" class="segopt" id="'+idp+'pp_252" onclick="'+fnp+'SetProto(252)"><b>252</b><span>'+esc(T('raw_proto_free'))+'</span></button></div>'
  +'<input id="'+idp+'rawproto" class="mono" inputmode="numeric" maxlength="3" placeholder="253" oninput="'+fnp+'ProtoWarn()" style="text-align:center;direction:ltr">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_proto_hint')+'</div>'
  +'<div class="spoofcap no" id="'+idp+'protowarn" style="display:none;margin-top:8px"></div></div>'}
-// portSection: the udp/tcp profiles' forged SERVER port. Nothing binds it — the raw socket is opened on
-// a protocol number — so this only moves the number a middlebox reads. Revealed by {cor,ce}PortVis.
 function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('raw_port_lbl'))+'</label>'
  +'<div class="seg2" id="'+idp+'rpg" style="margin-bottom:8px">'
@@ -11565,23 +9403,15 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
  +'<div class="seg2" id="'+idp+'spg">'
    +'<button type="button" class="segopt on" id="'+idp+'sp_fix" onclick="'+fnp+'SetSport(0)"><b>'+esc(T('raw_sport_fixed_n'))+'</b><span>'+esc(T('raw_sport_fixed_m'))+'</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'sp_rnd" onclick="'+fnp+'SetSport(1)"><b>'+esc(T('raw_sport_rand_n'))+'</b><span>'+esc(T('raw_sport_rand_m'))+'</span></button></div>'
- /* The number itself, revealed only in fixed mode. Same shape as the server port above it: presets for
-    the ports a real client of some known protocol would use, plus anything typed. */
  +'<div id="'+idp+'spfix" style="margin-top:8px">'
    +'<div class="seg2" id="'+idp+'spg2" style="margin-bottom:8px">'
      +'<button type="button" class="segopt on" id="'+idp+'sp_51820" onclick="'+fnp+'SetSportPort(51820)"><b>51820</b><span>WireGuard</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
    +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
- /* How many source ports the ladder may draw for THIS tunnel before it moves on. Per tunnel, not
-    fleet-wide: a tunnel with one destination and one source has nothing after those draws, and how
-    long that is worth trying is a property of the path this tunnel takes. */
  +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
  +'</div>'}
-// workersSection: how many TUN queues this tunnel's receive path gets. Revealed by {cor,ce}WorkersVis on
-// raw with FEC off — the one pair the core spends queues on. The budget line under it is what keeps the
-// segment from being a self-harm knob: a queue eats a node cpu the node's OTHER tunnels also want.
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
    +'<div class="seg2" id="'+idp+'wkg_'+sd+'">'
@@ -11592,43 +9422,24 @@ function workersSection(idp,fnp){
  +'<div id="'+idp+'wkpair" style="display:flex;flex-direction:column">'+one('a')+one('b')+'</div>'
  +'</div>'}
 
-// The chosen queue count painted onto the segment. Shared by both forms for the same reason
-// workersSection itself is: a per-form copy is how the edit form ends up wired to nothing. Clamped
-// here rather than by the caller, so no path can leave the segment with nothing lit at all.
 function workersPaint(idp,sd,n){n=wkClamp(n);
  _WKMAX.forEach(function(k){var b=el(idp+'wk_'+sd+'_'+k);if(b)b.classList.toggle('on',k==n)})}
-// Which node each segment belongs to. Filled through a FUNCTION replacement, not a string pattern: a
-// node called «DE$'02» would otherwise paste the rest of the template back into the operator's face.
 function workersLbls(idp,an,bn,srv){
  [['a',an],['b',bn]].forEach(function(x){var e=el(idp+'wklbl_'+x[0]);if(!e)return;
   e.textContent=T('workers_lbl_node').replace(/\\{n\\}/g,function(){return x[1]||''})});
  [['a',an],['b',bn]].forEach(function(x){var w=el(idp+'wkone_'+x[0]);if(w)w.style.order=(x[0]==srv)?0:1})}
-// Show the row only where the core actually spends the queues, and force the state back to the single
-// queue when it doesn't — otherwise a value picked on raw rides a later switch to CDN into the body,
-// where the panel would refuse the save with a message about a carrier the operator has left. The state
-// is reset BEFORE the row is touched, so it does not depend on the row existing (corFecGate's rule).
 function workersVis(idp,S,an,bn){var on=wkCarrier(S);
  if(!on){S.WorkersA=1;S.WorkersB=1}
  var w=el(idp+'wrkrow');if(w)w.style.display=on?'':'none';
  workersPaint(idp,'a',S.WorkersA);workersPaint(idp,'b',S.WorkersB);
  workersLbls(idp,an,bn,S.Srv=='b'?'b':'a')}
-// The per-node queue budget, keyed by the REQUEST it answers: {key,nodes,failed}. The key is what makes
-// a repaint safe — a segment click while an answer is in flight would otherwise redraw the box from the
-// PREVIOUS node pair's numbers, naming nodes this tunnel does not even touch. It also means switching
-// transports back and forth on one pair costs no round-trip.
-// The chosen source-port mode painted onto the segment. Shared by both forms for the same reason
-// portSection itself is: a per-form copy is how the edit form ends up wired to nothing.
 function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
  var f=el(idp+'sp_fix'),r=el(idp+'sp_rnd');
  if(f)f.classList.toggle('on',!on); if(r)r.classList.toggle('on',!!on)
- // Hiding the number is not enough on its own: the collector reads the INPUT, so switching to rolled
- // has to clear it too, or a port typed beforehand rides along in the body and the panel refuses the
- // save over a field the operator can no longer see.
  var w=el(idp+'spfix');if(w)w.style.display=on?'none':'';
  var i=el(idp+'rawsport');
  if(i){if(on)i.value='';else if(!i.value)i.value=String(RAW_SPORT_FIX)}
  sportPresetPaint(idp)}
-// Which preset the typed number matches, if any — the same job cePortWarn does for the server port.
 function sportPresetPaint(idp){var g=el(idp+'spg2');if(!g)return;var i=el(idp+'rawsport');
  var n=parseInt((i&&i.value)||'',10);
  Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id==idp+'sp_'+n)})}
@@ -11638,16 +9449,12 @@ function sportErr(idp){var e=el(idp+'rawsport');if(!e)return '';
 function portErr(idp){var e=el(idp+'rawport');if(!e)return '';
  var s=(e.value||'').trim();if(!s)return '';
  var n=parseInt(s,10);return (n>=1&&n<=65535)?'':T('raw_port_bad')}
-// The number a raw PROFILE owns is the one thing a headerless carrier must not borrow: the packet goes
-// out announcing that protocol with ciphertext where its header belongs, and the path drops it. Injected
-// from CORE_RAW_PROFILE_PROTOS, so this cannot drift from what the server and the core refuse.
 function rawProtoOwner(n){var m=_ENUMS.raw_protos;for(var k in m){if(m[k]===n)return k}return ''}
 function protoWarnUpd(idp,val){var n=parseInt(val,10);var g=el(idp+'ppg');
  if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id==idp+'pp_'+n)});
  var w=el(idp+'protowarn');if(!w)return;
  var own=rawProtoOwner(n),h=own?(ic('warn')+'<span>'+esc(T('raw_proto_owned').replace('{n}',n).replace(/\\{p\\}/g,own))+'</span>'):'';
  w.innerHTML=h;w.style.display=h?'':'none'}
-// Save-time gate for the two headerless carriers. Returns the error text, or '' when the number is fine.
 function rawProtoErr(idp){var e=el(idp+'rawproto');if(!e)return '';
  var s=(e.value||'').trim();if(!s)return '';
  var n=parseInt(s,10);
@@ -11665,10 +9472,8 @@ function spoofApplyCap(idp,ok,html,offFn){var cap=el(idp+'cap');if(cap){cap.clas
  var dr=el(idp+'decoyrow'),sr=el(idp+'srcrow');
  if(dr)dr.classList.toggle('dis',!ok);if(sr)sr.classList.toggle('dis',!ok);
  if(!ok&&offFn)offFn()}
-// ---- flux (polymorphic moving-target carrier) — shared markup + live epoch status.
 function FLUX_ROTS(){return [{v:'180',label:T('frot_180')},{v:'300',label:T('frot_300')},{v:'600',label:T('frot_600')},{v:'900',label:T('frot_900')},{v:'1800',label:T('frot_1800')},{v:'3600',label:T('frot_3600')}]}
 function FLUX_SHAPES(){return [{v:'random',n:T('fsh_random_n'),m:T('fsh_random_m')},{v:'quic',n:'QUIC',m:T('fsh_quic_m')},{v:'video',n:T('fsh_video_n'),m:T('fsh_video_m')},{v:'webrtc',n:'WebRTC',m:T('fsh_webrtc_m')}]}
-// FEC redundancy presets: data+parity, overhead label, and the max burst loss they repair.
 function FEC_RATES(){return [{d:10,p:2,n:T('fec_light'),ov:T('fec_ov20')},{d:10,p:3,n:T('fec_balanced'),ov:T('fec_ov30')},{d:8,p:4,n:T('fec_strong'),ov:T('fec_ov50')}]}
 function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" style="display:none">'
  +'<label>'+esc(T('flux_carrier_lbl'))+'</label>'
@@ -11683,12 +9488,8 @@ function fluxSection(idp,fnp,fc,rot,shp,rotId){return '<div id="'+idp+'fluxblk" 
  +(rotId?'<button type="button" class="ghost" style="margin-top:9px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px" onclick="doFluxRotate(\\''+rotId+'\\')">'+ic('redo')+esc(T('flux_rotate_btn'))+'</button>':'')
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:7px">'+T('flux_note')+'</div>'
  +'</div>'}
-// ---- FEC (forward error correction) — a general feature box shown for every carrier, but
-// active only on the datagram carriers (udp/raw/flux); greyed on tcp/ws (TCP is already reliable).
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
  +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||10)&&r.p==(fp||3));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--gold)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
-// fake-packet desync (anti-DPI) — a gated feature box shown on the raw/flux/tcp/ws carriers (raw/flux are the ones
-// the core builds the IPv4 header for). Shared create/edit markup; toggle reveals mode + ttl/count.
 function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
 function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
  +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" onclick="'+fnp+'SetDesyncMode(\\''+m.v+'\\')"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
@@ -11697,28 +9498,14 @@ function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'d
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
-// ONE definition of "can this carrier really inject decoy segments?", shared by both gates, the edit
-// form's initial render and the submit-body collector. raw/flux/spoof forge the whole IPv4 header and
-// tcp / plain-ws inject on the kernel connection's real 4-tuple; an http or grpc conn is synthetic
-// and has no 4-tuple to mirror, so the injector emits nothing and the core rejects the combination.
 function desyncOk(S){return S.Tr=='raw'||S.Tr=='flux'||S.Tr=='spoof'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
-// desyncInjects: the carriers whose decoys ride the REAL connection's 4-tuple (tcp, plain ws), where
-// the core clamps the decoy TTL to 8 — a well-formed segment that reached the server would draw an
-// RST. raw/flux/spoof forge a header toward a peer we hold no kernel connection to, so there the
-// full 1..255 is honoured. ONE definition, so the two gates and _desync_fields cannot drift.
 function desyncInjects(S){return S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
-// desyncTtlCap shows the ceiling where it applies and clamps what the operator is LOOKING at, so the
-// form never echoes back a hop budget the wire will not carry. The server clamps too (_desync_fields
-// is the one gate all three build paths share); this is so it is never a silent change.
 function desyncTtlCap(idp,S){var cap=el(idp+'dsttlcap'),inj=desyncInjects(S);if(cap)cap.style.display=inj?'':'none';
  var t=el(idp+'dsttl');if(t&&inj){var n=parseInt(t.value,10);if(n>8)t.value='8'}}
 function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('e_',_corS)}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
 function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
 function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('ee_',_eeS)}
-// ---- wss + ECH toggles live down in the general feature-toggle area (next to obfs / cover /
-// gso), not inside the ws block, so they stay put in single AND pool mode. They are shown only
-// when the carrier is WS/CDN (corWsVis/ceWsVis) and hidden otherwise, like the tcp-only cover.
 function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyurl,sni,pos,mode,ttl,show){var hide=show?'':';display:none';var pxhide=(ech&&show)?'':';display:none';var pxfhide=(echproxy&&ech&&show)?'':';display:none';
  return '<div class="tglbox" id="'+idp+'wstlsrow" style="margin-top:10px'+hide+'"><div class="tglsw'+(tls?' on':'')+'" id="'+idp+'wstls" onclick="'+fnp+'ToggleWsTls()"></div><div class="tt"><b>'+esc(T('wstls_t'))+'</b><small>'+esc(T('wstls_d'))+'</small></div></div>'
   +'<div class="tglbox" id="'+idp+'wsechrow" style="margin-top:9px'+hide+'"><div class="tglsw'+(ech?' on':'')+'" id="'+idp+'wsech" onclick="'+fnp+'ToggleEch()"></div><div class="tt"><b>'+esc(T('ech_t'))+'</b><small>'+esc(T('ech_d'))+'</small></div></div>'
@@ -11729,7 +9516,6 @@ function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyurl,sni,pos,mode,ttl,show
   +'<label style="margin-top:10px;display:block">'+esc(T('sni_mode_lbl'))+'</label><div class="seg2" id="'+idp+'snimodeseg">'+SNI_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'split')?' on':'')+'" id="'+idp+'snim_'+m.v+'" onclick="'+fnp+'SetSniMode(\\''+m.v+'\\')"><b>'+esc(m.v)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
   +'<div id="'+idp+'snittlbody" style="margin-top:6px'+((mode=='disorder')?'':';display:none')+'"><label>'+esc(T('sni_ttl_lbl'))+'</label><input id="'+idp+'splitttl" type="number" min="0" max="__SPLITTTLMAX__" value="'+(ttl||0)+'"></div></div>';}
 function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_dis_s')},{v:'fake',s:T('m_fake_s')}]}
-// ---- ws (WebSocket / CDN) — shared markup.
 function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,shape){return '<div id="'+idp+'wsblk" style="display:none">'
  +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid p3" id="'+idp+'wspg">'+wsProfTiles(fnp,wsProfOf({Cdn:cdn}))+'</div>'
  +'<div class="spoofcap no" id="'+idp+'grpczone" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('grpc_zone_warn'))+'</span></div>'
@@ -11747,14 +9533,8 @@ function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,shape){return '<div id
  +'</div>'}
 function wsPoolInner(idp,fnp,lid){
  var rotOpts=[[180,T('rot_3m')],[300,T('rot_5m')],[600,T('rot_10m')],[900,T('rot_15m')],[1800,T('rot_30m')],[3600,T('rot_1h')],[14400,T('rot_4h')],[28800,T('rot_8h')],[0,T('rot_off_fo')]];
- // Custom styled list (like the IP picker) instead of the native <select>.
  var sel=ssHTML(idp+'poolrot',rotOpts.map(function(o){return {v:o[0],label:o[1]}}),poolGet(idp).rotate,T('flux_rot_lbl'));
- // Live "active edge" bar (edit only — a running tunnel exists). Populated by poolTick.
- // Each kind (ip / sni) is one collapsible accordion: the header shows a live «X در چرخش · Y
- // سوخته» summary and a per-dimension rotate-now icon (edit only), and the body holds the unified
- // list — every entry with a status pill («فعال» / «در چرخش» / «سوخته») — plus the add bar.
  function block(kind,label,ph){
-   // per-edge selection replaced the header rotate button — pin a specific edge from its row instead.
    return '<div class="pacc"><div class="pacchd" data-acc role="button" tabindex="0" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
      +'<div class="pacctl"><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
      +'<div style="display:flex;align-items:center;gap:8px"><div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
@@ -11765,10 +9545,6 @@ function wsPoolInner(idp,fnp,lid){
  return block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
    +block('sni',T('pool_sni_lbl'),'cdn.example.com')
    +'<label style="margin-top:14px">'+esc(T('flux_rot_lbl'))+'</label>'+sel;}
-// The epoch NUMBER mirrors the core: floor(unixtime/rotate) + flux_epoch_offset. Without the offset
-// «چرخش الان» looked inert — the core moved to the next shape and this box kept the old number. The
-// countdown is unaffected: the offset is added AFTER the division, so it shifts the epoch's name,
-// not its boundaries.
 function fluxStatText(fc,rot,off){var now=Math.floor(Date.now()/1000);rot=rot||600;var ep=Math.floor(now/rot)+(+off||0),nx=rot-(now%rot),mm=Math.floor(nx/60),ss=nx%60;
  return '<b style="color:var(--ok)">'+esc(T('flux_live'))+'</b> · epoch <span class="mono">#'+ep+'</span> · '+esc(T('flux_carrier_word'))+' <span class="mono">'+fc+'</span> · '+esc(T('flux_next_pre'))+' <b>'+mm+':'+(ss<10?'0':'')+ss+'</b> '+esc(T('flux_next_post'));}
 function fluxTick(){[['e_',_corS.Tr,_corS.FluxCarrier,_corS.FluxRotate,_corS.FluxOffset],['ee_',_eeS.Tr,_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxOffset]].forEach(function(a){
@@ -11785,13 +9561,8 @@ function corToggleDecoy(){if(!_corS.SpoofOk)return;_corS.Decoy=!_corS.Decoy;el('
 function corToggleSrc(){if(!_corS.SpoofOk)return;_corS.Src=!_corS.Src;el('e_srcsw').classList.toggle('on',_corS.Src);el('e_srciprow').style.display=_corS.Src?'':'none'}
 function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corS.Tr=='raw')?'':'none'}
 function corDnsVis(){var w=el('e_dnsblk');if(w)w.style.display=(_corS.Tr=='dns')?'':'none'}
-// trFade: hide the carrier-bar edge fade once scrolled to the overflow end (Math.abs handles RTL's
-// negative scrollLeft as well as LTR; a non-overflowing bar reads as already at-end -> no fade).
 function trFade(bar){if(!bar)return;var w=bar.parentNode;if(!w)return;w.classList.toggle('atend',Math.abs(bar.scrollLeft)+bar.clientWidth>=bar.scrollWidth-4)}
 function corPortGate(){var p=el('e_port');if(!p)return;if(_corS.Tr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='spoof'||_corS.Tr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_corS.Tr=='flux')?T('port_flux_ph'):(_corS.Tr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
-// dnsSection: the transport=dns config block (delegated zone + client resolver list + delegation
-// guide). Revealed by {cor,ce}DnsVis. The server is the zone's authoritative NS on :53; the client
-// queries the listed DOMESTIC resolvers, so it never sends a packet to the server IP.
 function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none">'
  +'<label class="first">'+esc(T('dns_zone_lbl'))+'</label>'
  +'<input id="'+idp+'dnszone" class="mono" placeholder="t.example.com" style="direction:ltr">'
@@ -11803,8 +9574,6 @@ function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none
 function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis();corPortVis()}
 function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('e_',val)}
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
-/* The outer-IP protocol-number picker serves raw+bare AND the spoof carrier (which is bare-like: a bare
-   header with no L4, so only the protocol number identifies it on the wire). */
 function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bare')||S.Tr=='spoof'}
 function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
 function corSetSport(on){_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom)}
@@ -11823,18 +9592,12 @@ function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.O
 function corToggleCover(){if(_corS.Tr!='tcp')return;_corS.Cover=!_corS.Cover;var s=el('e_cover');if(s)s.classList.toggle('on',_corS.Cover);corSniVis()}
 function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corS.Cover&&_corS.Tr=='tcp')?'':'none'}
 function corCoverGate(){var tcp=_corS.Tr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_corS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';corSniVis()}
-// obfs is unavailable in two cases: cipher=none (nothing to frame) and the dns carrier, which has no
-// obfs framing at all — main.go hands cfg.Obfs to every other carrier, but ListenDNS/DialDNS take no
-// such flag. The core rejects that combination outright, so leaving the toggle visible would only let
-// the operator build a tunnel that fails validation.
 function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(px+'obfsrow'),s=el(px+'obfs');
  if(off){S.Obfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=off?'none':''}
 function onCorCipher(){_obfsGate('e_',_corS)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=false;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
- // Pickers are labelled and ordered by role (corNodeLbls), not by slot. The roles segment below is
- // where the role is chosen; the IP row two rows down stays keyed to core's src_ips/peer_ips.
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
   '<div id="e_bwrap"><label class="first" id="e_blab"></label>'+ssHTML('e_b',items,items[1].v,T('cli_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -11860,23 +9623,14 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic(COR_IC)+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnShapeGate();corWorkersVis();trFade(el('e_trbar'))}
-function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='spoof')corSpoofProbe();corWorkersVis()}   /* the queue budget is per NODE, so a different node is a different budget */
+function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='spoof')corSpoofProbe();corWorkersVis()}   
 function renderCorIps(){renderRotIps('e_')}
-// ===== shared IP-rotation UI (create prefix 'e_', edit prefix 'ee_') =====
 var _rotS={};
 function rotSt(px){if(!_rotS[px])_rotS[px]={on:false,aIps:[],bIps:[],aSel:{},bSel:{}};return _rotS[px]}
 function corTabsHTML(){return '<div class="ctabs"><button type="button" class="ctab on" data-ct="ip" onclick="corTab(this,\\'ip\\')">'+ic('pin')+esc(T('cor_tab_ips'))+'</button><button type="button" class="ctab" data-ct="set" onclick="corTab(this,\\'set\\')">'+ic('cog')+esc(T('cor_tab_set'))+'</button></div>'}
 function corTab(btn,which){var box=btn.closest('.mbody');if(!box)return;Array.prototype.forEach.call(box.querySelectorAll('.ctab'),function(t){t.classList.toggle('on',t.getAttribute('data-ct')==which)});Array.prototype.forEach.call(box.querySelectorAll('.ctabp'),function(p){p.classList.toggle('on',p.getAttribute('data-cp')==which)});box.scrollTop=0;var _tb=box.querySelector('.trbar');if(_tb)trFade(_tb)}
-// Rotation-interval presets — the same minute-scale set the flux epoch and the ws edge pool offer, so
-// every rotation control in the panel reads identically. Nothing sub-minute: each destination hop
-// costs a full re-handshake. 0 = failover-only, rotate only when an endpoint actually dies, and it
-// stays LAST like the ws pool's «خاموش» entry.
 var ROT_PRESETS=[180,300,600,900,1800,3600];
 var ROT_LABELS={180:'rot_3m',300:'rot_5m',600:'rot_10m',900:'rot_15m',1800:'rot_30m',3600:'rot_1h'};
-// Styled list (ssHTML) rather than a native <select>, matching the IP/node pickers and the ws pool's
-// own interval list. The stored value is passed through RAW — no snapping: a value that is not a
-// preset shows the placeholder and is kept verbatim until the operator picks something. With no
-// stored value at all, ssHTML falls back to the first item.
 function rotSetHTML(px){var st=rotSt(px);
  var items=ROT_PRESETS.map(function(v){return {v:v,label:T(ROT_LABELS[v])}});
  items.push({v:0,label:T('rot_onfail')});
@@ -11885,15 +9639,8 @@ function rotSetHTML(px){var st=rotSt(px);
 function rotTr(px){return px=='e_'?_corS.Tr:_eeS.Tr}
 function rotIsDirect(px){return _ENUMS.tr_direct.indexOf(rotTr(px))>=0}
 function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
-// rotFirstSel is the first SELECTED pool IP in display order (or ''): all IPs are equal now (no
-// primary/secondary), so this is just the endpoint we hand the backend as the config anchor (a_ip/
-// b_ip) — the pool seed. Any selected IP works; first-in-order keeps it stable.
 function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
  for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
-// pickedIP: the node IP THIS FORM has chosen for one side — the tunnel's a_ip/b_ip. With rotation on
-// and more than one address it is the pool anchor (the stored one if it is still in the pool, so the
-// anchor does not drift on every edit, else the first selected, else the first listed); otherwise the
-// single-IP picker's value. `stored` is '' on create and the link's current value on edit.
 function pickedIP(px,side,stored){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
  if(st.on&&ips.length>1)return (stored&&sel[stored]&&stored)||rotFirstSel(px,side)||ips[0]||'';
  return el('ssb_'+px+side+'ip_sel')?ssVal(px+side+'ip_sel'):(stored||'')}
@@ -11903,16 +9650,8 @@ function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(p
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
-// The container id is BUILT here — px+side+'ip' — so the markup must spell it e_aip/e_bip. Those are
-// `a`+`ip` and `b`+`ip`, nothing to do with any profile name, and renaming them in the HTML alone
-// silently drops the whole side: el() returns null and this returns before rendering anything.
 function renderRotIps(px){var srv=(px=='e_')?_corS.Srv:_eeS.Srv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
- // Role-based label: a node's IPs are the DESTINATION pool when that node is the SERVER (the client dials
- // it) and the SOURCE pool when it's the client. A fixed a=src/b=dst was wrong whenever node A is the
- // server — it then mislabels the server's (destination) IPs as "source", contradicting the live view.
  var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,isDst=(side=='a')?(srv=='a'):(srv!='a'),lab=isDst?T('dst_ip'):T('src_ip');
- // Destination column FIRST — in RTL that puts it on the right, matching the node pickers above
- // and the create form. Driven by the same isDst that chose the label, so the two cannot disagree.
  w.style.order=isDst?'0':'1';
  if(st.on&&ips.length>1)w.innerHTML=rotPoolHTML(px,side,ips,lab);else w.innerHTML=ipField(px+side+'ip_sel',ips,lab)})}
 function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel;
@@ -11923,32 +9662,20 @@ function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:s
  return '<label class="first">'+lab+' <span style="color:var(--acc)">('+rotCount(px,side)+')</span></label><div class="rpool">'+rows+'</div>'}
 function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,n=0;ips.forEach(function(ip){if(sel[ip])n++});return n}
 function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ip=row.getAttribute('data-ip');
- if(sel[ip]){if(rotCount(px,side)<=2){toast(T('rot_min2'),'err');return}delete sel[ip]}else sel[ip]=true;  // keep >=2 in an active rotation pool
+ if(sel[ip]){if(rotCount(px,side)<=2){toast(T('rot_min2'),'err');return}delete sel[ip]}else sel[ip]=true;  
  renderRotIps(px)}
 function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
  function pool(side){var ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel,out=[];ips.forEach(function(ip){if(sel[ip])out.push(ip)});return out}
  var ap=pool('a'),bp=pool('b');if(ap.length<2&&bp.length<2)return null;
- // Styled list, not a native <select>, so read through ssVal. The `||0` is load-bearing: ssVal is
- // SEL[key]||'' and the failover-only entry's value is the NUMBER 0, which is falsy, so an untouched
- // failover selection reads back as '' and must fall through to 0 (same shape the ws pool relies on).
  var secs=parseInt(ssVal(px+'rotsecs'))||0;
- // auto-burn is always on now (like the ws edge pool): a blocked IP is sidelined and retested on
- // backoff, returning to rotation when healthy — no operator toggle.
  return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,a_ip:ap[0]||'',b_ip:bp[0]||''}}
-// Save-time guard: a rotation pool needs >=2 IPs to actually rotate. When the toggle is on, every side
-// whose multi-select pool is shown must have >=2 selected (a 0/1-IP "pool" silently doesn't rotate).
 function rotValidate(px){var st=rotSt(px);if(!st.on)return null;
  var err=null;['a','b'].forEach(function(side){var ips=(side=='a')?st.aIps:st.bIps;if(ips.length>1&&rotCount(px,side)<2)err=T('rot_min2')});
  if(err)return err;
- if(rotCount(px,'a')<2&&rotCount(px,'b')<2)return T('rot_min2');   // rotation on but no side has a pool
+ if(rotCount(px,'a')<2&&rotCount(px,'b')<2)return T('rot_min2');   
  return null}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>'+esc(T('custom_subnet'))+'</label><input id="e_subnet" placeholder="'+esc(T('ph_subnet'))+'">':''}
-// Same picker on the edit side, with one addition create cannot have: the id is already fixed, so the
-// chosen range resolves to ONE subnet and the form shows which — the operator is renumbering a live
-// tunnel, not naming a new one.
 function onCeSubRange(){var w=el('ee_snc');if(!w)return;
- // _eeS.Lid, not editingId: openModal overwrites editingId with the literal 'modal' the moment the
- // sheet is in the DOM, so every lookup that runs AFTER the form is built has to use the form's own id.
  var l=(FLEET||[]).filter(function(x){return x.id==_eeS.Lid})[0]||{},r=ssVal('ee_snr');
  if(r=='custom'){w.innerHTML='<label>'+esc(T('custom_subnet'))+'</label><input id="ee_subnet" class="mono" value="'+esc(l.subnet||'')+'">';return}
  w.innerHTML='<div class="muted" style="font-size:11px;margin:6px 2px 0">'+esc(T('core_subnet_lbl'))+': <b class="mono">'+esc(subnetForBase(l.type,l.tunnel_id,r)||'—')+'</b></div>'}
@@ -11956,38 +9683,23 @@ function corRoleLbls(){var an=nodeName(ssVal('e_a')),bn=nodeName(ssVal('e_b')),a
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
  if(b)b.innerHTML='<b>'+esc(bn)+' '+esc(T('role_server_word'))+'</b><span>'+esc(an)+' '+esc(T('role_client_word'))+'</span>';
  corNodeLbls()}
-// corNodeLbls names and places the pickers from the current role. .grid2 is RTL, so order 0 is the
-// right column. Only label text and `order` change, so the selects keep their state.
 function corNodeLbls(){var srvA=(_corS.Srv=='a'),la=el('e_alab'),lb=el('e_blab');
  if(la)la.textContent=srvA?T('srv_node'):T('cli_node');
  if(lb)lb.textContent=srvA?T('cli_node'):T('srv_node');
- // Only the node pickers here. The IP row below is ordered by renderRotIps off the same isDst that
- // picks its label, so both grids land the SERVER/destination column first without two writers.
  var A=el('e_awrap'),B=el('e_bwrap');
  if(A)A.style.order=srvA?'0':'1';
  if(B)B.style.order=srvA?'1':'0'}
 function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');corNodeLbls();renderRotIps('e_')}
-// Shared per-transport submit-body builder for the create AND edit core-tunnel forms (raw/flux/dns/
-// fec/desync/ws branches — identical in both modulo the _corS/_eeS state + e_/ee_ DOM prefix).
-// Mutates `body`; on a validation error it sets `m` and returns true so the caller bails out.
 function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
-   /* One choice, two shapes: rolled, or the number under it. BOTH keys always go out, so an edit that
-      switches mode clears the one it left behind instead of inheriting it from the stored record. */
    var _se=sportErr(px);if(_se){formErr(m,_se);return true}
    body.raw_sport_random=!!S.SportRandom;
    var _st=parseInt(v(px+'rawsport'),10);
    body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0
-   /* Always sent, so an edit that clears the box actually clears the stored number instead of
-      inheriting it. 0 means "the core's own default". */
    var _pt=parseInt(v(px+'porttries'),10);
    body.port_tries=(_pt>=1&&_pt<=50)?_pt:0}}
- /* The spoof carrier is bare-like: no profile, just the outer protocol number plus the forged field(s).
-    Collected HERE, not in each submit handler, so create and edit build an identical body. The fields
-    go out ONLY when the capability probe resolved OK — there the toggles reflect real intent, so an
-    empty value legitimately CLEARS one; pending or NOT-ok they are OMITTED and an edit preserves. */
  if(S.Tr=='spoof'){if(ssVal(px+'cipher')=='none'){formErr(m,T('spoof_need_enc'));return true}
   var _pe2=rawProtoErr(px);if(_pe2){formErr(m,_pe2);return true}var _sp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_sp;
   if(S.SpoofOk){var _dip=S.Decoy?(v(px+'decoyip')||'').trim():'';var _sip=S.Src?(v(px+'srcip')||'').trim():'';
@@ -11998,8 +9710,6 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='flux'){if(ssVal(px+'cipher')=='none'){formErr(m,T('flux_need_enc'));return true}body.flux_carrier=S.FluxCarrier;body.flux_rotate_secs=S.FluxRotate;body.flux_shape=S.FluxShape}
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if(fecDatagram(S)){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
- /* Sent whenever the core would spend the queues, INCLUDING the default 1 — an absent key falls back to
-    what the tunnel was saved with, so a form that only sent a raised value could never lower one. */
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
  if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
@@ -12022,9 +9732,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
-// ===== core edit (cipher / role / port / subnet / ips -> rebuild both ends)
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   /* every row/toggle the CURRENT transport allows. openCoreEdit ran only part of this list, so opening a stored tunnel showed rows the transport forbids - obfs on dns being the one that crash-loops both ends after the rebuild. One list, both callers. */
+function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
@@ -12039,7 +9748,7 @@ function ceSetFluxCarrier(c){_eeS.FluxCarrier=c;var g=el('ee_fluxblk');if(g)Arra
 function ceSetFluxShape(s){_eeS.FluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function ceFluxRotChg(){_eeS.FluxRotate=parseInt(ssVal('ee_fluxrot'))||600;fluxTick()}
 function ceFecDatagram(){return fecDatagram(_eeS)}
-function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none';ceWorkersVis()}   /* FEC takes the extra queues away: its decoder needs consecutive frames, so the core drops back to one */
+function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none';ceWorkersVis()}   
 function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
 _eeS.Decoy=false,_eeS.Src=false,_eeS.SpoofOk=false,_eeS.NodesArr=['',''],_eeS.NamesArr=['',''];
@@ -12080,12 +9789,8 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   // open: per-side accordion state, kept across peerTick's re-renders
+ editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
- // rotate_secs=0 is «فقط هنگامِ قطع», a real stored value the backend clamps to (0..86400) — not an
- // absent field. `||600` treated it as absent because 0 is falsy in JS, so opening the edit form on a
- // failover-only tunnel showed 10 minutes and SAVING wrote 10 minutes: the operator's setting was
- // silently replaced by simply looking at the form. Same !=null test the ws pool already uses.
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
  if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
@@ -12114,9 +9819,6 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  ceRoleLbls(l);renderRotIps('ee_');ceSpoofPrefill(l);cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
-// Every stored per-transport field the edit form has to LOAD, in one place. It was four inline `if`s
-// in the open path, and raw_port simply never got its own — so the form could not show which port a
-// tunnel was on. One list means adding a field is one line, and it is drivable by a guard.
 function cePrefillFields(l){
  [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],
   ['ee_porttries',l.port_tries],['ee_dnszone',l.dns_zone],
@@ -12132,9 +9834,6 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(_collectCoreBody(_eeS,'ee_',m,body))return;
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){formErr(m,T('cover_need_sni'));return}body.cover_sni=sni}
  var _rverr2=rotValidate('ee_');if(_rverr2){formErr(m,_rverr2);return}
- // Keep the stored anchor if it is still in the pool, so the anchor (a_ip/b_ip) doesn't drift to another
- // pool IP each edit (which churns the server bind and used to trip a false self port-conflict) — that is
- // what the `stored` argument does.
  var aip=pickedIP('ee_','a',l.a_ip||'');if(aip)body.a_ip=aip;
  var bare=pickedIP('ee_','b',l.b_ip||'');if(bare)body.b_ip=bare;
  var _rc2=rotCollect('ee_');body.ip_rotate=!!(_rc2);if(_rc2){body.a_ip_pool=_rc2.a_ip_pool;body.b_ip_pool=_rc2.b_ip_pool;body.rotate_secs=_rc2.rotate_secs}
@@ -12149,19 +9848,15 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  if(vr.err){formErr(m,vr.err);return}
  editingId=null;closeModal(m.closest('.modalov'));refreshCore()}
 
-// ===== Proxies: one named proxy, reusable by any number of nodes.
 var PX=[];
-// Fills PX and nothing else, so the node forms can wait for the registry without touching the page.
 async function pxLoad(){var r=await j('proxies').catch(function(){return{}});PX=r.proxies||[]}
 function proxiesSkel(){el('view').innerHTML=vhead('globe','nav_proxies','px_sub')+
  '<button class="primary" onclick="openPxModal(null)" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('px_add'))+'</button>'+
  '<div id="pxList">'+skCards('proxies')+'</div>';
  refreshProxies()}
 async function refreshProxies(){if(listBusy())return;await pxLoad();
- var box=el('pxList');if(!box||listBusy())return;   // re-read: a drag may have started during the fetch
+ var box=el('pxList');if(!box||listBusy())return;   
  setList(box,PX.length?PX.map(function(p,i){return {k:p.id,h:pxCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('px_empty'))+'</div>'}])}
-// Built like nodeCard: the header carries the dot and folds, the body holds the rest. The dot is the
-// POLLER's verdict, not this button's -- the panel probes every proxy on the same sweep as the nodes.
 function pxCard(p,i){var open=!!TOPEN[p.id];
  var dotk=p.online?'on':(p.pending?'':'off');
  var st=p.status||{};
@@ -12181,7 +9876,7 @@ function pxCard(p,i){var open=!!TOPEN[p.id];
  return '<div class="card node acc'+(open?' open':'')+'" id="c_'+esc(p.id)+'" data-rid="'+esc(p.id)+'">'
   +head+'<div class="cbody"><div class="cbody-in">'+meta+acts
   +'<div class="msg" id="pxm_'+esc(p.id)+'"></div></div></div></div>'}
-async function testPx(i){var p=PX[i];if(!p)return;CHECKING++;   // same repaint race as testNode
+async function testPx(i){var p=PX[i];if(!p)return;CHECKING++;   
  try{
  var m=el('pxm_'+p.id);
  if(m){m.className='msg';m.textContent=T('px_testing')}
@@ -12205,8 +9900,6 @@ function openPxModal(i){var p=(i==null)?null:PX[i];
 function pxScheme(s){document.querySelectorAll('#px_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.s==s)})}
 function pxSchemeVal(){var b=document.querySelector('#px_seg button.on');return b?b.dataset.s:'socks5'}
 async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
- // pass is sent ONLY when the operator typed one; blank means keep the stored one, which the browser
- // was never given in the first place.
  var b={name:v('px_name'),scheme:pxSchemeVal(),host:v('px_host'),port:v('px_port'),
         user:v('px_user'),pass:v('px_pass')};if(p)b.id=p.id;
  var r=await post(p?'proxy-edit':'proxy-add',b);
@@ -12215,7 +9908,6 @@ async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
 async function delPx(i){var p=PX[i];if(!p)return;if(!await confirmBox(T('px_del_confirm')))return;
  var r=await post('proxy-del',{id:p.id});
  if(r.ok&&r.d.ok){toast(T('px_deleted'),'ok');refreshProxies()}else{toast(perr(r),'err')}}
-// The node form's half: a toggle, and the list only when it is on.
 function pxFields(pre,node){
  var on=!!(node&&node.proxy_on),sel=(node&&node.proxy_id)||'';
  var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.url}});
@@ -12231,7 +9923,6 @@ function pxToggle(pre){var sw=el(pre+'proxy_tgl');if(!sw)return;var on=!sw.class
 function pxBody(pre){var sw=el(pre+'proxy_tgl');var on=!!(sw&&sw.classList.contains('on'));
  return {proxy_on:on,proxy_id:on?ssVal(pre+'proxy_id'):''}}
 
-// ===== Port-forward
 function portfwSkel(){el('view').innerHTML=vhead('fwd','nav_portfw','pf_sub')+
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
  '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList">'+skCards('portfw')+'</div>'+pagerBottom('portfw');
@@ -12244,18 +9935,18 @@ async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];va
  renderPfLip()}
 function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal('pf_node'));
  if(ips.length>1){w.innerHTML='<label>'+esc(T('pf_lip_full'))+'</label>'+ssHTML('pf_lip',ipItems(ips),(SEL['pf_lip']&&ips.indexOf(SEL['pf_lip'])>=0?SEL['pf_lip']:ips[0]),T('ip'),'')}
- else{w.innerHTML='';delete SEL['pf_lip']}}   // single-IP node: no picker, and no stale pick
+ else{w.innerHTML='';delete SEL['pf_lip']}}   
 async function refreshPortfw(){if(listBusy())return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
- if(listBusy())return;   // re-read: a drag may have started during the fetch
+ if(listBusy())return;   
  setList(box,PF.length?PF.map(function(p,i){return {k:p.node_id.length+':'+p.node_id+p.name,h:pfCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>'}]);renderPager('portfw')}
 function pfCard(p,i){var h=p.health||{};
  var st=h.rule?(h.reachable?'<span class="badge ok">'+esc(T('pf_active_badge'))+CK+'</span>':'<span class="badge bad">'+esc(T('pf_rule'))+CK+' · '+esc(T('pf_dest'))+XK+'</span>'):'<span class="badge bad">'+esc(T('pf_disabled'))+'</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
- var lip=p.listen_ip||p.node_ip||'';   // effective listen IP: the pin (multi-IP) or the node's sole IP (single-IP)
+ var lip=p.listen_ip||p.node_ip||'';   
  var rotchip=rotOn?'<span class="tag" style="display:inline-flex;align-items:center;gap:4px;color:var(--gold);border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:var(--goldw);direction:ltr">'+ic('redo')+(p.switch_interval/60)+'m</span>':'';
  var key=p.node_id+p.name,open=!!TOPEN[key];
- var route='<b class="mono" dir="ltr" style="color:var(--sub);font-size:12px">'+esc(p.listen_port)+' ↔ '+esc(p.dst_port)+'</b>';   // ports, right after the portfw tag (distinguishes several forwards on one node)
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span>'+route+'<span class="hpeers">'+rotchip+st+'</span></div></div>'+CHEVI+'</div>';   // no dir=ltr: margin-inline-start:auto then resolves to the RIGHT (RTL) and pushes the status badge fully LEFT
+ var route='<b class="mono" dir="ltr" style="color:var(--sub);font-size:12px">'+esc(p.listen_port)+' ↔ '+esc(p.dst_port)+'</b>';   
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="hmain"><div class="hrow1"><span class="hname">'+esc(p.node)+'</span><span class="ctag" style="color:#fb923c;background:color-mix(in srgb,#fb923c 15%,transparent)">portfw</span>'+route+'<span class="hpeers">'+rotchip+st+'</span></div></div>'+CHEVI+'</div>';   
  var live=(multi&&h.active)?'<div class="wrap">'+esc(T('pf_active_now'))+'<b class="mono" id="pfact_'+i+'" style="color:var(--ok)">'+esc(h.active)+'</b></div>':'';
  var body='<div class="enmeta"><div class="emcol">'+
    '<div>'+esc(T('pf_iface'))+'<b class="mono">'+esc(p.iface)+'</b></div>'+
@@ -12275,13 +9966,13 @@ async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=
  if(!lp||!dp||!ips){formErr(m,T('pf_need_ports'));return}
  var rot=el('pe_tgl_'+i).classList.contains('on'),intv=v('pe_int_'+i);
  m.className='msg';m.textContent=T('saving');
- var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   // only multi-IP nodes expose the picker; empty ⇒ node keeps old pin
+ var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   
  var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5,listen_ip:lip});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{formErr(m,perr(r))}}
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
  if(!node||!lp||!dp||!ips){formErr(m,T('pf_need_all'));return}
  m.className='msg';m.textContent=T('creating_dots');
- var lip=el('ssb_pf_lip')?ssVal('pf_lip'):'';   // only when the picker exists (multi-IP node)
+ var lip=el('ssb_pf_lip')?ssVal('pf_lip'):'';   
  var r=await post('portfw',{node:node,listen_port:lp,dst_port:dp,dst_ips:ips,interval_min:intv||5,listen_ip:lip});
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('pf_created')+r.d.name,'ok')}
  else{formErr(m,terr(r.d.error||T('failed')))}}
@@ -12291,28 +9982,18 @@ async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.t
  else{if(b)b.textContent=old;toast(terr((r.d&&(r.d.error||r.d.msg))||T('pf_rotate_failed')),'err')}}
 async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});editingId=null;refreshPortfw()}
 
-// ===== readiness =====
-// The panel cannot install a node or build a core tunnel without an agent file and a core for BOTH
-// architectures. The server refuses those two operations on its own; this is only the telling.
 var RDY=null;
 async function loadReadiness(){try{RDY=await j('readiness')}catch(e){return}paintReady()}
 function paintReady(){var b=el('rdbar');if(!b)return;
- // Clear through setHTML like every other paint: writing innerHTML directly leaves its _html cache
- // holding the old bar, and the next identical warning is then skipped as a no-op change.
  if(!RDY||RDY.ok){setHTML(b,'');return}
  var miss=[];
  if(!RDY.agent)miss.push(T('rdy_agent'));
- // "staged, but only one arch" is a different sentence from "nothing staged": one needs a retry, the
- // other needs a version picked.
  if(!RDY.core)miss.push(RDY.core_version?T('rdy_core_arch').replace('{a}',(RDY.core_missing||[]).join('، ')):T('rdy_core'));
  setHTML(b,'<div class="rdbar">'+ic('warn')+'<div class="rdtx"><b>'+esc(T('rdy_title'))+'</b>'+
   '<span>'+esc(miss.join(' · ')+' — '+T('rdy_why'))+'</span></div>'+
   '<button type="button" class="ghost" onclick="goReady()">'+esc(T('rdy_go'))+'</button></div>')}
 function goReady(){cur='settings';render()}
 
-// ===== agent push-update page =====
-// Which end carries the bytes the last hop, per artifact. The panel decides WHAT is installed in all
-// three (it sends the sha and its signature, and the node checks both), so this only moves the traffic.
 var DLV={agent:'push',core:'push'};
 var DLV_OPTS=[['push','dlv_push_t'],['github','dlv_git_t'],['panel','dlv_pan_t']];
 function dlSeg(kind){
@@ -12322,12 +10003,9 @@ function dlSeg(kind){
 function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
  Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})})}
 async function setDelivery(k,v){if(DLV[k]==v)return;var b={};b[k+'_delivery']=v;
- var was=DLV[k];DLV[k]=v;paintDelivery();          // paint first: a switch that waits for the round-trip reads as dead
+ var was=DLV[k];DLV[k]=v;paintDelivery();          
  var r=await post('settings-set',b);
  if(r.ok&&r.d.ok)toast(T('set_saved'),'ok');else{DLV[k]=was;paintDelivery();toast(perr(r),'err')}}
-// Agent and core wear ONE skeleton, so nothing can drift between them: heading, meta strip, the two
-// source buttons, the delivery segment, and one full-width go button. The core has one row more --
-// the release picker -- because it is the only one of the two with versions to choose from.
 function agentBody(){return ''+
  '<div class="opgrid">'+
  '<div class="card opc sc-panel">'+
@@ -12363,8 +10041,8 @@ function agentBody(){return ''+
  '<div id="agList">'+skCards('agent')+'</div>'}
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
- if(info&&info.delivery){DLV.agent=info.delivery;paintDelivery()}   // rides the poll this page already makes
- loadReadiness();   // this page IS where a missing artifact gets fixed, so the bar clears as it happens
+ if(info&&info.delivery){DLV.agent=info.delivery;paintDelivery()}   
+ loadReadiness();   
  var st=el('ag_status'),mt=el('ag_meta');
  if(st)st.innerHTML=(info&&!info.none)?'<span class="badge ok">'+esc(T('ag_ready'))+'</span>':'<span class="badge na">'+esc(T('ag_empty'))+'</span>';
  if(mt)mt.innerHTML=(info&&!info.none)?
@@ -12373,8 +10051,6 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  loadCoreVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
- // setList, not innerHTML=: it replaces only the rows that changed, so a live upload bar on a row that
- // did not is still on screen afterwards. pushPaint still runs, for the rows it did rebuild.
  setList(box,nodes.length?nodes.map(function(n){return {k:n.id,h:agRow(n)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('ag_no_item'))+'</div>'}]);
  if(PUSHSTATE)pushPaint(PUSHSTATE);
  if(!PUSHJOB)pushAdopt()}
@@ -12391,17 +10067,14 @@ async function loadCoreVersions(want){
    mt.innerHTML='<span>'+esc(T('ag_word_core'))+'</span><span class="mono">'+esc(STAGED.version)+'</span>'+(sh?'<span class="sep"></span><span class="mono">'+esc(String(sh).slice(0,12))+'</span>':'')+(sz?'<span class="sep"></span><span>'+(sz/1048576).toFixed(1)+' '+esc(T('unit_mb_full'))+'</span>':'')+((STAGED.arches||[]).length?'<span class="sep"></span><span>'+STAGED.arches.join(' · ')+'</span>':'');}
   else mt.innerHTML='<span class="muted">'+esc(T('ag_no_core_staged'))+'</span>';
  }
- var box=el('cor_ver_box');if(!box)return;   // styled dropdown (matches every other list in the panel)
+ var box=el('cor_ver_box');if(!box)return;   
  var db=el('cor_del');
  if(db)db.style.display=CORVERS.filter(function(x){return x.custom}).length?'':'none';
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
- var sel=want||ssVal('corver')||(items.length?items[0].v:'');   // default to the newest real version (no synthetic "latest")
+ var sel=want||ssVal('corver')||(items.length?items[0].v:'');   
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
- // Nothing cached yet means the operator has not checked. Say so in the picker instead of showing an
- // empty control that looks broken.
  box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'')
    :'<div class="corempty">'+esc(T('cor_ver_empty'))+'</div>'}
-// Throwing away the uploaded binary is a panel-side delete: a node already running it keeps running it.
 async function corDelBlob(){
  if(!await confirmBox(T('cor_del_blob_q')))return;
  var m=el('cor_msg');m.className='msg';m.textContent=T('cor_deleting');
@@ -12409,9 +10082,6 @@ async function corDelBlob(){
  if(!(r.ok&&r.d.ok)){formErr(m,perr(r)||terr(r.d.error)||T('failed'));return}
  m.className='msg ok';m.textContent=T('cor_del_blob_ok');
  await loadCoreVersions()}
-// The panel no longer polls GitHub on its own. This is the ONLY thing that fetches the release list,
-// and it runs when the operator asks. It reports what it found rather than silently reordering the
-// dropdown, because "is there a new version" is the actual question being asked.
 async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textContent=T('cor_checking')}
  var res=await post('core-check',{});var d=(res&&res.d)||{};
  if(!(res.ok&&d.ok)){if(m){formErr(m,terr(d.error||T('err_github')))}return}
@@ -12423,8 +10093,6 @@ async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textCont
 async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';m.textContent=T('cor_downloading');
  var res=await post('core-stage',{version:ver});
  if(res.ok&&res.d&&res.d.ok){var mis=res.d.missing||[];
-  // A stage that got only one architecture is NOT done: readiness needs both, and reporting it green
-  // would leave the operator staring at a warning bar with nothing to explain it.
   m.className=mis.length?'msg':'msg ok';
   m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+
    (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
@@ -12447,19 +10115,12 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
  if(res.ok&&res.d&&res.d.ok){m.className='msg ok';m.innerHTML=T('cor_bin_saved_pre')+esc(name)+' · '+Math.round(res.d.size/1024)+'KB · <span class="mono">'+esc(res.d.sha256)+'</span>'+CK+T('cor_bin_saved_post');
   await loadCoreVersions('custom')}
  else{formErr(m,terr((res.d&&res.d.error))||T('failed'))}}
-// One glyph per component, everywhere on this page, and BORROWED FROM THE SIDEBAR so the same thing never
-// wears two icons: the agent is what runs on a node («نودها» = server), the core is «هستهٔ اختصاصی» = cpu.
-// The glyph names the version, tints itself to say the state, and labels the button that pushes it -- which
-// is why the row needs no «ایجنت»/«هسته» text. Do NOT use cog here: that is «تنظیمات» in the same nav.
 var AG_IC='server',COR_IC='cpu';
-// One node, one card, two per row. The two version pills carry the whole status in their colour, so
-// the card needs no separate badge; the action row is last and pinned to the bottom of the card, which
-// is what keeps a card with a running job aligned with the plain one beside it.
 function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
- var cinst=!!(i.core_sha&&String(i.core_sha).length);            // core_sha empty => no binary on the node
+ var cinst=!!(i.core_sha&&String(i.core_sha).length);            
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
- var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    // agent update available
- var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  // core update available/missing
+ var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    
+ var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  
  var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
  function vp(icon,cls,ver,tip){return '<span class="vp '+cls+'" title="'+esc(tip)+'">'+ic(icon)+esc(ver)+'</span>'}
  var agcls,agtip,agdis;
@@ -12477,7 +10138,7 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
      '<span class="nmwrap"><span class="nm">'+esc(n.name)+'</span>'+
        '<span class="nxhost">'+esc(n.host||'')+'</span></span></div>'+
    '<div class="nxv">'+vp(AG_IC,agcls,agver,agtip)+
-     vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   // a label, not a number: may be «custom»
+     vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   
    '<div class="msg agres" id="agres_'+n.id+'"></div>'+
    '<div class="nxa">'+
      '<button class="ib'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LA)+'" onclick="agPush(\\''+n.id+'\\')">'+ic(AG_IC)+'</button>'+
@@ -12497,12 +10158,7 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
-// One push job at a time, drawn per node under its own card. PUSH_WORKERS nodes upload at once, so that
-// many bars move together; a node that fails stays red and the pool carries on without it.
 var PUSHJOB=null,PUSHSTATE=null,PUSH_ALL='*';
-// The worker runs on the PANEL, not in this page: reloading the browser, or losing it entirely, does not
-// stop the upload. pushAdopt reattaches to whatever is still running, which is why a manual refresh shows
-// the continuation instead of an empty page.
 async function pushAdopt(){if(PUSHJOB)return;
  var r=await j('push-status').catch(function(){return null});
  if(!r||!r.ok||r.idle||!r.job||r.done)return;
@@ -12511,13 +10167,10 @@ async function pushCancel(){if(!PUSHJOB)return;
  if(!await confirmBox(T('ag_p_cancel_q'),T('ag_p_cancel')))return;
  var r=await post('push-cancel',{job:PUSHJOB});
  if(!(r.ok&&r.d&&r.d.ok))toast(perr(r),'err')}
-// Pause is the gentle one: it stops handing out NEW nodes and lets the uploads in flight finish. Cancel is
-// the immediate one -- it drops them mid-body too. want is explicit: a toggle races two quick taps.
 async function pushPause(want){if(!PUSHJOB)return;
  var r=await post('push-pause',{job:PUSHJOB,paused:!!want});
  if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
- if(PUSHSTATE){PUSHSTATE.paused=!!want;pushFab(PUSHSTATE)}}   // no waiting a poll tick to look pressed
-// The node answers each step with a CODE; every word the operator reads is written here.
+ if(PUSHSTATE){PUSHSTATE.paused=!!want;pushFab(PUSHSTATE)}}   
 function pushWord(st){
  if(st.state=='wait')return T('ag_p_wait');
  if(st.state=='skip')return T('ag_p_skip');
@@ -12534,18 +10187,14 @@ function pushBar(st){
  if(st.state=='ok'&&num(st.restarted)>0)txt+=' · '+T('ups_restarted').replace('{n}',num(st.restarted));
  return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
   +'<div class="plbl"'+(st.detail?' title="'+esc(st.detail)+'"':'')+'><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
-// The job's controls live in a fixed pill, NOT inside the node list: refreshAgent rewrites that list every
-// 1.5s and would wipe them. It sits outside #view for the same reason.
 function pushFab(d){var box=el('pushFab');if(!box)return;
  var live=d&&!d.done;
- document.body.classList.toggle('pushing',!!live);   // lifts the toast so it cannot cover the pill
+ document.body.classList.toggle('pushing',!!live);   
  if(!live){setHTML(box,'');return}
  var ns=d.nodes||{},order=d.order||[],done=0;
  order.forEach(function(nid){var s=(ns[nid]||{}).state;
    if(s=='ok'||s=='same'||s=='err'||s=='skip')done++});
  var pz=!!d.paused;
- // The plan is walked one step at a time, so a cancel always has something to stop: it drops the socket
- // mid-step and skips the queue. What it cannot do is recall a «نصب» the node already answered.
  var stoppable=order.some(function(nid){var s=(ns[nid]||{}).state;return s=='wait'||s=='run'});
  setHTML(box,'<div class="pfab"><span class="pfn">'+num(done)+'<s>/'+num(order.length)+'</s></span>'+
    '<button class="pfb"'+(pz?' disabled':'')+' title="'+esc(T('ag_p_pause'))+'" onclick="pushPause(true)">'+ic('pause')+'</button>'+
@@ -12556,9 +10205,6 @@ function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
    m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
    setHTML(m,pushBar(st))});
  pushFab(d)}
-// A core push is megabytes per node and takes minutes; one blip must not end the tracking while the panel
-// is still uploading. Tolerate consecutive failures the way the install poller does, and release PUSHJOB
-// in a finally -- a throw in here used to leave the button unusable until a reload.
 async function pushPoll(job){var fails=0;
  try{
   for(;;){
@@ -12567,19 +10213,13 @@ async function pushPoll(job){var fails=0;
     else{fails=0;pushPaint(r);if(r.done)break}
     await new Promise(function(res){setTimeout(res,400)})}
   setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
- finally{PUSHJOB=null;PUSHSTATE=null;pushFab(null)}}   // the pill outlives #view, so it must be cleared here
-// No optimistic pre-paint: the SERVER decides which nodes are in the job, dropping any that already run
-// this exact build. Painting «در نوبت» on every id first put a queue label -- then a full bar -- on nodes
-// that were never contacted. pushPoll's first read is immediate, so nothing is lost by waiting for it.
-// Starting one does NOT need the last one to have finished. The panel refuses only a node that is
-// already being updated, and bounds the total uploads itself -- so a per-node update can be fired while
-// a fleet push is running, and the page follows both through the one merged view.
+ finally{PUSHJOB=null;PUSHSTATE=null;pushFab(null)}}   
 async function pushStart(cmd,body,ids){
  var res=await post(cmd,body);
  if(!(res.ok&&res.d)){toast(perr(res),'err');return}
- if(res.d.none){toast(T('ag_p_none'),'ok');return}      // every target already runs it: nothing was sent
+ if(res.d.none){toast(T('ag_p_none'),'ok');return}      
  if(!res.d.job){toast(perr(res),'err');return}
- if(PUSHJOB)return;                                     // already following; the new job is in the merge
+ if(PUSHJOB)return;                                     
  PUSHJOB=PUSH_ALL;await pushPoll(PUSH_ALL)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
@@ -12589,16 +10229,13 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
  else{ids=[target]}
  await pushStart('update-agent',{ids:ids},ids)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
-// ===== system event log (auto events only; operator actions are excluded server-side) =====
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML=vhead('list','logs_title','logs_sub')+
  '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  toolbar('logs',T('logs_search'))+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';
- LOGPAINT='';markLogsSeen();refreshLogs();}   // a fresh list holds nothing the last paint left
-// One skeleton log card — same geometry as the real logcard (stripe + icon chip + two text bars + time),
-// so the loading state is pixel-identical to the loaded list (matches every other page's skeleton).
+ LOGPAINT='';markLogsSeen();refreshLogs();}   
 function skLog(){return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
  '<span class="sk" style="width:5px;flex:0 0 auto;border-radius:0"></span>'+
  '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
@@ -12606,58 +10243,37 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
    '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px"><span class="sk" style="width:62%;height:13px"></span><span class="sk" style="width:40%;height:11px"></span></div>'+
    '<span class="sk" style="width:38px;height:11px;flex:0 0 auto"></span>'+
  '</div></div>';}
-// Map an event to a filter CATEGORY: tunnel (link up/down), rot (rotation/pin/burn/heal = the pool),
-// ech, node, else sys. Kept in one place so the chips and the per-card badge always agree.
-// The badge says WHAT HAPPENED, not how alarming it is. A destination rotation and a CDN edge switch are
-// the same move on different carriers, so both wear the swap arrows; a burn keeps the warning triangle,
-// because it is the one thing here that took an endpoint out; and an endpoint coming back is a tick.
-// Everything else still falls back to the level, which is all those events carry.
 function logIco(e){var k=e.kind;
  if(k=='rot'||k=='edge')return 'swap';
  if(k=='burn')return 'warn';
  if(k=='heal')return 'check';
  return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
 var LOGEVS=[],LOGFILTER='all',LOGSIG='',LOGQ='',LOGPAINT='',LOGSHOW=200;
-var LOGPAGE=200;   // rows DRAWN at once. The day is all held and all searched; nobody reads it as cards.
-// LOGSIG = the panel's seq:count the held day was read at; LOGPAINT = what the list was last built from
-// The horizontal, sideways-scrolling category filter row. Counts are live; empty categories are hidden
-// (but the active one always stays visible). "errors only" spans every category.
-// How many of each, over what the SEARCH left -- so a chip never offers rows the box in front of it
-// has already ruled out.
+var LOGPAGE=200;   
 function logCounts(){var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
  found.forEach(function(e){c[e.cat]++;if(e.level=='bad')c.err++});return c}
-// An emptied category (e.g. «فقط خطاها» at 0) cannot stay active. This is a decision, not a rendering:
-// it happens before the paint measures anything against the filter, or the paint runs twice.
 function logResolveFilter(){var c=logCounts();
  if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';
  return c}
 function logChipsHTML(c){
- c=c||logCounts();   // the paint has them already; nobody counts twice
+ c=c||logCounts();   
  var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
- return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   // «فقط خطاها» now hides at 0 just like every other category
+ return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
-// What the search box left, out of the whole day the panel handed over. Matched against the title AND
-// the detail, because half of what an operator comes here looking for -- an address, a node's name, the
-// reason a tunnel went down -- lives in the detail and never in the title.
 var _lfQ=null,_lfSrc=null,_lfOut=null;
 function logFound(){var q=(QRY.logs||'').trim().toLowerCase();
  if(!q)return LOGEVS;
- if(q===_lfQ&&LOGEVS===_lfSrc)return _lfOut;   // the chips and the rows ask this back to back
+ if(q===_lfQ&&LOGEVS===_lfSrc)return _lfOut;   
  _lfQ=q;_lfSrc=LOGEVS;
  return (_lfOut=LOGEVS.filter(function(e){return ((e.fa||'')+' '+(e.dfa||'')).toLowerCase().indexOf(q)>=0}))}
-// The filtered list. Each card carries a colored category badge before the title.
 function logRows(){
  var all=logFound().filter(function(e){return LOGFILTER=='all'?true:LOGFILTER=='err'?e.level=='bad':e.cat==LOGFILTER;});
  if(!all.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T('logs_no_match'))+'</div>'}];
- // Every row is a card's worth of markup, and a day can be thousands. Searching and counting still read
- // the whole day -- only what is BUILT is bounded, and the rest is one tap away.
  var evs=all.slice(0,LOGSHOW),rest=all.length-evs.length;
  var rows=evs.map(function(e){
    var lv=logIco(e);
    var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
    var p=evParts(e);
-   // Only a card with something behind it answers a tap, and it says so to a screen reader. A card whose
-   // whole detail is one sentence has nothing to open, so it stays inert instead of blinking at a tap.
    var k=evKey(e);
    var tap=evFolds(p.lines)?(' logtap" role="button" tabindex="0" aria-expanded="'+(LOGOPEN[k]?'true':'false')+
      '" onclick="logFold(\\''+k+'\\',event)" onkeydown="logKey(event,\\''+k+'\\')'):'';
@@ -12675,53 +10291,28 @@ function logRows(){
  return rows}
 function logMore(){LOGSHOW+=LOGPAGE;logPaint()}
 function logMoreKey(e){if(e.key===' '||e.key==='Enter'){e.preventDefault();logMore()}}
-// A stable per-card key. Events carry no id, so it comes from the content — which never changes once
-// logged. It is both the fold state's key and the row's, which is what lets a poll that brings nothing
-// new leave every card exactly where it is. Hashed to a bare number so it is safe as a DOM id and
-// inside the onclick's string literal.
 function evKey(e){var s=(e.ts||0)+'|'+(e.fa||'')+'|'+(e.dfa||''),h=0;
  for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;
  return 'k'+(h>>>0);}
 function logFilter(k){LOGFILTER=k;logPaint()}
-// Building the list is what costs on this page, so it happens when something that CHANGES the list
-// changes -- not on the poll that brought nothing. A new question (another chip, another search) is
-// answered from its first row rather than from wherever the last one had been scrolled open to.
 function logPaint(){
  var box=el('logList');if(!box)return;
- // The cheapest question first: nothing that could change the list has changed, so nothing is counted,
- // filtered or built. Only the day itself, the chip, the search box and the window feed the list, and
- // all four are in here.
  if(LOGSIG+'|'+LOGFILTER+'|'+(QRY.logs||'')+'|'+LOGSHOW===LOGPAINT)return;
- var counts=logResolveFilter();     // may drop a chip the search emptied back to «همه»
+ var counts=logResolveFilter();     
  var q=LOGFILTER+'|'+(QRY.logs||'');
  if(q!==LOGQ){LOGQ=q;LOGSHOW=LOGPAGE}
  LOGPAINT=LOGSIG+'|'+q+'|'+LOGSHOW;
  var ch=el('logChips');
- // Nothing kept at all is «the log is empty»; nothing MATCHING the search is a different sentence, and
- // logRows says that one — the chips have to stay up so the operator can get back out of the filter.
  if(!LOGEVS.length){if(ch)ch.innerHTML='';setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T('logs_empty'))+'</div>'}]);return}
- // Preserve the row's horizontal scroll across the rebuild, or the tabs snap back to the start.
  if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML(counts);var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl}
  setList(box,logRows())}
-// Split an event into a clean title + detail lines. Every event carries its structure in dfa
-// (detail, possibly multi-line); an event with no detail is title-only.
 function evParts(e){
  var det=e.dfa||'';
  return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
-// A «dst ← src» value, marked up so the pill breaks only AT the arrow. Left to itself the pill is
-// narrower than the pair on a phone and overflow-wrap:anywhere splits wherever it runs out — mid-address,
-// so one endpoint arrived over two lines and read as two. Anything that is not a pair passes untouched.
 function evEndpoints(v){var p=v.split(' ← ');
  if(p.length!=2)return esc(v);
  return '<span class="ep">'+esc(p[0])+'</span><span class="ep-a">←</span><span class="ep">'+esc(p[1])+'</span>';}
-// A detail line is one of two things: «key: value» becomes a labelled pill («از» / «به» / «لبه» /
-// «دامنه» / «کلیدِ ECH» …) with «به» accented; anything else becomes a plain sentence. A label is SHORT and free
-// of sentence punctuation — that is the whole test, and it must allow spaces, since the backend emits
-// multi-word labels. tools/log_labels_check.py pins this gate against the labels it really emits.
-// The row/note split, in ONE place: the CARD has to know whether there is anything to open before it
-// makes itself tappable, and evDetail needs the same answer to decide whether to wrap. Two copies of
-// this test would let a card that opens nothing still answer a tap.
 function evSplit(lines){var rows=[],notes=[];
  for(var i=0;i<(lines||[]).length;i++){var l=lines[i],c=l.indexOf(': ');
   var k=c>0?l.slice(0,c):'';
@@ -12736,20 +10327,10 @@ function evDetail(lines,id){if(!lines||!lines.length)return '';
    return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
           '<span class="v">'+evEndpoints(m.v)+'</span></div>'}).join('')+'</div>';
  for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
- // Endpoint rows FOLD; a plain sentence does not. The endpoints are the bulk of a card \u2014 several lines
- // of addresses under a reason that already named the tunnel and what happened to it \u2014 while a note like
- // \u00AB\u0627\u062A\u0635\u0627\u0644 \u0642\u0637\u0639 \u0634\u062F\u00BB IS that reason said once more, so hiding it behind a control costs a tap and reveals
- // nothing. The test is the same one that split them: labelled rows fold, notes stay.
  if(!rows.length)return out;
- // No chevron: the CARD is the control. A separate little button was a second thing to aim at on a
- // phone, on a card whose whole body is already the target.
  return '<div class="lfold'+(LOGOPEN[id]?' open':'')+'" id="lf'+id+'">'+
    '<div class="lfbody">'+out+'</div></div>';}
-// Which cards the operator opened, keyed by event id. Kept OUT of the DOM because refreshLogs rebuilds
-// the whole list on every poll \u2014 state read back off the elements would be wiped a few seconds later.
 var LOGOPEN={};
-// A tap that ends a text selection is not a tap: the log is full of addresses the operator copies, and
-// collapsing the card out from under a selection loses it.
 function logFold(id,e){
  try{if(window.getSelection&&String(window.getSelection())!=='')return}catch(_){}
  LOGOPEN[id]=!LOGOPEN[id];
@@ -12757,10 +10338,6 @@ function logFold(id,e){
  var c=e&&e.currentTarget;if(c&&c.setAttribute)c.setAttribute('aria-expanded',LOGOPEN[id]?'true':'false');}
 function logKey(e,id){if(e.key===' '||e.key==='Enter'){e.preventDefault();logFold(id,e)}}
 
-// The panel hands over the WHOLE kept day, so this only asks for it when the day has actually moved:
-// the sidebar's own poll already carries the sequence and the size, and between two events that pair
-// does not change. Without this the page would pull a day of log every couple of seconds to redraw
-// exactly the same rows -- on a phone, over and over.
 async function refreshLogs(){
  if(!el('logList'))return;
  var sig=EVSEQ+':'+LOGN;
@@ -12770,11 +10347,10 @@ async function refreshLogs(){
  logPaint()}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');
  LOGEVS=[];LOGSIG='';LOGPAINT='';refreshLogs();}
-function render(){setnav();editingId=null;setLS('tnl_page',cur);   // remember the page so a reload stays here
+function render(){setnav();editingId=null;setLS('tnl_page',cur);   
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
-// ===== settings (loaded once on nav; NOT re-fetched on the 6s tick so the form is never clobbered mid-edit) =====
 function settingsSkel(){el('view').innerHTML=vhead('cog','nav_settings','set_sub')+'<div id="setBox" class="stpage"><div class="card muted">'+esc(T('loading'))+'</div></div>'}
 var _setMode='alert',_modeOv=null;
 function modeLabel(m){return m=='auto'?T('set_mode_auto'):T('set_mode_alert')}
@@ -12783,12 +10359,8 @@ async function refreshSettings(){var s=await j('settings').catch(function(){retu
  box.innerHTML='<div class="stgrid">'+settingsGroups(s)+'</div>'+saveBar()+
   '<div class="sec" style="margin-top:16px">'+ic('redo','var(--acc)')+' '+esc(T('set_agent_update'))+'</div>'+agentBody();
  tunPmBind();refreshAgent()}
-// One settings row: name, a "?" that expands the concept + an example, and the control. Every control
-// sits in .srctl, which is what gives the whole page one control width.
 function tgExp(b){var r=b.closest('.sr');var o=r.classList.toggle('exp-open');b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?'×':'؟'}
 function qr(lbl,ck,xk,ctl){return '<div class="sr"><div class="srtop"><b class="srlbl">'+lbl+'</b><button type="button" class="srq" onclick="tgExp(this)" aria-expanded="false">؟</button><div class="srctl">'+ctl+'</div></div><div class="srexp"><p>'+T(ck)+'</p><p class="srex">'+T(xk)+'</p></div></div>'}
-// A subject is a CARD of its own now, so the four of them tile two-up instead of stacking into one
-// column the operator has to scroll past. The tile and the chip take their colour from cls.
 function sgCard(icn,tk,ck,cls,rows){return '<div class="card sg '+cls+'"><div class="sghd"><span class="sgt">'+ic(icn)+'</span><b>'+T(tk)+'</b><span class="schip">'+T(ck)+'</span></div><div class="sgb">'+rows+'</div></div>'}
 function saveBar(){return '<p class="stnote">'+esc(T('set_apply_note'))+'</p>'+
  '<div class="stsave">'+
@@ -12797,15 +10369,9 @@ function saveBar(){return '<p class="stnote">'+esc(T('set_apply_note'))+'</p>'+
  '<span class="msg" id="set_msg"></span></div>'}
 function _sv(s,k){return (s&&s[k]!=null&&s[k]!=='')?s[k]:_SETDEF[k]}
 function _tv(s,k){var t=(s&&s.tuning)||{};return (t[k]!=null?t[k]:_TUNDEF[k])}
-// The two pool-retest knobs are stored and stamped in SECONDS but entered in MINUTES, the way
-// sock_buf_mb is MiB in the form and bytes in the core config.
 function _tvMin(s,k){return Math.max(1,Math.round(num(_tv(s,k))/60))}
 function _minSec(x){var n=parseInt(x);return n>=1?n*60:NaN}
 function tNum(id,val,mn,mx,st){return '<input id="'+id+'" class="search" type="number" step="'+(st||1)+'" min="'+mn+'" max="'+mx+'" value="'+esc(String(val))+'">'}
-/* ONE card, four subjects in the order the operator thinks about them: what the panel itself does, then
-   the connection, then the IP pool, then throughput. The panel rows take effect the moment they are
-   saved; the three tuning groups are stamped into the core config and take effect on a tunnel's next
-   build/rebuild. That split is what the note under the button says. */
 function settingsGroups(s){
  var panel=
   qr(T('set_on_ipchange'),'set_on_ipchange_d','set_x_ipchange','<button type="button" class="setfield" onclick="openModePopup()"><span class="val" id="set_mode_val">'+modeLabel(_setMode)+'</span><span class="cv">'+ic('chev')+'</span></button>')+
@@ -12814,8 +10380,6 @@ function settingsGroups(s){
   qr(T('set_ui_int'),'set_ui_range','set_x_ui','<input id="set_ui" class="search" type="number" step="0.1" min="0.3" max="60" value="'+esc(String(_sv(s,'ui_interval')))+'">')+
   qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+esc(String(_sv(s,'ech_refresh_mins')))+'">')+
   qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(_sv(s,'uptime_window')),'',''));
- /* Dead detection, one subject: the multiplier is how many missed pings the carrier tolerates and the
-    rest are the failure thresholds beside it. */
  var conn=
   qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
   qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
@@ -12824,8 +10388,6 @@ function settingsGroups(s){
  var pool=
   qr(T('set_t_suspect'),'set_t_suspect_d','set_x_suspect','<input id="set_t_suspect" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'suspect_backoff').map(function(x){return Math.max(1,Math.round(num(x)/60))}).join(', '))+'">')+
   qr(T('set_t_deadretest'),'set_t_deadretest_d','set_x_deadretest',tNum('set_t_deadretest',_tvMin(s,'dead_retest_secs'),1,1440));
- /* The socket buffer is the only knob left that is datagram-only: the dead-window multiplier sits in
-    the connection group, because there is now ONE of it for every carrier. */
  var perf=
   qr(T('set_t_sockbuf'),'set_t_sockbuf_d','set_x_sockbuf',tNum('set_t_sockbuf',_tv(s,'sock_buf_mb'),0,64));
  return sgCard('cog','set_g1','set_g1c','sc-panel',panel)+
@@ -12839,13 +10401,8 @@ function _collectTuning(){
  if(sb.length)t.suspect_backoff=sb;
  if(rv.length)t.ladder_revive=rv;
  return t}
-// A percentage over a FIXED number of samples is a staircase, not a dial: with 20 samples only every
-// 5th percent is a distinct verdict, so 11..15 all mean "3 of 20" while 15->16 jumps to 4. The form
-// steps by 5 so every step is real; this says what the step actually buys, in the unit the operator
-// thinks in. Must use the SAME ceiling the node's carrying() applies, or the hint describes a rule
-// nothing enforces.
 function tunPmSync(){var p=el('set_t_probemin'),h=el('tun_pmhint');if(!p||!h)return;
- var v=Math.max(5,Math.min(100,parseInt(p.value)||0));   // same floor the server clamps to
+ var v=Math.max(5,Math.min(100,parseInt(p.value)||0));   
  h.textContent=T('set_pm_hint').replace('{n}',Math.ceil(v*_PROBESAMP/100)).replace('{c}',_PROBESAMP)}
 function tunPmBind(){var p=el('set_t_probemin');if(p)p.addEventListener('input',tunPmSync);
  tunPmSync()}
@@ -12861,20 +10418,17 @@ async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.text
  var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin'),tuning:_collectTuning()});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){formErr(m,perr(r))}}}
-function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  // hidden tab: back off, don't burn cycles
+function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  
  updateSidebar();refreshActs().catch(function(){});
  refresh().catch(function(){}).then(function(){clearTimeout(TT);TT=setTimeout(tick,UIV)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){clearTimeout(TT);tick()}});
-// Every accordion header is role="button" + tabindex="0", so it has to answer Enter and Space like
-// one; none of them did. Delegated, so a header only has to carry data-acc and its own onclick.
 document.addEventListener('keydown',function(e){if(e.key!='Enter'&&e.key!=' ')return;
  var h=e.target&&e.target.closest&&e.target.closest('[data-acc]');if(!h)return;
  e.preventDefault();h.click()});
-// ===== command palette (Ctrl+K) =====
 document.addEventListener('keydown',function(e){if(!((e.ctrlKey||e.metaKey)&&(e.key=='k'||e.key=='K')))return;
  if(PAL){e.preventDefault();closePal();return}
  var tn=e.target&&e.target.tagName;
- if(tn=='INPUT'||tn=='SELECT'||tn=='TEXTAREA'||document.querySelector('.modalov'))return;  // don't hijack typing or stack over an open modal
+ if(tn=='INPUT'||tn=='SELECT'||tn=='TEXTAREA'||document.querySelector('.modalov'))return;  
  e.preventDefault();openPal()});
 function openPal(){if(PAL)return;var ov=document.createElement('div');ov.className='modalov palov';
  ov.innerHTML='<div class="pal"><div class="palin">'+ic('search')+'<input id="pal_q" placeholder="'+esc(T('pal_search'))+'" autocomplete="off"><kbd>Esc</kbd></div><div class="pallist" id="pal_list"></div><div class="palfoot"><span><kbd>↑</kbd><kbd>↓</kbd> '+esc(T('pal_move'))+'</span><span><kbd>↵</kbd> '+esc(T('pal_pick'))+'</span><span><kbd>Esc</kbd> '+esc(T('pal_close'))+'</span></div></div>';
@@ -12911,39 +10465,27 @@ function palKey(e){if(e.key=='ArrowDown'){e.preventDefault();PALIDX=Math.min(PAL
  else if(e.key=='ArrowUp'){e.preventDefault();PALIDX=Math.max(PALIDX-1,0);palHi();palSc()}
  else if(e.key=='Enter'){e.preventDefault();palGo(PALIDX)}else if(e.key=='Escape'){e.preventDefault();closePal()}}
 function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if(r)r.scrollIntoView({block:'nearest'})}
-// Restore the last page on reload (fall back to overview) — UNLESS the panel is still missing an agent
-// or a core, in which case land on Settings, where the two of them are staged. Only at load: once the
-// operator has navigated away, nothing yanks them back.
 (async function(){var p=getLS('tnl_page');
  if(['overview','nodes','proxies','tunnels','core','portfw','logs','settings','agent'].indexOf(p)>=0)cur=p;
  await loadReadiness();
  if(RDY&&!RDY.ok)cur='settings';
  render();updateSidebar();
- refreshActs().catch(function(){});   // a page that was just reloaded finds the builds still running
+ refreshActs().catch(function(){});   
  TT=setTimeout(tick,6000)})();
 </script></body></html>"""
 
-# Keep the browser's tuning defaults in lock-step with the Python source of truth: inject _TUNING_DEFAULTS
-# as JSON at import time, so there is NO hand-copied JS literal to drift (consolidation Track B). The
-# tools/tuning_consistency.py guard enforces the remaining panel<->core<->node agreement.
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
 INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
-# The panel-side half of the same card. `tuning` is already injected above as _TUNDEF.
 INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
     {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
-# transport families + ciphers -> browser, so the enum lives only in the Python consts above (Track B).
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
-     # profile -> owned IP protocol number, so the browser blocks exactly what _check_raw_proto does
      "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"}},
     separators=(",", ":")))
-# the split_ttl input's ceiling, from the same constant the submit validator uses
 INDEX_HTML = INDEX_HTML.replace("__SPLITTTLMAX__", str(SPLIT_TTL_MAX))
-# the queue segment's button count and both browser-side clamps, from the same ceiling
 INDEX_HTML = INDEX_HTML.replace("__WORKERSMAX__", str(CORE_MAX_WORKERS))
 
-# ----------------------------------------------------------------------------- install / main
 
 SERVICE = "tnl-central.service"
 
@@ -12971,7 +10513,7 @@ def set_password(conf):
         print("  empty or mismatch, try again.")
     salt, h = hash_password(p1)
     conf["salt"], conf["hash"] = salt, h
-    conf["secret"] = secrets.token_hex(32)   # rotate the signing secret on every password change → invalidates all outstanding sessions
+    conf["secret"] = secrets.token_hex(32)
     conf.setdefault("port", 8080)
     save_json(WEB_CONF, conf)
 
@@ -12998,7 +10540,7 @@ WantedBy=multi-user.target
 def do_install():
     os.makedirs(CENTRAL_DIR, exist_ok=True)
     os.chmod(CENTRAL_DIR, 0o700)
-    if os.path.realpath(SELF_PATH) != INSTALLED:  # copy to a stable path so the unit never breaks if moved
+    if os.path.realpath(SELF_PATH) != INSTALLED:
         shutil.copy2(SELF_PATH, INSTALLED)
         os.chmod(INSTALLED, 0o755)
     conf = load_conf() if os.path.isfile(WEB_CONF) else {}
@@ -13007,7 +10549,7 @@ def do_install():
     write_service()
     svc("enable")
     svc("restart")
-    try:                              # stage the latest core now so nodes (incl. internet-less ones) get it by push
+    try:
         info = _stage_core("latest")
         print(f"[✔] staged core {info['version']} ({', '.join(info['arches'])}) — ready to push to nodes")
     except Exception as e:
@@ -13119,11 +10661,6 @@ def menu():
 
 
 class BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer that caps concurrent worker threads. The stock server spawns one
-    unbounded thread per connection, so a connection flood (e.g. slow POST /api/login, each
-    buffering a 1 MB body) spawns unbounded root threads/RAM until OOM. Here process_request
-    blocks on a bounded semaphore, so at most _MAX_WORKERS requests run at once; excess
-    connections wait in the listen backlog (or are refused) instead of exhausting the box."""
     daemon_threads = True
     request_queue_size = 128
     _MAX_WORKERS = 256
@@ -13132,9 +10669,9 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
     def process_request(self, request, client_address):
         self._sem.acquire()
         try:
-            super().process_request(request, client_address)  # spawns the worker thread
+            super().process_request(request, client_address)
         except BaseException:
-            self._sem.release()  # thread never started -> don't leak the slot
+            self._sem.release()
             raise
 
     def process_request_thread(self, request, client_address):
@@ -13150,22 +10687,20 @@ def serve():
         sys.exit(1)
     conf = load_conf()
     global _CENTRAL_PORT, _CENTRAL_TLS
-    _CENTRAL_PORT = int(conf.get("port", 8080))  # advertised to nodes so they can call back /api/checkin
-    # conf["tls"] is the panel's own declaration that it is TLS-fronted. The node needs it: without the
-    # scheme it can only assume http, and a check-in posted in the clear at a TLS port goes nowhere.
+    _CENTRAL_PORT = int(conf.get("port", 8080))
     _CENTRAL_TLS = bool(conf.get("tls"))
-    _seed_settings()  # load settings.json into memory (defaults if absent) for the loops
+    _seed_settings()
     try:
-        _signing_keys()  # generate the update-signing keypair on first boot so pushes can be signed
+        _signing_keys()
     except Exception as e:
         print(f"warning: could not init signing key (openssl missing?): {e}")
-    _tf_load()  # restore lifetime traffic totals from disk so they survive a central restart
-    _uh_load()  # restore per-minute uptime history so the uptime bar survives a restart
-    threading.Thread(target=poller_loop, daemon=True).start()  # warm the fleet cache in the background
-    threading.Thread(target=traffic_persist_loop, daemon=True).start()  # flush traffic totals every 60s
-    threading.Thread(target=reconcile_loop, daemon=True).start()  # heal peer remote_ip after a node's IP changes
-    threading.Thread(target=events_loop, daemon=True).start()      # record system events (node/tunnel up-down, auto edge change)
-    threading.Thread(target=ech_refresh_loop, daemon=True).start() # re-fetch ECH keys so a CDN key rotation self-heals
+    _tf_load()
+    _uh_load()
+    threading.Thread(target=poller_loop, daemon=True).start()
+    threading.Thread(target=traffic_persist_loop, daemon=True).start()
+    threading.Thread(target=reconcile_loop, daemon=True).start()
+    threading.Thread(target=events_loop, daemon=True).start()
+    threading.Thread(target=ech_refresh_loop, daemon=True).start()
     httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
