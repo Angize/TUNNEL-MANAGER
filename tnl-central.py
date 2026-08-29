@@ -1222,7 +1222,6 @@ def _cached_list(nid):
     return (_cache_get(nid) or {}).get("list") or {}
 
 
-
 TF_IF_MAX = 512
 TF_IF_KEY_MAX = 32
 TF_CTR_CEIL = 1 << 64
@@ -2783,8 +2782,6 @@ def _staged_agent():
         with open(AGENT_META) as f:
             meta = json.load(f)
     return src, meta
-
-
 
 
 def _delivery_mode(kind):
@@ -5201,7 +5198,6 @@ def api_link_toggle(d):
     return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
 
 
-
 RECONCILE_GAP = 15
 RECONCILE_RETRY = 60
 _reconcile_last = {}
@@ -6312,7 +6308,6 @@ def api_link_rebuild_info(d):
 
     return {"id": L["id"], "name": L.get("name"),
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
-
 
 
 def _proxy_nodes(nodes=None):
