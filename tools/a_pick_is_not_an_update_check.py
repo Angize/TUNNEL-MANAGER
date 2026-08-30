@@ -43,7 +43,11 @@ const CASES = [
   ['the staged version was rolled back',          '',        'v2.90.0', 'aaaaaaaaaaaa', 'v2.89.0', 'bbbbbbbbbbbbbbbb', true],
   ['staged is an uploaded binary',                'custom',  'v2.90.0', 'aaaaaaaaaaaa', 'custom',  'cccccccccccccccc', true],
   ['no core on the node at all',                  'v2.89.0', '',        '',             'v2.90.0', 'aaaaaaaaaaaaaaaa', true],
-  ['offline, with a version picked',              'v2.89.0', 'v2.90.0', 'aaaaaaaaaaaa', 'v2.90.0', 'aaaaaaaaaaaaaaaa', false]
+  ['offline, with a version picked',              'v2.89.0', 'v2.90.0', 'aaaaaaaaaaaa', 'v2.90.0', 'aaaaaaaaaaaaaaaa', false],
+  ['github mode, node is on the staged version',  '',        'v2.90.0', 'aaaaaaaaaaaa', 'v2.90.0', '',                true],
+  ['github mode, node is behind',                 '',        'v2.88.0', 'dddddddddddd', 'v2.90.0', '',                true],
+  ['github mode, node is ahead of staged',        '',        'v2.91.0', 'dddddddddddd', 'v2.90.0', '',                true],
+  ['github mode, an older version picked',        'v2.89.0', 'v2.90.0', 'aaaaaaaaaaaa', 'v2.90.0', '',                true]
 ];
 
 function read(html){
@@ -121,6 +125,13 @@ def main():
     cell('no core on the node at all', True, True, 'na')
     cell('offline, with a version picked', False, False, 'offl')
 
+    print()
+    print("== and the same, with no checksum staged at all: github delivery ==")
+    cell('github mode, node is on the staged version', False, False, 'ok')
+    cell('github mode, node is behind', True, True, 'up')
+    cell('github mode, node is ahead of staged', False, True, 'ok')
+    cell('github mode, an older version picked', False, True, 'ok')
+
     ok('v2.89.0' in got['an OLDER version picked for another node']['tip'],
        "and the tooltip names the version it would install, not 'آپدیت دارد'",
        "the tooltip does not name the picked version: %r"
@@ -129,8 +140,8 @@ def main():
        "a node that is genuinely behind still says so",
        "a behind node lost its update wording: %r" % got['the node really is behind']['tip'])
     lit = [c["name"] for c in got.values() if c["amber"]]
-    ok(len(lit) == 4,
-       "exactly the four cells that are really behind or bare light up",
+    ok(len(lit) == 5,
+       "exactly the five cells that are really behind or bare light up",
        "%d cells lit up: %r" % (len(lit), lit))
 
     print()

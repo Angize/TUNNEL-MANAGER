@@ -2947,14 +2947,19 @@ def _core_delivery_check(mode, custom):
                          "حالتِ تحویلِ هسته را روی «پنل آپلود کند» یا «نود از پنل بگیرد» بگذار")
 
 
+def _github_grant(ver, arch):
+    url = _release_asset_url(ver, arch)
+    return {"url": url, "version": ver, "sig": _sign_sha(url)}
+
+
 def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
     mode = _delivery_mode("core")
     _core_delivery_check(mode, custom)
+    if mode == "github":
+        return _github_grant(ver, arch)
     body = {"sha256": sha, "version": ver, "sig": sig}
     if mode == "push":
         return {"data": b64, **body}
-    if mode == "github":
-        return {"url": _release_asset_url(ver, arch), **body}
     url = _panel_dl_url(node, "cb" if custom else "co", "" if custom else arch)
     if not url:
         raise ValueError(_NO_ORIGIN)
@@ -2972,7 +2977,7 @@ def _readiness():
             agent = False
     info = _staged_info()
     if _delivery_mode("core") == "github":
-        missing = [a for a in CORE_ARCHES if not _staged_sha(a)]
+        missing = []
     else:
         missing = [a for a in CORE_ARCHES
                    if not os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-" + a))]
@@ -3346,10 +3351,10 @@ def api_update_core(d):
             raise ValueError("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود")
         if arch not in parts:
             if gh:
-                sha, ver = _staged_sha(arch), str((_staged_info() or {}).get("version") or "")
-                if not (sha and ver):
-                    raise ValueError("نسخه‌ای برای این معماری انتخاب نشده — اول یک نسخه انتخاب کن")
-                parts[arch] = ("", sha, ver, _sign_sha(sha), arch)
+                ver = str((_staged_info() or {}).get("version") or "")
+                if not ver:
+                    raise ValueError("هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن")
+                parts[arch] = ("", "", ver, "", arch)
             else:
                 b = _staged_bytes(arch)
                 if not b:
@@ -3365,19 +3370,20 @@ def api_update_core(d):
     put = _body_cache(put_body)
 
     def apply_body(n):
-        _b64, sha, ver, sig, _arch = prep(n)
-        return {"sha256": sha, "version": ver, "sig": sig}
+        _b64, sha, ver, sig, arch = prep(n)
+        return _github_grant(ver, arch) if gh else {"sha256": sha, "version": ver, "sig": sig}
 
     def current(r):
         arch = str(r.get("arch") or "")
         if arch not in CORE_ARCHES:
             return False
+        if gh:
+            ensure()
+            ver = str((_staged_info() or {}).get("version") or "")
+            return bool(ver) and str(r.get("core_ver") or "") == ver
         if arch not in shas:
-            if gh:
-                shas[arch] = _staged_sha(arch)
-            else:
-                b = _staged_bytes(arch)
-                shas[arch] = b[1] if b else ""
+            b = _staged_bytes(arch)
+            shas[arch] = b[1] if b else ""
         return bool(shas[arch]) and _core_current(r, shas[arch])
 
     plan = [("check", "ping", check_body, 15, current),
@@ -3569,20 +3575,11 @@ def _stage_core(version):
 
 def _stage_core_meta(version):
     rel = _resolve_core_version(version)
-    os.makedirs(CORE_STAGE_DIR, exist_ok=True)
-    got, shas = [], {}
+    got = list(CORE_ARCHES)
     with _core_stage_lock:
-        for arch in CORE_ARCHES:
-            try:
-                shas[arch] = _release_sha(rel, arch)
-            except Exception:
-                if arch == "amd64":
-                    raise
-                continue
-            got.append(arch)
-        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": {},
+        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": {}, "size": {},
                                     "ts": int(time.time()), "meta_only": True})
-    return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
+    return {"version": rel, "arches": got, "missing": []}
 
 
 def _staged_sha(arch):
@@ -3626,8 +3623,8 @@ def _push_staged(node):
     if not arch:
         return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
     if _delivery_mode("core") == "github":
-        sha, ver, b64 = _staged_sha(arch), str((_staged_info() or {}).get("version") or ""), ""
-        if not (sha and ver):
+        sha, ver, b64 = "", str((_staged_info() or {}).get("version") or ""), ""
+        if not ver:
             return {"ok": False, "error": "هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن"}
     else:
         b = _staged_bytes(arch)
@@ -3635,7 +3632,7 @@ def _push_staged(node):
             return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
         raw, sha, ver = b
         b64 = base64.b64encode(raw).decode()
-    sig = _sign_sha(sha)
+    sig = _sign_sha(sha) if sha else ""
     try:
         body = _core_install_body(node, b64, sha, ver, sig, arch)
     except ValueError as e:
@@ -3644,8 +3641,9 @@ def _push_staged(node):
     r = node_call(node, "core-put", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
     if not r.get("ok") or r.get("code") == "same":
         return r
-    return node_call(node, "core-apply", "POST", {"sha256": sha, "version": ver, "sig": sig},
-                     timeout=NODE_UPLOAD_TIMEOUT)
+    ap = (_github_grant(ver, arch) if _delivery_mode("core") == "github"
+          else {"sha256": sha, "version": ver, "sig": sig})
+    return node_call(node, "core-apply", "POST", ap, timeout=NODE_UPLOAD_TIMEOUT)
 
 
 def _push_staged_on_add(node):
@@ -10254,7 +10252,8 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  var want=String(ssVal('corver')||'');
  var sver=String((STAGED&&STAGED.version)||'');
  var wantDiff=!!(want&&want!='custom'&&cinst&&String(i.core_ver||'')!==want);
- var cdiff=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));
+ var cdiff=!!(STAGED&&(!cinst||(ssha?String(i.core_sha)!==String(ssha).slice(0,12)
+   :!!sver&&String(i.core_ver||'')!==sver)));
  var cup=cdiff&&!vNewer(i.core_ver,sver);
  var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
  function vp(icon,cls,ver,tip){return '<span class="vp '+cls+'" title="'+esc(tip)+'">'+ic(icon)+esc(ver)+'</span>'}

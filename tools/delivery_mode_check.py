@@ -191,15 +191,28 @@ def case_core(m, mode, shas, api, arg, label):
         check('%s/%s: %s got exactly one core-put' % (label, mode, nid), len(b) == 1, str(len(b)))
         check('%s/%s: %s got exactly one core-apply after it' % (label, mode, nid), len(ap) == 1, str(len(ap)))
         if len(ap) == 1:
-            check('%s/%s: %s install step names ITS arch sha, and carries no bytes' % (label, mode, nid),
-                  ap[0].get('sha256') == shas[arch] and bool(ap[0].get('sig'))
-                  and 'data' not in ap[0] and 'url' not in ap[0],
-                  json.dumps(sorted(ap[0]))[:120])
+            if mode == 'github':
+                check('%s/%s: %s install step names ITS arch url, and carries no bytes'
+                      % (label, mode, nid),
+                      str(ap[0].get('url') or '').endswith(arch) and bool(ap[0].get('sig'))
+                      and 'data' not in ap[0] and 'sha256' not in ap[0],
+                      json.dumps(sorted(ap[0]))[:120])
+            else:
+                check('%s/%s: %s install step names ITS arch sha, and carries no bytes'
+                      % (label, mode, nid),
+                      ap[0].get('sha256') == shas[arch] and bool(ap[0].get('sig'))
+                      and 'data' not in ap[0] and 'url' not in ap[0],
+                      json.dumps(sorted(ap[0]))[:120])
         if len(b) != 1:
             continue
         b = b[0]
-        check('%s/%s: %s carries ITS arch sha' % (label, mode, nid), b.get('sha256') == shas[arch],
-              '%s vs %s' % (b.get('sha256'), shas[arch]))
+        if mode == 'github':
+            check('%s/%s: %s carries ITS arch url and no checksum at all' % (label, mode, nid),
+                  str(b.get('url') or '').endswith(arch) and 'sha256' not in b,
+                  json.dumps(sorted(b))[:120])
+        else:
+            check('%s/%s: %s carries ITS arch sha' % (label, mode, nid), b.get('sha256') == shas[arch],
+                  '%s vs %s' % (b.get('sha256'), shas[arch]))
         check('%s/%s: %s carries a signature' % (label, mode, nid), bool(b.get('sig')))
         if mode == 'push':
             check('%s/%s: %s got ITS arch bytes' % (label, mode, nid),
@@ -446,8 +459,12 @@ def main():
             if b:
                 check('_push_staged/%s: %s' % (mode, 'bytes' if mode == 'push' else 'url'),
                       ('data' in b[0]) == (mode == 'push') and ('url' in b[0]) == (mode != 'push'))
-                check('_push_staged/%s: signed with the staged sha' % mode,
-                      b[0].get('sha256') == shas['amd64'] and bool(b[0].get('sig')))
+                if mode == 'github':
+                    check('_push_staged/%s: signed over the url, with no checksum of its own' % mode,
+                          'sha256' not in b[0] and bool(b[0].get('sig')))
+                else:
+                    check('_push_staged/%s: signed with the staged sha' % mode,
+                          b[0].get('sha256') == shas['amd64'] and bool(b[0].get('sig')))
             real_ip = m.central_ip
             m.central_ip = lambda: '198.51.100.1'
             m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0

@@ -96,18 +96,17 @@ def main():
     run_job(m, m.api_update_core, {'ids': ['n1', 'n2'], 'version': 'v9.9.9'})
     binaries = [u for u in hits if not u.endswith('.sha256')]
     check('a github core push downloads NO binary to the panel', not binaries, repr(binaries))
-    check('  it fetches only the two .sha256 sidecars',
-          sorted(u.rsplit("/", 1)[-1] for u in hits) ==
-          ['tnl-core-linux-amd64.sha256', 'tnl-core-linux-arm64.sha256'], repr(hits))
+    check('  it fetches nothing at all -- not even the checksums', not hits, repr(hits))
     check('  nothing was written to the stage dir',
           not [f for f in os.listdir(m.CORE_STAGE_DIR) if not f.endswith('.json')],
           repr(os.listdir(m.CORE_STAGE_DIR)))
     b = [s['body'] for s in sent if s['endpoint'] == 'core-put']
-    check('  every node still got a url and a signed sha', len(b) == 2 and
-          all(x.get('url') and x.get('sha256') and x.get('sig') and 'data' not in x for x in b),
+    check('  every node still got a signed url, and no bytes', len(b) == 2 and
+          all(x.get('url') and x.get('sig') and 'data' not in x and 'sha256' not in x for x in b),
           json.dumps(b, ensure_ascii=False)[:200])
-    check('  and each arch got ITS own sha',
-          {x['sha256'] for x in b} == {SHA['amd64'], SHA['arm64']}, repr([x['sha256'][:8] for x in b]))
+    check('  and each arch got ITS own asset',
+          sorted(x['url'].rsplit('/', 1)[-1] for x in b) ==
+          ['tnl-core-linux-amd64', 'tnl-core-linux-arm64'], repr([x['url'] for x in b]))
     check('the panel reports itself ready without any binary', m._readiness()['core'] is True,
           json.dumps(m._readiness(), ensure_ascii=False))
 
@@ -143,7 +142,7 @@ def main():
     r = m._push_staged(dict(NODES[0]))
     check('_push_staged serves a proxied or fresh node without a binary either',
           r.get('ok') is True, json.dumps(r, ensure_ascii=False))
-    check('  and it downloaded nothing', not [u for u in hits if not u.endswith('.sha256')], repr(hits))
+    check('  and it downloaded nothing', not hits, repr(hits))
     check('  and wrote nothing to the stage dir',
           not [f for f in os.listdir(m.CORE_STAGE_DIR) if not f.endswith('.json')],
           repr(os.listdir(m.CORE_STAGE_DIR)))
@@ -151,9 +150,9 @@ def main():
     m.api_settings_set({'core_delivery': 'github'})
     hits[:] = []
     r = m.api_core_stage({'version': 'v9.9.9'})
-    check('the fetch-from-github button stages a version without pulling a binary',
+    check('the fetch-from-github button stages a version without pulling anything',
           r.get('ok') and r.get('meta_only') is True, json.dumps(r, ensure_ascii=False))
-    check('  it read only the sidecars', not [u for u in hits if not u.endswith('.sha256')], repr(hits))
+    check('  it read nothing from the network', not hits, repr(hits))
     check('  and left the stage dir empty',
           not [f for f in os.listdir(m.CORE_STAGE_DIR) if not f.endswith('.json')],
           repr(os.listdir(m.CORE_STAGE_DIR)))
@@ -167,15 +166,17 @@ def main():
     m._push_staged_on_add(dict(NODES[0]))
     m.api_core_stage({'version': 'v9.9.9'})
     m.api_core_versions({})
+    real_dl = m._dl
+    m._dl = lambda url, timeout: tripped.append('_dl(%s)' % url)
     m._readiness()
     m._push_staged(dict(NODES[0]))
     run_job(m, m.api_update_core, {'ids': ['n1', 'n2'], 'version': 'v9.9.9'})
     run_job(m, m.api_update_core, {'ids': ['n1']})
     for arch in m.CORE_ARCHES:
         m._staged_sha(arch)
-    check('NO operator path pulls a core binary onto the panel in github mode',
+    check('NO operator path makes the panel reach the network in github mode',
           not tripped, repr(sorted(set(tripped))))
-    m._stage_core, m._fetch_release = real_stage, real_fetch
+    m._stage_core, m._fetch_release, m._dl = real_stage, real_fetch, real_dl
 
     m.api_settings_set({'core_delivery': 'push'})
     hits[:] = []
@@ -191,7 +192,7 @@ def main():
     if FAILED:
         print('%d failure(s)' % len(FAILED))
         return 1
-    print('github mode ships a url and a checksum, and nothing else crosses the panel')
+    print('github mode ships a signed url and nothing else -- the panel never opens a connection')
     return 0
 
 
