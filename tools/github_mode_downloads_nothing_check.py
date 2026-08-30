@@ -58,7 +58,7 @@ def wire(m, sent, hits):
     m.node_call = lambda node, ep, method='POST', body=None, timeout=8: (
         {'ok': True, 'arch': ARCH[node['id']]} if ep == 'ping' else {'ok': True})
 
-    def dl(url, timeout):
+    def dl(url, timeout, on_progress=None, should_abort=None):
         hits.append(url)
         if url.endswith('.sha256'):
             return (SHA['arm64'] if 'arm64' in url else SHA['amd64']).encode()
@@ -162,12 +162,12 @@ def main():
     tripped = []
     real_stage, real_fetch = m._stage_core, m._fetch_release
     m._stage_core = lambda v: tripped.append('_stage_core(%s)' % v)
-    m._fetch_release = lambda v, a: tripped.append('_fetch_release(%s,%s)' % (v, a))
+    m._fetch_release = lambda v, a, **kw: tripped.append('_fetch_release(%s,%s)' % (v, a))
     m._push_staged_on_add(dict(NODES[0]))
     m.api_core_stage({'version': 'v9.9.9'})
     m.api_core_versions({})
     real_dl = m._dl
-    m._dl = lambda url, timeout: tripped.append('_dl(%s)' % url)
+    m._dl = lambda url, timeout, **kw: tripped.append('_dl(%s)' % url)
     m._readiness()
     m._push_staged(dict(NODES[0]))
     run_job(m, m.api_update_core, {'ids': ['n1', 'n2'], 'version': 'v9.9.9'})

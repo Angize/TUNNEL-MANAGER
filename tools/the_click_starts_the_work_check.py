@@ -78,7 +78,7 @@ def wire(m, calls, sent):
 
     m.node_push = push
 
-    def slow_dl(url, timeout):
+    def slow_dl(url, timeout, on_progress=None, should_abort=None):
         calls.append(url)
         time.sleep(SLOW)
         if 'v0.0.0' in url:

@@ -165,7 +165,7 @@ def part_stage_report(m):
     put_core(m, ())
     got = {"n": 0}
 
-    def one_arch(version, arch):
+    def one_arch(version, arch, on_progress=None, should_abort=None):
         got["n"] += 1
         if arch == "arm64":
             raise RuntimeError("release checksum mismatch")
