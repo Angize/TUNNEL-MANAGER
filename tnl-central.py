@@ -1222,7 +1222,6 @@ def _cached_list(nid):
     return (_cache_get(nid) or {}).get("list") or {}
 
 
-
 TF_IF_MAX = 512
 TF_IF_KEY_MAX = 32
 TF_CTR_CEIL = 1 << 64
@@ -2783,8 +2782,6 @@ def _staged_agent():
         with open(AGENT_META) as f:
             meta = json.load(f)
     return src, meta
-
-
 
 
 def _delivery_mode(kind):
@@ -5201,7 +5198,6 @@ def api_link_toggle(d):
     return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
 
 
-
 RECONCILE_GAP = 15
 RECONCILE_RETRY = 60
 _reconcile_last = {}
@@ -6312,7 +6308,6 @@ def api_link_rebuild_info(d):
 
     return {"id": L["id"], "name": L.get("name"),
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
-
 
 
 def _proxy_nodes(nodes=None):
@@ -9409,8 +9404,9 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
    +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
- +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
- +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
+ +'<div id="'+idp+'sptries">'
+   +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
+   +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'
  +'</div>'}
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
@@ -9437,6 +9433,7 @@ function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
  var f=el(idp+'sp_fix'),r=el(idp+'sp_rnd');
  if(f)f.classList.toggle('on',!on); if(r)r.classList.toggle('on',!!on)
  var w=el(idp+'spfix');if(w)w.style.display=on?'none':'';
+ var t=el(idp+'sptries');if(t)t.style.display=on?'':'none';
  var i=el(idp+'rawsport');
  if(i){if(on)i.value='';else if(!i.value)i.value=String(RAW_SPORT_FIX)}
  sportPresetPaint(idp)}
