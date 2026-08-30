@@ -116,6 +116,11 @@ def wire_fakes(m, sent):
     m._cached_ping = lambda nid: {'arch': ARCH.get(nid, ''), 'sha256': '', 'core_sha': ''}
     m._route_src = lambda host: '203.0.113.7'      # the panel's address as this node would see it
     m.log_event = lambda *a, **k: None
+    # github mode re-reads the raw file on every agent push so the sha it signs is the sha the node
+    # will download; that is a fourth thing touching the network, and it stays out of this guard.
+    m.api_agent_fetch_git = lambda d: m._store_agent_src(
+        AGENT_SRC, {'too_big': 'x', 'bad_py': 'x', 'not_agent': 'x', 'no_ver': 'x'}, {'source': 'git'})
+    m._release_sha = lambda version, arch: hashlib.sha256(CORE[arch]).hexdigest()
 
 
 def run_job(m, fn, arg):

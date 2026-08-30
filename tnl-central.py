@@ -2914,6 +2914,13 @@ _NO_ORIGIN = ("پنل هنوز آدرسِ خودش را نمی‌داند، پس
               "حالتِ تحویل را روی «پنل آپلود کند» یا «از گیت‌هاب» بگذار")
 
 
+def _agent_meta_or_empty():
+    try:
+        return _staged_agent()[1]
+    except Exception:
+        return {}
+
+
 def _agent_delivery_check(meta, mode):
     if mode == "github" and meta.get("source") != "git":
         raise ValueError("این ایجنت از فایل بارگذاری شده و روی گیت‌هاب نیست — یا «دریافت از گیت‌هاب» را بزن، "
@@ -2955,14 +2962,20 @@ def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
 
 
 def _readiness():
-    try:
-        _staged_agent()
+    if _delivery_mode("agent") == "github":
         agent = True
-    except Exception:
-        agent = False
+    else:
+        try:
+            _staged_agent()
+            agent = True
+        except Exception:
+            agent = False
     info = _staged_info()
-    missing = [a for a in CORE_ARCHES
-               if not os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-" + a))]
+    if _delivery_mode("core") == "github":
+        missing = [a for a in CORE_ARCHES if not _staged_sha(a)]
+    else:
+        missing = [a for a in CORE_ARCHES
+                   if not os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-" + a))]
     core = bool(info) and not missing
     return {"agent": agent, "core": core, "core_missing": missing,
             "core_version": (info or {}).get("version", ""), "ok": agent and core}
@@ -3266,11 +3279,19 @@ def _update_start(kind, nodes, plan):
 
 def api_update_agent(d):
     nodes = _update_targets(d)
+    mode = _delivery_mode("agent")
+    have = _agent_meta_or_empty()
+    if mode == "github" and (not have or have.get("source") == "git"):
+        try:
+            api_agent_fetch_git({})
+        except Exception:
+            if not have:
+                raise
     try:
         src, meta = _staged_agent()
     except OSError:
         raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
-    _agent_delivery_check(meta, _delivery_mode("agent"))
+    _agent_delivery_check(meta, mode)
     sig = _sign_sha(meta["sha256"])
     enc = _body_cache(lambda n: _agent_update_body(n, src, meta, sig))
     plan = [("check", "ping", lambda _n: {}, 15,
@@ -3299,10 +3320,11 @@ def api_update_core(d):
                  lambda _n, _s=sha, _g=sig: {"sha256": _s, "version": "custom", "sig": _g}, 300, None)]
         return _update_start("core", nodes, plan)
 
+    gh = _delivery_mode("core") == "github"
     if version:
-        _stage_core(version)
+        (_stage_core_meta if gh else _stage_core)(version)
     elif not _staged_info():
-        raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
+        raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه انتخاب کن")
 
     parts, shas = {}, {}
 
@@ -3311,11 +3333,17 @@ def api_update_core(d):
         if not arch:
             raise ValueError("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود")
         if arch not in parts:
-            b = _staged_bytes(arch)
-            if not b:
-                raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
-            raw, sha, ver = b
-            parts[arch] = (base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha), arch)
+            if gh:
+                sha, ver = _staged_sha(arch), str((_staged_info() or {}).get("version") or "")
+                if not (sha and ver):
+                    raise ValueError("نسخه‌ای برای این معماری انتخاب نشده — اول یک نسخه انتخاب کن")
+                parts[arch] = ("", sha, ver, _sign_sha(sha), arch)
+            else:
+                b = _staged_bytes(arch)
+                if not b:
+                    raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن")
+                raw, sha, ver = b
+                parts[arch] = (base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha), arch)
         return parts[arch]
 
     def put_body(n):
@@ -3333,8 +3361,11 @@ def api_update_core(d):
         if arch not in CORE_ARCHES:
             return False
         if arch not in shas:
-            b = _staged_bytes(arch)
-            shas[arch] = b[1] if b else ""
+            if gh:
+                shas[arch] = _staged_sha(arch)
+            else:
+                b = _staged_bytes(arch)
+                shas[arch] = b[1] if b else ""
         return bool(shas[arch]) and _core_current(r, shas[arch])
 
     plan = [("check", "ping", lambda _n: {}, 15, current),
@@ -3479,11 +3510,16 @@ def _release_asset_url(version, arch):
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
 
 
+def _release_sha(version, arch):
+    sha = _dl(_release_asset_url(version, arch) + ".sha256", 30).decode().split()[0].strip().lower()
+    if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+        raise RuntimeError("checksum unavailable from the release")
+    return sha
+
+
 def _fetch_release(version, arch):
     base = _release_asset_url(version, arch)
-    sha = _dl(base + ".sha256", 30).decode().split()[0].strip().lower()
-    if len(sha) != 64:
-        raise RuntimeError("checksum unavailable from the release")
+    sha = _release_sha(version, arch)
     raw = _dl(base, 180)
     if hashlib.sha256(raw).hexdigest() != sha:
         raise RuntimeError("release checksum mismatch")
@@ -3517,6 +3553,29 @@ def _stage_core(version):
             sizes[arch] = len(raw)
         save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": sizes, "ts": int(time.time())})
     return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
+
+
+def _stage_core_meta(version):
+    rel = _resolve_core_version(version)
+    os.makedirs(CORE_STAGE_DIR, exist_ok=True)
+    got, shas = [], {}
+    with _core_stage_lock:
+        for arch in CORE_ARCHES:
+            try:
+                shas[arch] = _release_sha(rel, arch)
+            except Exception:
+                if arch == "amd64":
+                    raise
+                continue
+            got.append(arch)
+        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": {},
+                                    "ts": int(time.time()), "meta_only": True})
+    return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
+
+
+def _staged_sha(arch):
+    sha = str(((_staged_info() or {}).get("sha") or {}).get(arch) or "").lower()
+    return sha if len(sha) == 64 and all(c in "0123456789abcdef" for c in sha) else ""
 
 
 def _staged_bytes(arch):
