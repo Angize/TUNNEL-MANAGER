@@ -3608,13 +3608,19 @@ def _push_staged(node):
     arch = _node_arch(node)
     if not arch:
         return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
-    b = _staged_bytes(arch)
-    if not b:
-        return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
-    raw, sha, ver = b
+    if _delivery_mode("core") == "github":
+        sha, ver, b64 = _staged_sha(arch), str((_staged_info() or {}).get("version") or ""), ""
+        if not (sha and ver):
+            return {"ok": False, "error": "هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن"}
+    else:
+        b = _staged_bytes(arch)
+        if not b:
+            return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
+        raw, sha, ver = b
+        b64 = base64.b64encode(raw).decode()
     sig = _sign_sha(sha)
     try:
-        body = _core_install_body(node, base64.b64encode(raw).decode(), sha, ver, sig, arch)
+        body = _core_install_body(node, b64, sha, ver, sig, arch)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     _ensure_update_key(node)
@@ -10163,11 +10169,14 @@ async function loadCoreVersions(want){
  var db=el('cor_del');
  if(db)db.style.display=CORVERS.filter(function(x){return x.custom}).length?'':'none';
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
- var sel=want||ssVal('corver')||(items.length?items[0].v:'');   
+ var sel=want||ssVal('corver')||corVerSaved()||(items.length?items[0].v:'');
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
  box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'corVerPicked')
    :'<div class="corempty">'+esc(T('cor_ver_empty'))+'</div>'}
-function corVerPicked(){var box=el('agList');if(!box||!AGNODES.length)return;
+function corVerSaved(){try{return localStorage.getItem('tnl.corver')||''}catch(e){return ''}}
+function corVerSave(v){try{if(v)localStorage.setItem('tnl.corver',v)}catch(e){}}
+function corVerPicked(){corVerSave(ssVal('corver'));
+ var box=el('agList');if(!box||!AGNODES.length)return;
  setList(box,AGNODES.map(function(n){return {k:n.id,h:agRow(n)}}));
  if(PUSHSTATE)pushPaint(PUSHSTATE)}
 async function corDelBlob(){
@@ -10328,7 +10337,9 @@ async function pushStart(cmd,body,ids){
  if(!(res.ok&&res.d)){toast(perr(res),'err');return}
  if(res.d.none){toast(T('ag_p_none'),'ok');return}      
  if(!res.d.job){toast(perr(res),'err');return}
- if(PUSHJOB)return;                                     
+ (ids||[]).forEach(function(id){var m=el('agres_'+id);if(!m)return;
+   m.className='msg agres';setHTML(m,pushBar({state:'wait',pct:0,step:'check',si:0,sn:1}))});
+ if(PUSHJOB)return;
  PUSHJOB=PUSH_ALL;await pushPoll(PUSH_ALL)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}
  var ids;
