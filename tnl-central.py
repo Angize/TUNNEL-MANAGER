@@ -76,6 +76,30 @@ _drift = {}
 _drift_lock = threading.Lock()
 _CENTRAL_PORT = 0
 _CENTRAL_TLS = False
+_CENTRAL_HOST = {"ip": "", "ts": 0.0}
+_central_host_lock = threading.Lock()
+CENTRAL_HOST_TTL = 300
+
+
+def central_host():
+    with _central_host_lock:
+        now = time.time()
+        if _CENTRAL_HOST["ip"] and now - _CENTRAL_HOST["ts"] < CENTRAL_HOST_TTL:
+            return _CENTRAL_HOST["ip"]
+        ip = central_ip()
+        _CENTRAL_HOST["ip"] = ip if is_ipv4(ip) else ""
+        _CENTRAL_HOST["ts"] = now
+        return _CENTRAL_HOST["ip"]
+
+
+def _central_headers():
+    if not _CENTRAL_PORT:
+        return {}
+    h = {"X-Central-Port": str(_CENTRAL_PORT), "X-Central-TLS": "1" if _CENTRAL_TLS else "0"}
+    ip = central_host()
+    if ip:
+        h["X-Central-Host"] = ip
+    return h
 
 
 class _PairLock:
@@ -672,9 +696,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
         data = json.dumps(body or {}).encode() if method == "POST" else None
         path = f"/api/{wire(endpoint)}"
         headers = dict(_auth_headers(node, method, path, data))
-        if _CENTRAL_PORT:
-            headers["X-Central-Port"] = str(_CENTRAL_PORT)
-            headers["X-Central-TLS"] = "1" if _CENTRAL_TLS else "0"
+        headers.update(_central_headers())
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, path, body=data, headers=headers)
@@ -783,9 +805,8 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
     req = urllib.request.Request(url, data=data, method=method)
     for k, v in _auth_headers(node, method, path, data).items():
         req.add_header(k, v)
-    if _CENTRAL_PORT:
-        req.add_header("X-Central-Port", str(_CENTRAL_PORT))
-        req.add_header("X-Central-TLS", "1" if _CENTRAL_TLS else "0")
+    for k, v in _central_headers().items():
+        req.add_header(k, v)
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
@@ -822,9 +843,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
                 "Content-Type: application/json", "Content-Length: %d" % total,
                 "Connection: close"]
         head += ["%s: %s" % kv for kv in _auth_headers(node, "POST", path, data).items()]
-        if _CENTRAL_PORT:
-            head.append("X-Central-Port: %s" % _CENTRAL_PORT)
-            head.append("X-Central-TLS: %s" % ("1" if _CENTRAL_TLS else "0"))
+        head += ["%s: %s" % kv for kv in _central_headers().items()]
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
         deadline = time.monotonic() + timeout
