@@ -196,6 +196,9 @@ jobs:
       - name: the click starts the work, the panel does not stall on it
         working-directory: TUNNEL-MANAGER
         run: python tools/the_click_starts_the_work_check.py
+      - name: a picked version is not an update for the whole fleet
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_pick_is_not_an_update_check.py
       - name: a proxied node can still be given a download address
         working-directory: TUNNEL-MANAGER
         run: python tools/a_proxied_node_can_still_download_check.py
