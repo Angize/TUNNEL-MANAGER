@@ -3652,8 +3652,10 @@ def _node_tunnel(node, body):
 
 
 def api_core_stage(d):
-    info = _stage_core(str((d or {}).get("version") or "latest").strip())
-    return {"ok": True, **info}
+    version = str((d or {}).get("version") or "latest").strip()
+    gh = _delivery_mode("core") == "github"
+    info = (_stage_core_meta if gh else _stage_core)(version)
+    return {"ok": True, "meta_only": gh, **info}
 
 
 def api_fleet(d):
@@ -8103,6 +8105,8 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  ag_no_agent_loaded:"هنوز ایجنتی بارگذاری نشده — «دریافت از گیت‌هاب» یا «فایلِ ایجنت».",
  ag_no_core_staged:"هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.",
  cor_downloading:"در حال دانلودِ هسته روی پنل…",cor_staged_pre:"هستهٔ «",cor_staged_post:"» روی پنل آماده شد",
+ cor_picking:"در حال گرفتنِ نشانیِ نسخه…",cor_picked_post:"» انتخاب شد — نودها خودشان از گیت‌هاب می‌گیرند",
+ cor_pick_git:"انتخابِ نسخه",
  cor_reading_upload:"در حال خواندن و آپلودِ باینری…",cor_read_fail:"خواندنِ فایل ناموفق",
  cor_bin_saved_pre:"باینری ذخیره شد: ",cor_bin_saved_post:" — «نصبِ همه» را بزن یا از منوی هر نود",
  ag_pick_file_first:"اول فایلِ ایجنت را انتخاب کن",ag_checking_saving:"در حال بررسی و ذخیره…",ag_saved_pre:"ذخیره شد: v",
@@ -10098,7 +10102,8 @@ function dlSeg(kind){
   DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b></button>'}).join('')+
   '</div></div>'}
 function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
- Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})})}
+ Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})});
+ var b=el('cor_git_lbl');if(b)setHTML(b,esc(T(DLV.core=='github'?'cor_pick_git':'ag_fetch_git')))}
 async function setDelivery(k,v){if(DLV[k]==v)return;var b={};b[k+'_delivery']=v;
  var was=DLV[k];DLV[k]=v;paintDelivery();          
  var r=await post('settings-set',b);
@@ -10123,7 +10128,7 @@ function agentBody(){return ''+
   '<div class="oprow"><div id="cor_ver_box"></div>'+
     '<button type="button" class="ghost corcheck" onclick="corCheck()">'+ic('redo')+esc(T('cor_check'))+'</button></div>'+
   '<div class="oprow">'+
-    '<button class="primary" style="background:#8b5cf6" onclick="corStage()">'+ic('redo')+esc(T('ag_fetch_git'))+'</button>'+
+    '<button class="primary" style="background:#8b5cf6" id="cor_git_btn" onclick="corStage()">'+ic('redo')+'<span id="cor_git_lbl">'+esc(T('ag_fetch_git'))+'</span></button>'+
     '<button class="ghost" onclick="el(\\'cor_file\\').click()">'+ic('plus')+esc(T('ag_binary'))+'</button>'+
     '<button class="ghost opdel" id="cor_del" style="display:none" onclick="corDelBlob()" title="'+esc(T('cor_del_blob'))+'">'+ic('trash')+'</button>'+
   '</div>'+
@@ -10194,11 +10199,13 @@ async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textCont
   m.textContent=!d.count?T('cor_check_none')
     :d.first_check?T('cor_check_first').replace('{n}',d.count)
     :d.newer?T('cor_check_new'):T('cor_check_same')}}
-async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';m.textContent=T('cor_downloading');
+async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';
+ m.textContent=T(DLV.core=='github'?'cor_picking':'cor_downloading');
  var res=await post('core-stage',{version:ver});
  if(res.ok&&res.d&&res.d.ok){var mis=res.d.missing||[];
   m.className=mis.length?'msg':'msg ok';
-  m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T('cor_staged_post')+((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+
+  m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T(res.d.meta_only?'cor_picked_post':'cor_staged_post')+
+   ((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+
    (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
   loadCoreVersions();loadReadiness()}
  else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
