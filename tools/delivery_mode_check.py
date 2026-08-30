@@ -239,17 +239,36 @@ def case_refusals(m):
         check('github + an uploaded core binary is refused up front', 'گیت‌هاب' in str(e), str(e))
     check('...and nothing was sent to any node either', not sent, str(len(sent)))
 
-    # A proxied node sees the PROXY's address, not the panel's, so there is no origin to hand it.
+    real_ip = m.central_ip
+    m.central_ip = lambda: '198.51.100.1'
+    m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0
+    for kind, api, arg, ep in (('agent', m.api_update_agent, {'ids': ['n3']}, 'update'),
+                               ('core', m.api_update_core, {'ids': ['n3']}, 'core-put')):
+        sent[:] = []
+        m.api_settings_set({kind + '_delivery': 'panel'})
+        run_job(m, api, arg)
+        b = bodies(sent, 'n3', ep)
+        check('panel-fetch: the proxied node is handed a url like any other (%s)' % kind,
+              bool(b) and bool(b[0].get('url')) and 'data' not in b[0] and 'code' not in b[0],
+              json.dumps(sorted(b[0]) if b else [], ensure_ascii=False))
+        check('panel-fetch: and the url is the panel naming itself (%s)' % kind,
+              bool(b) and (b[0].get('url') or '').startswith('http://198.51.100.1:'),
+              (b[0].get('url') if b else '') or '')
+
+    m.central_ip = lambda: 'central-ip'
+    m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0
     for kind, api, arg in (('agent', m.api_update_agent, {'ids': ['n3']}),
                            ('core', m.api_update_core, {'ids': ['n3']})):
         sent[:] = []
         m.api_settings_set({kind + '_delivery': 'panel'})
         r = run_job(m, api, arg)
         st = (r.get('nodes') or {}).get('n3', {})
-        check('panel-fetch: the proxied node fails with a reason, not a url (%s)' % kind,
-              st.get('state') == 'err' and 'پروکسی' in (st.get('detail') or ''),
+        check('panel-fetch: a panel with no usable address of its own refuses (%s)' % kind,
+              st.get('state') == 'err' and 'آدرسِ خودش' in (st.get('detail') or ''),
               json.dumps(st, ensure_ascii=False))
-        check('panel-fetch: nothing was delivered to the proxied node (%s)' % kind, not sent)
+        check('panel-fetch: and nothing was delivered then (%s)' % kind, not sent)
+    m.central_ip = real_ip
+    m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0
 
     # A TLS-fronted panel announces https to its nodes (X-Central-TLS), and the node then refuses any
     # http url -- including one at the panel's own address. So the url built here has to carry the same
@@ -424,10 +443,21 @@ def main():
                       ('data' in b[0]) == (mode == 'push') and ('url' in b[0]) == (mode != 'push'))
                 check('_push_staged/%s: signed with the staged sha' % mode,
                       b[0].get('sha256') == shas['amd64'] and bool(b[0].get('sig')))
+            real_ip = m.central_ip
+            m.central_ip = lambda: '198.51.100.1'
+            m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0
             r = m._push_staged({**NODES[2], 'id': 'n3'})
-            check('_push_staged/%s: the proxied node is refused, not guessed at' % mode,
-                  r.get('ok') is True if mode != 'panel' else (not r.get('ok') and 'پروکسی' in r.get('error', '')),
+            check('_push_staged/%s: the proxied node is served like any other' % mode,
+                  r.get('ok') is True, json.dumps(r, ensure_ascii=False))
+            m.central_ip = lambda: 'central-ip'
+            m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0
+            r = m._push_staged({**NODES[2], 'id': 'n3'})
+            check('_push_staged/%s: and refused when the panel cannot name itself' % mode,
+                  r.get('ok') is True if mode != 'panel' else
+                  (not r.get('ok') and 'آدرسِ خودش' in r.get('error', '')),
                   json.dumps(r, ensure_ascii=False))
+            m.central_ip = real_ip
+            m._CENTRAL_HOST['ip'], m._CENTRAL_HOST['ts'] = '', 0.0
     finally:
         shutil.rmtree(state, ignore_errors=True)
     print()
