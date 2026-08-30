@@ -10245,13 +10245,17 @@ async function agCorUpload(b64,name){var m=el('cor_msg');
   await loadCoreVersions('custom')}
  else{formErr(m,terr((res.d&&res.d.error))||T('failed'))}}
 var AG_IC='server',COR_IC='cpu';
+function vNum(v){var m=/^v?(\\d+)\\.(\\d+)\\.(\\d+)/.exec(String(v||''));return m?(+m[1])*1e6+(+m[2])*1e3+(+m[3]):-1}
+function vNewer(a,b){var x=vNum(a),y=vNum(b);return x>=0&&y>=0&&x>y}
 function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—';
  var cinst=!!(i.core_sha&&String(i.core_sha).length);            
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
  var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    
  var want=String(ssVal('corver')||'');
+ var sver=String((STAGED&&STAGED.version)||'');
  var wantDiff=!!(want&&want!='custom'&&cinst&&String(i.core_ver||'')!==want);
- var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))))||wantDiff;
+ var cdiff=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));
+ var cup=cdiff&&!vNewer(i.core_ver,sver);
  var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
  function vp(icon,cls,ver,tip){return '<span class="vp '+cls+'" title="'+esc(tip)+'">'+ic(icon)+esc(ver)+'</span>'}
  var agcls,agtip,agdis;
@@ -10262,8 +10266,8 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  var ccls,ctip,cdis;
  if(!n.online){ccls='offl';ctip=LC+': '+T('offline');cdis=1}
  else if(!cinst){ccls='na';ctip=LC+': '+T('ag_not_installed');cdis=!(STAGED||want)}
- else if(wantDiff){ccls='up';ctip=LC+': '+T('ag_ver_pick').replace('{v}',want);cdis=0}
  else if(cup){ccls='up';ctip=LC+': '+T('ag_up_avail');cdis=0}
+ else if(wantDiff||cdiff){ccls='ok';ctip=LC+': '+T('ag_ver_pick').replace('{v}',want||sver);cdis=0}
  else{ccls='ok';ctip=LC+': '+T('ag_uptodate');cdis=1}
  return '<div class="nx">'+
    '<div class="nxh"><span class="ndot '+(n.online?'on':'off')+'"></span>'+
