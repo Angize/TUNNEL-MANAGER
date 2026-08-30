@@ -9404,8 +9404,9 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
    +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
- +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
- +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
+ +'<div id="'+idp+'sptries">'
+   +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
+   +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'
  +'</div>'}
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
@@ -9432,6 +9433,7 @@ function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
  var f=el(idp+'sp_fix'),r=el(idp+'sp_rnd');
  if(f)f.classList.toggle('on',!on); if(r)r.classList.toggle('on',!!on)
  var w=el(idp+'spfix');if(w)w.style.display=on?'none':'';
+ var t=el(idp+'sptries');if(t)t.style.display=on?'':'none';
  var i=el(idp+'rawsport');
  if(i){if(on)i.value='';else if(!i.value)i.value=String(RAW_SPORT_FIX)}
  sportPresetPaint(idp)}
