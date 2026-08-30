@@ -2849,9 +2849,9 @@ def _route_src(host):
 
 
 def _panel_origin_for(node):
-    if node_proxy(node) or not _CENTRAL_PORT:
+    if not _CENTRAL_PORT:
         return ""
-    ip = _route_src(str(node.get("host") or ""))
+    ip = central_host() if node_proxy(node) else _route_src(str(node.get("host") or ""))
     return f"{'https' if _CENTRAL_TLS else 'http'}://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
 
 
@@ -2910,8 +2910,8 @@ def _dl_ticket_node(q):
     return None
 
 
-_NO_ORIGIN = ("پنل نمی‌داند این نود او را با چه آدرسی می‌بیند (نودِ پروکسی‌دار) — "
-              "حالتِ تحویل را برای این کار روی «پنل آپلود کند» بگذار")
+_NO_ORIGIN = ("پنل هنوز آدرسِ خودش را نمی‌داند، پس نمی‌تواند نشانیِ دانلود بدهد — "
+              "حالتِ تحویل را روی «پنل آپلود کند» یا «از گیت‌هاب» بگذار")
 
 
 def _agent_delivery_check(meta, mode):
