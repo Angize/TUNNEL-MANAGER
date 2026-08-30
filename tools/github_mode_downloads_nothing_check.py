@@ -148,11 +148,44 @@ def main():
           not [f for f in os.listdir(m.CORE_STAGE_DIR) if not f.endswith('.json')],
           repr(os.listdir(m.CORE_STAGE_DIR)))
 
+    m.api_settings_set({'core_delivery': 'github'})
+    hits[:] = []
+    r = m.api_core_stage({'version': 'v9.9.9'})
+    check('the fetch-from-github button stages a version without pulling a binary',
+          r.get('ok') and r.get('meta_only') is True, json.dumps(r, ensure_ascii=False))
+    check('  it read only the sidecars', not [u for u in hits if not u.endswith('.sha256')], repr(hits))
+    check('  and left the stage dir empty',
+          not [f for f in os.listdir(m.CORE_STAGE_DIR) if not f.endswith('.json')],
+          repr(os.listdir(m.CORE_STAGE_DIR)))
+    check('  yet the panel now calls itself ready', m._readiness()['core'] is True,
+          json.dumps(m._readiness(), ensure_ascii=False))
+
+    tripped = []
+    real_stage, real_fetch = m._stage_core, m._fetch_release
+    m._stage_core = lambda v: tripped.append('_stage_core(%s)' % v)
+    m._fetch_release = lambda v, a: tripped.append('_fetch_release(%s,%s)' % (v, a))
+    m._push_staged_on_add(dict(NODES[0]))
+    m.api_core_stage({'version': 'v9.9.9'})
+    m.api_core_versions({})
+    m._readiness()
+    m._push_staged(dict(NODES[0]))
+    run_job(m, m.api_update_core, {'ids': ['n1', 'n2'], 'version': 'v9.9.9'})
+    run_job(m, m.api_update_core, {'ids': ['n1']})
+    for arch in m.CORE_ARCHES:
+        m._staged_sha(arch)
+    check('NO operator path pulls a core binary onto the panel in github mode',
+          not tripped, repr(sorted(set(tripped))))
+    m._stage_core, m._fetch_release = real_stage, real_fetch
+
     m.api_settings_set({'core_delivery': 'push'})
     hits[:] = []
+    r = m.api_core_stage({'version': 'v9.9.9'})
+    check('push mode still downloads the binary from that same button',
+          r.get('meta_only') is False and any(not u.endswith('.sha256') for u in hits), repr(hits))
+    hits[:] = []
     run_job(m, m.api_update_core, {'ids': ['n1'], 'version': 'v9.9.9'})
-    check('push mode still downloads the binary, as it must',
-          any(not u.endswith('.sha256') for u in hits), repr(hits))
+    check('and an update in push mode still carries the bytes',
+          bool(m._staged_bytes('amd64')), repr(hits))
 
     print()
     if FAILED:
