@@ -240,10 +240,11 @@ def main():
             # is told the node is OFFLINE by a node that just answered, and goes hunting the network.
             strand()
             got.clear()
-            # core-install, because it is the one op whose body cap admits megabytes -- and it is the
+            # core-put, because it is the one op whose body cap admits megabytes -- and it is the
             # real megabyte push: the core binary going out to a node.
-            huge = json.dumps({"bin": "x" * (2 << 20), "sha256": "0" * 64, "sig": ""}).encode()
-            res = P.node_push(node, "core-install", huge, timeout=30)
+            huge = json.dumps({"data": "x" * (2 << 20), "sha256": "0" * 64,
+                               "version": "v0.0.0", "sig": ""}).encode()
+            res = P.node_push(node, "core-put", huge, timeout=30)
             if sys.platform == "win32":
                 # Measured: Windows discards the receive buffer on the reset, so the answer is gone
                 # before any code can read it. The panel runs on Linux and so does CI; this is the
