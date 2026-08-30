@@ -133,6 +133,21 @@ def main():
     check('an UPLOADED agent is still refused, not silently replaced by github', ok, why)
     check('  and the upload was left alone', 'AGENT-RAW' not in hits, repr(hits))
 
+    for f in os.listdir(m.CORE_STAGE_DIR):
+        if not f.endswith('.json'):
+            os.remove(os.path.join(m.CORE_STAGE_DIR, f))
+    hits[:] = []
+    m._ensure_update_key = lambda node: None
+    m.node_call = lambda node, ep, method='POST', body=None, timeout=8: (
+        {'ok': True, 'arch': 'amd64'} if ep == 'ping' else {'ok': True})
+    r = m._push_staged(dict(NODES[0]))
+    check('_push_staged serves a proxied or fresh node without a binary either',
+          r.get('ok') is True, json.dumps(r, ensure_ascii=False))
+    check('  and it downloaded nothing', not [u for u in hits if not u.endswith('.sha256')], repr(hits))
+    check('  and wrote nothing to the stage dir',
+          not [f for f in os.listdir(m.CORE_STAGE_DIR) if not f.endswith('.json')],
+          repr(os.listdir(m.CORE_STAGE_DIR)))
+
     m.api_settings_set({'core_delivery': 'push'})
     hits[:] = []
     run_job(m, m.api_update_core, {'ids': ['n1'], 'version': 'v9.9.9'})
