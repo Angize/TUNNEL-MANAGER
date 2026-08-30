@@ -184,6 +184,9 @@ jobs:
       - name: the spoof egress test probes the tunnel's own pair
         working-directory: TUNNEL-MANAGER
         run: python tools/spoof_egress_probe_check.py
+      - name: a moved node is not forgotten
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_moved_node_is_not_forgotten_check.py
       - name: the panel's prose and toasts agree with what it does
         working-directory: TUNNEL-MANAGER
         run: python tools/panel_says_what_it_does_check.py
