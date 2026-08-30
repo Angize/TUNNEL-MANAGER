@@ -3316,12 +3316,29 @@ def api_update_core(d):
         return _update_start("core", nodes, plan)
 
     gh = _delivery_mode("core") == "github"
-    if version:
-        (_stage_core_meta if gh else _stage_core)(version)
-    elif not _staged_info():
+    if not version and not _staged_info():
         raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه انتخاب کن")
 
     parts, shas = {}, {}
+    staged = {"done": not version, "err": ""}
+    staging = threading.Lock()
+
+    def ensure():
+        with staging:
+            if staged["err"]:
+                raise ValueError(staged["err"])
+            if staged["done"]:
+                return
+            try:
+                (_stage_core_meta if gh else _stage_core)(version)
+            except Exception as e:
+                staged["err"] = f"نسخهٔ «{version}» از گیت‌هاب گرفته نشد: {str(e)[:90]}"
+                raise ValueError(staged["err"])
+            staged["done"] = True
+
+    def check_body(_n):
+        ensure()
+        return {}
 
     def prep(n):
         arch = _node_arch(n)
@@ -3363,7 +3380,7 @@ def api_update_core(d):
                 shas[arch] = b[1] if b else ""
         return bool(shas[arch]) and _core_current(r, shas[arch])
 
-    plan = [("check", "ping", lambda _n: {}, 15, current),
+    plan = [("check", "ping", check_body, 15, current),
             ("deliver", "core-put", put, 300, None),
             ("install", "core-apply", apply_body, 300, None)]
     return _update_start("core", nodes, plan)
@@ -10332,13 +10349,14 @@ async function pushPoll(job){var fails=0;
     await new Promise(function(res){setTimeout(res,400)})}
   setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
  finally{PUSHJOB=null;PUSHSTATE=null;pushFab(null)}}   
+function pushSeed(ids,on){(ids||[]).forEach(function(id){var m=el('agres_'+id);if(!m)return;
+ m.className='msg agres';setHTML(m,on?pushBar({state:'wait',pct:0,step:'check',si:0,sn:1}):'')})}
 async function pushStart(cmd,body,ids){
+ pushSeed(ids,1);
  var res=await post(cmd,body);
- if(!(res.ok&&res.d)){toast(perr(res),'err');return}
- if(res.d.none){toast(T('ag_p_none'),'ok');return}      
- if(!res.d.job){toast(perr(res),'err');return}
- (ids||[]).forEach(function(id){var m=el('agres_'+id);if(!m)return;
-   m.className='msg agres';setHTML(m,pushBar({state:'wait',pct:0,step:'check',si:0,sn:1}))});
+ if(!(res.ok&&res.d)){pushSeed(ids,0);toast(perr(res),'err');return}
+ if(res.d.none){pushSeed(ids,0);toast(T('ag_p_none'),'ok');return}
+ if(!res.d.job){pushSeed(ids,0);toast(perr(res),'err');return}
  if(PUSHJOB)return;
  PUSHJOB=PUSH_ALL;await pushPoll(PUSH_ALL)}
 async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),'err');return}

@@ -193,6 +193,9 @@ jobs:
       - name: github mode downloads nothing to the panel
         working-directory: TUNNEL-MANAGER
         run: python tools/github_mode_downloads_nothing_check.py
+      - name: the click starts the work, the panel does not stall on it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_click_starts_the_work_check.py
       - name: a proxied node can still be given a download address
         working-directory: TUNNEL-MANAGER
         run: python tools/a_proxied_node_can_still_download_check.py
