@@ -277,6 +277,8 @@ def settings_defaults():
         "ech_refresh_mins": 15,
         "agent_delivery": "push",
         "core_delivery": "push",
+        "dl_proxy_on": False,
+        "dl_proxy_id": "",
         "tuning": dict(_TUNING_DEFAULTS),
     }
 
@@ -332,6 +334,15 @@ def validate_settings(d):
             if m not in DELIVERY_MODES:
                 raise ValueError("حالتِ تحویل باید یکی از push / github / panel باشد")
             out[k] = m
+    if "dl_proxy_on" in d or "dl_proxy_id" in d:
+        on = bool(d.get("dl_proxy_on", out.get("dl_proxy_on")))
+        pid = str(d.get("dl_proxy_id", out.get("dl_proxy_id")) or "").strip()
+        if on:
+            if not pid:
+                raise ValueError("یک پروکسی از فهرست انتخاب کن")
+            if not get_proxy(pid):
+                raise ValueError("پروکسی پیدا نشد — شاید حذف شده باشد")
+        out["dl_proxy_on"], out["dl_proxy_id"] = on, pid if on else ""
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
@@ -2790,9 +2801,7 @@ def api_agent_upload(d):
 
 def api_agent_fetch_git(d):
     try:
-        req = urllib.request.Request(NODE_RAW_URL, headers={"User-Agent": "tnl-central"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            src = r.read(300000).decode("utf-8", "replace")
+        src = _gh_get(NODE_RAW_URL, 30)[:300000].decode("utf-8", "replace")
     except Exception as e:
         raise ValueError(f"دریافت از گیت‌هاب ناموفق: {str(e)[:120]}")
     if not src.strip():
@@ -3399,16 +3408,14 @@ _core_versions_lock = threading.Lock()
 
 def _fetch_core_versions():
     try:
-        req = urllib.request.Request(_CORE_RELEASES_API,
-                                     headers={"User-Agent": "tnl-central", "Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            vers = []
-            for rel in json.loads(r.read().decode()):
-                tag = rel.get("tag_name")
-                if not tag or rel.get("draft"):
-                    continue
-                vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
-            return vers
+        raw = _gh_get(_CORE_RELEASES_API, 10, {"Accept": "application/vnd.github+json"})
+        vers = []
+        for rel in json.loads(raw.decode()):
+            tag = rel.get("tag_name")
+            if not tag or rel.get("draft"):
+                continue
+            vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
+        return vers
     except Exception:
         return None
 
@@ -3514,10 +3521,60 @@ def _resolve_core_version(version):
     return "latest"
 
 
-def _dl(url, timeout):
-    req = urllib.request.Request(url, headers={"User-Agent": "tnl-central"})
+def _dl_proxy():
+    st = get_settings()
+    if not st.get("dl_proxy_on"):
+        return ""
+    p = get_proxy(str(st.get("dl_proxy_id") or ""))
+    return proxy_url(p) if p else ""
+
+
+def _proxy_get(proxy, url, timeout, headers, hops=6):
+    for _ in range(hops):
+        u = urllib.parse.urlparse(url)
+        if u.scheme != "https":
+            raise OSError("through a proxy the panel fetches https only")
+        host, port = u.hostname, u.port or 443
+        sock, conn = _proxy_socket(proxy, host, port, timeout), None
+        try:
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+            conn = http.client.HTTPSConnection(host, port, timeout=timeout)
+            conn.sock, sock = sock, None
+            conn.request("GET", (u.path or "/") + (("?" + u.query) if u.query else ""),
+                         headers={**headers, "Connection": "close"})
+            r = conn.getresponse()
+            if r.status in (301, 302, 303, 307, 308):
+                loc = r.getheader("Location") or ""
+                r.read()
+                if not loc:
+                    raise OSError("redirect without a location")
+                url = urllib.parse.urljoin(url, loc)
+                continue
+            if r.status != 200:
+                raise OSError("HTTP %d" % r.status)
+            return r.read()
+        finally:
+            for c in (sock, conn):
+                if c is not None:
+                    try:
+                        c.close()
+                    except Exception:
+                        pass
+    raise OSError("too many redirects")
+
+
+def _gh_get(url, timeout, headers=None):
+    hdrs = {"User-Agent": "tnl-central", **(headers or {})}
+    proxy = _dl_proxy()
+    if proxy:
+        return _proxy_get(proxy, url, timeout, hdrs)
+    req = urllib.request.Request(url, headers=hdrs)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
+
+
+def _dl(url, timeout):
+    return _gh_get(url, timeout)
 
 
 def _release_asset_url(version, arch):
@@ -8122,6 +8179,11 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cor_downloading:"در حال دانلودِ هسته روی پنل…",cor_staged_pre:"هستهٔ «",cor_staged_post:"» روی پنل آماده شد",
  cor_picking:"در حال گرفتنِ نشانیِ نسخه…",cor_picked_post:"» انتخاب شد — نودها خودشان از گیت‌هاب می‌گیرند",
  cor_pick_git:"انتخابِ نسخه",
+ dlpx_title:"پروکسیِ دانلودِ پنل",
+ dlpx_sub:"وقتی خودِ پنل از گیت‌هاب چیزی می‌گیرد — باینریِ هسته، ایجنت، فهرستِ نسخه‌ها — از این پروکسی برود. نودها از این تنظیم اثر نمی‌گیرند؛ پروکسیِ آن‌ها روی خودِ نود است.",
+ dlpx_on:"دانلودهای پنل از پروکسی بروند",
+ dlpx_via:"هر درخواستی که خودِ پنل به گیت‌هاب می‌زند از این پروکسی رد می‌شود.",
+ dlpx_none:"هنوز پروکسی‌ای ثبت نشده — در «پروکسی‌ها» یکی اضافه کن",
  cor_reading_upload:"در حال خواندن و آپلودِ باینری…",cor_read_fail:"خواندنِ فایل ناموفق",
  cor_bin_saved_pre:"باینری ذخیره شد: ",cor_bin_saved_post:" — «نصبِ همه» را بزن یا از منوی هر نود",
  ag_pick_file_first:"اول فایلِ ایجنت را انتخاب کن",ag_checking_saving:"در حال بررسی و ذخیره…",ag_saved_pre:"ذخیره شد: v",
@@ -10024,14 +10086,14 @@ async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
 async function delPx(i){var p=PX[i];if(!p)return;if(!await confirmBox(T('px_del_confirm')))return;
  var r=await post('proxy-del',{id:p.id});
  if(r.ok&&r.d.ok){toast(T('px_deleted'),'ok');refreshProxies()}else{toast(perr(r),'err')}}
-function pxFields(pre,node){
+function pxFields(pre,node,lbl,sub){
  var on=!!(node&&node.proxy_on),sel=(node&&node.proxy_id)||'';
  var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.url}});
  var pick=opts.length
   ?ssHTML(pre+'proxy_id',opts,sel||opts[0].v,'','')
   :'<div class="muted" style="font-size:12px">'+esc(T('nd_proxy_none'))+'</div>';
  return '<div class="tglbox"><div class="tglsw'+(on?' on':'')+'" id="'+pre+'proxy_tgl" onclick="pxToggle(\\''+pre+'\\')"></div>'
-  +'<div class="tt"><b>'+esc(T('nd_proxy_on'))+'</b><small>'+esc(T('nd_proxy_all'))+'</small></div></div>'
+  +'<div class="tt"><b>'+esc(T(lbl||'nd_proxy_on'))+'</b><small>'+esc(T(sub||'nd_proxy_all'))+'</small></div></div>'
   +'<div id="'+pre+'proxy_box"'+(on?'':' style="display:none"')+'>'
   +'<label>'+esc(T('nd_proxy_pick'))+'</label>'+pick+'</div>'}
 function pxToggle(pre){var sw=el(pre+'proxy_tgl');if(!sw)return;var on=!sw.classList.contains('on');
@@ -10153,11 +10215,34 @@ function agentBody(){return ''+
   '<button class="primary opgo" style="background:#8b5cf6" onclick="corPushAll()">'+ic('redo')+esc(T('ag_install_all'))+'</button>'+
  '</div>'+
  '</div>'+
+ '<div class="card opc" id="dlpx_card" style="margin-top:14px">'+
+  '<div class="ophd"><span class="sgt">'+ic('shield')+'</span><b>'+esc(T('dlpx_title'))+'</b></div>'+
+  '<div class="opmeta"><span class="muted">'+esc(T('dlpx_sub'))+'</span></div>'+
+  '<div id="dlpx_fields"></div>'+
+  '<div class="msg" id="dlpx_msg"></div>'+
+  '<button class="primary opgo" onclick="dlpxSave()">'+ic('redo')+esc(T('save'))+'</button>'+
+ '</div>'+
  '<div class="sec" style="margin-top:16px">'+ic('server','var(--acc)')+' '+esc(T('nodes_fleet'))+'</div>'+
  '<div class="toolbar"><input id="q_agent" class="search" placeholder="'+esc(T('ag_search'))+'" oninput="onSearch(\\'agent\\')"></div>'+
  '<div id="agList">'+skCards('agent')+'</div>'}
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
+var DLPX=null;
+async function dlpxPaint(){var box=el('dlpx_fields');if(!box||DLPX)return;
+ await pxLoad();
+ var st=await j('settings').catch(function(){return{}});
+ DLPX={on:!!st.dl_proxy_on,id:String(st.dl_proxy_id||'')};
+ if(!el('dlpx_fields'))return;
+ el('dlpx_fields').innerHTML=PX.length
+  ?pxFields('dlpx_',{proxy_on:DLPX.on,proxy_id:DLPX.id},'dlpx_on','dlpx_via')
+  :'<div class="muted" style="font-size:12px">'+esc(T('dlpx_none'))+'</div>'}
+async function dlpxSave(){var m=el('dlpx_msg');if(!m)return;
+ if(!PX.length){formErr(m,T('dlpx_none'));return}
+ var b=pxBody('dlpx_');
+ var r=await post('settings-set',{dl_proxy_on:b.proxy_on,dl_proxy_id:b.proxy_id});
+ if(r.ok&&r.d.ok){DLPX={on:b.proxy_on,id:b.proxy_id};m.className='msg ok';m.textContent=T('set_saved')}
+ else{formErr(m,perr(r))}}
 async function refreshAgent(){var info=await j('agent-info').catch(function(){return{none:true}});AGMETA=info;
+ dlpxPaint();
  if(info&&info.delivery){DLV.agent=info.delivery;paintDelivery()}   
  loadReadiness();   
  var st=el('ag_status'),mt=el('ag_meta');
