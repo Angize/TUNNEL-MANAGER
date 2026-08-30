@@ -50,7 +50,7 @@ def main():
     m.log_event = lambda *a, **k: None
     m._cached_ping = lambda nid: {'arch': 'amd64', 'sha256': '', 'core_sha': ''}
     m._resolve_core_version = lambda v: 'v9.9.9'
-    m._dl = lambda url, timeout: (hashlib.sha256(CORE['amd64']).hexdigest().encode()
+    m._dl = lambda url, timeout, **kw: (hashlib.sha256(CORE['amd64']).hexdigest().encode()
                                   if url.endswith('.sha256') else CORE['amd64'])
     m.api_agent_fetch_git = lambda d: m._store_agent_src(
         AGENT, {'too_big': 'x', 'bad_py': 'x', 'not_agent': 'x', 'no_ver': 'x'}, {'source': 'git'})

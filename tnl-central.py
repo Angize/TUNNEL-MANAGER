@@ -3027,7 +3027,7 @@ def _dl_artifact(kind, arch):
 def _body_cache(build):
     cache = {}
 
-    def enc(node):
+    def enc(node, _ctx=None):
         body = build(node)
         key = body.get("url") or body["sha256"]
         if key not in cache:
@@ -3126,6 +3126,21 @@ def _push_cancelled(jid):
         return bool(j and j.get("cancel"))
 
 
+class _BuildCtx:
+    def __init__(self, jid, nid, at, i):
+        self.jid, self.nid, self._at, self._i = jid, nid, at, i
+
+    def step(self, name):
+        _push_set(self.jid, self.nid, step=name)
+
+    def progress(self, sent, total):
+        _push_set(self.jid, self.nid,
+                  pct=self._at(self._i, (sent / total) * 0.95 if total and sent < total else 0.96))
+
+    def cancelled(self):
+        return _push_cancelled(self.jid)
+
+
 def _push_one(jid, nid, plan):
     n = len(plan)
 
@@ -3147,10 +3162,14 @@ def _push_one(jid, nid, plan):
                 _ensure_update_key(fresh)
                 keyed = True
             try:
-                body = build(fresh)
+                body = build(fresh, _BuildCtx(jid, nid, at, i))
+            except _Cancelled:
+                _push_set(jid, nid, state="skip", step=code, pct=0)
+                return
             except ValueError as e:
                 _push_set(jid, nid, state="err", err="unbuildable", detail=str(e))
                 return
+            _push_set(jid, nid, step=code, pct=at(i, 0))
             if body is None:
                 _push_set(jid, nid, state="skip", step=code)
                 return
@@ -3303,7 +3322,7 @@ def api_update_agent(d):
     _agent_delivery_check(meta, mode)
     sig = _sign_sha(meta["sha256"])
     enc = _body_cache(lambda n: _agent_update_body(n, src, meta, sig))
-    plan = [("check", "ping", lambda _n: {}, 15,
+    plan = [("check", "ping", lambda _n, _c=None: {}, 15,
              lambda r, _w=meta["sha256"]: str(r.get("sha256") or "") == _w),
             ("deliver", "update", enc, 60, None)]
     return _update_start("agent", nodes, plan)
@@ -3323,10 +3342,11 @@ def api_update_core(d):
         b64, sha = base64.b64encode(raw).decode(), info["sha256"]
         sig = _sign_sha(sha)
         put = _body_cache(lambda n: _core_install_body(n, b64, sha, "custom", sig, custom=True))
-        plan = [("check", "ping", lambda _n: {}, 15, lambda r, _s=sha: _core_current(r, _s)),
+        plan = [("check", "ping", lambda _n, _c=None: {}, 15, lambda r, _s=sha: _core_current(r, _s)),
                 ("deliver", "core-put", put, 300, None),
                 ("install", "core-apply",
-                 lambda _n, _s=sha, _g=sig: {"sha256": _s, "version": "custom", "sig": _g}, 300, None)]
+                 lambda _n, _c=None, _s=sha, _g=sig: {"sha256": _s, "version": "custom", "sig": _g},
+                 300, None)]
         return _update_start("core", nodes, plan)
 
     gh = _delivery_mode("core") == "github"
@@ -3337,21 +3357,29 @@ def api_update_core(d):
     staged = {"done": not version, "err": ""}
     staging = threading.Lock()
 
-    def ensure():
+    def ensure(ctx=None):
+        if ctx and not staged["done"]:
+            ctx.step("stage")
         with staging:
             if staged["err"]:
                 raise ValueError(staged["err"])
             if staged["done"]:
                 return
             try:
-                (_stage_core_meta if gh else _stage_core)(version)
+                if gh:
+                    _stage_core_meta(version)
+                else:
+                    _stage_core(version, on_progress=(ctx.progress if ctx else None),
+                                should_abort=(ctx.cancelled if ctx else None))
+            except _Cancelled:
+                raise
             except Exception as e:
                 staged["err"] = f"نسخهٔ «{version}» از گیت‌هاب گرفته نشد: {str(e)[:90]}"
                 raise ValueError(staged["err"])
             staged["done"] = True
 
-    def check_body(_n):
-        ensure()
+    def check_body(_n, ctx=None):
+        ensure(ctx)
         return {}
 
     def prep(n):
@@ -3378,7 +3406,7 @@ def api_update_core(d):
 
     put = _body_cache(put_body)
 
-    def apply_body(n):
+    def apply_body(n, _ctx=None):
         _b64, sha, ver, sig, arch = prep(n)
         return _github_grant(ver, arch) if gh else {"sha256": sha, "version": ver, "sig": sig}
 
@@ -3521,6 +3549,29 @@ def _resolve_core_version(version):
     return "latest"
 
 
+class _Cancelled(Exception):
+    pass
+
+
+def _read_body(r, clen, on_progress, should_abort):
+    try:
+        total = int(clen or 0)
+    except (TypeError, ValueError):
+        total = 0
+    out, got = [], 0
+    while True:
+        if should_abort and should_abort():
+            raise _Cancelled()
+        chunk = r.read(262144)
+        if not chunk:
+            break
+        out.append(chunk)
+        got += len(chunk)
+        if on_progress:
+            on_progress(got, total)
+    return b"".join(out)
+
+
 def _dl_proxy():
     st = get_settings()
     if not st.get("dl_proxy_on"):
@@ -3529,7 +3580,7 @@ def _dl_proxy():
     return proxy_url(p) if p else ""
 
 
-def _proxy_get(proxy, url, timeout, headers, hops=6):
+def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_abort=None):
     for _ in range(hops):
         u = urllib.parse.urlparse(url)
         if u.scheme != "https":
@@ -3552,7 +3603,7 @@ def _proxy_get(proxy, url, timeout, headers, hops=6):
                 continue
             if r.status != 200:
                 raise OSError("HTTP %d" % r.status)
-            return r.read()
+            return _read_body(r, r.getheader("Content-Length"), on_progress, should_abort)
         finally:
             for c in (sock, conn):
                 if c is not None:
@@ -3563,18 +3614,18 @@ def _proxy_get(proxy, url, timeout, headers, hops=6):
     raise OSError("too many redirects")
 
 
-def _gh_get(url, timeout, headers=None):
+def _gh_get(url, timeout, headers=None, on_progress=None, should_abort=None):
     hdrs = {"User-Agent": "tnl-central", **(headers or {})}
     proxy = _dl_proxy()
     if proxy:
-        return _proxy_get(proxy, url, timeout, hdrs)
+        return _proxy_get(proxy, url, timeout, hdrs, on_progress=on_progress, should_abort=should_abort)
     req = urllib.request.Request(url, headers=hdrs)
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+        return _read_body(r, r.headers.get("Content-Length"), on_progress, should_abort)
 
 
-def _dl(url, timeout):
-    return _gh_get(url, timeout)
+def _dl(url, timeout, on_progress=None, should_abort=None):
+    return _gh_get(url, timeout, on_progress=on_progress, should_abort=should_abort)
 
 
 def _release_asset_url(version, arch):
@@ -3585,17 +3636,18 @@ def _release_asset_url(version, arch):
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
 
 
-def _release_sha(version, arch):
-    sha = _dl(_release_asset_url(version, arch) + ".sha256", 30).decode().split()[0].strip().lower()
+def _release_sha(version, arch, should_abort=None):
+    sha = _dl(_release_asset_url(version, arch) + ".sha256", 30,
+              should_abort=should_abort).decode().split()[0].strip().lower()
     if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
         raise RuntimeError("checksum unavailable from the release")
     return sha
 
 
-def _fetch_release(version, arch):
+def _fetch_release(version, arch, on_progress=None, should_abort=None):
     base = _release_asset_url(version, arch)
-    sha = _release_sha(version, arch)
-    raw = _dl(base, 180)
+    sha = _release_sha(version, arch, should_abort=should_abort)
+    raw = _dl(base, 180, on_progress=on_progress, should_abort=should_abort)
     if hashlib.sha256(raw).hexdigest() != sha:
         raise RuntimeError("release checksum mismatch")
     return raw, sha
@@ -3610,14 +3662,23 @@ def _staged_info():
         return None
 
 
-def _stage_core(version):
+STAGE_SCALE = 1000000
+
+
+def _stage_core(version, on_progress=None, should_abort=None):
     rel = _resolve_core_version(version)
     os.makedirs(CORE_STAGE_DIR, exist_ok=True)
     got, shas, sizes = [], {}, {}
+    whole = len(CORE_ARCHES) * STAGE_SCALE
     with _core_stage_lock:
-        for arch in CORE_ARCHES:
+        for k, arch in enumerate(CORE_ARCHES):
+            def part(sent, total, _k=k):
+                if on_progress:
+                    on_progress(_k * STAGE_SCALE + (int(STAGE_SCALE * sent / total) if total else 0), whole)
             try:
-                raw, sha = _fetch_release(rel, arch)
+                raw, sha = _fetch_release(rel, arch, on_progress=part, should_abort=should_abort)
+            except _Cancelled:
+                raise
             except Exception:
                 if arch == "amd64":
                     raise
@@ -7884,7 +7945,8 @@ var I18N={fa:{
  px_empty:"هنوز پروکسی‌ای نساخته‌ای",px_used_by:"در حالِ استفاده روی: ",px_used_none:"روی هیچ نودی فعال نیست",
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",
- ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",ups_restarted:"{n} تونل دوباره بالا آمد",
+ ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",
+ ups_stage:"دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",
  upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
  upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
  upe_bad_signature:"امضای پنل تأیید نشد",upe_too_small:"فایل برای یک هسته خیلی کوچک است",
@@ -10445,7 +10507,7 @@ async function pushPoll(job){var fails=0;
   setTimeout(function(){if(cur=='agent'||cur=='settings')refreshAgent()},4500)}
  finally{PUSHJOB=null;PUSHSTATE=null;pushFab(null)}}   
 function pushSeed(ids,on){(ids||[]).forEach(function(id){var m=el('agres_'+id);if(!m)return;
- m.className='msg agres';setHTML(m,on?pushBar({state:'wait',pct:0,step:'check',si:0,sn:1}):'')})}
+ m.className='msg agres';setHTML(m,on?pushBar({state:'run',pct:0,step:'start',si:0,sn:1}):'')})}
 async function pushStart(cmd,body,ids){
  pushSeed(ids,1);
  var res=await post(cmd,body);

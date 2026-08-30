@@ -74,7 +74,7 @@ def wire_panel(P, sent, reached):
     P._ensure_update_key = lambda node: None
     P.node_call = lambda node, ep, method="POST", body=None, timeout=8: {"ok": True, "arch": ARCH[node["id"]]}
     P._resolve_core_version = lambda v: v
-    def dl(url, timeout):
+    def dl(url, timeout, on_progress=None, should_abort=None):
         reached.append(url)
         arch = "arm64" if "arm64" in url else "amd64"
         return SHA[arch].encode() if url.endswith(".sha256") else CORE[arch]

@@ -71,12 +71,17 @@ class FakeResp:
         self.status = status
         self._body = body
         self._loc = location
+        self._i = 0
 
     def getheader(self, k):
-        return self._loc if k.lower() == "location" else None
+        if k.lower() == "location":
+            return self._loc
+        return str(len(self._body)) if k.lower() == "content-length" else None
 
-    def read(self):
-        return self._body
+    def read(self, n=None):
+        out = self._body[self._i:] if n is None else self._body[self._i:self._i + n]
+        self._i += len(out)
+        return out
 
 
 class FakeConn:
@@ -117,6 +122,8 @@ def direct_only(m, direct):
     class R:
         def __init__(self, b):
             self.b = b
+            self.i = 0
+            self.headers = {"Content-Length": str(len(b))}
 
         def __enter__(self):
             return self
@@ -125,7 +132,9 @@ def direct_only(m, direct):
             return False
 
         def read(self, n=None):
-            return self.b[:n] if n else self.b
+            out = self.b[self.i:] if n is None else self.b[self.i:self.i + n]
+            self.i += len(out)
+            return out
 
     def urlopen(req, timeout=None):
         url = req.full_url if hasattr(req, "full_url") else str(req)
