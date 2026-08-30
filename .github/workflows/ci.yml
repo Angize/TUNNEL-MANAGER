@@ -205,6 +205,9 @@ jobs:
       - name: the panel's own download is visible and can be stopped
         working-directory: TUNNEL-MANAGER
         run: python tools/the_panel_download_is_visible_check.py
+      - name: the fetch-from-github button shows progress and stops
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_fetch_button_shows_and_stops_check.py
       - name: a picked version is not an update for the whole fleet
         working-directory: TUNNEL-MANAGER
         run: python tools/a_pick_is_not_an_update_check.py

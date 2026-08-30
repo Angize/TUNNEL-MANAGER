@@ -181,8 +181,14 @@ def main():
     m.api_settings_set({'core_delivery': 'push'})
     hits[:] = []
     r = m.api_core_stage({'version': 'v9.9.9'})
-    check('push mode still downloads the binary from that same button',
-          r.get('meta_only') is False and any(not u.endswith('.sha256') for u in hits), repr(hits))
+    check('push mode still stages from that same button, as a job it can cancel',
+          r.get('meta_only') is False and r.get('done') is False and bool(r.get('job')),
+          json.dumps(r, ensure_ascii=False))
+    import time as _t
+    _d = _t.monotonic()
+    while _t.monotonic() - _d < 30 and not m.api_core_stage_status({})['done']:
+        _t.sleep(0.02)
+    check('  and it really pulls the binary', any(not u.endswith('.sha256') for u in hits), repr(hits))
     hits[:] = []
     run_job(m, m.api_update_core, {'ids': ['n1'], 'version': 'v9.9.9'})
     check('and an update in push mode still carries the bytes',

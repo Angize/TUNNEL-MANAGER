@@ -3784,11 +3784,70 @@ def _node_tunnel(node, body):
     return r
 
 
+_stage_job = {"id": "", "version": "", "sent": 0, "total": 0, "done": True, "cancel": False,
+              "err": "", "arches": [], "missing": []}
+_stage_job_lock = threading.Lock()
+
+
+def _stage_job_view():
+    with _stage_job_lock:
+        j = dict(_stage_job)
+    pct = int(100 * j["sent"] / j["total"]) if j["total"] else 0
+    return {"ok": True, "job": j["id"], "version": j["version"], "done": j["done"],
+            "cancel": j["cancel"], "err": j["err"], "arches": j["arches"], "missing": j["missing"],
+            "pct": max(0, min(100, pct))}
+
+
+def _stage_run(version):
+    def note(sent, total):
+        with _stage_job_lock:
+            _stage_job["sent"], _stage_job["total"] = sent, total
+
+    def stop():
+        with _stage_job_lock:
+            return _stage_job["cancel"]
+
+    try:
+        info = _stage_core(version, on_progress=note, should_abort=stop)
+        with _stage_job_lock:
+            _stage_job.update(version=info["version"], arches=info["arches"],
+                              missing=info["missing"], sent=1, total=1)
+    except _Cancelled:
+        with _stage_job_lock:
+            _stage_job["err"] = "لغو شد"
+    except Exception as e:
+        with _stage_job_lock:
+            _stage_job["err"] = str(e)[:140]
+    finally:
+        with _stage_job_lock:
+            _stage_job["done"] = True
+
+
 def api_core_stage(d):
     version = str((d or {}).get("version") or "latest").strip()
-    gh = _delivery_mode("core") == "github"
-    info = (_stage_core_meta if gh else _stage_core)(version)
-    return {"ok": True, "meta_only": gh, **info}
+    if _delivery_mode("core") == "github":
+        info = _stage_core_meta(version)
+        return {"ok": True, "meta_only": True, "done": True, **info}
+    with _stage_job_lock:
+        if not _stage_job["done"]:
+            raise ValueError("یک دانلود همین حالا در جریان است — صبر کن یا لغوش کن")
+        _stage_job.update(id=secrets.token_hex(6), version=version, sent=0, total=0, done=False,
+                          cancel=False, err="", arches=[], missing=[])
+        jid = _stage_job["id"]
+    threading.Thread(target=_stage_run, args=(version,), daemon=True).start()
+    return {"ok": True, "meta_only": False, "done": False, "job": jid}
+
+
+def api_core_stage_status(d):
+    return _stage_job_view()
+
+
+def api_core_stage_cancel(d):
+    with _stage_job_lock:
+        if _stage_job["done"]:
+            return {"ok": True, "done": True}
+        _stage_job["cancel"] = True
+    return {"ok": True, "done": False}
 
 
 def api_fleet(d):
@@ -6876,7 +6935,8 @@ API = {
     "update-agent": api_update_agent, "update-core": api_update_core,
     "agent-fetch-git": api_agent_fetch_git,
     "core-versions": api_core_versions, "core-check": api_core_check,
-    "core-upload": api_core_upload, "core-delete-blob": api_core_delete_blob, "core-stage": api_core_stage, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
+    "core-upload": api_core_upload, "core-delete-blob": api_core_delete_blob, "core-stage": api_core_stage, "core-stage-status": api_core_stage_status,
+    "core-stage-cancel": api_core_stage_cancel, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
@@ -6884,7 +6944,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "peer-status", "peer-retest-now", "peer-select", "spoof-egress-probe",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",
-             "core-delete-blob",
+             "core-delete-blob", "core-stage-cancel",
              "update-agent", "update-core",
              "reorder",
              "act-cancel"}
@@ -8240,7 +8300,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  ag_no_core_staged:"هنوز هسته‌ای روی پنل دانلود نشده — «دریافت از گیت‌هاب» را بزن تا آماده‌ی پوش شود.",
  cor_downloading:"در حال دانلودِ هسته روی پنل…",cor_staged_pre:"هستهٔ «",cor_staged_post:"» روی پنل آماده شد",
  cor_picking:"در حال گرفتنِ نشانیِ نسخه…",cor_picked_post:"» انتخاب شد — نودها خودشان از گیت‌هاب می‌گیرند",
- cor_pick_git:"انتخابِ نسخه",
+ cor_pick_git:"انتخابِ نسخه",cor_dl_cancel:"لغوِ دانلود",
  dlpx_title:"پروکسیِ دانلودِ پنل",
  dlpx_sub:"وقتی خودِ پنل از گیت‌هاب چیزی می‌گیرد — باینریِ هسته، ایجنت، فهرستِ نسخه‌ها — از این پروکسی برود. نودها از این تنظیم اثر نمی‌گیرند؛ پروکسیِ آن‌ها روی خودِ نود است.",
  dlpx_on:"دانلودهای پنل از پروکسی بروند",
@@ -10361,16 +10421,31 @@ async function corCheck(){var m=el('cor_msg');if(m){m.className='msg';m.textCont
   m.textContent=!d.count?T('cor_check_none')
     :d.first_check?T('cor_check_first').replace('{n}',d.count)
     :d.newer?T('cor_check_new'):T('cor_check_same')}}
+function corStagePaint(pct){var m=el('cor_msg');if(!m)return;
+ m.className='msg';
+ setHTML(m,'<div class="pushbar"><i style="width:'+Math.max(0,Math.min(100,num(pct)))+'%"></i></div>'
+  +'<div class="plbl"><span>'+esc(T('cor_downloading'))+'</span><b>'+Math.max(0,Math.min(100,num(pct)))+'%</b></div>'
+  +'<button type="button" class="ghost" style="margin-top:8px" onclick="corStageCancel()">'+ic('xc')+esc(T('cor_dl_cancel'))+'</button>')}
+function corStageDone(d){var m=el('cor_msg');if(!m)return;var mis=d.missing||[];
+ m.className=mis.length?'msg':'msg ok';
+ m.innerHTML=T('cor_staged_pre')+esc(d.version)+T(d.meta_only?'cor_picked_post':'cor_staged_post')+
+  ((d.arches||[]).length?' ('+d.arches.join(', ')+')':'')+
+  (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
+ loadCoreVersions();loadReadiness()}
+async function corStageCancel(){await post('core-stage-cancel',{})}
+async function corStagePoll(){
+ for(;;){
+  var r=await j('core-stage-status').catch(function(){return null});
+  if(!r||!r.ok)return;
+  if(r.done){if(r.err)formErr(el('cor_msg'),terr(r.err));else corStageDone(r);return}
+  corStagePaint(r.pct);
+  await new Promise(function(res){setTimeout(res,400)})}}
 async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');m.className='msg';
  m.textContent=T(DLV.core=='github'?'cor_picking':'cor_downloading');
  var res=await post('core-stage',{version:ver});
- if(res.ok&&res.d&&res.d.ok){var mis=res.d.missing||[];
-  m.className=mis.length?'msg':'msg ok';
-  m.innerHTML=T('cor_staged_pre')+esc(res.d.version)+T(res.d.meta_only?'cor_picked_post':'cor_staged_post')+
-   ((res.d.arches||[]).length?' ('+res.d.arches.join(', ')+')':'')+
-   (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
-  loadCoreVersions();loadReadiness()}
- else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
+ if(!(res.ok&&res.d&&res.d.ok)){formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')));return}
+ if(res.d.done){corStageDone(res.d);return}
+ corStagePaint(0);await corStagePoll()}
 async function corPushStaged(id){var ver=ssVal('corver')||'';
  await pushStart('update-core',ver?{ids:[id],version:ver}:{ids:[id]},[id])}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ver'),'err');return}
