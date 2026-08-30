@@ -37,6 +37,7 @@ SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")
 PENDING_FILE = os.path.join(CENTRAL_DIR, "pending_del.json")
 UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")
 PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")
+MOVED_FILE = os.path.join(CENTRAL_DIR, "moved.json")
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")
 AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")
 CORE_BLOB = os.path.join(CENTRAL_DIR, "core.bin")
@@ -312,20 +313,39 @@ def validate_settings(d):
     return out
 
 
-_moved = {}
 _moved_lock = threading.Lock()
+
+
+def _moved_load():
+    try:
+        with open(MOVED_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+_moved = _moved_load()
+
+
+def _moved_save():
+    save_json(MOVED_FILE, _moved)
 
 
 def _moved_note(nid, name, old, new, new_port):
     with _moved_lock:
         prev = _moved.get(nid)
         _moved[nid] = {"name": name, "from": old, "to": new, "to_port": new_port}
-        return not prev or (prev.get("to"), prev.get("to_port")) != (new, new_port)
+        fresh = not prev or (prev.get("to"), prev.get("to_port")) != (new, new_port)
+        if fresh:
+            _moved_save()
+        return fresh
 
 
 def _moved_clear(nid):
     with _moved_lock:
-        _moved.pop(nid, None)
+        if _moved.pop(nid, None) is not None:
+            _moved_save()
 
 
 def moved_to(nid):
@@ -6494,6 +6514,7 @@ def api_checkin_impl(source_ip, d):
     if not 1 <= want_port <= 65535:
         want_port = port
     if (want_host, want_port) == (host, port):
+        _moved_clear(n_snap["id"])
         return {"ok": True, "updated": False, "host": host, "port": port}
     if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
         _moved_clear(n_snap["id"])
@@ -6501,7 +6522,7 @@ def api_checkin_impl(source_ip, d):
     probe = dict(n_snap)
     probe["host"], probe["port"] = want_host, want_port
     if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
-        return {"ok": True, "updated": False, "host": host, "port": port}
+        return {"ok": False, "unconfirmed": True, "host": host, "port": port}
     if get_settings().get("reconcile_mode") != "auto":
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
             log_event("warn", "node", f"نودِ «{n_snap.get('name')}»: جابه‌جاییِ نشانی",
