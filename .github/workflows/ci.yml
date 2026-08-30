@@ -187,6 +187,9 @@ jobs:
       - name: a moved node is not forgotten
         working-directory: TUNNEL-MANAGER
         run: python tools/a_moved_node_is_not_forgotten_check.py
+      - name: pushes do not queue behind each other
+        working-directory: TUNNEL-MANAGER
+        run: python tools/pushes_do_not_queue_behind_each_other_check.py
       - name: github mode downloads nothing to the panel
         working-directory: TUNNEL-MANAGER
         run: python tools/github_mode_downloads_nothing_check.py

@@ -3026,8 +3026,7 @@ def _body_cache(build):
 _push_lock = threading.Lock()
 _push_jobs = {}
 PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
-PUSH_WORKERS = 4
-_push_slots = threading.BoundedSemaphore(PUSH_WORKERS)
+PUSH_CAP = 256
 
 
 PUSH_BUSY_STATES = ("wait", "run")
@@ -3185,20 +3184,16 @@ def _push_next(jid, first):
 def _push_worker(jid, kind, nodes, payload):
     def loop():
         while True:
-            _push_slots.acquire()
-            try:
-                nid = _push_next(jid, (payload[0][0], len(payload)))
-                if nid is None:
-                    return
-                if nid != "wait":
-                    _push_one(jid, nid, payload)
-                    continue
-            finally:
-                _push_slots.release()
+            nid = _push_next(jid, (payload[0][0], len(payload)))
+            if nid is None:
+                return
+            if nid != "wait":
+                _push_one(jid, nid, payload)
+                continue
             time.sleep(0.3)
 
     try:
-        n = min(PUSH_WORKERS, max(1, len(nodes)))
+        n = min(PUSH_CAP, max(1, len(nodes)))
         workers = [threading.Thread(target=loop, daemon=True) for _ in range(n)]
         for w in workers:
             w.start()
@@ -7234,7 +7229,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .lpill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--ok);background:var(--okw);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent);border-radius:20px;padding:2px 8px}
 .lpill .pd{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:lpulse 1.4s infinite}
 .pushbar{height:6px;border-radius:4px;background:var(--field);border:1px solid var(--bord);overflow:hidden;margin-top:6px}
-.pushbar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s linear}
+.pushbar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .42s linear}
 .pushbar.ok>i{background:var(--ok)}.pushbar.err>i{background:var(--bad)}
 .mvwarn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;padding:0;margin-inline-start:7px;border-radius:9px;cursor:pointer;background:color-mix(in srgb,#e0894f 16%,transparent);border:1px solid color-mix(in srgb,#e0894f 45%,transparent);animation:mvpulse 1.7s ease-in-out infinite}
 .mvwarn svg{width:15px;height:15px;stroke:#e0894f;fill:none;stroke-width:2.1}
@@ -10299,7 +10294,17 @@ function pushFab(d){var box=el('pushFab');if(!box)return;
 function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
  (d.order||[]).forEach(function(nid){var m=el('agres_'+nid),st=ns[nid];if(!m||!st)return;
    m.className='msg agres'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
-   setHTML(m,pushBar(st))});
+   var bar=m.querySelector('.pushbar'),fill=bar&&bar.querySelector('i'),lbl=m.querySelector('.plbl');
+   if(!bar||!fill||!lbl){setHTML(m,pushBar(st));return}
+   var pct=Math.max(0,Math.min(100,num(st.pct)));
+   bar.className='pushbar'+(st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':''));
+   fill.style.width=pct+'%';
+   var txt=pushWord(st);
+   if(st.state=='ok'&&num(st.restarted)>0)txt+=' · '+T('ups_restarted').replace('{n}',num(st.restarted));
+   var sp=lbl.querySelector('span'),bo=lbl.querySelector('b');
+   if(sp&&sp.textContent!==txt)sp.textContent=txt;
+   if(bo)bo.textContent=pct+'%';
+   if(st.detail)lbl.title=st.detail;else lbl.removeAttribute('title')});
  pushFab(d)}
 async function pushPoll(job){var fails=0;
  try{
