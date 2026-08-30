@@ -7975,7 +7975,7 @@ var I18N={fa:{
  ag_node_agent:"ایجنتِ نودها",ag_data_core:"هستهٔ داده",ag_fetch_git:"دریافت از گیت‌هاب",ag_file_btn:"فایلِ ایجنت",ag_push_all:"پوشِ ایجنت به همهٔ نودها",
  ag_binary:"باینری",ag_install_all:"نصبِ هسته روی همهٔ نودها",ag_search:"جستجوی نود…",ag_ready:"آمادهٔ پوش",ag_empty:"خالی",ag_no_item:"موردی نیست",
 
- ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",ag_send:"ارسالِ",
+ ag_lbl_agent:"ایجنت",ag_lbl_core:"هسته",ag_up_avail:"آپدیت دارد",ag_uptodate:"به‌روز",ag_not_installed:"نصب نیست",ag_ver_pick:"نصبِ {v} روی این نود",ag_send:"ارسالِ",
  ag_no_online:"نودِ آنلاینی نیست",
  ag_pick_first:"اول یک ایجنت بارگذاری کن",ag_confirm_all:"ایجنت روی ",ag_confirm_all2:" نودِ آنلاین آپدیت و ری‌استارت شود؟",
  ag_pick_ver:"اول نسخه را انتخاب کن",ag_confirm_core:"هستهٔ نسخهٔ «",ag_confirm_core2:"» روی ",ag_confirm_core3:" نودِ آنلاین نصب و تونل‌های هسته ری‌استارت شوند؟",
@@ -10142,10 +10142,11 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
  loadCoreVersions();
  var box=el('agList');if(!box)return;
  var r=await j('nodes?q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
+ AGNODES=nodes;
  setList(box,nodes.length?nodes.map(function(n){return {k:n.id,h:agRow(n)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('ag_no_item'))+'</div>'}]);
  if(PUSHSTATE)pushPaint(PUSHSTATE);
  if(!PUSHJOB)pushAdopt()}
-var CORVERS=[],STAGED=null;
+var CORVERS=[],STAGED=null,AGNODES=[];
 async function loadCoreVersions(want){
  var r=await j('core-versions').catch(function(){return{versions:[]}});
  CORVERS=r.versions||[];STAGED=r.staged||null;
@@ -10164,8 +10165,11 @@ async function loadCoreVersions(want){
  var items=CORVERS.map(function(x){return {v:x.id,label:x.label||x.id}});
  var sel=want||ssVal('corver')||(items.length?items[0].v:'');   
  if(!items.filter(function(x){return String(x.v)==String(sel)}).length)sel=items.length?items[0].v:'';
- box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'')
+ box.innerHTML=items.length?ssHTML('corver',items,sel,T('ag_pick_version'),'corVerPicked')
    :'<div class="corempty">'+esc(T('cor_ver_empty'))+'</div>'}
+function corVerPicked(){var box=el('agList');if(!box||!AGNODES.length)return;
+ setList(box,AGNODES.map(function(n){return {k:n.id,h:agRow(n)}}));
+ if(PUSHSTATE)pushPaint(PUSHSTATE)}
 async function corDelBlob(){
  if(!await confirmBox(T('cor_del_blob_q')))return;
  var m=el('cor_msg');m.className='msg';m.textContent=T('cor_deleting');
@@ -10189,7 +10193,8 @@ async function corStage(){var ver=ssVal('corver')||'latest';var m=el('cor_msg');
    (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
   loadCoreVersions();loadReadiness()}
  else{formErr(m,terr((res.d&&(res.d.error||res.d.msg))||T('err_github')))}}
-async function corPushStaged(id){await pushStart('update-core',{ids:[id]},[id])}
+async function corPushStaged(id){var ver=ssVal('corver')||'';
+ await pushStart('update-core',ver?{ids:[id],version:ver}:{ids:[id]},[id])}
 async function corPushAll(){var ver=ssVal('corver');if(!ver){toast(T('ag_pick_ver'),'err');return}
  var r=await j('node-names');var ids=(r.nodes||[]).filter(function(n){return n.online}).map(function(n){return n.id});
  if(!ids.length){toast(T('ag_no_online'),'err');return}
@@ -10211,7 +10216,9 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  var cinst=!!(i.core_sha&&String(i.core_sha).length);            
  var carch=i.arch||'amd64';var ssha=(STAGED&&STAGED.sha&&STAGED.sha[carch])||'';
  var agup=!!(AGMETA&&!AGMETA.none&&i.sha256!==AGMETA.sha256);    
- var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))));  
+ var want=String(ssVal('corver')||'');
+ var wantDiff=!!(want&&want!='custom'&&cinst&&String(i.core_ver||'')!==want);
+ var cup=!!(STAGED&&(!cinst||(ssha&&String(i.core_sha)!==String(ssha).slice(0,12))))||wantDiff;
  var LA=T('ag_lbl_agent'),LC=T('ag_lbl_core');
  function vp(icon,cls,ver,tip){return '<span class="vp '+cls+'" title="'+esc(tip)+'">'+ic(icon)+esc(ver)+'</span>'}
  var agcls,agtip,agdis;
@@ -10221,7 +10228,8 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
  else{agcls='ok';agtip=LA+': '+T('ag_uptodate');agdis=1}
  var ccls,ctip,cdis;
  if(!n.online){ccls='offl';ctip=LC+': '+T('offline');cdis=1}
- else if(!cinst){ccls='na';ctip=LC+': '+T('ag_not_installed');cdis=!STAGED}
+ else if(!cinst){ccls='na';ctip=LC+': '+T('ag_not_installed');cdis=!(STAGED||want)}
+ else if(wantDiff){ccls='up';ctip=LC+': '+T('ag_ver_pick').replace('{v}',want);cdis=0}
  else if(cup){ccls='up';ctip=LC+': '+T('ag_up_avail');cdis=0}
  else{ccls='ok';ctip=LC+': '+T('ag_uptodate');cdis=1}
  return '<div class="nx">'+
