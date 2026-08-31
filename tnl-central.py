@@ -3353,7 +3353,7 @@ def api_update_core(d):
     if not version and not _staged_info():
         raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه انتخاب کن")
 
-    parts, shas = {}, {}
+    parts = {}
     staged = {"done": not version, "err": ""}
     staging = threading.Lock()
 
@@ -3418,10 +3418,8 @@ def api_update_core(d):
             ensure()
             ver = str((_staged_info() or {}).get("version") or "")
             return bool(ver) and str(r.get("core_ver") or "") == ver
-        if arch not in shas:
-            b = _staged_bytes(arch)
-            shas[arch] = b[1] if b else ""
-        return bool(shas[arch]) and _core_current(r, shas[arch])
+        want = str(((_staged_info() or {}).get("sha") or {}).get(arch) or "")
+        return bool(want) and _core_current(r, want)
 
     plan = [("check", "ping", check_body, 15, current),
             ("deliver", "core-put", put, 300, None),
