@@ -4342,10 +4342,11 @@ def _fetch_ech(host, proxy=""):
 
     doh = ["https://cloudflare-dns.com/dns-query", "https://1.1.1.1/dns-query",
            "https://dns.google/resolve", "https://8.8.8.8/resolve"]
-    tasks = [via_dig] + [(lambda b=b: via_doh(b)) for b in doh]
     if proxy:
-        tasks += [lambda: via_doh_proxy("cloudflare-dns.com", "/dns-query"),
-                  lambda: via_doh_proxy("dns.google", "/resolve")]
+        tasks = [lambda: via_doh_proxy("cloudflare-dns.com", "/dns-query"),
+                 lambda: via_doh_proxy("dns.google", "/resolve")]
+    else:
+        tasks = [via_dig] + [(lambda b=b: via_doh(b)) for b in doh]
     for attempt in range(3):
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks))
         futs = [ex.submit(t) for t in tasks]
