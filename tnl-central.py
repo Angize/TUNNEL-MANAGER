@@ -1590,8 +1590,6 @@ def norm_subnet(ttype, tid, provided, base=None):
     return sub if ok else subnet_default(ttype, tid, base)
 
 
-_PANEL_ONLY_KEYS = ("ws_edge_ips_burned", "ws_edge_snis_burned")
-
 _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 
 _WORKERS_KEYS = ("a_workers", "b_workers")
@@ -1603,14 +1601,14 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
                     "http_up_workers", "http_up_batch_kb", "http_streams",
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_url", "edge_ip", "ws_pool",
-                    "ws_edge_ips", "ws_edge_ips_burned", "ws_edge_snis", "ws_edge_snis_burned",
+                    "ws_edge_ips", "ws_edge_snis",
                     "ws_rotate_secs", "gso", "spoof_src", "spoof_dst",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
 def _node_extra(extra):
     e = dict(extra)
-    skip = _PANEL_ONLY_KEYS + _ROTATION_KEYS + _WORKERS_KEYS
+    skip = _ROTATION_KEYS + _WORKERS_KEYS
     return {k: v for k, v in e.items() if k not in skip}
 
 
@@ -4572,13 +4570,12 @@ def _ws_pool_fields(d, cur=None):
             res.append(x)
         return res
 
-    clean_ips, burned_ips = _ips("ws_edge_ips"), _ips("ws_edge_ips_burned")
-    clean_hosts, burned_hosts = _hosts("ws_edge_snis"), _hosts("ws_edge_snis_burned")
+    clean_ips, clean_hosts = _ips("ws_edge_ips"), _hosts("ws_edge_snis")
     if len(clean_ips) < 2:
-        raise ValueError("استخرِ لبه به حداقل 2 آی‌پیِ فعال (تمیز) نیاز دارد تا بچرخد — سوخته‌ها حساب نمی‌شوند")
+        raise ValueError("استخرِ لبه به حداقل 2 آی‌پی نیاز دارد تا بچرخد")
     if not clean_hosts:
-        raise ValueError("استخر به حداقل یک دامنهٔ (SNI) تمیز نیاز دارد (سوخته‌ها کافی نیستند)")
-    if len(clean_ips) + len(burned_ips) > 64 or len(clean_hosts) + len(burned_hosts) > 64:
+        raise ValueError("استخر به حداقل یک دامنهٔ (SNI) نیاز دارد")
+    if len(clean_ips) > 64 or len(clean_hosts) > 64:
         raise ValueError("استخر خیلی بزرگ است (حداکثر 64)")
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
@@ -4599,9 +4596,7 @@ def _ws_pool_fields(d, cur=None):
         "ech": ech_on,
         "cdn_carrier": str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws"),
         "ws_edge_ips": clean_ips,
-        "ws_edge_ips_burned": burned_ips,
         "ws_edge_snis": snis,
-        "ws_edge_snis_burned": burned_hosts,
         "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),
         "ws_path": path,
     }
@@ -8214,11 +8209,11 @@ var I18N={fa:{
  edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
  link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
  le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
- ph_burned_manual:"سوخته (دستی)",ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
- pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pb_burned:"سوخته",pool_empty:"خالی — یک مورد اضافه کن",
+ ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
+ pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pool_empty:"خالی — یک مورد اضافه کن",
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
- pa_restore:"بازگرداندن به چرخش",pa_testnow:"صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
+ pa_testnow:"صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
  flux_rotated:"چرخش انجام شد — تونل بازسازی شد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
@@ -9484,8 +9479,8 @@ function corEchPxGate(){var vis=(_corS.Tr=='ws'&&_corS.Ech),row=el('e_echpxrow')
 var _poolData={};
 function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_rotate_secs!=null)?l.ws_rotate_secs:600,
   open:{ip:false,sni:false},act:{ip:'',sni:''},lid:(l&&l.id)||'',
-  ip:{clean:((l&&l.ws_edge_ips)||[]).slice(),burned:((l&&l.ws_edge_ips_burned)||[]).slice()},
-  sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return (s&&s.host)||''}).filter(Boolean),burned:((l&&l.ws_edge_snis_burned)||[]).slice()}};}
+  ip:{clean:((l&&l.ws_edge_ips)||[]).slice()},
+  sni:{clean:((l&&l.ws_edge_snis)||[]).map(function(s){return (s&&s.host)||''}).filter(Boolean)}};}
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
 var _ip4Re=/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$/;
@@ -9504,42 +9499,36 @@ function poolBarPct(d,h){var tot=poolStepTotal(h),rem=poolRemain(d,h.next);if(re
 function poolBar(d,h){var p=poolBarPct(d,h);if(p<0)return '';return '<span class="pbar'+(h.state=='dead'?' bad':'')+'" data-next="'+h.next+'" data-tot="'+poolStepTotal(h)+'"><i style="width:'+p+'%"></i></span>';}
 function poolRenderKind(pfx,kind){var d=poolGet(pfx);
   var lv=d.live||{};var ns=0,nd=0;d[kind].clean.forEach(function(v){var h=lv[kind+':'+v];if(h&&h.state=='suspect')ns++;else if(h&&h.state=='dead')nd++;});
-  var hd=el(pfx+'hd_'+kind);if(hd){var nb=d[kind].burned.length;hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'')+(nb?'<span class="pbadge bad">'+nb+' '+T('pb_burned')+'</span>':'');}
+  var hd=el(pfx+'hd_'+kind);if(hd){hd.innerHTML='<span class="pbadge ok">'+(d[kind].clean.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');}
   var host=el(pfx+'lst_'+kind);if(!host)return;
-  function row(v,st){var dead=st=='burned';var act=!dead&&d.act&&d.act[kind]===v;
-    var h=(!dead)?lv[kind+':'+v]:null;
-    var rowc,sc,sic,stt;   
-    if(dead){rowc='bad';sc='mut';sic='xc';stt=T('ph_burned_manual');}
-    else if(h&&h.state=='dead'){rowc='bad';sc='bad';sic=act?'bolt':'xc';stt=act?T('ph_active_retry'):T('ph_dead');}
+  function row(v){var act=d.act&&d.act[kind]===v;
+    var h=lv[kind+':'+v];
+    var rowc,sc,sic,stt;
+    if(h&&h.state=='dead'){rowc='bad';sc='bad';sic=act?'bolt':'xc';stt=act?T('ph_active_retry'):T('ph_dead');}
     else if(h&&h.state=='suspect'){rowc='warn';sc='warn';sic=act?'bolt':'warn';stt=act?T('ph_active_retry'):T('ph_suspect');}
     else if(act){rowc='ok';sc='ok';sic='bolt';stt=T('ph_active');}
     else{rowc='ok';sc='ok';sic='okc';stt=T('ph_healthy');}
     var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+poolCd(d,h.next)+poolBar(d,h)+'</span>':'';
     var acts='';
-    if(dead){
-      acts='<button type="button" class="eib" title="'+esc(T('pa_restore'))+'" onclick="poolMove(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('swap')+'</button>';
-    }else{
-      if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolRetestNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
-      if(d.lid){var pend=d.pinPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
-        if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
-        else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';}
-    }
-    acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+st+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
-    return '<div class="erow '+rowc+((dead||(h&&h.state=='dead'))?' dead':'')+'">'
+    if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolRetestNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
+    if(d.lid){var pend=d.pinPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
+      if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
+      else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';}
+    acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
+    return '<div class="erow '+rowc+((h&&h.state=='dead')?' dead':'')+'">'
      +'<span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span>'
      +'<span class="eip" title="'+esc(v)+'">'+esc(v)+'</span>'+rt
      +'<span class="eacts">'+acts+'</span></div>';}
-  var html=d[kind].clean.map(function(v){return row(v,'clean')}).join('')+d[kind].burned.map(function(v){return row(v,'burned')}).join('');
+  var html=d[kind].clean.map(row).join('');
   host.innerHTML=html||'<div class="pempty">'+esc(T('pool_empty'))+'</div>';}
 function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(pfx+'chev_'+kind);if(b)b.style.display=d.open[kind]?'':'none';if(c)c.classList.toggle('open',d.open[kind]);}
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
 function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});}
-function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?T('pool_bad_ip'):T('pool_bad_dom'));return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0||d[kind].burned.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
-function poolMove(pfx,kind,from,val){var d=poolGet(pfx),to=from=='clean'?'burned':'clean';if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});if(d[kind][to].indexOf(val)<0)d[kind][to].push(val);poolRenderKind(pfx,kind);}
-function poolDel(pfx,kind,from,val){var d=poolGet(pfx);if(kind=='ip'&&from=='clean'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind][from]=d[kind][from].filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
+function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?T('pool_bad_ip'):T('pool_bad_dom'));return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
+function poolDel(pfx,kind,val){var d=poolGet(pfx);if(kind=='ip'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind].clean=d[kind].clean.filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_ips_burned=d.ip.burned;body.ws_edge_snis=d.sni.clean;body.ws_edge_snis_burned=d.sni.burned;body.ws_rotate_secs=d.rotate;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_snis=d.sni.clean;body.ws_rotate_secs=d.rotate;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 function corSetFluxCarrier(c){_corS.FluxCarrier=c;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}

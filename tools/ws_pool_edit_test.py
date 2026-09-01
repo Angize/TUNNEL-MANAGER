@@ -33,10 +33,8 @@ def main():
     stored = {
         "ws_pool": True, "ws_tls": True, "ech": False, "cdn_carrier": "ws",
         "ws_edge_ips": ["1.2.3.4:443", "5.6.7.8:443"],
-        "ws_edge_ips_burned": [],
         "ws_edge_snis": [{"host": "a.example.com", "ech": "", "path": "/"},
                          {"host": "b.example.com", "ech": "", "path": "/"}],
-        "ws_edge_snis_burned": [],
         "ws_rotate_secs": 600, "ws_path": "/",
     }
     # An edit that touches something else and OMITS ws_edge_snis: every pool field must fall back to the
