@@ -10374,12 +10374,13 @@ function agentBody(){return ''+
  '<div id="agList">'+skCards('agent')+'</div>'}
 function agentSkel(){el('view').innerHTML=vhead(AG_IC,'ag_title','ag_sub')+agentBody();refreshAgent()}
 var DLPX=null;
-async function dlpxPaint(){var box=el('dlpx_fields');if(!box||DLPX)return;
- await pxLoad();
- var st=await j('settings').catch(function(){return{}});
- DLPX={on:!!st.dl_proxy_on,id:String(st.dl_proxy_id||'')};
- if(!el('dlpx_fields'))return;
- el('dlpx_fields').innerHTML=PX.length
+async function dlpxPaint(){var box=el('dlpx_fields');if(!box||box.firstChild)return;
+ if(!DLPX){
+  await pxLoad();
+  var st=await j('settings').catch(function(){return{}});
+  DLPX={on:!!st.dl_proxy_on,id:String(st.dl_proxy_id||'')}}
+ box=el('dlpx_fields');if(!box||box.firstChild)return;
+ box.innerHTML=PX.length
   ?pxFields('dlpx_',{proxy_on:DLPX.on,proxy_id:DLPX.id},'dlpx_on','dlpx_via')
   :'<div class="muted" style="font-size:12px">'+esc(T('dlpx_none'))+'</div>'}
 async function dlpxSave(){var m=el('dlpx_msg');if(!m)return;
