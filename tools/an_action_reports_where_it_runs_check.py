@@ -452,7 +452,7 @@ cur='tunnels'; FLEET=[]; ACTS={}; ADISM={};
 confirmBox=function(){return Promise.resolve(true)};
 post=function(){return Promise.resolve({ok:true,d:{ok:true,act:'link:L1'}})};
 refreshActs=function(){return Promise.resolve()};
-toast=function(){}; setChk=function(){};
+toast=function(){};
 var drew={};
 (async function(){
  var cases=[['rebuild',function(){return rebuildLink('L1')}],

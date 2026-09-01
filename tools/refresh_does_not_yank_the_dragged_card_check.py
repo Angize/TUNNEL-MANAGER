@@ -85,7 +85,7 @@ j = () => new Promise(r => setTimeout(() => r({links: [], total: 0}), FETCH_MS))
 
 (async () => {
   // ---- the reported case: a drag begins while the post-drop refresh is still in flight
-  editingId = null; CHECKING = 0; RORD = null; RSAVE = false;
+  RORD = null; RSAVE = false;
   SETHTML_WHILE_DRAGGING = 0; SETHTML_TOTAL = 0;
   const p = refreshCore();                       // guard passes: no drag yet
   await naptime(FETCH_MS / 3);

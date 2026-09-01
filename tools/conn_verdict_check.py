@@ -62,7 +62,9 @@ function want(cond, msg){ if(!cond) __fails.push(msg); }
 
 var __captured = null;
 var __boxes = {};
-setChk = function(id, cls, html){ __captured = {cls: cls, html: html}; };
+// The verdict line goes through the row-message store, so that is where it is caught. Capturing it
+// any further down would test the store instead of the decision this guard is about.
+rmsgSet = function(id, cls, html){ __captured = {cls: cls, html: html}; };
 toast  = function(){};
 // Hand out a real object for the box ids so whatever checkLink paints is observable. Anything else
 // stays null, as before.
