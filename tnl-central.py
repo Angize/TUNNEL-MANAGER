@@ -5639,6 +5639,24 @@ def _ech_write(lid, kind, updates, degrade):
     return changed, chmap
 
 
+def _ech_blank(lid, hosts):
+    want = set(hosts)
+    changed = False
+    with _reg_lock:
+        links = load_links()
+        for x in links:
+            if x.get("id") != lid:
+                continue
+            for s in (x.get("ws_edge_snis") or []):
+                if isinstance(s, dict) and s.get("host") in want and s.get("ech"):
+                    s["ech"] = ""
+                    changed = True
+            break
+        if changed:
+            save_json(LINKS_FILE, links)
+    return changed
+
+
 def _ech_keys_blank(L, kind, hosts):
     if kind == "single":
         return not str(L.get("ws_ech") or "").strip()
@@ -5673,7 +5691,7 @@ def _ech_refresh_once():
         kind, hosts = hk
         lid, nm = L.get("id"), L.get("name")
         ech_map = _fetch_ech_map(hosts, _ech_px(L))
-        updates, empty_flags = {}, []
+        updates, gone = {}, []
         for h in hosts:
             nk = ech_map.get(h, "")
             key = (lid, h)
@@ -5684,8 +5702,9 @@ def _ech_refresh_once():
             else:
                 with _ech_empty_lock:
                     _ech_empty[key] = _ech_empty.get(key, 0) + 1
-                    empty_flags.append(_ech_empty[key] >= _ECH_EMPTY_CYCLES)
-        removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)
+                    if _ech_empty[key] >= _ECH_EMPTY_CYCLES:
+                        gone.append(h)
+        removed = bool(hosts) and len(gone) == len(hosts)
         blank_before = _ech_keys_blank(L, kind, set(hosts))
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
@@ -5696,6 +5715,15 @@ def _ech_refresh_once():
                 else:
                     log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
             continue
+        if gone and _ech_blank(lid, gone):
+            names = "، ".join(gone)
+            if _ech_safe_rebuild(lid):
+                log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
+                          f"رکوردِ ECHِ {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
+                          f"بقیهٔ استخر دست‌نخورده ماند. پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند")
+            else:
+                log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
+                          f"کلیدِ کهنهٔ {names} پاک شد ولی بازسازی شکست خورد — رفتن روی آن دامنه‌ها هنوز می‌میرد")
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)
         if changed and chmap and blank_before:
             if _ech_safe_rebuild(lid):
