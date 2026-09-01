@@ -8157,7 +8157,7 @@ var I18N={fa:{
 
 
 
- porttries_lbl:"چند بار پورتِ مبدأ عوض شود",porttries_d:"ارزان‌ترین پلهٔ نردبان: وقتی نود می‌گوید تونل رد نمی‌شود، هسته اول <b>فقط پورتِ مبدأ را دوباره می‌کشد</b> و هیچ آی‌پی‌ای را متهم نمی‌کند — سنجشِ ۲۰۲۶-۰۸-۱۷ نشان داد ۱۶٪ پورت‌های مبدأ روی مسیر مرده‌اند و این ربطی به مقصد ندارد. این عدد می‌گوید چند قرعه بکشد و بعد برود سراغ پله‌های گران‌تر (دستِ دوباره، و بعد آی‌پی/لبهٔ بعدی). پیش‌فرض ۲. بزرگ‌تر یعنی دیرتر آی‌پی می‌سوزاند ولی دیرتر هم جابه‌جا می‌شود. بازهٔ مجاز ۱ تا ۵۰. وقتی همهٔ پله‌ها خرج شد، «صبر پیش از تلاشِ دوبارهٔ نردبان» در تنظیمات می‌گوید چقدر بعد همین قرعه‌ها را از نو بدهد.", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ porttries_lbl:"چند بار پورتِ مبدأ عوض شود", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
@@ -9716,8 +9716,7 @@ function portTriesOn(S){
  return PORT_RUNG_TRANSPORTS.indexOf(S.Tr)>=0}
 function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('porttries_lbl'))+'</label>'
- +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('porttries_d')+'</div></div>'}
+ +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'}
 function portTriesVis(idp,S){var w=el(idp+'sptries');if(w)w.style.display=portTriesOn(S)?'':'none'}
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
