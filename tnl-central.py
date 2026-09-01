@@ -8412,6 +8412,11 @@ function setList(box,rows){if(!box)return;
   prev=node}
  for(k in have)have[k].remove();
  while(prev.nextSibling)box.removeChild(prev.nextSibling)}
+var RMSG={};
+function rmsgCls(cls){return cls?'msg '+cls:'msg'}
+function rmsgHTML(id){var c=RMSG[id];return '<div class="'+rmsgCls(c&&c.cls)+'" id="'+id+'">'+(c?c.html:'')+'</div>'}
+function rmsgSet(id,cls,html){RMSG[id]={cls:cls,html:html};var m=el(id);if(m){m.className=rmsgCls(cls);m.innerHTML=html}}
+function rmsgClear(id){delete RMSG[id];var m=el(id);if(m){m.className=rmsgCls('');m.innerHTML=''}}
 function num(x){x=+x;return isFinite(x)?x:0}
 function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),c=Math.floor(s%60);
  if(d>0)return d+' '+T('fmt_day')+' '+T('fmt_and')+' '+h+' '+T('fmt_hr');
@@ -8479,27 +8484,11 @@ function toggleTheme(){var d=document.body.classList.toggle('dark');try{localSto
 try{if(localStorage.getItem('tnl_dark'))document.body.classList.add('dark')}catch(e){}
 paintIcons();paintNav();
 
-function area(id,vals,color){var svg=el(id);if(!svg)return;var W=520,Hh=150,pad=12,bh=6;
- vals=vals.slice();if(vals.length<2)vals=vals.concat(vals.length?[vals[0]]:[0,0]);
- var max=Math.max.apply(null,vals.concat([1])),ch=Hh-pad-bh;
- var pts=vals.map(function(x,i){return[pad+i*(W-2*pad)/(vals.length-1),pad+ch-(x/max)*ch]});
- var cl=function(y){return Math.max(pad,Math.min(pad+ch,y))};
- var line='M'+pts[0][0].toFixed(1)+','+pts[0][1].toFixed(1);
- for(var i=0;i<pts.length-1;i++){var p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||p2;
-  line+='C'+(p1[0]+(p2[0]-p0[0])/6).toFixed(1)+','+cl(p1[1]+(p2[1]-p0[1])/6).toFixed(1)+' '+(p2[0]-(p3[0]-p1[0])/6).toFixed(1)+','+cl(p2[1]-(p3[1]-p1[1])/6).toFixed(1)+' '+p2[0].toFixed(1)+','+p2[1].toFixed(1)}
- var ar=line+' L'+pts[pts.length-1][0].toFixed(1)+','+(pad+ch)+' L'+pts[0][0].toFixed(1)+','+(pad+ch)+' Z';
- svg.setAttribute('viewBox','0 0 '+W+' '+Hh);
- svg.innerHTML='<defs><linearGradient id="g'+id+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+color+'" stop-opacity=".5"/><stop offset=".6" stop-color="'+color+'" stop-opacity=".14"/><stop offset="1" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs><line x1="'+pad+'" y1="'+(pad+ch)+'" x2="'+(W-pad)+'" y2="'+(pad+ch)+'" stroke="'+cssv('--sub')+'" stroke-opacity=".22"/><path d="'+ar+'" fill="url(#g'+id+')"/><path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="2.6" stroke-linecap="round"/>'}
-function donut(id,parts){var svg=el(id);if(!svg)return;var CIR=2*Math.PI*46,total=parts.reduce(function(a,p){return a+p[1]},0)||1,off=0;
- var g='<circle cx="60" cy="60" r="46" fill="none" stroke="'+cssv('--sub')+'" stroke-opacity=".14" stroke-width="15"/>';
- parts.forEach(function(p){var len=p[1]/total*CIR;if(len>0.4){g+='<circle cx="60" cy="60" r="46" fill="none" stroke="'+p[2]+'" stroke-width="15" stroke-dasharray="'+Math.max(1,len-1).toFixed(1)+' '+CIR.toFixed(1)+'" stroke-dashoffset="'+(-off).toFixed(1)+'" transform="rotate(-90 60 60)" stroke-linecap="round"/>'}off+=len});
- g+='<text x="60" y="57" text-anchor="middle" font-size="21" font-weight="800" fill="'+cssv('--tx')+'" font-family="Vazirmatn,Tahoma">'+parts[0][1]+'</text><text x="60" y="76" text-anchor="middle" font-size="10" fill="'+cssv('--sub')+'" font-family="Vazirmatn,Tahoma">'+esc(T('online'))+'</text>';
- svg.innerHTML=g}
 function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.info||!n.info.ips)return [];
  var out=[],ips=n.info.ips;Object.keys(ips).forEach(function(k){(ips[k]||[]).forEach(function(ip){if(out.indexOf(ip)<0)out.push(ip)})});return out}
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
-var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,editingId=null,EDID=null,selTargets={},SEL={},SSI={},SSCB={},CHK={},CHECKING=0,UPWIN=1,EVSEQ=0,LOGN=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   
+var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,EDID=null,selTargets={},SEL={},SSI={},SSCB={},UPWIN=1,EVSEQ=0,LOGN=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   
 var LIM=25,PG={tunnels:0,portfw:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:'',logs:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   
 var _WKMAX=[],_WKN=__WORKERSMAX__;for(var _i=1;_i<=_WKN;_i++)_WKMAX.push(_i);
@@ -8858,7 +8847,7 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  if(!(r.ok&&r.d.ok)){formErr(m,terr((r.d&&r.d.error))||T('failed'));if(pr)pr.innerHTML='';agBtnBusy(btn,false,ic('bolt')+esc(T('nadd_install_connect')));return}
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
-function listBusy(){return !!(editingId||CHECKING||RORD||RSAVE)}
+function listBusy(){return !!(RORD||RSAVE)}
 async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   
  var rows=[],bn=cnBanner(NODES);
  if(bn)rows.push({k:'__banner',h:bn});
@@ -8872,7 +8861,7 @@ function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
 function openModal(html,opts){opts=opts||{};
  var ov=document.createElement('div');ov.className='modalov';
  ov.innerHTML='<div class="modal wide'+(opts.cls?' '+opts.cls:'')+'">'+html+'</div>';
- document.body.appendChild(ov);editingId='modal';
+ document.body.appendChild(ov);
  try{document.body.style.overflow='hidden'}catch(e){}
  ov.addEventListener('mousedown',function(e){if(e.target===ov)closeModal(ov)});
  ov._esc=function(e){if(e.key!='Escape')return;var a=document.querySelectorAll('.modalov');if(a[a.length-1]!==ov)return;e.stopImmediatePropagation();closeModal(ov)};document.addEventListener('keydown',ov._esc);
@@ -8883,8 +8872,7 @@ function closeModal(ov){if(!ov||ov._closed)return;ov._closed=true;
  document.removeEventListener('keydown',ov._esc);
  if(ov._onclose){try{ov._onclose()}catch(e){}}
  ov.remove();
- if(!document.querySelector('.modalov')){editingId=null;EDID=null}  
- try{if(!document.querySelector('.modalov'))document.body.style.overflow=''}catch(e){}
+ if(!document.querySelector('.modalov')){EDID=null;try{document.body.style.overflow=''}catch(e){}}
  refresh().catch(function(){})}
 function glvl(p){return p>=88?'crit':p>=70?'warn':'ok'}
 function gaugeHTML(key,label){return '<div class="gauge"><div class="gwrap"><svg width="84" height="84"><circle class="gtrack" cx="42" cy="42" r="33" fill="none" stroke-width="8"/><circle id="g_'+key+'" class="gfill ok" cx="42" cy="42" r="33" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="207.3" stroke-dashoffset="207.3" transform="rotate(-90 42 42)"/></svg><div class="gc"><b id="gt_'+key+'">—</b></div></div><div class="gl">'+label+'</div><div class="gsub" id="gs_'+key+'">…</div></div>'}
@@ -8943,12 +8931,13 @@ function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)r
   '<div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('link_ip_note1'))+esc(l.tunnel_id)+esc(T('link_ip_note2'))+'</div><div class="msg" id="lem_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>'+esc(T('edit_tun_t'))+'</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{onclose:function(){EDID=null}});
  renderEditPort(id)}
-async function openPfEdit(i){var p=PF[i];if(!p)return;EDID='pf'+i;var rotOn=p.switch_interval>0;
- var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);   
+async function openPfEdit(i){var p=PF[i];if(!p)return;var rotOn=p.switch_interval>0;
+ var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);
  var lipsec=(ips.length>1)?'<label class="first">'+esc(T('pf_lip'))+'</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),T('ip'),'')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">'+esc(T('pf_lip_note'))+'</div>':'';
  var fc=lipsec?'':' class="first"';
- var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(T('pf_listen_port'))+'</label><input id="pe_lp_'+i+'" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(T('pf_dst_port'))+'</label><input id="pe_dp_'+i+'" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips_'+i+'" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl_'+i+'" onclick="pfTgl('+i+')"></span><span class="muted" id="pe_tgllbl_'+i+'">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap_'+i+'" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int_'+i+'" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem_'+i+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit('+i+')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+ var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(T('pf_listen_port'))+'</label><input id="pe_lp" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(T('pf_dst_port'))+'</label><input id="pe_dp" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl" onclick="pfTgl()"></span><span class="muted" id="pe_tgllbl">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem"></div>';
+ var ov=openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit(this)">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
+ ov._pf={node_id:p.node_id,name:p.name}}
 function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
  var en=(n.disabled!==true);   
@@ -8956,7 +8945,7 @@ function nodeCard(n){var i=n.info||{};
  var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic(AG_IC)+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act reset" title="'+esc(T('tip_nreset'))+'" onclick="resetNodeTraffic(\\''+n.id+'\\')">'+ic('reset')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
- return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+ndTraf(n)+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+'<div class="msg" id="ntm_'+n.id+'"></div></div></div></div>'}
+ return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+ndTraf(n)+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+rmsgHTML('ntm_'+n.id)+'</div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  
  var dis=!(n.disabled===true);n.disabled=dis;
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',!dis);c.classList.toggle('off',dis)}
@@ -8994,14 +8983,12 @@ async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host')
  var r=await post('node-add',Object.assign({name:name,host:host,port:port,token:tok},pxBody('n_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added_checking'),'ok');refreshNodes()}
  else{formErr(m,terr(r.d.error||T('failed')))}}
-async function testNode(id){CHECKING++;
- try{
- var m=el('ntm_'+id);if(m){m.className='msg';m.textContent=T('test_testing')}
+async function testNode(id){var k='ntm_'+id;
+ rmsgSet(k,'',esc(T('test_testing')));
  var r=await post('node-test',{id:id});
- var info=(r.d&&r.d.info)||{};if(!m)return;
- if(r.d&&r.d.ok){var ms=info.rtt_ms;m.className='msg ok';m.innerHTML=CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':''))}
- else{formErr(m,T('offline')+': '+(terr(info.error)||T('not_available')))}
- }finally{CHECKING--}}
+ var info=(r.d&&r.d.info)||{};
+ if(r.d&&r.d.ok){var ms=info.rtt_ms;rmsgSet(k,'ok',CK+esc(' '+T('online')+' — '+(info.hostname||'')+(ms!=null?' · '+ms+'ms':'')))}
+ else{rmsgClear(k);formErr(null,T('offline')+': '+(terr(info.error)||T('not_available')))}}
 function kernelTune(id){post('node-kernel-tune',{id:id,action:'status'}).then(function(r){
  if(!(r.ok&&r.d.ok)){toast(terr((r.d&&r.d.error)||T('failed')),'err');return}
  ktShow(id,r.d)})}
@@ -9037,7 +9024,7 @@ async function doDelNode(id,wipe,force){var m=el('del_msg');
  if(m){m.className='msg';m.textContent=(wipe?(force?T('del_force_wiping'):T('del_wiping')):T('del_detaching'))}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=true});
  var r=await post('node-del',{id:id,wipe:wipe,wipe_force:!!force});
- if(r.ok&&r.d.ok){editingId=null;var ov=m?m.closest('.modalov'):null;
+ if(r.ok&&r.d.ok){var ov=m?m.closest('.modalov'):null;
   toast(wipe?((r.d.node_wiped===false)?T('node_force_wiped'):T('node_wiped')):T('node_detached'),'ok');
   if(ov)closeModal(ov);else refreshNodes();return}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false});
@@ -9120,7 +9107,7 @@ function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
  return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+cardActCls(l)+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkFooter(l,editFn){
- var c=CHK[l.id];var msg='<div class="msg '+(c?c.cls:'')+'" id="lchk_'+l.id+'">'+(c?c.html:'')+'</div>';
+ var msg=rmsgHTML('lchk_'+l.id);
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
  var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
@@ -9149,27 +9136,24 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  var vr=await actAccepted(r.d.act,m);
  if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
- delete CHK[id];closeModal(m.closest('.modalov'))}
-function setChk(id,cls,html){CHK[id]={cls:cls,html:html};var m=el('lchk_'+id);if(m){m.className='msg '+cls;m.innerHTML=html}}
+ rmsgClear('lchk_'+id);closeModal(m.closest('.modalov'))}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
-async function checkLink(id){CHECKING++;
- try{
-  setChk(id,'',esc(T('checking_conn')));
-  var r=await post('check-link',{id:id});
-  var L=FLEET.filter(function(x){return x.id==id})[0]||{};
-  if(!(r.ok&&r.d.ok)){setChk(id,'err',esc(perr(r)));return}
-  var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
-  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
-  paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
-  var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
-  var okAll=aup&&bup&&d.a_health.alive===true&&d.b_health.alive===true;
-  setChk(id,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
-    (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health,d.b_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health,d.a_health)));
- }finally{CHECKING--}}
+async function checkLink(id){var k='lchk_'+id;
+ rmsgSet(k,'',esc(T('checking_conn')));
+ var r=await post('check-link',{id:id});
+ var L=FLEET.filter(function(x){return x.id==id})[0]||{};
+ if(!(r.ok&&r.d.ok)){rmsgSet(k,'err',esc(perr(r)));return}
+ var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
+ if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
+ paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
+ var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
+ var okAll=aup&&bup&&d.a_health.alive===true&&d.b_health.alive===true;
+ rmsgSet(k,okAll?'ok':'err',chkLines(okAll?CK+' '+T('conn_ok'):XK+' '+T('conn_bad'),
+   (L.a_name||'A')+': '+sideTxt(d.a_online,d.a_health,d.b_health),(L.b_name||'B')+': '+sideTxt(d.b_online,d.b_health,d.a_health)))}
 async function checkAll(){var b=el('chkAllBtn');if(!FLEET.length){toast(T('no_tunnel_check'),'err');return}
- if(b){b.disabled=true;b.style.opacity='.6'}CHECKING++;  
+ if(b){b.disabled=true;b.style.opacity='.6'}
  try{await Promise.all(FLEET.map(function(l){return checkLink(l.id)}))}
- finally{CHECKING--;if(b){b.disabled=false;b.style.opacity=''}}
+ finally{if(b){b.disabled=false;b.style.opacity=''}}
  toast(T('checkall_done'),'ok')}
 async function rebuildLink(id){
  var _L=FLEET.filter(function(x){return x.id==id})[0];
@@ -9177,16 +9161,16 @@ async function rebuildLink(id){
  if(!await confirmBox(T('rebuild_confirm')))return;
  var r=await post('rebuild-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r,'rebuild_failed'),'err');return}
- delete CHK[id];   
+ rmsgClear('lchk_'+id);
  actStarted()}
 async function restartLink(id){if(!await confirmBox(T('restart_confirm'),T('restart_yes')))return;
  var r=await post('restart-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r,'restart_failed'),'err');return}
- delete CHK[id];actStarted()}
+ rmsgClear('lchk_'+id);actStarted()}
 async function flipView(id){var r=await post('link-view',{id:id});
  if(r.ok&&r.d.ok){var L=FLEET.filter(function(x){return x.id==id})[0];var nm=L?(r.d.view_side=='b'?L.b_name:L.a_name):'';
-  setChk(id,'ok',ic('swap')+esc(T('view_switched')+nm+T('view_switched2')));
-  setTimeout(function(){if(CHK[id]){CHK[id]=null;var m=el('lchk_'+id);if(m){m.className='msg';m.innerHTML=''}}},4000);
+  rmsgSet('lchk_'+id,'ok',ic('swap')+esc(T('view_switched')+nm+T('view_switched2')));
+  setTimeout(function(){rmsgClear('lchk_'+id)},4000);
   refreshFleet()}
  else{toast(T('failed'),'err')}}
 function ndTraf(n){var t=n.traffic;if(!t)return '';
@@ -9231,18 +9215,18 @@ async function doRebuildPick(id){var body={id:id};if(_rbSel.a_ip)body.a_ip=_rbSe
  var vr=await actAccepted(r.d.act,m);
  if(vr.gone)return;
  if(vr.err){if(m)formErr(m,vr.err);else toast(vr.err,'err');return}
- if(_rbOv)closeModal(_rbOv);delete CHK[id];refreshFleet()}
+ if(_rbOv)closeModal(_rbOv);rmsgClear('lchk_'+id);refreshFleet()}
 async function delLink(id){
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
  if(l.a_online===false||l.b_online===false){          
   if(!await confirmBox(T('del_force_ask'),T('del_force_yes')))return;
   var rf=await post('delete-link',{id:id,force:true});
   if(!(rf.ok&&rf.d.act)){toast(perr(rf),'err');return}
-  delete CHK[id];editingId=null;actStarted();return}
+  rmsgClear('lchk_'+id);actStarted();return}
  if(!await confirmBox(T('del_tun_confirm')))return;   
  var r=await post('delete-link',{id:id});
  if(!(r.ok&&r.d.act)){toast(perr(r),'err');return}
- delete CHK[id];editingId=null;actStarted()}
+ rmsgClear('lchk_'+id);actStarted()}
 
 function ipField(k,ips,lab){
  if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),T('ip'),'');
@@ -9660,7 +9644,7 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
 function spoofFormCtx(idp){
   if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv,
                        aip:pickedIP('e_','a',''),bare:pickedIP('e_','b','')};
-  var l=(FLEET||[]).filter(function(x){return x.id==editingId})[0]||{};
+  var l=(FLEET||[]).filter(function(x){return x.id==_eeS.Lid})[0]||{};
   return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv,
           aip:pickedIP('ee_','a',l.a_ip||''),bare:pickedIP('ee_','b',l.b_ip||'')};}
 function _egrRow(ok,txt){return '<div class="spoofcap '+(ok?'ok':'no')+'" style="margin-top:6px">'+(ok?ic('okc'):ic('xc'))+'<span>'+esc(txt)+'</span></div>';}
@@ -10087,7 +10071,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- editingId=id;_eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
@@ -10144,7 +10128,7 @@ async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent
  var vr=await actAccepted(r.d.act,m);
  if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
- editingId=null;closeModal(m.closest('.modalov'));refreshCore()}
+ closeModal(m.closest('.modalov'));refreshCore()}
 
 var PX=[];
 async function pxLoad(){var r=await j('proxies').catch(function(){return{}});PX=r.proxies||[]}
@@ -10173,16 +10157,12 @@ function pxCard(p,i){var open=!!TOPEN[p.id];
   +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+'" id="c_'+esc(p.id)+'" data-rid="'+esc(p.id)+'">'
   +head+'<div class="cbody"><div class="cbody-in">'+meta+acts
-  +'<div class="msg" id="pxm_'+esc(p.id)+'"></div></div></div></div>'}
-async function testPx(i){var p=PX[i];if(!p)return;CHECKING++;   
- try{
- var m=el('pxm_'+p.id);
- if(m){m.className='msg';m.textContent=T('px_testing')}
+  +rmsgHTML('pxm_'+p.id)+'</div></div></div>'}
+async function testPx(i){var p=PX[i];if(!p)return;var k='pxm_'+p.id;
+ rmsgSet(k,'',esc(T('px_testing')));
  var r=await post('proxy-test',{id:p.id});var d=r.d||{};
- if(!m)return;
- if(r.ok&&d.ok){m.className='msg ok';m.innerHTML=CK+esc(' '+T('px_up')+' · '+num(d.ms)+'ms')}
- else{formErr(m,terr(d.error||T('failed')))}
- }finally{CHECKING--}}
+ if(r.ok&&d.ok){rmsgSet(k,'ok',CK+esc(' '+T('px_up')+' · '+num(d.ms)+'ms'))}
+ else{rmsgClear(k);formErr(null,terr(d.error||T('failed')))}}
 function openPxModal(i){var p=(i==null)?null:PX[i];
  var sc=(p&&p.scheme)||'socks5';
  var seg=function(s,lbl){return '<button type="button" data-s="'+s+'"'+(sc==s?' class="on"':'')+' onclick="pxScheme(\\''+s+'\\')">'+lbl+'</button>'};
@@ -10194,14 +10174,15 @@ function openPxModal(i){var p=(i==null)?null:PX[i];
   +'<div><label>'+esc(T('px_pass'))+'</label><input id="px_pass" type="password" autocomplete="new-password" placeholder="'+esc((p&&p.has_pass)?T('px_pass_keep'):T('px_opt'))+'" value=""></div></div>'
   +'<div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:6px">'+esc(T('px_hint'))+'</div>'
   +'<div class="msg" id="px_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic(p?'pen':'plus')+'</span><div class="ttl"><h3>'+esc(T(p?'px_edit_t':'px_add_t'))+'</h3>'+(p?'<div class="sb">'+esc(p.name)+'</div>':'')+'</div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="savePx('+(i==null?'null':i)+')">'+esc(T(p?'save':'add'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+ var ov=openModal('<div class="msticky"><span class="medi">'+ic(p?'pen':'plus')+'</span><div class="ttl"><h3>'+esc(T(p?'px_edit_t':'px_add_t'))+'</h3>'+(p?'<div class="sb">'+esc(p.name)+'</div>':'')+'</div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="savePx(this)">'+esc(T(p?'save':'add'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
+ ov._px=p?p.id:''}
 function pxScheme(s){document.querySelectorAll('#px_seg button').forEach(function(b){b.classList.toggle('on',b.dataset.s==s)})}
 function pxSchemeVal(){var b=document.querySelector('#px_seg button.on');return b?b.dataset.s:'socks5'}
-async function savePx(i){var m=el('px_msg');var p=(i==null)?null:PX[i];
+async function savePx(btn){var m=el('px_msg'),ov=btn.closest('.modalov'),pid=(ov&&ov._px)||'';
  var b={name:v('px_name'),scheme:pxSchemeVal(),host:v('px_host'),port:v('px_port'),
-        user:v('px_user'),pass:v('px_pass')};if(p)b.id=p.id;
- var r=await post(p?'proxy-edit':'proxy-add',b);
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('px_saved'),'ok');refreshProxies()}
+        user:v('px_user'),pass:v('px_pass')};if(pid)b.id=pid;
+ var r=await post(pid?'proxy-edit':'proxy-add',b);
+ if(r.ok&&r.d.ok){closeModal(ov);toast(T('px_saved'),'ok');refreshProxies()}
  else{formErr(m,perr(r))}}
 async function delPx(i){var p=PX[i];if(!p)return;if(!await confirmBox(T('px_del_confirm')))return;
  var r=await post('proxy-del',{id:p.id});
@@ -10258,15 +10239,15 @@ function pfCard(p,i){var h=p.health||{};
  var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
  var acts='<div class="nact iconly"><button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="'+esc(T('pf_rotate_now'))+'" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
  return '<div class="card acc'+(open?' open':'')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="portfw">'+head+'<div class="cbody"><div class="cbody-in">'+body+traf+acts+'</div></div></div>'}
-function pfTgl(i){var sw=el('pe_tgl_'+i),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
- setT('pe_tgllbl_'+i,on?T('on_word'):T('off_word'));var w=el('pe_intwrap_'+i);if(w)w.style.display=on?'block':'none'}
-async function savePfEdit(i){var p=PF[i];if(!p)return;var m=el('pem_'+i);var lp=v('pe_lp_'+i),dp=v('pe_dp_'+i),ips=v('pe_ips_'+i);
+function pfTgl(){var sw=el('pe_tgl'),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
+ setT('pe_tgllbl',on?T('on_word'):T('off_word'));var w=el('pe_intwrap');if(w)w.style.display=on?'block':'none'}
+async function savePfEdit(btn){var ov=btn.closest('.modalov'),p=ov&&ov._pf;if(!p)return;var m=el('pem');var lp=v('pe_lp'),dp=v('pe_dp'),ips=v('pe_ips');
  if(!lp||!dp||!ips){formErr(m,T('pf_need_ports'));return}
- var rot=el('pe_tgl_'+i).classList.contains('on'),intv=v('pe_int_'+i);
+ var rot=el('pe_tgl').classList.contains('on'),intv=v('pe_int');
  m.className='msg';m.textContent=T('saving');
  var lip=el('ssb_pe_lip')?ssVal('pe_lip'):'';   
  var r=await post('portfw-edit',{node:p.node_id,name:p.name,listen_port:lp,dst_port:dp,dst_ips:ips,rotate:rot,interval_min:intv||5,listen_ip:lip});
- if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{formErr(m,perr(r))}}
+ if(r.ok&&r.d.ok){closeModal(ov)}else{formErr(m,perr(r))}}
 async function doPortfw(){var m=el('pf_msg');var node=ssVal('pf_node'),lp=v('pf_lp'),dp=v('pf_dp'),ips=v('pf_ips'),intv=v('pf_int');
  if(!node||!lp||!dp||!ips){formErr(m,T('pf_need_all'));return}
  m.className='msg';m.textContent=T('creating_dots');
@@ -10278,7 +10259,7 @@ async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.t
  var r=await post('portfw-next',{node:p.node_id,name:p.name});
  if(r.ok&&r.d.ok){if(b)b.textContent=r.d.active;toast(T('pf_rotate_done')+r.d.active,'ok')}
  else{if(b)b.textContent=old;toast(terr((r.d&&(r.d.error||r.d.msg))||T('pf_rotate_failed')),'err')}}
-async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});editingId=null;refreshPortfw()}
+async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});refreshPortfw()}
 
 var RDY=null;
 async function loadReadiness(){try{RDY=await j('readiness')}catch(e){return}paintReady()}
@@ -10715,7 +10696,7 @@ async function refreshLogs(){
  logPaint()}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');
  LOGEVS=[];LOGSIG='';LOGPAINT='';refreshLogs();}
-function render(){setnav();editingId=null;setLS('tnl_page',cur);   
+function render(){setnav();RMSG={};setLS('tnl_page',cur);
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
  refresh()}
 function refreshFleet(){return cur=='core'?refreshCore():refreshTunnels()}
@@ -10800,14 +10781,14 @@ document.addEventListener('keydown',function(e){if(!((e.ctrlKey||e.metaKey)&&(e.
  e.preventDefault();openPal()});
 function openPal(){if(PAL)return;var ov=document.createElement('div');ov.className='modalov palov';
  ov.innerHTML='<div class="pal"><div class="palin">'+ic('search')+'<input id="pal_q" placeholder="'+esc(T('pal_search'))+'" autocomplete="off"><kbd>Esc</kbd></div><div class="pallist" id="pal_list"></div><div class="palfoot"><span><kbd>↑</kbd><kbd>↓</kbd> '+esc(T('pal_move'))+'</span><span><kbd>↵</kbd> '+esc(T('pal_pick'))+'</span><span><kbd>Esc</kbd> '+esc(T('pal_close'))+'</span></div></div>';
- document.body.appendChild(ov);PAL=ov;editingId='pal';try{document.body.style.overflow='hidden'}catch(e){}
+ document.body.appendChild(ov);PAL=ov;try{document.body.style.overflow='hidden'}catch(e){}
  ov.addEventListener('mousedown',function(e){if(e.target===ov)closePal()});
  var inp=el('pal_q');inp.addEventListener('input',function(){palRender(inp.value)});inp.addEventListener('keydown',palKey);
  PALDATA={nodes:[],tuns:[]};
  j('node-names').then(function(r){PALDATA.nodes=r.nodes||[];palRender(inp.value)}).catch(function(){});
  j('fleet?limit=100').then(function(r){PALDATA.tuns=r.links||[];palRender(inp.value)}).catch(function(){});
  palRender('');inp.focus()}
-function closePal(){if(!PAL)return;PAL.remove();PAL=null;editingId=null;try{if(!document.querySelector('.modalov'))document.body.style.overflow=''}catch(e){}}
+function closePal(){if(!PAL)return;PAL.remove();PAL=null;try{if(!document.querySelector('.modalov'))document.body.style.overflow=''}catch(e){}}
 function palNav(p){cur=p;closePal();render()}
 function palActions(){return [
  {i:'dash',label:T('nav_overview'),act:function(){palNav('overview')}},{i:'server',label:T('nav_nodes'),act:function(){palNav('nodes')}},

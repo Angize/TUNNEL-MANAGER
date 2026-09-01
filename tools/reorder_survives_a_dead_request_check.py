@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Guard: a request that never answers must not wedge the panel.
 
-`fetch` has no timeout. Every guard flag in this panel is held across an `await` on it — `RSAVE` while a
-reorder persists, `CHECKING` while a connectivity check runs, `editingId` while a form saves — and each
-one gates the live refresh of EVERY list. So one stalled request used to hold its flag forever:
+`fetch` has no timeout. `RSAVE` is held across an `await` on it while a reorder persists, and it gates
+the live refresh of EVERY list. So one stalled request used to hold the flag forever:
 
   * `refreshNodes` / `refreshTunnels` / `refreshCore` / `refreshPortfw` all early-return on `RSAVE`, so
     the whole dashboard silently stopped updating;
@@ -17,7 +16,7 @@ one request carrying the whole chain, and a drag that only its OWN pointer can e
 
 Note what does NOT fix it: releasing the flag in a `finally`. The old code already released it after a
 `catch` that swallowed everything, so both ran or neither did -- and with an unbounded request neither
-did. The bound on the request is the fix; the `finally` only matches the shape `CHECKING` already uses.
+did. The bound on the request is the fix; the `finally` alone never was.
 
 What it does NOT cover: real PointerEvents through the document listeners. `reordDown`/`reordMove` need
 layout, so the drag itself was measured in a browser once and is not re-driven here.

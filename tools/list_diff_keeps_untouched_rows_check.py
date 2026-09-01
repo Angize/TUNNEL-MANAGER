@@ -100,14 +100,19 @@ function parseNodes(h){
     if (lt > i) out.push(new Txt(h.slice(i, lt)));
     const gt = h.indexOf('>', lt);
     const raw = h.slice(lt + 1, gt);
-    const tag = /^([a-zA-Z][\w-]*)/.exec(raw)[1];
+    const tagm = /^([a-zA-Z][\w-]*)/.exec(raw);
+    if (!tagm) throw new Error('unbalanced markup at ' + JSON.stringify(h.slice(lt, lt + 60)));
+    const tag = tagm[1];
     const el = new El(tag);
     const attr = /([:\w-]+)\s*=\s*"([^"]*)"/g;
     let m; while ((m = attr.exec(raw))) el.attrs.set(m[1], m[2]);
     if (VOID.test(tag) || /\/\s*$/.test(raw)) { out.push(el); i = gt + 1; continue; }
     // find this tag's own closing tag, counting nested ones of the same name
     let depth = 1, at = gt + 1, close = -1;
-    const same = new RegExp('<(/?)' + tag + '(?=[\s/>])', 'gi'); same.lastIndex = at;
+    // The lookahead is built from a STRING, so the backslash has to survive into the RegExp: written
+    // as '[\s/>]' the escape is eaten by the string literal and the class becomes [s/>], which stops
+    // counting every nested `<div class=…>` and silently mis-nests any real card.
+    const same = new RegExp('<(/?)' + tag + '(?=[\\s/>])', 'gi'); same.lastIndex = at;
     let mm; while ((mm = same.exec(h))) { depth += mm[1] ? -1 : 1; if (!depth) { close = mm.index; break; } }
     const inner = close < 0 ? h.slice(at) : h.slice(at, close);
     for (const n of parseNodes(inner)) el.appendChild(n);

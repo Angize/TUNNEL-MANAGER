@@ -29,6 +29,20 @@ name: ci
 #                         a list refresh replaces only the rows whose markup changed. Assigning the
 #                         whole list drops every row, so a half-made selection, a live upload bar and
 #                         an edge box another loop filled all die on a poll the operator did not ask for.
+#   a_row_message_survives_the_poll
+#                         the answer a card action writes -- «در حال تست…», then the verdict -- is
+#                         render state, not something painted onto a node and hoped for. The panel used
+#                         to protect it by freezing every list behind a CHECKING counter, so for the
+#                         length of a check (and of «تستِ همه» over the whole fleet) nothing going down
+#                         reached the screen. It drives the real testNode/checkLink/testPx over the real
+#                         setList with a poll landing mid-flight, and derives which strips are at risk
+#                         by reading the ids back out of the rendered cards.
+#   a_modal_edits_what_it_opened
+#                         the other half of letting the lists stay live: the port-forward and proxy
+#                         forms used to re-read PF[i]/PX[i] at SAVE time, which was survivable only
+#                         while an open form froze the list. Driven on the real forms, it opens the
+#                         second row, swaps the list the way a poll would, presses save and reads the
+#                         request: measured on the old shape it posted pf-b's ports over pf-a.
 #   config_contract       the panel's THREE independent ways of building a node body (create / edit /
 #                         rebuild) build the SAME body. This is the guard for the defect class that
 #                         shipped three times in a row under "chain verified end to end": a key that
@@ -241,6 +255,12 @@ jobs:
       - name: a list refresh replaces only the rows that changed
         working-directory: TUNNEL-MANAGER
         run: python tools/list_diff_keeps_untouched_rows_check.py
+      - name: an answer painted into a card survives the poll that rebuilds it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_row_message_survives_the_poll_check.py
+      - name: an edit form saves the record it was opened on
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_modal_edits_what_it_opened_check.py
       - name: a slow peer is served the whole body
         working-directory: TUNNEL-MANAGER
         run: python tools/slow_peer_full_body_check.py
