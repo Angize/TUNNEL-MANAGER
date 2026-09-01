@@ -8230,7 +8230,7 @@ var I18N={fa:{
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
  frot_180:"هر 3 دقیقه",frot_300:"هر 5 دقیقه",frot_600:"هر 10 دقیقه (پیش‌فرض)",frot_900:"هر 15 دقیقه",frot_1800:"هر 30 دقیقه",frot_3600:"هر 1 ساعت",
- fsh_random_n:"تصادفی",fsh_random_m:"بدونِ تقلید",fsh_quic_m:"شبیهِ HTTP/3",fsh_video_n:"ویدیوکال",fsh_video_m:"بسته‌های بزرگ",fsh_webrtc_m:"RTPِ کوچک",
+ fsh_random_n:"تصادفی",fsh_random_m:"از کلِ پورت‌ها",fsh_quic_m:"فقط ۴۴۳ — HTTP/3",fsh_video_n:"ویدیوکال",fsh_video_m:"۴۴۳ و ۸۸۰۱",fsh_webrtc_m:"۳۴۷۸ / ۵۳۴۹ / ۱۹۳۰۲",
  fec_light:"سبک",fec_balanced:"متعادل",fec_strong:"قوی",fec_ov20:"20٪ سربار",fec_ov30:"30٪ سربار",fec_ov50:"50٪ سربار",
  flux_carrier_lbl:"پروفایلِ flux",flux_udp_best:"اینترنت",flux_udp_m:"UDPِ واقعی · پورت می‌چرخد",flux_stun_m:"هدرِ STUN · شبیهِ تماسِ تصویری",
  flux_shape_lbl:"پروفایلِ شکل — شبیهِ چه ترافیکی",flux_rot_lbl:"بازهٔ چرخش",flux_rot_ph:"بازه",flux_rotate_btn:"چرخشِ الان (epoch را جلو می‌برد؛ لحظه‌ای قطع)",
