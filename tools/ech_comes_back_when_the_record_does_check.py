@@ -40,7 +40,7 @@ m.log_event = lambda *a, **k: None
 m.get_settings = lambda: {"ech_refresh_mins": 15}
 m._fetch_ech_map = lambda hosts, px: dict(answer)
 m._ech_px = lambda L: None
-m._ech_live_push = lambda lid, chmap: ""
+m._ech_live_push = lambda lid, chmap: (False, "")
 m._ech_pool_state = lambda lid: (False, False, False)
 m._ech_safe_rebuild = lambda lid: (rebuilt.append(lid), True)[1]
 

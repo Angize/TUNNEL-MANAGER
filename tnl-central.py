@@ -5563,22 +5563,22 @@ def _ech_link_hosts(L):
 
 def _ech_live_push(lid, chmap):
     if not chmap:
-        return ""
+        return (False, "")
     L = next((x for x in load_links() if x.get("id") == lid), None)
     if not L or L.get("type") != "core" or not (L.get("ws_pool") or L.get("ws_host")):
-        return ""
+        return (False, "")
     node = _client_node(L)
     if not node:
-        return ""
+        return (False, "")
     try:
         r = node_call(node, "ech-update", "POST", {"name": L.get("name"), "snis": chmap}, timeout=8)
     except Exception:
-        return ""
+        return (True, "")
     if not isinstance(r, dict) or not r.get("ok"):
-        return ""
+        return (True, "")
     nm = str(node.get("name") or "").strip()
     host = str(node.get("host") or "").strip()
-    return "%s \u2022 %s" % (nm, host) if nm and host else (nm or host or str(node.get("id") or ""))
+    return (True, "%s \u2022 %s" % (nm, host) if nm and host else (nm or host or str(node.get("id") or "")))
 
 
 def _ech_pool_state(lid):
@@ -5733,14 +5733,18 @@ def _ech_refresh_once():
                 log_event("bad", "ech", f"تونلِ «{nm}»: بازگشتِ ECH",
                           "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است")
         if changed and chmap:
-            pushed = _ech_live_push(lid, chmap) if kind in ("pool", "single") else ""
+            tried, pushed = _ech_live_push(lid, chmap)
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             if pushed:
                 dfa += "\nنودِ مقصد: %s" % pushed
-                fa = "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label)
+                log_event("ok", "ech", "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
+            elif tried:
+                if _ech_safe_rebuild(lid):
+                    log_event("warn", "ech", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی pushِ زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
+                else:
+                    log_event("bad", "ech", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه pushِ زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
             else:
-                fa = "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label)
-            log_event("ok", "ech", fa, dfa)
+                log_event("ok", "ech", "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
         reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
         if kind == "pool" and (down or stalled):
             if lid not in _ech_down_rebuilt or changed:
