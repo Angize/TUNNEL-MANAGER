@@ -8157,7 +8157,7 @@ var I18N={fa:{
 
 
 
- raw_porttries_lbl:"چند بار پورتِ مبدأ عوض شود", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ porttries_lbl:"چند بار پورتِ مبدأ عوض شود",porttries_d:"ارزان‌ترین پلهٔ نردبان: وقتی نود می‌گوید تونل رد نمی‌شود، هسته اول <b>فقط پورتِ مبدأ را دوباره می‌کشد</b> و هیچ آی‌پی‌ای را متهم نمی‌کند — سنجشِ ۲۰۲۶-۰۸-۱۷ نشان داد ۱۶٪ پورت‌های مبدأ روی مسیر مرده‌اند و این ربطی به مقصد ندارد. این عدد می‌گوید چند قرعه بکشد و بعد برود سراغ پله‌های گران‌تر (دستِ دوباره، و بعد آی‌پی/لبهٔ بعدی). پیش‌فرض ۲. بزرگ‌تر یعنی دیرتر آی‌پی می‌سوزاند ولی دیرتر هم جابه‌جا می‌شود. بازهٔ مجاز ۱ تا ۵۰. وقتی همهٔ پله‌ها خرج شد، «صبر پیش از تلاشِ دوبارهٔ نردبان» در تنظیمات می‌گوید چقدر بعد همین قرعه‌ها را از نو بدهد.", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw / flux",
@@ -9468,7 +9468,7 @@ function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
 function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnShapeGate()}
 function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnShapeGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='spoof'?'جعل':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='flux'?'flux':(t=='spoof'?'جعل':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))))));corRawVis();corDnsVis();corFluxVis();corWsVis();corPortGate();corCoverGate();corFecGate();corSpoofVis();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
 function corFluxVis(){var w=el('e_fluxblk');if(w)w.style.display=(_corS.Tr=='flux')?'':'none';fluxTick()}
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
@@ -9706,10 +9706,16 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
    +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
- +'<div id="'+idp+'sptries">'
-   +'<label style="margin-top:13px">'+esc(T('raw_porttries_lbl'))+'</label>'
-   +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'
  +'</div>'}
+var PORT_RUNG_TRANSPORTS=['udp','tcp','flux','ws'];
+function portTriesOn(S){
+ if(S.Tr=='raw')return (S.RawProfile=='udp'||S.RawProfile=='tcp')&&!!S.SportRandom;
+ return PORT_RUNG_TRANSPORTS.indexOf(S.Tr)>=0}
+function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
+ +'<label class="first">'+esc(T('porttries_lbl'))+'</label>'
+ +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr">'
+ +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('porttries_d')+'</div></div>'}
+function portTriesVis(idp,S){var w=el(idp+'sptries');if(w)w.style.display=portTriesOn(S)?'':'none'}
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
    +'<div class="seg2" id="'+idp+'wkg_'+sd+'">'
@@ -9735,7 +9741,6 @@ function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
  var f=el(idp+'sp_fix'),r=el(idp+'sp_rnd');
  if(f)f.classList.toggle('on',!on); if(r)r.classList.toggle('on',!!on)
  var w=el(idp+'spfix');if(w)w.style.display=on?'none':'';
- var t=el(idp+'sptries');if(t)t.style.display=on?'':'none';
  var i=el(idp+'rawsport');
  if(i){if(on)i.value='';else if(!i.value)i.value=String(RAW_SPORT_FIX)}
  sportPresetPaint(idp)}
@@ -9859,6 +9864,7 @@ async function corSpoofProbe(){var cap=el('e_cap');if(!cap)return;cap.className=
 function corToggleDecoy(){if(!_corS.SpoofOk)return;_corS.Decoy=!_corS.Decoy;el('e_decoysw').classList.toggle('on',_corS.Decoy);el('e_decoyiprow').style.display=_corS.Decoy?'':'none'}
 function corToggleSrc(){if(!_corS.SpoofOk)return;_corS.Src=!_corS.Src;el('e_srcsw').classList.toggle('on',_corS.Src);el('e_srciprow').style.display=_corS.Src?'':'none'}
 function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corS.Tr=='raw')?'':'none'}
+function corPortTriesVis(){portTriesVis('e_',_corS)}
 function corDnsVis(){var w=el('e_dnsblk');if(w)w.style.display=(_corS.Tr=='dns')?'':'none'}
 function trFade(bar){if(!bar)return;var w=bar.parentNode;if(!w)return;w.classList.toggle('atend',Math.abs(bar.scrollLeft)+bar.clientWidth>=bar.scrollWidth-4)}
 function corPortGate(){var p=el('e_port');if(!p)return;if(_corS.Tr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_corS.Tr=='raw'||_corS.Tr=='flux'||_corS.Tr=='spoof'||_corS.Tr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_corS.Tr=='flux')?T('port_flux_ph'):(_corS.Tr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
@@ -9870,12 +9876,12 @@ function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none
  +'<input id="'+idp+'dnsresolvers" class="mono" placeholder="10.202.10.202, 10.202.10.102" style="direction:ltr">'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:5px">'+T('dns_resolvers_note')+'</div>'
  +'<div class="autonote" style="margin-top:11px">'+ic('warn')+'<span>'+T('dns_delegation_note')+'</span></div></div>'}
-function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis();corPortVis()}
+function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corSpoofVis();corProtoVis();corPortVis();corPortTriesVis()}
 function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('e_',val)}
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
 function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bare')||S.Tr=='spoof'}
 function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
-function corSetSport(on){_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom)}
+function corSetSport(on){_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis()}
 function corSetSportPort(n){var i=el('e_rawsport');if(i)i.value=n;sportPresetPaint('e_')}
 function corSportWarn(){sportPresetPaint('e_')}
 function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('e_rpg');
@@ -9905,6 +9911,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('e_cipher',CORE_CIPHERS(),'auto',T('cipher_ph'),'onCorCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_flux" onclick="corSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt" id="e_tr_spoof" onclick="corSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt" id="e_tr_dns" onclick="corSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
   '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
+  portTriesSection('e_')+
   workersSection('e_','cor')+
   fluxSection('e_','cor','udp',600,'random',null)+
   wsSection('e_','cor','','',false,'',false,'ws','',null)+
@@ -9921,7 +9928,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050"></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic(COR_IC)+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corDesyncGate();corCdnShapeGate();corWorkersVis();trFade(el('e_trbar'))}
+ corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corPortTriesVis();corDesyncGate();corCdnShapeGate();corWorkersVis();trFade(el('e_trbar'))}
 function onCorNode(){corRotVis('e_');corRoleLbls();if(el('e_spoofblk')&&_corS.Tr=='spoof')corSpoofProbe();corWorkersVis()}   
 function renderCorIps(){renderRotIps('e_')}
 var _rotS={};
@@ -9996,9 +10003,8 @@ function _collectCoreBody(S,px,m,body){
    var _se=sportErr(px);if(_se){formErr(m,_se);return true}
    body.raw_sport_random=!!S.SportRandom;
    var _st=parseInt(v(px+'rawsport'),10);
-   body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0
-   var _pt=parseInt(v(px+'porttries'),10);
-   body.port_tries=(_pt>=1&&_pt<=50)?_pt:0}}
+   body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}
+ if(portTriesOn(S)){var _pt=parseInt(v(px+'porttries'),10);body.port_tries=(_pt>=1&&_pt<=50)?_pt:0}
  if(S.Tr=='spoof'){if(ssVal(px+'cipher')=='none'){formErr(m,T('spoof_need_enc'));return true}
   var _pe2=rawProtoErr(px);if(_pe2){formErr(m,_pe2);return true}var _sp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_sp;
   if(S.SpoofOk){var _dip=S.Decoy?(v(px+'decoyip')||'').trim():'';var _sip=S.Src?(v(px+'srcip')||'').trim():'';
@@ -10032,7 +10038,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
+function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
@@ -10064,13 +10070,14 @@ function ceSpoofPrefill(l){var di=el('ee_decoyip'),si=el('ee_srcip');if(di&&l.sp
  var d=el('ee_decoysw'),s=el('ee_srcsw');if(d)d.classList.toggle('on',_eeS.Decoy);if(s)s.classList.toggle('on',_eeS.Src);
  var dr=el('ee_decoyiprow'),sr=el('ee_srciprow');if(dr)dr.style.display=_eeS.Decoy?'':'none';if(sr)sr.style.display=_eeS.Src?'':'none'}
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeS.Tr=='raw')?'':'none'}
+function cePortTriesVis(){portTriesVis('ee_',_eeS)}
 function ceDnsVis(){var w=el('ee_dnsblk');if(w)w.style.display=(_eeS.Tr=='dns')?'':'none'}
 function cePortGate(){var p=el('ee_port');if(!p)return;if(_eeS.Tr=='ws'){p.disabled=false;if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}var np=(_eeS.Tr=='raw'||_eeS.Tr=='flux'||_eeS.Tr=='spoof'||_eeS.Tr=='dns');p.disabled=np;if(np||p.value=='80')p.value='';p.placeholder=(_eeS.Tr=='flux')?T('port_flux_ph'):(_eeS.Tr=='dns')?T('port_dns_ph'):(np?T('port_raw_ph'):'20050')}
-function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis();ceProtoVis();cePortVis()}
+function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceSpoofVis();ceProtoVis();cePortVis();cePortTriesVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
 function ceSetPort(v){var i=el('ee_rawport');if(i)i.value=v;cePortWarn()}
-function ceSetSport(on){_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom)}
+function ceSetSport(on){_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis()}
 function ceSetSportPort(n){var i=el('ee_rawsport');if(i)i.value=n;sportPresetPaint('ee_')}
 function ceSportWarn(){sportPresetPaint('ee_')}
 function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('ee_rpg');
@@ -10100,6 +10107,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='flux'?' on':'')+'" id="ee_tr_flux" onclick="ceSetTr(\\'flux\\')"><b>FLUX</b><span>'+esc(T('tr_flux_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='spoof'?' on':'')+'" id="ee_tr_spoof" onclick="ceSetTr(\\'spoof\\')"><b>SPOOF</b><span>'+esc(T('tr_spoof_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
+  portTriesSection('ee_')+
   workersSection('ee_','ce')+
   fluxSection('ee_','ce',_eeS.FluxCarrier,_eeS.FluxRotate,_eeS.FluxShape,id)+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,l)+
