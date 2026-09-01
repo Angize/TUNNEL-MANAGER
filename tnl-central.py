@@ -9442,14 +9442,17 @@ function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
 var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820;
 function portRows(l){var t=l.transport||'udp';
+ var live=num(l.sport_live);
  if(t=='raw'){
   if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
   var _mode=l.raw_sport_random?T('port_src_rand'):T('port_src_fixed');
-  var _now=num(l.sport_live)||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
+  var _now=live||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
   return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
          '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(_mode+(_now?(' ('+_now+')'):''))+'</b></div>'}
- if(t=='flux'||t=='spoof'||t=='dns'||!l.port)return '';
- return '<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'}
+ if(t=='spoof'||t=='dns')return '';
+ var rows=(t!='flux'&&l.port)?('<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'):'';
+ if(live&&portTriesOn({Tr:t}))rows+='<div>'+esc(T('port_src'))+': <b class="mono">'+esc(live)+'</b></div>';
+ return rows}
 function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best'),warn:1},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m'),warn:1},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
