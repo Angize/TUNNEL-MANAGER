@@ -9643,10 +9643,10 @@ function spoofSection(idp,fnp){return '<div class="spoofsec" id="'+idp+'spoofblk
  +'<div id="'+idp+'egr" style="display:none;margin-top:8px"></div></div>'}
 function spoofFormCtx(idp){
   if(idp=='e_')return {a:ssVal('e_a'),b:ssVal('e_b'),srv:_corS.Srv,
-                       aip:pickedIP('e_','a',''),bare:pickedIP('e_','b','')};
+                       aip:pickedIP('e_','a',''),bip:pickedIP('e_','b','')};
   var l=(FLEET||[]).filter(function(x){return x.id==_eeS.Lid})[0]||{};
   return {a:(_eeS.NodesArr||[])[0],b:(_eeS.NodesArr||[])[1],srv:_eeS.Srv,
-          aip:pickedIP('ee_','a',l.a_ip||''),bare:pickedIP('ee_','b',l.b_ip||'')};}
+          aip:pickedIP('ee_','a',l.a_ip||''),bip:pickedIP('ee_','b',l.b_ip||'')};}
 function _egrRow(ok,txt){return '<div class="spoofcap '+(ok?'ok':'no')+'" style="margin-top:6px">'+(ok?ic('okc'):ic('xc'))+'<span>'+esc(txt)+'</span></div>';}
 async function spoofEgressTest(idp){
   var ctx=spoofFormCtx(idp),out=el(idp+'egr'),btn=el(idp+'egrbtn');if(!out)return;
