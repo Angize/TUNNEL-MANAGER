@@ -5918,11 +5918,9 @@ def _mib(b):
 
 
 def _ev_core_text(kind, code, detail, nm):
-    key = str(detail or "")
-    for tag in ("dst:", "src:", "ip:", "sni:"):
-        if key.startswith(tag):
-            key = key[len(tag):]
-            break
+    raw = str(detail or "")
+    axis, sep, rest = raw.partition(":")
+    key = rest if sep and axis in ("dst", "src", "ip", "sni") else raw
     if kind == "down":
         rot = _EV_ROT_CODE.get(code)
         if rot:
@@ -5959,9 +5957,8 @@ def _ev_core_text(kind, code, detail, nm):
             return ("warn", "edge", f"تونلِ «{nm}»: توقفِ چرخش — فقط یک لبه در دسترس مانده",
                     "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
         if code == "pin_dropped":
-            axis, _, why = key.partition(":")
             what = _PIN_AXIS.get(axis, "لبهٔ")
-            if why == "cannot-land":
+            if rest == "cannot-land":
                 return ("warn", "edge", f"تونلِ «{nm}»: آزادشدنِ پینِ {what} — اصلاً وصل نشد",
                         "چیزی که پین کردی در دسترس نبود؛ برای جلوگیری از قطعی، چرخش به انتخابِ سالم برگشت")
             return ("warn", "edge", f"تونلِ «{nm}»: آزادشدنِ پینِ {what} — مسدود بود",
