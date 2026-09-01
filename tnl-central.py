@@ -4975,27 +4975,27 @@ def _restore_link(A, B, L, extra=None):
             extra = _tunnel_extra(L)
         except Exception:
             extra = _tunnel_extra(L, refetch_ech=False)
-    _rot = L.get("ip_rotate") and L.get("transport") in DIRECT_TRANSPORTS
-    _ap, _bp = list(L.get("a_ip_pool") or []), list(L.get("b_ip_pool") or [])
-    _rs = max(0, min(86400, int(L.get("rotate_secs") or 0)))
-    for N, self_ip, peer_ip, own, peer, is_a in ((A, L["a_ip"], L["b_ip"], _ap, _bp, True),
-                                                 (B, L["b_ip"], L["a_ip"], _bp, _ap, False)):
-        if N:
-            body = {"type": L["type"], "self_ip": self_ip, "peer_ip": peer_ip,
-                    "subnet": L["subnet"], "id": tid, "name": L["name"],
-                    "host": overlay_host(L["type"], L.get("server_side"), is_a),
-                    "enabled": L.get("enabled", True), **extra}
-            role = _core_role(L, N["id"])
-            if role:
-                body["role"] = role
-                if _rot:
-                    _apply_core_rotation(body, role == "client", own, peer, _rs)
-                _apply_core_tuning(body, body)
-            _apply_probe_tuning(body)
-            try:
-                node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
-            except Exception:
-                pass
+    ttype = L["type"]
+    a_body = {"type": ttype, "self_ip": L["a_ip"], "peer_ip": L["b_ip"], "subnet": L["subnet"],
+              "id": tid, "name": L["name"], "host": overlay_host(ttype, L.get("server_side"), True),
+              "enabled": L.get("enabled", True), **extra}
+    b_body = {"type": ttype, "self_ip": L["b_ip"], "peer_ip": L["a_ip"], "subnet": L["subnet"],
+              "id": tid, "name": L["name"], "host": overlay_host(ttype, L.get("server_side"), False),
+              "enabled": L.get("enabled", True), **extra}
+    if ttype == "core":
+        a_body["role"] = _core_role(L, A["id"]) if A else ""
+        b_body["role"] = _core_role(L, B["id"]) if B else ""
+        _core_rotation_bodies(L, a_body, b_body)
+        _core_workers_bodies(L, a_body, b_body)
+        _apply_core_tuning(a_body, b_body)
+    _apply_probe_tuning(a_body, b_body)
+    for N, body in ((A, a_body), (B, b_body)):
+        if not N:
+            continue
+        try:
+            node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
+        except Exception:
+            pass
 
 
 def api_edit_link(d):
