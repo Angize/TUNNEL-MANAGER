@@ -5615,8 +5615,7 @@ def _ech_write(lid, kind, updates, degrade):
             if x.get("id") != lid:
                 continue
             if degrade:
-                if x.get("ech"):
-                    x["ech"] = False
+                if x.get("ws_ech"):
                     x.pop("ws_ech", None)
                     changed = True
                 for s in (x.get("ws_edge_snis") or []):
@@ -5642,6 +5641,14 @@ def _ech_write(lid, kind, updates, degrade):
         if changed:
             save_json(LINKS_FILE, links)
     return changed, chmap
+
+
+def _ech_keys_blank(L, kind, hosts):
+    if kind == "single":
+        return not str(L.get("ws_ech") or "").strip()
+    return all(not str(s.get("ech") or "").strip()
+               for s in (L.get("ws_edge_snis") or [])
+               if isinstance(s, dict) and s.get("host") in hosts)
 
 
 def _ech_safe_rebuild(lid):
@@ -5683,14 +5690,24 @@ def _ech_refresh_once():
                     _ech_empty[key] = _ech_empty.get(key, 0) + 1
                     empty_flags.append(_ech_empty[key] >= _ECH_EMPTY_CYCLES)
         removed = bool(hosts) and len(empty_flags) == len(hosts) and all(empty_flags)
+        blank_before = _ech_keys_blank(L, kind, set(hosts))
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
                 if _ech_safe_rebuild(lid):
-                    log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "به wss ساده تنزل یافت و بازسازی شد")
+                    log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH",
+                              f"کلید از DNS ناپدید شد؛ تونل فعلاً بدون ECH بازسازی شد. تنظیمِ ECH همچنان روشن است و "
+                              f"پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند — به‌محضِ برگشتنِ رکورد خودش برمی‌گردد")
                 else:
                     log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
             continue
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)
+        if changed and chmap and blank_before:
+            if _ech_safe_rebuild(lid):
+                log_event("ok", "ech", f"تونلِ «{nm}»: بازگشتِ ECH",
+                          "رکوردِ ECH دوباره منتشر شد؛ تونل با کلیدِ تازه بازسازی شد")
+            else:
+                log_event("bad", "ech", f"تونلِ «{nm}»: بازگشتِ ECH",
+                          "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است")
         if changed and chmap:
             pushed = _ech_live_push(lid, chmap) if kind in ("pool", "single") else ""
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
