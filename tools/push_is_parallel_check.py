@@ -4,9 +4,11 @@
 
 Properties, all operator-stated, all easy to lose in a refactor:
 
-  * BOUNDED PARALLEL -- more than one node uploads at a time, never more than PUSH_WORKERS. Both halves
-    matter: one-at-a-time is too slow for a 12-node fleet, and all-at-once saturates the panel's uplink so
-    every bar crawls.
+  * PARALLEL, WITH A CEILING -- one worker per node, capped at PUSH_CAP. #480 removed the old shared
+    semaphore after measuring it: two jobs blocked each other and a fleet of 37 went out four at a time
+    (peak 4 before, peak 12 after, 3.3s to under 1s). So the fleet-sized run must put EVERY node in
+    flight, and the cap must still hold a queue back when the fleet is bigger than it. The cap tests
+    below lower PUSH_CAP on the module so a queue exists to observe at a 10-node fixture size.
   * a node that FAILS or TIMES OUT is recorded and the pool KEEPS GOING. One dead node must not take the
     whole sweep's result with it.
   * the progress a node reports is the bytes actually sent, not a phase guess, and it only moves forward.
@@ -26,8 +28,14 @@ import threading
 import time
 from pathlib import Path
 
-# what _push_worker takes now: an ordered list of steps, each (code, endpoint, build, timeout, gate)
-PLAN = [("deliver", "update", lambda n: {"code": "x"}, 60, None)]
+# The bounded-queue sections lower the module's PUSH_CAP to this, so a 10-node fixture still leaves a
+# queue behind the ceiling. The real cap is 256: at fixture size every node would be in flight and the
+# "what is still waiting" assertions would be vacuously true.
+CAP = 4
+
+# what _push_worker takes now: an ordered list of steps, each (code, endpoint, build, timeout, gate).
+# build is called as build(node, ctx) -- the ctx carries the job/node ids and the bar's position.
+PLAN = [("deliver", "update", lambda n, ctx: {"code": "x"}, 60, None)]
 
 NODES = [{"id": "n%d" % i, "name": "N%d" % i, "host": "10.0.0.%d" % i, "port": 8099, "token": "t"}
          for i in (1, 2, 3, 4)]
@@ -76,12 +84,13 @@ def main():
     jb = P._push_job_new("core", BIG)
     P._push_worker(jb, "core", BIG, PLAN)
     chk("more than one node uploads at a time", peak["max"] >= 2, True)
-    chk("but never more than PUSH_WORKERS", peak["max"] <= P.PUSH_WORKERS, True)
+    chk("but never more than PUSH_CAP", peak["max"] <= P.PUSH_CAP, True)
+    chk("a fleet smaller than the cap puts EVERY node in flight at once (this is what #480 bought)",
+        peak["max"], len(BIG))
     chk("every node in the fleet was pushed to", sorted(starts), sorted(n["id"] for n in BIG))
     chk("a node is claimed and labelled in one write, never «running» with no step",
         all(v.get("step") for v in P.api_push_status({"job": jb})["nodes"].values()), True)
-    chk("the pool starts at the head of the queue, in order",
-        starts[:P.PUSH_WORKERS], [n["id"] for n in BIG[:P.PUSH_WORKERS]])
+    chk("every node was claimed exactly once", sorted(starts), sorted(n["id"] for n in BIG))
     sb = P.api_push_status({"job": jb})
     chk("and every one of them reports done", sorted({v["state"] for v in sb["nodes"].values()}), ["ok"])
 
@@ -147,12 +156,14 @@ def main():
         return {"ok": True}
 
     P.node_push = three_push
-    PLAN3 = [("check", "ping", lambda _n: {}, 15, lambda r: False),
-             ("deliver", "big", lambda _n: {"d": "x"}, 60, None),
-             ("install", "apply", lambda _n: {"a": 1}, 60, None)]
+    PLAN3 = [("check", "ping", lambda _n, _c: {}, 15, lambda r: False),
+             ("deliver", "big", lambda _n, _c: {"d": "x"}, 60, None),
+             ("install", "apply", lambda _n, _c: {"a": 1}, 60, None)]
     j3 = P._push_job_new("core", [NODES[0]])
     P._push_worker(j3, "core", [NODES[0]], PLAN3)
     fin = P.api_push_status({"job": j3})["nodes"]["n1"]
+    chk("the three-step plan actually ran (an empty trace would pass every check below)",
+        len(seen3), 12)
     chk("three steps, and the bar never goes backwards", seen3 == sorted(seen3), True)
     chk("...it starts at zero and ends at a hundred", (seen3[0], fin["pct"]), (0, 100))
     chk("...and each step lands on its own share of the bar rather than restarting",
@@ -180,11 +191,12 @@ def main():
         return {"ok": True}
 
     P.node_push = cancel_push
+    P.PUSH_CAP = CAP                          # hold a queue back so there is something to skip
     jc = P._push_job_new("agent", BIG)
     tc = threading.Thread(target=P._push_worker,
                           args=(jc, "agent", BIG, PLAN), daemon=True)
     tc.start()
-    while len(reached) < P.PUSH_WORKERS:
+    while len(reached) < CAP:
         time.sleep(0.01)
     P.api_push_cancel({"job": jc})
     sc_mid = P.api_push_status({"job": jc})
@@ -196,7 +208,7 @@ def main():
     chk("_push_one really passes should_abort down", sorted(aborted), sorted(reached))
     chk("the nodes that were mid-upload are cut off and read skip",
         sorted({sc["nodes"][nid]["state"] for nid in reached}), ["skip"])
-    chk("no node past the pool was ever started", len(reached), P.PUSH_WORKERS)
+    chk("no node past the cap was ever started", len(reached), CAP)
     chk("so after a cancel nothing reads ok", sorted({v["state"] for v in sc["nodes"].values()}), ["skip"])
     chk("and the job still reports itself finished", sc["done"], True)
     chk("a cancelled job is no longer offered to reattach to", P._push_merged(), None)
@@ -266,11 +278,12 @@ def main():
         return {"ok": True}
 
     P.node_push = slow_push
+    P.PUSH_CAP = CAP
     jp = P._push_job_new("core", BIG)
     tp = threading.Thread(target=P._push_worker,
                           args=(jp, "core", BIG, PLAN), daemon=True)
     tp.start()
-    while len(seen2) < P.PUSH_WORKERS:
+    while len(seen2) < CAP:
         time.sleep(0.01)
     P.api_push_pause({"job": jp, "paused": True})
     gate2.set()                               # let the in-flight ones finish
@@ -278,8 +291,8 @@ def main():
     chk("pause reports itself", P.api_push_status({"job": jp})["paused"], True)
     chk("the in-flight nodes still finished",
         len([1 for v in P.api_push_status({"job": jp})["nodes"].values() if v["state"] == "ok"]),
-        P.PUSH_WORKERS)
-    chk("no node past the pool was handed out while paused", len(seen2), P.PUSH_WORKERS)
+        CAP)
+    chk("no node past the cap was handed out while paused", len(seen2), CAP)
     chk("a paused job is NOT done", P.api_push_status({"job": jp})["done"], False)
     P.api_push_pause({"job": jp, "paused": False})
     tp.join(timeout=8)
@@ -361,7 +374,9 @@ def main():
                                     or (ARCHBYTES[arch], ARCHSHA[arch], "v1"))
     P._sign_sha = lambda sha: seenp.__setitem__("sign", seenp["sign"] + 1) or "SIG"
     P._node_arch = lambda n: n["arch"]
-    P._staged_info = lambda: {"version": "v1"}
+    # the staged meta carries the per-arch sha the check gate compares against; it is written once by
+    # _stage_core, which is why the gate no longer re-reads the megabytes to hash them per node
+    P._staged_info = lambda: {"version": "v1", "sha": dict(ARCHSHA), "arches": list(ARCHSHA)}
     P._delivery_mode = lambda kind: "push"
     P._core_delivery_check = lambda *a: None
     mixed = [{"id": "m%d" % i, "name": "M%d" % i, "arch": "amd64" if i % 4 else "arm64"}
@@ -389,7 +404,8 @@ def main():
     gate = plan[0][4]
     chk("a node already on this core is settled without sending anything",
         [gate({"arch": "amd64", "core_sha": ARCHSHA["amd64"][:12]}) for _ in range(6)], [True] * 6)
-    chk("...and the staged file is hashed once per ARCH, not once per node", seenp["bytes"], 1)
+    chk("...and the gate never re-reads the staged binary at all -- it compares against the sha the "
+        "staging step already wrote into the meta", seenp["bytes"], 0)
     chk("a node on a different core is not skipped",
         gate({"arch": "amd64", "core_sha": "f" * 12}), False)
     chk("a node that never answered has no arch, and is not skipped",
