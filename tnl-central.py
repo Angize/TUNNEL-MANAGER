@@ -3889,7 +3889,8 @@ def api_fleet(d):
                "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
-               "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), **tfl.get(L["id"], {})}
+               "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), "tag": int(L.get("tag") or 0),
+               **tfl.get(L["id"], {})}
         if L.get("type") == "core":
             _cl = lb if (L.get("server_side") != "b") else la
             _sp = (_cl.get("sports") or {}).get(L["name"])
@@ -5486,6 +5487,33 @@ def _rebuild_link_impl(d, h=None):
     return {"ok": True, "name": name}
 
 
+CARD_TAGS = 6
+
+
+def api_link_tag(d):
+    _require(d, ["id"])
+    tag = int(d.get("tag") or 0)
+    if not 0 <= tag <= CARD_TAGS:
+        raise ValueError("bad tag")
+    with _reg_lock:
+        items = load_links()
+        L = next((x for x in items if x["id"] == d["id"]), None)
+        if L is None:
+            items = load_nodes()
+            L = next((x for x in items if x["id"] == d["id"]), None)
+            path = NODES_FILE
+        else:
+            path = LINKS_FILE
+        if L is None:
+            raise ValueError("item not found")
+        if tag:
+            L["tag"] = tag
+        else:
+            L.pop("tag", None)
+        save_json(path, items)
+    return {"ok": True, "tag": tag}
+
+
 def api_link_toggle(d):
     _require(d, ["id"])
     enabled = bool(d.get("enabled"))
@@ -7003,7 +7031,7 @@ API = {
     "core-versions": api_core_versions, "core-check": api_core_check,
     "core-upload": api_core_upload, "core-delete-blob": api_core_delete_blob, "core-stage": api_core_stage, "core-stage-status": api_core_stage_status,
     "core-stage-cancel": api_core_stage_cancel, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
-    "reorder": api_reorder,
+    "reorder": api_reorder, "link-tag": api_link_tag,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "delete-link", "link-toggle", "flux-rotate", "edge-status", "pool-retest-now", "pool-select",
@@ -7012,7 +7040,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",
              "core-delete-blob", "core-stage-cancel",
              "update-agent", "update-core",
-             "reorder",
+             "reorder", "link-tag",
              "act-cancel"}
 
 
@@ -7966,6 +7994,20 @@ body.dark .tag.core{color:#a78bfa}
 .eib.aim.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .tglbox.dis{opacity:.45;pointer-events:none}
 .portlock{opacity:.42;pointer-events:none}
+.card.tagd{position:relative}
+.card.tagd::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;
+ background:linear-gradient(140deg,var(--tga),var(--tgb));pointer-events:none;
+ -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+ -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+ mask-composite:exclude}
+.card.tagpick{transform:scale(.985)}
+.tagov{position:fixed;inset:0;z-index:70;background:rgba(8,11,18,.34);display:flex;align-items:center;justify-content:center;padding:20px}
+.tagbox{background:var(--card);border:1px solid var(--bord);border-radius:18px;padding:16px 18px;box-shadow:0 18px 50px rgba(8,11,18,.28);max-width:340px;width:100%}
+.tagbox .tgt{font-size:12.5px;font-weight:700;margin-bottom:12px;text-align:center}
+.tagrow{display:flex;gap:10px;justify-content:center}
+.tagdot{width:40px;height:40px;border-radius:50%;border:2px solid transparent;cursor:pointer;flex:0 0 auto;padding:0}
+.tagdot.on{border-color:var(--tx);box-shadow:0 0 0 3px var(--field)}
+.tagnone{margin-top:14px;width:100%;border-radius:12px;padding:9px;border:1px solid var(--bord);background:var(--field);color:var(--sub);font:inherit;font-size:12px;cursor:pointer}
 .rl{font-size:8px;font-weight:800;border-radius:5px;padding:1px 4px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent)}  
 .rl.cli{color:var(--gold);background:var(--goldw)}
@@ -8116,7 +8158,7 @@ var I18N={fa:{
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -9172,8 +9214,58 @@ function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic(
  var tot=hasT?'<span class="iso"><b class="din">↓'+fmtBytes(l.rx_total)+'</b><b class="dout">↑'+fmtBytes(l.tx_total)+'</b></span>':'<b class="mono">—</b>';
  var rates=hasT?'<span class="din iso">↓ '+fmtRate(l.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(l.tx_bps)+'</span>':'<span class="muted" style="font-size:11px">'+esc(T('no_live_side'))+'</span>';
  return '<div class="ltraf">'+rates+'<span class="tot">'+esc(T('total'))+' '+tot+'</span></div>'}
+var CARD_TAGS=[{a:'#9DE02E',b:'#39D74C'},{a:'#21D6DF',b:'#36ABFA'},{a:'#37E9C7',b:'#45C9EF'},
+ {a:'#FDB61E',b:'#F77F43'},{a:'#F68C38',b:'#F75968'},{a:'#E46DC9',b:'#A673FC'}];
+var TAG_HOLD_MS=450,_tagT=null,_tagCard=null,_tagX=0,_tagY=0;
+function tagCardAt(t){var c=t&&t.closest?t.closest('.card.acc[data-rid]'):null;
+ return (c&&!t.closest('button,input,select,a,.act,.tglsw,.modalov'))?c:null}
+function tagHoldStart(e){
+ if(e.touches&&e.touches.length>1)return;
+ var c=tagCardAt(e.target);if(!c)return;
+ var p=e.touches?e.touches[0]:e;_tagX=p.clientX;_tagY=p.clientY;_tagCard=c;
+ _tagT=setTimeout(function(){_tagT=null;c.classList.remove('tagpick');openTagPicker(c)},TAG_HOLD_MS);
+ c.classList.add('tagpick')}
+function tagHoldMove(e){
+ if(!_tagT)return;var p=e.touches?e.touches[0]:e;
+ if(Math.abs(p.clientX-_tagX)>10||Math.abs(p.clientY-_tagY)>10)tagHoldCancel()}
+function tagHoldCancel(){if(_tagT){clearTimeout(_tagT);_tagT=null}
+ if(_tagCard){_tagCard.classList.remove('tagpick');_tagCard=null}}
+function openTagPicker(card){
+ var id=card.getAttribute('data-rid'),cur=num((card.getAttribute('style')||'')?0:0);
+ var link=(FLEET||[]).filter(function(x){return String(x.id)==id})[0]||{};
+ cur=num(link.tag);
+ var ov=document.createElement('div');ov.className='tagov';
+ ov.innerHTML='<div class="tagbox"><div class="tgt">'+esc(T('tag_title'))+'</div><div class="tagrow">'
+  +CARD_TAGS.map(function(t,i){return '<button type="button" class="tagdot'+(cur==i+1?' on':'')
+    +'" data-t="'+(i+1)+'" style="background:linear-gradient(140deg,'+t.a+','+t.b+')"></button>'}).join('')
+  +'</div><button type="button" class="tagnone" data-t="0">'+esc(T('tag_clear'))+'</button></div>';
+ var close=function(){ov.remove()};
+ ov.addEventListener('click',function(e){
+  var b=e.target.closest('[data-t]');
+  if(!b){if(e.target===ov)close();return}
+  close();setCardTag(id,parseInt(b.getAttribute('data-t'),10))});
+ document.body.appendChild(ov)}
+async function setCardTag(id,tag){
+ var link=(FLEET||[]).filter(function(x){return String(x.id)==id})[0];
+ if(link)link.tag=tag;
+ var c=el('c_'+id);
+ if(c){c.classList.toggle('tagd',tag>=1);var t=CARD_TAGS[tag-1];
+  if(t){c.style.setProperty('--tga',t.a);c.style.setProperty('--tgb',t.b)}}
+ try{var r=await post('link-tag',{id:id,tag:tag},NET_TIMEOUT);
+  if(!r.ok||!r.d.ok)toast((r.d&&r.d.error)||T('tag_err'),'err')}
+ catch(_){toast(T('tag_err'),'err')}}
+document.addEventListener('touchstart',tagHoldStart,{passive:true});
+document.addEventListener('touchmove',tagHoldMove,{passive:true});
+document.addEventListener('touchend',tagHoldCancel);
+document.addEventListener('touchcancel',tagHoldCancel);
+document.addEventListener('mousedown',tagHoldStart);
+document.addEventListener('mousemove',tagHoldMove);
+document.addEventListener('mouseup',tagHoldCancel);
+document.addEventListener('contextmenu',function(e){if(tagCardAt(e.target))e.preventDefault()});
+function tagStyle(n){var t=CARD_TAGS[n-1];return t?(' style="--tga:'+t.a+';--tgb:'+t.b+'"'):''}
+function tagCls(l){return (num(l.tag)>=1&&num(l.tag)<=CARD_TAGS.length)?' tagd':''}
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
- return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+cardActCls(l)+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'">'+accHead(l,isCore)+
+ return '<div class="card acc'+(l.enabled===false?' off':'')+(open?' open':'')+cardActCls(l)+tagCls(l)+'" id="c_'+l.id+'" data-rid="'+esc(l.id)+'" data-rk="'+(isCore?'core':'tunnels')+'"'+tagStyle(num(l.tag))+'>'+accHead(l,isCore)+
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkFooter(l,editFn){
  var msg=rmsgHTML('lchk_'+l.id);
