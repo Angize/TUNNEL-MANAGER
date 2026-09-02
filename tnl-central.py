@@ -1561,23 +1561,27 @@ def subnet_default(ttype, tid, base=None):
     return "%s/24" % (ipaddress.IPv4Address(int(ipaddress.IPv4Address(net)) + tid * 256))
 
 
-def free_tunnel_port(A, B, exclude_id=None, start=20000):
-    nodes = {A["id"], B["id"]}
+PORT_BAND_LO = 20000
+PORT_BAND_HI = 29999
+
+
+def rand_port(taken=()):
+    free = [p for p in range(PORT_BAND_LO, PORT_BAND_HI + 1) if p not in taken]
+    if not free:
+        raise ValueError("پورتِ آزادی در بازهٔ %d تا %d نمانده است" % (PORT_BAND_LO, PORT_BAND_HI))
+    return free[secrets.randbelow(len(free))]
+
+
+def free_tunnel_port(A, B, exclude_id=None):
     used = set()
     for L in load_links():
         if exclude_id is not None and L.get("id") == exclude_id:
             continue
-        if nodes & {L.get("a_node"), L.get("b_node")}:
-            try:
-                used.add(int(L.get("port") or 0))
-            except (TypeError, ValueError):
-                pass
-    port = start
-    while port in used:
-        port += 1
-    if port > 65535:
-        raise ValueError("پورتِ آزادی بین این دو نود نمانده است")
-    return port
+        try:
+            used.add(int(L.get("port") or 0))
+        except (TypeError, ValueError):
+            pass
+    return rand_port(used)
 
 
 def norm_subnet(ttype, tid, provided, base=None):
@@ -3955,8 +3959,6 @@ def _link_nodes(d):
 def _default_tunnel_port(ttype, tid):
     if ttype == "vxlan":
         return 4789
-    if ttype in ("l2tpv3", "fou", "core"):
-        return 20000 + int(tid)
     return None
 
 
@@ -9506,7 +9508,7 @@ function carrierProfile(l){var t=l.transport||'udp';
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=20000,RAW_ROT_HI=59999;
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=20000,RAW_ROT_HI=29999;
 function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),lo=num(R.lo)||RAW_ROT_LO,hi=num(R.hi)||RAW_ROT_HI;
  var band=esc(T('port_src_rot'))+' · '+esc(lo+'-'+hi)+' · '+esc(T('port_src_rot_every').replace('{n}',every));
  var drawn=num(R.drawn);

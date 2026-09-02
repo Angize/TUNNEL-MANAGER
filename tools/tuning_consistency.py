@@ -277,6 +277,24 @@ def main():
         check(js_dport.group(1) == core_srv.group(1),
               "card destination port: panel RAW_DPORT_DEF=%s core rawServerPort=%s" % (js_dport.group(1), core_srv.group(1)))
 
+    # The band the rotating source port is drawn from. The core owns it; the card prints it, and prints
+    # its own copy whenever the core's live status has not arrived yet. A drifted copy tells the operator
+    # the tunnel is walking ports it is not walking, which is the kind of wrong that survives a whole
+    # debugging session because nothing contradicts it.
+    band_lo = re.search(r"sportBandLo\s*=\s*(\d+)", rawprofile_go)
+    band_span = re.search(r"sportBandSpan\s*=\s*(\d+)", rawprofile_go)
+    js_lo = re.search(r"RAW_ROT_LO\s*=\s*(\d+)", panel_src)
+    js_hi = re.search(r"RAW_ROT_HI\s*=\s*(\d+)", panel_src)
+    if not band_lo or not band_span or not js_lo or not js_hi:
+        check(False, "CANNOT PARSE the rotation band (core lo=%s span=%s panel lo=%s hi=%s) -- THIS SCRIPT is out of date"
+                     % (bool(band_lo), bool(band_span), bool(js_lo), bool(js_hi)))
+    else:
+        core_hi = int(band_lo.group(1)) + int(band_span.group(1)) - 1
+        check(js_lo.group(1) == band_lo.group(1),
+              "rotation band low: panel RAW_ROT_LO=%s core sportBandLo=%s" % (js_lo.group(1), band_lo.group(1)))
+        check(int(js_hi.group(1)) == core_hi,
+              "rotation band high: panel RAW_ROT_HI=%s core sportBandLo+sportBandSpan-1=%d" % (js_hi.group(1), core_hi))
+
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
     # exactly those keys to name its tun-probe verdict. A mismatch is SILENT and total: the node reads

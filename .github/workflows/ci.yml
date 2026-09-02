@@ -13,6 +13,9 @@ name: ci
 #                         placeholders are still literal, so a checker reading the file directly either
 #                         chokes or — worse — passes on something the browser never sees.
 #   tuning_consistency    panel/node/core agree on every tuning knob. core's tuning.go is the authority.
+#   tunnel_port_is_random the port a new tunnel gets is drawn, not counted up from 20000, and no two
+#                         tunnels anywhere hold the same one. The old allocator handed out the lowest
+#                         free port, so one tunnel's number told an observer where all the others were.
 #   log_labels_check      every log label the backend emits still renders as a pill, not as prose.
 #   core_rejects          the panel refuses every combination the CORE refuses. When it does not, the
 #                         operator saves a form, the node stores it, and the core then exits on
@@ -167,6 +170,10 @@ jobs:
       - name: tuning knobs agree across panel / node / core
         working-directory: TUNNEL-MANAGER
         run: python tools/tuning_consistency.py
+
+      - name: a new tunnel's port is drawn at random and never reused
+        working-directory: TUNNEL-MANAGER
+        run: python tools/tunnel_port_is_random_check.py
 
       - name: log labels survive the browser's label gate
         working-directory: TUNNEL-MANAGER
