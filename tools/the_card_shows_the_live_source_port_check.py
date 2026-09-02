@@ -4,9 +4,9 @@
 
 The node already publishes the live source port for every tunnel -- op_list reads path.sport out of the
 core's status file and sends it as sport_live, whatever the carrier is. portRows threw it away for
-everything but raw, so on udp, tcp, the CDN carriers and flux the operator could not see which port the
+everything but raw, so on udp, tcp, and the CDN carriers the operator could not see which port the
 tunnel was actually on. That did not matter while raw was the only carrier that could redraw its source
-port. It does now that udp and flux have a port rung of their own: the ladder moves the port under the
+port. It does now that udp has a port rung of its own: the ladder moves the port under the
 operator's feet and the card said nothing about it.
 
 This drives the real portRows out of the rendered page under node, so it is the function the browser
@@ -30,7 +30,6 @@ CASES = [
     ({"transport": "udp", "port": 20050}, ["20050"], ["port_src"]),
     ({"transport": "tcp", "port": 20050, "sport_live": 33111}, ["20050", "33111"], []),
     ({"transport": "ws", "port": 443, "sport_live": 35550}, ["443", "35550"], []),
-    ({"transport": "flux", "sport_live": 44444}, ["44444"], []),
     ({"transport": "dns", "port": 20050, "sport_live": 41027}, [], ["41027", "20050"]),
     ({"transport": "spoof", "sport_live": 41027}, [], ["41027"]),
     ({"transport": "raw", "raw_profile": "tcp", "raw_port": 443, "raw_sport_random": True,

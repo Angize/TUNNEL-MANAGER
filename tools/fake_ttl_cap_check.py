@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """fake_ttl means two different things depending on the carrier, and every layer must say the same one.
 
-    raw / flux / spoof   the decoy is a whole forged IPv4 packet aimed at a peer we hold no kernel
+    raw / spoof          the decoy is a whole forged IPv4 packet aimed at a peer we hold no kernel
                          connection to, so the operator's hop budget is honoured verbatim: 1..255.
     tcp / ws             the decoy is a TCP segment INJECTED on the real connection's 4-tuple. A
                          well-formed one that actually reached the server would draw an RST or a
@@ -35,7 +35,6 @@ CARRIERS = [
     ("tcp", True),
     ("ws", True),
     ("raw", False),
-    ("flux", False),
     ("spoof", False),
 ]
 
@@ -66,8 +65,6 @@ def base_req(transport):
         req.update(ws_host="cdn.example.com", ws_path="/", ws_tls=True)
     if transport in ("raw", "spoof"):
         req.update(raw_profile="bare")
-    if transport == "flux":
-        req.update(flux_carrier="udp")
     if transport == "spoof":
         req.update(spoof_src="192.0.2.7")
     return req
@@ -157,7 +154,7 @@ def main():
     want_inject = {t for t, clamps in CARRIERS if clamps}
     if panel_inject != want_inject:
         failures.append("DESYNC_INJECT_TRANSPORTS=%r, want %r — only the carriers that inject on a real "
-                        "4-tuple clamp; raw/flux/spoof forge a header and honour 1..255"
+                        "4-tuple clamp; raw/spoof forge a header and honour 1..255"
                         % (sorted(panel_inject), sorted(want_inject)))
     else:
         print("  ok  the injecting carriers are %s" % sorted(want_inject))

@@ -58,7 +58,7 @@ name: ci
 #   sni_mode_fields       split_ttl stays a disorder-only knob, on all three build paths AND in the
 #                         browser. disorder and fake want opposite values out of that one input, so
 #                         offering it for both shipped a decoy that died before the DPI.
-#   fake_ttl_cap          fake_ttl means two different things by carrier: raw/flux/spoof forge a header
+#   fake_ttl_cap          fake_ttl means two different things by carrier: raw/spoof forge a header
 #                         and honour 1..255, while tcp/ws inject on the real connection's 4-tuple and
 #                         the core clamps them to injectMaxTTL. The panel stored the unclamped number,
 #                         so the form, the node and core's own startup line all reported a hop budget
@@ -237,9 +237,6 @@ jobs:
       - name: the FEC switch says the truth on every transport
         working-directory: TUNNEL-MANAGER
         run: python tools/fec_gate_check.py
-      - name: a flux tunnel's drop rules cannot black-hole a co-located one
-        working-directory: TUNNEL-MANAGER
-        run: python tools/flux_drop_conflict_check.py
       - name: a rotation body carries only keys the core accepts
         working-directory: TUNNEL-MANAGER
         run: python tools/rotation_body_keys_check.py

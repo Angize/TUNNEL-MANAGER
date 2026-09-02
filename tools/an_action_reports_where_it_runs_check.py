@@ -170,7 +170,6 @@ ROSTER = [
     ("proxy-test", {"id": "p1"}, "answer"),
     ("update-agent", {"ids": ["n1"]}, "answer"),
     ("update-core", {"ids": ["n1"]}, "answer"),
-    ("flux-rotate", {"id": "L1"}, "answer"),
     ("traffic-reset", {"id": "L1"}, "answer"),
     ("link-toggle", {"id": "L1", "enabled": False}, "answer"),
     ("portfw", {"node": "n1"}, "answer"),

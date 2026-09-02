@@ -2,7 +2,7 @@
 
 `listen_ips` is read by the udp and tcp servers alone. Every other transport's server binds `listen`
 and the core REFUSES the key: config.go returns "listen_ips is read only by the udp and tcp servers".
-The panel built it for raw and flux too, and the only thing between that and a core exiting at startup
+The panel built it for raw too, and the only thing between that and a core exiting at startup
 was the node's whitelist happening to drop it again — a gate written for a different reason, two repos
 away, which nothing ties to this.
 

@@ -152,26 +152,7 @@ def main():
         check(tuple(p_rng.get("sock_buf_mb")) == (0, sb_max),
               f"sock_buf range: panel={tuple(p_rng.get('sock_buf_mb'))} core=(0 means off, max {sb_max} MiB)")
 
-    print("== 2b) flux rotation port pools: panel vs core (flux.go) ==")
-    # The panel needs these to refuse a tunnel whose UDP port a flux anti-leak DROP rule would swallow.
-    # That is a COPY of a core constant, which is the exact shape that rots silently — so guard it.
-    flux_go = (Path(a.core) / "internal" / "packet" / "flux.go").read_text(encoding="utf-8")
-    for panel_name, go_name in (("FLUX_UDP_DPORTS", "fluxDportPool"), ("FLUX_STUN_DPORTS", "fluxStunDports")):
-        m = re.search(r"var\s+" + go_name + r"\s*=\s*\[\]uint16\{([^}]*)\}", flux_go)
-        if not m:
-            check(False, f"{panel_name}: CANNOT PARSE {go_name} in flux.go -- THIS SCRIPT is out of date")
-            continue
-        core_ports = tuple(int(x) for x in re.findall(r"\d+", m.group(1)))
-        try:
-            panel_ports = tuple(panel_const(panel_src, panel_name))
-        except KeyError:
-            check(False, f"{panel_name}: missing from the panel")
-            continue
-        check(panel_ports == core_ports, f"{panel_name}: panel={panel_ports} core={core_ports}")
-
-    print("== 2c) raw encapsulation profiles: panel vs core (rawprofile.go) ==")
-    # The panel needs the NUMBER each profile owns, to refuse a bare/spoof raw_proto that borrows one.
-    # Another copy of a core constant, so guard it like the flux port pools above.
+    # Another copy of a core constant, so guard it the same way.
     rawprofile_go = (Path(a.core) / "internal" / "packet" / "rawprofile.go").read_text(encoding="utf-8")
     rule_go = (Path(a.core) / "internal" / "packet" / "ruleowner_linux.go").read_text(encoding="utf-8")
     # The const names are mixed-case (protoEtherIP, protoL2TPv3), so [A-Z0-9] silently captured only some
@@ -239,7 +220,7 @@ def main():
     # which looks like a two-way check but is really a three-way pin: consistent change on both sides would
     # still fail here, and the failure would name the guard's own constant rather than the drift.
     fm = re.search(r"fecHdrLen\s*=\s*([0-9+ ]+)", fec_go)
-    nf = re.search(r'if transport in \("udp", "raw", "flux", "spoof"\) and bool\(cfg\.get\("fec"\)\):\s*\n'
+    nf = re.search(r'if transport in \("udp", "raw", "spoof"\) and bool\(cfg\.get\("fec"\)\):\s*\n'
                    r"\s*overhead \+= (\d+)", node_src)
     if not fm or not nf:
         check(False, "CANNOT FIND the FEC per-packet overhead on both sides -- THIS SCRIPT is out of date "
