@@ -8001,6 +8001,8 @@ body.dark .tag.core{color:#a78bfa}
  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
  mask-composite:exclude}
 .card.tagpick{transform:scale(.985)}
+.card.tagpick,.card.tagpick *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.tagov,.tagov *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .tagov{position:fixed;inset:0;z-index:70;background:rgba(8,11,18,.34);display:flex;align-items:center;justify-content:center;padding:20px}
 .tagbox{background:var(--card);border:1px solid var(--bord);border-radius:18px;padding:16px 18px;box-shadow:0 18px 50px rgba(8,11,18,.28);max-width:340px;width:100%}
 .tagbox .tgt{font-size:12.5px;font-weight:700;margin-bottom:12px;text-align:center}
@@ -9223,18 +9225,25 @@ function tagHoldStart(e){
  if(e.touches&&e.touches.length>1)return;
  var c=tagCardAt(e.target);if(!c)return;
  var p=e.touches?e.touches[0]:e;_tagX=p.clientX;_tagY=p.clientY;_tagCard=c;
- _tagT=setTimeout(function(){_tagT=null;c.classList.remove('tagpick');openTagPicker(c)},TAG_HOLD_MS);
- c.classList.add('tagpick')}
+ _tagT=setTimeout(function(){_tagT=null;c.classList.remove('tagpick');tagBuzz();openTagPicker(c)},TAG_HOLD_MS);
+ c.classList.add('tagpick');
+ document.addEventListener('selectstart',tagNoSelect,true)}
+function tagNoSelect(e){e.preventDefault()}
+function tagBuzz(){try{if(navigator.vibrate)navigator.vibrate(18)}catch(_){}
+ try{var s=window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges()}catch(_){}}
 function tagHoldMove(e){
  if(!_tagT)return;var p=e.touches?e.touches[0]:e;
  if(Math.abs(p.clientX-_tagX)>10||Math.abs(p.clientY-_tagY)>10)tagHoldCancel()}
 function tagHoldCancel(){if(_tagT){clearTimeout(_tagT);_tagT=null}
+ document.removeEventListener('selectstart',tagNoSelect,true);
  if(_tagCard){_tagCard.classList.remove('tagpick');_tagCard=null}}
 function openTagPicker(card){
  var id=card.getAttribute('data-rid'),cur=num((card.getAttribute('style')||'')?0:0);
  var link=(FLEET||[]).filter(function(x){return String(x.id)==id})[0]||{};
  cur=num(link.tag);
  var ov=document.createElement('div');ov.className='tagov';
+ ov.addEventListener('selectstart',tagNoSelect);
+ ov.addEventListener('contextmenu',function(e){e.preventDefault()});
  ov.innerHTML='<div class="tagbox"><div class="tgt">'+esc(T('tag_title'))+'</div><div class="tagrow">'
   +CARD_TAGS.map(function(t,i){return '<button type="button" class="tagdot'+(cur==i+1?' on':'')
     +'" data-t="'+(i+1)+'" style="background:linear-gradient(140deg,'+t.a+','+t.b+')"></button>'}).join('')
