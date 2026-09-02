@@ -4683,14 +4683,15 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             _rrot = int((d["raw_sport_rotate"] if "raw_sport_rotate" in d else cur.get("raw_sport_rotate")) or 0)
         except (TypeError, ValueError):
             _rrot = 0
-        if _rrot:
-            if profile != "udp":
-                raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp است؛ «{profile}» یا پورت ندارد یا حالتِ جریانش با تعویضِ وسطِ راه می‌شکند")
-            if not 1 <= _rrot <= 64:
-                raise ValueError("«چرخشِ پورتِ مبدأ» باید بینِ 1 تا 64 باشد (هر چند پکت یک پورتِ تازه؛ زیرِ سقفِ per-tuple میدل‌باکس)")
-            if _srand or _rsport:
-                raise ValueError("«چرخشِ پورتِ مبدأ» پورت را مدام عوض می‌کند، پس با «پورتِ مبدأِ ثابت» یا «رندومِ واکنشی» جمع نمی‌شود")
-            ce["raw_sport_rotate"] = _rrot
+        if profile == "udp":
+            if _rrot:
+                if not 1 <= _rrot <= 64:
+                    raise ValueError("«چرخشِ پورتِ مبدأ» باید بینِ 1 تا 64 باشد (هر چند پکت یک پورتِ تازه؛ زیرِ سقفِ per-tuple میدل‌باکس)")
+                if _srand or _rsport:
+                    raise ValueError("«چرخشِ پورتِ مبدأ» پورت را مدام عوض می‌کند، پس با «پورتِ مبدأِ ثابت» یا «رندومِ واکنشی» جمع نمی‌شود")
+                ce["raw_sport_rotate"] = _rrot
+        elif _rrot and "raw_sport_rotate" in d:
+            raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp است؛ «{profile}» یا پورت ندارد یا حالتِ جریانش با تعویضِ وسطِ راه می‌شکند")
     if transport == "spoof":
         if cipher == "none":
             raise ValueError("حاملِ جعل به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -4702,6 +4703,8 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))
+    if ce.get("fec") and ce.get("raw_sport_rotate"):
+        raise ValueError("«چرخشِ پورتِ مبدأ» با FEC جمع نمی‌شود — مسیرِ ارسالِ FEC پورت را عکس می‌گیرد و هر بسته را با همان پورتِ لحظهٔ ساختِ بلوک می‌فرستد؛ هسته این ترکیب را بالا نمی‌آورد. یکی را خاموش کن")
     ce.update(_workers_field(d, transport, bool(ce.get("fec")), cur))
     ce.update(_desync_fields(d, transport, cur, ce.get("cdn_carrier", "ws") != "ws"))
     if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
@@ -7953,6 +7956,7 @@ body.dark .tag.core{color:#a78bfa}
 .erow.pcol .ecd .pbar{flex:1 1 auto;width:auto;max-width:180px}
 .eib.aim.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .tglbox.dis{opacity:.45;pointer-events:none}
+.portlock{opacity:.42;pointer-events:none}
 .rl{font-size:8px;font-weight:800;border-radius:5px;padding:1px 4px;letter-spacing:.2px;flex:0 0 auto}
 .rl.srv{color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent)}  
 .rl.cli{color:var(--gold);background:var(--goldw)}
@@ -8313,7 +8317,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_flux_d:"جهش‌پذیر",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_lbl:"چرخشِ پورتِ مبدأ (هر چند پکت · فقط udp)",raw_sprot_hint:"۰ = خاموش. عددِ N یعنی هر N پکت یک پورتِ مبدأِ تازه؛ هر پورت یک ۵-تاییِ نو می‌سازد تا از سقفِ «چند پکت به‌ازای هر تاپلِ» میدل‌باکس رد شوی. N را زیرِ آن سقف بگذار (مثلاً ۵). با «پورتِ مبدأِ ثابت/رندوم» جمع نمی‌شود.",raw_sprot_bad:"چرخشِ پورتِ مبدأ باید بینِ 1 تا 64 باشد (0 = خاموش)",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",raw_sprot_d:"هر چند پکت یک پورتِ تازه · فقط پروفایلِ udp",raw_sprot_lbl:"هر چند پکت یک پورتِ مبدأِ تازه",raw_sprot_hint:"هر پورتِ تازه یک ۵-تاییِ نو می‌سازد، پس از سقفِ «چند پکت به‌ازای هر تاپلِ» میدل‌باکس رد می‌شوی. عدد را زیرِ آن سقف بگذار — اندازه‌گیریِ ما سقف ۶ بود، پس ۵ بگذار؛ با صف‌های موازیِ بیش از یکی حتماً زیرِ سقف بمان. تا وقتی روشن است، پورتِ مبدأ را خودِ هسته می‌چرخاند و FEC خاموش می‌ماند.",raw_sprot_bad:"عدد باید بینِ 1 تا 64 باشد",port_src_rot:"چرخان",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -9467,7 +9471,7 @@ function coreCard(l){
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
-_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=true,_corS.Cover=false,_corS.RawProfile='bare',_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
+_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=true,_corS.Cover=false,_corS.RawProfile='bare',_corS.Sprot=false,_corS.Gso=false,_corS.FluxCarrier='udp',_corS.FluxRotate=600,_corS.FluxShape='random',_corS.FluxOffset=0,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=10,_corS.FecParity=3,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 function carrierFamily(l){var t=l.transport||'udp';
  return (t=='ws')?((l.cdn_carrier=='grpc')?'grpc':(l.cdn_carrier=='http')?'http':'ws'):t}
 function carrierLabel(l){return carrierFamily(l).toUpperCase()}
@@ -9479,11 +9483,14 @@ function carrierProfile(l){var t=l.transport||'udp';
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820;
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=20000,RAW_ROT_HI=59999;
 function portRows(l){var t=l.transport||'udp';
  var live=num(l.sport_live);
  if(t=='raw'){
   if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
+  var _rot=num(l.raw_sport_rotate);
+  if(_rot)return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
+         '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(T('port_src_rot'))+'</b> <span class="muted">'+esc(RAW_ROT_LO+'-'+RAW_ROT_HI+' · '+_rot)+'</span></div>';
   var _mode=l.raw_sport_random?T('port_src_rand'):T('port_src_fixed');
   var _now=live||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
   return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
@@ -9579,7 +9586,7 @@ function corSetFluxCarrier(c){_corS.FluxCarrier=c;var g=el('e_fluxblk');if(g)Arr
 function corSetFluxShape(s){_corS.FluxShape=s;var g=el('e_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function corFluxRotChg(){_corS.FluxRotate=parseInt(ssVal('e_fluxrot'))||600;fluxTick()}
 function fecDatagram(S){return S.Tr=='udp'||S.Tr=='raw'||S.Tr=='flux'||S.Tr=='spoof'}
-function corFecDatagram(){return fecDatagram(_corS)}
+function corFecDatagram(){return fecDatagram(_corS)&&!sprotLive(_corS)}
 function corToggleFec(){if(!corFecDatagram())return;_corS.Fec=!_corS.Fec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corS.Fec);var r=el('e_fecrates');if(r)r.style.display=_corS.Fec?'':'none';corWorkersVis()}   
 function corSetFecRate(d,p){_corS.FecData=d;_corS.FecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corS.Fec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
@@ -9732,21 +9739,25 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
    +'<button type="button" class="segopt" id="'+idp+'rp_51820" onclick="'+fnp+'SetPort(51820)"><b>51820</b><span>WireGuard</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'rp_4500" onclick="'+fnp+'SetPort(4500)"><b>4500</b><span>IPsec</span></button></div>'
  +'<input id="'+idp+'rawport" class="mono" inputmode="numeric" maxlength="5" placeholder="443" oninput="'+fnp+'PortWarn()" style="text-align:center;direction:ltr">'
- +'<label style="margin-top:13px">'+esc(T('raw_sport_lbl'))+'</label>'
- +'<div class="seg2" id="'+idp+'spg">'
-   +'<button type="button" class="segopt on" id="'+idp+'sp_fix" onclick="'+fnp+'SetSport(0)"><b>'+esc(T('raw_sport_fixed_n'))+'</b><span>'+esc(T('raw_sport_fixed_m'))+'</span></button>'
-   +'<button type="button" class="segopt" id="'+idp+'sp_rnd" onclick="'+fnp+'SetSport(1)"><b>'+esc(T('raw_sport_rand_n'))+'</b><span>'+esc(T('raw_sport_rand_m'))+'</span></button></div>'
- +'<div id="'+idp+'spfix" style="margin-top:8px">'
-   +'<div class="seg2" id="'+idp+'spg2" style="margin-bottom:8px">'
-     +'<button type="button" class="segopt on" id="'+idp+'sp_51820" onclick="'+fnp+'SetSportPort(51820)"><b>51820</b><span>WireGuard</span></button>'
-     +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
-     +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
-   +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div>'
- +'<div id="'+idp+'sprotrow" style="display:none;margin-top:13px">'
-   +'<label>'+esc(T('raw_sprot_lbl'))+'</label>'
-   +'<input id="'+idp+'rawsprot" class="mono" inputmode="numeric" maxlength="2" placeholder="0" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr">'
-   +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('raw_sprot_hint'))+'</div>'
-   +'<div class="spoofcap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div>'
+ +'<div id="'+idp+'srcblk">'
+   +'<label style="margin-top:13px">'+esc(T('raw_sport_lbl'))+'</label>'
+   +'<div class="seg2" id="'+idp+'spg">'
+     +'<button type="button" class="segopt on" id="'+idp+'sp_fix" onclick="'+fnp+'SetSport(0)"><b>'+esc(T('raw_sport_fixed_n'))+'</b><span>'+esc(T('raw_sport_fixed_m'))+'</span></button>'
+     +'<button type="button" class="segopt" id="'+idp+'sp_rnd" onclick="'+fnp+'SetSport(1)"><b>'+esc(T('raw_sport_rand_n'))+'</b><span>'+esc(T('raw_sport_rand_m'))+'</span></button></div>'
+   +'<div id="'+idp+'spfix" style="margin-top:8px">'
+     +'<div class="seg2" id="'+idp+'spg2" style="margin-bottom:8px">'
+       +'<button type="button" class="segopt on" id="'+idp+'sp_51820" onclick="'+fnp+'SetSportPort(51820)"><b>51820</b><span>WireGuard</span></button>'
+       +'<button type="button" class="segopt" id="'+idp+'sp_4500" onclick="'+fnp+'SetSportPort(4500)"><b>4500</b><span>IPsec</span></button>'
+       +'<button type="button" class="segopt" id="'+idp+'sp_500" onclick="'+fnp+'SetSportPort(500)"><b>500</b><span>'+esc(T('raw_sport_ike'))+'</span></button></div>'
+     +'<input id="'+idp+'rawsport" class="mono" inputmode="numeric" maxlength="5" placeholder="51820" oninput="'+fnp+'SportWarn()" style="text-align:center;direction:ltr"></div></div>'
+ +'<div id="'+idp+'sprotrow" style="display:none">'
+   +'<div class="tglbox"><div class="tglsw" id="'+idp+'sprotsw" onclick="'+fnp+'ToggleSprot()"></div>'
+     +'<div class="tt"><b>'+esc(T('raw_sprot_t'))+'</b><small>'+esc(T('raw_sprot_d'))+'</small></div></div>'
+   +'<div id="'+idp+'sprotbody" style="display:none">'
+     +'<label>'+esc(T('raw_sprot_lbl'))+'</label>'
+     +'<input id="'+idp+'rawsprot" class="mono" inputmode="numeric" maxlength="2" placeholder="5" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr">'
+     +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('raw_sprot_hint'))+'</div>'
+     +'<div class="spoofcap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div></div>'
  +'</div>'}
 var PORT_RUNG_TRANSPORTS=['udp','tcp','flux','ws'];
 function portTriesOn(S){
@@ -9756,11 +9767,24 @@ function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:n
  +'<label class="first">'+esc(T('porttries_lbl'))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'}
 function portTriesVis(idp,S){var w=el(idp+'sptries');if(w)w.style.display=portTriesOn(S)?'':'none'}
+var SPROT_DEF=5;
 function sprotOn(S){return S.Tr=='raw'&&S.RawProfile=='udp'}
-function sprotVis(idp,S){var w=el(idp+'sprotrow');if(w)w.style.display=sprotOn(S)?'':'none'}
-function sprotErr(idp){var e=el(idp+'rawsprot');if(!e)return '';var s=(e.value||'').trim();if(s==''||s=='0')return '';
- var n=parseInt(s,10);return (n>=1&&n<=64)?'':T('raw_sprot_bad')}
-function sprotWarnUpd(idp){var w=el(idp+'sprotwarn');if(!w)return;var e=sprotErr(idp);
+function sprotLive(S){return sprotOn(S)&&!!S.Sprot}
+function sprotN(idp){var e=el(idp+'rawsprot');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
+function sprotVis(idp,S){var w=el(idp+'sprotrow');var on=sprotOn(S);
+ if(!on)S.Sprot=false;
+ if(w)w.style.display=on?'':'none';
+ var sw=el(idp+'sprotsw');if(sw)sw.classList.toggle('on',sprotLive(S));
+ var b=el(idp+'sprotbody');if(b)b.style.display=sprotLive(S)?'':'none';
+ var src=el(idp+'srcblk');if(src)src.classList.toggle('portlock',sprotLive(S));
+ sprotWarnUpd(idp,S)}
+function sprotToggle(idp,S){if(!sprotOn(S))return;S.Sprot=!S.Sprot;
+ if(S.Sprot){var e=el(idp+'rawsprot');if(e&&!sprotN(idp))e.value=String(SPROT_DEF);
+  S.SportRandom=false;sportPaint(idp,false)}
+ sprotVis(idp,S);portTriesVis(idp,S)}
+function sprotErr(idp,S){if(!sprotLive(S))return '';var n=sprotN(idp);
+ return (n>=1&&n<=64)?'':T('raw_sprot_bad')}
+function sprotWarnUpd(idp,S){var w=el(idp+'sprotwarn');if(!w)return;var e=sprotErr(idp,S);
  if(e){w.style.display='';w.innerHTML=ic('warn')+'<span>'+esc(e)+'</span>'}else{w.style.display='none';w.innerHTML=''}}
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
@@ -9927,8 +9951,8 @@ function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
 function protoVisOn(S){return (S.Tr=='raw'&&S.RawProfile=='bare')||S.Tr=='spoof'}
 function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
-function corSetSport(on){_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis()}
-function corSetSportPort(n){var i=el('e_rawsport');if(i)i.value=n;sportPresetPaint('e_')}
+function corSetSport(on){if(sprotLive(_corS))return;_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis()}
+function corSetSportPort(n){if(sprotLive(_corS))return;var i=el('e_rawsport');if(i)i.value=n;sportPresetPaint('e_')}
 function corSportWarn(){sportPresetPaint('e_')}
 function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('e_rpg');
  if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_rp_'+n)})}
@@ -9936,8 +9960,10 @@ function corPortVis(){var w=el('e_portrow');if(!w)return;
  var on=(_corS.Tr=='raw'&&(_corS.RawProfile=='udp'||_corS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('e_rawport');if(i&&!i.value)i.value='443';corPortWarn();sportPaint('e_',_corS.SportRandom)}
  sprotVis('e_',_corS)}
-function corSprotWarn(){sprotWarnUpd('e_')}
-function ceSprotWarn(){sprotWarnUpd('ee_')}
+function corSprotWarn(){sprotWarnUpd('e_',_corS)}
+function ceSprotWarn(){sprotWarnUpd('ee_',_eeS)}
+function corToggleSprot(){sprotToggle('e_',_corS);corFecGate()}
+function ceToggleSprot(){sprotToggle('ee_',_eeS);ceFecGate()}
 function corSetWorkers(sd,n){_corS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('e_',sd,n)}
 function corWorkersVis(){workersVis('e_',_corS,nodeName(ssVal('e_a')),nodeName(ssVal('e_b')))}
 function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='253';corProtoWarn()}}
@@ -9951,7 +9977,7 @@ function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(
 function onCorCipher(){_obfsGate('e_',_corS)}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=true;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=true;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Sprot=false;_corS.Gso=false;_corS.Decoy=false;_corS.Src=false;_corS.SpoofOk=false;_corS.FluxCarrier='udp';_corS.FluxRotate=600;_corS.FluxShape='random';_corS.FluxOffset=0;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
   '<div id="e_bwrap"><label class="first" id="e_blab"></label>'+ssHTML('e_b',items,items[1].v,T('cli_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -10047,11 +10073,11 @@ function corNodeLbls(){var srvA=(_corS.Srv=='a'),la=el('e_alab'),lb=el('e_blab')
 function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');corNodeLbls();renderRotIps('e_')}
 function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
+  var _sre=sprotErr(px,S);if(_sre){formErr(m,_sre);return true}
+  body.raw_sport_rotate=sprotLive(S)?sprotN(px):0;
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
-   var _sre=sprotErr(px);if(_sre){formErr(m,_sre);return true}
-   var _srt=(S.RawProfile=='udp')?(parseInt(v(px+'rawsprot'),10)||0):0;
-   if(_srt>=1&&_srt<=64){body.raw_sport_rotate=_srt;body.raw_sport_random=false;body.raw_sport=0}
+   if(body.raw_sport_rotate){body.raw_sport_random=false;body.raw_sport=0}
    else{var _se=sportErr(px);if(_se){formErr(m,_se);return true}
     body.raw_sport_random=!!S.SportRandom;
     var _st=parseInt(v(px+'rawsport'),10);
@@ -10066,7 +10092,7 @@ function _collectCoreBody(S,px,m,body){
    body.spoof_dst=_dip;body.spoof_src=_sip}}
  if(S.Tr=='flux'){if(ssVal(px+'cipher')=='none'){formErr(m,T('flux_need_enc'));return true}body.flux_carrier=S.FluxCarrier;body.flux_rotate_secs=S.FluxRotate;body.flux_shape=S.FluxShape}
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
- if(fecDatagram(S)){body.fec=S.Fec;if(S.Fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
+ if(fecDatagram(S)){body.fec=S.Fec&&!sprotLive(S);if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
  if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
@@ -10089,7 +10115,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
-_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
+_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Sprot=false,_eeS.Gso=false,_eeS.FluxCarrier='udp',_eeS.FluxRotate=600,_eeS.FluxShape='random',_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=10,_eeS.FecParity=3,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
 function ceApplyGates(){ceRawVis();ceDnsVis();ceFluxVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceSpoofVis();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 function ceFluxVis(){var w=el('ee_fluxblk');if(w)w.style.display=(_eeS.Tr=='flux')?'':'none';fluxTick()}
@@ -10104,7 +10130,7 @@ function ceEchPxGate(){var vis=(_eeS.Tr=='ws'&&_eeS.Ech),row=el('ee_echpxrow');i
 function ceSetFluxCarrier(c){_eeS.FluxCarrier=c;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fc]'),function(t){t.classList.toggle('on',t.getAttribute('data-fc')==c)});fluxTick()}
 function ceSetFluxShape(s){_eeS.FluxShape=s;var g=el('ee_fluxblk');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fs]'),function(t){t.classList.toggle('on',t.getAttribute('data-fs')==s)})}
 function ceFluxRotChg(){_eeS.FluxRotate=parseInt(ssVal('ee_fluxrot'))||600;fluxTick()}
-function ceFecDatagram(){return fecDatagram(_eeS)}
+function ceFecDatagram(){return fecDatagram(_eeS)&&!sprotLive(_eeS)}
 function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none';ceWorkersVis()}   
 function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
@@ -10129,8 +10155,8 @@ function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototyp
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
 function ceSetPort(v){var i=el('ee_rawport');if(i)i.value=v;cePortWarn()}
-function ceSetSport(on){_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis()}
-function ceSetSportPort(n){var i=el('ee_rawsport');if(i)i.value=n;sportPresetPaint('ee_')}
+function ceSetSport(on){if(sprotLive(_eeS))return;_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis()}
+function ceSetSportPort(n){if(sprotLive(_eeS))return;var i=el('ee_rawsport');if(i)i.value=n;sportPresetPaint('ee_')}
 function ceSportWarn(){sportPresetPaint('ee_')}
 function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('ee_rpg');
  if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_rp_'+n)})}
@@ -10148,7 +10174,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS)}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','flux','spoof','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Gso=!!l.gso;_eeS.Decoy=!!l.spoof_dst;_eeS.Src=!!l.spoof_src;_eeS.SpoofOk=false;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.FluxCarrier=l.flux_carrier||'udp';_eeS.FluxRotate=l.flux_rotate_secs||600;_eeS.FluxShape=l.flux_shape||'random';_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
