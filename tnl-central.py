@@ -8006,7 +8006,7 @@ body.dark .tag.core{color:#a78bfa}
 .tagov{position:fixed;inset:0;z-index:70;background:rgba(8,11,18,.34);display:flex;align-items:center;justify-content:center;padding:20px}
 .tagbox{background:var(--card);border:1px solid var(--bord);border-radius:18px;padding:16px 18px;box-shadow:0 18px 50px rgba(8,11,18,.28);max-width:340px;width:100%}
 .tagbox .tgt{font-size:12.5px;font-weight:700;margin-bottom:12px;text-align:center}
-.tagrow{display:flex;gap:10px;justify-content:center}
+.tagpal{display:flex;gap:10px;justify-content:center}
 .tagdot{width:40px;height:40px;border-radius:50%;border:2px solid transparent;cursor:pointer;flex:0 0 auto;padding:0}
 .tagdot.on{border-color:var(--tx);box-shadow:0 0 0 3px var(--field)}
 .tagnone{margin-top:14px;width:100%;border-radius:12px;padding:9px;border:1px solid var(--bord);background:var(--field);color:var(--sub);font:inherit;font-size:12px;cursor:pointer}
@@ -9246,7 +9246,7 @@ function openTagPicker(card){
  var ov=document.createElement('div');ov.className='tagov';
  ov.addEventListener('selectstart',tagNoSelect);
  ov.addEventListener('contextmenu',function(e){e.preventDefault()});
- ov.innerHTML='<div class="tagbox"><div class="tgt">'+esc(T('tag_title'))+'</div><div class="tagrow">'
+ ov.innerHTML='<div class="tagbox"><div class="tgt">'+esc(T('tag_title'))+'</div><div class="tagpal">'
   +CARD_TAGS.map(function(t,i){return '<button type="button" class="tagdot'+(cur==i+1?' on':'')
     +'" data-t="'+(i+1)+'" style="background:linear-gradient(140deg,'+t.a+','+t.b+')"></button>'}).join('')
   +'</div><button type="button" class="tagnone" data-t="0">'+esc(T('tag_clear'))+'</button></div>';
@@ -9257,14 +9257,24 @@ function openTagPicker(card){
   close();setCardTag(id,parseInt(b.getAttribute('data-t'),10))});
  document.body.appendChild(ov)}
 async function setCardTag(id,tag){
+ var was=TAGPEND[id];
+ TAGPEND[id]=tag;
  var link=(FLEET||[]).filter(function(x){return String(x.id)==id})[0];
+ var prev=link?num(link.tag):0;
  if(link)link.tag=tag;
  var c=el('c_'+id);
  if(c){c.classList.toggle('tagd',tag>=1);var t=CARD_TAGS[tag-1];
   if(t){c.style.setProperty('--tga',t.a);c.style.setProperty('--tgb',t.b)}}
  try{var r=await post('link-tag',{id:id,tag:tag},NET_TIMEOUT);
-  if(!r.ok||!r.d.ok)toast((r.d&&r.d.error)||T('tag_err'),'err')}
- catch(_){toast(T('tag_err'),'err')}}
+  if(r.ok&&r.d.ok)return;
+  toast((r.d&&r.d.error)||T('tag_err'),'err')}
+ catch(_){toast(T('tag_err'),'err')}
+ if(TAGPEND[id]!==tag)return;
+ if(was===undefined)delete TAGPEND[id];else TAGPEND[id]=was;
+ if(link)link.tag=prev;
+ var c2=el('c_'+id);
+ if(c2){c2.classList.toggle('tagd',prev>=1);var t2=CARD_TAGS[prev-1];
+  if(t2){c2.style.setProperty('--tga',t2.a);c2.style.setProperty('--tgb',t2.b)}}}
 document.addEventListener('touchstart',tagHoldStart,{passive:true});
 document.addEventListener('touchmove',tagHoldMove,{passive:true});
 document.addEventListener('touchend',tagHoldCancel);
@@ -9273,6 +9283,12 @@ document.addEventListener('mousedown',tagHoldStart);
 document.addEventListener('mousemove',tagHoldMove);
 document.addEventListener('mouseup',tagHoldCancel);
 document.addEventListener('contextmenu',function(e){if(tagCardAt(e.target))e.preventDefault()});
+var TAGPEND={};
+function tagPending(links){(links||[]).forEach(function(l){
+ var p=TAGPEND[l.id];if(p===undefined)return;
+ if(num(l.tag)===p){delete TAGPEND[l.id];return}
+ l.tag=p});
+ return links}
 function tagStyle(n){var t=CARD_TAGS[n-1];return t?(' style="--tga:'+t.a+';--tgb:'+t.b+'"'):''}
 function tagCls(l){return (num(l.tag)>=1&&num(l.tag)<=CARD_TAGS.length)?' tagd':''}
 function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
@@ -9294,7 +9310,7 @@ function linkCard(l){
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
  return accShell(l,false,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
-async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=f.links||[];TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   
+async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=tagPending(f.links||[]);TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   
  var _rows=withPending('tunnels',FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}));
  setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
@@ -9445,7 +9461,7 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
 function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
  toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
-async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=f.links||[];TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   
+async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=tagPending(f.links||[]);TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   
  var _rows=withPending('core',FLEET.map(function(l){return {k:l.id,h:coreCard(l)}}));
  setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   
 var REORDMODE=false,RORD_AS=0;   
