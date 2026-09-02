@@ -34,9 +34,11 @@ RELAY = "/tmp/relay-sentinel.py"
 ALLOWED_EGRESS = {
     "urlopen": {
         "node_call": 1,              # DIRECT agent HTTP -- reached only when node_proxy returned ''
-        "api_agent_fetch_git": 1,    # GitHub: the node agent source
-        "_fetch_core_versions": 1,   # GitHub: the core release list
-        "_dl": 1,                    # GitHub: a core release asset
+        # The ONE GitHub egress. The agent source, the core release list and every release asset used to
+        # dial for themselves (api_agent_fetch_git, _fetch_core_versions, _dl); they now all go through
+        # here, and _gh_get asks _dl_proxy() first, so the download proxy covers all three at once. It
+        # reaches GitHub, never a node, which is why node_proxy() is not the right question for it.
+        "_gh_get": 1,
         "via_doh": 1,                # public DoH resolver, for an ECH key
     },
     "create_connection": {
@@ -56,7 +58,16 @@ ALLOWED_EGRESS = {
         "_node_call_proxied": 1,
         "via_doh_proxy": 1,          # a DoH resolver over the proxy, for an ECH key
     },
+    # Same shape, and the tripwire used to be blind to it: _proxy_get wraps a socket the proxy already
+    # opened and hands it to conn.sock, so this one never dials either. Tracked so a future call site
+    # that DOES dial cannot hide behind the "s" in HTTPS.
+    "HTTPSConnection": {
+        "_proxy_get": 1,
+    },
 }
+
+# Deliberately NOT tracked: _route_src calls connect() on a SOCK_DGRAM socket to read which source
+# address the routing table would pick. A UDP connect() sends no packet -- nothing leaves the panel.
 
 
 def load_panel(path):
