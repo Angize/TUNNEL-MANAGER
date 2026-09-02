@@ -61,8 +61,6 @@ MUST_REJECT = [
     ("spoof borrowing udp's protocol number", {"transport": "spoof", "cipher": "auto",
                                                "spoof_dst": "203.0.113.9", "raw_proto": 17},
      "config.go: rawProtoBorrowed — spoof is bare-like and headerless, so it takes the same rule"),
-    ("flux with crypto off", {"transport": "flux", "cipher": "none", "flux_carrier": "udp"},
-     "config.go: flux transport requires crypto enabled"),
     ("dns with crypto off", dict(DNS, cipher="none"),
      "config.go: dns transport requires crypto enabled"),
     ("obfs with crypto off", {"transport": "tcp", "cipher": "none", "obfs": True},
@@ -117,7 +115,6 @@ MUST_ACCEPT_EDIT = [
 MUST_ACCEPT = [
     ("plain udp", {"transport": "udp", "cipher": "auto"}),
     ("obfs on tcp", {"transport": "tcp", "cipher": "auto", "obfs": True}),
-    ("obfs on flux", {"transport": "flux", "cipher": "auto", "flux_carrier": "udp", "obfs": True}),
     ('fake_mode "both" with two decoys', {"transport": "tcp", "cipher": "auto", "fake_desync": True,
                                           "fake_mode": "both", "fake_count": 2}),
     ('fake_mode "ttl" with one decoy', {"transport": "tcp", "cipher": "auto", "fake_desync": True,

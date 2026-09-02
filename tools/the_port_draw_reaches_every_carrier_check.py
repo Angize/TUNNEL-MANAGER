@@ -3,7 +3,7 @@
 """port_tries has to reach every carrier that owns a source-port rung, not just the raw one.
 
 The core arms a source-port rung on udp, on tcp/ws (and the http and grpc carriers that ride it), on
-flux, and on raw only when the forged source port is set to roll. `port_tries` says how deep that rung
+and on raw only when the forged source port is set to roll. `port_tries` says how deep that rung
 is -- how many draws the ladder spends before it does anything more expensive -- and the panel only
 ever collected it inside the raw branch of the create/edit form. On every other carrier the core kept
 its compiled-in 2 whatever the operator typed, because the field was never rendered and never sent.
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
 
 # The carriers whose client arms rc.port.setRoll in the core, and the ones that do not.
-WITH_RUNG = ("udp", "tcp", "flux", "ws")
+WITH_RUNG = ("udp", "tcp", "ws")
 WITHOUT_RUNG = ("dns", "spoof")
 
 
@@ -71,7 +71,7 @@ def js_pass(P, fails):
 def store_pass(P, fails):
     for tr in WITH_RUNG:
         cur = {"transport": tr, "cipher": "aes-256-gcm", "psk": "0123456789abcdef0123456789abcdef",
-               "port": 5555, "ws_host": "cdn.example.com", "ws_path": "/", "flux_carrier": "udp"}
+               "port": 5555, "ws_host": "cdn.example.com", "ws_path": "/"}
         got, _side = P._core_extra(dict(cur, port_tries=7), cur, "10.20.30.1", "10.20.30.2", [], [])
         ok = got.get("port_tries") == 7
         print(("  ok   " if ok else " FAIL ") + "%-5s _core_extra stores port_tries=%r" % (tr, got.get("port_tries")))

@@ -87,9 +87,6 @@ CASES = [
     ("spoof+fec", {"transport": "spoof", "cipher": "auto", "spoof_src": "192.0.2.7",
                    "fec": True, "fec_data": 10, "fec_parity": 3},
      {"transport": "spoof", "spoof_src": "192.0.2.7", "fec": True}),
-    ("flux/udp", {"transport": "flux", "cipher": "auto", "flux_carrier": "udp",
-                  "flux_rotate_secs": 600, "flux_shape": "random"},
-     {"transport": "flux", "flux_carrier": "udp", "flux_shape": "random"}),
     ("dns", {"transport": "dns", "cipher": "auto", "dns_zone": "t.example.com",
              "dns_resolvers": ["10.0.0.1"]},
      {"transport": "dns", "dns_zone": "t.example.com"}),
@@ -142,12 +139,6 @@ CASES = [
                     "ws_edge_snis": ["a.example.com", "b.example.com"],
                     "ech": False, "cdn_carrier": "ws"},
      {"transport": "ws", "ws_pool": True, "cdn_carrier": "ws"}),
-    # A flux tunnel that has been bumped by "rotate now" — the case where flux_epoch_offset is a real
-    # non-zero value rather than the 0 every flux tunnel stores from birth. Both have to survive all
-    # three paths, and the zero one is what the guard has been red on since it was written.
-    ("flux/udp+bumped", {"transport": "flux", "cipher": "auto", "flux_carrier": "udp",
-                         "flux_rotate_secs": 600, "flux_shape": "random", "flux_epoch_offset": 3},
-     {"transport": "flux", "flux_carrier": "udp", "flux_epoch_offset": 3}),
 ]
 
 # Keys that legitimately differ between paths (not part of the contract).
