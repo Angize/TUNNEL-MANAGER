@@ -12,6 +12,11 @@ halves together any more:
   * `resetSettings` restores from `_SETDEF`/`_TUNDEF`, so a key missing from either is a row the reset
     button quietly skips.
 
+Some keys are deliberately NOT the form's to post: the two delivery switches and the download proxy each
+sit on their own card with their own Save. Those are listed in SELF_SAVING, and the guard asserts the
+opposite for them -- that Save leaves them alone, because a stale settings card posting them would
+clobber what the owning card just wrote. Reset still restores them, which is why they stay in _SETDEF.
+
 tools/tuning_form_covers_defaults_check.py cannot see any of this: it calls `_collectTuning` directly,
 and a collector that works perfectly says nothing about a save that never calls it.
 
@@ -149,7 +154,11 @@ def check(ok, msg):
 # Two knobs live on the agent and core cards instead of the settings card: they are switches that
 # save themselves the moment they are tapped, so Save must NOT carry them -- a card rendered before
 # the switch was flipped would otherwise post the old value back over it.
-SELF_SAVING = {"agent_delivery", "core_delivery"}
+# Keys that live on a card of their own with a Save of their own. The settings form must NOT post
+# them: api_settings_set replaces the whole dict, and validate_settings layers the incoming keys
+# onto get_settings(), so an OMITTED key keeps its stored value while a key posted from a stale
+# settings card would overwrite whatever the owning card just saved.
+SELF_SAVING = {"agent_delivery", "core_delivery", "dl_proxy_on", "dl_proxy_id"}
 
 
 def main():
@@ -216,6 +225,10 @@ def main():
         body = (by_name[name]["saved"] or {}).get("body") or {}
         for k in sorted(SELF_SAVING):
             check(k not in body, "%s: Save does not post %s — a stale card would clobber the switch" % (name, k))
+    # An instant-apply SWITCH lights the new option on click, so a rejected save has to repaint or the
+    # card lies. A Save-button FORM must not repaint on failure -- that would throw away what the
+    # operator typed -- so its obligation is the other one: on success it must refresh the cache the
+    # next paint reads, or the card comes back showing the pre-save value.
     for fn, paint, why in [("async function setDelivery(", "paintDelivery()", "delivery")]:
         i = js.find(fn)
         check(i >= 0, "the %s switch exists" % why)
@@ -225,6 +238,16 @@ def main():
               "...the %s switch posts settings-set itself" % why)
         check(paint in js[i:i + 400],
               "...and repaints, so a rejected save does not leave the wrong option lit (%s)" % why)
+
+    i = js.find("async function dlpxSave(")
+    check(i >= 0, "the download-proxy card has a Save of its own")
+    if i >= 0:
+        seg = js[i:i + 500]
+        check("post('settings-set'" in seg, "...the download-proxy card posts settings-set itself")
+        check("dl_proxy_on" in seg and "dl_proxy_id" in seg,
+              "...and posts BOTH halves of the setting, or one of them silently keeps its old value")
+        check("DLPX=" in seg.split("r.ok")[-1],
+              "...and refreshes the DLPX cache on success, or a revisit repaints the pre-save value")
 
     print("== 2) ...and the TUNING half, in the same one request ==")
     for name, settings in [(c["name"], c["settings"]) for c in CASES]:
