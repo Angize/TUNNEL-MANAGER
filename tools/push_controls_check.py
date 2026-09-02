@@ -86,16 +86,35 @@ need("with _push_lock:" in jn.split("busy = _busy_nodes()")[0],
      "the refusal must be inside the lock or two simultaneous POSTs for one node both win")
 need(SRC.count("target=_push_worker") == 1,
      "_push_worker may be launched from ONE place (_push_start), so nothing bypasses the busy check")
-# The upload bound is what made one-job-at-a-time necessary. It has to be GLOBAL now, or several jobs
-# put several times PUSH_WORKERS on the uplink and the operator's bound is gone.
-need("_push_slots = threading.BoundedSemaphore(PUSH_WORKERS)" in CODE,
-     "the concurrency bound must be a GLOBAL semaphore, not a per-job thread count")
-need("_push_slots.acquire()" in code("_push_worker"),
-     "...and every worker must take a slot before it uploads")
+# There used to be a global BoundedSemaphore here, and #480 deliberately took it out: two limits sat on
+# top of each other, so a fleet of 37 went out four at a time and pushing one kind while the other ran
+# looked like nothing happened -- the threads were alive and blocked on a slot the other job held.
+# Measured on 12 nodes with both kinds pushed together: peak 4 in flight before, peak 12 after, 3.3s to
+# under 1s. So the guard is now the opposite one: no shared slot may come back, and the only bound is
+# one worker per node with PUSH_CAP as a ceiling.
 wl = code("_push_worker")
-need(wl.index("_push_slots.acquire()") < wl.index("_push_next(jid, "),
-     "the slot must be taken BEFORE the node is claimed, or a node waiting its turn shows «در حالِ آپلود» "
-     "at 0% instead of «در نوبت»")
+need("BoundedSemaphore" not in CODE.split("def api_")[0] or "_push_slots" not in CODE,
+     "a shared push semaphore is back -- #480 removed it because two jobs blocked each other and the "
+     "fleet went out four at a time; re-read that commit before adding any global slot")
+need("PUSH_CAP" in CODE and "_push_slots" not in CODE,
+     "the push bound must be PUSH_CAP (a ceiling on threads), not a slot every worker waits on")
+need("min(PUSH_CAP, max(1, len(nodes)))" in wl,
+     "_push_worker must run one thread per node, capped at PUSH_CAP -- fewer nodes must not spawn "
+     "more threads than there is work, and a huge fleet must not spawn one per node without a ceiling")
+
+
+def before(hay, a, b, msg):
+    """Ordering assertion that FAILS rather than raising when either side has moved away."""
+    if a not in hay or b not in hay:
+        need(False, msg + " (looked for %r before %r; missing: %s)"
+             % (a, b, ", ".join(x for x in (a, b) if x not in hay)))
+        return
+    need(hay.index(a) < hay.index(b), msg)
+
+
+before(wl, "_push_next(jid, ", "min(PUSH_CAP",
+       "each worker must claim its node from _push_next, so the pool hands work out under the lock "
+       "instead of slicing the list up front and stranding nodes behind a slow one")
 # and the merged view is what lets the single-job page follow several
 need("def _push_merged(" in SRC and "PUSH_ALL" in SRC,
      "push-status with no job id must merge every live job: the page has one pill and one cancel")
@@ -145,8 +164,14 @@ need("if not keyed:" in code("_push_one") and code("_push_one").count("_ensure_u
 one_src = code("_push_one")
 need("def at(i, frac):" in one_src and "(i + frac) / n" in one_src,
      "_push_one must publish a percentage over the whole plan, not over the step in hand")
-need("pct=0" not in one_src.split("def at(")[1],
-     "no step may reset the bar to zero -- that is the rewind this exists to prevent")
+# A cancelled node is settled at zero on purpose -- it is a terminal state, not a step boundary. What
+# must never come back is a RUNNING node dropped to zero, which is the rewind this exists to prevent.
+_after_at = one_src.split("def at(")[1]
+_zeroes = [l.strip() for l in _after_at.splitlines() if "pct=0" in l]
+need(all('state="skip"' in l for l in _zeroes),
+     "no step may reset a running node's bar to zero -- that is the rewind this exists to prevent; "
+     "only the cancelled/skipped terminal may sit at 0 (offending lines: %s)"
+     % [l for l in _zeroes if 'state="skip"' not in l])
 need("pct=at(i + 1, 0)" in one_src,
      "finishing a step must land on that step's share of the bar, so the next one carries on from there")
 # a gate that fires must settle the node WITHOUT running the rest of the plan
@@ -243,10 +268,11 @@ need('"offset"' not in code("api_nodes") and '"limit"' not in code("api_nodes"),
      "...and must not answer with offset/limit either, or the page it does not apply looks applied")
 
 # ---- 1. the pool is bounded and parallel
-need(re.search(r"^PUSH_WORKERS\s*=\s*[2-9]\d*\b", SRC, re.M), "PUSH_WORKERS must be a bounded (>1) constant")
+need(re.search(r"^PUSH_CAP\s*=\s*[2-9]\d*\b", SRC, re.M),
+     "PUSH_CAP must be a bounded (>1) constant -- it is the ceiling on how many threads one job may run")
 w = body("_push_worker")
-need("threading.Thread" in w and "PUSH_WORKERS" in w,
-     "_push_worker must start PUSH_WORKERS threads (it is the parallelism)")
+need("threading.Thread" in w and "PUSH_CAP" in w,
+     "_push_worker must start its threads under PUSH_CAP (it is the parallelism)")
 need("for n in nodes:" not in code("_push_worker"), "_push_worker must not walk the nodes itself -- that is the sequential shape")
 need(".join()" in w, "_push_worker must join its workers before marking the job done")
 need('j["done"] = True' in w, "_push_worker must still mark the job done")
