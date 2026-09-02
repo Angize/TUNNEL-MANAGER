@@ -224,8 +224,14 @@ def main():
         mode(m)
         reach(set())     # the old host is dead AND the new one does not answer either
         r = P.api_checkin_impl("1.2.3.4", claim("tok1"))
+        # #476 gave the refusal its own shape: an address we could not confirm comes back
+        # ok=False/unconfirmed=True and carries no "updated" at all, so the caller retries rather than
+        # recording a move. What must hold either way is that the node did not move and nothing was
+        # left pending for the operator.
         chk("%s mode rejects an address that does not reach the node" % m,
-            (r["updated"], host_of("n1"), r.get("moved_to")), (False, "94.183.210.131", None))
+            (r.get("ok"), r.get("unconfirmed"), r.get("updated", False),
+             host_of("n1"), r.get("moved_to")),
+            (False, True, False, "94.183.210.131", None))
 
     # an unknown token can never move a node, in either mode
     for m in ("auto", "alert"):
@@ -267,7 +273,11 @@ def main():
         next(int(x["port"]) for x in json.load(io.open(P.NODES_FILE)) if x["id"] == "n1"), 9099)
     P.node_call = lambda nd, *a, **k: {"ok": False}
     r = P.api_checkin_impl(cur_host, claim("tok1", port=7777))
-    chk("a port that does not answer is NOT adopted", (r["updated"], r["port"]), (False, 9099))
+    chk("a port that does not answer is NOT adopted",
+        (r.get("ok"), r.get("unconfirmed"), r.get("updated", False), r["port"]),
+        (False, True, False, 9099))
+    chk("...and the record still carries the port that does answer",
+        next(int(x["port"]) for x in json.load(io.open(P.NODES_FILE)) if x["id"] == "n1"), 9099)
 
     if bad:
         print("\nFAILURES (%d):" % len(bad))
