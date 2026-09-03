@@ -5241,7 +5241,7 @@ def _edit_link_impl(d, h=None):
 
 
 SPEED_SECS = 8
-SPEED_STREAMS = 4
+SPEED_STREAMS = 8
 
 
 def api_link_speed(d):
