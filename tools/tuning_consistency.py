@@ -295,6 +295,22 @@ def main():
         check(int(js_hi.group(1)) == core_hi,
               "rotation band high: panel RAW_ROT_HI=%s core sportBandLo+sportBandSpan-1=%d" % (js_hi.group(1), core_hi))
 
+    # How many destination ports the client may spread over. Three copies of this ceiling exist -- the
+    # core's MaxDports, the panel's python guard, and the panel's browser guard -- and a form that lets
+    # the operator save a number the core refuses is a tunnel that dies on validate() with nothing on
+    # screen saying why.
+    core_md = re.search(r"MaxDports\s*=\s*(\d+)", rawprofile_go)
+    py_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)", panel_src)
+    js_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)\s*;", panel_src)
+    if not core_md or not py_md or not js_md:
+        check(False, "CANNOT PARSE the destination-port ceiling (core=%s panel py=%s panel js=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_md), bool(py_md), bool(js_md)))
+    else:
+        check(py_md.group(1) == core_md.group(1),
+              "destination-port ceiling: panel RAW_DPORTS_MAX=%s core MaxDports=%s" % (py_md.group(1), core_md.group(1)))
+        check(js_md.group(1) == core_md.group(1),
+              "destination-port ceiling in the browser: %s core MaxDports=%s" % (js_md.group(1), core_md.group(1)))
+
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
     # exactly those keys to name its tun-probe verdict. A mismatch is SILENT and total: the node reads
