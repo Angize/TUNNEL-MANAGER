@@ -666,7 +666,7 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
 NODE_WIRE = {
     "ping": "pg", "list": "ls", "check": "ck", "tunnel": "mk", "delete": "dl", "apply": "ap",
     "update": "up", "wipe": "wz", "portfw": "pf", "portfw-edit": "pe", "portfw-next": "pn",
-    "portcheck": "pc", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
+    "portcheck": "pc", "speedtest": "sd", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
     "pool-select": "qs", "retest-now": "rt", "ech-update": "eu",
     "core-put": "cp", "core-apply": "ca", "spoof-probe": "sp", "spoof-egress-listen": "sl", "spoof-egress-send": "ss",
     "spoof-egress-result": "sr", "set-update-key": "sk", "kernel-tune": "kt", "link-enable": "le",
@@ -5240,6 +5240,38 @@ def _edit_link_impl(d, h=None):
     return {"ok": True, "name": new_name, "a_tunnel_ip": ra.get("tunnel_ip"), "b_tunnel_ip": rb.get("tunnel_ip")}
 
 
+SPEED_SECS = 8
+SPEED_STREAMS = 4
+
+
+def api_link_speed(d):
+    _require(d, ["id"])
+    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    if not L:
+        raise ValueError("link not found")
+    if L.get("enabled") is False:
+        raise ValueError("این تونل خاموش است — اول روشنش کن")
+    srv_is_a = L.get("server_side") != "b"
+    srv = get_node(L["a_node"] if srv_is_a else L["b_node"])
+    cli = get_node(L["b_node"] if srv_is_a else L["a_node"])
+    if not srv or not cli:
+        raise ValueError("node not found")
+    secs, streams = SPEED_SECS, SPEED_STREAMS
+    r = node_call(srv, "speedtest", "POST", {"name": L["name"], "mode": "serve", "secs": secs},
+                  timeout=NODE_OP_TIMEOUT)
+    if not r.get("ok"):
+        raise ValueError("نودِ «%s» گیرندهٔ تست را بالا نیاورد: %s"
+                         % (srv["name"], r.get("error") or r.get("msg") or "?"))
+    q = node_call(cli, "speedtest", "POST",
+                  {"name": L["name"], "mode": "run", "peer_ip": r.get("ip"), "port": r.get("port"),
+                   "secs": secs, "streams": streams}, timeout=secs * 2 + 60)
+    if not q.get("ok"):
+        raise ValueError("نودِ «%s» تست را اجرا نکرد: %s"
+                         % (cli["name"], q.get("error") or q.get("msg") or "?"))
+    return {"ok": True, "from": cli["name"], "to": srv["name"], "secs": secs, "streams": streams,
+            "up_mbit": q.get("up_mbit"), "down_mbit": q.get("down_mbit")}
+
+
 def api_check_link(d):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -6929,6 +6961,7 @@ API = {
     "node-adopt-ip": api_node_adopt_ip, "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
+    "link-speed": api_link_speed,
     "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,
     "proxy-del": api_proxy_del, "proxy-test": api_proxy_test,
     "rebuild-link": api_rebuild_link, "restart-link": api_restart_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
@@ -7673,8 +7706,8 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .pfb.stop{border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:var(--bad)}
 .pfb:disabled{opacity:.35;cursor:not-allowed}
 body.pushing .toast{bottom:74px}
-.nact.iconly{gap:6px}
-.nact.iconly .act{padding:8px 11px}
+.nact.iconly{gap:6px;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
+.nact.iconly .act{padding:8px 0;justify-content:center}
 .nact.iconly .act .ic{width:15px;height:15px}
 .chkall{display:inline-flex;align-items:center;gap:6px;background:#2f9e6f;color:#fff;border:0;font-weight:800;font-size:13px;padding:12px 18px;border-radius:12px;cursor:pointer;font-family:inherit;box-shadow:0 9px 20px -11px color-mix(in srgb,var(--ok) 70%,transparent)}
 body.dark .chkall{background:#1f7a56}   
@@ -8075,7 +8108,7 @@ var I18N={fa:{
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {n} جریان",speed_up:"{a} ← {b}",speed_down:"{b} ← {a}",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -9212,7 +9245,7 @@ function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
 function linkFooter(l,editFn){
  var msg=rmsgHTML('lchk_'+l.id);
  var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act info" title="'+esc(T('tip_speed'))+'" onclick="speedLink(\\''+l.id+'\\')">'+ic('gauge')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  if(l.rb&&!l.rb.ok)drift+='<div class="msg err" style="margin:0 0 9px">'+esc(T('rb_last_fail'))+esc(terr(l.rb.error||T('rebuild_failed')))+'</div>';
  return {drift:drift,acts:acts,msg:msg}}
@@ -9241,6 +9274,15 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  if(vr.err){formErr(m,vr.err);return}
  rmsgClear('lchk_'+id);closeModal(m.closest('.modalov'))}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
+async function speedLink(id){var k='lchk_'+id;
+ rmsgSet(k,'',esc(T('speed_run')));
+ var r=await post('link-speed',{id:id});
+ if(!(r.ok&&r.d.ok)){rmsgSet(k,'err',esc(perr(r)));return}
+ var d=r.d,up=num(d.up_mbit),dn=num(d.down_mbit);
+ rmsgSet(k,(up>0&&dn>0)?'ok':'err',chkLines(CK+' '+esc(T('speed_done'))+' <span class="muted">'+esc(T('speed_how').replace('{s}',String(num(d.secs))).replace('{n}',String(num(d.streams))))+'</span>',
+   T('speed_up').replace('{a}',d.from).replace('{b}',d.to)+': '+fmtRate(up*1e6),
+   T('speed_down').replace('{a}',d.from).replace('{b}',d.to)+': '+fmtRate(dn*1e6))
+   +'<div class="wrap muted" style="margin-top:6px">'+T('speed_note')+'</div>')}
 async function checkLink(id){var k='lchk_'+id;
  rmsgSet(k,'',esc(T('checking_conn')));
  var r=await post('check-link',{id:id});
