@@ -8108,7 +8108,7 @@ var I18N={fa:{
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {n} جریان",speed_up:"از {a} به {b}",speed_down:"از {b} به {a}",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {n} جریان",speed_up:"{a} → {b}",speed_down:"{b} → {a}",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -9274,14 +9274,15 @@ async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),sub
  if(vr.err){formErr(m,vr.err);return}
  rmsgClear('lchk_'+id);closeModal(m.closest('.modalov'))}
 function chkLines(hdr,a,b){return '<div class="chh">'+hdr+'</div><div class="chl">'+esc(a)+'</div><div class="chl">'+esc(b)+'</div>'}
+function ltr(s){return '⁦'+s+'⁩'}
 async function speedLink(id){var k='lchk_'+id;
  rmsgSet(k,'',esc(T('speed_run')));
  var r=await post('link-speed',{id:id});
  if(!(r.ok&&r.d.ok)){rmsgSet(k,'err',esc(perr(r)));return}
  var d=r.d,up=num(d.up_mbit),dn=num(d.down_mbit);
  rmsgSet(k,(up>0&&dn>0)?'ok':'err',chkLines(CK+' '+esc(T('speed_done'))+' <span class="muted">'+esc(T('speed_how').replace('{s}',String(num(d.secs))).replace('{n}',String(num(d.streams))))+'</span>',
-   T('speed_up').replace('{a}',d.from).replace('{b}',d.to)+': '+fmtRate(up*1e6),
-   T('speed_down').replace('{a}',d.from).replace('{b}',d.to)+': '+fmtRate(dn*1e6))
+   ltr(T('speed_up').replace('{a}',d.from).replace('{b}',d.to)+': '+fmtRate(up*1e6)),
+   ltr(T('speed_down').replace('{a}',d.from).replace('{b}',d.to)+': '+fmtRate(dn*1e6)))
    +'<div class="wrap muted" style="margin-top:6px">'+T('speed_note')+'</div>')}
 async function checkLink(id){var k='lchk_'+id;
  rmsgSet(k,'',esc(T('checking_conn')));
