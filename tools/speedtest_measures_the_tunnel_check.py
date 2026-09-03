@@ -112,8 +112,21 @@ def main():
     out, calls, err = drive(P, dict(base, server_side="a"), {"run": {"ok": False, "error": "bad peer"}})
     check(err is not None, "a runner that fails: %s" % (err or "ACCEPTED"))
 
-    print("== the wire name says nothing, and both repos agree ==")
+    print("== the card labels download and upload, and pairs each with the right leg ==")
+    # The card used to print the two node names with an arrow between them. It now says "download" and
+    # "upload", which only means anything if each label keeps its own leg: upload is what the operator
+    # sends OUT of Iran, and the run happens on the client end, so upload is up_mbit and download is
+    # down_mbit. Swapping the two would still render, still be green, and be silently backwards -- so
+    # assert the pairing in the JS itself rather than trusting that it reads correctly.
     src = PANEL.read_text(encoding="utf-8")
+    check("speed_up:\"آپلود\"" in src, "speed_up is the plain word for upload")
+    check("speed_down:\"دانلود\"" in src, "speed_down is the plain word for download")
+    check("T('speed_down')+': '+ltr(fmtRate(dn*1e6))" in src, "the download line carries down_mbit")
+    check("T('speed_up')+': '+ltr(fmtRate(up*1e6))" in src, "the upload line carries up_mbit")
+    check("var d=r.d,up=num(d.up_mbit),dn=num(d.down_mbit);" in src, "up is up_mbit and dn is down_mbit")
+    check("{a}" not in src.split("speed_up:")[1][:60], "no node name is substituted into either line")
+
+    print("== the wire name says nothing, and both repos agree ==")
     check('"speedtest": "sd"' in src, "the panel maps speedtest onto a two-letter wire name")
     node = PANEL.parent.parent / "TUNNEL-MANAGER-NODE" / "tnl-node.py"
     if node.exists():
