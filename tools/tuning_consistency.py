@@ -311,6 +311,23 @@ def main():
         check(js_md.group(1) == core_md.group(1),
               "destination-port ceiling in the browser: %s core MaxDports=%s" % (js_md.group(1), core_md.group(1)))
 
+    # How many parallel send/receive queues a tunnel may run. The number lives in three places and the
+    # core clamps silently, so a panel that offers more than the core accepts is a form the operator
+    # fills in and a config the core quietly rewrites -- the tunnel then runs on a worker count nobody
+    # chose and no screen shows. The guard does not encode the number; it only requires the three to
+    # agree, so raising the ceiling stays possible and just has to be done in all three places.
+    core_mw = re.search(r"const maxWorkers\s*=\s*(\d+)", config_go)
+    panel_mw = re.search(r"CORE_MAX_WORKERS\s*=\s*(\d+)", panel_src)
+    node_mw = re.search(r"^MAX_WORKERS\s*=\s*(\d+)", node_src, re.M)
+    if not core_mw or not panel_mw or not node_mw:
+        check(False, "CANNOT PARSE the worker ceiling (core=%s panel=%s node=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_mw), bool(panel_mw), bool(node_mw)))
+    else:
+        check(panel_mw.group(1) == core_mw.group(1),
+              "worker ceiling: panel CORE_MAX_WORKERS=%s core maxWorkers=%s" % (panel_mw.group(1), core_mw.group(1)))
+        check(node_mw.group(1) == core_mw.group(1),
+              "worker ceiling: node MAX_WORKERS=%s core maxWorkers=%s" % (node_mw.group(1), core_mw.group(1)))
+
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
     # exactly those keys to name its tun-probe verdict. A mismatch is SILENT and total: the node reads
