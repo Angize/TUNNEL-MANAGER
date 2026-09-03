@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
 
-GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "sprotErr", "sprotWarnUpd",
+GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "sprotErr", "sprotWarnUpd",
         "sprotToggle", "sprotVis", "portTriesOn", "portTriesVis", "fecDatagram", "wkCarrier",
         "wkClamp", "desyncOk", "desyncInjects", "portErr", "sportErr", "rawProtoErr",
         "sportPaint", "sportPresetPaint", "cdnShapeOn", "esc", "ceSetSport", "ceSetSportPort")
@@ -100,6 +100,7 @@ function fresh(profile, storedN){
 }
 function body(S){ var b={}; _ERR=null; var blocked=_collectCoreBody(S,'ee_',null,b);
   return {blocked:!!blocked, err:_ERR, rot:('raw_sport_rotate' in b)?b.raw_sport_rotate:'<ABSENT>',
+          dp:('raw_dports' in b)?b.raw_dports:'<ABSENT>',
           rnd:b.raw_sport_random, sport:b.raw_sport, fec:b.fec, locked:el('ee_srcblk').classList.contains('portlock')}; }
 
 // 1. an existing rotating tunnel, operator turns the toggle OFF
@@ -135,7 +136,17 @@ OUT.push(['N=99 while on', body(S)]);
 S = fresh('udp', 0); el('ee_rawsprot').value='99';
 OUT.push(['N=99 while off', body(S)]);
 
-// 7. FEC and rotation must never leave the form together
+// 7. the destination count rides the same toggle: it reaches the body while on, and is cleared off
+S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_rawdports').value='4';
+OUT.push(['dports 4 while rotating', body(S)]);
+S = fresh('udp', 5); el('ee_rawdports').value='4'; sprotToggle('ee_', S);
+OUT.push(['dports 4 then toggled off', body(S)]);
+S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_rawdports').value='9';
+OUT.push(['dports 9 while rotating', body(S)]);
+S = fresh('udp', 5); el('ee_rawdports').value='9'; sprotToggle('ee_', S);
+OUT.push(['dports 9 then toggled off', body(S)]);
+
+// 8. FEC and rotation must never leave the form together
 S = fresh('udp', 0); sprotToggle('ee_', S); S.Fec = true;
 OUT.push(['fec ticked while rotating', body(S)]);
 
@@ -152,6 +163,10 @@ EXPECT = {
     "N=99 while on": dict(blocked=True),
     "N=99 while off": dict(rot=0, blocked=False),
     "fec ticked while rotating": dict(rot=4, fec=False),
+    "dports 4 while rotating": dict(rot=4, dp=4, blocked=False),
+    "dports 4 then toggled off": dict(rot=0, dp=0, blocked=False),
+    "dports 9 while rotating": dict(blocked=True),
+    "dports 9 then toggled off": dict(rot=0, dp=0, blocked=False),
 }
 for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "tcp", "gre", "ipip", "etherip", "ipcomp"):
     EXPECT["profile -> " + _p] = dict(rot=0, blocked=False, locked=False)
@@ -163,6 +178,7 @@ def main():
     src = SHIM + "\n"
     src += re.search(r"var PORT_RUNG_TRANSPORTS=\[.+?\];", js).group(0) + "\n"
     src += re.search(r"var SPROT_DEF=\d+;", js).group(0) + "\n"
+    src += "var RAW_DPORTS_MAX=" + re.search(r"RAW_DPORTS_MAX=(\d+)\s*;", js).group(1) + ";\n"
     src += "\n".join(grab(js, n) for n in GRAB) + "\n"
     src += GUARDED_SETTER + DRIVER
 

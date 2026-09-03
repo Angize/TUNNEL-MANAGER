@@ -1599,7 +1599,7 @@ _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 _WORKERS_KEYS = ("a_workers", "b_workers")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
+                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
                     "http_up_workers", "http_up_batch_kb", "http_streams",
@@ -1703,6 +1703,8 @@ def _tunnel_extra(src, refetch_ech=True):
         e["raw_sport"] = src["raw_sport"]
     if src.get("raw_sport_rotate"):
         e["raw_sport_rotate"] = src["raw_sport_rotate"]
+    if src.get("raw_dports"):
+        e["raw_dports"] = src["raw_dports"]
     if src.get("dns_zone"):
         e["dns_zone"] = src["dns_zone"]
         if src.get("dns_resolvers"):
@@ -3896,6 +3898,8 @@ def api_fleet(d):
             _rs = (_srv.get("rots") or {}).get(L["name"]) or {}
             if _rc or _rs:
                 rec["rot_live"] = {"cli": int((_rc.get("sport") or 0)), "srv": int((_rs.get("sport") or 0)),
+                                   "dport": int(_rc.get("dport") or 0),
+                                   "dports": int(_rc.get("dports") or 0),
                                    "every": int((_rc or _rs).get("every") or 0),
                                    "lo": int((_rc or _rs).get("lo") or 0),
                                    "hi": int((_rc or _rs).get("hi") or 0),
@@ -4560,6 +4564,9 @@ def api_create_tunnel(d):
                      ttype=str(d.get("transport") or ttype))
 
 
+RAW_DPORTS_MAX = 8
+
+
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     ce = {}
     cipher = str(d.get("cipher") or cur.get("cipher") or "auto").strip().lower()
@@ -4626,6 +4633,16 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                 if _srand or _rsport:
                     raise ValueError("«چرخشِ پورتِ مبدأ» پورت را مدام عوض می‌کند، پس با «پورتِ مبدأِ ثابت» یا «رندومِ واکنشی» جمع نمی‌شود")
                 ce["raw_sport_rotate"] = _rrot
+                try:
+                    _rdp = int((d["raw_dports"] if "raw_dports" in d else cur.get("raw_dports")) or 0)
+                except (TypeError, ValueError):
+                    _rdp = 0
+                if _rdp:
+                    if not 1 <= _rdp <= RAW_DPORTS_MAX:
+                        raise ValueError(f"«چند پورتِ مقصد» باید بینِ 1 تا {RAW_DPORTS_MAX} باشد")
+                    ce["raw_dports"] = _rdp
+            elif int((d.get("raw_dports") or 0)) and "raw_dports" in d:
+                raise ValueError("«چند پورتِ مقصد» بدونِ «چرخشِ پورتِ مبدأ» بی‌اثر است — با مبدأِ ثابت هر پکت باز هم در همان سطلِ میدل‌باکس می‌افتد. اول چرخش را روشن کن")
         elif _rrot and "raw_sport_rotate" in d:
             raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp است؛ «{profile}» یا پورت ندارد یا حالتِ جریانش با تعویضِ وسطِ راه می‌شکند")
     if transport == "spoof":
@@ -8268,7 +8285,7 @@ var I18N={fa:{
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_spoof_d:"هدرِ جعلی",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",port_dns_ph:"dns پورت ندارد (53)",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",raw_sprot_d:"هر چند پکت یک پورتِ تازه · فقط پروفایلِ udp",raw_sprot_lbl:"هر چند پکت یک پورتِ مبدأِ تازه",raw_sprot_hint:"هر پورتِ تازه یک ۵-تاییِ نو می‌سازد، پس از سقفِ «چند پکت به‌ازای هر تاپلِ» میدل‌باکس رد می‌شوی. عدد را زیرِ آن سقف بگذار — اندازه‌گیریِ ما سقف ۶ بود، پس ۵ بگذار؛ با صف‌های موازیِ بیش از یکی حتماً زیرِ سقف بمان. تا وقتی روشن است، پورتِ مبدأ را خودِ هسته می‌چرخاند و FEC خاموش می‌ماند.",raw_sprot_bad:"عدد باید بینِ 1 تا 64 باشد",port_src_rot:"چرخان",port_src_rot_up:"مبدأِ کلاینت",port_src_rot_down:"مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",raw_sprot_d:"هر چند پکت یک پورتِ تازه · فقط پروفایلِ udp",raw_sprot_lbl:"هر چند پکت یک پورتِ مبدأِ تازه",raw_sprot_hint:"هر پورتِ تازه یک ۵-تاییِ نو می‌سازد، پس از سقفِ «چند پکت به‌ازای هر تاپلِ» میدل‌باکس رد می‌شوی. عدد را زیرِ آن سقف بگذار — اندازه‌گیریِ ما سقف ۶ بود، پس ۵ بگذار؛ با صف‌های موازیِ بیش از یکی حتماً زیرِ سقف بمان. تا وقتی روشن است، پورتِ مبدأ را خودِ هسته می‌چرخاند و FEC خاموش می‌ماند.",raw_sprot_bad:"عدد باید بینِ 1 تا 64 باشد",raw_dports_lbl:"روی چند پورتِ مقصد پخش شود",raw_dports_hint:"میدل‌باکس پورتِ مقصد را هم بخشی از هویتِ گفتگو حساب می‌کند — اندازه‌گیریِ ۲۰۲۶-۰۹-۰۳: گفتگویی که سهمیه‌اش تمام شده بود، از همان پورتِ مبدأ به یک مقصدِ دیگر ۶ از ۶ رد شد. پس هر پورتِ مقصدِ اضافه یعنی کلِ بازهٔ مبدأ یک بار دیگر تازه می‌شود و سقفِ سرعت همان‌قدر بالا می‌رود. ۱ یعنی همان یک پورتی که بالا گذاشتی. بقیه از پورت‌های سرویسِ واقعی (QUIC و STUN) انتخاب می‌شوند تا هر بسته باز هم به مقصدی برود که سرویسِ واقعی دارد — ولی مطمئن شو روی سرور چیزی روی آن پورت‌ها گوش نمی‌دهد.",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"مقصدِ چرخان",port_dst_rot_n:"{n} پورتِ مقصد",port_src_rot:"چرخان",port_src_rot_up:"مبدأِ کلاینت",port_src_rot_down:"مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"متوسط",workers_4:"سنگین",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -9508,7 +9525,7 @@ function carrierProfile(l){var t=l.transport||'udp';
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999;
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999,RAW_DPORTS_MAX=8;
 function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),lo=num(R.lo)||RAW_ROT_LO,hi=num(R.hi)||RAW_ROT_HI;
  var band=esc(T('port_src_rot'))+' · '+esc(lo+'-'+hi)+' · '+esc(T('port_src_rot_every').replace('{n}',every));
  var drawn=num(R.drawn);
@@ -9524,7 +9541,10 @@ function portRows(l){var t=l.transport||'udp';
  if(t=='raw'){
   if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
   var _rot=num(l.raw_sport_rotate);
-  if(_rot)return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+rotSrcRows(l,_rot);
+  if(_rot){var _R=l.rot_live||{},_nd=num(_R.dports),_ld=num(_R.dport)||num(l.raw_port)||RAW_DPORT_DEF;
+   var _dst=(_nd>1)?('<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(_ld)+'</b> <span class="muted">'+esc(T('port_dst_rot')+' · '+T('port_dst_rot_n').replace('{n}',String(_nd)))+'</span></div>')
+                   :('<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>');
+   return _dst+rotSrcRows(l,_rot)}
   var _mode=l.raw_sport_random?T('port_src_rand'):T('port_src_fixed');
   var _now=live||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
   return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
@@ -9790,7 +9810,10 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<label>'+esc(T('raw_sprot_lbl'))+'</label>'
      +'<input id="'+idp+'rawsprot" class="mono" inputmode="numeric" maxlength="2" placeholder="5" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr">'
      +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('raw_sprot_hint'))+'</div>'
-     +'<div class="spoofcap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div></div>'
+     +'<div class="spoofcap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div>'
+     +'<label style="margin-top:11px">'+esc(T('raw_dports_lbl'))+'</label>'
+     +'<input id="'+idp+'rawdports" class="mono" inputmode="numeric" maxlength="1" placeholder="1" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr">'
+     +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('raw_dports_hint'))+'</div></div></div>'
  +'</div>'}
 var PORT_RUNG_TRANSPORTS=['udp','tcp','ws'];
 function portTriesOn(S){
@@ -9815,8 +9838,10 @@ function sprotToggle(idp,S){if(!sprotOn(S))return;S.Sprot=!S.Sprot;
  if(S.Sprot){var e=el(idp+'rawsprot');if(e&&!sprotN(idp))e.value=String(SPROT_DEF);
   S.SportRandom=false;sportPaint(idp,false)}
  sprotVis(idp,S);portTriesVis(idp,S)}
+function dportsN(idp){var e=el(idp+'rawdports');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function sprotErr(idp,S){if(!sprotLive(S))return '';var n=sprotN(idp);
- return (n>=1&&n<=64)?'':T('raw_sprot_bad')}
+ if(!(n>=1&&n<=64))return T('raw_sprot_bad');
+ var d=dportsN(idp);return (d===0||(d>=1&&d<=RAW_DPORTS_MAX))?'':T('raw_dports_bad')}
 function sprotWarnUpd(idp,S){var w=el(idp+'sprotwarn');if(!w)return;var e=sprotErr(idp,S);
  if(e){w.style.display='';w.innerHTML=ic('warn')+'<span>'+esc(e)+'</span>'}else{w.style.display='none';w.innerHTML=''}}
 function workersSection(idp,fnp){
@@ -10092,6 +10117,7 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   var _sre=sprotErr(px,S);if(_sre){formErr(m,_sre);return true}
   body.raw_sport_rotate=sprotLive(S)?sprotN(px):0;
+  body.raw_dports=sprotLive(S)?dportsN(px):0;
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
    if(body.raw_sport_rotate){body.raw_sport_random=false;body.raw_sport=0}
@@ -10221,7 +10247,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  ceRoleLbls(l);renderRotIps('ee_');ceSpoofPrefill(l);cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function cePrefillFields(l){
- [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],
+ [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],['ee_rawdports',l.raw_dports],
   ['ee_porttries',l.port_tries],['ee_dnszone',l.dns_zone],
   ['ee_dnsresolvers',(l.dns_resolvers||[]).join(', ')]].forEach(function(p){
    var e=el(p[0]);if(e&&p[1])e.value=p[1]})}
