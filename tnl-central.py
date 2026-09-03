@@ -9508,7 +9508,7 @@ function carrierProfile(l){var t=l.transport||'udp';
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=20000,RAW_ROT_HI=29999;
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999;
 function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),lo=num(R.lo)||RAW_ROT_LO,hi=num(R.hi)||RAW_ROT_HI;
  var band=esc(T('port_src_rot'))+' · '+esc(lo+'-'+hi)+' · '+esc(T('port_src_rot_every').replace('{n}',every));
  var drawn=num(R.drawn);
@@ -9800,7 +9800,7 @@ function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:n
  +'<label class="first">'+esc(T('porttries_lbl'))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'}
 function portTriesVis(idp,S){var w=el(idp+'sptries');if(w)w.style.display=portTriesOn(S)?'':'none'}
-var SPROT_DEF=5;
+var SPROT_DEF=4;
 function sprotOn(S){return S.Tr=='raw'&&S.RawProfile=='udp'}
 function sprotLive(S){return sprotOn(S)&&!!S.Sprot}
 function sprotN(idp){var e=el(idp+'rawsprot');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}

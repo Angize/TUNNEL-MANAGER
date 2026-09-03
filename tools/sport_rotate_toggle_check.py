@@ -47,7 +47,7 @@ function T(k){ return k; }
 function ic(n,c){ return ''; }
 function ssVal(k){ return _SEL[k]||''; }
 function num(x){ x=+x; return isFinite(x)?x:0; }
-var _WKN = 4, RAW_SPORT_FIX = 51820, SPROT_DEF_FALLBACK = 5;
+var _WKN = 4, RAW_SPORT_FIX = 51820, SPROT_DEF_FALLBACK = 4;
 var _SEL = {};
 var _ERR = null;
 function formErr(m, t){ _ERR = t; }
@@ -147,11 +147,11 @@ GUARDED_SETTER = ""
 EXPECT = {
     "toggle turned off": dict(rot=0, blocked=False),
     "number changed to 3": dict(rot=3, blocked=False),
-    "toggle turned on": dict(rot=5, blocked=False, rnd=False, sport=0, locked=True),
-    "locked setter ran": dict(rot=5, rnd=False, sport=0, locked=True),
+    "toggle turned on": dict(rot=4, blocked=False, rnd=False, sport=0, locked=True),
+    "locked setter ran": dict(rot=4, rnd=False, sport=0, locked=True),
     "N=99 while on": dict(blocked=True),
     "N=99 while off": dict(rot=0, blocked=False),
-    "fec ticked while rotating": dict(rot=5, fec=False),
+    "fec ticked while rotating": dict(rot=4, fec=False),
 }
 for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "tcp", "gre", "ipip", "etherip", "ipcomp"):
     EXPECT["profile -> " + _p] = dict(rot=0, blocked=False, locked=False)
