@@ -133,6 +133,13 @@ name: ci
 #                         one, so the panel re-fetched both architectures; the ONE shared download was
 #                         painted on every node at its own pct, so only the lock winner moved; and in
 #                         github delivery the panel downloads nothing at all yet still said it did.
+#   the_drift_sweep       the rest of the 2026-09-04 audit, in one file: the CDN edge port the form
+#                         accepts, one-sided IP rotation, TLS cover with the cipher off, a Persian node
+#                         name, the tunnel search and the palette that jumped to the wrong page, an
+#                         empty tuning box, the enable/disable toggle that always said ok, the panel's
+#                         own download proxy, an emptied port box, pause on a fleet update, and four
+#                         labels the code had stopped matching. 18 failures against the code it
+#                         replaced.
 #   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
 #                         کن» dropped the node and left its links behind, so they named a node that no
 #                         longer existed: api_summary counted each one down with an alert that could
@@ -335,6 +342,9 @@ jobs:
       - name: a node and its links leave together
         working-directory: TUNNEL-MANAGER
         run: python tools/no_orphan_links_check.py
+      - name: the 2026-09-04 drift sweep stays closed
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_drift_sweep_check.py
       - name: the panel does not re-download a core it already holds
         working-directory: TUNNEL-MANAGER
         run: python tools/the_staging_step_tells_the_truth_check.py

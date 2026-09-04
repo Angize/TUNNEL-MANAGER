@@ -191,6 +191,10 @@ _PROBE_SAMPLES = 20
 _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشتی")}
 _TUNING_LIST_LABELS = {"suspect_backoff": "زمان‌بندیِ تستِ مجددِ موقت‌سوخته",
                        "ladder_revive": "صبر پیش از تلاشِ دوبارهٔ نردبان"}
+_TUNING_NUM_LABELS = {"dead_retest_secs": "تستِ مجددِ آی‌پیِ سوخته",
+                      "min_liveness_secs": "حداقلِ عمرِ سشنِ سالم",
+                      "probe_min_pct": "حداقلِ بسته‌های برگشتی",
+                      "sock_buf_mb": "بافرِ سوکت"}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "min_liveness_secs": (1, 3600),
@@ -224,6 +228,9 @@ def _validate_tuning(raw, base=None):
     if not isinstance(raw, dict):
         return out
     for k, (lo, hi) in _TUNING_RANGES.items():
+        if k in raw and raw[k] in (None, ""):
+            raise ValueError("«%s» را خالی نگذار — عددی بینِ %d تا %d بگذار"
+                             % (_TUNING_NUM_LABELS.get(k, k), lo, hi))
         if k in raw and raw[k] not in (None, ""):
             try:
                 v = int(raw[k])
@@ -3086,6 +3093,13 @@ def _push_one(jid, nid, plan):
             if not fresh:
                 _push_set(jid, nid, state="err", err="node_gone")
                 return
+            if i and _push_paused(jid):
+                _push_set(jid, nid, state="run", step="paused", si=i + 1, sn=n, pct=at(i, 0))
+                while _push_paused(jid):
+                    if _push_cancelled(jid):
+                        _push_set(jid, nid, state="skip", step=code)
+                        return
+                    time.sleep(0.2)
             _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0))
             if not keyed:
                 _ensure_update_key(fresh)
@@ -3125,6 +3139,12 @@ def _push_one(jid, nid, plan):
         _push_set(jid, nid, state="ok", pct=100)
     except Exception as e:
         _push_set(jid, nid, state="err", err="panel", detail=str(e)[:120])
+
+
+def _push_paused(jid):
+    with _push_lock:
+        j = _push_jobs.get(jid)
+        return bool(j and j.get("paused") and not j.get("cancel"))
 
 
 def _push_next(jid, first):
@@ -3827,6 +3847,7 @@ def api_fleet(d):
                       "b_name": nodes.get(L.get("b_node"), {}).get("name", L.get("b_name", ""))})
     if q:
         links = [L for L in links if q in L["a_name"].lower() or q in L["b_name"].lower()
+                 or q in str(L.get("name", "")).lower()
                  or q in L.get("type", "").lower() or q in str(L.get("tunnel_id", "")).lower()]
     total = len(links)
     page = links
@@ -5100,12 +5121,14 @@ def _edit_link_impl(d, h=None):
     type_changed = ttype != L["type"]
     extra = {}
     if ttype in ("l2tpv3", "fou", "core"):
-        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0) or free_tunnel_port(A, B, exclude_id=L["id"])
+        _asked = "port" in d and not str(d.get("port") or "").strip()
+        port = int(d.get("port") or 0) or (0 if _asked else (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0)) or free_tunnel_port(A, B, exclude_id=L["id"])
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
     if ttype == "vxlan":
-        port = int(d.get("port") or 0) or (L.get("port") if L.get("type") == "vxlan" else 0) or 4789
+        _asked = "port" in d and not str(d.get("port") or "").strip()
+        port = int(d.get("port") or 0) or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or 4789
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
@@ -5422,7 +5445,12 @@ def api_link_toggle(d):
                                           timeout=NODE_OP_TIMEOUT)
         _refresh_cache([L["a_node"], L["b_node"]])
     both = len(sides) == 2 and all((sides.get(t) or {}).get("ok") for t in ("a", "b"))
-    return {"ok": True, "enabled": enabled, "both": both, "sides": sides}
+    bad = [t for t in ("a", "b") if not (sides.get(t) or {}).get("ok")]
+    names = {"a": L.get("a_name") or "A", "b": L.get("b_name") or "B"}
+    return {"ok": True, "enabled": enabled, "both": both, "sides": sides,
+            "failed": [names[t] for t in bad],
+            "msg": "" if both else ("سمتِ %s جواب نداد — تونل روی آن سر عوض نشد"
+                                    % "، ".join(names[t] for t in bad))}
 
 
 RECONCILE_GAP = 15
@@ -6592,7 +6620,11 @@ def _proxy_nodes(nodes=None):
 
 
 def _proxy_users(nodes=None):
-    return {pid: [n["name"] for n in ns] for pid, ns in _proxy_nodes(nodes).items()}
+    out = {pid: [n["name"] for n in ns] for pid, ns in _proxy_nodes(nodes).items()}
+    own = str((get_settings() or {}).get("dl_proxy_id") or "").strip()
+    if own:
+        out.setdefault(own, []).append("پنل (دانلودِ خودش)")
+    return out
 
 
 def proxy_url(p):
@@ -7994,7 +8026,7 @@ var I18N={fa:{
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",
  ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",
- ups_stage:"دانلودِ هسته روی پنل",ups_stagewait:"منتظرِ دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",
+ ups_stage:"دانلودِ هسته روی پنل",ups_paused:"متوقف شده — منتظرِ ادامه",ups_stagewait:"منتظرِ دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",
  upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
  upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
  upe_bad_signature:"امضای پنل تأیید نشد",upe_too_small:"فایل برای یک هسته خیلی کوچک است",
@@ -8010,7 +8042,7 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه. قدیمی‌تر از آن خودکار پاک می‌شود (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، حداکثر __LOGMAX__ تا — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه. قدیمی‌تر از آن (یا فراتر از این تعداد، روی فلیتِ شلوغ) خودکار پاک می‌شود (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
@@ -8066,7 +8098,7 @@ search:"جستجو…",
  nd_title:"مشخصات نود",nd_status:"وضعیت نود",nd_off_last:"آفلاین — آخرین مقادیر",nd_conn_test:"تستِ اتصال",nd_traffic:"ترافیک",nd_ips:"آی‌پی‌ها",
  ip_leg:"تونل‌شده / پورت‌فوروارد / آزاد",ip_none:"آی‌پی‌ای گزارش نشد",free:"آزاد",nd_no_tp:"تونل یا پورت‌فورواردی روی این نود نیست",nd_ctrlproxy:"پروکسیِ کنترل",
  nd_edit:"ویرایشِ نود",f_name:"نام",f_host_ip:"هاست / آی‌پی",f_port:"پورت",f_token:"توکن",tok_keep:"خالی = توکن فعلی بماند",
- need_nhp:"نام، هاست و پورت لازم است",
+ node_name_ascii:"نامِ نود فقط با حروفِ انگلیسی، عدد، فاصله و «_ . -» و حداکثر ۴۰ کاراکتر — نامِ فارسی روی نود قابلِ استفاده نیست",need_nhp:"نام، هاست و پورت لازم است",
  
  
  
@@ -8086,7 +8118,7 @@ search:"جستجو…",
  no_tunnel_check:"تونلی برای بررسی نیست",checkall_done:"بررسیِ همهٔ تونل‌ها تمام شد",
  rebuild_confirm:"این تونل روی هر دو نود از نو ساخته شود؟ (حذف و ساختِ مجدد با همان تنظیمات)",rebuilding_both:"در حال بازسازیِ تونل روی دو نود…",
  rebuild_failed:"بازسازی ناموفق",rb_last_fail:"بازسازیِ قبلی ناموفق بود — ",nd_moved_t:"این نود آی‌پیِ جدیدی گرفته — بزن ببین",mv_title:"آی‌پیِ تازهٔ نود",mv_desc:"این نود آی‌پیِ جدیدی دریافت کرده است و از همان آدرس جواب می‌دهد. با «تنظیم» هوستِ نود روی آن عوض می‌شود؛ بعدش تونل‌هایش را بازسازی کن.",mv_new:"آی‌پیِ تازه",mv_old:"هوستِ فعلی",mv_set:"تنظیم به‌عنوانِ آی‌پیِ نود",mv_setting:"در حالِ تنظیم…",mv_done:"هوستِ نود عوض شد: ",net_timeout:"پاسخی از پنل نرسید (زمان تمام شد). کار ممکن است روی پنل ادامه داشته باشد؛ کمی بعد صفحه را تازه کن.",net_drop:"ارتباط با پنل قطع شد و پاسخ نرسید. کار روی پنل ادامه دارد؛ کمی بعد صفحه را تازه کن.",checking_conn:"در حال بررسی اتصال (پینگِ زنده روی دو سر)…",
- conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
+ conn_off:"این تونل خاموش است — پینگ نمی‌دهد چون شما خاموشش کرده‌اید، نه چون قطع است",conn_ok:"اتصال برقرار",conn_bad:"مشکل در اتصال",reset_confirm:"حجمِ کلِ این تونل صفر شود؟ (نرخِ زنده دست‌نخورده می‌ماند)",
  pf_reset_confirm:"حجمِ کلِ این پورت‌فوروارد صفر شود؟",del_tun_confirm:"این تونل روی هر دو نود حذف شود؟",
  view_switched:"دیدِ مصرف به نودِ «",view_switched2:"» تغییر یافت.",drift_note:"آی‌پیِ یکی از نودها عوض شده — این تونل نیاز به بازسازی دارد. دکمهٔ «بازسازی» را بزن.",
  tip_flip:"تعویضِ دیدِ مصرف — فعلاً: ",
@@ -8119,9 +8151,9 @@ search:"جستجو…",
  set_on_ipchange:"وقتی آی‌پیِ نود عوض شد",set_on_ipchange_d:"«خودکار»: هوستِ نود و بازسازیِ تونل، هر دو خودکار. «هشدار»: پنل فقط می‌گوید نود کجا رفته و خودت انجام می‌دهی",set_rec_int:"بازهٔ بررسیِ ترمیم (ثانیه)",
  set_rec_range:"5 تا 3600",set_poll_int:"بازهٔ پایشِ فلیت (ثانیه)",set_poll_range:"0٫3 تا 60 — زیرِ 1 هم مجاز (بارِ شبکه بالا)",set_ui_int:"بازهٔ رفرشِ نمایش (ثانیه)",set_ui_range:"0٫3 تا 60 — نرخ/گیج‌ها با این بازه تازه می‌شوند",set_ech_int:"بازهٔ تازه‌سازیِ کلیدِ ECH (دقیقه)",set_ech_range:"0 = خاموش، وگرنه 1 تا 1440 — چرخشِ کلیدِ CDN خودکار ترمیم می‌شود",set_upwin:"پنجرهٔ نوارِ آپ‌تایم",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
- set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ این کارت به پیش‌فرض برگردند؟",set_reset_yes:"بازگردان",
+ set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ پنل به پیش‌فرض برگردند؟ این شاملِ مودهای تحویلِ ایجنت/هسته و پروکسیِ دانلود هم می‌شود، نه فقط این کارت.",set_reset_yes:"بازگردان",
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
- set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه است: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، پس صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود؛ و صبرِ بیشتر از یک ساعت عملاً یعنی «هرگز».",
+ set_x_revive:"مثال: <b>45, 180, 600</b> — بارِ اول ۴۵ ثانیه صبر می‌کند، باز نشد ۱۸۰، بعد ۶۰۰، و از آن به بعد همان ۶۰۰ تکرار می‌شود. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه.",set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه است: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، پس صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود؛ و صبرِ بیشتر از یک ساعت عملاً یعنی «هرگز».",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
 
 
@@ -8183,13 +8215,13 @@ search:"جستجو…",
  fmt_day:"روز",fmt_hr:"ساعت",fmt_min:"دقیقه",fmt_sec:"ثانیه",fmt_and:"و",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
  edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
  link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
- le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = خودکار از شناسه)",
+ le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = یک پورتِ تصادفی از باند)",
  ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pool_empty:"خالی — یک مورد اضافه کن",
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
  peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
  pa_testnow:"صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
- pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
+ pool_stale:"وضعیتِ لبه‌ها تازه نشد — نود جواب نداد؛ رنگ‌های زیر مالِ آخرین باری است که جواب داد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
@@ -8210,7 +8242,7 @@ search:"جستجو…",
  fec_note:"«10+3» یعنی هر 10 پکتِ داده، 3 پکتِ پریتی؛ گیرنده تا 3 تا از هر 13 تا را گم کند بازسازی می‌کند. هر دو سرِ تونل یک تنظیم می‌گیرند. درصدِ روی کاشی برای بلوکِ پُر است: روی تونلِ کم‌ترافیک بلوک با پکتِ کمتری بسته می‌شود و همیشه دستِ‌کم یک پکتِ پریتی می‌رود، پس سربارِ لحظه‌ای بالاتر می‌رود (برای بلوکِ تک‌پکتی تا 100٪). نسبتِ محافظت هرگز از عددِ انتخابی کمتر نمی‌شود.",
  ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"چند بستهٔ قلابی می‌فرستد تا فیلترچی ردِ اتصالِ واقعی را گم کند؛ خودِ تونل دست‌نخورده می‌ماند. روی حاملِ UDP و HTTP در دسترس نیست.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
  ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (1 برای رله‌ٔ کوتاه، 3 تا 5 برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
- ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود. روی raw کلِ 1 تا 255 اعمال می‌شود.",
+ ds_both_needs2:"حالتِ «هر دو» یعنی هم طعمهٔ TTL و هم طعمهٔ چک‌سام — پس دستِ‌کم به ۲ طعمه نیاز دارد؛ عدد را بالا ببر یا یکی از دو حالت را انتخاب کن",ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود. روی raw کلِ 1 تا 255 اعمال می‌شود.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
  ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
@@ -8257,7 +8289,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  inst_connecting:"در حالِ اتصال…",inst_waiting:"در انتظار…",inst_installing:"در حالِ نصب…",inst_done:"انجام شد",
  inst_status_notfound:"وضعیتِ نصب یافت نشد",inst_panel_lost:"ارتباط با پنل قطع شد",inst_node_installed:"نود نصب شد",inst_retry:"تلاشِ مجدد",
  custom_subnet_ph:"مثلا 192.168.99.0/24 یا fd00:99::/64",ttype_port_ph:"مثلا 51820",
- ttype_port_auto_lbl:"پورتِ UDP (اختیاری — خالی = خودکار از شناسه)",
+ ttype_port_auto_lbl:"پورتِ UDP (اختیاری — خالی = یک پورتِ تصادفی از باند)",
  ttype_l2_note:"روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.",
  ttype_vxlan_lbl:"پورتِ UDP (خالی = 4789)",
  ttype_vxlan_note:"پورتِ استانداردِ VXLAN؛ برای دورزدنِ فیلتر می‌توانی عوضش کنی (مثلاً 443).",
@@ -8805,6 +8837,7 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  var name=v('a_name'),host=v('a_host');
  var pass=_authMode=='pass'?v('a_pass'):'',key=_authMode=='key'&&el('a_key')?el('a_key').value.trim():'';
  if(!name||!host){formErr(m,T('nadd_need_name_ip'));return}
+ if(!nodeNameOK(name)){formErr(m,T('node_name_ascii'));return}
  if(!pass&&!key){formErr(m,(_authMode=='key'?T('nadd_privkey'):T('nadd_pass_word'))+T('nadd_is_required'));return}
  _installDone=null;m.className='msg';m.textContent='';agBtnBusy(btn,true);
  var _st0=_insteps()[0];
@@ -8885,10 +8918,11 @@ async function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});i
  _pxNode['ne_']=n;
  var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div>'+proxyBlock('ne_')+'<div class="msg" id="em_'+id+'"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+function liveIP(ips,cur){ips=ips||[];return (cur&&ips.indexOf(cur)>=0)?cur:''}
 function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">'+esc(T('ip_of'))+esc(nm)+'</label>';
  ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
  if(ips.length>1)return '<div>'+lab+ssHTML('lip'+side+'_'+id,ips.map(function(x){return{v:x,label:x}}),(cur&&ips.indexOf(cur)>=0)?cur:ips[0],T('ip'),'')+'</div>';
- return '<div>'+lab+'<input class="mono" value="'+esc(cur||ips[0]||'—')+'" disabled style="opacity:.6"></div>'}
+ return '<div>'+lab+'<input class="mono" value="'+esc(ips[0]||cur||'—')+'" disabled style="opacity:.6"></div>'}
 function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)return;EDID=id;LEDTYPE=l.type;LEDPORT=(l.port==null?'':l.port);
  var multi=((l.a_ips||[]).length>1)||((l.b_ips||[]).length>1);
  var b='<div class="grid2"><div><label class="first">'+esc(T('tun_type'))+'</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,T('ttype'),'recalcEditSubnet')+'</div><div><label class="first">'+esc(T('range'))+'</label>'+ssHTML('lsr_'+id,SUBNETRANGES(),subnetBaseOf(l),T('range'),'recalcEditSubnet')+'</div></div><label>'+esc(T('subnet'))+'</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div id="lpx_'+id+'"></div>'+
@@ -8940,11 +8974,13 @@ function upBar(n){var r=n.uptime||[];
  return '<div class="upwrap"><div class="uptop">'+esc(T('uptime_bar'))+'<b style="margin-inline-start:6px">'+pct+T('pct')+'</b><span class="r">'+UPWIN+' '+esc(T('ov_hours_recent'))+'</span></div><div class="upbar">'+cells+'</div></div>'}
 async function saveEdit(id){var m=el('em_'+id);var name=v('e_name_'+id),host=v('e_host_'+id),port=v('e_port_'+id),tok=v('e_tok_'+id);
  if(!name||!host||!port){formErr(m,T('need_nhp'));return}
+ if(!nodeNameOK(name)){formErr(m,T('node_name_ascii'));return}
  m.className='msg';m.textContent=T('saving');
  var r=await post('node-edit',Object.assign({id:id,name:name,host:host,port:port,token:tok},pxBody('ne_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'))}else{formErr(m,terr(r.d.error||T('failed')))}}
 async function addNode(){var m=el('n_msg');var name=v('n_name'),host=v('n_host'),port=v('n_port'),tok=v('n_tok');
  if(!name||!host||!port||!tok){formErr(m,T('need_all_nhpt'));return}
+ if(!nodeNameOK(name)){formErr(m,T('node_name_ascii'));return}
  m.className='msg';m.textContent=T('connecting_dots');
  var r=await post('node-add',Object.assign({name:name,host:host,port:port,token:tok},pxBody('n_')));
  if(r.ok&&r.d.ok){closeModal(m.closest('.modalov'));toast(T('node_added_checking'),'ok');refreshNodes()}
@@ -9039,13 +9075,17 @@ var TOPEN={};
 var PEERST=(function(){try{return JSON.parse(localStorage.getItem('tnl_peerst')||'{}')||{}}catch(e){return {}}})();
 function peerStSave(){try{localStorage.setItem('tnl_peerst',JSON.stringify(PEERST))}catch(e){}}
 var CHEVI='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+var _NODENAME_RE=/^[A-Za-z0-9 _.-]{1,40}$/;
+function nodeNameOK(s){return _NODENAME_RE.test(String(s||''))}
 function cardTog(id,e){TOPEN[id]=!TOPEN[id];var c=el('c_'+id);if(c)c.classList.toggle('open',TOPEN[id])}
 function cardTogFromEl(elm){var c=elm.closest&&elm.closest('.card[data-rid]');if(!c)return;var id=c.getAttribute('data-rid');TOPEN[id]=!TOPEN[id];c.classList.toggle('open',TOPEN[id])}  
 async function toggleLink(id,e){e.stopPropagation();var L=FLEET.filter(function(x){return x.id==id})[0];if(!L)return;
  var next=(L.enabled===false);L.enabled=next;   
  var c=el('c_'+id);if(c){var sw=c.querySelector('.tsw');if(sw)sw.classList.toggle('on',next);c.classList.toggle('off',!next)}
  var r=await post('link-toggle',{id:id,enabled:next});
- if(!(r.ok&&r.d.ok)){L.enabled=!next;toast(T('failed'),'err')}else{toast(next?T('turned_on'):T('turned_off'),'ok')}
+ if(!(r.ok&&r.d.ok)){L.enabled=!next;toast(T('failed'),'err')}
+ else if(r.d.both===false){toast(terr(r.d.msg)||T('failed'),'err')}
+ else{toast(next?T('turned_on'):T('turned_off'),'ok')}
  refreshFleet()}
 function accDot(l,side){if(l.enabled===false)return '<span class="sdot na" title="'+esc(T('st_off'))+'"></span>';
  var s=sideState(side=='a'?l.a_online:l.b_online, side=='a'?l.a_health:l.b_health, side=='a'?l.b_health:l.a_health);
@@ -9168,7 +9208,7 @@ async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=t
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
  if(!type){formErr(m,T('tun_type'));return}
  var L=FLEET.find(function(x){return x.id==id})||{};
- var a_ip=ssVal('lipa_'+id)||L.a_ip||'',b_ip=ssVal('lipb_'+id)||L.b_ip||'';
+ var a_ip=ssVal('lipa_'+id)||liveIP(L.a_ips,L.a_ip),b_ip=ssVal('lipb_'+id)||liveIP(L.b_ips,L.b_ip);
  m.className='msg';m.textContent=T('rebuilding_both');
  var body={id:id,type:type,subnet:subnet,a_ip:a_ip,b_ip:b_ip};var pe=el('le_port_'+id);if(pe)body.port=pe.value.trim();
  var r=await post('edit-link',body);
@@ -9194,6 +9234,9 @@ async function checkLink(id){var k='lchk_'+id;
  var L=FLEET.filter(function(x){return x.id==id})[0]||{};
  if(!(r.ok&&r.d.ok)){rmsgSet(k,'err',esc(perr(r)));return}
  var d=r.d,ab=el('lba_'+id),bb=el('lbb_'+id);
+ if(L.enabled===false){var off='<span class="stw na">'+esc(T('st_off'))+'</span><span class="sdot na"></span>';
+  if(ab)ab.innerHTML=off;if(bb)bb.innerHTML=off;
+  rmsgSet(k,'',esc(T('conn_off')));return}
  if(ab)ab.innerHTML=sideDot(d.a_online,d.a_health,d.b_health);if(bb)bb.innerHTML=sideDot(d.b_online,d.b_health,d.a_health);
  paintBox('bxa_'+id,d.a_online,d.a_health,d.b_health);paintBox('bxb_'+id,d.b_online,d.b_health,d.a_health);
  var aup=d.a_online&&d.a_health&&d.a_health.up,bup=d.b_online&&d.b_health&&d.b_health.up;
@@ -9537,7 +9580,8 @@ function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_r
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
 var _ip4Re=/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$/;
-function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\\d+$/.test(p)&&+p>=1&&+p<=65535))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
+function edgePortsOK(){var e=_ENUMS.edge_ports||{};return (poolGet('ee_').tls?e.tls:e.plain)||[]}
+function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\\d+$/.test(p)&&edgePortsOK().indexOf(+p)>=0))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
 function _cdRemain(now,polledMs,next){if(!next||!now)return -1;var e=now+(Date.now()-(polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
 function _cdTick(host,now,polledMs){if(!host)return;
   Array.prototype.forEach.call(host.querySelectorAll('.pcd'),function(sp){var r=_cdRemain(now,polledMs,+sp.getAttribute('data-next'));if(r>=0)sp.textContent=poolCdTxt(r)});
@@ -9601,7 +9645,11 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var pr=st.pair||{};
   d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
   if(d.pinPending){var pk=d.pinPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.pinPending=null;}
   poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  
-async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)poolApplyStatus('ee_',r.d);}
+async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});
+ if(r.ok&&r.d&&r.d.ok&&r.d.pool){poolStale(false);poolApplyStatus('ee_',r.d);return}
+ poolStale(true,perr(r));}
+function poolStale(on,why){var w=el('ee_poolstale');if(!w)return;
+ w.style.display=on?'':'none';w.innerHTML=on?(ic('warn')+'<span>'+esc(T('pool_stale'))+(why?(' — '+esc(why)):'')+'</span>'):'';}
 (function poolLoop(){setTimeout(function(){Promise.resolve(poolTick()).then(poolLoop,poolLoop)},UIV)})();   
 function poolCdTick(){var d=_poolData['ee_'];if(!d||!d.live)return;['ip','sni'].forEach(function(k){_cdTick(el('ee_lst_'+k),d.srvNow,d.polledMs)})}
 setInterval(poolCdTick,1000);
@@ -9868,7 +9916,8 @@ function wsPoolInner(idp,fnp,lid){
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
- return block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
+ return '<div class="warncap no" id="'+idp+'poolstale" style="display:none;margin-bottom:8px"></div>'
+   +block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
    +block('sni',T('pool_sni_lbl'),'cdn.example.com')
    +'<label style="margin-top:14px">'+esc(T('rot_int_lbl'))+'</label>'+sel;}
 
@@ -9911,10 +9960,10 @@ function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
 function corToggleCover(){if(_corS.Tr!='tcp')return;_corS.Cover=!_corS.Cover;var s=el('e_cover');if(s)s.classList.toggle('on',_corS.Cover);corSniVis()}
 function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corS.Cover&&_corS.Tr=='tcp')?'':'none'}
-function corCoverGate(){var tcp=_corS.Tr=='tcp',row=el('e_coverrow'),s=el('e_cover');if(!tcp){_corS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';corSniVis()}
+function corCoverGate(){var ok=_corS.Tr=='tcp'&&ssVal('e_cipher')!='none',row=el('e_coverrow'),s=el('e_cover');if(!ok){_corS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';corSniVis()}
 function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(px+'obfsrow'),s=el(px+'obfs');
  if(off){S.Obfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=off?'none':''}
-function onCorCipher(){_obfsGate('e_',_corS)}
+function onCorCipher(){_obfsGate('e_',_corS);corCoverGate()}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=true;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Sprot=false;_corS.Gso=false;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=10;_corS.FecParity=3;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
@@ -9997,8 +10046,6 @@ function rotCollect(px){var st=rotSt(px);if(!st.on)return null;
  var secs=parseInt(ssVal(px+'rotsecs'))||0;
  return {ip_rotate:true,a_ip_pool:ap,b_ip_pool:bp,rotate_secs:secs,a_ip:ap[0]||'',b_ip:bp[0]||''}}
 function rotValidate(px){var st=rotSt(px);if(!st.on)return null;
- var err=null;['a','b'].forEach(function(side){var ips=(side=='a')?st.aIps:st.bIps;if(ips.length>1&&rotCount(px,side)<2)err=T('rot_min2')});
- if(err)return err;
  if(rotCount(px,'a')<2&&rotCount(px,'b')<2)return T('rot_min2');   
  return null}
 function onCorSubRange(){var w=el('e_snc');if(!w)return;w.innerHTML=(ssVal('e_snr')=='custom')?'<label>'+esc(T('custom_subnet'))+'</label><input id="e_subnet" placeholder="'+esc(T('ph_subnet'))+'">':''}
@@ -10034,7 +10081,8 @@ function _collectCoreBody(S,px,m,body){
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if(fecDatagram(S)){body.fec=S.Fec&&!sprotLive(S);if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
- if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode}}
+ if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
+  if(body.fake_mode=='both'&&body.fake_count<2){formErr(m,T('ds_both_needs2'));return true}}}
  if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_url=(v(px+'echproxyurl')||'').trim();body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
@@ -10099,8 +10147,8 @@ function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.to
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
 function ceToggleCover(){if(_eeS.Tr!='tcp')return;_eeS.Cover=!_eeS.Cover;var s=el('ee_cover');if(s)s.classList.toggle('on',_eeS.Cover);ceSniVis()}
 function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS.Tr=='tcp')?'':'none'}
-function ceCoverGate(){var tcp=_eeS.Tr=='tcp',row=el('ee_coverrow'),s=el('ee_cover');if(!tcp){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=tcp?'':'none';ceSniVis()}
-function onEeCipher(){_obfsGate('ee_',_eeS)}
+function ceCoverGate(){var ok=_eeS.Tr=='tcp'&&ssVal('ee_cipher')!='none',row=el('ee_coverrow'),s=el('ee_cover');if(!ok){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';ceSniVis()}
+function onEeCipher(){_obfsGate('ee_',_eeS);ceCoverGate()}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
  _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
@@ -10210,7 +10258,7 @@ function pxScheme(s){document.querySelectorAll('#px_seg button').forEach(functio
 function pxSchemeVal(){var b=document.querySelector('#px_seg button.on');return b?b.dataset.s:'socks5'}
 async function savePx(btn){var m=el('px_msg'),ov=btn.closest('.modalov'),pid=(ov&&ov._px)||'';
  var b={name:v('px_name'),scheme:pxSchemeVal(),host:v('px_host'),port:v('px_port'),
-        user:v('px_user'),pass:v('px_pass')};if(pid)b.id=pid;
+        user:v('px_user'),pass:(el('px_pass')?el('px_pass').value:'')};if(pid)b.id=pid;
  var r=await post(pid?'proxy-edit':'proxy-add',b);
  if(r.ok&&r.d.ok){closeModal(ov);toast(T('px_saved'),'ok');refreshProxies()}
  else{formErr(m,perr(r))}}
@@ -10219,7 +10267,7 @@ async function delPx(i){var p=PX[i];if(!p)return;if(!await confirmBox(T('px_del_
  if(r.ok&&r.d.ok){toast(T('px_deleted'),'ok');refreshProxies()}else{toast(perr(r),'err')}}
 function pxFields(pre,node,lbl,sub){
  var on=!!(node&&node.proxy_on),sel=(node&&node.proxy_id)||'';
- var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.url}});
+ var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.addr}});
  var pick=opts.length
   ?ssHTML(pre+'proxy_id',opts,sel||opts[0].v,'','')
   :'<div class="muted" style="font-size:12px">'+esc(T('nd_proxy_none'))+'</div>';
@@ -10289,7 +10337,9 @@ async function pfNext(i){var p=PF[i];if(!p)return;var b=el('pfact_'+i),old=b?b.t
  var r=await post('portfw-next',{node:p.node_id,name:p.name});
  if(r.ok&&r.d.ok){if(b)b.textContent=r.d.active;toast(T('pf_rotate_done')+r.d.active,'ok')}
  else{if(b)b.textContent=old;toast(terr((r.d&&(r.d.error||r.d.msg))||T('pf_rotate_failed')),'err')}}
-async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;await post('portfw-del',{node:p.node_id,name:p.name});refreshPortfw()}
+async function delPf(i){var p=PF[i];if(!p)return;if(!await confirmBox(T('pf_del_confirm')))return;var r=await post('portfw-del',{node:p.node_id,name:p.name});
+ if(!(r.ok&&r.d&&r.d.ok))toast(terr((r.d&&(r.d.msg||r.d.error)))||T('failed'),'err');
+ refreshPortfw()}
 
 var RDY=null;
 async function loadReadiness(){try{RDY=await j('readiness')}catch(e){return}paintReady()}
@@ -10725,7 +10775,9 @@ async function refreshLogs(){
   var r=await j('events').catch(function(){return null});
   if(r&&r.events){LOGEVS=r.events;LOGSIG=sig}}
  logPaint()}
-async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;await post('events-clear',{});toast(T('logs_cleared'),'ok');
+async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;var r=await post('events-clear',{});
+ if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
+ toast(T('logs_cleared'),'ok');
  LOGEVS=[];LOGSIG='';LOGPAINT='';refreshLogs();}
 function render(){setnav();RMSG={};setLS('tnl_page',cur);
  if(cur=='overview')overviewSkel();else if(cur=='nodes')nodesSkel();else if(cur=='tunnels')tunnelsSkel();else if(cur=='core')coreSkel();else if(cur=='proxies'){proxiesSkel();return}else if(cur=='portfw'){portfwSkel();return}else if(cur=='agent'){agentSkel();return}else if(cur=='logs'){logsSkel();return}else if(cur=='settings'){settingsSkel();refreshSettings();return}
@@ -10831,7 +10883,7 @@ function palRender(q){q=(q||'').trim().toLowerCase();
  var nodes=(PALDATA.nodes||[]).filter(function(n){return !q||n.name.toLowerCase().indexOf(q)>=0||(n.host||'').indexOf(q)>=0}).slice(0,6)
   .map(function(n){return {i:'server',label:esc(n.name),sub:esc(n.host),act:function(){cur='nodes';QRY.nodes=n.name;closePal();render()}}});
  var tuns=(PALDATA.tuns||[]).filter(function(l){return !q||((l.a_name||'')+' '+(l.b_name||'')+' '+(l.name||'')+' '+(l.type||'')).toLowerCase().indexOf(q)>=0}).slice(0,6)
-  .map(function(l){return {i:'link',label:esc(l.a_name)+' ↔ '+esc(l.b_name),sub:esc(l.name),act:function(){cur='tunnels';QRY.tunnels=l.name;closePal();render()}}});
+  .map(function(l){return {i:'link',label:esc(l.a_name)+' ↔ '+esc(l.b_name),sub:esc(l.name),act:function(){var pg=(l.type=='core')?'core':'tunnels';cur=pg;QRY[pg]=l.name;closePal();render()}}});
  var acts=palActions().filter(function(a){return !q||a.label.toLowerCase().indexOf(q)>=0});
  var groups=[[T('pal_g_nodes'),nodes],[T('pal_g_tuns'),tuns],[T('pal_g_acts'),acts]];PALITEMS=[];var html='';
  groups.forEach(function(g){if(!g[1].length)return;html+='<div class="palsec">'+g[0]+'</div>';
@@ -10857,11 +10909,13 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
 INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
+INDEX_HTML = INDEX_HTML.replace("__LOGMAX__", str(EVENTS_MAX))
 INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
     {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
-     "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"}},
+     "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
+     "edge_ports": {"tls": list(_EDGE_TLS_PORTS), "plain": list(_EDGE_PLAIN_PORTS)}},
     separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__SPLITTTLMAX__", str(SPLIT_TTL_MAX))
 INDEX_HTML = INDEX_HTML.replace("__WORKERSMAX__", str(CORE_MAX_WORKERS))
