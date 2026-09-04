@@ -76,7 +76,6 @@ let SETHTML_WHILE_DRAGGING = 0, SETHTML_TOTAL = 0;
 const realSetHTML = setHTML, realSetList = setList;
 setHTML = function (box, html) { SETHTML_TOTAL++; if (RORD) SETHTML_WHILE_DRAGGING++; return realSetHTML(box, html) };
 setList = function (box, rows) { SETHTML_TOTAL++; if (RORD) SETHTML_WHILE_DRAGGING++; return realSetList(box, rows) };
-renderPager = () => {};
 coreCard = () => '<div></div>';
 
 // A fleet fetch that takes a round-trip, like a phone link.

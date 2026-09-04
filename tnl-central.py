@@ -1512,17 +1512,8 @@ def query_dict(path):
     return {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(path).query).items()}
 
 
-def _paginate(d, default_limit=25, max_limit=100):
-    try:
-        off = max(0, int(d.get("offset") or 0))
-    except Exception:
-        off = 0
-    try:
-        lim = int(d.get("limit") or default_limit)
-    except Exception:
-        lim = default_limit
-    lim = max(1, min(max_limit, lim))
-    return off, lim, str(d.get("q") or "").strip().lower()
+def _list_query(d):
+    return str(d.get("q") or "").strip().lower()
 
 
 SUBNET_BASES = {"192.168": ("192.168.0.0", 16), "172.16": ("172.16.0.0", 12), "10": ("10.0.0.0", 8)}
@@ -3846,7 +3837,7 @@ def api_core_stage_cancel(d):
 
 
 def api_fleet(d):
-    off, lim, q = _paginate(d)
+    q = _list_query(d)
     nodes = {n["id"]: n for n in load_nodes()}
     kind = (d or {}).get("kind")
     links = []
@@ -3861,7 +3852,7 @@ def api_fleet(d):
         links = [L for L in links if q in L["a_name"].lower() or q in L["b_name"].lower()
                  or q in L.get("type", "").lower() or q in str(L.get("tunnel_id", "")).lower()]
     total = len(links)
-    page = links[off:off + lim]
+    page = links
     need = {L[k] for L in page for k in ("a_node", "b_node")}
     _ensure_cached([nodes[i] for i in need if i in nodes])
     with _tf_lock:
@@ -3918,7 +3909,7 @@ def api_fleet(d):
             if b_act:
                 rec["b_ip_active"] = b_act
         out.append(rec)
-    return {"links": out, "total": total, "offset": off, "limit": lim}
+    return {"links": out, "total": total}
 
 
 def api_link_view(d):
@@ -6452,7 +6443,7 @@ def _reorder_portfw(a, targets):
 
 
 def api_portfw_list(d):
-    off, lim, q = _paginate(d)
+    q = _list_query(d)
     all_pf = []
     for n in load_nodes():
         r = _cached_list(n["id"])
@@ -6477,7 +6468,7 @@ def api_portfw_list(d):
                            "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name")),
                            **bw})
     all_pf = _pf_sorted(all_pf, lambda it: _pf_key(it["node_id"], it["name"]))
-    return {"portfw": all_pf[off:off + lim], "total": len(all_pf), "offset": off, "limit": lim}
+    return {"portfw": all_pf, "total": len(all_pf)}
 
 
 def api_portfw_edit(d):
@@ -7393,10 +7384,6 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .toolbar{display:flex;gap:9px;align-items:center;margin:2px 0 12px;flex-wrap:wrap}
 .search{flex:1;min-width:150px;padding:10px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13px;font-family:inherit}
 .search:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
-.pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0 2px;flex-wrap:wrap}
-.pbtn{background:var(--glass);border:1px solid var(--bord);color:var(--tx);border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12.5px}
-.pbtn:disabled{opacity:.4;cursor:default}.pbtn:not(:disabled):active{transform:scale(.97)}
-.pinfo{color:var(--sub);font-size:12px;min-width:120px;text-align:center}
 @media(prefers-reduced-motion:no-preference){#view>*{animation:rise .45s cubic-bezier(.22,.61,.36,1) both}}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @media(min-width:900px){
@@ -8088,7 +8075,7 @@ var I18N={fa:{
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
  no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
- prev:"قبلی",next:"بعدی",page:"صفحه",of:"از",items:"مورد",search:"جستجو…",
+search:"جستجو…",
  disk:"دیسک",cpu_cores:"تعداد هسته",os:"سیستم‌عامل",uptime:"آپ‌تایم",host:"میزبان",proxy:"پروکسی",
  ov_sub:"آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده",ov_health:"سلامتِ فلیت",ov_attention:"نیازمندِ توجه",ov_allnodes:"همهٔ نودها یک‌نگاه",
  st_healthy:"سالم",st_warn:"هشدار (>60٪)",st_crit:"بحرانی (>85٪)",ov_central:"سرورِ مرکزی (این پنل)",ov_worst:"پرمصرف‌ترین نودها",
@@ -8550,7 +8537,7 @@ function nodeIps(id){var n=NODES.find(function(x){return x.id==id});if(!n||!n.in
 function ipItems(ips){return ips.map(function(x){return {v:x,label:x}})}
 
 var cur='overview',NODES=[],FLEET=[],FRXHIST=[],FTXHIST=[],PF=[],TT=0,EDID=null,selTargets={},SEL={},SSI={},SSCB={},UPWIN=1,EVSEQ=0,LOGN=0,UIV=2000,EDGEV={},RORD=null,RSAVE=false;   
-var LIM=25,PG={tunnels:0,portfw:0,core:0},QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:'',logs:''},TOT={nodes:0,tunnels:0,portfw:0,agent:0,core:0},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
+var QRY={nodes:'',tunnels:'',portfw:'',agent:'',core:'',logs:''},SEARCH_T=0,AGMETA=null,PAL=null,PALIDX=0,PALITEMS=[],PALDATA={nodes:[],tuns:[]};
 var _ENUMS=__ENUMS_JSON__;   
 var _WKMAX=[],_WKN=__WORKERSMAX__;for(var _i=1;_i<=_WKN;_i++)_WKMAX.push(_i);
 function wkClamp(n){n=parseInt(n,10);return (n>=1&&n<=_WKN)?n:1}
@@ -8706,12 +8693,7 @@ async function actAccepted(key,box){var end=Date.now()+45000;
 
 function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
  return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')">'+rb+'</div>'}
-function pagerBottom(kind){return '<div class="pager" id="pgb_'+kind+'"></div>'}
-function renderPager(kind){var total=TOT[kind]||0,pages=Math.max(1,Math.ceil(total/LIM)),cur=Math.min(PG[kind]+1,pages);
- var h='<button class="pbtn" '+(PG[kind]<=0?'disabled':'')+' onclick="goPage(\\''+kind+'\\',-1)">'+esc(T('prev'))+'</button><span class="pinfo">'+esc(T('page'))+' '+cur+' '+esc(T('of'))+' '+pages+' · '+total+' '+esc(T('items'))+'</span><button class="pbtn" '+(cur>=pages?'disabled':'')+' onclick="goPage(\\''+kind+'\\',1)">'+esc(T('next'))+'</button>';
- var a=el('pg_'+kind),b=el('pgb_'+kind);if(a)a.innerHTML=pages>1?h:'';if(b)b.innerHTML=pages>1?h:''}
-function goPage(kind,delta){var pages=Math.max(1,Math.ceil((TOT[kind]||0)/LIM));PG[kind]=Math.max(0,Math.min(pages-1,PG[kind]+delta));refresh()}
-function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);if(PG[kind]!=null)PG[kind]=0;refresh()},280)}
+function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);refresh()},280)}
 function msFilter(inp){var q=inp.value.trim().toLowerCase(),list=inp.parentNode;
  list.querySelectorAll('.msrow').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().indexOf(q)>=0)?'':'none'})}
 var SUBNET_BASE_NETS={'192.168':[3232235520,16],'172.16':[2886729728,12],'10':[167772160,8]};
@@ -8909,7 +8891,7 @@ async function doAutoInstall(){if(_inst)return;var m=el('n_msg'),btn=el('nadd_go
  _inst={job:r.d.job,steps:_insteps().map(function(s){return{label:s.label,detail:s.detail}}),confirmed:['run','wait','wait','wait'],banner:T('inst_installing'),bDone:false,bOk:false,err:'',revealIdx:1,lastReveal:_instNow(),lastPoll:0,polling:false,failN:0,finished:false,cancelled:false,timer:null};
  _instTick()}
 function listBusy(){return !!(RORD||RSAVE)}
-async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];TOT.nodes=num(r.total);UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   
+async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+encodeURIComponent(QRY.nodes));NODES=r.nodes||[];UPWIN=num(r.uptime_window)||1;var box=el('nodeList');if(!box||listBusy())return;   
  var rows=[],bn=cnBanner(NODES);
  if(bn)rows.push({k:'__banner',h:bn});
  NODES.forEach(function(n){rows.push({k:n.id,h:nodeCard(n)})});
@@ -9093,7 +9075,7 @@ async function doDelNode(id,wipe,force){var m=el('del_msg');
 
 function tunnelsSkel(){CHK={};el('view').innerHTML=vhead('link','nav_tunnels','tun_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCreateModal()">'+ic('plus')+esc(T('add_tunnel'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
- toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'+pagerBottom('tunnels')}
+ toolbar('tunnels',T('tun_search'))+'<div id="linkList">'+skCards('tunnels')+'</div>'}
 function fmtms(x){return (x>=10?Math.round(x):Math.round(x*10)/10)+'ms'}
 function pingInfo(h){if(!h)return '';var p=[];
  if(h.rtt_ms!=null)p.push(T('t_ping')+' '+fmtms(h.rtt_ms));
@@ -9258,9 +9240,9 @@ function linkCard(l){
   metaCols(l);
  var F=linkFooter(l,'openLinkEdit');
  return accShell(l,false,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
-async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&offset='+(PG.tunnels*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.tunnels));FLEET=tagPending(f.links||[]);TOT.tunnels=num(f.total);var box=el('linkList');if(!box||listBusy())return;   
+async function refreshTunnels(){if(listBusy())return;var f=await j('fleet?kind=tunnels&q='+encodeURIComponent(QRY.tunnels));FLEET=tagPending(f.links||[]);var box=el('linkList');if(!box||listBusy())return;   
  var _rows=withPending('tunnels',FLEET.map(function(l){return {k:l.id,h:linkCard(l)}}));
- setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}]);renderPager('tunnels')}
+ setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.tunnels?T('no_results'):T('tun_empty'))+'</div>'}])}
 async function saveLinkEdit(id){var m=el('lem_'+id);var type=ssVal('lt_'+id),subnet=v('e_sub_'+id);
  if(!type){formErr(m,T('tun_type'));return}
  var L=FLEET.find(function(x){return x.id==id})||{};
@@ -9418,10 +9400,10 @@ async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a')
 
 function coreSkel(){CHK={};el('view').innerHTML=vhead(COR_IC,'nav_core','core_sub')+
  '<div class="tbtnrow"><button class="primary" onclick="openCoreModal()">'+ic('plus')+esc(T('core_add'))+'</button><button class="chkall" id="chkAllBtn" onclick="checkAll()">'+ic('activity')+esc(T('check_all'))+'</button></div>'+
- toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'+pagerBottom('core')}
-async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&offset='+(PG.core*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.core));FLEET=tagPending(f.links||[]);TOT.core=num(f.total);var box=el('corList');if(!box||listBusy())return;   
+ toolbar('core',T('core_search'))+'<div id="corList">'+skCards('core')+'</div>'}
+async function refreshCore(){if(listBusy())return;var f=await j('fleet?kind=core&q='+encodeURIComponent(QRY.core));FLEET=tagPending(f.links||[]);var box=el('corList');if(!box||listBusy())return;   
  var _rows=withPending('core',FLEET.map(function(l){return {k:l.id,h:coreCard(l)}}));
- setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}]);renderPager('core')}   
+ setList(box,_rows.length?_rows:[{k:'__empty',h:'<div class="card muted">'+(QRY.core?T('no_results'):T('core_empty'))+'</div>'}])}   
 var REORDMODE=false,RORD_AS=0;   
 function toggleReord(){REORDMODE=!REORDMODE;document.body.classList.toggle('reord-on',REORDMODE);if(REORDMODE)reordCollapse();}
 function reordCollapse(one){
@@ -10393,7 +10375,7 @@ function pxBody(pre){var sw=el(pre+'proxy_tgl');var on=!!(sw&&sw.classList.conta
 
 function portfwSkel(){el('view').innerHTML=vhead('fwd','nav_portfw','pf_sub')+
  '<button class="primary" onclick="openPfAddModal()" style="margin:0 0 14px;display:inline-flex;align-items:center;gap:6px">'+ic('plus')+esc(T('pf_add'))+'</button>'+
- '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList">'+skCards('portfw')+'</div>'+pagerBottom('portfw');
+ '<div class="sec">'+ic('activity','var(--acc)')+' '+esc(T('pf_active'))+'</div>'+toolbar('portfw',T('pf_search'))+'<div id="pfList">'+skCards('portfw')+'</div>';
  refreshPortfw()}
 async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(!on.length){toast(T('pf_no_online'),'err');return}
@@ -10404,9 +10386,9 @@ async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];va
 function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal('pf_node'));
  if(ips.length>1){w.innerHTML='<label>'+esc(T('pf_lip_full'))+'</label>'+ssHTML('pf_lip',ipItems(ips),(SEL['pf_lip']&&ips.indexOf(SEL['pf_lip'])>=0?SEL['pf_lip']:ips[0]),T('ip'),'')}
  else{w.innerHTML='';delete SEL['pf_lip']}}   
-async function refreshPortfw(){if(listBusy())return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?offset='+(PG.portfw*LIM)+'&limit='+LIM+'&q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});TOT.portfw=num(r.total);
+async function refreshPortfw(){if(listBusy())return;var box=el('pfList');if(!box)return;var r=await j('portfw-list?q='+encodeURIComponent(QRY.portfw));PF=(r.portfw||[]).filter(function(x){return x.name});
  if(listBusy())return;   
- setList(box,PF.length?PF.map(function(p,i){return {k:p.node_id.length+':'+p.node_id+p.name,h:pfCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>'}]);renderPager('portfw')}
+ setList(box,PF.length?PF.map(function(p,i){return {k:p.node_id.length+':'+p.node_id+p.name,h:pfCard(p,i)}}):[{k:'__empty',h:'<div class="card muted">'+(QRY.portfw?T('no_results'):T('pf_empty'))+'</div>'}])}
 function pfCard(p,i){var h=p.health||{};
  var st=h.rule?(h.reachable?'<span class="badge ok">'+esc(T('pf_active_badge'))+CK+'</span>':'<span class="badge bad">'+esc(T('pf_rule'))+CK+' · '+esc(T('pf_dest'))+XK+'</span>'):'<span class="badge bad">'+esc(T('pf_disabled'))+'</span>';
  var rotOn=p.switch_interval>0,multi=(p.dst_ips||[]).length>1;
@@ -10543,7 +10525,7 @@ async function refreshAgent(){var info=await j('agent-info').catch(function(){re
   :'<span class="muted">'+esc(T('ag_no_agent_loaded'))+'</span>';
  loadCoreVersions();
  var box=el('agList');if(!box)return;
- var r=await j('nodes?q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];TOT.agent=num(r.total);
+ var r=await j('nodes?q='+encodeURIComponent(QRY.agent));var nodes=r.nodes||[];
  AGNODES=nodes;
  setList(box,nodes.length?nodes.map(function(n){return {k:n.id,h:agRow(n)}}):[{k:'__empty',h:'<div class="card muted">'+esc(T('ag_no_item'))+'</div>'}]);
  if(PUSHSTATE)pushPaint(PUSHSTATE);
@@ -10990,7 +10972,7 @@ function palRender(q){q=(q||'').trim().toLowerCase();
  var nodes=(PALDATA.nodes||[]).filter(function(n){return !q||n.name.toLowerCase().indexOf(q)>=0||(n.host||'').indexOf(q)>=0}).slice(0,6)
   .map(function(n){return {i:'server',label:esc(n.name),sub:esc(n.host),act:function(){cur='nodes';QRY.nodes=n.name;closePal();render()}}});
  var tuns=(PALDATA.tuns||[]).filter(function(l){return !q||((l.a_name||'')+' '+(l.b_name||'')+' '+(l.name||'')+' '+(l.type||'')).toLowerCase().indexOf(q)>=0}).slice(0,6)
-  .map(function(l){return {i:'link',label:esc(l.a_name)+' ↔ '+esc(l.b_name),sub:esc(l.name),act:function(){cur='tunnels';QRY.tunnels=l.name;PG.tunnels=0;closePal();render()}}});
+  .map(function(l){return {i:'link',label:esc(l.a_name)+' ↔ '+esc(l.b_name),sub:esc(l.name),act:function(){cur='tunnels';QRY.tunnels=l.name;closePal();render()}}});
  var acts=palActions().filter(function(a){return !q||a.label.toLowerCase().indexOf(q)>=0});
  var groups=[[T('pal_g_nodes'),nodes],[T('pal_g_tuns'),tuns],[T('pal_g_acts'),acts]];PALITEMS=[];var html='';
  groups.forEach(function(g){if(!g[1].length)return;html+='<div class="palsec">'+g[0]+'</div>';
