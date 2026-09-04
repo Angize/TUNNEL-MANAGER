@@ -1915,6 +1915,12 @@ UP_CRIT = 85
 PING_BAD = 150
 
 
+def subnet_free_counts(links):
+    used = {int(L["tunnel_id"]) for L in links if str(L.get("tunnel_id", "")).isdigit()}
+    return {b: max(0, subnet_cap(b) - sum(1 for t in used if 1 <= t <= subnet_cap(b)))
+            for b in SUBNET_BASES}
+
+
 def api_summary(d):
     nodes = load_nodes()
     links = load_links()
@@ -2048,6 +2054,7 @@ def api_summary(d):
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
             "link_off": off_n,
             "link_types": types, "worst_tunnel": worst_tun,
+            "subnet_free": subnet_free_counts(links),
             "fleet_avg_ping": round(sum(rtts) / len(rtts)) if rtts else None,
             "uptime_avg": (int(sum(ups) / len(ups) * 10) / 10 if ups else 100), "uptime_down_nodes": downcnt, "uptime_window": win,
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
@@ -8405,7 +8412,6 @@ function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){function it(b,k){return {v:b,label:T(k),sub:'('+subnetFree(b)+')'}}
  return [it('192.168','snr_192'),it('10','snr_10'),it('172.16','snr_172'),{v:'custom',label:T('snr_custom')}]}
-var SUBNETRANGES2=[{v:'10',label:'10.x'},{v:'172.16',label:'172.16.x'},{v:'192.168',label:'192.168.x'}];
 document.querySelectorAll('#nav .navi').forEach(function(p){p.onclick=function(){if(p.dataset.t=='logout'){logout();return}cur=p.dataset.t;drawer(false);render()}});
 function setnav(){document.querySelectorAll('#nav .navi').forEach(function(p){p.classList.toggle('on',p.dataset.t==cur)})}
 function drawer(open){document.body.classList.toggle('navopen',!!open)}
@@ -8415,6 +8421,7 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
  if(s.ui_interval)UIV=Math.max(300,Math.round(num(s.ui_interval)*1000));   
  if(Array.isArray(s.suspect_backoff)&&s.suspect_backoff.length)_poolBackoff=s.suspect_backoff.map(Number);
  if(s.dead_retest_secs)_poolDeadStep=num(s.dead_retest_secs);
+ if(s.subnet_free)SUBNET_FREE=s.subnet_free;
  EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
  if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
  var un=EVSEQ-seen;setUnread(un);
@@ -8561,13 +8568,15 @@ function subnetForBase(type,tid,base){tid=num(tid)||0;
  var b=SUBNET_BASE_NETS[base];
  var n=(b[0]+tid*256)>>>0;
  return ((n>>>24)&255)+'.'+((n>>>16)&255)+'.'+((n>>>8)&255)+'.'+(n&255)+'/24'}
-function subnetFree(base){var cap=subnetCap(base),n=0;
- (window.FLEET||[]).forEach(function(l){var t=num(l.tunnel_id);if(t>=1&&t<=cap)n++});
- return Math.max(0,cap-n)}
+var SUBNET_FREE=null;
+function subnetFree(base){if(SUBNET_FREE&&SUBNET_FREE[base]!=null)return num(SUBNET_FREE[base]);
+ return subnetCap(base)}
 function subnetBaseOf(l){var tid=num(l.tunnel_id);
  return ['192.168','172.16','10'].filter(function(x){return tid<=subnetCap(x)&&subnetForBase(l.type,tid,x)==l.subnet})[0]||'custom'}
 function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){return x.id==EDID})[0];if(!L)return;
- var f=el('e_sub_'+EDID);if(f)f.value=subnetForBase(ssVal('lt_'+EDID),L.tunnel_id,ssVal('lsr_'+EDID));renderEditPort(EDID)}
+ var b=ssVal('lsr_'+EDID),f=el('e_sub_'+EDID);
+ if(f&&b&&b!='custom')f.value=subnetForBase(ssVal('lt_'+EDID),L.tunnel_id,b);
+ renderEditPort(EDID)}
 var LEDTYPE='',LEDPORT='';
 function renderEditPort(id){var w=el('lpx_'+id);if(!w)return;var t=ssVal('lt_'+id);
  var pre=(t==LEDTYPE&&LEDPORT!=null)?String(LEDPORT):'';
@@ -8824,7 +8833,7 @@ function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">'+esc(T('i
  return '<div>'+lab+'<input class="mono" value="'+esc(cur||ips[0]||'—')+'" disabled style="opacity:.6"></div>'}
 function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)return;EDID=id;LEDTYPE=l.type;LEDPORT=(l.port==null?'':l.port);
  var multi=((l.a_ips||[]).length>1)||((l.b_ips||[]).length>1);
- var b='<div class="grid2"><div><label class="first">'+esc(T('tun_type'))+'</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,T('ttype'),'recalcEditSubnet')+'</div><div><label class="first">'+esc(T('range'))+'</label>'+ssHTML('lsr_'+id,SUBNETRANGES2,'192.168',T('range'),'recalcEditSubnet')+'</div></div><label>'+esc(T('subnet'))+'</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div id="lpx_'+id+'"></div>'+
+ var b='<div class="grid2"><div><label class="first">'+esc(T('tun_type'))+'</label>'+ssHTML('lt_'+id,TYPEITEMS,l.type,T('ttype'),'recalcEditSubnet')+'</div><div><label class="first">'+esc(T('range'))+'</label>'+ssHTML('lsr_'+id,SUBNETRANGES(),subnetBaseOf(l),T('range'),'recalcEditSubnet')+'</div></div><label>'+esc(T('subnet'))+'</label><input id="e_sub_'+id+'" value="'+esc(l.subnet)+'"><div id="lpx_'+id+'"></div>'+
   '<div class="muted" style="font-weight:700;color:var(--tx);margin:16px 2px 9px;display:flex;align-items:center;gap:6px">'+ic('pin','var(--acc)')+esc(T('ip_each_end'))+(multi?' <span class="tag" style="font-size:9.5px;padding:1px 7px">'+esc(T('multi_ip'))+'</span>':'')+'</div>'+
   '<div class="grid2">'+ipEndField('a',id,l.a_name,l.a_ips,l.a_ip)+ipEndField('b',id,l.b_name,l.b_ips,l.b_ip)+'</div>'+
   '<div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('link_ip_note1'))+esc(l.tunnel_id)+esc(T('link_ip_note2'))+'</div><div class="msg" id="lem_'+id+'"></div>';

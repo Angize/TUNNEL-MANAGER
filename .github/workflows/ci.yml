@@ -109,6 +109,12 @@ name: ci
 #                         left the stored default standing. They are different clocks -- the revive wait
 #                         is 10..3600 because the node judges a down tunnel about once a second, the
 #                         suspect backoff keeps 1..86400 because it waits out a censor.
+#   subnet_range_picker   the system-tunnel edit modal picks a range the way the core one does, and
+#                         the "(free)" number beside each range is the whole registry's. The modal
+#                         seeded its picker with the literal '192.168', so opening a 10.x overlay and
+#                         changing only the TYPE renumbered it; and subnetFree counted window.FLEET,
+#                         which holds one page's half of the tunnel ids and shrinks while you type in
+#                         the search box.
 #   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
 #                         کن» dropped the node and left its links behind, so they named a node that no
 #                         longer existed: api_summary counted each one down with an alert that could
@@ -317,3 +323,6 @@ jobs:
       - name: an out-of-range tuning step is refused, not dropped from the list
         working-directory: TUNNEL-MANAGER
         run: python tools/ladder_steps_are_reported_check.py
+      - name: the range picker opens where the tunnel is, and counts the whole registry
+        working-directory: TUNNEL-MANAGER
+        run: python tools/subnet_range_picker_check.py
