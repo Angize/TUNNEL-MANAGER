@@ -178,7 +178,8 @@ def main():
     src = SHIM + "\n"
     src += re.search(r"var PORT_RUNG_TRANSPORTS=\[.+?\];", js).group(0) + "\n"
     src += re.search(r"var SPROT_DEF=\d+;", js).group(0) + "\n"
-    src += "var RAW_DPORTS_MAX=" + re.search(r"RAW_DPORTS_MAX=(\d+)\s*;", js).group(1) + ";\n"
+    src += "var RAW_DPORTS_MAX=" + re.search(r"RAW_DPORTS_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
+    src += "var RAW_SPROT_MAX=" + re.search(r"RAW_SPROT_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
     src += "\n".join(grab(js, n) for n in GRAB) + "\n"
     src += GUARDED_SETTER + DRIVER
 
