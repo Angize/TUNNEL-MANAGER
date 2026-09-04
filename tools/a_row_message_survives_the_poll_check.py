@@ -124,9 +124,7 @@ toast = function(){};
 
 TOPEN = {}; PUSHSTATE = null; STAGED = null; AGMETA = null;
 QRY = {nodes:'', tunnels:'', core:'', proxies:'', portfw:''};
-PG = {nodes:0, tunnels:0, core:0, proxies:0, portfw:0};
-TOT = {nodes:1, tunnels:1, core:1, proxies:1, portfw:1};
-LIM = 20; UPWIN = 1;
+UPWIN = 1;
 
 const N = {id:'n1', name:'IR01', host:'1.2.3.4', port:9, online:true,
            info:{version:7, arch:'amd64', tunnels:1, portfw:0, core_ver:'v1', core_sha:'aa'}};

@@ -262,10 +262,20 @@ for fn in ("refreshAgent", "refreshNodes"):
          "%s must not paint a pager -- the list it fills is the whole fleet" % fn)
     need("offset=" not in src_fn and "limit=" not in src_fn,
          "%s must ask for the whole fleet, not a slice of it" % fn)
-need("_paginate(" not in code("api_nodes"),
-     "api_nodes must return every node the search matched; it is the one list that is not paged")
-need('"offset"' not in code("api_nodes") and '"limit"' not in code("api_nodes"),
-     "...and must not answer with offset/limit either, or the page it does not apply looks applied")
+# Paging is gone from the panel: every list shows everything the search matched. The three assertions
+# above used to be about refreshAgent and refreshNodes alone, because those two were the un-paged
+# lists among five. Now that none of them page, an assertion naming two of them proves nothing -- so
+# the rule is stated once, over the whole file, and it fails if any of it comes back.
+for gone in ("renderPager", "pagerBottom", "goPage", "_paginate("):
+    need(gone not in SRC, "%s is back: the lists must show everything, not a page of it" % gone)
+for fn in ("refreshTunnels", "refreshCore", "refreshPortfw", "refreshNodes", "refreshAgent"):
+    i = CODE.find("function %s(" % fn)
+    need(i >= 0, "%s must exist" % fn)
+    need("offset=" not in CODE[i:i + 1600] and "limit=" not in CODE[i:i + 1600],
+         "%s must ask for the whole list, not a slice of it" % fn)
+for ep in ("api_fleet", "api_portfw_list", "api_nodes"):
+    need('"offset"' not in code(ep) and '"limit"' not in code(ep),
+         "%s must not answer with offset/limit: a page nobody applies still looks applied" % ep)
 
 # ---- 1. the pool is bounded and parallel
 need(re.search(r"^PUSH_CAP\s*=\s*[2-9]\d*\b", SRC, re.M),

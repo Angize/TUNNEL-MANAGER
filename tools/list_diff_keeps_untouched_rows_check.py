@@ -232,7 +232,7 @@ setList(box, rows([['z', 'Z1']]));
 out.backFromEmpty = {keys: keys()};
 
 // every builder that feeds a list has to return exactly one root element
-TOPEN = {}; PUSHSTATE = null; STAGED = null; AGMETA = null; QRY = {}; PG = {}; TOT = {};
+TOPEN = {}; PUSHSTATE = null; STAGED = null; AGMETA = null; QRY = {};
 const oneRoot = h => splitTop(h).length === 1;
 const L = {id: 'x1', name: 't', type: 'core', a_node: 'n1', b_node: 'n2', a_name: 'A', b_name: 'B',
   status: 'up', enabled: true, transport: 'udp', subnet: '10.0.0.0/30', port: 1,
