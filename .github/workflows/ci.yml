@@ -96,6 +96,13 @@ name: ci
 #                         held. A list of 500 threw away events that were minutes old on a fleet
 #                         having a bad hour -- from the one page an operator opens to find out what
 #                         happened overnight -- and nothing said so.
+#   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
+#                         کن» dropped the node and left its links behind, so they named a node that no
+#                         longer existed: api_summary counted each one down with an alert that could
+#                         never clear, and nothing could remove them. Forgetting the links instead is
+#                         worse -- the freed tunnel id is redrawn immediately and silently overwrites
+#                         the config still running on the peer -- so the guard pins the invariant, not
+#                         the button: after api_node_del, no link names a missing node.
 #   node_errors_answer_in_persian  every error a node's own tools produce comes back in Persian. A
 #                         missing kernel module reported itself as «RTNETLINK answers: No such file
 #                         or directory» to an operator deciding whether to try again.
@@ -288,3 +295,6 @@ jobs:
       - name: the log keeps a day and is searched where it is held
         working-directory: TUNNEL-MANAGER
         run: python tools/the_log_keeps_a_day_check.py
+      - name: a node and its links leave together
+        working-directory: TUNNEL-MANAGER
+        run: python tools/no_orphan_links_check.py
