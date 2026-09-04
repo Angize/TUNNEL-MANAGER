@@ -1928,6 +1928,16 @@ def subnet_free_counts(links):
             for b in SUBNET_BASES}
 
 
+def api_next_port(d):
+    used = set()
+    for L in load_links():
+        try:
+            used.add(int(L.get("port") or 0))
+        except (TypeError, ValueError):
+            pass
+    return {"ok": True, "port": rand_port(used), "lo": PORT_BAND_LO, "hi": PORT_BAND_HI}
+
+
 def api_summary(d):
     nodes = load_nodes()
     links = load_links()
@@ -6922,7 +6932,7 @@ def _dispatch(cmd, d):
 
 
 API = {
-    "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary,
+    "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary, "next-port": api_next_port,
     "settings": api_settings, "settings-set": api_settings_set, "readiness": api_readiness,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
@@ -7974,8 +7984,6 @@ body.dark .tag.core{color:#a78bfa}
 .ptile .pmeta{margin-top:2px;font-size:10px;color:var(--sub)}
 .ptile.on{border-color:color-mix(in srgb,var(--acc) 60%,transparent);background:var(--accw)}
 .ptile.on .pn{color:var(--acc)}
-.ptile .best{position:absolute;top:7px;inset-inline-start:7px;font-size:9px;font-weight:800;color:var(--ok);background:var(--okw);border-radius:20px;padding:1px 6px}
-.ptile .pwarn{position:absolute;top:9px;inset-inline-start:9px;width:7px;height:7px;border-radius:50%;background:var(--gold)}
 .seg2 .segopt.on{border-color:var(--acc);background:var(--accw)}
 .seg2 .segopt.on span{color:color-mix(in srgb,var(--acc) 80%,var(--sub))}
 .trwrap{position:relative;margin:2px 0 11px}
@@ -8215,7 +8223,7 @@ search:"جستجو…",
  fmt_day:"روز",fmt_hr:"ساعت",fmt_min:"دقیقه",fmt_sec:"ثانیه",fmt_and:"و",cipher_auto:"خودکار",cipher_none:"بدونِ رمز",
  edit_tun_t:"ویرایشِ تونل",ip_of:"آی‌پیِ ",multi_ip:"مولتی‌آی‌پی",ip_each_end:"آی‌پیِ هر سرِ تونل",
  link_ip_note1:"اگر نودی چند آی‌پی دارد، انتخاب کن تونل روی کدام آی‌پی بسته شود. تغییرِ نوع، سابنت یا آی‌پی، تونل را روی هر دو نود بازسازی می‌کند (شناسه ",link_ip_note2:" حفظ می‌شود).",
- le_port_4789:"پورتِ UDP (خالی = 4789)",le_port_auto:"پورتِ UDP (خالی = یک پورتِ تصادفی از باند)",
+ le_port_4789:"پورتِ UDP — خالی = 4789",le_port_auto:"پورتِ UDP — خالی = یک پورتِ تصادفی از باند",
  ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pool_empty:"خالی — یک مورد اضافه کن",
  peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
@@ -8225,10 +8233,9 @@ search:"جستجو…",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
- rawp_best:"بهینه",rawp_warn:"ممکن است از NAT رد نشود",rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
+ rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
  cdn_shape_lbl:"شکلِ حاملِ http",
  cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",
- cdn_shape_note:"آپلود در هر رفت‌وبرگشت فقط «کارگر × اندازه» بایت جا دارد؛ برای لبهٔ دور اندازه را بالا ببر، نه تعدادِ کارگر را. جریانِ حاملِ بیشتر سرعت را بالا می‌برد (روی grpc خیلی زیاد، چون هر جریان پنجرهٔ خودش را می‌گیرد) ولی بسته‌ها نامرتب می‌رسند و گیرنده باید نگه‌شان دارد، پس تأخیر و حافظه هم بالا می‌رود. روی http هر جریان یک اتصالِ جداست و CDN می‌شماردش؛ روی grpc همه روی یک اتصال‌اند.",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
  
@@ -8267,10 +8274,10 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
  set_gkd:"2) اتصال و تشخیصِ مرگ",set_gkdc:"همهٔ تونل‌ها",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
- core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت (خالی=خودکار · می‌توانی 443 بگذاری)",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
+ core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت — خالی = خودکار، می‌توانی 443 بگذاری",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
- port_ws_ph:"80 (کلادفلر Flexible)",
+ port_band_ph:"خالی = یک پورتِ تصادفی از باند",port_ws_ph:"80 (کلادفلر Flexible)",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
  pct:"٪",list_sep:"، ",unit_kb:"کیلوبایت",unit_mb_full:"مگابایت",app_title:"tnl · کنترل فلیت",
@@ -8282,14 +8289,14 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  nadd_pass:"رمز",nadd_privkey:"کلیدِ خصوصی",nadd_pass_ph:"رمزِ SSH سرور",
  nadd_pass_hint:"رمزِ SSH سرور — ذخیره نمی‌شود، فقط لحظهٔ نصب استفاده می‌شود.",
  nadd_key_hint:"کلیدِ خصوصیِ SSH — امن‌تر از رمز؛ به sshpass هم نیازی نیست.",
- nadd_manual_name:"نام",nadd_manual_host:"هاست / آی‌پی",nadd_agent_port2:"پورت agent",nadd_node_tok:"توکن نود",
+ nadd_manual_name:"نام",nadd_manual_host:"هاست / آی‌پی",nadd_agent_port2:"پورتِ ایجنت",nadd_node_tok:"توکن نود",
  nadd_install_connect:"نصب و اتصالِ خودکار",nadd_add_connect:"افزودن و اتصال",
  nadd_pass_word:"رمزِ SSH",nadd_is_required:" لازم است",nadd_need_name_ip:"نام و آی‌پیِ سرور لازم است",
  inst_ssh:"اتصالِ SSH",inst_agent:"رساندنِ ایجنت به نود",inst_service:"نصب و راه‌اندازیِ سرویس",inst_register:"ثبت و اتصال در پنل",
  inst_connecting:"در حالِ اتصال…",inst_waiting:"در انتظار…",inst_installing:"در حالِ نصب…",inst_done:"انجام شد",
  inst_status_notfound:"وضعیتِ نصب یافت نشد",inst_panel_lost:"ارتباط با پنل قطع شد",inst_node_installed:"نود نصب شد",inst_retry:"تلاشِ مجدد",
  custom_subnet_ph:"مثلا 192.168.99.0/24 یا fd00:99::/64",ttype_port_ph:"مثلا 51820",
- ttype_port_auto_lbl:"پورتِ UDP (اختیاری — خالی = یک پورتِ تصادفی از باند)",
+ ttype_port_auto_lbl:"پورتِ UDP، اختیاری — خالی = یک پورتِ تصادفی از باند",
  ttype_l2_note:"روی UDP سوار می‌شود؛ برای دورزدنِ فیلتر می‌توانی پورتِ دلخواه بگذاری.",
  ttype_vxlan_lbl:"پورتِ UDP (خالی = 4789)",
  ttype_vxlan_note:"پورتِ استانداردِ VXLAN؛ برای دورزدنِ فیلتر می‌توانی عوضش کنی (مثلاً 443).",
@@ -8670,8 +8677,8 @@ function recalcEditSubnet(){if(!EDID)return;var L=FLEET.filter(function(x){retur
 var LEDTYPE='',LEDPORT='';
 function renderEditPort(id){var w=el('lpx_'+id);if(!w)return;var t=ssVal('lt_'+id);
  var pre=(t==LEDTYPE&&LEDPORT!=null)?String(LEDPORT):'';
- if(t=='vxlan')w.innerHTML='<label>'+esc(T('le_port_4789'))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="4789" value="'+esc(pre)+'">';
- else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>'+esc(T('le_port_auto'))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="'+esc(T('ttype_port_ph'))+'" value="'+esc(pre)+'">';
+ if(t=='vxlan')w.innerHTML='<label>'+esc(rng(T('le_port_4789'),1,PORT_MAX))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="4789" value="'+esc(pre)+'">';
+ else if(t=='l2tpv3'||t=='fou')w.innerHTML='<label>'+esc(rng(T('le_port_auto'),1,PORT_MAX))+'</label><input id="le_port_'+id+'" inputmode="numeric" placeholder="'+esc(T('ttype_port_ph'))+'" value="'+esc(pre)+'">';
  else w.innerHTML=''}
 
 function go(t){cur=t;drawer(false);render()}
@@ -8769,15 +8776,15 @@ async function openNodeAddModal(){await pxLoad();
  var auto='<div id="nadd_auto">'+
    '<div class="autonote">'+ic('bolt')+'<span>'+esc(T('nadd_autonote'))+'</span></div>'+
    '<div class="grid2"><div><label class="first">'+esc(T('nadd_node_name'))+'</label><input id="a_name" placeholder="DE02"></div><div><label class="first">'+esc(T('nadd_srv_ip'))+'</label><input id="a_host" placeholder="5.75.197.55"></div></div>'+
-   '<div class="grid2"><div><label>'+esc(T('nadd_ssh_port'))+'</label><input id="a_sshport" placeholder="22"></div><div><label>'+esc(T('nadd_ssh_user'))+'</label><input id="a_user" placeholder="root"></div></div>'+
-   '<div class="grid2"><div><label>'+esc(T('nadd_agent_port'))+'</label><input id="a_aport" placeholder="8099"></div><div></div></div>'+
+   '<div class="grid2"><div><label>'+esc(rng(T('nadd_ssh_port'),1,PORT_MAX))+'</label><input id="a_sshport" placeholder="22"></div><div><label>'+esc(T('nadd_ssh_user'))+'</label><input id="a_user" placeholder="root"></div></div>'+
+   '<div class="grid2"><div><label>'+esc(rng(T('nadd_agent_port'),1,PORT_MAX))+'</label><input id="a_aport" placeholder="8099"></div><div></div></div>'+
    '<div class="authbox"><div class="authhd"><span class="t">'+esc(T('nadd_ssh_auth'))+'</span><span class="authseg" id="a_authseg"><button type="button" data-am="pass" class="on" onclick="authMode(\\'pass\\')">'+esc(T('nadd_pass'))+'</button><button type="button" data-am="key" onclick="authMode(\\'key\\')">'+esc(T('nadd_privkey'))+'</button></span></div>'+
     '<input id="a_pass" class="fld2" type="password" placeholder="'+esc(T('nadd_pass_ph'))+'" autocomplete="new-password">'+
     '<textarea id="a_key" class="fld2" rows="3" style="display:none" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>'+
     '<div class="muted" id="a_authhint" style="font-size:11px;margin-top:7px">'+esc(T('nadd_pass_hint'))+'</div></div>'+
    proxyBlock('a_')+
    '<div id="nadd_prog"></div></div>';
- var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(T('nadd_agent_port2'))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div>'+proxyBlock('n_')+'</div>';
+ var manual='<div id="nadd_manual" style="display:none"><div class="grid2"><div><label class="first">'+esc(T('nadd_manual_name'))+'</label><input id="n_name" placeholder="frankfurt-1"></div><div><label class="first">'+esc(T('nadd_manual_host'))+'</label><input id="n_host" placeholder="203.0.113.10"></div></div><div class="grid2"><div><label>'+esc(rng(T('nadd_agent_port2'),1,PORT_MAX))+'</label><input id="n_port" placeholder="8099"></div><div><label>'+esc(T('nadd_node_tok'))+'</label><input id="n_tok" placeholder="'+esc(T('nadd_node_tok'))+'"></div></div>'+proxyBlock('n_')+'</div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('nadd_title'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+seg+auto+manual+'<div class="msg" id="n_msg"></div></div><div class="mfoot"><button class="primary" id="nadd_go" onclick="naddSubmit()">'+ic('bolt')+esc(T('nadd_install_connect'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function naddSwitch(m){_naddMode=m;_installDone=null;_instStop();
  var a=el('nadd_auto'),mn=el('nadd_manual');if(a)a.style.display=m=='auto'?'':'none';if(mn)mn.style.display=m=='manual'?'':'none';
@@ -8935,7 +8942,7 @@ async function openPfEdit(i){var p=PF[i];if(!p)return;var rotOn=p.switch_interva
  var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);
  var lipsec=(ips.length>1)?'<label class="first">'+esc(T('pf_lip'))+'</label>'+ssHTML('pe_lip',ipItems(ips),(p.listen_ip&&ips.indexOf(p.listen_ip)>=0?p.listen_ip:ips[0]),T('ip'),'')+'<div class="muted" style="font-size:11px;margin:-3px 2px 12px">'+esc(T('pf_lip_note'))+'</div>':'';
  var fc=lipsec?'':' class="first"';
- var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(T('pf_listen_port'))+'</label><input id="pe_lp" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(T('pf_dst_port'))+'</label><input id="pe_dp" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl" onclick="pfTgl()"></span><span class="muted" id="pe_tgllbl">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem"></div>';
+ var b=lipsec+'<div class="grid2"><div><label'+fc+'>'+esc(rng(T('pf_listen_port'),1,PORT_MAX))+'</label><input id="pe_lp" value="'+esc(p.listen_port)+'"></div><div><label'+fc+'>'+esc(rng(T('pf_dst_port'),1,PORT_MAX))+'</label><input id="pe_dp" value="'+esc(p.dst_port)+'"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pe_ips" value="'+esc((p.dst_ips||[]).join(', '))+'"><label>'+esc(T('pf_rot_between'))+'</label><div class="tgl"><span class="tglsw'+(rotOn?' on':'')+'" id="pe_tgl" onclick="pfTgl()"></span><span class="muted" id="pe_tgllbl">'+(rotOn?T('on_word'):T('off_word'))+'</span></div><div id="pe_intwrap" style="'+(rotOn?'':'display:none')+'"><label>'+esc(T('pf_rot_interval'))+'</label><input id="pe_int" value="'+esc(rotOn?(p.switch_interval/60):5)+'"></div><div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('pf_rot_note'))+'</div><div class="msg" id="pem"></div>';
  var ov=openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('pf_edit_t'))+'</h3><div class="sb">'+esc(p.node)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="savePfEdit(this)">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
  ov._pf={node_id:p.node_id,name:p.name}}
 function nodeCard(n){var i=n.info||{};
@@ -9345,7 +9352,7 @@ function onCreateType(){var f=el('c_subnet');if(f&&f.value.trim()){var wantV6=(s
   if((f.value.indexOf(':')>=0)!=wantV6)f.value=''}
  renderTypeExtra()}
 function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type');
- if(t=='l2tpv3'||t=='fou'){w.innerHTML='<label>'+esc(T('ttype_port_auto_lbl'))+'</label><input id="c_port" inputmode="numeric" placeholder="'+esc(T('ttype_port_ph'))+'"><div class="muted" style="font-size:11px;margin:6px 2px 11px">'+esc(T('ttype_l2_note'))+'</div>'}
+ if(t=='l2tpv3'||t=='fou'){w.innerHTML='<label>'+esc(rng(T('ttype_port_auto_lbl'),1,PORT_MAX))+'</label><input id="c_port" inputmode="numeric" placeholder="'+esc(T('ttype_port_ph'))+'"><div class="muted" style="font-size:11px;margin:6px 2px 11px">'+esc(T('ttype_l2_note'))+'</div>'}
  else if(t=='vxlan'){w.innerHTML='<label>'+esc(T('ttype_vxlan_lbl'))+'</label><input id="c_port" inputmode="numeric" placeholder="4789"><div class="muted" style="font-size:11px;margin:6px 2px 11px">'+esc(T('ttype_vxlan_note'))+'</div>'}
  else if(t=='ipsec'){w.innerHTML='<div class="autonote" style="margin-bottom:11px">'+ic('shield')+'<span>'+esc(T('ttype_ipsec_note'))+'</span></div>'}
  else w.innerHTML=''}
@@ -9544,8 +9551,8 @@ function portRows(l){var t=l.transport||'udp';
  var rows=(l.port)?('<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'):'';
  if(live&&portTriesOn({Tr:t}))rows+='<div>'+esc(T('port_src'))+': <b class="mono">'+esc(live)+'</b></div>';
  return rows}
-function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m'),tag:T('rawp_best'),warn:1},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m'),warn:1},{v:'ipip',m:T('rawp_ipip_m'),warn:1},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m'),warn:1},{v:'l2tpv3',m:T('rawp_l2tpv3_m'),warn:1},{v:'ah',m:T('rawp_ah_m'),warn:1},{v:'ipcomp',m:T('rawp_ipcomp_m'),warn:1},{v:'etherip',m:T('rawp_etherip_m'),warn:1}]}
-function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+(p.tag?'<span class="best">'+esc(p.tag)+'</span>':'')+(p.warn?'<span class="pwarn" title="'+esc(T('rawp_warn'))+'"></span>':'')+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
+function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m')},{v:'ipip',m:T('rawp_ipip_m')},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m')},{v:'l2tpv3',m:T('rawp_l2tpv3_m')},{v:'ah',m:T('rawp_ah_m')},{v:'ipcomp',m:T('rawp_ipcomp_m')},{v:'etherip',m:T('rawp_etherip_m')}]}
+function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
 var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},downw:{k:'http_streams',lo:1,hi:16,d:1}};
@@ -9745,14 +9752,14 @@ function protoSection(idp,fnp){return '<div id="'+idp+'protorow" style="display:
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+T('raw_proto_hint')+'</div>'
  +'<div class="warncap no" id="'+idp+'protowarn" style="display:none;margin-top:8px"></div></div>'}
 function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:none;margin-top:11px">'
- +'<label class="first">'+esc(T('raw_port_lbl'))+'</label>'
+ +'<label class="first">'+esc(rng(T('raw_port_lbl'),1,PORT_MAX))+'</label>'
  +'<div class="seg2" id="'+idp+'rpg" style="margin-bottom:8px">'
    +'<button type="button" class="segopt on" id="'+idp+'rp_443" onclick="'+fnp+'SetPort(443)"><b>443</b><span>'+esc(T('raw_port_quic'))+'</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'rp_51820" onclick="'+fnp+'SetPort(51820)"><b>51820</b><span>WireGuard</span></button>'
    +'<button type="button" class="segopt" id="'+idp+'rp_4500" onclick="'+fnp+'SetPort(4500)"><b>4500</b><span>IPsec</span></button></div>'
  +'<input id="'+idp+'rawport" class="mono" inputmode="numeric" maxlength="5" placeholder="443" oninput="'+fnp+'PortWarn()" style="text-align:center;direction:ltr">'
  +'<div id="'+idp+'srcblk">'
-   +'<label style="margin-top:13px">'+esc(T('raw_sport_lbl'))+'</label>'
+   +'<label style="margin-top:13px">'+esc(rng(T('raw_sport_lbl'),1,PORT_MAX))+'</label>'
    +'<div class="seg2" id="'+idp+'spg">'
      +'<button type="button" class="segopt on" id="'+idp+'sp_fix" onclick="'+fnp+'SetSport(0)"><b>'+esc(T('raw_sport_fixed_n'))+'</b><span>'+esc(T('raw_sport_fixed_m'))+'</span></button>'
      +'<button type="button" class="segopt" id="'+idp+'sp_rnd" onclick="'+fnp+'SetSport(1)"><b>'+esc(T('raw_sport_rand_n'))+'</b><span>'+esc(T('raw_sport_rand_m'))+'</span></button></div>'
@@ -9767,19 +9774,22 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<div class="tt"><b>'+esc(T('raw_sprot_t'))+'</b><small>'+esc(T('raw_sprot_d'))+'</small></div></div>'
    +'<div id="'+idp+'sprotbody" style="display:none">'
      +'<div class="grid2">'
-       +'<div><label>'+esc(T('raw_sprot_lbl'))+'</label>'
+       +'<div><label>'+esc(rng(T('raw_sprot_lbl'),1,RAW_SPROT_MAX))+'</label>'
          +'<input id="'+idp+'rawsprot" class="mono" inputmode="numeric" maxlength="2" placeholder="5" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
-       +'<div><label>'+esc(T('raw_dports_lbl'))+'</label>'
+       +'<div><label>'+esc(rng(T('raw_dports_lbl'),1,RAW_DPORTS_MAX))+'</label>'
          +'<input id="'+idp+'rawdports" class="mono" inputmode="numeric" maxlength="1" placeholder="1" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
      +'</div>'
      +'<div class="warncap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div></div>'
  +'</div>'}
+var PORT_MAX=65535;
+function rng(lbl,lo,hi){return lbl+' (بازه '+lo+' تا '+hi+')'}
+function rngList(lbl,arr){return lbl+' (فقط '+(arr||[]).join('، ')+')'}
 var PORT_RUNG_TRANSPORTS=['udp','tcp','ws'];
 function portTriesOn(S){
  if(S.Tr=='raw')return (S.RawProfile=='udp'||S.RawProfile=='tcp')&&!!S.SportRandom;
  return PORT_RUNG_TRANSPORTS.indexOf(S.Tr)>=0}
 function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
- +'<label class="first">'+esc(T('porttries_lbl'))+'</label>'
+ +'<label class="first">'+esc(rng(T('porttries_lbl'),1,PORT_TRIES_MAX))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr" oninput="portTriesWarnUpd(&quot;'+idp+'&quot;)">'
  +'<div class="warncap no" id="'+idp+'ptwarn" style="display:none;margin-top:8px"></div></div>'}
 function portTriesN(idp){var e=el(idp+'porttries');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
@@ -9895,7 +9905,7 @@ function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,shape){return '<div id
  +'<div class="warncap no" id="'+idp+'grpczone" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('grpc_zone_warn'))+'</span></div>'
  +'<div id="'+idp+'cdnprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('cdn_shape_lbl'))+'</label>'
  +'<div style="display:flex;gap:8px">'+cdnShapeInputs(idp,shape)+'</div>'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('cdn_shape_note'))+'</div></div>'
+ +'</div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>'+esc(T('ws_pool_t'))+'</b><small>'+esc(T('ws_pool_d'))+'</small></div></div>'
  +'<div id="'+idp+'wshostblk" style="margin-top:11px">'
  +'<label>'+esc(T('ws_host_lbl'))+'</label><input id="'+idp+'wshost" dir="ltr" placeholder="'+esc(T('ph_cdn_domain'))+'" value="'+esc(host||'')+'">'
@@ -9917,7 +9927,7 @@ function wsPoolInner(idp,fnp,lid){
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
  return '<div class="warncap no" id="'+idp+'poolstale" style="display:none;margin-bottom:8px"></div>'
-   +block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
+   +block('ip',rngList(T('pool_ip_lbl'),edgePortsOK()),'104.16.0.1:443')
    +block('sni',T('pool_sni_lbl'),'cdn.example.com')
    +'<label style="margin-top:14px">'+esc(T('rot_int_lbl'))+'</label>'+sel;}
 
@@ -9926,7 +9936,10 @@ function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corS.Tr=='raw')
 function corPortTriesVis(){portTriesVis('e_',_corS)}
 function corDnsVis(){var w=el('e_dnsblk');if(w)w.style.display=(_corS.Tr=='dns')?'':'none'}
 function trFade(bar){if(!bar)return;var w=bar.parentNode;if(!w)return;w.classList.toggle('atend',Math.abs(bar.scrollLeft)+bar.clientWidth>=bar.scrollWidth-4)}
-function corPortGate(){var p=el('e_port');if(!p)return;var np=(_corS.Tr=='raw'||_corS.Tr=='dns');var w=el('e_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_corS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder='20050'}
+function corPortGate(){var p=el('e_port');if(!p)return;var np=(_corS.Tr=='raw'||_corS.Tr=='dns');var w=el('e_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_corS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph');corPortDraw()}
+async function corPortDraw(){var p=el('e_port');if(!p||p.value)return;
+ var r=await j('next-port').catch(function(){return null});
+ var q=el('e_port');if(q&&!q.value&&r&&r.ok&&r.port)q.value=String(r.port)}
 function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none">'
  +'<label class="first">'+esc(T('dns_zone_lbl'))+'</label>'
  +'<input id="'+idp+'dnszone" class="mono" placeholder="t.example.com" style="direction:ltr">'
@@ -9987,7 +10000,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   fecSection('e_','cor',_corS.Fec,_corS.FecData,_corS.FecParity,corFecDatagram())+
   desyncSection('e_','cor',false,4,2,'ttl',false)+
   '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('e_snr',SUBNETRANGES(),'192.168',T('range'),'onCorSubRange')+'<div id="e_snc"></div>'+
-  '<div id="e_coreportrow"><label>'+esc(T('core_port_lbl'))+'</label><input id="e_port" inputmode="numeric" placeholder="20050"></div></div>';
+  '<div id="e_coreportrow"><label>'+esc(rng(T('core_port_lbl'),1,PORT_MAX))+'</label><input id="e_port" inputmode="numeric" placeholder="'+esc(T('port_band_ph'))+'"></div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="e_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic(COR_IC)+'</span><div class="ttl"><h3>'+esc(T('core_tun_t'))+'</h3><div class="sb">'+esc(T('core_tun_sub'))+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCreateCore()">'+esc(T('create_tun_btn'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  corRoleLbls();renderCorIps();corRotVis();corCoverGate();corPortGate();corPortTriesVis();corDesyncGate();corCdnShapeGate();corWorkersVis();trFade(el('e_trbar'))}
@@ -10126,7 +10139,7 @@ _eeS.NodesArr=['',''],_eeS.NamesArr=['',''];
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeS.Tr=='raw')?'':'none'}
 function cePortTriesVis(){portTriesVis('ee_',_eeS)}
 function ceDnsVis(){var w=el('ee_dnsblk');if(w)w.style.display=(_eeS.Tr=='dns')?'':'none'}
-function cePortGate(){var p=el('ee_port');if(!p)return;var np=(_eeS.Tr=='raw'||_eeS.Tr=='dns');var w=el('ee_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_eeS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder='20050'}
+function cePortGate(){var p=el('ee_port');if(!p)return;var np=(_eeS.Tr=='raw'||_eeS.Tr=='dns');var w=el('ee_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_eeS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph')}
 function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceProtoVis();cePortVis();cePortTriesVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
@@ -10174,7 +10187,7 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   fecSection('ee_','ce',_eeS.Fec,_eeS.FecData,_eeS.FecParity,ceFecDatagram())+
   desyncSection('ee_','ce',_eeS.Desync,_eeS.DesyncTtl,_eeS.DesyncCount,_eeS.DesyncMode,desyncOk(_eeS))+
   '<label>'+esc(T('core_range_lbl'))+'</label>'+ssHTML('ee_snr',SUBNETRANGES(),subnetBaseOf(l),T('range'),'onCeSubRange')+'<div id="ee_snc"></div>'+
-  '<div id="ee_coreportrow"><label>'+esc(T('core_port_lbl2'))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="20050"></div>'+
+  '<div id="ee_coreportrow"><label>'+esc(rng(T('core_port_lbl2'),1,PORT_MAX))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="'+esc(T('port_band_ph'))+'"></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
@@ -10247,7 +10260,7 @@ function openPxModal(i){var p=(i==null)?null:PX[i];
  var body='<label class="first">'+esc(T('px_name'))+'</label><input id="px_name" maxlength="40" value="'+esc(p?p.name:'')+'">'
   +'<div class="authhd" style="margin-top:16px"><span class="t">'+esc(T('px_type'))+'</span><span class="authseg" id="px_seg">'+seg('socks5','SOCKS5')+seg('http','HTTP')+'</span></div>'
   +'<div class="grid2"><div><label class="first">'+esc(T('px_ip'))+'</label><input id="px_host" class="mono" value="'+esc(p?p.host:'')+'"></div>'
-  +'<div><label class="first">'+esc(T('px_port'))+'</label><input id="px_port" class="mono" inputmode="numeric" value="'+esc(p?String(p.port):'')+'"></div></div>'
+  +'<div><label class="first">'+esc(rng(T('px_port'),1,PORT_MAX))+'</label><input id="px_port" class="mono" inputmode="numeric" value="'+esc(p?String(p.port):'')+'"></div></div>'
   +'<div class="grid2"><div><label>'+esc(T('px_user'))+'</label><input id="px_user" placeholder="'+esc(T('px_opt'))+'" value="'+esc(p?p.user:'')+'"></div>'
   +'<div><label>'+esc(T('px_pass'))+'</label><input id="px_pass" type="password" autocomplete="new-password" placeholder="'+esc((p&&p.has_pass)?T('px_pass_keep'):T('px_opt'))+'" value=""></div></div>'
   +'<div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:6px">'+esc(T('px_hint'))+'</div>'
@@ -10287,7 +10300,7 @@ function portfwSkel(){el('view').innerHTML=vhead('fwd','nav_portfw','pf_sub')+
 async function openPfAddModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(!on.length){toast(T('pf_no_online'),'err');return}
  var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});
- var b='<label class="first">'+esc(T('pf_node'))+'</label>'+ssHTML('pf_node',items,items[0].v,T('pf_node'),'renderPfLip')+'<div id="pf_lipwrap"></div><div class="grid2"><div><label>'+esc(T('pf_listen_port'))+'</label><input id="pf_lp" placeholder="8080"></div><div><label>'+esc(T('pf_dst_port'))+'</label><input id="pf_dp" placeholder="443"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pf_ips" placeholder="10.0.0.1, 10.0.0.2"><label>'+esc(T('pf_rot_min'))+'</label><input id="pf_int" placeholder="5"><div class="msg" id="pf_msg"></div>';
+ var b='<label class="first">'+esc(T('pf_node'))+'</label>'+ssHTML('pf_node',items,items[0].v,T('pf_node'),'renderPfLip')+'<div id="pf_lipwrap"></div><div class="grid2"><div><label>'+esc(rng(T('pf_listen_port'),1,PORT_MAX))+'</label><input id="pf_lp" placeholder="8080"></div><div><label>'+esc(rng(T('pf_dst_port'),1,PORT_MAX))+'</label><input id="pf_dp" placeholder="443"></div></div><label>'+esc(T('pf_dst_ips'))+'</label><input id="pf_ips" placeholder="10.0.0.1, 10.0.0.2"><label>'+esc(T('pf_rot_min'))+'</label><input id="pf_int" placeholder="5"><div class="msg" id="pf_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('plus')+'</span><div class="ttl"><h3>'+esc(T('pf_add_t'))+'</h3></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doPortfw()">'+esc(T('add'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
  renderPfLip()}
 function renderPfLip(){var w=el('pf_lipwrap');if(!w)return;var ips=nodeIps(ssVal('pf_node'));

@@ -291,19 +291,19 @@ def main():
     else:
         print(f"  ok   the raw tiles are exactly the {len(profiles)} registered profiles")
 
-    # The NAT warning belongs to every profile a NAT cannot rewrite: no L4 ports to translate and no id
-    # it tracks. udp and tcp forge ports; icmp forges the echo id a NAT follows. Everything else is a
-    # bare IP protocol number.
-    nat_ok = {"udp", "tcp", "icmp"}
+    # The per-tile NAT dot and the "بهینه" badge were REMOVED at the operator's instruction
+    # (2026-09-05): they did not want the profiles ranked or dotted on the tile. The dot meant "a NAT
+    # cannot rewrite this profile" -- no L4 ports to translate and no id it tracks; udp and tcp forge
+    # ports and icmp forges the echo id a NAT follows, everything else is a bare IP protocol number.
+    # That fact is still true and still matters behind NAT; it just no longer lives on the tile. This
+    # section asserts the tiles carry NO ranking metadata, so it cannot come back by accident.
     for v, rest in sorted(tiles):
-        warned = "warn:1" in rest
-        want = v not in nat_ok
-        ok = warned == want
-        print(("  ok   " if ok else " FAIL ") +
-              f"tile   {v:8} NAT warning {'shown' if warned else 'absent'}"
-              + ("" if ok else f"  <-- want {'shown' if want else 'absent'}"))
-        if not ok:
-            fails.append(f"tile/{v}/nat-warning")
+        clean = "warn:1" not in rest and "tag:" not in rest
+        print(("  ok   " if clean else " FAIL ") +
+              f"tile   {v:8} carries no dot and no badge"
+              + ("" if clean else "  <-- the operator asked for these gone"))
+        if not clean:
+            fails.append(f"tile/{v}/decoration")
 
     print()
     if fails:
