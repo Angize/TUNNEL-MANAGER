@@ -211,7 +211,12 @@ def main():
     chk("no node past the cap was ever started", len(reached), CAP)
     chk("so after a cancel nothing reads ok", sorted({v["state"] for v in sc["nodes"].values()}), ["skip"])
     chk("and the job still reports itself finished", sc["done"], True)
-    chk("a cancelled job is no longer offered to reattach to", P._push_merged(), None)
+    # What this protects is that pushAdopt does not reattach to a job that is over. It used to be
+    # spelled "_push_merged() is None", because the merged view vanished with the last live job -- and
+    # that is exactly what left the final poll with nothing to paint. The merged view now survives the
+    # end of a batch, so the claim is made where the browser makes it: on `done`.
+    chk("a cancelled job reports itself done, which is what pushAdopt refuses to reattach to",
+        (P._push_merged() or {}).get("done"), True)
 
     # a cut-off node must never be charged an error: it was the operator's choice, not a failure
     chk("a cut-off node carries no error text",
