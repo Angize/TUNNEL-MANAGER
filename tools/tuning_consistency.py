@@ -301,7 +301,7 @@ def main():
     # screen saying why.
     core_md = re.search(r"MaxDports\s*=\s*(\d+)", rawprofile_go)
     py_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)", panel_src)
-    js_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)\s*;", panel_src)
+    js_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)\s*[,;]", panel_src)
     if not core_md or not py_md or not js_md:
         check(False, "CANNOT PARSE the destination-port ceiling (core=%s panel py=%s panel js=%s) -- THIS SCRIPT is out of date"
                      % (bool(core_md), bool(py_md), bool(js_md)))
@@ -327,6 +327,22 @@ def main():
               "worker ceiling: panel CORE_MAX_WORKERS=%s core maxWorkers=%s" % (panel_mw.group(1), core_mw.group(1)))
         check(node_mw.group(1) == core_mw.group(1),
               "worker ceiling: node MAX_WORKERS=%s core maxWorkers=%s" % (node_mw.group(1), core_mw.group(1)))
+
+    # How often the forged source port is redrawn. Four copies: the core's maxSportEvery, the node's
+    # MAX_SPROT_EVERY, the panel's python guard and the panel's browser guard. The form is what the
+    # operator types into, and a form that accepts a number the core refuses is a tunnel that dies on
+    # validate() with nothing on screen saying which field did it.
+    core_se = re.search(r"const maxSportEvery\s*=\s*(\d+)", config_go)
+    node_se = re.search(r"^MAX_SPROT_EVERY\s*=\s*(\d+)", node_src, re.M)
+    py_se = re.search(r"^RAW_SPROT_MAX\s*=\s*(\d+)", panel_src, re.M)
+    js_se = re.search(r"RAW_SPROT_MAX\s*=\s*(\d+)\s*[,;]", panel_src)
+    if not core_se or not node_se or not py_se or not js_se:
+        check(False, "CANNOT PARSE the source-port rotation ceiling (core=%s node=%s panel py=%s js=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_se), bool(node_se), bool(py_se), bool(js_se)))
+    else:
+        for who, m in (("node MAX_SPROT_EVERY", node_se), ("panel RAW_SPROT_MAX", py_se), ("browser RAW_SPROT_MAX", js_se)):
+            check(m.group(1) == core_se.group(1),
+                  "rotation ceiling: %s=%s core maxSportEvery=%s" % (who, m.group(1), core_se.group(1)))
 
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
