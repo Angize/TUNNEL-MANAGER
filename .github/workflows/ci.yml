@@ -121,6 +121,12 @@ name: ci
 #                         cipher rebuilt the tunnel on the OTHER address -- and the backend's own
 #                         "keep L[a_ip]" fallback never ran, because the browser always sent something.
 #                         Drives the page's real functions under node AND the real api_edit_link.
+#   the_push_paints_its_last_state  the fleet update's last poll carries what every node ended as.
+#                         api_push_status answered {idle, done} with no order and no nodes, and that is
+#                         the ONLY payload the browser sees with done=true -- so the final paint had
+#                         nothing in it and the bars kept the previous poll's numbers. On a push that
+#                         finishes inside one 400ms interval that is 0%: measured, three nodes that all
+#                         ended ok were last painted "wait".
 #   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
 #                         کن» dropped the node and left its links behind, so they named a node that no
 #                         longer existed: api_summary counted each one down with an alert that could
@@ -326,6 +332,9 @@ jobs:
       - name: an edit keeps the tunnel on the address it already has
         working-directory: TUNNEL-MANAGER
         run: python tools/an_edit_keeps_the_tunnel_where_it_is_check.py
+      - name: the fleet update paints the state every node ended in
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_push_paints_its_last_state_check.py
       - name: an out-of-range port-rung depth is refused, not dropped
         working-directory: TUNNEL-MANAGER
         run: python tools/port_tries_is_reported_check.py

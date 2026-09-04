@@ -2946,6 +2946,8 @@ def _body_cache(build):
 
 _push_lock = threading.Lock()
 _push_jobs = {}
+_push_batch = set()
+_push_final = None
 PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
 PUSH_CAP = 256
 
@@ -2968,6 +2970,11 @@ def _push_job_new(kind, nodes):
         nodes = [x for x in nodes if x["id"] not in busy]
         if not nodes:
             raise ValueError("همین به‌روزرسانی روی این نود در جریان است — تا تمام‌شدنش صبر کن")
+        global _push_final
+        if not _push_live():
+            _push_batch.clear()
+            _push_final = None
+        _push_batch.add(jid)
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
@@ -2992,24 +2999,39 @@ def _push_live():
             if not j["done"]]
 
 
+def _push_merge_locked(jids):
+    order, nodes, kinds = [], {}, set()
+    cancel = paused = True
+    for jid in jids:
+        j = _push_jobs[jid]
+        kinds.add(j["kind"])
+        cancel = cancel and bool(j.get("cancel"))
+        paused = paused and bool(j.get("paused"))
+        for nid in j["order"]:
+            if nid not in nodes:
+                order.append(nid)
+                nodes[nid] = dict(j["nodes"][nid])
+    return {"ok": True, "job": PUSH_ALL, "kind": kinds.pop() if len(kinds) == 1 else "mixed",
+            "done": all(_push_jobs[jid]["done"] for jid in jids),
+            "cancel": cancel, "paused": paused, "order": order, "nodes": nodes}
+
+
+def _push_seal_locked():
+    """The payload the browser paints LAST, kept because the live view disappears with the job.
+
+    api_push_status answered `{idle: true, done: true}` once the last job finished -- no order and no
+    nodes -- so the final paint had nothing in it and every bar kept whatever the previous poll left.
+    On a fast push that is 0%: measured, three nodes that all ended `ok` were last painted `wait`."""
+    global _push_final
+    _push_final = _push_merge_locked(sorted(_push_batch, key=lambda k: _push_jobs[k].get("ts", 0)))
+
+
 def _push_merged():
     with _push_lock:
         live = _push_live()
-        if not live:
-            return None
-        order, nodes, kinds = [], {}, set()
-        cancel = paused = True
-        for jid in live:
-            j = _push_jobs[jid]
-            kinds.add(j["kind"])
-            cancel = cancel and bool(j.get("cancel"))
-            paused = paused and bool(j.get("paused"))
-            for nid in j["order"]:
-                if nid not in nodes:
-                    order.append(nid)
-                    nodes[nid] = dict(j["nodes"][nid])
-        return {"ok": True, "job": PUSH_ALL, "kind": kinds.pop() if len(kinds) == 1 else "mixed",
-                "done": False, "cancel": cancel, "paused": paused, "order": order, "nodes": nodes}
+        if live:
+            return _push_merge_locked(live)
+        return dict(_push_final) if _push_final else None
 
 
 def _push_set(jid, nid, **kw):
@@ -3144,6 +3166,8 @@ def _push_worker(jid, kind, nodes, payload):
             j = _push_jobs.get(jid)
             if j:
                 j["done"] = True
+            if not _push_live() and _push_batch:
+                _push_seal_locked()
 
 
 def api_push_status(d):
