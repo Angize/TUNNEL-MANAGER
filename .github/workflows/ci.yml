@@ -96,6 +96,13 @@ name: ci
 #                         held. A list of 500 threw away events that were minutes old on a fleet
 #                         having a bad hour -- from the one page an operator opens to find out what
 #                         happened overnight -- and nothing said so.
+#   port_tries_is_reported  «چند بار پورتِ مبدأ عوض شود» is REFUSED when out of range, never silently
+#                         dropped. The two-digit box took 70, the form clamped it to 0, the backend's
+#                         `if _ptries:` skipped the key and the tunnel ran on the default depth of 2 --
+#                         typing 70 and typing nothing produced the same tunnel, with nothing on screen
+#                         either way. Drives the real _collectCoreBody in node, so it is about the
+#                         submit path and not a helper; the ceiling comes from the page's own
+#                         PORT_TRIES_MAX, which tuning_consistency pins to core's maxPortTries.
 #   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
 #                         کن» dropped the node and left its links behind, so they named a node that no
 #                         longer existed: api_summary counted each one down with an alert that could
@@ -298,3 +305,6 @@ jobs:
       - name: a node and its links leave together
         working-directory: TUNNEL-MANAGER
         run: python tools/no_orphan_links_check.py
+      - name: an out-of-range port-rung depth is refused, not dropped
+        working-directory: TUNNEL-MANAGER
+        run: python tools/port_tries_is_reported_check.py

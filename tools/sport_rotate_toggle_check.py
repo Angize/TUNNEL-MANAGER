@@ -30,7 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
 
 GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "sprotErr", "sprotWarnUpd",
-        "sprotToggle", "sprotVis", "portTriesOn", "portTriesVis", "fecDatagram", "wkCarrier",
+        "sprotToggle", "sprotVis", "portTriesOn", "portTriesVis", "portTriesN", "portTriesErr",
+        "portTriesWarnUpd", "fecDatagram", "wkCarrier",
         "wkClamp", "desyncOk", "desyncInjects", "portErr", "sportErr", "rawProtoErr",
         "sportPaint", "sportPresetPaint", "cdnShapeOn", "esc", "ceSetSport", "ceSetSportPort")
 
@@ -180,6 +181,7 @@ def main():
     src += re.search(r"var SPROT_DEF=\d+;", js).group(0) + "\n"
     src += "var RAW_DPORTS_MAX=" + re.search(r"RAW_DPORTS_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
     src += "var RAW_SPROT_MAX=" + re.search(r"RAW_SPROT_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
+    src += "var PORT_TRIES_MAX=" + re.search(r"PORT_TRIES_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
     src += "\n".join(grab(js, n) for n in GRAB) + "\n"
     src += GUARDED_SETTER + DRIVER
 

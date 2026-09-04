@@ -344,6 +344,26 @@ def main():
             check(m.group(1) == core_se.group(1),
                   "rotation ceiling: %s=%s core maxSportEvery=%s" % (who, m.group(1), core_se.group(1)))
 
+    # How deep the ladder's port rung goes -- how many times the carrier redraws its source port before
+    # it escalates. Same four-copy shape as the rotation ceiling above, and the same reason to pin it:
+    # the CORE clamps this one SILENTLY (SetPortTries just lowers the number), so a panel that offers
+    # more than the core takes is a tunnel running a rung depth the operator did not choose and no
+    # screen reports. Note this is NOT the rotation knob beside it -- «چند بار پورتِ مبدأ عوض شود» is
+    # the rung, «هر چند پکت» is the rotation -- and the two labels are close enough that they have been
+    # confused before.
+    portrung_go = (Path(a.core) / "internal" / "packet" / "portrung.go").read_text(encoding="utf-8")
+    core_pt = re.search(r"const maxPortTries\s*=\s*(\d+)", portrung_go)
+    node_pt = re.search(r"^MAX_PORT_TRIES\s*=\s*(\d+)", node_src, re.M)
+    py_pt = re.search(r"^PORT_TRIES_MAX\s*=\s*(\d+)", panel_src, re.M)
+    js_pt = re.search(r"PORT_TRIES_MAX\s*=\s*(\d+)\s*[,;]", panel_src)
+    if not core_pt or not node_pt or not py_pt or not js_pt:
+        check(False, "CANNOT PARSE the port-rung ceiling (core=%s node=%s panel py=%s js=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_pt), bool(node_pt), bool(py_pt), bool(js_pt)))
+    else:
+        for who, m in (("node MAX_PORT_TRIES", node_pt), ("panel PORT_TRIES_MAX", py_pt), ("browser PORT_TRIES_MAX", js_pt)):
+            check(m.group(1) == core_pt.group(1),
+                  "port-rung ceiling: %s=%s core maxPortTries=%s" % (who, m.group(1), core_pt.group(1)))
+
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
     # exactly those keys to name its tun-probe verdict. A mismatch is SILENT and total: the node reads
