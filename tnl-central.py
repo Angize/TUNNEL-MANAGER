@@ -7764,7 +7764,6 @@ body.dark .chkall{background:#1f7a56}
 .card.jin{animation:jcardin .34s cubic-bezier(.22,.7,.3,1)}
 @keyframes jbreathe{0%,100%{opacity:.72}50%{opacity:1}}
 .card.apend .hname{animation:jbreathe 2.1s ease-in-out infinite}
-.card.apend{border-style:dashed}
 @media (prefers-reduced-motion:reduce){.card.jin{animation:none}.card.apend .hname{animation:none}}
 .tnarrow{color:var(--acc);font-weight:800;font-size:19px;text-align:center}
 .card.node .noff{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center;padding:9px 10px;margin:9px 0 1px;background:var(--badw);border:1px dashed var(--bord);border-radius:10px}
@@ -8672,7 +8671,7 @@ function apendCard(a){var fam=String(a.ttype||'').toLowerCase();
   '</div></div></div>'+
   '<div class="cbody"><div class="cbody-in">'+actRow(a)+'</div></div></div>'}
 function withPending(page,rows){
- return pendActs(page).map(function(a){return {k:'pend_'+a.key,h:apendCard(a)}}).concat(rows)}
+ return rows.concat(pendActs(page).map(function(a){return {k:'pend_'+a.key,h:apendCard(a)}}))}
 async function actStarted(){await refreshActs();return refreshFleet()}
 async function actCancel(key){var r=await post('act-cancel',{act:key});
  if(!(r.ok&&r.d.ok))toast(perr(r),'err');
