@@ -62,10 +62,11 @@ def js_pass(P, fails):
         if not ok:
             fails.append("%s is missing, so the field is never rendered or refreshed" % want)
 
-    ok = "if(portTriesOn(S)){var _pt=parseInt(v(px+'porttries'),10);body.port_tries=" in js
-    print(("  ok   " if ok else " FAIL ") + "the body collector is gated on the same rule")
+    ok = "if(portTriesOn(S)){body.port_tries=portTriesN(px)}" in js and "portTriesErr(px,S)" in js
+    print(("  ok   " if ok else " FAIL ") + "the body collector is gated on the same rule, and refuses before it")
     if not ok:
-        fails.append("port_tries is not collected through portTriesOn, so the rule and the field can drift")
+        fails.append("port_tries is not collected through portTriesOn, or no longer refuses out of "
+                     "range before collecting -- the rule and the field can drift")
 
 
 def store_pass(P, fails):

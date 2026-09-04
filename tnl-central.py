@@ -4434,6 +4434,7 @@ def api_create_tunnel(d):
 
 RAW_DPORTS_MAX = 8
 RAW_SPROT_MAX = 60
+PORT_TRIES_MAX = 60
 
 
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
@@ -4545,8 +4546,8 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     except (TypeError, ValueError):
         _ptries = 0
     if _ptries:
-        if not 1 <= _ptries <= 50:
-            raise ValueError("تعدادِ قرعهٔ پورتِ مبدأ باید بینِ 1 تا 50 باشد")
+        if not 1 <= _ptries <= PORT_TRIES_MAX:
+            raise ValueError(f"تعدادِ قرعهٔ پورتِ مبدأ باید بینِ 1 تا {PORT_TRIES_MAX} باشد")
         ce["port_tries"] = _ptries
     if (bool(d.get("gso")) if "gso" in d else bool(cur.get("gso"))):
         ce["gso"] = True
@@ -8053,7 +8054,7 @@ search:"جستجو…",
 
 
 
- porttries_lbl:"چند بار پورتِ مبدأ عوض شود", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ porttries_lbl:"چند بار پورتِ مبدأ عوض شود",porttries_bad:"عدد باید بینِ 1 تا 60 باشد", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw",
@@ -9395,7 +9396,7 @@ function carrierProfile(l){var t=l.transport||'udp';
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999,RAW_DPORTS_MAX=8,RAW_SPROT_MAX=60;
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999,RAW_DPORTS_MAX=8,RAW_SPROT_MAX=60,PORT_TRIES_MAX=60;
 function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),lo=num(R.lo)||RAW_ROT_LO,hi=num(R.hi)||RAW_ROT_HI;
  var band=esc(T('port_src_rot'))+' · '+esc(lo+'-'+hi)+' · '+esc(T('port_src_rot_every').replace('{n}',every));
  var drawn=num(R.drawn);
@@ -9654,7 +9655,14 @@ function portTriesOn(S){
  return PORT_RUNG_TRANSPORTS.indexOf(S.Tr)>=0}
 function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('porttries_lbl'))+'</label>'
- +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr"></div>'}
+ +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr" oninput="portTriesWarnUpd(&quot;'+idp+'&quot;)">'
+ +'<div class="warncap no" id="'+idp+'ptwarn" style="display:none;margin-top:8px"></div></div>'}
+function portTriesN(idp){var e=el(idp+'porttries');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
+function portTriesErr(idp,S){if(!portTriesOn(S))return '';var n=portTriesN(idp);
+ return (n===0||(n>=1&&n<=PORT_TRIES_MAX))?'':T('porttries_bad')}
+function portTriesWarnUpd(idp){var w=el(idp+'ptwarn');if(!w)return;
+ var n=portTriesN(idp),e=(n===0||(n>=1&&n<=PORT_TRIES_MAX))?'':T('porttries_bad');
+ if(e){w.style.display='';w.innerHTML=ic('warn')+'<span>'+esc(e)+'</span>'}else{w.style.display='none';w.innerHTML=''}}
 function portTriesVis(idp,S){var w=el(idp+'sptries');if(w)w.style.display=portTriesOn(S)?'':'none'}
 var SPROT_DEF=4;
 function sprotOn(S){return S.Tr=='raw'&&S.RawProfile=='udp'}
@@ -9936,7 +9944,8 @@ function _collectCoreBody(S,px,m,body){
     body.raw_sport_random=!!S.SportRandom;
     var _st=parseInt(v(px+'rawsport'),10);
     body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}}
- if(portTriesOn(S)){var _pt=parseInt(v(px+'porttries'),10);body.port_tries=(_pt>=1&&_pt<=50)?_pt:0}
+ var _pte=portTriesErr(px,S);if(_pte){formErr(m,_pte);return true}
+ if(portTriesOn(S)){body.port_tries=portTriesN(px)}
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if(fecDatagram(S)){body.fec=S.Fec&&!sprotLive(S);if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
