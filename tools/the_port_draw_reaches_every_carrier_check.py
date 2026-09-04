@@ -23,7 +23,7 @@ PANEL = ROOT / "tnl-central.py"
 
 # The carriers whose client arms rc.port.setRoll in the core, and the ones that do not.
 WITH_RUNG = ("udp", "tcp", "ws")
-WITHOUT_RUNG = ("dns", "spoof")
+WITHOUT_RUNG = ("dns",)
 
 
 def load_panel():

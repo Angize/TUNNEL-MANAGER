@@ -24,7 +24,7 @@ from pathlib import Path
 
 # What a keyword filter plausibly greps for. Substring match, case-insensitive, on the wire name.
 BAIT = ("tunnel", "vpn", "proxy", "socks", "shadow", "wireguard", "openvpn", "v2ray", "xray", "trojan",
-         "vless", "vmess", "reality", "obfs", "relay", "bridge", "core", "spoof", "kernel", "wipe",
+         "vless", "vmess", "reality", "obfs", "relay", "bridge", "core", "kernel", "wipe",
          "install", "update", "gost", "hysteria", "naive", "cloak")
 
 

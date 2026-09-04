@@ -2,7 +2,7 @@
 
 FEC only exists on a datagram carrier, and the panel had that set written out FOUR times: once in
 corFecDatagram, once in ceFecDatagram, once inline in the edit form's fecSection call, and once inline
-in _collectCoreBody. The inline one in the edit form left `spoof` out, so opening a spoof tunnel that
+in _collectCoreBody. The inline one in the edit form left a carrier out, so opening a tunnel that
 had FEC on rendered the switch UNLIT while the state stayed true — and the gate that runs right after
 only ever turns things OFF, so it never re-lit it. One click on what looked like «off» ran the toggle,
 which agreed FEC was allowed, and turned it OFF. The operator asked for FEC and got it removed, with
@@ -104,7 +104,6 @@ function bodyFec(S, px){
                            ['decoyip','198.51.100.5'], ['wshost','a.example.com'], ['wspath','/x']]) {
     node(px+id).value = val;
   }
-  S.Decoy = true;                       // spoof needs a forged source or destination; give it one
   _collectCoreBody(S, px, node(px+'msg'), b);
   return ('fec' in b) ? (b.fec ? 'true' : 'false') : 'ABSENT';
 }
