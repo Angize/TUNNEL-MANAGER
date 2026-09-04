@@ -2508,42 +2508,38 @@ def api_node_toggle(d):
 def api_node_del(d):
     _require(d, ["id"])
     nid = d["id"]
-    wipe = bool(d.get("wipe"))
     force = bool(d.get("wipe_force") or d.get("force"))
-    out = {"ok": True, "wiped": wipe}
-    if wipe:
-        n = get_node(nid)
-        if not n:
-            raise ValueError("نود پیدا نشد")
-        if force and _cached_ping(nid).get("ok") is False:
-            node_ok = False
-        else:
-            r = node_call(n, "wipe", "POST", {}, timeout=NODE_OP_TIMEOUT)
-            node_ok = bool(r.get("ok"))
-            if not node_ok:
-                raise ValueError("پاک‌سازیِ سمتِ نود ناتمام ماند: " + (r.get("error") or r.get("msg") or "خطا")
-                                 + " — اگر نود قطع است چند لحظه صبر کن تا وضعیتش قرمز شود بعد «پاک‌سازیِ اجباری» بزن؛ وگرنه «فقط از پنل جدا کن».")
-        with _reg_lock:
-            links = load_links()
-            mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
-            mine_ids = {L["id"] for L in mine}
-        _park_failed = []
-        def _del_peer_half(L):
-            peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
-            pn = get_node(peer_id)
-            if not pn:
-                return
-            with _PairLock(peer_id, peer_id):
-                rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)
-            if not rr.get("ok") and not _pending_add(peer_id, L["name"]):
-                _park_failed.append(L["id"])
-        parallel_map(_del_peer_half, mine, workers=32)
-        if _park_failed:
-            raise ValueError("صفِ حذفِ معلق نوشته نشد؛ برای پرهیز از تونلِ یتیم چیزی حذف نشد — دوباره تلاش کن.")
-        with _reg_lock:
-            save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
-        out["links_removed"] = len(mine_ids)
-        out["node_wiped"] = node_ok
+    n = get_node(nid)
+    if not n:
+        raise ValueError("نود پیدا نشد")
+    if force and _cached_ping(nid).get("ok") is False:
+        node_ok = False
+    else:
+        r = node_call(n, "wipe", "POST", {}, timeout=NODE_OP_TIMEOUT)
+        node_ok = bool(r.get("ok"))
+        if not node_ok:
+            raise ValueError("پاک‌سازیِ سمتِ نود ناتمام ماند: " + (r.get("error") or r.get("msg") or "خطا")
+                             + " — اگر نود قطع است چند لحظه صبر کن تا وضعیتش قرمز شود بعد «پاک‌سازیِ اجباری» بزن.")
+    with _reg_lock:
+        links = load_links()
+        mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
+        mine_ids = {L["id"] for L in mine}
+    _park_failed = []
+    def _del_peer_half(L):
+        peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
+        pn = get_node(peer_id)
+        if not pn:
+            return
+        with _PairLock(peer_id, peer_id):
+            rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)
+        if not rr.get("ok") and not _pending_add(peer_id, L["name"]):
+            _park_failed.append(L["id"])
+    parallel_map(_del_peer_half, mine, workers=32)
+    if _park_failed:
+        raise ValueError("صفِ حذفِ معلق نوشته نشد؛ برای پرهیز از تونلِ یتیم چیزی حذف نشد — دوباره تلاش کن.")
+    with _reg_lock:
+        save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
+    out = {"ok": True, "links_removed": len(mine_ids), "node_wiped": node_ok}
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
     _pending_prune_node(nid)
@@ -8003,11 +7999,10 @@ search:"جستجو…",
  connecting_dots:"در حال اتصال…",
  need_all_nhpt:"لطفاً نام، هاست، پورت و توکن را پر کن",node_added_checking:"نود اضافه شد — وضعیتش تا چند لحظهٔ دیگر روی کارتش می‌آید",
  inst_done:"انجام شد",
- nd_del:"حذفِ نود",del_how:"می‌خواهی نود چطور حذف شود؟ یکی را انتخاب کن:",del_detach_t:"فقط از پنل جدا کن",
- del_detach_s:"نود و تونل‌هایش دست‌نخورده می‌مانند و کار می‌کنند؛ فقط از رجیستریِ این پنل حذف می‌شود. بعداً می‌توانی دوباره اضافه‌اش کنی.",
+ nd_del:"حذفِ نود",del_how:"حذفِ نود تونل‌هایش را هم می‌بندد — سمتِ خودش و سمتِ نودهای مقابل:",
  del_wipe_t:"پاک‌سازیِ کاملِ نود",del_wipe_s:"روی خودِ سرورِ نود همه‌چیز پاک می‌شود: همهٔ تونل‌ها، ایجنت، سرویسِ systemd، توکن و فایل‌های JSON. سمتِ نودهای مقابل هم تونل‌ها بسته می‌شوند. برگشت‌ناپذیر است!",
  del_wipe_confirm:"مطمئنی؟ کلِ نود روی سرور — تونل‌ها، ایجنت و توکن — پاک می‌شود و برگشت ندارد.",del_wipe_yes:"بله، پاک کن",
- del_wiping:"در حال پاک‌سازیِ نود…",del_detaching:"در حال جدا کردن…",node_wiped:"نود کاملاً پاک‌سازی شد",node_detached:"نود از پنل جدا شد",
+ del_wiping:"در حال پاک‌سازیِ نود…",node_wiped:"نود کاملاً پاک‌سازی شد",
  del_force_ask:"این تونل به‌اجبار حذف شود؟ سمتِ نودِ در دسترس همین حالا بسته می‌شود، و سمتِ نودِ قطع وقتی برگشت خودکار پاک می‌شود.",del_force_yes:"حذفِ اجباری",
  del_wipe_force_ask:"سرور قطع است — «پاک‌سازیِ اجباری»؟ رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند؛ خودِ این سرور اگر روزی برگشت باید دستی پاک شود.",del_wipe_force_yes:"پاک‌سازیِ اجباری",del_wipe_force_s:"سرور قطع است، پس روی خودش کاری نمی‌شود کرد: رکوردِ نود و لینک‌هایش از پنل پاک و سمتِ نودهای مقابلِ در دسترس بسته می‌شوند. برگشت‌ناپذیر است!",del_force_wiping:"در حالِ پاک‌سازیِ اجباری…",node_force_wiped:"نود از پنل پاک شد (سرور در دسترس نبود؛ سمتِ مقابل بسته شد)",
  pend_del_t:"حذفِ معلق — وقتی این نود دوباره وصل شد، خودکار پاک‌سازی می‌شود",
@@ -8904,23 +8899,22 @@ async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.queryS
  if(r.ok&&r.d.ok){toast(action=='apply'?T('kt_enabled'):T('kt_disabled'),'ok');
   if(ov&&document.body.contains(ov))ktShow(id,r.d)}  
  else{if(m){m.className='msg err kt_msg';m.textContent=terr((r.d&&r.d.error)||T('failed'))}btn.disabled=false}}
-function doForceWipe(id){return confirmBox(T('del_wipe_force_ask'),T('del_wipe_force_yes')).then(function(ok){if(ok)return doDelNode(id,true,true)})}
+function doForceWipe(id){return confirmBox(T('del_wipe_force_ask'),T('del_wipe_force_yes')).then(function(ok){if(ok)return doDelNode(id,true)})}
 function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');var offline=btn.getAttribute('data-online')==='0';
  var wipeOpt=offline
   ?'<button type="button" class="delopt danger" onclick="doForceWipe(\\''+id+'\\')"><div class="do-t">'+ic('warn')+esc(T('del_wipe_force_yes'))+'</div><div class="do-s">'+esc(T('del_wipe_force_s'))+'</div></button>'
-  :'<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\',true)"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>';
+  :'<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\')"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>';
  var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">'+esc(T('del_how'))+'</div>'+
-  '<button type="button" class="delopt" onclick="doDelNode(\\''+id+'\\',false)"><div class="do-t">'+ic('logout')+esc(T('del_detach_t'))+'</div><div class="do-s">'+esc(T('del_detach_s'))+'</div></button>'+
   wipeOpt+
   '<div class="msg" id="del_msg"></div>';
  openModal('<div class="msticky"><span class="medi medi-bad">'+ic('trash')+'</span><div class="ttl"><h3>'+esc(T('nd_del'))+'</h3><div class="sb">'+esc(nm)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
-async function doDelNode(id,wipe,force){var m=el('del_msg');
- if(wipe&&!force&&!await confirmBox(T('del_wipe_confirm'),T('del_wipe_yes')))return;
- if(m){m.className='msg';m.textContent=(wipe?(force?T('del_force_wiping'):T('del_wiping')):T('del_detaching'))}
+async function doDelNode(id,force){var m=el('del_msg');
+ if(!force&&!await confirmBox(T('del_wipe_confirm'),T('del_wipe_yes')))return;
+ if(m){m.className='msg';m.textContent=(force?T('del_force_wiping'):T('del_wiping'))}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=true});
- var r=await post('node-del',{id:id,wipe:wipe,wipe_force:!!force});
+ var r=await post('node-del',{id:id,wipe_force:!!force});
  if(r.ok&&r.d.ok){var ov=m?m.closest('.modalov'):null;
-  toast(wipe?((r.d.node_wiped===false)?T('node_force_wiped'):T('node_wiped')):T('node_detached'),'ok');
+  toast((r.d.node_wiped===false)?T('node_force_wiped'):T('node_wiped'),'ok');
   if(ov)closeModal(ov);else refreshNodes();return}
  document.querySelectorAll('.delopt').forEach(function(b){b.disabled=false});
  if(m){formErr(m,terr((r.d&&r.d.error)||T('failed')))}}
