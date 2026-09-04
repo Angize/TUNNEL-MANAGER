@@ -3285,17 +3285,24 @@ def api_update_core(d):
         raise ValueError("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه انتخاب کن")
 
     parts = {}
-    staged = {"done": not version, "err": ""}
+    staged = {"done": not version or _staged_holds(version, not gh), "err": ""}
     staging = threading.Lock()
 
     def ensure(ctx=None):
-        if ctx and not staged["done"]:
-            ctx.step("stage")
-        with staging:
+        if staged["done"]:
+            return
+        mine = staging.acquire(blocking=False)
+        if not mine:
+            if ctx:
+                ctx.step("stagewait")
+            staging.acquire()
+        try:
             if staged["err"]:
                 raise ValueError(staged["err"])
             if staged["done"]:
                 return
+            if ctx and not gh:
+                ctx.step("stage")
             try:
                 if gh:
                     _stage_core_meta(version)
@@ -3308,6 +3315,8 @@ def api_update_core(d):
                 staged["err"] = f"نسخهٔ «{version}» از گیت‌هاب گرفته نشد: {str(e)[:90]}"
                 raise ValueError(staged["err"])
             staged["done"] = True
+        finally:
+            staging.release()
 
     def check_body(_n, ctx=None):
         ensure(ctx)
@@ -3580,6 +3589,31 @@ def _fetch_release(version, arch, on_progress=None, should_abort=None):
     if hashlib.sha256(raw).hexdigest() != sha:
         raise RuntimeError("release checksum mismatch")
     return raw, sha
+
+
+def _staged_holds(version, need_bytes):
+    """Is the version the operator picked ALREADY on the panel?
+
+    `_stage_core` fetches unconditionally, and api_update_core only skipped staging when no version was
+    named at all -- but the form always names one, so pushing the version the panel had just downloaded
+    downloaded it again, both architectures, while every node card announced it."""
+    info = _staged_info()
+    if not info:
+        return False
+    try:
+        want = _resolve_core_version(version)
+    except ValueError:
+        return False
+    if str(info.get("version") or "") != want:
+        return False
+    arches = [a for a in (info.get("arches") or []) if a in CORE_ARCHES]
+    if not arches:
+        return False
+    if not need_bytes:
+        return True
+    if info.get("meta_only"):
+        return False
+    return all(os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-%s" % a)) for a in arches)
 
 
 def _staged_info():
@@ -7960,7 +7994,7 @@ var I18N={fa:{
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",
  ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",
- ups_stage:"دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",
+ ups_stage:"دانلودِ هسته روی پنل",ups_stagewait:"منتظرِ دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",
  upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
  upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
  upe_bad_signature:"امضای پنل تأیید نشد",upe_too_small:"فایل برای یک هسته خیلی کوچک است",
