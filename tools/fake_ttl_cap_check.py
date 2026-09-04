@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """fake_ttl means two different things depending on the carrier, and every layer must say the same one.
 
-    raw / spoof          the decoy is a whole forged IPv4 packet aimed at a peer we hold no kernel
+    raw                  the decoy is a whole forged IPv4 packet aimed at a peer we hold no kernel
                          connection to, so the operator's hop budget is honoured verbatim: 1..255.
     tcp / ws             the decoy is a TCP segment INJECTED on the real connection's 4-tuple. A
                          well-formed one that actually reached the server would draw an RST or a
@@ -30,12 +30,10 @@ A_IP, B_IP = "203.0.113.5", "198.51.100.7"
 A_IPS, B_IPS = [A_IP, "203.0.113.6"], [B_IP, "198.51.100.8"]
 
 # The carriers that support desync at all, and whether the core clamps their decoy TTL.
-# spoof is a raw carrier, so it forges: it is here precisely because it looks like it should clamp.
 CARRIERS = [
     ("tcp", True),
     ("ws", True),
     ("raw", False),
-    ("spoof", False),
 ]
 
 # A TTL well above the cap, so a clamped path and an unclamped one cannot produce the same number.
@@ -63,10 +61,8 @@ def base_req(transport):
            "fake_desync": True, "fake_ttl": ASKED, "fake_count": 2, "fake_mode": "ttl"}
     if transport == "ws":
         req.update(ws_host="cdn.example.com", ws_path="/", ws_tls=True)
-    if transport in ("raw", "spoof"):
+    if transport == "raw":
         req.update(raw_profile="bare")
-    if transport == "spoof":
-        req.update(spoof_src="192.0.2.7")
     return req
 
 
@@ -154,7 +150,7 @@ def main():
     want_inject = {t for t, clamps in CARRIERS if clamps}
     if panel_inject != want_inject:
         failures.append("DESYNC_INJECT_TRANSPORTS=%r, want %r — only the carriers that inject on a real "
-                        "4-tuple clamp; raw/spoof forge a header and honour 1..255"
+                        "4-tuple clamp; raw forges a header and honours 1..255"
                         % (sorted(panel_inject), sorted(want_inject)))
     else:
         print("  ok  the injecting carriers are %s" % sorted(want_inject))

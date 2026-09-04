@@ -31,7 +31,6 @@ CASES = [
     ({"transport": "tcp", "port": 20050, "sport_live": 33111}, ["20050", "33111"], []),
     ({"transport": "ws", "port": 443, "sport_live": 35550}, ["443", "35550"], []),
     ({"transport": "dns", "port": 20050, "sport_live": 41027}, [], ["41027", "20050"]),
-    ({"transport": "spoof", "sport_live": 41027}, [], ["41027"]),
     ({"transport": "raw", "raw_profile": "tcp", "raw_port": 443, "raw_sport_random": True,
       "sport_live": 8443}, ["443", "8443"], []),
     ({"transport": "raw", "raw_profile": "bare", "sport_live": 8443}, [], ["8443"]),

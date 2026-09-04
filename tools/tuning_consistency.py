@@ -220,7 +220,7 @@ def main():
     # which looks like a two-way check but is really a three-way pin: consistent change on both sides would
     # still fail here, and the failure would name the guard's own constant rather than the drift.
     fm = re.search(r"fecHdrLen\s*=\s*([0-9+ ]+)", fec_go)
-    nf = re.search(r'if transport in \("udp", "raw", "spoof"\) and bool\(cfg\.get\("fec"\)\):\s*\n'
+    nf = re.search(r'if transport in \("udp", "raw"\) and bool\(cfg\.get\("fec"\)\):\s*\n'
                    r"\s*overhead \+= (\d+)", node_src)
     if not fm or not nf:
         check(False, "CANNOT FIND the FEC per-packet overhead on both sides -- THIS SCRIPT is out of date "
