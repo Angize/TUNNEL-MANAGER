@@ -182,9 +182,15 @@ _TUNING_DEFAULTS = {
     "ladder_revive": [45, 180, 600],
     "sock_buf_mb": 4,
 }
+REVIVE_STEP_MIN, REVIVE_STEP_MAX = 10, 3600
+BACKOFF_STEP_MIN, BACKOFF_STEP_MAX = 1, 86400
 _TUNING_LIST_KEYS = ("suspect_backoff", "ladder_revive")
+_TUNING_LIST_RANGES = {"suspect_backoff": (BACKOFF_STEP_MIN, BACKOFF_STEP_MAX),
+                       "ladder_revive": (REVIVE_STEP_MIN, REVIVE_STEP_MAX)}
 _PROBE_SAMPLES = 20
 _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشتی")}
+_TUNING_LIST_LABELS = {"suspect_backoff": "زمان‌بندیِ تستِ مجددِ موقت‌سوخته",
+                       "ladder_revive": "صبر پیش از تلاشِ دوبارهٔ نردبان"}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "min_liveness_secs": (1, 3600),
@@ -227,7 +233,7 @@ def _validate_tuning(raw, base=None):
             if step and v % step:
                 raise ValueError("«%s» باید مضربی از %d باشد — %d پذیرفته نیست" % (label, step, v))
             out[k] = max(lo, min(hi, v))
-    for k in _TUNING_LIST_KEYS:
+    for k, (lo, hi) in _TUNING_LIST_RANGES.items():
         if k not in raw or not isinstance(raw[k], (list, tuple)):
             continue
         steps = []
@@ -236,8 +242,10 @@ def _validate_tuning(raw, base=None):
                 iv = int(x)
             except (TypeError, ValueError):
                 continue
-            if 1 <= iv <= 86400:
-                steps.append(iv)
+            if not lo <= iv <= hi:
+                raise ValueError("«%s» باید بینِ %d تا %d ثانیه باشد — %d پذیرفته نیست"
+                                 % (_TUNING_LIST_LABELS[k], lo, hi, iv))
+            steps.append(iv)
         if steps:
             out[k] = steps
     return out
@@ -8048,7 +8056,7 @@ search:"جستجو…",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ این کارت به پیش‌فرض برگردند؟",set_reset_yes:"بازگردان",
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
- set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. کمتر از ۵ ثانیه پذیرفته نمی‌شود: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، و صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود.",
+ set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه است: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، پس صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود؛ و صبرِ بیشتر از یک ساعت عملاً یعنی «هرگز».",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
 
 
@@ -10690,8 +10698,8 @@ function settingsGroups(s){
   sgCard('redo','set_g2','set_g2c','sc-pool',pool)+
   sgCard('bolt','set_g5','set_g5c','sc-perf',perf)}
 function _collectTuning(){
- var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return n>=60&&n<=86400});
- var rv=(v('set_t_revive')||'').split(',').map(function(x){return parseInt(x.trim(),10)}).filter(function(n){return n>=5&&n<=86400});
+ var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return !isNaN(n)});
+ var rv=(v('set_t_revive')||'').split(',').map(function(x){return parseInt(x.trim(),10)}).filter(function(n){return !isNaN(n)});
  var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  if(rv.length)t.ladder_revive=rv;

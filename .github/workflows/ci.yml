@@ -103,6 +103,12 @@ name: ci
 #                         either way. Drives the real _collectCoreBody in node, so it is about the
 #                         submit path and not a helper; the ceiling comes from the page's own
 #                         PORT_TRIES_MAX, which tuning_consistency pins to core's maxPortTries.
+#   ladder_steps_are_reported  a bad number in a comma-separated tuning list is REFUSED, and the two
+#                         lists keep separate ranges. Both were filtered to one 1..86400 window, twice
+#                         and silently: `45, 3, 600` saved `45, 600` with a green toast, and `3` alone
+#                         left the stored default standing. They are different clocks -- the revive wait
+#                         is 10..3600 because the node judges a down tunnel about once a second, the
+#                         suspect backoff keeps 1..86400 because it waits out a censor.
 #   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
 #                         کن» dropped the node and left its links behind, so they named a node that no
 #                         longer existed: api_summary counted each one down with an alert that could
@@ -308,3 +314,6 @@ jobs:
       - name: an out-of-range port-rung depth is refused, not dropped
         working-directory: TUNNEL-MANAGER
         run: python tools/port_tries_is_reported_check.py
+      - name: an out-of-range tuning step is refused, not dropped from the list
+        working-directory: TUNNEL-MANAGER
+        run: python tools/ladder_steps_are_reported_check.py

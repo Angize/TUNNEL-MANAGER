@@ -363,6 +363,27 @@ def main():
         for who, m in (("node MAX_PORT_TRIES", node_pt), ("panel PORT_TRIES_MAX", py_pt), ("browser PORT_TRIES_MAX", js_pt)):
             check(m.group(1) == core_pt.group(1),
                   "port-rung ceiling: %s=%s core maxPortTries=%s" % (who, m.group(1), core_pt.group(1)))
+    # The two step LISTS have their own ranges and must not share one. They are different clocks: the
+    # revive wait is how long a dead-ended ladder sits before it gets its rungs back, judged by a node
+    # that samples about once a second; the suspect backoff is how long a burned endpoint waits out a
+    # censor. One shared 1..86400 filter let the form offer a 3-second revive that refills the ladder
+    # before the last rung has been judged, and a 12-hour one that reads as "never".
+    tuning_go = (Path(a.core) / "internal" / "packet" / "tuning.go").read_text(encoding="utf-8")
+    for name, core_lo, core_hi, node_lo, node_hi in (
+            ("revive", "reviveStepMin", "reviveStepMax", "REVIVE_STEP_MIN", "REVIVE_STEP_MAX"),
+            ("backoff", "backoffStepMin", "backoffStepMax", "BACKOFF_STEP_MIN", "BACKOFF_STEP_MAX")):
+        cl = re.search(core_lo + r"\sint64\s*=\s*(\d+)", tuning_go)
+        ch = re.search(core_hi + r"\sint64\s*=\s*(\d+)", tuning_go)
+        nl = re.search(r"^" + node_lo + r"\s*=\s*(\d+)", node_src, re.M)
+        nh = re.search(r"^" + node_hi + r"\s*=\s*(\d+)", node_src, re.M)
+        pm = re.search(r"^" + node_lo + r", " + node_hi + r"\s*=\s*(\d+), (\d+)", panel_src, re.M)
+        if not (cl and ch and nl and nh and pm):
+            check(False, "CANNOT PARSE the %s step range (core=%s/%s node=%s/%s panel=%s) -- THIS SCRIPT is out of date"
+                         % (name, bool(cl), bool(ch), bool(nl), bool(nh), bool(pm)))
+            continue
+        for who, lo, hi in (("node", nl.group(1), nh.group(1)), ("panel", pm.group(1), pm.group(2))):
+            check(lo == cl.group(1) and hi == ch.group(1),
+                  "%s step range: %s=%s..%s core=%s..%s" % (name, who, lo, hi, cl.group(1), ch.group(1)))
 
     print("== 2e) the live PAIR: the core publishes it, the node keys its verdict on it ==")
     # The core publishes what the carrier is on as {low, high, low_kind, high_kind}, and the node reads
