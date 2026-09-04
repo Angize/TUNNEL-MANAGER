@@ -9220,8 +9220,10 @@ async function delLink(id){
  if(!(r.ok&&r.d.act)){toast(perr(r),'err');return}
  rmsgClear('lchk_'+id);actStarted()}
 
-function ipField(k,ips,lab){
- if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),(SEL[k]&&ips.indexOf(SEL[k])>=0?SEL[k]:ips[0]),T('ip'),'');
+function ipSeed(k,ips,stored){if(SEL[k]&&ips.indexOf(SEL[k])>=0)return SEL[k];
+ if(stored&&ips.indexOf(stored)>=0)return stored;return ips[0]}
+function ipField(k,ips,lab,stored){
+ if(ips.length>1)return '<label class="first">'+lab+'</label>'+ssHTML(k,ipItems(ips),ipSeed(k,ips,stored),T('ip'),'');
  delete SEL[k];return '<label class="first">'+lab+'</label><input class="mono" value="'+esc(ips[0]||'—')+'" disabled style="opacity:.6">'}
 async function openCreateModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});selTargets={};
  if(on.length<2){toast(T('node_min2'),'err');return}
@@ -9902,17 +9904,25 @@ function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,s
  for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
 function pickedIP(px,side,stored){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
  if(st.on&&ips.length>1)return (stored&&sel[stored]&&stored)||rotFirstSel(px,side)||ips[0]||'';
- return el('ssb_'+px+side+'ip_sel')?ssVal(px+side+'ip_sel'):(stored||'')}
+ if(el('ssb_'+px+side+'ip_sel'))return ssVal(px+side+'ip_sel');
+ return (stored&&ips.indexOf(stored)>=0)?stored:''}
 function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(px+'rotrow');if(!w)return;
  var multi=(st.aIps.length>1||st.bIps.length>1)&&rotIsDirect(px);
  if(!multi){st.on=false;w.innerHTML='';var r0=el(px+'rotset');if(r0)r0.style.display='none';renderRotIps(px);return}
  w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
-function renderRotIps(px){var srv=(px=='e_')?_corS.Srv:_eeS.Srv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
+function ceStoredIP(px,side){if(px!='ee_')return '';
+ var l=(FLEET||[]).filter(function(x){return x.id==_eeS.Lid})[0];
+ return (l&&(side=='a'?l.a_ip:l.b_ip))||''}
+function ceSeedGate(px){if(px!='ee_')return;
+ if(_eeS.IpLid===_eeS.Lid)return;
+ delete SEL['ee_aip_sel'];delete SEL['ee_bip_sel'];_eeS.IpLid=_eeS.Lid}
+function renderRotIps(px){ceSeedGate(px);var srv=(px=='e_')?_corS.Srv:_eeS.Srv;['a','b'].forEach(function(side){var w=el(px+side+'ip');if(!w)return;
  var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,isDst=(side=='a')?(srv=='a'):(srv!='a'),lab=isDst?T('dst_ip'):T('src_ip');
  w.style.order=isDst?'0':'1';
- if(st.on&&ips.length>1)w.innerHTML=rotPoolHTML(px,side,ips,lab);else w.innerHTML=ipField(px+side+'ip_sel',ips,lab)})}
+ if(st.on&&ips.length>1)w.innerHTML=rotPoolHTML(px,side,ips,lab);
+ else w.innerHTML=ipField(px+side+'ip_sel',ips,lab,ceStoredIP(px,side))})}
 function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel;
  var CKI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M8.3 12.4l2.6 2.6 4.8-5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
  var OFI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>';

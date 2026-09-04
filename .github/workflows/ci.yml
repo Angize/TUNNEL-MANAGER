@@ -115,6 +115,12 @@ name: ci
 #                         changing only the TYPE renumbered it; and subnetFree counted window.FLEET,
 #                         which holds one page's half of the tunnel ids and shrinks while you type in
 #                         the search box.
+#   an_edit_keeps_the_tunnel_where_it_is  editing a core tunnel does not move it to another address
+#                         of its own node. The picker was seeded with ips[0] and pickedIP threw the
+#                         stored value away, so on a node with two routable IPv4s, changing only the
+#                         cipher rebuilt the tunnel on the OTHER address -- and the backend's own
+#                         "keep L[a_ip]" fallback never ran, because the browser always sent something.
+#                         Drives the page's real functions under node AND the real api_edit_link.
 #   no_orphan_links       a node record and its links leave together, or neither does. «فقط از پنل جدا
 #                         کن» dropped the node and left its links behind, so they named a node that no
 #                         longer existed: api_summary counted each one down with an alert that could
@@ -317,6 +323,9 @@ jobs:
       - name: a node and its links leave together
         working-directory: TUNNEL-MANAGER
         run: python tools/no_orphan_links_check.py
+      - name: an edit keeps the tunnel on the address it already has
+        working-directory: TUNNEL-MANAGER
+        run: python tools/an_edit_keeps_the_tunnel_where_it_is_check.py
       - name: an out-of-range port-rung depth is refused, not dropped
         working-directory: TUNNEL-MANAGER
         run: python tools/port_tries_is_reported_check.py
