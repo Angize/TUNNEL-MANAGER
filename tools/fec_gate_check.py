@@ -36,7 +36,7 @@ if hasattr(sys.stdout, "reconfigure"):
 PANEL = Path(__file__).resolve().parent.parent / "tnl-central.py"
 
 # The transports a datagram carrier's FEC applies to. PINNED, deliberately.
-ALLOWED = {"udp", "raw", "spoof"}
+ALLOWED = {"udp", "raw"}
 
 
 def load_panel():
@@ -176,8 +176,8 @@ def main():
             print("FAIL: %s is not in the rendered page — the guard cannot read its subject" % fn)
             return 1
 
-    # ONE predicate: nobody else may spell the set out. Four copies is how spoof got dropped from one.
-    spelled = re.findall(r"Tr\s*==\s*'udp'\s*\|\|[^;){]*'spoof'", js)
+    # ONE predicate: nobody else may spell the set out. Four copies is how a transport got dropped from one.
+    spelled = re.findall(r"Tr\s*==\s*'udp'\s*\|\|[^;){]*'raw'", js)
     if len(spelled) != 1:
         print("FAIL: the datagram-transport set is written out %d times in the page JS; "
               "there must be exactly one (fecDatagram). Copies found:" % len(spelled))
