@@ -64,16 +64,11 @@ name: ci
 #   sni_mode_fields       split_ttl stays a disorder-only knob, on all three build paths AND in the
 #                         browser. disorder and fake want opposite values out of that one input, so
 #                         offering it for both shipped a decoy that died before the DPI.
-#   fake_ttl_cap          fake_ttl means two different things by carrier: raw/spoof forge a header
-#                         and honour 1..255, while tcp/ws inject on the real connection's 4-tuple and
+#   fake_ttl_cap          fake_ttl means two different things by carrier: raw forges a header
+#                         and honours 1..255, while tcp/ws inject on the real connection's 4-tuple and
 #                         the core clamps them to injectMaxTTL. The panel stored the unclamped number,
 #                         so the form, the node and core's own startup line all reported a hop budget
 #                         the wire never carried. The ceiling is read out of core, not copied.
-#   spoof_egress_probe    the "does the forge really get out" button probes the IPs the TUNNEL will use,
-#                         on both ends and in both directions. It aimed at the node's MANAGEMENT host
-#                         instead, and per-IP filtering is this project's documented reality, so a green
-#                         could be about an address the tunnel never touches. A node registered by
-#                         hostname made the button a dead end outright.
 #   i18n_dead_keys        every declared I18N key is rendered somewhere, or composed by a
 #                         T('prefix'+…) builder. Dead keys accumulate silently -- nine survived
 #                         several rounds of feature removal -- and deleting one by hand has the
@@ -209,9 +204,6 @@ jobs:
       - name: fake_ttl reports what the wire carries
         working-directory: TUNNEL-MANAGER
         run: python tools/fake_ttl_cap_check.py
-      - name: the spoof egress test probes the tunnel's own pair
-        working-directory: TUNNEL-MANAGER
-        run: python tools/spoof_egress_probe_check.py
       - name: a moved node is not forgotten
         working-directory: TUNNEL-MANAGER
         run: python tools/a_moved_node_is_not_forgotten_check.py
