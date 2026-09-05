@@ -399,7 +399,7 @@ def main():
           "pair keys: core=%s node=%s -- a key the node does not read is a verdict that names nothing"
           % (sorted(core_keys), sorted(node_keys)))
 
-    # And the axis KIND strings, which tag both the health rows and the pin/retest commands. The node
+    # And the axis KIND strings, which tag both the health rows and the select/retest commands. The node
     # filters on them and refuses anything else, so a rename on one side silently empties a whole view.
     # Order-free on purpose: WHICH axis is the low digit is the core's decision and it has already
     # changed once -- the edge pool swapped, so the edge is now the cheap digit and the domain the
@@ -414,6 +414,31 @@ def main():
           "the core names all four axes: %s" % sorted(kinds_go))
     check(bool(node_kinds),
           "the node accepts exactly the four axis kinds the core tags its rows with")
+
+    print("== 2f2) the core sidecars: one filename per channel, agreed by core and node ==")
+    # The node WRITES these files and the core CLAIMS them by rename. Nothing reports a mismatch: the
+    # node writes happily, the core reads a file that is never there, and every manual jump, every
+    # retest and every tun-probe verdict silently does nothing while the panel says it was sent.
+    status_go = (Path(a.core) / "internal" / "packet" / "core_status.go").read_text(encoding="utf-8")
+    core_side = dict(re.findall(r'(\w+)Path\(\) string \{ return s\.sidecar\("\.(\w+)"\)', status_go))
+    wipe = re.search(r'def _core_status_paths\(name\):(.*?)\n\n', node_src, re.S)
+    boxes = {
+        "verdict": re.search(r'def _report_carrying.*?_cfg_path\(name, "\.status\.(\w+)"\)', node_src, re.S),
+        "select": re.search(r'def _write_cmd\(.*?_cfg_path\(name, "\.status\.(\w+)"\)', node_src, re.S),
+        "echCmd": re.search(r'def op_ech_update.*?_cfg_path\(name, "\.status\.(\w+)"\)', node_src, re.S),
+    }
+    if not wipe or sorted(core_side) != ["echCmd", "select", "verdict"]:
+        check(False, "CANNOT PARSE the sidecar names (core=%s wipe=%s) -- THIS SCRIPT is out of date"
+                     % (sorted(core_side), bool(wipe)))
+    else:
+        for chan, suffix in sorted(core_side.items()):
+            m = boxes.get(chan)
+            check(m is not None and m.group(1) == suffix,
+                  "%s: the core claims '.%s', the node writes %s"
+                  % (chan, suffix, ("'.%s'" % m.group(1)) if m else "NOTHING THIS SCRIPT CAN FIND"))
+            check(('"." + "%s"' % suffix) in wipe.group(1) or ('."%s"' % suffix) in wipe.group(1).replace(" ", "")
+                  or ('.%s"' % suffix) in wipe.group(1),
+                  "and deleting the tunnel removes the .%s file it wrote" % suffix)
 
     print("== 2g) the tun-probe threshold: panel offers it, the NODE consumes it ==")
     # The one Settings knob the node reads for itself instead of forwarding to the core, so its default

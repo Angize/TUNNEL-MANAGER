@@ -5,9 +5,8 @@
 The core writes one ring; the panel turns it into the operator's log. Three rules that had drifted:
 
   * an edge-pool rotation was never reported at all. The panel could only infer it from `active`
-    changing between polls -- fifteen seconds apart, silent when the rotation did not land, and muted
-    for a while after an operator pin. The core reports it now, so the inference must stand down or the
-    same rotation is logged twice.
+    changing between polls -- fifteen seconds apart and silent when the rotation did not land. The
+    core reports it now, so the inference must stand down or the same rotation is logged twice.
   * a source-port redraw was written at the DRAW. The ladder redraws every few seconds for as long as
     an outage lasts, so a tunnel that never came back wrote a line per draw. It is written on the
     RECOVERY now, naming the port that worked -- so the panel's text may no longer say «before
@@ -77,8 +76,7 @@ def main():
     print("\n== 2) the edge pool reports its own rotation ==")
     check("edge" in axes,
           "the edge pool calls the same reporter the direct carriers do — inferring it from `active` "
-          "changing between polls is 15 s late, silent when the rotation does not land, and muted "
-          "after an operator pin")
+          "changing between polls is 15 s late and silent when the rotation does not land")
 
     print("\n== 3) and the panel's inference stands down when the ring already said it ==")
     js = getattr(P, "INDEX_HTML", "")
