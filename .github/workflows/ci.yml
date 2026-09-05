@@ -483,6 +483,9 @@ jobs:
       - name: The card must show the source port on every carrier that redraws it, not only on raw
         working-directory: TUNNEL-MANAGER
         run: python tools/the_card_shows_the_live_source_port_check.py
+      - name: When the source port moves, the card must show BOTH ends and name the right clock
+        working-directory: TUNNEL-MANAGER
+        run: python tools/both_ends_show_their_source_port_check.py
       - name: The download-proxy card must paint every time the page is built, not only the first time
         working-directory: TUNNEL-MANAGER
         run: python tools/the_download_proxy_card_survives_a_revisit_check.py
