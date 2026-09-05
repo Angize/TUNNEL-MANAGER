@@ -8294,7 +8294,7 @@ search:"جستجو…",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",raw_sprot_d:"هر چند پکت یک پورتِ تازه · فقط پروفایلِ udp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",raw_sprot_d:"هر چند پکت یک پورتِ تازه · فقط پروفایلِ udp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -9555,10 +9555,12 @@ function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
 var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999,RAW_DPORTS_MAX=8,RAW_SPROT_MAX=60,PORT_TRIES_MAX=60;
 function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),lo=num(R.lo)||RAW_ROT_LO,hi=num(R.hi)||RAW_ROT_HI;
- var band=esc(T('port_src_rot'))+' · '+esc(lo+'-'+hi)+' · '+esc(T('port_src_rot_every').replace('{n}',every));
+ var mode=every?T('port_src_rot'):T('port_src_rand');
+ var clock=every?T('port_src_rot_every').replace('{n}',every):T('port_src_rot_fail');
+ var band=esc(mode)+' · '+esc(lo+'-'+hi)+' · '+esc(clock);
  var drawn=num(R.drawn);
  if(drawn)band+=' · '+esc(T('port_src_rot_drawn').replace('{n}',String(drawn)));
- if(!cli&&!srv)return '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(T('port_src_rot'))+'</b></div>'
+ if(!cli&&!srv)return '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(mode)+'</b></div>'
    +'<div class="wrap muted">'+band+'</div>';
  var rows='';
  if(cli)rows+='<div>'+esc(T('port_src_rot_up'))+': <b class="mono">'+esc(cli)+'</b></div>';
@@ -9568,15 +9570,12 @@ function portRows(l){var t=l.transport||'udp';
  var live=num(l.sport_live);
  if(t=='raw'){
   if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
+  var _R=l.rot_live||{},_nd=num(_R.dports),_ld=num(_R.dport)||num(l.raw_port)||RAW_DPORT_DEF;
+  var _dst='<div>'+esc(T('port_dst'))+': <b class="mono">'+esc((_nd>1)?_ld:(num(l.raw_port)||RAW_DPORT_DEF))+'</b></div>';
+  if(_nd>1)_dst+='<div class="wrap muted">'+esc(T('port_dst_rot')+' · '+T('port_dst_rot_n').replace('{n}',String(_nd)))+'</div>';
   var _rot=num(l.raw_sport_rotate);
-  if(_rot){var _R=l.rot_live||{},_nd=num(_R.dports),_ld=num(_R.dport)||num(l.raw_port)||RAW_DPORT_DEF;
-   var _dst='<div>'+esc(T('port_dst'))+': <b class="mono">'+esc((_nd>1)?_ld:(num(l.raw_port)||RAW_DPORT_DEF))+'</b></div>';
-   if(_nd>1)_dst+='<div class="wrap muted">'+esc(T('port_dst_rot')+' · '+T('port_dst_rot_n').replace('{n}',String(_nd)))+'</div>';
-   return _dst+rotSrcRows(l,_rot)}
-  var _mode=l.raw_sport_random?T('port_src_rand'):T('port_src_fixed');
-  var _now=live||(l.raw_sport_random?0:(num(l.raw_sport)||RAW_SPORT_FIX));
-  return '<div>'+esc(T('port_dst'))+': <b class="mono">'+esc(num(l.raw_port)||RAW_DPORT_DEF)+'</b></div>'+
-         '<div>'+esc(T('port_src'))+': <b class="mono">'+esc(_mode+(_now?(' ('+_now+')'):''))+'</b></div>'}
+  if(_rot||l.raw_sport_random)return _dst+rotSrcRows(l,_rot);
+  return _dst+'<div>'+esc(T('port_src'))+': <b class="mono">'+esc(T('port_src_fixed')+' ('+(live||num(l.raw_sport)||RAW_SPORT_FIX)+')')+'</b></div>'}
  if(t=='dns')return '';
  var rows=(l.port)?('<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'):'';
  if(live&&portTriesOn({Tr:t}))rows+='<div>'+esc(T('port_src'))+': <b class="mono">'+esc(live)+'</b></div>';

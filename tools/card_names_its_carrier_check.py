@@ -51,19 +51,26 @@ CORE_CASES = [
 ]
 SYS_TYPES = ["gre", "vxlan", "ipip", "sit", "gretap", "wg"]
 
-# The source-port row names the MODE and then, in brackets, the port actually in force. The live number
-# out of the client's core wins over the stored one, because a ROLLED port exists nowhere else at all:
-# the stored config only says that it rolls. With no live number and no fixed one there is nothing
-# truthful to put in brackets, so there must be no brackets.
+# The single source-port row belongs to the FIXED mode alone: one port, named and bracketed, and the
+# live number out of the core wins over the stored one because the operator is reading what the wire
+# carries, not what the form once said.
+#
+# Both moving modes print no such row, because there is no single source port to print -- the client
+# and the server each move their own, and the card gives them a line each. `None` here means "the row
+# is absent"; that the two lines are there instead is
+# tools/both_ends_show_their_source_port_check.py, which reads the numbers back.
 SPORT_CASES = [
-    ("default",            {}, "ثابت (51820)"),
-    ("fixed 4500",         {"raw_sport": 4500}, "ثابت (4500)"),
-    ("fixed, live agrees", {"raw_sport": 4500, "sport_live": 4500}, "ثابت (4500)"),
-    ("rolled, no live",    {"raw_sport_random": True}, "رندوم"),
-    ("rolled, live 39421", {"raw_sport_random": True, "sport_live": 39421}, "رندوم (39421)"),
-    # A live port the core reports must win: the operator is reading what the wire carries, not what
-    # the form once said. This is the case that makes the row worth printing at all.
+    ("default",              {}, "ثابت (51820)"),
+    ("fixed 4500",           {"raw_sport": 4500}, "ثابت (4500)"),
+    ("fixed, live agrees",   {"raw_sport": 4500, "sport_live": 4500}, "ثابت (4500)"),
     ("fixed 4500, live 500", {"raw_sport": 4500, "sport_live": 500}, "ثابت (500)"),
+    ("reactive, silent",     {"raw_sport_random": True}, "رندوم"),
+    ("reactive, reporting",  {"raw_sport_random": True,
+                              "rot_live": {"cli": 39421, "srv": 51000, "dport": 443, "dports": 0,
+                                           "every": 0, "lo": 10000, "hi": 59999, "drawn": 2}}, None),
+    ("rotation, reporting",  {"raw_profile": "udp", "raw_sport_rotate": 4,
+                              "rot_live": {"cli": 21000, "srv": 44444, "dport": 443, "dports": 0,
+                                           "every": 4, "lo": 10000, "hi": 59999, "drawn": 9}}, None),
 ]
 
 PRELUDE = r"""
@@ -153,7 +160,7 @@ def main():
                 health={"a": {"up": True, "alive": True}, "b": {"up": True, "alive": True}})
     cores = [dict(base, **extra) for extra, _w, _p in CORE_CASES]
     sysu = [dict(base, type=t, name="n%d" % i) for i, t in enumerate(SYS_TYPES)]
-    sports = [dict(base, transport="raw", raw_profile="tcp", raw_port=8801, **extra)
+    sports = [dict(dict(base, transport="raw", raw_profile="tcp", raw_port=8801), **extra)
               for _n, extra, _w in SPORT_CASES]
 
     with tempfile.TemporaryDirectory() as d:

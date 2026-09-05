@@ -31,8 +31,19 @@ CASES = [
     ({"transport": "tcp", "port": 20050, "sport_live": 33111}, ["20050", "33111"], []),
     ({"transport": "ws", "port": 443, "sport_live": 35550}, ["443", "35550"], []),
     ({"transport": "dns", "port": 20050, "sport_live": 41027}, [], ["41027", "20050"]),
-    ({"transport": "raw", "raw_profile": "tcp", "raw_port": 443, "raw_sport_random": True,
+    ({"transport": "raw", "raw_profile": "tcp", "raw_port": 443, "raw_sport": 4500,
       "sport_live": 8443}, ["443", "8443"], []),
+    # A raw tunnel whose source port MOVES reports it in `rot`, not `path`: both ends move, and one
+    # number cannot carry two. sport_live is empty for those, so a card reading only sport_live shows
+    # the operator nothing at all -- which is the regression this pair of cases exists to catch.
+    ({"transport": "raw", "raw_profile": "tcp", "raw_port": 443, "raw_sport_random": True,
+      "rot_live": {"cli": 8443, "srv": 51000, "dport": 443, "dports": 0, "every": 0,
+                   "lo": 10000, "hi": 59999, "drawn": 2}},
+     ["443", "8443", "51000"], []),
+    ({"transport": "raw", "raw_profile": "udp", "raw_port": 443, "raw_sport_rotate": 4,
+      "rot_live": {"cli": 21000, "srv": 44444, "dport": 443, "dports": 0, "every": 4,
+                   "lo": 10000, "hi": 59999, "drawn": 9}},
+     ["443", "21000", "44444"], []),
     ({"transport": "raw", "raw_profile": "bare", "sport_live": 8443}, [], ["8443"]),
 ]
 
@@ -63,8 +74,10 @@ def main():
     P = load_panel()
     js = P.INDEX_HTML
     consts = re.search(r"var PORT_RUNG_TRANSPORTS=\[.+?\];", js).group(0)
-    src = "\n".join([consts] + [grab(js, n) for n in ("portRows", "portTriesOn", "num", "esc")])
-    src += "\nvar RAW_SPORT_FIX=51820, RAW_DPORT_DEF=443;\nfunction T(k){return k}\n"
+    src = "\n".join([consts] + [grab(js, n) for n in ("portRows", "rotSrcRows",
+                                                      "portTriesOn", "num", "esc")])
+    src += ("\nvar RAW_SPORT_FIX=51820, RAW_DPORT_DEF=443, RAW_ROT_LO=10000, RAW_ROT_HI=59999;\n"
+            "function T(k){return k}\n")
     src += "var CASES=%s;\n" % json.dumps([c[0] for c in CASES])
     src += "console.log(JSON.stringify(CASES.map(function(l){return portRows(l)})));\n"
 
