@@ -4,9 +4,12 @@
 
 The bug this closes lived in the BROWSER, not in _core_extra: _collectCoreBody only set
 body.raw_sport_rotate when the typed number parsed to 1..64. Typing the documented off value, or
-switching the profile away from udp, omitted the key entirely -- and _core_extra then inherited the
-stored value from `cur`. So rotation could be switched on and never off, and moving a rotating tunnel
-to esp/ah/tcp was refused with an error naming a form row that is hidden for those profiles.
+switching the profile to one without ports, omitted the key entirely -- and _core_extra then inherited
+the stored value from `cur`. So rotation could be switched on and never off, and moving a rotating
+tunnel to esp/ah was refused with an error naming a form row that is hidden for those profiles.
+
+tcp forges a port pair exactly as udp does, so rotation is offered on both and survives a move between
+them. Only the profiles that build no L4 header drop it.
 
 A backend test cannot see that: hand _core_extra a body containing raw_sport_rotate:0 and it has always
 done the right thing. The defect is only visible in what the form EMITS, so this drives the real
@@ -113,8 +116,9 @@ OUT.push(['toggle turned off', body(S)]);
 S = fresh('udp', 5); el('ee_rawsprot').value='3';
 OUT.push(['number changed to 3', body(S)]);
 
-// 3. an existing rotating tunnel, operator switches the profile away from udp
-['esp','ah','l2tpv3','icmp','bare','tcp','gre','ipip','etherip','ipcomp'].forEach(function(p){
+// 3. an existing rotating tunnel, operator switches the profile. tcp forges ports too, so rotation
+// survives the move; the profiles that build no L4 header have nowhere to put a port and drop it.
+['esp','ah','l2tpv3','icmp','bare','gre','ipip','etherip','ipcomp','tcp'].forEach(function(p){
   var s = fresh('udp', 5); s.RawProfile = p; sprotVis('ee_', s);
   OUT.push(['profile -> '+p, body(s)]);
 });
@@ -169,8 +173,9 @@ EXPECT = {
     "dports 9 while rotating": dict(blocked=True),
     "dports 9 then toggled off": dict(rot=0, dp=0, blocked=False),
 }
-for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "tcp", "gre", "ipip", "etherip", "ipcomp"):
+for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "gre", "ipip", "etherip", "ipcomp"):
     EXPECT["profile -> " + _p] = dict(rot=0, blocked=False, locked=False)
+EXPECT["profile -> tcp"] = dict(rot=5, blocked=False, locked=True)
 
 
 def main():
