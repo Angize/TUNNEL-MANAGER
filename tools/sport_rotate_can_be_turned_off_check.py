@@ -2,6 +2,11 @@
 # -*- coding: utf-8 -*-
 """raw_sport_rotate must be write-ONCE-able and turn-off-able, from the form the operator actually uses.
 
+It also rides WITH fec now. The two were refused together on the claim that "the FEC send path does
+not cycle the source port per packet"; the FEC emit path has called wire() -- which cycles -- since
+2026-07-08, two months before the refusal was written, and a netns run shows eight distinct source
+ports on the wire with both on. See CORE #480.
+
 The bug this closes: the browser only put raw_sport_rotate in the request body when the typed value
 parsed to 1..64, so typing the documented "off" value omitted the key, and _core_extra inherited the
 stored one from `cur`. Rotation could be switched on and never off, and switching the profile to
@@ -108,9 +113,10 @@ def main():
     if not err:
         fails.append("raw_sport_rotate was accepted on the esp profile when the body asked for it")
 
-    _, err = core_extra(P, form_body("udp", True, fec=True), {})
-    if not err:
-        fails.append("fec + raw_sport_rotate was accepted; core refuses that config at startup")
+    ce, err = core_extra(P, form_body("udp", True, fec=True), {})
+    if err or not (ce.get("fec") and ce.get("raw_sport_rotate")):
+        fails.append("fec + raw_sport_rotate was refused: %r / %s"
+                     % (ce and {k: ce.get(k) for k in ("fec", "raw_sport_rotate")}, err))
     ce, err = core_extra(P, form_body("udp", False, fec=True), {})
     if err or not ce.get("fec"):
         fails.append("fec alone stopped working: %r / %s" % (ce and ce.get("fec"), err))
@@ -132,7 +138,7 @@ def main():
         for f in fails:
             print("FAIL: %s" % f)
         return 1
-    print("OK: the rotation toggle can be turned off, moved off udp, and never rides with fec")
+    print("OK: the rotation toggle can be turned off, moved off a portless profile, and rides with fec")
     return 0
 
 
