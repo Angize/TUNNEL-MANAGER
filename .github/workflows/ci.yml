@@ -480,6 +480,9 @@ jobs:
       - name: The rotation toggle must reach the request body on every gesture, including the ones that turn it OFF
         working-directory: TUNNEL-MANAGER
         run: python tools/sport_rotate_toggle_check.py
+      - name: The colour menu must outlive the long press that opens it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_tag_menu_outlives_the_hold_check.py
       - name: The card must show the source port on every carrier that redraws it, not only on raw
         working-directory: TUNNEL-MANAGER
         run: python tools/the_card_shows_the_live_source_port_check.py

@@ -9147,7 +9147,7 @@ function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic(
  return '<div class="ltraf">'+rates+'<span class="tot">'+esc(T('total'))+' '+tot+'</span></div>'}
 var CARD_TAGS=[{a:'#9DE02E',b:'#39D74C'},{a:'#21D6DF',b:'#36ABFA'},{a:'#37E9C7',b:'#45C9EF'},
  {a:'#FDB61E',b:'#F77F43'},{a:'#F68C38',b:'#F75968'},{a:'#E46DC9',b:'#A673FC'}];
-var TAG_HOLD_MS=450,_tagT=null,_tagCard=null,_tagX=0,_tagY=0;
+var TAG_HOLD_MS=450,TAG_ARM_MS=300,TAG_STUCK_MS=10000,_tagT=null,_tagCard=null,_tagX=0,_tagY=0;
 function tagCardAt(t){if(!t||!t.closest)return null;
  var h=t.closest('.chead');if(!h)return null;
  var c=h.closest('.card.acc[data-rid]');
@@ -9179,8 +9179,19 @@ function openTagPicker(card){
   +CARD_TAGS.map(function(t,i){return '<button type="button" class="tagdot'+(cur==i+1?' on':'')
     +'" data-t="'+(i+1)+'" style="background:linear-gradient(140deg,'+t.a+','+t.b+')"></button>'}).join('')
   +'</div><button type="button" class="tagnone" data-t="0">'+esc(T('tag_clear'))+'</button></div>';
- var close=function(){ov.remove()};
+ var live=false,armed=false,armT=null;
+ var arm=function(){if(armed)return;armed=true;armT=setTimeout(function(){live=true},TAG_ARM_MS)};
+ var give=setTimeout(arm,TAG_STUCK_MS);
+ document.addEventListener('touchend',arm,true);
+ document.addEventListener('touchcancel',arm,true);
+ document.addEventListener('mouseup',arm,true);
+ var close=function(){clearTimeout(give);clearTimeout(armT);
+  document.removeEventListener('touchend',arm,true);
+  document.removeEventListener('touchcancel',arm,true);
+  document.removeEventListener('mouseup',arm,true);
+  ov.remove()};
  ov.addEventListener('click',function(e){
+  if(!live)return;
   var b=e.target.closest('[data-t]');
   if(!b){if(e.target===ov)close();return}
   close();setCardTag(id,parseInt(b.getAttribute('data-t'),10))});
