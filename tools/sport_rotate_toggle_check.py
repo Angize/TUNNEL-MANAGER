@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
 
 GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "sprotErr", "sprotWarnUpd",
-        "sprotToggle", "sprotVis", "portTriesOn", "portTriesVis", "portTriesN", "portTriesErr",
+        "sprotToggle", "sprotVis", "ctbOn", "ctbVis", "portTriesOn", "portTriesVis", "portTriesN", "portTriesErr",
         "portTriesWarnUpd", "fecDatagram", "wkCarrier",
         "wkClamp", "desyncOk", "desyncInjects", "portErr", "sportErr", "rawProtoErr",
         "sportPaint", "sportPresetPaint", "cdnShapeOn", "esc", "ceSetSport", "ceSetSportPort")
