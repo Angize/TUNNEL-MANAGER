@@ -483,6 +483,9 @@ jobs:
       - name: The colour menu must outlive the long press that opens it
         working-directory: TUNNEL-MANAGER
         run: python tools/the_tag_menu_outlives_the_hold_check.py
+      - name: The conntrack bypass is the operator's switch, and the card asks for it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_conntrack_bypass_is_opt_in_check.py
       - name: The card must show the source port on every carrier that redraws it, not only on raw
         working-directory: TUNNEL-MANAGER
         run: python tools/the_card_shows_the_live_source_port_check.py

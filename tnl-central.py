@@ -1624,7 +1624,7 @@ _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 _WORKERS_KEYS = ("a_workers", "b_workers")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
+                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports", "conntrack_bypass", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
                     "http_up_workers", "http_up_batch_kb", "http_streams",
@@ -1730,6 +1730,8 @@ def _tunnel_extra(src, refetch_ech=True):
         e["raw_sport_rotate"] = src["raw_sport_rotate"]
     if src.get("raw_dports"):
         e["raw_dports"] = src["raw_dports"]
+    if src.get("conntrack_bypass"):
+        e["conntrack_bypass"] = True
     if src.get("dns_zone"):
         e["dns_zone"] = src["dns_zone"]
         if src.get("dns_resolvers"):
@@ -3922,6 +3924,12 @@ def api_fleet(d):
                "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), "tag": int(L.get("tag") or 0),
                **tfl.get(L["id"], {})}
         if L.get("type") == "core":
+            _ct = [x for x in ((la.get("ct") or {}), (lb.get("ct") or {}))
+                   if x.get("max")]
+            if _ct:
+                _w = max(_ct, key=lambda x: x["count"] / float(x["max"]))
+                rec["ct"] = {"count": int(_w["count"]), "max": int(_w["max"]),
+                             "pct": int(round(100.0 * _w["count"] / _w["max"]))}
             _cl = lb if (L.get("server_side") != "b") else la
             _sp = (_cl.get("sports") or {}).get(L["name"])
             if _sp:
@@ -4653,6 +4661,11 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                 raise ValueError("«چند پورتِ مقصد» بدونِ «چرخشِ پورتِ مبدأ» بی‌اثر است — با مبدأِ ثابت هر پکت باز هم در همان سطلِ میدل‌باکس می‌افتد. اول چرخش را روشن کن")
         elif _rrot and "raw_sport_rotate" in d:
             raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
+        _ctb = bool(d["conntrack_bypass"]) if "conntrack_bypass" in d else bool(cur.get("conntrack_bypass"))
+        if _ctb:
+            if profile not in ("udp", "tcp"):
+                raise ValueError(f"«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp معنا دارد؛ «{profile}» به‌ازای هر پکت جریانِ تازه نمی‌سازد")
+            ce["conntrack_bypass"] = True
     if transport == "dns":
         ce.update(_dns_fields(d, transport, cipher, cur))
     if transport == "ws":
@@ -8294,7 +8307,7 @@ search:"جستجو…",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نود {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -9507,7 +9520,7 @@ document.addEventListener('lostpointercapture',function(e){
 document.addEventListener('touchmove',function(e){if(RORD&&e.cancelable)e.preventDefault()},{passive:false});
 function coreMeta(l){   
  var sub='<div>'+esc(T('subnet'))+': '+cpv(l.subnet)+'</div>';
- var prt=portRows(l);
+ var prt=portRows(l)+ctbWarn(l);
  var ifc='<div>'+esc(T('iface'))+': <b class="mono">'+esc(l.name)+'</b></div>';
  var typ='<div class="tagrow">'+esc(T('ttype'))+': <span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l))+'</span></div>';
  var _pf=carrierProfile(l);
@@ -9577,6 +9590,16 @@ function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),
  if(cli)rows+='<div>'+esc(T('port_src_rot_up'))+': <b class="mono">'+esc(cli)+'</b></div>';
  if(srv)rows+='<div>'+esc(T('port_src_rot_down'))+': <b class="mono">'+esc(srv)+'</b></div>';
  return rows+'<div class="wrap muted">'+band+'</div>'}
+var CT_WARN_PCT=80;
+function ctbWarn(l){
+ if(l.transport!='raw'||l.conntrack_bypass)return '';
+ if(l.raw_profile!='udp'&&l.raw_profile!='tcp')return '';
+ if(!num(l.raw_sport_rotate)&&!l.raw_sport_random)return '';
+ var c=l.ct||{},pct=num(c.pct);
+ if(!pct||pct<CT_WARN_PCT)return '';
+ return '<div class="warncap no" style="margin-top:10px">'+ic('warn')+'<span>'
+   +esc(T('ctb_warn').replace('{p}',String(pct)).replace('{c}',String(num(c.count))).replace('{m}',String(num(c.max))))
+   +'</span></div>'}
 function portRows(l){var t=l.transport||'udp';
  var live=num(l.sport_live);
  if(t=='raw'){
@@ -9820,7 +9843,16 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
          +'<input id="'+idp+'rawdports" class="mono" inputmode="numeric" maxlength="1" placeholder="1" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
      +'</div>'
      +'<div class="warncap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div></div>'
+ +'<div id="'+idp+'ctbrow" style="display:none">'
+   +'<div class="tglbox"><div class="tglsw" id="'+idp+'ctbsw" onclick="'+fnp+'ToggleCtb()"></div>'
+     +'<div class="tt"><b>'+esc(T('ctb_t'))+'</b><small>'+esc(T('ctb_d'))+'</small></div></div></div>'
  +'</div>'}
+function ctbOn(S){return S.Tr=='raw'&&(S.RawProfile=='udp'||S.RawProfile=='tcp')}
+function ctbVis(idp,S){var w=el(idp+'ctbrow'),on=ctbOn(S);
+ if(!on)S.Ctb=false;
+ if(w)w.style.display=on?'':'none';
+ var sw=el(idp+'ctbsw');if(sw)sw.classList.toggle('on',on&&!!S.Ctb)}
+function ctbToggle(idp,S){if(!ctbOn(S))return;S.Ctb=!S.Ctb;ctbVis(idp,S)}
 var PORT_MAX=65535;
 function rng(lbl,lo,hi){return lbl+' (بازه '+lo+' تا '+hi+')'}
 var PORT_RUNG_TRANSPORTS=['udp','tcp','ws'];
@@ -9852,7 +9884,7 @@ function sprotVis(idp,S){var w=el(idp+'sprotrow');var on=sprotOn(S);
 function sprotToggle(idp,S){if(!sprotOn(S))return;S.Sprot=!S.Sprot;
  if(S.Sprot){var e=el(idp+'rawsprot');if(e&&!sprotN(idp))e.value=String(SPROT_DEF);
   S.SportRandom=false;sportPaint(idp,false)}
- sprotVis(idp,S);portTriesVis(idp,S)}
+ sprotVis(idp,S);ctbVis(idp,S);portTriesVis(idp,S)}
 function dportsN(idp){var e=el(idp+'rawdports');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function sprotErr(idp,S){if(!sprotLive(S))return '';var n=sprotN(idp);
  if(!(n>=1&&n<=RAW_SPROT_MAX))return T('raw_sprot_bad');
@@ -10000,10 +10032,12 @@ function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value
 function corPortVis(){var w=el('e_portrow');if(!w)return;
  var on=(_corS.Tr=='raw'&&(_corS.RawProfile=='udp'||_corS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('e_rawport');if(i&&!i.value)i.value='443';corPortWarn();sportPaint('e_',_corS.SportRandom)}
- sprotVis('e_',_corS)}
+ sprotVis('e_',_corS);ctbVis('e_',_corS)}
 function corSprotWarn(){sprotWarnUpd('e_',_corS)}
 function ceSprotWarn(){sprotWarnUpd('ee_',_eeS)}
 function corToggleSprot(){sprotToggle('e_',_corS);corFecGate()}
+function corToggleCtb(){ctbToggle('e_',_corS)}
+function ceToggleCtb(){ctbToggle('ee_',_eeS)}
 function ceToggleSprot(){sprotToggle('ee_',_eeS);ceFecGate()}
 function corSetWorkers(sd,n){_corS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('e_',sd,n)}
 function corWorkersVis(){workersVis('e_',_corS,nodeName(ssVal('e_a')),nodeName(ssVal('e_b')))}
@@ -10121,6 +10155,7 @@ function _collectCoreBody(S,px,m,body){
   var _sre=sprotErr(px,S);if(_sre){formErr(m,_sre);return true}
   body.raw_sport_rotate=sprotLive(S)?sprotN(px):0;
   body.raw_dports=sprotLive(S)?dportsN(px):0;
+  body.conntrack_bypass=ctbOn(S)&&!!S.Ctb;
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
    if(body.raw_sport_rotate){body.raw_sport_random=false;body.raw_sport=0}
@@ -10191,7 +10226,7 @@ function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value
 function cePortVis(){var w=el('ee_portrow');if(!w)return;
  var on=(_eeS.Tr=='raw'&&(_eeS.RawProfile=='udp'||_eeS.RawProfile=='tcp'));w.style.display=on?'':'none';
  if(on){var i=el('ee_rawport');if(i&&!i.value)i.value='443';cePortWarn();sportPaint('ee_',_eeS.SportRandom)}
- sprotVis('ee_',_eeS)}
+ sprotVis('ee_',_eeS);ctbVis('ee_',_eeS)}
 function ceSetWorkers(sd,n){_eeS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('ee_',sd,n)}
 function ceWorkersVis(){workersVis('ee_',_eeS,_eeS.NamesArr[0]||nodeName(_eeS.NodesArr[0]),_eeS.NamesArr[1]||nodeName(_eeS.NodesArr[1]))}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
@@ -10202,7 +10237,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var ok=_eeS.Tr=='tcp'&&ssVal('ee_cipher')!='none',row=el('ee_coverrow'),s=el('ee_cover');if(!ok){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS);ceCoverGate()}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
