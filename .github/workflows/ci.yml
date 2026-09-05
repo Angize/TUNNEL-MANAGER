@@ -363,3 +363,153 @@ jobs:
       - name: the range picker opens where the tunnel is, and counts the whole registry
         working-directory: TUNNEL-MANAGER
         run: python tools/subnet_range_picker_check.py
+      - name: A live ECH push that never reached the node must not be logged green, and must be recovered
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_failed_ech_push_is_not_reported_as_success_check.py
+      - name: a subnet a node already holds on ANOTHER card is refused, on all three build paths
+        working-directory: TUNNEL-MANAGER
+        run: python tools/addr_in_use_check.py
+      - name: Every change the operator did NOT make must reach the log, exactly once, and only when it is true
+        working-directory: TUNNEL-MANAGER
+        run: python tools/autonomous_changes_reach_the_log_check.py
+      - name: every call to a panel helper matches the signature it is calling
+        working-directory: TUNNEL-MANAGER
+        run: python tools/call_shapes_check.py
+      - name: the connection check must not report success on a probe it just watched fail
+        working-directory: TUNNEL-MANAGER
+        run: python tools/conn_verdict_check.py
+      - name: the uploaded core binary can be thrown away, and throwing it away really removes the choice
+        working-directory: TUNNEL-MANAGER
+        run: python tools/core_blob_delete_check.py
+      - name: every CSS custom property the panel USES is actually DEFINED
+        working-directory: TUNNEL-MANAGER
+        run: python tools/css_vars_defined_check.py
+      - name: The panel serves the range the NODE asks for — proved against the node's own fetch code
+        working-directory: TUNNEL-MANAGER
+        run: python tools/dl_range_end_to_end_check.py
+      - name: A tunnel that loses its ECH record must come back to ECH by itself when the record returns
+        working-directory: TUNNEL-MANAGER
+        run: python tools/ech_comes_back_when_the_record_does_check.py
+      - name: The ECH auto-heal must key on a signal the core CLEARS when the tunnel goes down
+        working-directory: TUNNEL-MANAGER
+        run: python tools/ech_heal_reads_a_live_signal_check.py
+      - name: Guard for G2, the lane that writes the core's in-band ECH self-heal back into the stored config
+        working-directory: TUNNEL-MANAGER
+        run: python tools/ech_heal_survives_a_core_restart_check.py
+      - name: a form error takes the middle of the screen and stays until it is dismissed
+        working-directory: TUNNEL-MANAGER
+        run: python tools/errors_pop_check.py
+      - name: Every path that builds a node body must apply every per-body core helper — all four of them
+        working-directory: TUNNEL-MANAGER
+        run: python tools/every_build_path_carries_workers_check.py
+      - name: every guard in tools/ is wired into CI, or this step says which are not
+        working-directory: TUNNEL-MANAGER
+        run: python tools/every_guard_runs_in_ci_check.py
+      - name: the core form's IP-row containers must carry the ids renderRotIps BUILDS
+        working-directory: TUNNEL-MANAGER
+        run: python tools/ip_row_ids_check.py
+      - name: Every function the browser calls, and every CSS class its markup uses, must actually exist
+        working-directory: TUNNEL-MANAGER
+        run: python tools/js_names_exist_check.py
+      - name: the system log's fold covers endpoint rows and never swallows a plain sentence
+        working-directory: TUNNEL-MANAGER
+        run: python tools/log_fold_check.py
+      - name: a rotation card names the src -> dst PAIR, even on a panel that just started
+        working-directory: TUNNEL-MANAGER
+        run: python tools/log_rot_pair_check.py
+      - name: Every way out to a node must resolve through node_proxy — no exceptions, no third path
+        working-directory: TUNNEL-MANAGER
+        run: python tools/node_egress_uses_proxy_check.py
+      - name: The node's OWN traffic figure is on its list row, and the operator can zero it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/node_traffic_row_check.py
+      - name: The browser may only read node fields that _node_view actually sends
+        working-directory: TUNNEL-MANAGER
+        run: python tools/node_view_keys_check.py
+      - name: One pool SNI losing its ECH record must be degraded and reported, not left with a stale key
+        working-directory: TUNNEL-MANAGER
+        run: python tools/one_dead_sni_does_not_poison_the_pool_check.py
+      - name: The panel must not hide the outcome of a long operation from the operator
+        working-directory: TUNNEL-MANAGER
+        run: python tools/operator_sees_outcome_check.py
+      - name: the subnet-overlap refusal says each range once, and still names the other one when it differs
+        working-directory: TUNNEL-MANAGER
+        run: python tools/overlap_message_check.py
+      - name: An IP a rotation pool cycles through is IN USE, and must never read «آزاد»
+        working-directory: TUNNEL-MANAGER
+        run: python tools/pool_ip_is_not_free_check.py
+      - name: The port-roll line must name what the recovery COST, not just that it happened
+        working-directory: TUNNEL-MANAGER
+        run: python tools/port_roll_line_names_the_cost_check.py
+      - name: the tun-probe threshold reaches the node body, on every build path and every tunnel TYPE
+        working-directory: TUNNEL-MANAGER
+        run: python tools/probe_threshold_reaches_node_check.py
+      - name: The proxy registry endpoints, driven for real against temp files
+        working-directory: TUNNEL-MANAGER
+        run: python tools/proxy_registry_check.py
+      - name: Guard #41 — the fleet upload's parallelism and its three controls
+        working-directory: TUNNEL-MANAGER
+        run: python tools/push_controls_check.py
+      - name: The agent/core upload runs several nodes at once -- but a BOUNDED number -- and no node can end the sweep
+        working-directory: TUNNEL-MANAGER
+        run: python tools/push_is_parallel_check.py
+      - name: the raw form's conditional rows, and the IP row's column order, in BOTH forms
+        working-directory: TUNNEL-MANAGER
+        run: python tools/raw_rows_gate_check.py
+      - name: a list refresh that lands mid-drag must not replace the cards under the finger
+        working-directory: TUNNEL-MANAGER
+        run: python tools/refresh_does_not_yank_the_dragged_card_check.py
+      - name: a reorder swap must never move the card the finger is holding
+        working-directory: TUNNEL-MANAGER
+        run: python tools/reorder_never_moves_the_dragged_card_check.py
+      - name: a request that never answers must not wedge the panel
+        working-directory: TUNNEL-MANAGER
+        run: python tools/reorder_survives_a_dead_request_check.py
+      - name: The three build paths must produce the SAME rotation fields, and none of them may name a knob
+        working-directory: TUNNEL-MANAGER
+        run: python tools/rotation_paths_agree_check.py
+      - name: One switch governs the WHOLE self-heal chain, and manual mode still tells the operator what to do
+        working-directory: TUNNEL-MANAGER
+        run: python tools/self_heal_mode_check.py
+      - name: the one Save button on the settings card posts BOTH halves of that card
+        working-directory: TUNNEL-MANAGER
+        run: python tools/settings_save_carries_both_halves_check.py
+      - name: raw_sport_rotate must be write-ONCE-able and turn-off-able, from the form the operator actually uses
+        working-directory: TUNNEL-MANAGER
+        run: python tools/sport_rotate_can_be_turned_off_check.py
+      - name: The rotation toggle must reach the request body on every gesture, including the ones that turn it OFF
+        working-directory: TUNNEL-MANAGER
+        run: python tools/sport_rotate_toggle_check.py
+      - name: The card must show the source port on every carrier that redraws it, not only on raw
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_card_shows_the_live_source_port_check.py
+      - name: The download-proxy card must paint every time the page is built, not only the first time
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_download_proxy_card_survives_a_revisit_check.py
+      - name: When the operator sets an ECH DoH proxy, the direct resolvers must not run at all
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_ech_proxy_replaces_the_direct_path_check.py
+      - name: port_tries has to reach every carrier that owns a source-port rung, not just the raw one
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_port_draw_reaches_every_carrier_check.py
+      - name: the Settings tuning FORM and _TUNING_DEFAULTS describe the same knob set
+        working-directory: TUNNEL-MANAGER
+        run: python tools/tuning_form_covers_defaults_check.py
+      - name: the pool-retest knobs are MINUTES in the form and SECONDS everywhere else
+        working-directory: TUNNEL-MANAGER
+        run: python tools/tuning_minutes_check.py
+      - name: a tunnel's identity comes from its id, and every build path says the same thing
+        working-directory: TUNNEL-MANAGER
+        run: python tools/tunnel_identity_check.py
+      - name: no function in the panel may reference a name that does not exist
+        working-directory: TUNNEL-MANAGER
+        run: python tools/undefined_names_check.py
+      - name: A node already running the staged core must be skipped, and that judgement may not depend on
+        working-directory: TUNNEL-MANAGER
+        run: python tools/up_to_date_nodes_are_skipped_check.py
+      - name: The name on the wire must stay opaque, and the two repos must agree on it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/wire_names_check.py
+      - name: the `workers` knob — the number of TUN queues one tunnel's receive path gets
+        working-directory: TUNNEL-MANAGER
+        run: python tools/workers_gate_check.py

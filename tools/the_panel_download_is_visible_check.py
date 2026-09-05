@@ -175,9 +175,16 @@ def main():
     steps = [k[1] for k in seen]
     stage_pcts = [k[2] for k in seen if k[1] == "stage"]
 
-    check("the row is never told it is queued", "wait" not in [k[0] for k in seen], repr(seen[:4]))
+    running = [k for k in seen if k[0] == "run"]
+    run_steps = [k[1] for k in running]
+
+    check("the job reaches a running state at all", bool(running), repr(seen[:4]))
     check("the step is named for the download, not for a check that is not happening",
-          "stage" in steps and steps[0] in ("check", "stage"), repr(steps))
+          "stage" in run_steps and run_steps[:1] and run_steps[0] in ("check", "stage"),
+          repr(seen[:6]))
+    check("and the row is not told it is queued once the work is under way",
+          bool(running) and "wait" not in [k[0] for k in seen[seen.index(running[0]):]],
+          repr(seen[:6]))
     check("  and the bar really moves while the bytes arrive",
           len(set(stage_pcts)) >= 5, "%d distinct percentages: %r" % (len(set(stage_pcts)), stage_pcts))
     check("  climbing, never going backwards", stage_pcts == sorted(stage_pcts), repr(stage_pcts))
