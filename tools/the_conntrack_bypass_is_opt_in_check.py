@@ -142,8 +142,8 @@ def main():
         if not hasattr(N, "_ct_bypass_rules"):
             check(False, "the node checkout implements the bypass at all — without it the panel "
                          "offers a switch nothing acts on")
-            print("
-%d failure(s)." % len(fails))
+            print()
+            print("%d failure(s)." % len(fails))
             return 1
         cfg = {"name": "core18", "type": "core", "role": "client", "transport": "raw",
                "raw_profile": "tcp", "remote_ip": "91.107.248.161"}
