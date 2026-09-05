@@ -38,9 +38,9 @@ def install():
     m.api_edge_status = lambda d: {"ok": True, "pool": False, "active": "raw:bare · 78.47.72.179",
                                    "health": [], "events": list(RING), "now": 0, "ts": 0}
     m.api_peer_status = lambda d: {"ok": True, "pool": True, "now": 0,
-                                   "dst": {"active": "78.47.72.179", "addrs": [], "health": [], "pin": "", "ts": 0},
+                                   "dst": {"active": "78.47.72.179", "addrs": [], "health": [], "ts": 0},
                                    "src": {"active": SRC_ACTIVE[0] if SRC_ACTIVE else "",
-                                           "addrs": [], "health": [], "pin": "", "ts": 0}}
+                                           "addrs": [], "health": [], "ts": 0}}
     m._cache_get = lambda n: None
     m._node_online = lambda n: True
     m._link_down_reason = lambda L, nmap: ""

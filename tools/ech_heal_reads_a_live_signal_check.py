@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """The ECH auto-heal must key on a signal the core CLEARS when the tunnel goes down.
 
-`active` is a display label. The core writes it on a successful connect (and on a rotation or a pin)
+`active` is a display label. The core writes it on a successful connect (and on a rotation or a manual jump)
 and never clears it on a disconnect -- the disconnect block drops curConn / liveSNI / livePair / cur
 and leaves `active` alone. So `down = not active` was False for the life of the core process once the
 pool had connected once, and the whole ws-pool ECH auto-heal could never fire: a Cloudflare key

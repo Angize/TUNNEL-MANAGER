@@ -5047,15 +5047,14 @@ def _peer_sec_norm(sec):
         health.append({"key": key, "state": str(h.get("state") or "healthy"),
                        "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0)})
     active = str(sec.get("active") or "")
-    pin = str(sec.get("pin") or "")
     return {"active": active if _peer_addr_ok(active) else "",
             "addrs": [x for x in (str(v) for v in (sec.get("addrs") or [])) if _peer_addr_ok(x)][:64],
-            "health": health, "pin": pin if _peer_addr_ok(pin) else "", "ts": int(sec.get("ts") or 0)}
+            "health": health, "ts": int(sec.get("ts") or 0)}
 
 
 def api_peer_status(d):
     d = d or {}
-    empty = {"active": "", "addrs": [], "health": [], "pin": "", "ts": 0}
+    empty = {"active": "", "addrs": [], "health": [], "ts": 0}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core" or not L.get("ip_rotate"):
@@ -5888,9 +5887,6 @@ _EV_DOWN_CODE = {
 _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
               "ip": "آی‌پیِ لبه", "sni": "دامنه (SNI)"}
 
-_PIN_AXIS = {"dst": "آی‌پیِ مقصدِ", "src": "آی‌پیِ مبدأِ",
-             "ip": "لبهٔ", "sni": "دامنهٔ"}
-
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
 }
@@ -5967,13 +5963,6 @@ def _ev_core_text(kind, code, detail, nm):
         if code == "degraded":
             return ("warn", "edge", f"تونلِ «{nm}»: توقفِ چرخش — فقط یک لبه در دسترس مانده",
                     "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
-        if code == "pin_dropped":
-            what = _PIN_AXIS.get(axis, "لبهٔ")
-            if rest == "cannot-land":
-                return ("warn", "edge", f"تونلِ «{nm}»: آزادشدنِ پینِ {what} — اصلاً وصل نشد",
-                        "چیزی که پین کردی در دسترس نبود؛ برای جلوگیری از قطعی، چرخش به انتخابِ سالم برگشت")
-            return ("warn", "edge", f"تونلِ «{nm}»: آزادشدنِ پینِ {what} — مسدود بود",
-                    "پروبِ نود دید هیچ ترافیکی از آن مسیر رد نمی‌شود؛ برای جلوگیری از قطعی، چرخش برگشت")
         return ("ok", "edge", f"تونلِ «{nm}»: ازسرگیریِ چرخش",
                 "لبهٔ دیگری دوباره در دسترسِ چرخش است")
     if kind == "ech":
@@ -8226,9 +8215,9 @@ search:"جستجو…",
  le_port_4789:"پورتِ UDP — خالی = 4789",le_port_auto:"پورتِ UDP — خالی = یک پورتِ تصادفی از باند",
  ph_dead:"سوختهٔ دائمی",ph_suspect:"سوختهٔ موقت",ph_active:"سالم · لبهٔ فعال",ph_active_retry:"لبهٔ فعال · در حالِ آزمایشِ دوباره",ph_healthy:"سالم",
  pb_healthy:"سالم",pb_temp:"موقت",pb_dead:"دائمی",pool_empty:"خالی — یک مورد اضافه کن",
- peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_pinned:"روی این آی‌پی پین شد",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
- peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ پین، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
- pa_testnow:"صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_pinning:"در حالِ فعال‌سازی…",
+ peer_live_hd:"وضعیت زندهٔ استخر",peer_st_active:"فعال",peer_st_active_retry:"فعال · در حالِ آزمایشِ دوباره",peer_st_rot:"در چرخش",peer_moved:"چرخش از این آی‌پی ادامه پیدا می‌کند",peer_rotating:"این نود بین چند آی‌پی می‌چرخد — آی‌پیِ نشان‌داده‌شده، آی‌پیِ فعالِ فعلی است",
+ peer_live_empty:"وضعیتِ زندهٔ آی‌پی‌ها و دکمهٔ جابه‌جایی، وقتی تونل روی نودِ به‌روز در حال اجراست این‌جا نمایش داده می‌شود. اگر تازه به‌روزرسانی کرده‌اید: نود را آپدیت کنید و بعد «ذخیره و بازسازی» را بزنید تا با هستهٔ جدید ساخته شود.",
+ pa_testnow:"صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود",pa_active_ip:"آی‌پیِ فعلی",pa_activate:"این را فعال کن",pa_selecting:"در حالِ فعال‌سازی…",
  pool_stale:"وضعیتِ لبه‌ها تازه نشد — نود جواب نداد؛ رنگ‌های زیر مالِ آخرین باری است که جواب داد",pool_make_first:"اول تونل را بساز",peer_probe_pulled:"صبرِ همین یکی صفر شد — در اولین چرخشِ بعدی امتحان می‌شود و پروبِ tun قضاوتش می‌کند",pool_edge_active:"این لبه فعال شد",
 }});
 (function(x){for(var k in x.fa)I18N.fa[k]=x.fa[k]})({fa:{
@@ -9615,8 +9604,8 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
     var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+poolCd(d,h.next)+poolBar(d,h)+'</span>':'';
     var acts='';
     if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolRetestNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
-    if(d.lid){var pend=d.pinPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
-      if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
+    if(d.lid){var pend=d.selPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
+      if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_selecting'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
       else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';}
     acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
     return '<div class="erow '+rowc+((h&&h.state=='dead')?' dead':'')+'">'
@@ -9650,7 +9639,7 @@ function poolApplyStatus(pfx,st){var d=poolGet(pfx);var pr=st.pair||{};
   if(pr.high_kind)d.act[pr.high_kind]=String(pr.high||'');
   d.live={};(st.health||[]).forEach(function(h){if(h&&h.key)d.live[(h.kind=='sni'?'sni':'ip')+':'+h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
   d.srvNow=+st.now||Math.floor(Date.now()/1000);d.polledMs=Date.now();
-  if(d.pinPending){var pk=d.pinPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.pinPending=null;}
+  if(d.selPending){var pk=d.selPending;if(d.act[pk.kind]===pk.key||(Date.now()-pk.ts>12000))d.selPending=null;}
   poolRenderKind(pfx,'ip');poolRenderKind(pfx,'sni');}  
 async function poolTick(){if(!_eeS.PoolLid)return;if(!poolGet('ee_').pool)return;var r=await post('edge-status',{id:_eeS.PoolLid});
  if(r.ok&&r.d&&r.d.ok&&r.d.pool){poolStale(false);poolApplyStatus('ee_',r.d);return}
@@ -9665,12 +9654,12 @@ async function poolRetestNow(lid,kind,key){if(!lid){toast(T('pool_make_first'),'
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(poolTick,ms)})}else{toast(perr(r),'err')}}
 async function poolSelect(lid,kind,key){if(!lid){toast(T('pool_make_first'),'err');return}
   var d=poolGet('ee_');
-  if(d.pinPending)return;                                   
-  d.pinPending={kind:kind,key:key,ts:Date.now()};           
+  if(d.selPending)return;                                   
+  d.selPending={kind:kind,key:key,ts:Date.now()};           
   poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');
   var r=await post('pool-select',{id:lid,kind:kind,key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('pool_edge_active'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(poolTick,ms)})}
-  else{d.pinPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(perr(r),'err')}}
+  else{d.selPending=null;poolRenderKind('ee_','ip');poolRenderKind('ee_','sni');toast(perr(r),'err')}}
 function edgeChipsOf(ip,dom){
  if(!ip&&!dom)return '<span class="echip wait">…</span>';
  var h=ip?'<span class="echip ip">'+esc(ip)+'</span>':'';
@@ -9685,15 +9674,15 @@ async function refreshCardEdges(){var els=document.querySelectorAll('[id^="carde
  setTimeout(function(){if(document.hidden){edgesLoop();return}refreshCardEdges().then(edgesLoop,edgesLoop)},d)})();
 function rotMark(){return '<span class="rotmark" title="'+esc(T('peer_rotating'))+'">'+ic('redo')+'</span>'}
 var _peerLid='';
-var _peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
+var _peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
 async function peerTick(){if(!_peerLid||!el('ee_peerlive'))return;var r=await post('peer-status',{id:_peerLid});if(r.ok&&r.d&&r.d.ok&&r.d.pool)peerApply(r.d);}
 (function peerLoop(){setTimeout(function(){Promise.resolve(peerTick()).then(peerLoop,peerLoop)},UIV)})();   
 function peerApply(st){
   _peerData.now=+st.now||Math.floor(Date.now()/1000);_peerData.polledMs=Date.now();
   ['dst','src'].forEach(function(side){var sec=st[side]||{};var live={};
     (sec.health||[]).forEach(function(h){if(h&&h.key)live[h.key]={state:String(h.state||'healthy'),next:+h.next_retest_unix||0,fails:+h.fails||0}});
-    _peerData[side]={active:String(sec.active||''),addrs:(sec.addrs||[]).map(String),pin:String(sec.pin||''),live:live};});
-  if(_peerData.pinPending){var pk=_peerData.pinPending,sec=_peerData[pk.side]||{};if(sec.active===pk.key||(Date.now()-pk.ts>12000))_peerData.pinPending=null;}
+    _peerData[side]={active:String(sec.active||''),addrs:(sec.addrs||[]).map(String),live:live};});
+  if(_peerData.selPending){var pk=_peerData.selPending,sec=_peerData[pk.side]||{};if(sec.active===pk.key||(Date.now()-pk.ts>12000))_peerData.selPending=null;}
   peerRender();}
 function peerRemain(next){return _cdRemain(_peerData.now,_peerData.polledMs,next);}
 function peerCd(next){var r=peerRemain(next);if(r<0)return '';return '<span class="pcd" data-next="'+next+'">'+poolCdTxt(r)+'</span>';}
@@ -9706,9 +9695,9 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   else{rowc='ok';sc='ok';sic='okc';stt=T('peer_st_rot');}
   var burned=(h&&(h.state=='suspect'||h.state=='dead'));
   var cd=burned?'<div class="ecd">'+peerCd(h.next)+peerBar(h)+'</div>':'';
-  var pend=_peerData.pinPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
+  var pend=_peerData.selPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
   if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerRetestNow(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('redo')+'</button>';
-  if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_pinning'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
+  if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_selecting'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
   else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
   return '<div class="erow pcol '+rowc+((h&&h.state=='dead')?' dead':'')+'"><div class="etop"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span><span class="eacts">'+acts+'</span></div>'+cd+'</div>';}
 var PEER_ACC_MIN=3;
@@ -9736,11 +9725,11 @@ function peerRender(){var host=el('ee_peerlive');if(!host)return;
 function peerCdTick(){if(!_peerLid)return;_cdTick(el('ee_peerlive'),_peerData.now,_peerData.polledMs)}
 setInterval(peerCdTick,1000);
 async function peerSelect(btn){var side=btn.getAttribute('data-side'),key=btn.getAttribute('data-ip');
-  if(!_peerLid||_peerData.pinPending||!key)return;
-  _peerData.pinPending={side:side,key:key,ts:Date.now()};peerRender();
+  if(!_peerLid||_peerData.selPending||!key)return;
+  _peerData.selPending={side:side,key:key,ts:Date.now()};peerRender();
   var r=await post('peer-select',{id:_peerLid,side:side,key:key});
-  if(r.ok&&r.d&&r.d.ok){toast(T('peer_pinned'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
-  else{_peerData.pinPending=null;peerRender();toast(perr(r),'err')}}
+  if(r.ok&&r.d&&r.d.ok){toast(T('peer_moved'),'ok');[1200,3000,5500,8000,11000].forEach(function(ms){setTimeout(peerTick,ms)})}
+  else{_peerData.selPending=null;peerRender();toast(perr(r),'err')}}
 async function peerRetestNow(side,key){if(!_peerLid)return;
   var r=await post('peer-retest-now',{id:_peerLid,kind:(side=='src'?'src':'dst'),key:key});
   if(r.ok&&r.d&&r.d.ok){toast(T('peer_probe_pulled'),'ok');[1200,3000,5500,8000].forEach(function(ms){setTimeout(peerTick,ms)})}
@@ -10163,7 +10152,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var ok=_eeS.Tr=='tcp'&&ssVal('ee_cipher')!='none',row=el('ee_coverrow'),s=el('ee_cover');if(!ok){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS);ceCoverGate()}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,pinPending:null,open:{}};   
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||10;_eeS.FecParity=l.fec_parity||3;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
