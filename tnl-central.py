@@ -4671,8 +4671,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))
-    if ce.get("fec") and ce.get("raw_sport_rotate"):
-        raise ValueError("«چرخشِ پورتِ مبدأ» با FEC جمع نمی‌شود — مسیرِ ارسالِ FEC پورت را عکس می‌گیرد و هر بسته را با همان پورتِ لحظهٔ ساختِ بلوک می‌فرستد؛ هسته این ترکیب را بالا نمی‌آورد. یکی را خاموش کن")
     ce.update(_workers_field(d, transport, bool(ce.get("fec")), cur))
     ce.update(_desync_fields(d, transport, cur, ce.get("cdn_carrier", "ws") != "ws"))
     if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
@@ -9702,7 +9700,7 @@ function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 
 
 function fecDatagram(S){return S.Tr=='udp'||S.Tr=='raw'}
-function corFecDatagram(){return fecDatagram(_corS)&&!sprotLive(_corS)}
+function corFecDatagram(){return fecDatagram(_corS)}
 function corToggleFec(){if(!corFecDatagram())return;_corS.Fec=!_corS.Fec;var s=el('e_fecsw');if(s)s.classList.toggle('on',_corS.Fec);var r=el('e_fecrates');if(r)r.style.display=_corS.Fec?'':'none';corWorkersVis()}   
 function corSetFecRate(d,p){_corS.FecData=d;_corS.FecParity=p;var g=el('e_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function corFecGate(){var dg=corFecDatagram(),row=el('e_fecrow');if(!dg){_corS.Fec=false;var s=el('e_fecsw');if(s)s.classList.remove('on');var r=el('e_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
@@ -10166,7 +10164,7 @@ function _collectCoreBody(S,px,m,body){
  var _pte=portTriesErr(px,S);if(_pte){formErr(m,_pte);return true}
  if(portTriesOn(S)){body.port_tries=portTriesN(px)}
  if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
- if(fecDatagram(S)){body.fec=S.Fec&&!sprotLive(S);if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
+ if(fecDatagram(S)){body.fec=!!S.Fec;if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
   if(body.fake_mode=='both'&&body.fake_count<2){formErr(m,T('ds_both_needs2'));return true}}}
@@ -10205,7 +10203,7 @@ function ceEchPxGate(){var vis=(_eeS.Tr=='ws'&&_eeS.Ech),row=el('ee_echpxrow');i
 
 
 
-function ceFecDatagram(){return fecDatagram(_eeS)&&!sprotLive(_eeS)}
+function ceFecDatagram(){return fecDatagram(_eeS)}
 function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none';ceWorkersVis()}   
 function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}

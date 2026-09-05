@@ -152,6 +152,8 @@ S = fresh('udp', 5); el('ee_rawdports').value='9'; sprotToggle('ee_', S);
 OUT.push(['dports 9 then toggled off', body(S)]);
 
 // 8. FEC and rotation must never leave the form together
+// fec and the rotation ride together now: the pair was refused on a claim about the FEC send path
+// that the code never matched, and both reach the body.
 S = fresh('udp', 0); sprotToggle('ee_', S); S.Fec = true;
 OUT.push(['fec ticked while rotating', body(S)]);
 
@@ -167,7 +169,7 @@ EXPECT = {
     "locked setter ran": dict(rot=4, rnd=False, sport=0, locked=True),
     "N=99 while on": dict(blocked=True),
     "N=99 while off": dict(rot=0, blocked=False),
-    "fec ticked while rotating": dict(rot=4, fec=False),
+    "fec ticked while rotating": dict(rot=4, fec=True),
     "dports 4 while rotating": dict(rot=4, dp=4, blocked=False),
     "dports 4 then toggled off": dict(rot=0, dp=0, blocked=False),
     "dports 9 while rotating": dict(blocked=True),
