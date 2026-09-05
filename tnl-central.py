@@ -5996,11 +5996,16 @@ def _ev_core_text(kind, code, detail, nm):
             return ("ok", "heal", f"تونلِ «{nm}»: بازگشتِ {what}",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
     if kind == "pool":
+        what = _HEAL_AXIS.get(axis, "آی‌پی")
+        left = key if sep and axis in _HEAL_AXIS else ""
         if code == "degraded":
-            return ("warn", "edge", f"تونلِ «{nm}»: توقفِ چرخش — فقط یک لبه در دسترس مانده",
-                    "بقیهٔ لبه‌ها سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک لبه می‌ماند")
-        return ("ok", "edge", f"تونلِ «{nm}»: ازسرگیریِ چرخش",
-                "لبهٔ دیگری دوباره در دسترسِ چرخش است")
+            return ("warn", "edge",
+                    f"تونلِ «{nm}»: توقفِ چرخشِ {what} — فقط یکی در دسترس مانده",
+                    (f"در دسترس: {left}\n" if left else "")
+                    + "بقیه سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک می‌ماند")
+        return ("ok", "edge", f"تونلِ «{nm}»: ازسرگیریِ چرخشِ {what}",
+                (f"در دسترس: {left}\n" if left else "")
+                + "دوباره بیش از یک مورد در دسترسِ چرخش است")
     if kind == "ech":
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")

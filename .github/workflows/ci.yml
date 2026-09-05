@@ -516,3 +516,6 @@ jobs:
       - name: the panel does not tell the operator something that is not so
         working-directory: TUNNEL-MANAGER
         run: python tools/the_panel_says_what_is_true_check.py
+      - name: a stopped rotation says WHICH rotation stopped
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_stopped_rotation_names_its_axis_check.py
