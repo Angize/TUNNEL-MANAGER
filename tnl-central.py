@@ -4634,7 +4634,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             _rrot = int((d["raw_sport_rotate"] if "raw_sport_rotate" in d else cur.get("raw_sport_rotate")) or 0)
         except (TypeError, ValueError):
             _rrot = 0
-        if profile == "udp":
+        if profile in ("udp", "tcp"):
             if _rrot:
                 if not 1 <= _rrot <= RAW_SPROT_MAX:
                     raise ValueError(f"«چرخشِ پورتِ مبدأ» باید بینِ 1 تا {RAW_SPROT_MAX} باشد (هر چند پکت یک پورتِ تازه؛ زیرِ سقفِ per-tuple میدل‌باکس)")
@@ -4652,7 +4652,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             elif int((d.get("raw_dports") or 0)) and "raw_dports" in d:
                 raise ValueError("«چند پورتِ مقصد» بدونِ «چرخشِ پورتِ مبدأ» بی‌اثر است — با مبدأِ ثابت هر پکت باز هم در همان سطلِ میدل‌باکس می‌افتد. اول چرخش را روشن کن")
         elif _rrot and "raw_sport_rotate" in d:
-            raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp است؛ «{profile}» یا پورت ندارد یا حالتِ جریانش با تعویضِ وسطِ راه می‌شکند")
+            raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
     if transport == "dns":
         ce.update(_dns_fields(d, transport, cipher, cur))
     if transport == "ws":

@@ -45,7 +45,7 @@ def form_body(profile, rotate_on, n=5, fec=False, sport_random=False, port=20401
     raw carrier, 0 when the toggle is off, and the fixed/random source is cleared while it is on."""
     body = {"transport": "raw", "raw_profile": profile, "psk": "x" * 24,
             "cipher": "chacha20-poly1305", "tunnel_ip": "192.168.77.1/24"}
-    body["raw_sport_rotate"] = n if (profile == "udp" and rotate_on) else 0
+    body["raw_sport_rotate"] = n if (profile in ("udp", "tcp") and rotate_on) else 0
     if profile in ("udp", "tcp"):
         body["raw_port"] = port
         if body["raw_sport_rotate"]:
@@ -75,7 +75,7 @@ def main():
     if err or ce.get("raw_sport_rotate") != 3:
         fails.append("changing the packet count to 3 gave %r / %s" % (ce and ce.get("raw_sport_rotate"), err))
 
-    for profile in ("esp", "ah", "l2tpv3", "icmp", "bare", "tcp", "gre", "ipip", "etherip", "ipcomp"):
+    for profile in ("esp", "ah", "l2tpv3", "icmp", "bare", "gre", "ipip", "etherip", "ipcomp"):
         body = form_body(profile, False)
         body.pop("raw_port", None) if profile not in ("udp", "tcp") else None
         ce, err = core_extra(P, body, stored)
@@ -83,6 +83,22 @@ def main():
             fails.append("a rotating tunnel could not be moved to profile %s: %s" % (profile, err))
         elif ce.get("raw_sport_rotate"):
             fails.append("profile %s kept raw_sport_rotate=%r" % (profile, ce["raw_sport_rotate"]))
+
+    # tcp forges a port pair, so the BACKEND must accept the rotation there, not only the browser.
+    # The operator hit this on a live raw:tcp tunnel: the toggle was offered, the body carried
+    # raw_sport_rotate, and _core_extra refused it with a message naming the udp profile.
+    for n in (1, 4, P.RAW_SPROT_MAX):
+        ce, err = core_extra(P, form_body("tcp", True, n=n), {})
+        if err or ce.get("raw_sport_rotate") != n:
+            fails.append("raw:tcp with raw_sport_rotate=%d was refused by the panel backend: %r / %s"
+                         % (n, ce and ce.get("raw_sport_rotate"), err))
+    ce, err = core_extra(P, dict(form_body("tcp", True, n=4), raw_dports=4), {})
+    if err or ce.get("raw_dports") != 4:
+        fails.append("raw_dports on a rotating raw:tcp was refused: %r / %s"
+                     % (ce and ce.get("raw_dports"), err))
+    _, err = core_extra(P, form_body("tcp", True, n=P.RAW_SPROT_MAX + 1), {})
+    if not err:
+        fails.append("raw:tcp accepted raw_sport_rotate above the range")
 
     # a body that explicitly asks for rotation on a profile that cannot do it is still a real mistake
     body = form_body("udp", True)
