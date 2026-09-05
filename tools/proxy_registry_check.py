@@ -22,6 +22,7 @@ import json
 import os
 import sys
 import tempfile
+import urllib.parse
 import threading
 import time
 from pathlib import Path
@@ -83,16 +84,28 @@ def main():
                        ("an unknown scheme", dict(A, name="x1", scheme="ftp")),
                        ("a port out of range", dict(A, name="x2", port="70000")),
                        ("a non-numeric port", dict(A, name="x3", port="abc")),
-                       ("an empty host", dict(A, name="x4", host="")),
-                       ("a user containing @", dict(A, name="x5", user="a@b")),
-                       ("a password containing a colon", dict(A, name="x6", **{"pass": "a:b"})),
-                       ("a password containing a space", dict(A, name="x7", **{"pass": "a b"}))):
+                       ("an empty host", dict(A, name="x4", host=""))):
         try:
             P.api_proxy_add(bad)
-            failures.append("%s was accepted — it would compose into a URL that dials somewhere else"
-                            % label)
+            failures.append("%s was accepted" % label)
         except ValueError:
             print("  ok   %-52s refused" % label)
+
+    # The registry used to REFUSE a credential containing @ : / or a space, because proxy_url pasted
+    # them into the string raw and any of them moved where the URL pointed. Refusing them was a guess
+    # about which characters are dangerous, and it was wrong twice over: it banned passwords people
+    # really have, and it missed # and ? -- which do the same damage, and which is how an operator
+    # ended up with a proxy that reported "bad proxy address" for a password that was simply theirs.
+    # proxy_url percent-encodes the userinfo now, so the question is no longer WHICH characters are
+    # allowed. It is whether the URL still points where it was configured, whatever was typed.
+    for i, pw in enumerate(("plain", "pa#ss", "pa?ss", "p@s:s/x", "a b", "100%pure", "کلمهٔ عبور")):
+        row = P.api_proxy_add(dict(A, name="cred%d" % i, user="u@ser", **{"pass": pw}))["proxy"]
+        pu = urllib.parse.urlparse(P.proxy_url(P.get_proxy(row["id"])))
+        chk("a password %-12r still dials the configured endpoint" % pw,
+            (pu.hostname, pu.port), (A["host"], int(A["port"])))
+        chk("  and both credentials come back out of it intact",
+            (urllib.parse.unquote(pu.username or ""), urllib.parse.unquote(pu.password or "")),
+            ("u@ser", pw))
 
     for n in nodes:
         if n.get("proxy_id") == "PX_A":

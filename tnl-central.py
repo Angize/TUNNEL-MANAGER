@@ -696,7 +696,7 @@ def wire(endpoint):
     try:
         return NODE_WIRE[endpoint]
     except KeyError:
-        raise ValueError("unknown node endpoint %r" % endpoint)
+        raise ValueError("مسیرِ ناشناخته روی نود: %r" % endpoint)
 
 
 def _proxy_socket(proxy, dh, dp, timeout):
@@ -704,10 +704,12 @@ def _proxy_socket(proxy, dh, dp, timeout):
     scheme = (pu.scheme or "socks5").lower()
     if not pu.hostname or not pu.port:
         raise OSError("bad proxy address")
+    uq = lambda v: urllib.parse.unquote(v) if v else v
+    user, pw = uq(pu.username), uq(pu.password)
     if scheme.startswith("socks"):
-        return _socks5_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
+        return _socks5_socket(pu.hostname, pu.port, user, pw, dh, dp, timeout)
     if scheme in ("http", "https", "connect"):
-        return _http_connect_socket(pu.hostname, pu.port, pu.username, pu.password, dh, dp, timeout)
+        return _http_connect_socket(pu.hostname, pu.port, user, pw, dh, dp, timeout)
     raise OSError(f"bad proxy scheme '{scheme}'")
 
 
@@ -732,7 +734,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
         try:
             out = json.loads(raw.decode())
         except Exception:
-            return {"ok": False, "error": f"HTTP {r.status}"}
+            return {"ok": False, "error": f"پاسخِ HTTP {r.status} از نود"}
         if _retry and _stale_ctr(node, out):
             return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
         return out
@@ -837,14 +839,14 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             out = json.loads(r.read().decode())
-            return out if isinstance(out, dict) else {"ok": False, "error": "non-dict node response"}
+            return out if isinstance(out, dict) else {"ok": False, "error": "پاسخِ نود قابلِ خواندن نبود"}
     except urllib.error.HTTPError as e:
         try:
             out = json.loads(e.read().decode())
         except Exception:
-            return {"ok": False, "error": f"HTTP {e.code}"}
+            return {"ok": False, "error": f"پاسخِ HTTP {e.code} از نود"}
         if not isinstance(out, dict):
-            return {"ok": False, "error": f"HTTP {e.code}"}
+            return {"ok": False, "error": f"پاسخِ HTTP {e.code} از نود"}
         if _retry and _stale_ctr(node, out):
             return node_call(node, endpoint, method, body, timeout, _retry=False)
         return out
@@ -916,7 +918,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             st = head_blob.split(b" ")
             return {"ok": False, "error": "HTTP %s از نود" % (st[1].decode() if len(st) > 1 else "?")}
         if not isinstance(out, dict):
-            return {"ok": False, "error": "non-dict node response"}
+            return {"ok": False, "error": "پاسخِ نود قابلِ خواندن نبود"}
         if _retry and _stale_ctr(node, out):
             return node_push(node, endpoint, body, on_progress, timeout, chunk, should_abort,
                              _retry=False)
@@ -1282,6 +1284,13 @@ def _cached_ping(nid):
     return (_cache_get(nid) or {}).get("ping") or {}
 
 
+def _known_offline(n):
+    p = _cached_ping(n["id"])
+    if "ok" in p:
+        return not p["ok"]
+    return not bool(node_call(n, "ping", "GET").get("ok"))
+
+
 def _cached_list(nid):
     return (_cache_get(nid) or {}).get("list") or {}
 
@@ -1589,14 +1598,25 @@ def free_tunnel_port(A, B, exclude_id=None):
     return rand_port(used)
 
 
-def norm_subnet(ttype, tid, provided, base=None):
-    sub = provided or subnet_default(ttype, tid, base)
-    want6 = (ttype == "sit")
+def _subnet_fits(ttype, sub):
     try:
-        ok = ipaddress.ip_network(sub, strict=False).version == (6 if want6 else 4)
+        return ipaddress.ip_network(sub, strict=False).version == (6 if ttype == "sit" else 4)
     except Exception:
-        ok = False
-    return sub if ok else subnet_default(ttype, tid, base)
+        return False
+
+
+def carry_subnet(ttype, tid, stored, base=None):
+    return stored if stored and _subnet_fits(ttype, stored) else subnet_default(ttype, tid, base)
+
+
+def norm_subnet(ttype, tid, provided, base=None):
+    want6 = (ttype == "sit")
+    if not provided:
+        return subnet_default(ttype, tid, base)
+    if _subnet_fits(ttype, provided):
+        return provided
+    raise ValueError("سابنتِ «%s» خوانده نمی‌شود — این تونل به یک شبکهٔ %s نیاز دارد، مثلاً %s"
+                     % (provided, "IPv6" if want6 else "IPv4", subnet_default(ttype, tid, base)))
 
 
 _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
@@ -1794,7 +1814,7 @@ def _core_role(L, node_id):
 def _require(d, keys):
     for k in keys:
         if k not in d or d[k] in (None, ""):
-            raise ValueError(f"missing field: {k}")
+            raise ValueError(f"فیلدِ «{k}» فرستاده نشد")
 
 
 def valid_proxy_ref(d):
@@ -2114,18 +2134,18 @@ def api_node_add(d):
     _require(d, ["name", "host", "port", "token"])
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
-        raise ValueError("bad node name")
+        raise ValueError("نامِ نود نامعتبر است")
     host = str(d["host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
-        raise ValueError("bad host")
+        raise ValueError("آی‌پی یا هاستِ نود نامعتبر است")
     port = int(d["port"])
     if not 1 <= port <= 65535:
-        raise ValueError("bad port")
+        raise ValueError("پورت نامعتبر است")
     token = str(d["token"]).strip()
     if not token:
-        raise ValueError("token required")
+        raise ValueError("توکن لازم است")
     if len(token) < 16:
-        raise ValueError("token too short — use at least 16 characters")
+        raise ValueError("توکن کوتاه است — حداقل ۱۶ کاراکتر بگذار")
     pon, pid = valid_proxy_ref(d)
     node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
             "proxy_on": pon, "proxy_id": pid}
@@ -2172,6 +2192,20 @@ def _install_step(jid, key, state, detail=None, log=None):
                 if log is not None:
                     s["log"] = _scrub(log)
                 break
+
+
+def _install_running(jid):
+    with _install_lock:
+        j = _install_jobs.get(jid)
+        if not j:
+            return _INSTALL_STEPS[0][0]
+        for s in j["steps"]:
+            if s["state"] == "run":
+                return s["key"]
+        for s in reversed(j["steps"]):
+            if s["state"] != "wait":
+                return s["key"]
+    return _INSTALL_STEPS[0][0]
 
 
 def _install_finish(jid, ok, banner):
@@ -2415,7 +2449,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
                       "نود وصل شد و آنلاین است" if online else "ثبت شد ولی هنوز پاسخ نمی‌دهد (پورتِ ایجنت را به سرورِ مرکزی باز کن)")
         _install_finish(jid, True, f"«{name}» نصب و وصل شد" if online else f"«{name}» ثبت شد؛ در انتظارِ آنلاین‌شدن")
     except Exception as e:
-        fail("install", "خطای غیرمنتظره", str(e))
+        fail(_install_running(jid), "خطای غیرمنتظره", str(e))
     finally:
         kf = cfg.get("keyfile")
         if kf:
@@ -2430,10 +2464,10 @@ def api_node_install(d):
     _require(d, ["name", "ssh_host"])
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
-        raise ValueError("bad node name")
+        raise ValueError("نامِ نود نامعتبر است")
     host = str(d["ssh_host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
-        raise ValueError("bad host")
+        raise ValueError("آی‌پی یا هاستِ نود نامعتبر است")
     _exist = load_nodes()
     if _name_taken(_exist, name):
         raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
@@ -2441,13 +2475,13 @@ def api_node_install(d):
         raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
     ssh_port = int(d.get("ssh_port") or 22)
     if not 1 <= ssh_port <= 65535:
-        raise ValueError("bad ssh port")
+        raise ValueError("پورتِ SSH نامعتبر است")
     user = str(d.get("ssh_user") or "root").strip()
     if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", user):
-        raise ValueError("bad ssh user")
+        raise ValueError("کاربرِ SSH نامعتبر است")
     agent_port = int(d.get("agent_port") or 8099)
     if not 1 <= agent_port <= 65535:
-        raise ValueError("bad agent port")
+        raise ValueError("پورتِ ایجنت نامعتبر است")
     pon, pid = valid_proxy_ref(d)
     password = str(d.get("ssh_pass") or "")
     key = str(d.get("ssh_key") or "").strip()
@@ -2477,7 +2511,7 @@ def api_node_install_status(d):
     _require(d, ["job"])
     j = _install_get(d["job"])
     if not j:
-        raise ValueError("job not found")
+        raise ValueError("این کار دیگر در جریان نیست")
     return {**j, "ok": True, "success": bool(j.get("ok"))}
 
 
@@ -2485,20 +2519,20 @@ def api_node_edit(d):
     _require(d, ["id", "name", "host", "port"])
     name = str(d["name"]).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
-        raise ValueError("bad node name")
+        raise ValueError("نامِ نود نامعتبر است")
     host = str(d["host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
-        raise ValueError("bad host")
+        raise ValueError("آی‌پی یا هاستِ نود نامعتبر است")
     port = int(d["port"])
     if not 1 <= port <= 65535:
-        raise ValueError("bad port")
+        raise ValueError("پورت نامعتبر است")
     token = str(d.get("token") or "").strip()
     pon, pid = valid_proxy_ref(d)
     with _reg_lock:
         nodes = load_nodes()
         n = next((x for x in nodes if x["id"] == d["id"]), None)
         if not n:
-            raise ValueError("node not found")
+            raise ValueError("نود پیدا نشد")
         if _name_taken(nodes, name, exclude_id=d["id"]):
             raise ValueError(f"نودِ دیگری با نامِ «{name}» وجود دارد — نام باید یکتا باشد")
         if _host_taken(nodes, host, exclude_id=d["id"]):
@@ -2528,7 +2562,7 @@ def api_node_toggle(d):
         nodes = load_nodes()
         n = next((x for x in nodes if x["id"] == d["id"]), None)
         if not n:
-            raise ValueError("node not found")
+            raise ValueError("نود پیدا نشد")
         if want:
             n["disabled"] = True
         else:
@@ -2544,7 +2578,7 @@ def api_node_del(d):
     n = get_node(nid)
     if not n:
         raise ValueError("نود پیدا نشد")
-    if force and _cached_ping(nid).get("ok") is False:
+    if force and _known_offline(n):
         node_ok = False
     else:
         r = node_call(n, "wipe", "POST", {}, timeout=NODE_OP_TIMEOUT)
@@ -2590,7 +2624,7 @@ def api_node_test(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("not found")
+        raise ValueError("پیدا نشد")
     t0 = time.perf_counter()
     p = node_call(n, "ping", "GET")
     if p.get("ok"):
@@ -2633,10 +2667,10 @@ def api_node_kernel_tune(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("not found")
+        raise ValueError("پیدا نشد")
     action = str(d.get("action") or "status")
     if action not in ("apply", "revert", "status"):
-        raise ValueError("bad action")
+        raise ValueError("عملیاتِ نامعتبر")
     p = node_call(n, "kernel-tune", "POST", {"action": action}, timeout=15)
     if not p.get("ok"):
         return {"ok": False, "error": p.get("error", "unreachable")}
@@ -2648,7 +2682,7 @@ def api_node_stats(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("not found")
+        raise ValueError("پیدا نشد")
     p = node_call(n, "ping", "GET", timeout=8)
     if not p.get("ok"):
         return {"online": False, "error": p.get("error", "unreachable")}
@@ -2660,7 +2694,7 @@ def api_node_traffic(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("not found")
+        raise ValueError("پیدا نشد")
     online = bool(_cached_ping(n["id"]).get("ok"))
     ifs = _tf_read(n["id"])
     node = ifs.get("_node", {})
@@ -3053,7 +3087,7 @@ def _push_merged():
 
 def _push_set(jid, nid, **kw):
     if "state" in kw and kw["state"] not in PUSH_STATES:
-        raise ValueError("unknown push state: %r" % kw["state"])
+        raise ValueError("وضعیتِ ناشناختهٔ آپلود: %r" % kw["state"])
     with _push_lock:
         j = _push_jobs.get(jid)
         if j and nid in j["nodes"]:
@@ -3207,7 +3241,7 @@ def api_push_status(d):
     with _push_lock:
         j = _push_jobs.get(jid)
         if not j:
-            raise ValueError("job not found")
+            raise ValueError("این کار دیگر در جریان نیست")
         return {"ok": True, "job": jid, "kind": j["kind"], "done": j["done"],
                 "cancel": bool(j.get("cancel")), "paused": bool(j.get("paused")), "order": list(j["order"]),
                 "nodes": {k: dict(v) for k, v in j["nodes"].items()}}
@@ -3219,7 +3253,7 @@ def api_push_cancel(d):
         targets = _push_live() if jid == PUSH_ALL else [jid]
         js = [_push_jobs[k] for k in targets if k in _push_jobs]
         if not js:
-            raise ValueError("job not found")
+            raise ValueError("این کار دیگر در جریان نیست")
         live = [j for j in js if not j["done"]]
         if not live:
             return {"ok": True, "already_done": True}
@@ -3237,7 +3271,7 @@ def api_push_pause(d):
         targets = _push_live() if jid == PUSH_ALL else [jid]
         js = [_push_jobs[k] for k in targets if k in _push_jobs]
         if not js:
-            raise ValueError("job not found")
+            raise ValueError("این کار دیگر در جریان نیست")
         live = [j for j in js if not j["done"] and not j.get("cancel")]
         if not live:
             return {"ok": True, "done": True}
@@ -3249,7 +3283,7 @@ def api_push_pause(d):
 def _update_targets(d):
     _require(d, ["ids"])
     if not isinstance(d.get("ids"), list):
-        raise ValueError("ids must be a list")
+        raise ValueError("فهرستِ شناسه‌ها نامعتبر است")
     nodes = [n for n in (get_node(i) for i in dict.fromkeys(d["ids"])) if n]
     if not nodes:
         raise ValueError("نودی انتخاب نشده")
@@ -3931,7 +3965,7 @@ def api_link_view(d):
                 x["view_side"] = side
                 break
         if side is None:
-            raise ValueError("link not found")
+            raise ValueError("تونل پیدا نشد")
         save_json(LINKS_FILE, links)
     return {"ok": True, "view_side": side}
 
@@ -3941,17 +3975,17 @@ def api_traffic_reset(d):
     if d.get("id"):
         L = next((x for x in load_links() if x["id"] == d["id"]), None)
         if not L:
-            raise ValueError("link not found")
+            raise ValueError("تونل پیدا نشد")
         _tf_reset(L["a_node"], [L["name"]])
         _tf_reset(L["b_node"], [L["name"]])
         return {"ok": True}
     if d.get("node"):
         n = get_node(d["node"])
         if not n:
-            raise ValueError("node not found")
+            raise ValueError("نود پیدا نشد")
         _tf_reset(n["id"], ["pf:" + _pf_name(d["name"])] if d.get("name") else ["_node"])
         return {"ok": True}
-    raise ValueError("missing id or node")
+    raise ValueError("شناسهٔ تونل یا نود فرستاده نشد")
 
 
 def _link_nodes(d):
@@ -4683,12 +4717,12 @@ def _create_tunnel_impl(d, h=None):
     _require(d, ["a_node", "b_node", "type"])
     A, B = get_node(d["a_node"]), get_node(d["b_node"])
     if not A or not B:
-        raise ValueError("node not found")
+        raise ValueError("نود پیدا نشد")
     if A["id"] == B["id"]:
-        raise ValueError("pick two different nodes")
+        raise ValueError("دو سرِ تونل باید دو نودِ متفاوت باشند")
     ttype = d["type"]
     if ttype not in TYPES:
-        raise ValueError("bad type")
+        raise ValueError("نوعِ تونل نامعتبر است")
     if ttype == "core":
         _gate_ready(False)
     pa, pb = _ping_both(A, B)
@@ -4702,14 +4736,14 @@ def _create_tunnel_impl(d, h=None):
     a_ip = want_a or (a_ips[0] if a_ips else None)
     b_ip = want_b or (b_ips[0] if b_ips else None)
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
-        raise ValueError("could not determine node IPs")
+        raise ValueError("آی‌پیِ نودها خوانده نشد")
     if a_ip == b_ip:
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
     _guard_dup_pair(A, B, a_ip, b_ip, ttype)
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
-        raise ValueError("could not read existing tunnels from a node (busy/offline); aborted to avoid an id collision")
+        raise ValueError("فهرستِ تونل‌های یک نود خوانده نشد (مشغول یا قطع) — برای جلوگیری از تداخلِ شناسه متوقف شد")
     used = {int(x["tunnel_id"]) for x in load_links() if str(x.get("tunnel_id", "")).isdigit()}
     for L in (la, lb):
         for c in L.get("configs", []):
@@ -4717,7 +4751,8 @@ def _create_tunnel_impl(d, h=None):
                 used.add(int(c.get("id")))
             except Exception:
                 pass
-    _cap = TID_MAX if str(d.get("subnet") or "").strip() else subnet_cap(d.get("subnet_base"))
+    _cap = (TID_MAX if ttype == "sit" or str(d.get("subnet") or "").strip()
+            else subnet_cap(d.get("subnet_base")))
     explicit = int(d.get("id") or 0)
     if explicit and not TID_MIN <= explicit <= _cap:
         raise ValueError(f"شناسهٔ تونل خارج از محدوده است ({TID_MIN} تا {_cap})")
@@ -4815,7 +4850,7 @@ def _delete_link_impl(d, h=None):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     with _PairLock(L["a_node"], L["b_node"]):
         L = next((x for x in load_links() if x["id"] == d["id"]), None)
         if not L:
@@ -4833,7 +4868,7 @@ def _delete_link_impl(d, h=None):
             n = get_node(nid)
             if not n:
                 continue
-            if force and _cached_ping(nid).get("ok") is False:
+            if force and _known_offline(n):
                 if _pending_add(nid, L["name"]):
                     deferred.append(nm)
                 else:
@@ -4871,7 +4906,7 @@ def api_reorder(d):
     aid = str(d["id"])
     targets = d["targets"]
     if not isinstance(targets, list) or len(targets) > REORDER_MAX:
-        raise ValueError("targets must be a list of at most %d ids" % REORDER_MAX)
+        raise ValueError("فهرستِ ترتیب نامعتبر است (حداکثر %d مورد)" % REORDER_MAX)
     targets = [str(t) for t in targets if str(t) != aid]
     if not targets:
         return {"ok": True}
@@ -4882,12 +4917,12 @@ def api_reorder(d):
     elif kind in ("core", "tunnels"):
         path, loader = LINKS_FILE, load_links
     else:
-        raise ValueError("bad kind")
+        raise ValueError("نوعِ نامعتبر")
     with _reg_lock:
         items = loader()
         pos = {str(it.get("id")): i for i, it in enumerate(items)}
         if aid not in pos or any(t not in pos for t in targets):
-            raise ValueError("item not found")
+            raise ValueError("مورد پیدا نشد")
         for bid in targets:
             i, jx = pos[aid], pos[bid]
             items[i], items[jx] = items[jx], items[i]
@@ -4944,7 +4979,7 @@ def api_edge_status(d):
     is_pool = bool(L.get("ws_pool"))
     node = _client_node(L)
     if not node:
-        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": "client node not found"}
+        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": "نودِ کلاینتِ این تونل پیدا نشد"}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": r.get("error") or r.get("msg")}
@@ -5061,7 +5096,7 @@ def api_peer_status(d):
         return {"ok": True, "pool": False, "now": int(time.time()), "dst": dict(empty), "src": dict(empty)}
     node = _client_node(L)
     if not node:
-        return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": "client node not found"}
+        return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": "نودِ کلاینتِ این تونل پیدا نشد"}
     r = node_call(node, "peer-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
         return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": r.get("error") or r.get("msg")}
@@ -5093,13 +5128,13 @@ def _edit_link_impl(d, h=None):
     _require(d, ["id", "type"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     ttype = d["type"]
     if ttype not in TYPES:
-        raise ValueError("bad type")
+        raise ValueError("نوعِ تونل نامعتبر است")
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
-        raise ValueError("a node of this link is no longer registered")
+        raise ValueError("یکی از نودهای این تونل دیگر در پنل ثبت نیست")
     pa, pb = _ping_both(A, B)
     tid = int(L["tunnel_id"])
     a_ips = _flat_ips(pa)
@@ -5114,14 +5149,15 @@ def _edit_link_impl(d, h=None):
     b_ip = (want_b if want_b in b_ips else
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
-        raise ValueError("could not determine node IPs")
+        raise ValueError("آی‌پیِ نودها خوانده نشد")
     if a_ip == b_ip:
         raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
     _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
-    subnet = norm_subnet(ttype, tid, d.get("subnet") or L.get("subnet"))
+    subnet = (norm_subnet(ttype, tid, d["subnet"]) if str(d.get("subnet") or "").strip()
+              else carry_subnet(ttype, tid, L.get("subnet")))
     _guard_subnet_overlap(A, B, subnet, exclude_id=L["id"])
     old_name = L["name"]
     new_name = tunnel_name(ttype, tid)
@@ -5219,14 +5255,14 @@ def api_link_speed(d):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     if L.get("enabled") is False:
         raise ValueError("این تونل خاموش است — اول روشنش کن")
     srv_is_a = L.get("server_side") != "b"
     srv = get_node(L["a_node"] if srv_is_a else L["b_node"])
     cli = get_node(L["b_node"] if srv_is_a else L["a_node"])
     if not srv or not cli:
-        raise ValueError("node not found")
+        raise ValueError("نود پیدا نشد")
     secs, streams = SPEED_SECS, SPEED_STREAMS
     r = node_call(srv, "speedtest", "POST", {"name": L["name"], "mode": "serve", "secs": secs},
                   timeout=NODE_OP_TIMEOUT)
@@ -5247,7 +5283,7 @@ def api_check_link(d):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
 
     def chk(nid):
         n = get_node(nid)
@@ -5279,12 +5315,12 @@ def _restart_link_impl(d, h=None):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     if L["type"] != "core":
         raise ValueError("فقط تونلِ هسته پروسه‌ای دارد که ری‌استارت شود")
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
-        raise ValueError("a node of this link is no longer registered")
+        raise ValueError("یکی از نودهای این تونل دیگر در پنل ثبت نیست")
     ends, errs = [], []
     for i, (side, N) in enumerate((("a", A), ("b", B))):
         act_step(h, "ری‌استارتِ هسته روی نودِ «%s»" % N["name"], i, 2, stop=(i == 0), more=False)
@@ -5342,10 +5378,10 @@ def _rebuild_link_impl(d, h=None):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
-        raise ValueError("a node of this link is no longer registered")
+        raise ValueError("یکی از نودهای این تونل دیگر در پنل ثبت نیست")
     pa, pb = _ping_both(A, B)
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = _flat_ips(pa)
@@ -5356,7 +5392,7 @@ def _rebuild_link_impl(d, h=None):
     b_ip = (want_b if want_b in b_ips else
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
-        raise ValueError("could not determine node IPs")
+        raise ValueError("آی‌پیِ نودها خوانده نشد")
     if ttype in IPIP_FAMILY:
         new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
         for x in load_links():
@@ -5412,7 +5448,7 @@ def api_link_tag(d):
     _require(d, ["id"])
     tag = int(d.get("tag") or 0)
     if not 0 <= tag <= CARD_TAGS:
-        raise ValueError("bad tag")
+        raise ValueError("رنگِ نشانه‌گذاری نامعتبر است")
     with _reg_lock:
         items = load_links()
         L = next((x for x in items if x["id"] == d["id"]), None)
@@ -5423,7 +5459,7 @@ def api_link_tag(d):
         else:
             path = LINKS_FILE
         if L is None:
-            raise ValueError("item not found")
+            raise ValueError("مورد پیدا نشد")
         if tag:
             L["tag"] = tag
         else:
@@ -5437,13 +5473,13 @@ def api_link_toggle(d):
     enabled = bool(d.get("enabled"))
     a, b = _link_nodes(d)
     if not a or not b:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     with _PairLock(a, b):
         with _reg_lock:
             links = load_links()
             L = next((x for x in links if x["id"] == d["id"]), None)
             if not L:
-                raise ValueError("link not found")
+                raise ValueError("تونل پیدا نشد")
             L["enabled"] = enabled
             save_json(LINKS_FILE, links)
         sides = {}
@@ -6316,28 +6352,28 @@ def _pf_field(k, v):
     if k in ("listen_port", "dst_port"):
         p = _sint(v)
         if not 1 <= p <= 65535:
-            raise ValueError(f"bad {k} (1..65535)")
+            raise ValueError(f"«{k}» باید بینِ ۱ تا ۶۵۵۳۵ باشد")
         return p
     if k == "dst_ips":
         raw = v if isinstance(v, list) else re.split(r"[\s,]+", str(v))
         ips = [str(x).strip() for x in raw if str(x).strip()]
         if not ips or not all(is_ipv4(x) for x in ips):
-            raise ValueError("dst_ips must be a non-empty list of IPv4 addresses")
+            raise ValueError("فهرستِ آی‌پیِ مقصد باید حداقل یک آدرسِ IPv4 داشته باشد")
         return ips
     if k == "listen_ip":
         s = str(v).strip()
         if not is_ipv4(s):
-            raise ValueError("bad listen_ip")
+            raise ValueError("آی‌پیِ شنود نامعتبر است")
         return s
     if k == "iface":
         s = str(v).strip()
         if not re.match(r"^[A-Za-z0-9._-]{1,15}$", s):
-            raise ValueError("bad iface")
+            raise ValueError("نامِ کارتِ شبکه نامعتبر است")
         return s
     if k == "interval_min":
         m = _sint(v)
         if not 1 <= m <= 1440:
-            raise ValueError("bad interval_min (1..1440)")
+            raise ValueError("بازهٔ چرخش باید بینِ ۱ تا ۱۴۴۰ دقیقه باشد")
         return m
     return v
 
@@ -6361,7 +6397,7 @@ def api_portfw(d):
     _require(d, ["node", "listen_port", "dst_port", "dst_ips"])
     n = get_node(d["node"])
     if not n:
-        raise ValueError("node not found")
+        raise ValueError("نود پیدا نشد")
     body = {"listen_port": _pf_field("listen_port", d["listen_port"]),
             "dst_port": _pf_field("dst_port", d["dst_port"]),
             "dst_ips": _pf_field("dst_ips", d["dst_ips"]),
@@ -6409,7 +6445,7 @@ def _reorder_portfw(a, targets):
     with _reg_lock:
         cur = _pf_sorted(natural, lambda k: k)
         if a not in cur or any(b not in cur for b in targets):
-            raise ValueError("item not found")
+            raise ValueError("مورد پیدا نشد")
         for b in targets:
             ia, ib = cur.index(a), cur.index(b)
             cur[ia], cur[ib] = cur[ib], cur[ia]
@@ -6450,7 +6486,7 @@ def api_portfw_edit(d):
     _require(d, ["node", "name"])
     n = get_node(d["node"])
     if not n:
-        raise ValueError("node not found")
+        raise ValueError("نود پیدا نشد")
     body = {"name": _pf_name(d["name"])}
     for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
@@ -6464,7 +6500,7 @@ def api_portfw_next(d):
     _require(d, ["node", "name"])
     n = get_node(d["node"])
     if not n:
-        raise ValueError("node not found")
+        raise ValueError("نود پیدا نشد")
     return _pf_push(n, "portfw-next", {"name": _pf_name(d["name"])}, timeout=NODE_OP_TIMEOUT, ret="active")
 
 
@@ -6472,7 +6508,7 @@ def api_portfw_del(d):
     _require(d, ["node", "name"])
     n = get_node(d["node"])
     if not n:
-        raise ValueError("node not found")
+        raise ValueError("نود پیدا نشد")
     name = _pf_name(d["name"])
     r = node_call(n, "delete", "POST", {"name": name})
     if r.get("ok"):
@@ -6587,7 +6623,7 @@ def api_node_ips(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("not found")
+        raise ValueError("پیدا نشد")
     return {"online": bool(_cached_ping(n["id"]).get("ok")), "ips": _node_ip_tags(n["id"])}
 
 
@@ -6595,7 +6631,7 @@ def api_link_rebuild_info(d):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
 
     def side(node_key, ip_key, name_key):
         nid = L.get(node_key)
@@ -6629,7 +6665,8 @@ def _proxy_users(nodes=None):
 def proxy_url(p):
     auth = ""
     if p.get("user"):
-        auth = "%s:%s@" % (p["user"], p.get("pass") or "")
+        q = lambda v: urllib.parse.quote(str(v or ""), safe="")
+        auth = "%s:%s@" % (q(p["user"]), q(p.get("pass")))
     return "%s://%s%s:%d" % (p["scheme"], auth, p["host"], int(p["port"]))
 
 
@@ -6672,9 +6709,6 @@ def _proxy_fields(d):
     user = str(d.get("user") or "").strip()
     pw = d.get("pass")
     pw = None if pw is None else str(pw)
-    for v in (user, pw or ""):
-        if re.search(r"[@:/\s]", v):
-            raise ValueError("یوزر/پسوردِ پروکسی نباید شاملِ @ : / یا فاصله باشد")
     return scheme, host, port, user, pw
 
 
@@ -6783,12 +6817,12 @@ def _checkin_claimant(d):
 def api_checkin_impl(source_ip, d):
     n = _checkin_claimant(d or {})
     if not n:
-        return {"ok": False, "error": "unsigned or unknown node"}
+        return {"ok": False, "error": "درخواستِ نود امضا ندارد یا نود ناشناخته است"}
     tok = str(n.get("token", ""))
     with _reg_lock:
         n = next((x for x in load_nodes() if x["id"] == n["id"]), None)
         if not n:
-            return {"ok": False, "error": "unknown node"}
+            return {"ok": False, "error": "نودِ ناشناخته"}
         n_snap, host, port = dict(n), n.get("host"), int(n.get("port") or 0)
     want_host = source_ip if (source_ip and is_ipv4(source_ip)) else host
     try:
@@ -6819,7 +6853,7 @@ def api_checkin_impl(source_ip, d):
         nodes = load_nodes()
         n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
         if not n:
-            return {"ok": False, "error": "unknown node"}
+            return {"ok": False, "error": "نودِ ناشناخته"}
         n["host"], n["port"] = want_host, want_port
         host, port, nid = want_host, want_port, n["id"]
         save_json(NODES_FILE, nodes)
@@ -6892,7 +6926,7 @@ def act_link(d, fn):
     lid = (d or {}).get("id")
     L = next((x for x in load_links() if x["id"] == lid), None)
     if not L:
-        raise ValueError("link not found")
+        raise ValueError("تونل پیدا نشد")
     return act_start("link:" + str(lid), fn, target=L.get("name") or "")
 
 
@@ -7040,7 +7074,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/"):
             self._api(path[5:], "GET")
         else:
-            self._send(404, {"error": "not found"})
+            self._send(404, {"error": "پیدا نشد"})
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
@@ -7054,7 +7088,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/"):
             self._api(path[5:], "POST")
         else:
-            self._send(404, {"error": "not found"})
+            self._send(404, {"error": "پیدا نشد"})
 
     def _client_ip(self):
         peer = self.client_address[0]
@@ -7077,7 +7111,7 @@ class Handler(BaseHTTPRequestHandler):
     def _login(self):
         ip = self._client_ip()
         if rate_limited(ip):
-            self._send(429, {"error": "too many attempts, wait a few minutes"})
+            self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         d = self._body()
         conf = self._conf()
@@ -7090,29 +7124,29 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
             note_fail(ip)
-            self._send(401, {"error": "wrong username or password"})
+            self._send(401, {"error": "نام کاربری یا رمز اشتباه است"})
 
     def _dl(self):
         ip = self._client_ip()
         if rate_limited(ip):
-            self._send(429, {"error": "too many attempts, wait a few minutes"})
+            self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         q = {k: v[0] for k, v in
              urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "").items()}
         if not _dl_ticket_node(q):
             note_fail(ip)
-            self._send(401, {"error": "bad or expired ticket"})
+            self._send(401, {"error": "نشستِ شما منقضی شده — دوباره وارد شو"})
             return
         try:
             raw = _dl_artifact(q.get("k", ""), q.get("arch", ""))
         except Exception:
             raw = None
         if not raw:
-            self._send(404, {"error": "not staged"})
+            self._send(404, {"error": "چیزی روی پنل آماده نیست"})
             return
         start = _range_start(self.headers.get("Range", ""), len(raw))
         if start is None:
-            self._send(416, {"error": "bad range"}, extra={"Content-Range": "bytes */%d" % len(raw)})
+            self._send(416, {"error": "بازهٔ درخواستی نامعتبر است"}, extra={"Content-Range": "bytes */%d" % len(raw)})
             return
         if start:
             self._send(206, raw[start:], "application/octet-stream", big=True,
@@ -7125,7 +7159,7 @@ class Handler(BaseHTTPRequestHandler):
     def _checkin(self):
         ip = self._client_ip()
         if rate_limited(ip):
-            self._send(429, {"error": "too many attempts, wait a few minutes"})
+            self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         try:
             res = api_checkin_impl(self.client_address[0], self._body())
@@ -7133,7 +7167,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(e)})
             return
         except Exception as e:
-            self._send(500, {"error": f"internal error: {str(e)[:120]}"})
+            self._send(500, {"error": f"خطای داخلی: {str(e)[:120]}"})
             return
         if not res.get("ok"):
             note_fail(ip)
@@ -7141,17 +7175,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api(self, cmd, method):
         if not self._user():
-            self._send(401, {"error": "not logged in"})
+            self._send(401, {"error": "وارد نشده‌اید"})
             return
         if cmd not in API:
-            self._send(404, {"error": "unknown endpoint"})
+            self._send(404, {"error": "مسیرِ ناشناخته"})
             return
         if cmd in MUTATIONS:
             if method != "POST":
-                self._send(405, {"error": "use POST"})
+                self._send(405, {"error": "این درخواست باید POST باشد"})
                 return
             if self.headers.get("X-Requested-With") != "tnl-central":
-                self._send(403, {"error": "bad request"})
+                self._send(403, {"error": "درخواستِ نامعتبر"})
                 return
         d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
         try:
@@ -7159,7 +7193,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send(400, {"error": str(e)})
         except Exception as e:
-            self._send(500, {"error": f"internal error: {str(e)[:120]}"})
+            self._send(500, {"error": f"خطای داخلی: {str(e)[:120]}"})
 
 
 LOGIN_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
@@ -8039,7 +8073,7 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، حداکثر __LOGMAX__ تا — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه. قدیمی‌تر از آن (یا فراتر از این تعداد، روی فلیتِ شلوغ) خودکار پاک می‌شود (کارهای دستیِ شما اینجا نمی‌آید)",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، حداکثر __LOGMAX__ تا — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه، به‌علاوهٔ چند کارِ دستی که روی کلِ فلیت اثر دارند (لغوِ آپلود و افزودن/ویرایش/حذفِ پروکسی). قدیمی‌تر از آن (یا فراتر از این تعداد، روی فلیتِ شلوغ) خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
@@ -8156,6 +8190,7 @@ search:"جستجو…",
 
 
 
+ set_step_bad:"«{f}» باید مضربی از {s} باشد — {v} پذیرفته نیست",
  porttries_lbl:"چند بار پورتِ مبدأ عوض شود",porttries_bad:"عدد باید بینِ 1 تا 60 باشد", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
@@ -8262,7 +8297,7 @@ got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",r
  cover_sni_note1:"سرور برای هر اتصالِ ناشناس (پروب/فیلترچی) <b>واقعاً به این سایت وصل می‌شود</b> و ترافیک را به آن پراکسی می‌کند، پس پروب گواهیِ اصلیِ همان سایت را می‌بیند (مقاوم در برابرِ پروبِ فعال). پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد — ترجیحاً روی یک CDNِ بزرگ.",
  cover_sni_note2:"سرور پروب‌های ناشناس را <b>واقعاً به این سایت وصل و پراکسی می‌کند</b>، پس باید یک سایتِ <b>HTTPSِ واقعی، در دسترس، فیلترنشده و محبوب</b> باشد (ترجیحاً روی CDNِ بزرگ).",
  gso_t:"شتاب‌دهیِ GSO",gso_d:"سرعتِ ترافیکِ سنگین را بالا می‌برد. فقط روی لینوکس؛ اگر کرنل پشتیبانی نکند خودش خاموش می‌ماند.",
- set_gkd:"2) اتصال و تشخیصِ مرگ",set_gkdc:"همهٔ تونل‌ها",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
+ set_gkd:"2) اتصال و تشخیصِ مرگ",set_gkdc:"هسته + پروبِ همهٔ تونل‌ها",set_t_probemin:"حداقلِ بسته‌های برگشتی (٪)",set_t_probemin_d:"نودِ خودت هر چند ثانیه ۲۰ بستهٔ کوچک از <b>داخلِ</b> تونل به آن‌سر می‌فرستد و می‌شمارد چندتا برگشت. این عدد می‌گوید چند درصدشان باید برگردد تا تونل «کارکن» حساب شود. هم رنگِ نقطه را همین تعیین می‌کند، هم اینکه آی‌پیِ مقصد سوزانده شود یا سوختگی‌اش پاک شود. پایین بگذاری سخت‌گیریِ کمتر: تونلی که ۹۵٪ بسته می‌اندازد هم سبز می‌ماند. بالا بگذاری زودتر می‌فهمی مسیر خراب شده و زودتر روی آی‌پیِ بعدی می‌چرخد. روی همهٔ تونل‌ها اثر دارد، نه فقط core.",
  core_range_lbl:"سابنتِ لوکال (رنجِ خصوصی — خودکار بر اساس شناسه)",core_port_lbl:"پورت — خالی = خودکار، می‌توانی 443 بگذاری",core_port_lbl2:"پورت (می‌توانی 443)",core_subnet_lbl:"سابنتِ داخلی",
  core_edit_note:"ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).",ph_subnet:"مثلا 192.168.99.0/24",
  role_server_word:"سرور",role_client_word:"کلاینت",
@@ -8491,7 +8526,7 @@ var _ENUMS=__ENUMS_JSON__;
 var _WKMAX=[],_WKN=__WORKERSMAX__;for(var _i=1;_i<=_WKN;_i++)_WKMAX.push(_i);
 function wkClamp(n){n=parseInt(n,10);return (n>=1&&n<=_WKN)?n:1}
 function wkCarrier(S){return (S.Tr=='raw'||S.Tr=='udp')&&!S.Fec}
-var _TUNDEF=__TUNDEF_JSON__;   
+var _TUNDEF=__TUNDEF_JSON__;var _TUNSTEP=__TUNSTEP_JSON__;   
 var _SETDEF=__SETDEF_JSON__;   
 var _PROBESAMP=__PROBE_SAMPLES__;   
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
@@ -8508,9 +8543,10 @@ async function updateSidebar(){var s=await j('summary').catch(function(){return{
  if(Array.isArray(s.suspect_backoff)&&s.suspect_backoff.length)_poolBackoff=s.suspect_backoff.map(Number);
  if(s.dead_retest_secs)_poolDeadStep=num(s.dead_retest_secs);
  if(s.subnet_free)SUBNET_FREE=s.subnet_free;
- EVSEQ=num(s.ev_seq);var seen=num(getLS('tnl_logs_seen'));
+ EVSEQ=num(s.ev_seq);var raw=getLS('tnl_logs_seen'),seen;
+ if(raw===''){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}else{seen=num(raw)}
  if(cur=='logs'){seen=EVSEQ;setLS('tnl_logs_seen',EVSEQ)}
- var un=EVSEQ-seen;setUnread(un);
+ var un=Math.max(0,EVSEQ-seen);setUnread(un);
 }
 function setUnread(un){var e=el('ct_logs_un');if(!e)return;e.textContent=un>0?(un>99?'99+':String(un)):'';e.style.display=un>0?'':'none'}
 function getLS(k){try{return localStorage.getItem(k)||''}catch(e){return ''}}
@@ -9772,7 +9808,6 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
  +'</div>'}
 var PORT_MAX=65535;
 function rng(lbl,lo,hi){return lbl+' (بازه '+lo+' تا '+hi+')'}
-function rngList(lbl,arr){return lbl+' (فقط '+(arr||[]).join('، ')+')'}
 var PORT_RUNG_TRANSPORTS=['udp','tcp','ws'];
 function portTriesOn(S){
  if(S.Tr=='raw')return (S.RawProfile=='udp'||S.RawProfile=='tcp')&&!!S.SportRandom;
@@ -9916,7 +9951,7 @@ function wsPoolInner(idp,fnp,lid){
      +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
  return '<div class="warncap no" id="'+idp+'poolstale" style="display:none;margin-bottom:8px"></div>'
-   +block('ip',rngList(T('pool_ip_lbl'),edgePortsOK()),'104.16.0.1:443')
+   +block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
    +block('sni',T('pool_sni_lbl'),'cdn.example.com')
    +'<label style="margin-top:14px">'+esc(T('rot_int_lbl'))+'</label>'+sel;}
 
@@ -10835,6 +10870,10 @@ function _collectTuning(){
  if(sb.length)t.suspect_backoff=sb;
  if(rv.length)t.ladder_revive=rv;
  return t}
+function tunStepBad(t){for(var k in _TUNSTEP){var s=_TUNSTEP[k][0];
+  if(s&&typeof t[k]=='number'&&!isNaN(t[k])&&t[k]%s)
+   return T('set_step_bad').replace('{f}',_TUNSTEP[k][1]).replace('{s}',s).replace('{v}',t[k]);}
+ return ''}
 function tunPmSync(){var p=el('set_t_probemin'),h=el('tun_pmhint');if(!p||!h)return;
  var v=Math.max(5,Math.min(100,parseInt(p.value)||0));   
  h.textContent=T('set_pm_hint').replace('{n}',Math.ceil(v*_PROBESAMP/100)).replace('{c}',_PROBESAMP)}
@@ -10848,8 +10887,11 @@ async function resetSettings(){if(!await confirmBox(T('set_reset_confirm'),T('se
 function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
-async function saveSettings(){var m=el('set_msg');if(m){m.className='msg';m.textContent=T('saving')}
- var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin'),tuning:_collectTuning()});
+async function saveSettings(){var m=el('set_msg');
+ var tun=_collectTuning(),bad=tunStepBad(tun);
+ if(bad){if(m)formErr(m,bad);return}
+ if(m){m.className='msg';m.textContent=T('saving')}
+ var r=await post('settings-set',{reconcile_mode:_setMode,reconcile_interval:v('set_rec'),poll_interval:v('set_poll'),ui_interval:v('set_ui'),ech_refresh_mins:v('set_ech'),uptime_window:ssVal('set_upwin'),tuning:tun});
  if(r.ok&&r.d.ok){if(m){m.className='msg';m.textContent=''}toast(T('set_saved'),'ok')}
  else{if(m){formErr(m,perr(r))}}}
 function tick(){if(document.hidden){clearTimeout(TT);TT=setTimeout(tick,Math.max(UIV,4000));return}  
@@ -10909,6 +10951,7 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
 </script></body></html>"""
 
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__TUNSTEP_JSON__", json.dumps(_TUNING_STEPS, ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
 INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
 INDEX_HTML = INDEX_HTML.replace("__LOGMAX__", str(EVENTS_MAX))
