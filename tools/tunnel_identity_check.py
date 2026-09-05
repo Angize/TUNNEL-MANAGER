@@ -206,8 +206,10 @@ def main():
         check(False, "an explicit 192.168 accepted id 256")
     except ValueError:
         check(True, "an EXPLICIT base too small still refuses")
-    # the real path: a sit tunnel at a high id, edited to core
-    got = P.norm_subnet("core", 5000, P.subnet_default("sit", 5000))
+    # the real path: a sit tunnel at a high id, edited to core. The stored subnet is CARRIED, not
+    # typed, so it is re-derived in silence -- a subnet the operator actually types and that cannot
+    # work is refused instead (see the_panel_says_what_is_true_check).
+    got = P.carry_subnet("core", 5000, P.subnet_default("sit", 5000))
     check(got.endswith("/24") and ":" not in got,
           "a sit tunnel at id 5000 can be changed to core (got %s)" % got)
 

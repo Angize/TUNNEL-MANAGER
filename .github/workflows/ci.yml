@@ -513,3 +513,6 @@ jobs:
       - name: the `workers` knob — the number of TUN queues one tunnel's receive path gets
         working-directory: TUNNEL-MANAGER
         run: python tools/workers_gate_check.py
+      - name: the panel does not tell the operator something that is not so
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_panel_says_what_is_true_check.py
