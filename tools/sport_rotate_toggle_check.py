@@ -146,10 +146,12 @@ S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_rawdports').value='4';
 OUT.push(['dports 4 while rotating', body(S)]);
 S = fresh('udp', 5); el('ee_rawdports').value='4'; sprotToggle('ee_', S);
 OUT.push(['dports 4 then toggled off', body(S)]);
-S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_rawdports').value='9';
-OUT.push(['dports 9 while rotating', body(S)]);
-S = fresh('udp', 5); el('ee_rawdports').value='9'; sprotToggle('ee_', S);
-OUT.push(['dports 9 then toggled off', body(S)]);
+S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_rawdports').value=String(RAW_DPORTS_MAX);
+OUT.push(['dports at the ceiling while rotating', body(S)]);
+S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_rawdports').value=String(RAW_DPORTS_MAX + 1);
+OUT.push(['dports over the ceiling while rotating', body(S)]);
+S = fresh('udp', 5); el('ee_rawdports').value=String(RAW_DPORTS_MAX + 1); sprotToggle('ee_', S);
+OUT.push(['dports over the ceiling then toggled off', body(S)]);
 
 // 8. FEC and rotation must never leave the form together
 // fec and the rotation ride together now: the pair was refused on a claim about the FEC send path
@@ -162,6 +164,10 @@ console.log(JSON.stringify(OUT));
 
 GUARDED_SETTER = ""
 
+# The over-the-ceiling cell is derived, never written down: a guard that hardcodes "9 is too many"
+# starts passing for the wrong reason the day the ceiling moves, and then asserts nothing at all.
+DPORTS_MAX = int(re.search(r"RAW_DPORTS_MAX=(\d+)\s*[,;]", PANEL.read_text(encoding="utf-8")).group(1))
+
 EXPECT = {
     "toggle turned off": dict(rot=0, blocked=False),
     "number changed to 3": dict(rot=3, blocked=False),
@@ -172,8 +178,9 @@ EXPECT = {
     "fec ticked while rotating": dict(rot=4, fec=True),
     "dports 4 while rotating": dict(rot=4, dp=4, blocked=False),
     "dports 4 then toggled off": dict(rot=0, dp=0, blocked=False),
-    "dports 9 while rotating": dict(blocked=True),
-    "dports 9 then toggled off": dict(rot=0, dp=0, blocked=False),
+    "dports at the ceiling while rotating": dict(rot=4, dp=DPORTS_MAX, blocked=False),
+    "dports over the ceiling while rotating": dict(blocked=True),
+    "dports over the ceiling then toggled off": dict(rot=0, dp=0, blocked=False),
 }
 for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "gre", "ipip", "etherip", "ipcomp"):
     EXPECT["profile -> " + _p] = dict(rot=0, blocked=False, locked=False)

@@ -295,21 +295,51 @@ def main():
         check(int(js_hi.group(1)) == core_hi,
               "rotation band high: panel RAW_ROT_HI=%s core sportBandLo+sportBandSpan-1=%d" % (js_hi.group(1), core_hi))
 
-    # How many destination ports the client may spread over. Three copies of this ceiling exist -- the
-    # core's MaxDports, the panel's python guard, and the panel's browser guard -- and a form that lets
-    # the operator save a number the core refuses is a tunnel that dies on validate() with nothing on
-    # screen saying why.
+    # How many destination ports the client may spread over. FOUR copies of this ceiling exist -- the
+    # core's MaxDports, the node's MAX_DPORTS, the panel's python guard, and the panel's browser guard
+    # -- and each one drifts in its own way. A panel that offers more than the core accepts is a tunnel
+    # that dies on validate() with nothing on screen saying why; a NODE that accepts less silently
+    # DROPS the key on the way to the core config, so the operator saves 12, the panel stores 12, and
+    # the tunnel runs on one destination port with every screen still reading 12.
     core_md = re.search(r"MaxDports\s*=\s*(\d+)", rawprofile_go)
+    node_md = re.search(r"^MAX_DPORTS\s*=\s*(\d+)", node_src, re.M)
     py_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)", panel_src)
     js_md = re.search(r"RAW_DPORTS_MAX\s*=\s*(\d+)\s*[,;]", panel_src)
-    if not core_md or not py_md or not js_md:
-        check(False, "CANNOT PARSE the destination-port ceiling (core=%s panel py=%s panel js=%s) -- THIS SCRIPT is out of date"
-                     % (bool(core_md), bool(py_md), bool(js_md)))
+    if not core_md or not node_md or not py_md or not js_md:
+        check(False, "CANNOT PARSE the destination-port ceiling (core=%s node=%s panel py=%s panel js=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_md), bool(node_md), bool(py_md), bool(js_md)))
     else:
-        check(py_md.group(1) == core_md.group(1),
-              "destination-port ceiling: panel RAW_DPORTS_MAX=%s core MaxDports=%s" % (py_md.group(1), core_md.group(1)))
-        check(js_md.group(1) == core_md.group(1),
-              "destination-port ceiling in the browser: %s core MaxDports=%s" % (js_md.group(1), core_md.group(1)))
+        for who, m in (("node MAX_DPORTS", node_md), ("panel RAW_DPORTS_MAX", py_md),
+                       ("browser RAW_DPORTS_MAX", js_md)):
+            check(m.group(1) == core_md.group(1),
+                  "destination-port ceiling: %s=%s core MaxDports=%s" % (who, m.group(1), core_md.group(1)))
+        # The ceiling is only real if the pool can actually deliver it: dportSet opens with the
+        # configured port and fills from the pool, so a pool of N yields at most N+1 distinct ports
+        # when the configured one is not in it, and exactly N when it is. Raising MaxDports without
+        # growing the pool gives the operator a number the core silently clamps.
+        pool = re.search(r"var dportPool = \[\.\.\.\]uint16\{(.*?)\}", rawprofile_go, re.S)
+        if not pool:
+            check(False, "CANNOT PARSE dportPool -- THIS SCRIPT is out of date")
+        else:
+            ports = [p for p in re.findall(r"\d+", pool.group(1))]
+            check(len(ports) >= int(core_md.group(1)),
+                  "the pool can actually reach the ceiling: %d ports in dportPool, MaxDports=%s"
+                  % (len(ports), core_md.group(1)))
+            dupes = sorted({p for p in ports if ports.count(p) > 1})
+            check(not dupes,
+                  "dportPool has no duplicate, which would cost a whole lap%s"
+                  % ("" if not dupes else " -- repeated: " + ", ".join(dupes)))
+        # And the operator has to be able to TYPE the ceiling. The field carried maxlength="1" while
+        # the ceiling went to 16, so every value above 9 was unreachable from the keyboard with the
+        # form, the panel and the core all agreeing it was legal.
+        want_len = len(core_md.group(1))
+        fld = re.search(r"id=\"'\+idp\+'rawdports\"[^>]*maxlength=\"(\d+)\"", panel_src)
+        if not fld:
+            check(False, "CANNOT PARSE the destination-port input -- THIS SCRIPT is out of date")
+        else:
+            check(int(fld.group(1)) >= want_len,
+                  "the destination-port field can hold the ceiling: maxlength=%s, MaxDports=%s needs %d digit(s)"
+                  % (fld.group(1), core_md.group(1), want_len))
 
     # How many parallel send/receive queues a tunnel may run. The number lives in three places and the
     # core clamps silently, so a panel that offers more than the core accepts is a form the operator
