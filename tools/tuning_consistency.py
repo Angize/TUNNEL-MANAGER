@@ -281,19 +281,39 @@ def main():
     # its own copy whenever the core's live status has not arrived yet. A drifted copy tells the operator
     # the tunnel is walking ports it is not walking, which is the kind of wrong that survives a whole
     # debugging session because nothing contradicts it.
-    band_lo = re.search(r"sportBandLo\s*=\s*(\d+)", rawprofile_go)
-    band_span = re.search(r"sportBandSpan\s*=\s*(\d+)", rawprofile_go)
-    js_lo = re.search(r"RAW_ROT_LO\s*=\s*(\d+)", panel_src)
-    js_hi = re.search(r"RAW_ROT_HI\s*=\s*(\d+)", panel_src)
-    if not band_lo or not band_span or not js_lo or not js_hi:
-        check(False, "CANNOT PARSE the rotation band (core lo=%s span=%s panel lo=%s hi=%s) -- THIS SCRIPT is out of date"
-                     % (bool(band_lo), bool(band_span), bool(js_lo), bool(js_hi)))
+    # The band is per-tunnel now, so what has to agree is the DEFAULT -- the band a tunnel that says
+    # nothing gets. Five copies: the core's two constants, the node's two, the panel's python pair, the
+    # browser's form placeholders, and the browser's RAW_ROT_LO/HI that the card falls back to while the
+    # core's live status has not arrived. A drifted card copy tells the operator the tunnel is walking
+    # ports it is not walking; a drifted FORM copy puts a placeholder on screen that is not what saving
+    # an empty field actually stores.
+    core_lo = re.search(r"SportBandLoDefault\s*=\s*(\d+)", rawprofile_go)
+    core_hi = re.search(r"SportBandHiDefault\s*=\s*(\d+)", rawprofile_go)
+    core_min = re.search(r"MinSportBandSpan\s*=\s*(\d+)", rawprofile_go)
+    core_mlo = re.search(r"MinSportBandLo\s*=\s*(\d+)", rawprofile_go)
+    if not core_lo or not core_hi or not core_min or not core_mlo:
+        check(False, "CANNOT PARSE the core's default band (lo=%s hi=%s min=%s minlo=%s) -- THIS SCRIPT is out of date"
+                     % (bool(core_lo), bool(core_hi), bool(core_min), bool(core_mlo)))
     else:
-        core_hi = int(band_lo.group(1)) + int(band_span.group(1)) - 1
-        check(js_lo.group(1) == band_lo.group(1),
-              "rotation band low: panel RAW_ROT_LO=%s core sportBandLo=%s" % (js_lo.group(1), band_lo.group(1)))
-        check(int(js_hi.group(1)) == core_hi,
-              "rotation band high: panel RAW_ROT_HI=%s core sportBandLo+sportBandSpan-1=%d" % (js_hi.group(1), core_hi))
+        lo, hi, mn, ml = core_lo.group(1), core_hi.group(1), core_min.group(1), core_mlo.group(1)
+        for who, pat, want in (
+                ("panel RAW_ROT_LO (the card)", r"RAW_ROT_LO\s*=\s*(\d+)", lo),
+                ("panel RAW_ROT_HI (the card)", r"RAW_ROT_HI\s*=\s*(\d+)", hi),
+                ("browser RAW_BAND_MIN_SPAN", r"RAW_BAND_MIN_SPAN\s*=\s*(\d+)\s*[,;]", mn),
+                ("browser RAW_BAND_MIN_LO", r"RAW_BAND_MIN_LO\s*=\s*(\d+)\s*[,;]", ml),
+                ("panel RAW_BAND_MIN_SPAN", r"^RAW_BAND_MIN_SPAN\s*=\s*(\d+)", mn),
+                ("panel RAW_BAND_MIN_LO", r"^RAW_BAND_MIN_LO\s*=\s*(\d+)", ml)):
+            m = re.search(pat, panel_src, re.M)
+            check(m is not None and m.group(1) == want,
+                  "default rotation band: %s=%s core=%s" % (who, m.group(1) if m else "MISSING", want))
+        # The node carries only the two BOUNDS, not the default: it omits the keys when the operator
+        # set no band and the core applies its own default, so a node-side copy of that default would
+        # be a constant nothing reads.
+        for who, pat, want in (("node MIN_BAND_SPAN", r"^MIN_BAND_SPAN\s*=\s*(\d+)", mn),
+                               ("node MIN_BAND_LO", r"^MIN_BAND_LO\s*=\s*(\d+)", ml)):
+            m = re.search(pat, node_src, re.M)
+            check(m is not None and m.group(1) == want,
+                  "default rotation band: %s=%s core=%s" % (who, m.group(1) if m else "MISSING", want))
 
     # How many destination ports the client may spread over. FOUR copies of this ceiling exist -- the
     # core's MaxDports, the node's MAX_DPORTS, the panel's python guard, and the panel's browser guard

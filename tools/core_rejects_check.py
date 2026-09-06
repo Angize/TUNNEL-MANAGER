@@ -74,6 +74,33 @@ MUST_REJECT = [
     ("...and on the headerless one",
      {"transport": "raw", "cipher": "auto", "raw_profile": "bare", "raw_sport_random": True},
      "config.go: same rule, for every profile with no L4 header"),
+    # The destination axis and the source band are two rules with two different preconditions, and
+    # they were briefly ONE chained branch: with reactive random on, the band arm ran and the dports
+    # rule never got a turn, so a destination count reached _core_extra, was refused by nothing, and
+    # was dropped on the floor. Each of the four cells below is a different arm of that decision.
+    ("a destination spread with the source port standing still",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_dports": 4},
+     "config.go: raw_dports needs raw_sport_rotate; a fixed source lands in one bucket anyway"),
+    ("a destination spread with only the REACTIVE source port moving",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_random": True,
+      "raw_dports": 4},
+     "config.go: raw_dports rides raw_sport_rotate, not raw_sport_random"),
+    ("a rotation band with the source port standing still",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp",
+      "raw_sport_lo": 10000, "raw_sport_hi": 44999},
+     "config.go: raw_sport_lo/hi bound a band that only exists while the port moves"),
+    ("a rotation band narrower than the floor",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_rotate": 6,
+      "raw_sport_lo": 30000, "raw_sport_hi": 30098},
+     "config.go: the band must span at least packet.MinSportBandSpan ports"),
+    ("a rotation band reaching into the privileged ports",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_rotate": 6,
+      "raw_sport_lo": 500, "raw_sport_hi": 44999},
+     "config.go: the band starts at packet.MinSportBandLo or above"),
+    ("half a rotation band",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_rotate": 6,
+      "raw_sport_lo": 10000},
+     "config.go: lo <= hi, and one alone is not a range"),
 ]
 
 # EDITS of a STORED tunnel. The list above passes an empty `cur`, so it cannot express the thing that

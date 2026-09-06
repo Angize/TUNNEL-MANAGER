@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
 
-GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "sprotErr", "sprotWarnUpd",
+GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "bandN", "bandOn", "bandVis", "bandErr", "bandWarnUpd", "sprotErr", "sprotWarnUpd",
         "sprotToggle", "sprotVis", "ctbOn", "ctbVis", "portTriesOn", "portTriesVis", "portTriesN", "portTriesErr",
         "portTriesWarnUpd", "fecDatagram", "wkCarrier",
         "wkClamp", "desyncOk", "desyncInjects", "portErr", "sportErr", "rawProtoErr",
@@ -105,6 +105,9 @@ function fresh(profile, storedN){
 function body(S){ var b={}; _ERR=null; var blocked=_collectCoreBody(S,'ee_',null,b);
   return {blocked:!!blocked, err:_ERR, rot:('raw_sport_rotate' in b)?b.raw_sport_rotate:'<ABSENT>',
           dp:('raw_dports' in b)?b.raw_dports:'<ABSENT>',
+          blo:('raw_sport_lo' in b)?b.raw_sport_lo:'<ABSENT>',
+          bandshown:(el('ee_bandrow').style.display !== 'none'),
+          bhi:('raw_sport_hi' in b)?b.raw_sport_hi:'<ABSENT>',
           rnd:b.raw_sport_random, sport:b.raw_sport, fec:b.fec, locked:el('ee_srcblk').classList.contains('portlock')}; }
 
 // 1. an existing rotating tunnel, operator turns the toggle OFF
@@ -153,6 +156,25 @@ OUT.push(['dports over the ceiling while rotating', body(S)]);
 S = fresh('udp', 5); el('ee_rawdports').value=String(RAW_DPORTS_MAX + 1); sprotToggle('ee_', S);
 OUT.push(['dports over the ceiling then toggled off', body(S)]);
 
+// 7b. the band rides the same toggle, and a band narrower than the floor blocks the save
+S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999';
+OUT.push(['band while rotating', body(S)]);
+S = fresh('udp', 5); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999'; sprotToggle('ee_', S);
+OUT.push(['band then toggled off', body(S)]);
+S = fresh('udp', 0); sprotToggle('ee_', S);
+OUT.push(['band left empty while rotating', body(S)]);
+S = fresh('udp', 0); sprotToggle('ee_', S);
+el('ee_bandlo').value='30000'; el('ee_bandhi').value=String(30000 + RAW_BAND_MIN_SPAN - 2);
+OUT.push(['band one short of the floor', body(S)]);
+S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_bandlo').value='50000'; el('ee_bandhi').value='40000';
+OUT.push(['band inverted', body(S)]);
+// the band belongs to "the source port moves", not to the rotation toggle: reactive random moves it
+// too, and the core and the node both accept a band for it. The row has to be reachable there.
+S = fresh('udp', 0); ceSetSport(1); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999';
+OUT.push(['band under reactive random', body(S)]);
+S = fresh('udp', 0);
+OUT.push(['band with the port standing still', body(S)]);
+
 // 8. FEC and rotation must never leave the form together
 // fec and the rotation ride together now: the pair was refused on a claim about the FEC send path
 // that the code never matched, and both reach the body.
@@ -167,6 +189,7 @@ GUARDED_SETTER = ""
 # The over-the-ceiling cell is derived, never written down: a guard that hardcodes "9 is too many"
 # starts passing for the wrong reason the day the ceiling moves, and then asserts nothing at all.
 DPORTS_MAX = int(re.search(r"RAW_DPORTS_MAX=(\d+)\s*[,;]", PANEL.read_text(encoding="utf-8")).group(1))
+BAND_MIN_SPAN = int(re.search(r"RAW_BAND_MIN_SPAN=(\d+)\s*[,;]", PANEL.read_text(encoding="utf-8")).group(1))
 
 EXPECT = {
     "toggle turned off": dict(rot=0, blocked=False),
@@ -181,6 +204,13 @@ EXPECT = {
     "dports at the ceiling while rotating": dict(rot=4, dp=DPORTS_MAX, blocked=False),
     "dports over the ceiling while rotating": dict(blocked=True),
     "dports over the ceiling then toggled off": dict(rot=0, dp=0, blocked=False),
+    "band while rotating": dict(rot=4, blo=10000, bhi=44999, blocked=False),
+    "band then toggled off": dict(rot=0, blo=0, bhi=0, blocked=False),
+    "band left empty while rotating": dict(rot=4, blo=0, bhi=0, blocked=False),
+    "band one short of the floor": dict(blocked=True),
+    "band inverted": dict(blocked=True),
+    "band under reactive random": dict(rot=0, rnd=True, blo=10000, bhi=44999, blocked=False, bandshown=True),
+    "band with the port standing still": dict(rot=0, blo=0, bhi=0, blocked=False, bandshown=False),
 }
 for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "gre", "ipip", "etherip", "ipcomp"):
     EXPECT["profile -> " + _p] = dict(rot=0, blocked=False, locked=False)
@@ -194,6 +224,8 @@ def main():
     src += re.search(r"var PORT_RUNG_TRANSPORTS=\[.+?\];", js).group(0) + "\n"
     src += re.search(r"var SPROT_DEF=\d+;", js).group(0) + "\n"
     src += "var RAW_DPORTS_MAX=" + re.search(r"RAW_DPORTS_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
+    for _c in ("RAW_ROT_LO", "RAW_ROT_HI", "RAW_BAND_MIN_SPAN", "RAW_BAND_MIN_LO"):
+        src += "var %s=%s;\n" % (_c, re.search(_c + r"=(\d+)\s*[,;]", js).group(1))
     src += "var RAW_SPROT_MAX=" + re.search(r"RAW_SPROT_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
     src += "var PORT_TRIES_MAX=" + re.search(r"PORT_TRIES_MAX=(\d+)\s*[,;]", js).group(1) + ";\n"
     src += "\n".join(grab(js, n) for n in GRAB) + "\n"
