@@ -270,6 +270,9 @@ jobs:
       - name: the panel can reach github through one of its proxies
         working-directory: TUNNEL-MANAGER
         run: python tools/panel_downloads_can_take_the_proxy_check.py
+      - name: an edit can move the tunnel to another node
+        working-directory: TUNNEL-MANAGER
+        run: python tools/an_edit_can_move_the_tunnel_check.py
       - name: a failed update check tells the operator why
         working-directory: TUNNEL-MANAGER
         run: python tools/a_failed_update_check_says_why_check.py

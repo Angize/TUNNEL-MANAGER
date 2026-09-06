@@ -112,13 +112,16 @@ const TRANSPORTS = _ENUMS.tr_all.slice();
 const out = {edit:{}, create:{}, transports: TRANSPORTS};
 
 // ---- EDIT: the real open path, on a stored tunnel that HAS fec on ----
+// openCoreEdit fetches the node list before it builds the modal (the node is editable there now),
+// so it has to be AWAITED -- calling it and reading the DOM on the next line reads an empty modal.
+(async function(){
 for (const tr of TRANSPORTS) {
   __html = '';
   globalThis.__nodes = {};                       // a fresh DOM per open, like a fresh modal
   FLEET = [{id:'t1', name:'core42', transport:tr, fec:true, fec_data:10, fec_parity:3,
             a_name:'IR01', b_name:'DE01', server_side:'a', cipher:'auto', port:20050,
             subnet:'10.20.0.0/30', a_ips:['1.1.1.1'], b_ips:['2.2.2.2']}];
-  openCoreEdit('t1');
+  await openCoreEdit('t1');
   const m = fecMarkup(__html);
   // Apply the markup the way the browser would, then let the page gate it -- the real order.
   node('ee_fecsw').classList.toggle('on', !!m.swLit);
@@ -138,7 +141,6 @@ for (const tr of TRANSPORTS) {
 }
 
 // ---- CREATE: the real open path, then the real transport setter ----
-(async function(){
   for (const tr of TRANSPORTS) {
     globalThis.__nodes = {};
     __html = '';

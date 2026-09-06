@@ -12,12 +12,14 @@ The count already existed. `read_stats()` on the node has always reported `cpus`
 drawer already printed it -- it just never reached the two places that decide a queue count. So this
 follows the value, not the helper:
 
-  * api_node_names carries `cpus`, because the CREATE modal has no fleet record to read;
-  * api_fleet carries `a_cpus`/`b_cpus`, because openCoreEdit never refetches node-names and would
-    otherwise show the count only when the operator had visited the nodes page first;
-  * and both label paths -- corWorkersVis (create, off SEL) and ceWorkersVis (edit, off the record) --
-    are RUN here against a recording DOM, not called through their helper, because a helper that
-    formats correctly proves nothing about a caller that never passes it the number.
+  * api_node_names carries `cpus` -- and it is now the ONLY source, because openCoreEdit refetches
+    node-names before it builds the modal (it has to: the node itself is editable there). The
+    a_cpus/b_cpus that api_fleet used to carry for the edit modal are gone with the reason for them;
+  * and both label paths -- corWorkersVis (create) and ceWorkersVis (edit) -- are RUN here against a
+    recording DOM off the same SEL + NODES the browser holds, not called through their helper,
+    because a helper that formats correctly proves nothing about a caller that never passes it
+    the number. A node the list does not carry falls back to the name the select shows for it, so a
+    tunnel pinned to a deleted node still reads «روی GONE-A» rather than a raw id.
 
 An unknown count prints no fragment at all. «روی MMD-GE15 · دارای  هسته» would be worse than the
 label we started with.
@@ -88,11 +90,10 @@ for (const c of CASES) {
   if (c.path === 'edit') {
     _eeS.Srv = (l.server_side=='b')?'b':'a'; _eeS.Tr = l.transport;
     _eeS.RawProfile = l.raw_profile||'bare';
-    _eeS.NodesArr = [l.a_node, l.b_node];
-    _eeS.NamesArr = [l.a_name||'', l.b_name||''];
-    _eeS.CpusArr = [num(l.a_cpus), num(l.b_cpus)];
     _eeS.WorkersA = wkClamp(l.a_workers); _eeS.WorkersB = wkClamp(l.b_workers);
     NODES = c.nodes || [];
+    ceNodeItems(l);
+    SEL['ee_a'] = l.a_node; SEL['ee_b'] = l.b_node;
     ceWorkersVis();
     OUT[c.name] = lbls('ee_');
   } else {
@@ -124,17 +125,18 @@ def link(**kw):
 
 
 # name -> (path, link, the NODES the browser holds, what each label must read)
+N_BIG = [{"id": 1, "name": "X", "cpus": 1, "online": True},
+         {"id": 2, "name": "Y", "cpus": 64, "online": True}]
 CASES = [
-    ("edit, the record carries both", "edit", link(a_cpus=4, b_cpus=2), N_NOCPU,
+    ("edit, the node list carries both", "edit", link(), N15,
      "روی MMD-IR15 · دارای 4 هسته", "روی MMD-GE15 · دارای 2 هسته"),
-    ("edit, only NODES knows", "edit", link(), N15,
-     "روی MMD-IR15 · دارای 4 هسته", "روی MMD-GE15 · دارای 2 هسته"),
+    ("edit, the list has no count", "edit", link(), N_NOCPU,
+     "روی MMD-IR15", "روی MMD-GE15"),
     ("edit, nobody knows", "edit", link(a_node=9, b_node=8, a_name="GONE-A", b_name="GONE-B"), N15,
      "روی GONE-A", "روی GONE-B"),
-    ("edit, one side is offline", "edit", link(a_cpus=4, b_node=9, b_name="GONE"), N_NOCPU,
+    ("edit, one side is gone", "edit", link(b_node=9, b_name="GONE"), N15,
      "روی MMD-IR15 · دارای 4 هسته", "روی GONE"),
-    ("edit, one core and sixty-four", "edit",
-     link(a_name="X", b_name="Y", a_cpus=1, b_cpus=64), N_NOCPU,
+    ("edit, one core and sixty-four", "edit", link(a_name="X", b_name="Y"), N_BIG,
      "روی X · دارای 1 هسته", "روی Y · دارای 64 هسته"),
     ("create, off the node list", "create", link(), N15,
      "روی MMD-IR15 · دارای 4 هسته", "روی MMD-GE15 · دارای 2 هسته"),
@@ -189,23 +191,23 @@ def main():
          "server_side": "b", "transport": "raw", "raw_profile": "tcp", "psk": "x", "tunnel_id": 20}
 
     rec = fleet(P, NODES, PING, L)
-    check(rec.get("a_cpus") == 4 and rec.get("b_cpus") == 2,
-          "api_fleet carries a_cpus and b_cpus", (rec.get("a_cpus"), rec.get("b_cpus")))
-    # a_ips and the cpu count now read the same cached ping. If that share went wrong the ips would
-    # go quietly empty and only the map on the card would notice.
+    names = {n["name"]: n.get("cpus") for n in P.api_node_names({})["nodes"]}
+    check(names == {"MMD-IR15": 4, "MMD-GE15": 2}, "api_node_names carries cpus", names)
+    # api_fleet used to carry a_cpus/b_cpus for the edit modal alone. openCoreEdit refetches
+    # node-names now, so carrying them again would be a second copy of one number that can disagree
+    # with the first -- which is the whole failure this guard exists to catch.
+    check("a_cpus" not in rec and "b_cpus" not in rec,
+          "api_fleet does NOT carry a second copy of the count",
+          {k: rec.get(k) for k in ("a_cpus", "b_cpus")})
+    # the ips still come off that same cached ping. If that share went wrong they would go quietly
+    # empty and only the map on the card would notice.
     check(rec.get("a_ips") == P._flat_ips(PING[1]),
           "  and the ips it shares that ping with still arrive", rec.get("a_ips"))
 
-    names = {n["name"]: n.get("cpus") for n in P.api_node_names({})["nodes"]}
-    check(names == {"MMD-IR15": 4, "MMD-GE15": 2}, "api_node_names carries cpus", names)
-
     PING[2] = {"ok": False, "error": "unreachable"}
-    rec = fleet(P, NODES, PING, L)
-    check(rec.get("a_cpus") == 4 and rec.get("b_cpus") is None,
-          "an unreachable node reports no count rather than a wrong one",
-          (rec.get("a_cpus"), rec.get("b_cpus")))
     check(P.api_node_names({})["nodes"][1].get("cpus") is None,
-          "  and node-names says the same", P.api_node_names({})["nodes"][1].get("cpus"))
+          "an unreachable node reports no count rather than a wrong one",
+          P.api_node_names({})["nodes"][1].get("cpus"))
 
     print("\n-- both label paths, run --")
     out = render(P)
