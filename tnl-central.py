@@ -4571,7 +4571,7 @@ def api_create_tunnel(d):
                      ttype=str(d.get("transport") or ttype))
 
 
-RAW_DPORTS_MAX = 8
+RAW_DPORTS_MAX = 16
 RAW_SPROT_MAX = 60
 PORT_TRIES_MAX = 60
 
@@ -8300,7 +8300,7 @@ search:"جستجو…",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_dns_d:"آخرین‌پناه",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا {n} باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_lbl_cores:"دارای {c} هسته",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -9571,7 +9571,7 @@ function carrierProfile(l){var t=l.transport||'udp';
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
-var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999,RAW_DPORTS_MAX=8,RAW_SPROT_MAX=60,PORT_TRIES_MAX=60;
+var RAW_DPORT_DEF=443,RAW_SPORT_FIX=51820,RAW_ROT_LO=10000,RAW_ROT_HI=59999,RAW_DPORTS_MAX=16,RAW_SPROT_MAX=60,PORT_TRIES_MAX=60;
 function rotSrcRows(l,every){var R=l.rot_live||{},cli=num(R.cli),srv=num(R.srv),lo=num(R.lo)||RAW_ROT_LO,hi=num(R.hi)||RAW_ROT_HI;
  var mode=every?T('port_src_rot'):T('port_src_rand');
  var clock=every?T('port_src_rot_every').replace('{n}',every):T('port_src_rot_fail');
@@ -9835,7 +9835,7 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
        +'<div><label>'+esc(rng(T('raw_sprot_lbl'),1,RAW_SPROT_MAX))+'</label>'
          +'<input id="'+idp+'rawsprot" class="mono" inputmode="numeric" maxlength="2" placeholder="5" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
        +'<div><label>'+esc(rng(T('raw_dports_lbl'),1,RAW_DPORTS_MAX))+'</label>'
-         +'<input id="'+idp+'rawdports" class="mono" inputmode="numeric" maxlength="1" placeholder="1" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
+         +'<input id="'+idp+'rawdports" class="mono" inputmode="numeric" maxlength="2" placeholder="1" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
      +'</div>'
      +'<div class="warncap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div></div>'
  +'<div id="'+idp+'ctbrow" style="display:none">'
@@ -9883,7 +9883,7 @@ function sprotToggle(idp,S){if(!sprotOn(S))return;S.Sprot=!S.Sprot;
 function dportsN(idp){var e=el(idp+'rawdports');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function sprotErr(idp,S){if(!sprotLive(S))return '';var n=sprotN(idp);
  if(!(n>=1&&n<=RAW_SPROT_MAX))return T('raw_sprot_bad');
- var d=dportsN(idp);return (d===0||(d>=1&&d<=RAW_DPORTS_MAX))?'':T('raw_dports_bad')}
+ var d=dportsN(idp);return (d===0||(d>=1&&d<=RAW_DPORTS_MAX))?'':T('raw_dports_bad').replace('{n}',String(RAW_DPORTS_MAX))}
 function sprotWarnUpd(idp,S){var w=el(idp+'sprotwarn');if(!w)return;var e=sprotErr(idp,S);
  if(e){w.style.display='';w.innerHTML=ic('warn')+'<span>'+esc(e)+'</span>'}else{w.style.display='none';w.innerHTML=''}}
 function workersSection(idp,fnp){
