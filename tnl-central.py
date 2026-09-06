@@ -3921,8 +3921,6 @@ def api_fleet(d):
                "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
-               "a_cpus": (pa.get("stats") or {}).get("cpus"),
-               "b_cpus": (pb.get("stats") or {}).get("cpus"),
                "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), "tag": int(L.get("tag") or 0),
                **tfl.get(L["id"], {})}
         if L.get("type") == "core":
@@ -4993,7 +4991,7 @@ def _restore_link(A, B, L, extra=None):
 def api_edit_link(d):
     def edit(h):
         a, b = _link_nodes(d)
-        with _PairLock(a, b):
+        with _PairLock(a, b, (d or {}).get("a_node"), (d or {}).get("b_node")):
             return _edit_link_impl(d, h)
 
     return act_link(d, edit)
@@ -5152,6 +5150,38 @@ def api_peer_select(d):
 EDIT_STEPS = 4
 
 
+def _node_set(*nodes):
+    out, seen = [], set()
+    for n in nodes:
+        if n and n["id"] not in seen:
+            seen.add(n["id"])
+            out.append(n)
+    return out
+
+
+def _guard_arrival_free(was_a, was_b, A, B, tid, names):
+    stay = {n["id"] for n in (was_a, was_b) if n}
+    for N in _node_set(A, B):
+        if N["id"] in stay:
+            continue
+        lst = node_call(N, "list", "GET", timeout=30)
+        if lst.get("configs") is None:
+            raise ValueError(f"فهرستِ تونل‌های نودِ «{N['name']}» خوانده نشد (مشغول یا قطع) — "
+                             f"برای اینکه تونلِ دیگری روی آن پاک نشود متوقف شد")
+        for c in (lst.get("configs") or []):
+            if str(c.get("name") or "") in names or _sint(c.get("id")) == tid:
+                raise ValueError(f"نودِ «{N['name']}» از قبل تونلی با همین شناسه ({tid}) دارد. "
+                                 f"اگر مالِ همین تونل و از جابه‌جاییِ قبلی مانده، اول از روی آن نود "
+                                 f"پاکش کن؛ وگرنه شناسه‌ها تداخل دارند")
+
+
+def _undo_move(was_a, was_b, A, B, name):
+    stay = {n["id"] for n in (was_a, was_b) if n}
+    for N in _node_set(A, B):
+        if N["id"] not in stay:
+            node_call(N, "delete", "POST", {"name": name})
+
+
 def _edit_link_impl(d, h=None):
     act_step(h, "خواندنِ وضعیتِ دو نود", 0, EDIT_STEPS)
     _require(d, ["id", "type"])
@@ -5161,9 +5191,14 @@ def _edit_link_impl(d, h=None):
     ttype = d["type"]
     if ttype not in TYPES:
         raise ValueError("نوعِ تونل نامعتبر است")
-    A, B = get_node(L["a_node"]), get_node(L["b_node"])
+    was_a, was_b = get_node(L["a_node"]), get_node(L["b_node"])
+    A = get_node(d["a_node"]) if str(d.get("a_node") or "").strip() else was_a
+    B = get_node(d["b_node"]) if str(d.get("b_node") or "").strip() else was_b
     if not A or not B:
-        raise ValueError("یکی از نودهای این تونل دیگر در پنل ثبت نیست")
+        raise ValueError("نودِ این تونل در پنل ثبت نیست — یکی از نودهای موجود را انتخاب کن")
+    if A["id"] == B["id"]:
+        raise ValueError("دو سرِ تونل باید دو نودِ متفاوت باشند")
+    moved = A["id"] != L["a_node"] or B["id"] != L["b_node"]
     pa, pb = _ping_both(A, B)
     tid = int(L["tunnel_id"])
     a_ips = _flat_ips(pa)
@@ -5213,19 +5248,21 @@ def _edit_link_impl(d, h=None):
         ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)
         extra.update(ce)
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
-    if ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
+    if not moved and ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "unchanged": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
-                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, A, B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
+                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, was_a or A, was_b or B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
         if _clash:
             raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن.")
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
-    if name_changed or type_changed or ttype == "core":
+    if moved:
+        _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
+    if name_changed or type_changed or moved or ttype == "core":
         act_step(h, "برچیدنِ پیکربندیِ قبلی", 1, EDIT_STEPS)
-        node_call(A, "delete", "POST", {"name": old_name})
-        node_call(B, "delete", "POST", {"name": old_name})
+        for N in _node_set(was_a, was_b, A, B):
+            node_call(N, "delete", "POST", {"name": old_name})
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
               "host": overlay_host(ttype, server_side, True), "enabled": L.get("enabled", True), **node_extra}
@@ -5241,26 +5278,31 @@ def _edit_link_impl(d, h=None):
     act_step(h, "اعمال روی نودِ «%s»" % A["name"], 2, EDIT_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
-        _restore_link(A, B, L)
+        _undo_move(was_a, was_b, A, B, new_name)
+        _restore_link(was_a, was_b, L)
         raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
     try:
         act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS, more=False)
     except ActCancelled:
-        _restore_link(A, B, L)
+        _undo_move(was_a, was_b, A, B, new_name)
+        _restore_link(was_a, was_b, L)
         raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         if name_changed:
-            node_call(A, "delete", "POST", {"name": new_name})
-            node_call(B, "delete", "POST", {"name": new_name})
-        _restore_link(A, B, L)
+            for N in _node_set(A, B):
+                node_call(N, "delete", "POST", {"name": new_name})
+        _undo_move(was_a, was_b, A, B, new_name)
+        _restore_link(was_a, was_b, L)
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
     act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
     with _reg_lock:
         links = load_links()
         for x in links:
             if x["id"] == L["id"]:
-                x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip})
+                x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip,
+                          "a_node": A["id"], "a_name": A["name"],
+                          "b_node": B["id"], "b_name": B["name"]})
                 for k in _LINK_EXTRA_KEYS:
                     if k in extra:
                         x[k] = extra[k]
@@ -5272,7 +5314,7 @@ def _edit_link_impl(d, h=None):
                     x.pop("server_side", None)
                 break
         save_json(LINKS_FILE, links)
-    _refresh_cache([L["a_node"], L["b_node"]])
+    _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
     return {"ok": True, "name": new_name, "a_tunnel_ip": ra.get("tunnel_ip"), "b_tunnel_ip": rb.get("tunnel_ip")}
 
 
@@ -10136,7 +10178,7 @@ function rotSetHTML(px){var st=rotSt(px);
  ssHTML(px+'rotsecs',items,st.secs,T('rot_interval'))+'</div>'}
 function rotTr(px){return px=='e_'?_corS.Tr:_eeS.Tr}
 function rotIsDirect(px){return _ENUMS.tr_direct.indexOf(rotTr(px))>=0}
-function rotRefreshIps(px){var st=rotSt(px);if(px=='e_'){st.aIps=nodeIps(ssVal('e_a'));st.bIps=nodeIps(ssVal('e_b'))}}
+function rotRefreshIps(px){var st=rotSt(px);st.aIps=nodeIps(ssVal(px+'a'));st.bIps=nodeIps(ssVal(px+'b'))}
 function rotFirstSel(px,side){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
  for(var i=0;i<ips.length;i++){if(sel[ips[i]])return ips[i]}return ''}
 function pickedIP(px,side,stored){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bIps,sel=(side=='a')?st.aSel:st.bSel;
@@ -10256,7 +10298,6 @@ function ceFecDatagram(){return fecDatagram(_eeS)}
 function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('ee_fecsw');if(s)s.classList.toggle('on',_eeS.Fec);var r=el('ee_fecrates');if(r)r.style.display=_eeS.Fec?'':'none';ceWorkersVis()}   
 function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
-_eeS.NodesArr=['',''],_eeS.NamesArr=['',''];
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeS.Tr=='raw')?'':'none'}
 function cePortTriesVis(){portTriesVis('ee_',_eeS)}
 function ceDnsVis(){var w=el('ee_dnsblk');if(w)w.style.display=(_eeS.Tr=='dns')?'':'none'}
@@ -10275,9 +10316,8 @@ function cePortVis(){var w=el('ee_portrow');if(!w)return;
  if(on){var i=el('ee_rawport');if(i&&!i.value)i.value='443';cePortWarn();sportPaint('ee_',_eeS.SportRandom)}
  sprotVis('ee_',_eeS);ctbVis('ee_',_eeS)}
 function ceSetWorkers(sd,n){_eeS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('ee_',sd,n)}
-function ceWorkersVis(){var N=_eeS.NodesArr||[],C=_eeS.CpusArr||[];
- workersVis('ee_',_eeS,[_eeS.NamesArr[0]||nodeName(N[0]),num(C[0])||nodeCpus(N[0])],
-                       [_eeS.NamesArr[1]||nodeName(N[1]),num(C[1])||nodeCpus(N[1])])}
+function ceWorkersVis(){var a=ssVal('ee_a'),b=ssVal('ee_b');
+ workersVis('ee_',_eeS,[ceNodeName(a),nodeCpus(a)],[ceNodeName(b),nodeCpus(b)])}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
@@ -10285,14 +10325,27 @@ function ceToggleCover(){if(_eeS.Tr!='tcp')return;_eeS.Cover=!_eeS.Cover;var s=e
 function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS.Tr=='tcp')?'':'none'}
 function ceCoverGate(){var ok=_eeS.Tr=='tcp'&&ssVal('ee_cipher')!='none',row=el('ee_coverrow'),s=el('ee_cover');if(!ok){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS);ceCoverGate()}
-function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.CpusArr=[num(l.a_cpus),num(l.b_cpus)];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||16;_eeS.FecParity=l.fec_parity||4;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
- var aips=l.a_ips||[],bips=l.b_ips||[];
- _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
+function ceNodeItems(l){var out=[],seen={};
+ (NODES||[]).forEach(function(n){if(!n.online)return;seen[n.id]=1;out.push({v:n.id,label:n.name,sub:n.host})});
+ [[l.a_node,l.a_name],[l.b_node,l.b_name]].forEach(function(p){if(!p[0]||seen[p[0]])return;seen[p[0]]=1;
+  var n=(NODES||[]).filter(function(x){return x.id==p[0]})[0];
+  out.push({v:p[0],label:(n&&n.name)||p[1]||p[0],sub:(n&&n.host)||''})});
+ _eeS.NodeItems=out;return out}
+function ceNodeName(id){var it=(_eeS.NodeItems||[]).filter(function(x){return x.v==id})[0];
+ return (it&&it.label)||nodeName(id)}
+async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
+ var _nr=await j('node-names').catch(function(){return null});
+ if(!_nr||!_nr.nodes){toast(T('failed'),'err');return}
+ NODES=_nr.nodes;
+ var _nitems=ceNodeItems(l);_eeS.NodeA=l.a_node;_eeS.NodeB=l.b_node;
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||16;_eeS.FecParity=l.fec_parity||4;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
+ _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:nodeIps(l.a_node),bIps:nodeIps(l.b_node),aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
  if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
- var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+' · <span class="mono">'+esc(l.name)+'</span></div>'+
-  '<div class="grid2"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
+ var _t1='<div class="ctabp on" data-cp="ip"><div class="muted" style="font-size:12px;margin-bottom:10px"><span class="mono">'+esc(l.name)+'</span></div>'+
+  '<div class="grid2"><div id="ee_awrap"><label class="first" id="ee_alab"></label>'+ssHTML('ee_a',_nitems,l.a_node,T('srv_node'),'onCeNode')+'</div>'+
+  '<div id="ee_bwrap"><label class="first" id="ee_blab"></label>'+ssHTML('ee_b',_nitems,l.b_node,T('cli_node'),'onCeNode')+'</div></div>'+
+  '<div class="grid2" style="margin-top:11px"><div id="ee_aip"></div><div id="ee_bip"></div></div>'+
   '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+'<div id="ee_peerlive"></div>'+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
@@ -10314,19 +10367,34 @@ function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
- ceRoleLbls(l);renderRotIps('ee_');cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
+ ceRoleLbls();renderRotIps('ee_');cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function cePrefillFields(l){
  [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],['ee_rawdports',l.raw_dports],['ee_bandlo',l.raw_sport_lo],['ee_bandhi',l.raw_sport_hi],
   ['ee_porttries',l.port_tries],['ee_dnszone',l.dns_zone],
   ['ee_dnsresolvers',(l.dns_resolvers||[]).join(', ')]].forEach(function(p){
    var e=el(p[0]);if(e&&p[1])e.value=p[1]})}
-function ceRoleLbls(l){var a=el('ee_srv_a'),b=el('ee_srv_b');
- if(a)a.innerHTML='<b>'+esc(l.a_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.b_name)+' '+esc(T('role_client_word'))+'</span>';
- if(b)b.innerHTML='<b>'+esc(l.b_name)+' '+esc(T('role_server_word'))+'</b><span>'+esc(l.a_name)+' '+esc(T('role_client_word'))+'</span>'}
-function ceSetSrv(s){_eeS.Srv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');renderRotIps('ee_')}
-async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';m.textContent=T('saving_rebuild_both');
+function ceRoleLbls(){var an=ceNodeName(ssVal('ee_a')),bn=ceNodeName(ssVal('ee_b')),a=el('ee_srv_a'),b=el('ee_srv_b');
+ if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';
+ if(b)b.innerHTML='<b>'+esc(bn)+' '+esc(T('role_server_word'))+'</b><span>'+esc(an)+' '+esc(T('role_client_word'))+'</span>';
+ ceNodeLbls()}
+function ceNodeLbls(){var srvA=(_eeS.Srv=='a'),la=el('ee_alab'),lb=el('ee_blab');
+ if(la)la.textContent=srvA?T('srv_node'):T('cli_node');
+ if(lb)lb.textContent=srvA?T('cli_node'):T('srv_node');
+ var A=el('ee_awrap'),B=el('ee_bwrap');
+ if(A)A.style.order=srvA?'0':'1';
+ if(B)B.style.order=srvA?'1':'0'}
+function onCeNode(){var a=ssVal('ee_a'),b=ssVal('ee_b');
+ if(a!=_eeS.NodeA||b!=_eeS.NodeB){_eeS.NodeA=a;_eeS.NodeB=b;
+  delete SEL['ee_aip_sel'];delete SEL['ee_bip_sel'];
+  var st=rotSt('ee_');st.aSel={};st.bSel={}}
+ corRotVis('ee_');ceRoleLbls();ceWorkersVis()}
+function ceSetSrv(s){_eeS.Srv=s;var a=el('ee_srv_a'),b=el('ee_srv_b');if(a)a.classList.toggle('on',s=='a');if(b)b.classList.toggle('on',s=='b');ceNodeLbls();renderRotIps('ee_')}
+async function doCoreEdit(id){var m=el('ee_msg');m.className='msg';
  var l=FLEET.filter(function(x){return x.id==id})[0]||{};
- var body={id:id,type:'core',server_side:_eeS.Srv,cipher:ssVal('ee_cipher'),transport:_eeS.Tr,obfs:_eeS.Obfs,cover:(_eeS.Cover&&_eeS.Tr=='tcp'),gso:_eeS.Gso};
+ var _na=ssVal('ee_a'),_nb=ssVal('ee_b');
+ if(_na==_nb){formErr(m,T('two_diff_nodes'));return}
+ m.textContent=T('saving_rebuild_both');
+ var body={id:id,type:'core',a_node:_na,b_node:_nb,server_side:_eeS.Srv,cipher:ssVal('ee_cipher'),transport:_eeS.Tr,obfs:_eeS.Obfs,cover:(_eeS.Cover&&_eeS.Tr=='tcp'),gso:_eeS.Gso};
  if(_collectCoreBody(_eeS,'ee_',m,body))return;
  if(body.cover){var sni=(v('ee_sni')||'').trim();if(!sni){formErr(m,T('cover_need_sni'));return}body.cover_sni=sni}
  var _rverr2=rotValidate('ee_');if(_rverr2){formErr(m,_rverr2);return}

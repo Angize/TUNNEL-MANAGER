@@ -371,13 +371,19 @@ globalThis.getComputedStyle = () => ({getPropertyValue: () => ''});
 
 HARNESS = r"""
 const MAX = %d;
+// openCoreEdit fetches the node list before it builds the modal -- the node is editable there now --
+// so `j` has to answer and the open has to be awaited. The prelude's fetch never resolves on purpose,
+// which would hang the open rather than fail it.
+j = async function(){ return {nodes:[{id:'n1',name:'IR01',host:'1.1.1.1',online:true,cpus:4},
+                                     {id:'n2',name:'DE01',host:'2.2.2.2',online:true,cpus:2}]} };
+toast = function(){};
+openModal = function(){};
 const out = {vis:{}, seg:{}, body:{}, drop:{}};
 // The row appears on raw-without-FEC and nowhere else, in BOTH forms, driven through the REAL gate the
 // form calls -- not through a re-implementation of its condition.
 for (const [form, S, gate, px] of [['create', _corS, corWorkersVis, 'e_'],
                                    ['edit',   _eeS,  ceWorkersVis,  'ee_']]) {
   out.vis[form] = {};
-  S.NodesArr = ['', ''];                       // no node pair -> the budget line never fetches
   for (const tr of ['udp','tcp','raw','ws','dns']) {
     for (const fec of [false, true]) {
       S.Tr = tr; S.Fec = fec; S.WorkersA = MAX; S.WorkersB = MAX;
@@ -435,20 +441,20 @@ FLEET = [{id:'L-9', name:'core9', a_node:'n1', b_node:'n2', a_name:'IR01', b_nam
           a_ip:'10.0.0.1', b_ip:'10.0.0.2', a_ips:['10.0.0.1'], b_ips:['10.0.0.2'],
           server_side:'a', type:'core', transport:'raw', raw_profile:'tcp', cipher:'auto',
           subnet:'10.9.0.0/24', a_workers:3, b_workers:2}];
-openCoreEdit('L-9');
-out.exclude.prefilled = [_eeS.WorkersA, _eeS.WorkersB];
-out.exclude.lit = ['a','b'].map(sd =>
-  [1,2,3,4].filter(n => document.getElementById('ee_wk_'+sd+'_'+n).classList.contains('on')));
-// The node each segment names, so the operator can tell which end they are raising. A segment pair with
-// no names is a coin toss on the one setting whose whole point is that the ends differ.
-out.exclude.labels = ['a','b'].map(sd => document.getElementById('ee_wklbl_'+sd).textContent);
-// The label must name the NODE, and the SERVER end must sit on top. Both are read off the link the
-// form was opened with: nodeName() resolves against a NODES list the tunnels page never loads, so it
-// fell through to the raw node id and the operator saw «روی fe70a7ad34».
-out.exclude.order = ['a','b'].map(sd => String(document.getElementById('ee_wkone_'+sd).style.order));
-
 out.box = {};
 (async () => {
+  await openCoreEdit('L-9');
+  out.exclude.prefilled = [_eeS.WorkersA, _eeS.WorkersB];
+  out.exclude.lit = ['a','b'].map(sd =>
+    [1,2,3,4].filter(n => document.getElementById('ee_wk_'+sd+'_'+n).classList.contains('on')));
+  // The node each segment names, so the operator can tell which end they are raising. A segment pair
+  // with no names is a coin toss on the one setting whose whole point is that the ends differ.
+  out.exclude.labels = ['a','b'].map(sd => document.getElementById('ee_wklbl_'+sd).textContent);
+  // The label must name the NODE, and the SERVER end must sit on top. The name comes off the select
+  // the modal now renders, which keeps the stored name for a node the list has lost -- the id the
+  // operator once saw («روی fe70a7ad34») is the fallback of last resort, not the first answer.
+  out.exclude.order = ['a','b'].map(sd => String(document.getElementById('ee_wkone_'+sd).style.order));
+
   // (5) the segment can never be left with nothing lit, whatever it is handed.
   out.box.paint = {};
   for (const n of [0, 1, MAX, MAX + 5, undefined, 'x'])
