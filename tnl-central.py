@@ -1886,7 +1886,8 @@ def api_node_names(d):
             continue
         p = _cached_ping(n["id"])
         out.append({"id": n["id"], "name": n["name"], "host": n["host"],
-                    "online": bool(p.get("ok")), "info": {"ips": p.get("ips") or {}}})
+                    "online": bool(p.get("ok")), "cpus": (p.get("stats") or {}).get("cpus"),
+                    "info": {"ips": p.get("ips") or {}}})
     return {"nodes": out, "total": len(out)}
 
 
@@ -3070,11 +3071,6 @@ def _push_merge_locked(jids):
 
 
 def _push_seal_locked():
-    """The payload the browser paints LAST, kept because the live view disappears with the job.
-
-    api_push_status answered `{idle: true, done: true}` once the last job finished -- no order and no
-    nodes -- so the final paint had nothing in it and every bar kept whatever the previous poll left.
-    On a fast push that is 0%: measured, three nodes that all ended `ok` were last painted `wait`."""
     global _push_final
     _push_final = _push_merge_locked(sorted(_push_batch, key=lambda k: _push_jobs[k].get("ts", 0)))
 
@@ -3658,11 +3654,6 @@ def _fetch_release(version, arch, on_progress=None, should_abort=None):
 
 
 def _staged_holds(version, need_bytes):
-    """Is the version the operator picked ALREADY on the panel?
-
-    `_stage_core` fetches unconditionally, and api_update_core only skipped staging when no version was
-    named at all -- but the form always names one, so pushing the version the panel had just downloaded
-    downloaded it again, both architectures, while every node card announced it."""
     info = _staged_info()
     if not info:
         return False
@@ -3913,14 +3904,16 @@ def api_fleet(d):
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
         ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
-        a_ips = _flat_ips(_cached_ping(L["a_node"]))
-        b_ips = _flat_ips(_cached_ping(L["b_node"]))
+        pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
+        a_ips, b_ips = _flat_ips(pa), _flat_ips(pb)
         side = "b" if L.get("view_side") == "b" else "a"
         pub = {k: v for k, v in L.items() if k != "psk"}
         rec = {**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
                "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
+               "a_cpus": (pa.get("stats") or {}).get("cpus"),
+               "b_cpus": (pb.get("stats") or {}).get("cpus"),
                "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), "tag": int(L.get("tag") or 0),
                **tfl.get(L["id"], {})}
         if L.get("type") == "core":
@@ -8308,7 +8301,7 @@ search:"جستجو…",
  dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
 got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا 8 باشد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
- workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
+ workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_lbl_cores:"دارای {c} هسته",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
  cover_sni_lbl:"سایتِ پوشش (SNI) — الزامی",cover_sni_ph:"مثلاً یک سایتِ HTTPSِ واقعی و محبوب",
@@ -9411,6 +9404,7 @@ function renderTypeExtra(){var w=el('c_typex');if(!w)return;var t=ssVal('c_type'
  else if(t=='ipsec'){w.innerHTML='<div class="autonote" style="margin-bottom:11px">'+ic('shield')+'<span>'+esc(T('ttype_ipsec_note'))+'</span></div>'}
  else w.innerHTML=''}
 function nodeName(id){var n=NODES.find(function(x){return x.id==id});return n?n.name:id}
+function nodeCpus(id){var n=NODES.find(function(x){return x.id==id});return n?num(n.cpus):0}
 async function doCreate(){var m=el('c_msg');m.className='msg';var a=ssVal('c_a'),b=ssVal('c_b');
  if(a==b){formErr(m,T('two_diff_nodes'));return}
  var type=ssVal('c_type'),range=ssVal('c_snr'),custom=v('c_subnet');
@@ -9904,15 +9898,17 @@ function workersSection(idp,fnp){
 
 function workersPaint(idp,sd,n){n=wkClamp(n);
  _WKMAX.forEach(function(k){var b=el(idp+'wk_'+sd+'_'+k);if(b)b.classList.toggle('on',k==n)})}
-function workersLbls(idp,an,bn,srv){
- [['a',an],['b',bn]].forEach(function(x){var e=el(idp+'wklbl_'+x[0]);if(!e)return;
-  e.textContent=T('workers_lbl_node').replace(/\\{n\\}/g,function(){return x[1]||''})});
- [['a',an],['b',bn]].forEach(function(x){var w=el(idp+'wkone_'+x[0]);if(w)w.style.order=(x[0]==srv)?0:1})}
-function workersVis(idp,S,an,bn){var on=wkCarrier(S);
+function workersLbl(nm,cpus){var s=T('workers_lbl_node').replace(/\\{n\\}/g,function(){return nm||''});
+ return num(cpus)?s+' · '+T('workers_lbl_cores').replace(/\\{c\\}/g,function(){return String(num(cpus))}):s}
+function workersLbls(idp,a,b,srv){
+ [['a',a],['b',b]].forEach(function(x){var e=el(idp+'wklbl_'+x[0]);if(!e)return;
+  e.textContent=workersLbl(x[1][0],x[1][1])});
+ [['a',a],['b',b]].forEach(function(x){var w=el(idp+'wkone_'+x[0]);if(w)w.style.order=(x[0]==srv)?0:1})}
+function workersVis(idp,S,a,b){var on=wkCarrier(S);
  if(!on){S.WorkersA=1;S.WorkersB=1}
  var w=el(idp+'wrkrow');if(w)w.style.display=on?'':'none';
  workersPaint(idp,'a',S.WorkersA);workersPaint(idp,'b',S.WorkersB);
- workersLbls(idp,an,bn,S.Srv=='b'?'b':'a');
+ workersLbls(idp,a,b,S.Srv=='b'?'b':'a');
  if(on){trFade(el(idp+'wkg_a'));trFade(el(idp+'wkg_b'))}}
 function sportPaint(idp,on){var g=el(idp+'spg');if(!g)return;
  var f=el(idp+'sp_fix'),r=el(idp+'sp_rnd');
@@ -10041,7 +10037,8 @@ function corToggleCtb(){ctbToggle('e_',_corS)}
 function ceToggleCtb(){ctbToggle('ee_',_eeS)}
 function ceToggleSprot(){sprotToggle('ee_',_eeS);ceFecGate()}
 function corSetWorkers(sd,n){_corS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('e_',sd,n)}
-function corWorkersVis(){workersVis('e_',_corS,nodeName(ssVal('e_a')),nodeName(ssVal('e_b')))}
+function corWorkersVis(){var a=ssVal('e_a'),b=ssVal('e_b');
+ workersVis('e_',_corS,[nodeName(a),nodeCpus(a)],[nodeName(b),nodeCpus(b)])}
 function corProtoVis(){var w=el('e_protorow');if(!w)return;var show=protoVisOn(_corS);w.style.display=show?'':'none';if(show){var i=el('e_rawproto');if(i&&!i.value)i.value='253';corProtoWarn()}}
 function corToggleGso(){_corS.Gso=!_corS.Gso;var s=el('e_gso');if(s)s.classList.toggle('on',_corS.Gso)}
 function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.Obfs;var s=el('e_obfs');if(s)s.classList.toggle('on',_corS.Obfs)}
@@ -10229,7 +10226,9 @@ function cePortVis(){var w=el('ee_portrow');if(!w)return;
  if(on){var i=el('ee_rawport');if(i&&!i.value)i.value='443';cePortWarn();sportPaint('ee_',_eeS.SportRandom)}
  sprotVis('ee_',_eeS);ctbVis('ee_',_eeS)}
 function ceSetWorkers(sd,n){_eeS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('ee_',sd,n)}
-function ceWorkersVis(){workersVis('ee_',_eeS,_eeS.NamesArr[0]||nodeName(_eeS.NodesArr[0]),_eeS.NamesArr[1]||nodeName(_eeS.NodesArr[1]))}
+function ceWorkersVis(){var N=_eeS.NodesArr||[],C=_eeS.CpusArr||[];
+ workersVis('ee_',_eeS,[_eeS.NamesArr[0]||nodeName(N[0]),num(C[0])||nodeCpus(N[0])],
+                       [_eeS.NamesArr[1]||nodeName(N[1]),num(C[1])||nodeCpus(N[1])])}
 function ceProtoVis(){var w=el('ee_protorow');if(!w)return;var show=protoVisOn(_eeS);w.style.display=show?'':'none';if(show){var i=el('ee_rawproto');if(i&&!i.value)i.value='253';ceProtoWarn()}}
 function ceToggleGso(){_eeS.Gso=!_eeS.Gso;var s=el('ee_gso');if(s)s.classList.toggle('on',_eeS.Gso)}
 function ceToggleObfs(){if(ssVal('ee_cipher')=='none')return;_eeS.Obfs=!_eeS.Obfs;var s=el('ee_obfs');if(s)s.classList.toggle('on',_eeS.Obfs)}
@@ -10238,7 +10237,7 @@ function ceSniVis(){var w=el('ee_snirow');if(w)w.style.display=(_eeS.Cover&&_eeS
 function ceCoverGate(){var ok=_eeS.Tr=='tcp'&&ssVal('ee_cipher')!='none',row=el('ee_coverrow'),s=el('ee_cover');if(!ok){_eeS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';ceSniVis()}
 function onEeCipher(){_obfsGate('ee_',_eeS);ceCoverGate()}
 function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})[0];if(!l){toast(T('not_found'),'err');return}
- _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||16;_eeS.FecParity=l.fec_parity||4;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.NodesArr=[l.a_node,l.b_node];_eeS.NamesArr=[l.a_name||'',l.b_name||''];_eeS.CpusArr=[num(l.a_cpus),num(l.b_cpus)];_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||16;_eeS.FecParity=l.fec_parity||4;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
  var aips=l.a_ips||[],bips=l.b_ips||[];
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:aips,bIps:bips,aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
