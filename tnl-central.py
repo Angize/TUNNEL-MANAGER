@@ -2768,7 +2768,7 @@ def api_agent_fetch_git(d):
     try:
         src = _gh_get(NODE_RAW_URL, 30)[:300000].decode("utf-8", "replace")
     except Exception as e:
-        raise ValueError(f"دریافت از گیت‌هاب ناموفق: {str(e)[:120]}")
+        raise ValueError("دریافت از گیت‌هاب ناموفق: " + _gh_why(e))
     if not src.strip():
         raise ValueError("فایلِ دریافتی خالی است")
     return _store_agent_src(src, {
@@ -3378,7 +3378,7 @@ def api_update_core(d):
             except _Cancelled:
                 raise
             except Exception as e:
-                staged["err"] = f"نسخهٔ «{version}» از گیت‌هاب گرفته نشد: {str(e)[:90]}"
+                staged["err"] = f"نسخهٔ «{version}» از گیت‌هاب گرفته نشد: " + _gh_why(e)
                 raise ValueError(staged["err"])
             staged["done"] = True
         finally:
@@ -3439,17 +3439,14 @@ _core_versions_lock = threading.Lock()
 
 
 def _fetch_core_versions():
-    try:
-        raw = _gh_get(_CORE_RELEASES_API, 10, {"Accept": "application/vnd.github+json"})
-        vers = []
-        for rel in json.loads(raw.decode()):
-            tag = rel.get("tag_name")
-            if not tag or rel.get("draft"):
-                continue
-            vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
-        return vers
-    except Exception:
-        return None
+    raw = _gh_get(_CORE_RELEASES_API, 30, {"Accept": "application/vnd.github+json"})
+    vers = []
+    for rel in json.loads(raw.decode()):
+        tag = rel.get("tag_name")
+        if not tag or rel.get("draft"):
+            continue
+        vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
+    return vers
 
 
 def api_core_versions(d):
@@ -3483,9 +3480,10 @@ def api_core_delete_blob(d):
 def api_core_check(d):
     before = list(_core_versions_cache["data"] or [])
     prev_top = (before[0].get("id") if before else "")
-    vers = _fetch_core_versions()
-    if vers is None:
-        return {"ok": False, "error": "\u062f\u0631\u06cc\u0627\u0641\u062a \u0627\u0632 \u06af\u06cc\u062a\u200c\u0647\u0627\u0628 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062f"}
+    try:
+        vers = _fetch_core_versions()
+    except Exception as e:
+        return {"ok": False, "error": "\u062f\u0631\u06cc\u0627\u0641\u062a \u0627\u0632 \u06af\u06cc\u062a\u200c\u0647\u0627\u0628 \u0646\u0627\u0645\u0648\u0641\u0642: " + _gh_why(e)}
     with _core_versions_lock:
         _core_versions_cache["data"] = vers
         _core_versions_cache["ts"] = time.time()
@@ -3542,7 +3540,10 @@ def _resolve_core_version(version):
     for v in (api_core_versions({}).get("versions") or []):
         if v.get("id") and v["id"] != "custom":
             return v["id"]
-    fetched = _fetch_core_versions()
+    try:
+        fetched = _fetch_core_versions()
+    except Exception:
+        fetched = []
     if fetched:
         with _core_versions_lock:
             _core_versions_cache["data"] = fetched
@@ -3606,7 +3607,7 @@ def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_ab
                 url = urllib.parse.urljoin(url, loc)
                 continue
             if r.status != 200:
-                raise OSError("HTTP %d" % r.status)
+                raise OSError(("HTTP %d %s" % (r.status, r.reason or "")).strip())
             return _read_body(r, r.getheader("Content-Length"), on_progress, should_abort)
         finally:
             for c in (sock, conn):
@@ -3616,6 +3617,10 @@ def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_ab
                     except Exception:
                         pass
     raise OSError("too many redirects")
+
+
+def _gh_why(e):
+    return (str(e).strip() or type(e).__name__)[:120]
 
 
 def _gh_get(url, timeout, headers=None, on_progress=None, should_abort=None):
@@ -3841,7 +3846,7 @@ def _stage_run(version):
             _stage_job["err"] = "لغو شد"
     except Exception as e:
         with _stage_job_lock:
-            _stage_job["err"] = str(e)[:140]
+            _stage_job["err"] = _gh_why(e)
     finally:
         with _stage_job_lock:
             _stage_job["done"] = True
