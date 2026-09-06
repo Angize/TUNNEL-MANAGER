@@ -486,6 +486,9 @@ jobs:
       - name: The conntrack bypass is the operator's switch, and the card asks for it
         working-directory: TUNNEL-MANAGER
         run: python tools/the_conntrack_bypass_is_opt_in_check.py
+      - name: And that pressure banner must be readable end to end, centred, and name the full node
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_pressure_warning_is_readable_check.py
       - name: The card must show the source port on every carrier that redraws it, not only on raw
         working-directory: TUNNEL-MANAGER
         run: python tools/the_card_shows_the_live_source_port_check.py
