@@ -88,7 +88,12 @@ def main():
               "and so does the edge pool")
         tagged = re.search(r'detail := axis \+ ":"', peer)
         check(bool(tagged), "the direct pool puts its axis in the detail")
-        check('detail := "ip:"' in ws, "and the edge pool puts its own in")
+        # It used to be a hardcoded `detail := "ip:"`, and this read that literal. CORE #481 made the
+        # edge pool tag the axis it ACTUALLY rotated, which is what this guard wanted all along -- so
+        # match the shape, not the spelling of the one axis it happened to hardcode.
+        tagged_ws = re.search(r'detail := (\w+) \+ ":"', ws)
+        check(bool(tagged_ws), "and the edge pool puts its own in",
+              'no `detail := <axis> + ":"` in ws_pool.go')
         axes = set()
         pkg = os.path.join(CORE, "internal", "packet")
         for f in sorted(os.listdir(pkg)):

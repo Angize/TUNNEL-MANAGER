@@ -32,8 +32,8 @@ if hasattr(sys.stdout, "reconfigure"):
 fails = []
 
 
-def check(ok, msg):
-    print(("  ok   " if ok else " FAIL ") + msg)
+def check(ok, msg, got=None):
+    print(("  ok   " if ok else " FAIL ") + msg + ("" if ok or got is None else "\n         %s" % (got,)))
     if not ok:
         fails.append(msg)
 
@@ -91,8 +91,13 @@ def main():
     cs = src.get("core_status.go", "")
     check("rollTries" in cs and re.search(r'func \(s \*coreStatus\) portRedrawn\(\)', cs),
           "the draw is COUNTED rather than written")
-    check('"port-roll",' in cs and '"sport:"' in cs and '" tries:"' in cs,
-          "and the line names the port it recovered on AND how many draws it cost")
+    # The detail used to be one expression and this read it whole, leading space and all:
+    # '" tries:"'. CORE #481 builds it in two steps -- `detail := "tries:"…` then `detail = "sport:"…
+    # + " " + detail` -- so the runtime string is byte-identical and the old literal is gone. Ask for
+    # the two things the line has to NAME, not for the shape of the expression that concatenates them.
+    check('"port-roll",' in cs and '"sport:"' in cs and '"tries:"' in cs,
+          "and the line names the port it recovered on AND how many draws it cost",
+          [k for k in ('"port-roll",', '"sport:"', '"tries:"') if k not in cs])
     lvl, fa = P._EV_ROT_CODE.get("port-roll", ("", ""))
     check(lvl == "ok" and "برگشت" in fa,
           "the panel's text says the redraw WORKED (%r/%r) — it used to describe the moment it was "
