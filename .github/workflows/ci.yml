@@ -540,3 +540,15 @@ jobs:
       - name: a stopped rotation says WHICH rotation stopped
         working-directory: TUNNEL-MANAGER
         run: python tools/the_stopped_rotation_names_its_axis_check.py
+      - name: a reply the panel cannot authenticate is not a reply
+        working-directory: TUNNEL-MANAGER
+        run: python tools/node_replies_are_signed_check.py
+      - name: logout ends the session, and the lock counts the client the proxy vouches for
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_session_really_ends_check.py
+      - name: a trickle cannot take the control plane away from the operator
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_stalled_request_cannot_lock_the_panel_check.py
+      - name: no inline handler carries a runtime value, where esc() cannot protect it
+        working-directory: TUNNEL-MANAGER
+        run: python tools/handlers_carry_no_runtime_values_check.py

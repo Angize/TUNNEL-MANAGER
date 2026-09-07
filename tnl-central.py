@@ -20,6 +20,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -443,26 +444,70 @@ def verify_password(conf, password):
     return hmac.compare_digest(got, conf.get("hash", ""))
 
 
+_sess_lock = threading.Lock()
+
+
+def sess_epoch(conf):
+    try:
+        return int(conf.get("sess_epoch") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def bump_sess_epoch(conf):
+    with _sess_lock:
+        nxt = sess_epoch(conf) + 1
+        try:
+            stored = load_conf()
+        except Exception:
+            stored = dict(conf)
+        stored["sess_epoch"] = nxt
+        save_json(WEB_CONF, stored)
+        conf["sess_epoch"] = nxt
+        return nxt
+
+
 def make_token(conf, user):
-    body = f"{user}|{int(time.time()) + SESSION_TTL}"
+    body = f"{user}|{int(time.time()) + SESSION_TTL}|{sess_epoch(conf)}"
     sig = hmac.new(bytes.fromhex(conf["secret"]), body.encode(), hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(f"{body}|{sig}".encode()).decode()
 
 
 def check_token(conf, token):
     try:
-        user, exp, sig = base64.urlsafe_b64decode(token.encode()).decode().rsplit("|", 2)
+        user, exp, epoch, sig = base64.urlsafe_b64decode(token.encode()).decode().rsplit("|", 3)
     except Exception:
         return None
-    body = f"{user}|{exp}"
+    body = f"{user}|{exp}|{epoch}"
     good = hmac.new(bytes.fromhex(conf["secret"]), body.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(good, sig) or int(exp) < int(time.time()) or user != conf.get("user"):
+    if not hmac.compare_digest(good, sig):
         return None
-    return user
+    try:
+        if int(exp) < int(time.time()) or int(epoch) != sess_epoch(conf):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return user if user == conf.get("user") else None
 
+
+FAIL_WINDOW = 300
+FAIL_LIMIT = 8
+FAIL_MAX_KEYS = 4096
+LOGIN_GATE = 4
 
 _fails = {}
 _fails_lock = threading.Lock()
+_login_gate = threading.BoundedSemaphore(LOGIN_GATE)
+
+
+def _fails_trim(now):
+    while _fails:
+        oldest = next(iter(_fails))
+        if now - _fails[oldest][1] <= FAIL_WINDOW:
+            break
+        del _fails[oldest]
+    while len(_fails) >= FAIL_MAX_KEYS:
+        del _fails[next(iter(_fails))]
 
 
 def rate_limited(ip):
@@ -470,22 +515,22 @@ def rate_limited(ip):
         rec = _fails.get(ip)
         if not rec:
             return False
-        if time.time() - rec[1] > 300:
-            _fails.pop(ip, None)
+        if time.time() - rec[1] > FAIL_WINDOW:
+            del _fails[ip]
             return False
-        return rec[0] >= 8
+        return rec[0] >= FAIL_LIMIT
 
 
 def note_fail(ip):
     with _fails_lock:
         now = time.time()
-        for k in [k for k, v in _fails.items() if now - v[1] > 300]:
-            _fails.pop(k, None)
+        _fails_trim(now)
         rec = _fails.get(ip)
-        if not rec or now - rec[1] > 300:
-            _fails[ip] = [1, now]
-        else:
+        if rec and now - rec[1] <= FAIL_WINDOW:
             rec[0] += 1
+        else:
+            _fails.pop(ip, None)
+            _fails[ip] = [1, now]
 
 
 def is_ipv4(s):
@@ -493,6 +538,19 @@ def is_ipv4(s):
         return isinstance(ipaddress.ip_address(s), ipaddress.IPv4Address)
     except Exception:
         return False
+
+
+def is_ip(s):
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False
+
+
+def log_internal(where):
+    sys.stderr.write("tnl-central: %s failed\n%s" % (where, traceback.format_exc()))
+    sys.stderr.flush()
 
 
 def load_nodes():
@@ -723,18 +781,22 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
         data = json.dumps(body or {}).encode() if method == "POST" else None
         path = f"/api/{wire(endpoint)}"
         headers = dict(_auth_headers(node, method, path, data))
+        ctr = headers["X-Ctr"]
         headers.update(_central_headers())
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, path, body=data, headers=headers)
         r = conn.getresponse()
         raw = r.read()
+        status, sig = r.status, r.getheader("X-Resp-Sig", "")
         conn.close()
         sock = None
+        if not _resp_verified(node, ctr, status, raw, sig):
+            return _unsigned_reply()
         try:
             out = json.loads(raw.decode())
         except Exception:
-            return {"ok": False, "error": f"پاسخِ HTTP {r.status} از نود"}
+            return {"ok": False, "error": f"پاسخِ HTTP {status} از نود"}
         if _retry and _stale_ctr(node, out):
             return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
         return out
@@ -812,6 +874,28 @@ def _auth_headers(node, method, path, data):
     return {"X-Ctr": str(ctr), "X-Body": bs, "X-Sig": base64.b64encode(mac).decode()}
 
 
+def _resp_sig_msg(ctr, status, body_sha):
+    return "resp\n%s\n%s\n%s" % (ctr, status, body_sha)
+
+
+def _resp_verified(node, ctr, status, raw, sig_b64):
+    tok = str(node.get("token") or "")
+    if not tok or not sig_b64:
+        return False
+    try:
+        got = base64.b64decode(sig_b64, validate=True)
+    except Exception:
+        return False
+    want = hmac.new(tok.encode("utf-8"),
+                    _resp_sig_msg(ctr, status, hashlib.sha256(raw).hexdigest()).encode("utf-8"),
+                    hashlib.sha256).digest()
+    return hmac.compare_digest(want, got)
+
+
+def _unsigned_reply():
+    return {"ok": False, "offline": True, "error": "پاسخِ نود امضای معتبر ندارد"}
+
+
 def _stale_ctr(node, res):
     if not isinstance(res, dict) or "stale counter" not in str(res.get("error") or ""):
         return False
@@ -830,7 +914,9 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
     url = f"http://{node['host']}:{int(node['port'])}{path}"
     data = json.dumps(body or {}).encode() if method == "POST" else None
     req = urllib.request.Request(url, data=data, method=method)
-    for k, v in _auth_headers(node, method, path, data).items():
+    hdrs = _auth_headers(node, method, path, data)
+    ctr = hdrs["X-Ctr"]
+    for k, v in hdrs.items():
         req.add_header(k, v)
     for k, v in _central_headers().items():
         req.add_header(k, v)
@@ -838,11 +924,17 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
         req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            out = json.loads(r.read().decode())
+            raw = r.read()
+            if not _resp_verified(node, ctr, r.status, raw, r.headers.get("X-Resp-Sig", "")):
+                return _unsigned_reply()
+            out = json.loads(raw.decode())
             return out if isinstance(out, dict) else {"ok": False, "error": "پاسخِ نود قابلِ خواندن نبود"}
     except urllib.error.HTTPError as e:
+        raw = e.read()
+        if not _resp_verified(node, ctr, e.code, raw, e.headers.get("X-Resp-Sig", "")):
+            return _unsigned_reply()
         try:
-            out = json.loads(e.read().decode())
+            out = json.loads(raw.decode())
         except Exception:
             return {"ok": False, "error": f"پاسخِ HTTP {e.code} از نود"}
         if not isinstance(out, dict):
@@ -869,7 +961,9 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         head = ["POST %s HTTP/1.1" % path, "Host: %s:%d" % (dh, dp),
                 "Content-Type: application/json", "Content-Length: %d" % total,
                 "Connection: close"]
-        head += ["%s: %s" % kv for kv in _auth_headers(node, "POST", path, data).items()]
+        hdrs = _auth_headers(node, "POST", path, data)
+        ctr = hdrs["X-Ctr"]
+        head += ["%s: %s" % kv for kv in hdrs.items()]
         head += ["%s: %s" % kv for kv in _central_headers().items()]
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
@@ -912,11 +1006,17 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             raw += b
             if len(raw) > 1048576:
                 raise OSError("response too large")
+        st = head_blob.split(b" ")
+        status = st[1].decode() if len(st) > 1 else "?"
+        sig = next((l.split(b":", 1)[1].strip().decode() for l in head_blob.split(b"\r\n")
+                    if l.lower().startswith(b"x-resp-sig:")), "")
+        payload = rest[:clen] if clen is not None else rest
+        if not _resp_verified(node, ctr, status, payload, sig):
+            return _unsigned_reply()
         try:
-            out = json.loads(rest.decode())
+            out = json.loads(payload.decode())
         except Exception:
-            st = head_blob.split(b" ")
-            return {"ok": False, "error": "HTTP %s از نود" % (st[1].decode() if len(st) > 1 else "?")}
+            return {"ok": False, "error": "HTTP %s از نود" % status}
         if not isinstance(out, dict):
             return {"ok": False, "error": "پاسخِ نود قابلِ خواندن نبود"}
         if _retry and _stale_ctr(node, out):
@@ -6857,8 +6957,41 @@ def api_settings_set(d):
     return {"ok": True, "settings": obj}
 
 
+CHECKIN_CTR_FILE = os.path.join(CENTRAL_DIR, "checkin_ctr.json")
+CHECKIN_CTR_PERSIST_MS = 60000
+
 _checkin_ctr = {}
+_checkin_ctr_saved = {}
 _checkin_ctr_lock = threading.Lock()
+
+
+def checkin_ctr_load():
+    try:
+        with open(CHECKIN_CTR_FILE) as f:
+            stored = json.load(f)
+    except Exception:
+        return
+    if not isinstance(stored, dict):
+        return
+    with _checkin_ctr_lock:
+        for k, v in stored.items():
+            try:
+                _checkin_ctr[k] = _checkin_ctr_saved[k] = int(v)
+            except (TypeError, ValueError):
+                continue
+
+
+def checkin_ctr_accept(nid, ctr):
+    with _checkin_ctr_lock:
+        if ctr <= _checkin_ctr.get(nid, 0):
+            return False
+        _checkin_ctr[nid] = ctr
+        if ctr - _checkin_ctr_saved.get(nid, 0) < CHECKIN_CTR_PERSIST_MS:
+            return True
+        _checkin_ctr_saved[nid] = ctr
+        snap = dict(_checkin_ctr_saved)
+    save_json(CHECKIN_CTR_FILE, snap)
+    return True
 
 
 def _checkin_claimant(d):
@@ -6882,11 +7015,7 @@ def _checkin_claimant(d):
             ctr = int(d.get("ctr") or 0)
         except (TypeError, ValueError):
             return None
-        with _checkin_ctr_lock:
-            if ctr <= _checkin_ctr.get(node["id"], 0):
-                return None
-            _checkin_ctr[node["id"]] = ctr
-        return node
+        return node if checkin_ctr_accept(node["id"], ctr) else None
     return None
 
 
@@ -7060,6 +7189,7 @@ API = {
     "reorder": api_reorder, "link-tag": api_link_tag,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+             "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
              "delete-link", "link-toggle", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
@@ -7070,12 +7200,66 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "act-cancel"}
 
 
+class HeaderDeadline:
+    def __init__(self, raw, sock, idle):
+        self.raw, self.sock, self.idle, self.until = raw, sock, idle, None
+
+    def arm(self, budget):
+        self.until = time.monotonic() + budget
+
+    def disarm(self):
+        self.until = None
+        try:
+            self.sock.settimeout(self.idle)
+        except OSError:
+            pass
+
+    def _tick(self):
+        if self.until is None:
+            return
+        left = self.until - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("header deadline")
+        try:
+            self.sock.settimeout(left)
+        except OSError:
+            pass
+
+    def readline(self, *a):
+        self._tick()
+        return self.raw.readline(*a)
+
+    def read(self, *a):
+        self._tick()
+        return self.raw.read(*a)
+
+    def __getattr__(self, name):
+        return getattr(self.raw, name)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "tnl-central"
     timeout = 60
+    header_budget = 15
 
     def log_message(self, *a):
         pass
+
+    def setup(self):
+        BaseHTTPRequestHandler.setup(self)
+        self.rfile = HeaderDeadline(self.rfile, self.connection, self.timeout)
+
+    def handle_one_request(self):
+        self.rfile.arm(self.header_budget)
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        finally:
+            self.rfile.disarm()
+
+    def parse_request(self):
+        got = BaseHTTPRequestHandler.parse_request(self)
+        self.rfile.disarm()
+        return got
 
     def _conf(self):
         return self.server.conf
@@ -7159,7 +7343,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/checkin":
             self._checkin()
         elif path == "/api/logout":
-            secure = "; Secure" if self._conf().get("tls") else ""
+            self._body()
+            conf = self._conf()
+            if self._user():
+                bump_sess_epoch(conf)
+            secure = "; Secure" if conf.get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
         elif path.startswith("/api/"):
             self._api(path[5:], "POST")
@@ -7169,31 +7357,41 @@ class Handler(BaseHTTPRequestHandler):
     def _client_ip(self):
         peer = self.client_address[0]
         conf = self._conf()
-        if conf.get("tls"):
-            trusted = conf.get("trusted_proxies")
-            if isinstance(trusted, list) and trusted:
-                peer_trusted = peer in trusted
-            else:
-                try:
-                    peer_trusted = ipaddress.ip_address(peer).is_loopback
-                except ValueError:
-                    peer_trusted = False
-            if peer_trusted:
-                first = (self.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
-                if first:
-                    return first
-        return peer
+        if not conf.get("tls"):
+            return peer
+        trusted = conf.get("trusted_proxies")
+        if isinstance(trusted, list) and trusted:
+            if peer not in trusted:
+                return peer
+            hops = set(trusted)
+        else:
+            try:
+                if not ipaddress.ip_address(peer).is_loopback:
+                    return peer
+            except ValueError:
+                return peer
+            hops = set()
+        chain = [h.strip() for h in (self.headers.get("X-Forwarded-For", "") or "").split(",") if h.strip()]
+        while chain and chain[-1] in hops:
+            chain.pop()
+        return chain[-1] if chain and is_ip(chain[-1]) else peer
 
     def _login(self):
         ip = self._client_ip()
         if rate_limited(ip):
             self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
-        d = self._body()
-        conf = self._conf()
-        time.sleep(0.3)
-        user_ok = hmac.compare_digest(str(d.get("user", "")), str(conf.get("user") or ""))
-        pass_ok = verify_password(conf, str(d.get("pass", "")))
+        if not _login_gate.acquire(blocking=False):
+            self._send(429, {"error": "تلاشِ زیاد — چند لحظه صبر کن"})
+            return
+        try:
+            d = self._body()
+            conf = self._conf()
+            time.sleep(0.3)
+            user_ok = hmac.compare_digest(str(d.get("user", "")), str(conf.get("user") or ""))
+            pass_ok = verify_password(conf, str(d.get("pass", "")))
+        finally:
+            _login_gate.release()
         if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
@@ -7242,8 +7440,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send(400, {"error": str(e)})
             return
-        except Exception as e:
-            self._send(500, {"error": f"خطای داخلی: {str(e)[:120]}"})
+        except Exception:
+            log_internal("checkin")
+            self._send(500, {"error": "خطای داخلی"})
             return
         if not res.get("ok"):
             note_fail(ip)
@@ -7268,8 +7467,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, _dispatch(cmd, d))
         except ValueError as e:
             self._send(400, {"error": str(e)})
-        except Exception as e:
-            self._send(500, {"error": f"خطای داخلی: {str(e)[:120]}"})
+        except Exception:
+            log_internal("api %s" % cmd)
+            self._send(500, {"error": "خطای داخلی"})
 
 
 LOGIN_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
@@ -8475,6 +8675,9 @@ function post(u,b,ms){var g=_abo(ms||NET_POST_TIMEOUT);
   .then(function(v){clearTimeout(g.t);return v})}
 function logout(){post('logout').then(function(){location.href='/'})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function hA(e){return e.getAttribute('data-ha')}
+function hB(e){return e.getAttribute('data-hb')}
+function hC(e){return e.getAttribute('data-hc')}
 function el(id){return document.getElementById(id)}
 function v(id){var e=el(id);return e?e.value.trim():''}
 function setT(id,t){var e=el(id);if(e&&e.textContent!==String(t))e.textContent=t}
@@ -8634,9 +8837,9 @@ function markLogsSeen(){setLS('tnl_logs_seen',EVSEQ);setUnread(0)}
 function ssHTML(key,items,sel,ph,cb){SSI[key]=items;SSCB[key]=cb||'';
  if(sel==null&&items.length)sel=items[0].v;SEL[key]=sel;
  var cur=items.filter(function(x){return String(x.v)==String(sel)})[0];
- return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" onclick="ssToggle(\\''+key+'\\')"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
+ return '<button type="button" class="msbtn'+(cur?'':' ph')+'" id="ssb_'+key+'" data-ha="'+esc(key)+'" onclick="ssToggle(hA(this))"><span id="sst_'+key+'">'+(cur?esc(cur.label):esc(_ssph(ph)))+'</span><span class="cv">'+ic('chev')+'</span></button>'}
 function _ssph(ph){return ph||T('select')}
-function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" onclick="ssPick(\\''+key+'\\',this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="mssub">'+esc(it.sub)+'</span>':'')+'</div>'}
+function ssRow(key,it){return '<div class="msrow'+(String(it.v)==String(SEL[key])?' sel':'')+'" data-v="'+esc(it.v)+'" data-ha="'+esc(key)+'" onclick="ssPick(hA(this),this)"><span class="mscheck"></span><span>'+esc(it.label)+'</span>'+(it.sub?'<span class="mssub">'+esc(it.sub)+'</span>':'')+'</div>'}
 var SS_OV={};
 function ssToggle(key){var items=SSI[key]||[];if(!items.length)return;  
  var search=items.length>10?'<input class="search sspopq" placeholder="'+esc(T('search'))+'" oninput="msFilter(this)" autocomplete="off">':'';
@@ -8716,8 +8919,8 @@ function actBar(a){
 function actRow(a){if(!actLive(a))return '';
  var sw=(_ASTEP[a.key]!==a.step);_ASTEP[a.key]=a.step;
  var btn=(a.state=='run')
-  ?(a.can?'<button class="abtn danger" type="button" onclick="actCancel(\\''+esc(a.key)+'\\')">'+esc(T('a_cancel'))+'</button>':'')
-  :'<button class="abtn" type="button" title="'+esc(T('a_dismiss'))+'" onclick="actDismiss(\\''+esc(actSeen(a))+'\\')">✕</button>';
+  ?(a.can?'<button class="abtn danger" type="button" data-ha="'+esc(a.key)+'" onclick="actCancel(hA(this))">'+esc(T('a_cancel'))+'</button>':'')
+  :'<button class="abtn" type="button" title="'+esc(T('a_dismiss'))+'" data-ha="'+esc(actSeen(a))+'" onclick="actDismiss(hA(this))">✕</button>';
  return '<div class="arow">'+actPill(a)+
   '<span class="astep'+(sw?' sw':'')+'">'+actWords(a)+'</span>'+
   (a.state=='run'?'<span class="aclock">'+esc(actAge(a))+'</span>':'')+btn+actBar(a)+'</div>'}
@@ -8755,7 +8958,7 @@ async function actAccepted(key,box){var end=Date.now()+45000;
  return {ok:true}}
 
 function toolbar(kind,ph){var rb=(kind=='core'||kind=='tunnels'||kind=='nodes'||kind=='portfw')?'<button class="reordbtn" title="'+esc(T('reord_t'))+'" onclick="toggleReord()">'+gripSvg()+'</button>':'';
- return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" oninput="onSearch(\\''+kind+'\\')">'+rb+'</div>'}
+ return '<div class="toolbar"><input id="q_'+kind+'" class="search" placeholder="'+ph+'" value="'+esc(QRY[kind]||'')+'" data-ha="'+esc(kind)+'" oninput="onSearch(hA(this))">'+rb+'</div>'}
 function onSearch(kind){clearTimeout(SEARCH_T);SEARCH_T=setTimeout(function(){QRY[kind]=v('q_'+kind);refresh()},280)}
 function msFilter(inp){var q=inp.value.trim().toLowerCase(),list=inp.parentNode;
  list.querySelectorAll('.msrow').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().indexOf(q)>=0)?'':'none'})}
@@ -8835,7 +9038,7 @@ async function refreshOverview(){var s=await j('summary');if(!el('o_score'))retu
   (alerts.length?'<span class="ochip b">'+esc(T('ov_chip_alert'))+' <b>'+alerts.length+'</b></span>':'<span class="ochip o">'+esc(T('ov_chip_noalert'))+'</span>');
  var goMap={node:'nodes',link:'tunnels',drift:'tunnels',disk:'nodes',ram:'nodes',cpu:'nodes',agent:'settings'};
  var goLbl={nodes:T('nav_nodes'),tunnels:T('nav_tunnels'),settings:T('nav_settings')};
- el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" onclick="go(\\''+g+'\\')">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' '+esc(T('ov_noalert'))+'</div>';
+ el('o_alerts').innerHTML=alerts.length?alerts.map(function(a){var c=a.level=='bad'?cssv('--bad'):cssv('--gold');var g=goMap[a.kind]||'nodes';return '<div class="oalert"><span class="dot" style="background:'+c+'"></span><span class="msg">'+esc(a.msg)+'</span><span class="go" data-ha="'+esc(g)+'" onclick="go(hA(this))">'+goLbl[g]+' →</span></div>'}).join(''):'<div style="text-align:center;padding:10px 0;font-size:12.5px;color:var(--ok);display:flex;align-items:center;justify-content:center;gap:7px">'+ic('okc','var(--ok)')+' '+esc(T('ov_noalert'))+'</div>';
  var heat=s.heat||[];
  setHTML(el('o_heat'),heat.length?heat.map(function(h){var nm=esc(h.name);if(!h.online)return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+esc(T('offline'))+'" title="'+nm+' — '+esc(T('offline'))+'" style="height:10px;background:color-mix(in srgb,var(--sub) 35%,transparent)"></div>';var p=num(h.pct);return '<div class="hbar" onclick="heatTip(event,this)" data-nm="'+nm+'" data-info="'+p+T('pct')+'" title="'+nm+' — '+p+T('pct')+'" style="height:'+(12+p*0.54)+'px;background:'+ocol(p)+'"></div>'}).join(''):'<div class="muted" style="font-size:12px">'+esc(T('ov_no_nodes'))+'</div>');
  setT('o_heat_c',(heat.length||0)+' '+T('ov_heat_note'));
@@ -9010,10 +9213,10 @@ function nodeDetails(id){var n=NODES.find(function(x){return x.id==id});if(!n)re
   mb=head+g+traf+'<div class="nd-divider"></div>'+tiles+'<div class="nd-divider"></div><div class="nd-sec">'+ic('pin')+' '+esc(T('nd_ips'))+'<span class="muted" style="margin-inline-start:auto;font-size:11px;font-weight:500">'+esc(T('ip_leg'))+'</span></div><div id="nd_ips" class="ndips"><div class="muted" style="font-size:11.5px;padding:6px 2px">…</div></div>'}
  else{mb=head+'<div class="nd-off">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>'+esc(i.error)+'</span>':'')+'</div>'}
  var sub=n.online?'<span class="lpill"><span class="pd"></span>'+esc(T('live'))+'</span> '+esc(T('refresh2s')):esc(T('nd_status'));
- var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>'+esc(T('nd_title'))+'</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" onclick="ndRetest(\\''+id+'\\')">'+esc(T('nd_conn_test'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('close'))+'</button></div>';
+ var html='<div class="msticky"><span class="medi">'+ic('info')+'</span><div class="ttl"><h3>'+esc(T('nd_title'))+'</h3><div class="sb">'+sub+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+mb+'</div><div class="mfoot"><button class="primary" data-ha="'+esc(id)+'" onclick="ndRetest(hA(this))">'+esc(T('nd_conn_test'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('close'))+'</button></div>';
  var ov=openModal(html,{cls:'ndsheet',onclose:function(){if(ov._iv){clearInterval(ov._iv);ov._iv=0}}});
  if(n.online){ndApplyStats(s);var tfin=[],tfout=[];
-  j('node-ips?id='+id).then(function(r){if(ov._closed)return;var ib=el('nd_ips');if(ib)ib.innerHTML=ipTagsHTML(r&&r.ips)}).catch(function(){});
+  post('node-ips',{id:id}).then(function(v){if(ov._closed)return;var r=v.d;var ib=el('nd_ips');if(ib)ib.innerHTML=ipTagsHTML(r&&r.ips)});
   var poll=function(){
    j('node-stats?id='+id).then(function(r){if(ov._closed)return;if(r&&r.online&&r.stats){ndApplyStats(r.stats);ndSetHead(ov,true)}else{ndSetHead(ov,false)}}).catch(function(){});
    j('traffic?id='+id).then(function(r){if(ov._closed||!r||!r.node)return;var nd=r.node;
@@ -9027,7 +9230,7 @@ async function openNodeEdit(id){var n=NODES.find(function(x){return x.id==id});i
  await pxLoad();   
  _pxNode['ne_']=n;
  var b='<div class="grid2"><div><label class="first">'+esc(T('f_name'))+'</label><input id="e_name_'+id+'" value="'+esc(n.name)+'"></div><div><label class="first">'+esc(T('f_host_ip'))+'</label><input id="e_host_'+id+'" value="'+esc(n.host)+'"></div></div><div class="grid2"><div><label>'+esc(T('f_port'))+'</label><input id="e_port_'+id+'" value="'+esc(n.port)+'"></div><div><label>'+esc(T('f_token'))+'</label><input id="e_tok_'+id+'" placeholder="'+esc(T('tok_keep'))+'"></div></div>'+proxyBlock('ne_')+'<div class="msg" id="em_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveEdit(\\''+id+'\\')">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('nd_edit'))+'</h3><div class="sb">'+esc(n.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" data-ha="'+esc(id)+'" onclick="saveEdit(hA(this))">'+esc(T('save'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>')}
 function liveIP(ips,cur){ips=ips||[];return (cur&&ips.indexOf(cur)>=0)?cur:''}
 function ipEndField(side,id,nm,ips,cur){var lab='<label class="first">'+esc(T('ip_of'))+esc(nm)+'</label>';
  ips=(ips&&ips.length)?ips:(cur?[cur]:[]);
@@ -9039,7 +9242,7 @@ function openLinkEdit(id){var l=FLEET.find(function(x){return x.id==id});if(!l)r
   '<div class="muted" style="font-weight:700;color:var(--tx);margin:16px 2px 9px;display:flex;align-items:center;gap:6px">'+ic('pin','var(--acc)')+esc(T('ip_each_end'))+(multi?' <span class="tag" style="font-size:9.5px;padding:1px 7px">'+esc(T('multi_ip'))+'</span>':'')+'</div>'+
   '<div class="grid2">'+ipEndField('a',id,l.a_name,l.a_ips,l.a_ip)+ipEndField('b',id,l.b_name,l.b_ips,l.b_ip)+'</div>'+
   '<div class="muted" style="font-size:11.5px;margin-top:9px">'+esc(T('link_ip_note1'))+esc(l.tunnel_id)+esc(T('link_ip_note2'))+'</div><div class="msg" id="lem_'+id+'"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>'+esc(T('edit_tun_t'))+'</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="saveLinkEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{onclose:function(){EDID=null}});
+ openModal('<div class="msticky"><span class="medi">'+ic('link')+'</span><div class="ttl"><h3>'+esc(T('edit_tun_t'))+'</h3><div class="sb">'+esc(l.a_name)+' ↔ '+esc(l.b_name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" data-ha="'+esc(id)+'" onclick="saveLinkEdit(hA(this))">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{onclose:function(){EDID=null}});
  renderEditPort(id)}
 async function openPfEdit(i){var p=PF[i];if(!p)return;var rotOn=p.switch_interval>0;
  var r=await j('node-names');NODES=r.nodes||[];var ips=nodeIps(p.node_id);
@@ -9052,9 +9255,9 @@ function nodeCard(n){var i=n.info||{};
  var key=n.id,open=!!TOPEN[key];
  var en=(n.disabled!==true);   
  var dotk=n.online?'on':(n.pending?'':'off');   
- var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" onclick="toggleNode(\\''+n.id+'\\',event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
+ var head='<div class="chead" onclick="cardTogFromEl(this)">'+grip()+'<div class="tsw'+(en?' on':'')+'" data-ha="'+esc(n.id)+'" onclick="toggleNode(hA(this),event)" title="'+esc(T('nd_toggle'))+'"></div>'+(n.moved_to?'<button class="mvwarn" data-nid="'+esc(n.id)+'" onclick="openMovedIp(this,event)" title="'+esc(T('nd_moved_t'))+'">'+ic('warn')+'</button>':'')+'<span class="grow"></span><div class="hmain" style="direction:ltr;align-items:flex-start;gap:2px;flex:0 0 auto;min-width:0"><div class="name" style="text-align:left">'+esc(n.name)+(n.pending_del>0?' <span class="tag" style="font-size:9px;padding:1px 5px;background:color-mix(in srgb,#e0894f 18%,transparent);color:#e0894f" title="'+esc(T('pend_del_t'))+'">'+ic('trash')+num(n.pending_del)+'</span>':'')+(n.proxy_on?' <span class="tag" style="font-size:9.5px;padding:1px 6px">'+esc(T('proxy'))+'</span>':'')+'</div><div class="muted mono" style="font-size:12px">'+esc(n.host)+':'+esc(n.port)+'</div></div>'+'<span class="ndot '+dotk+'" title="'+esc(n.online?T('online'):(n.pending?T('pending_check'):T('offline')))+'"></span>'+CHEVI+'</div>';
  var body=n.online?'<div class="nchips"><span class="nchip">'+ic('link')+esc(T('nd_tunnels'))+' <b>'+num(i.tunnels)+'</b></span><span class="nchip">'+ic('globe')+esc(T('nd_portfw'))+' <b>'+num(i.portfw)+'</b></span>'+(i.version?'<span class="nchip">'+ic(AG_IC)+esc(T('nd_agent'))+' v<b>'+num(i.version)+'</b></span>':'')+((i.core_sha&&String(i.core_sha).length)?'<span class="nchip">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(i.core_ver||'?')+'</b></span>':'<span class="nchip" style="color:var(--sub)">'+ic(COR_IC)+esc(T('nd_core'))+' <b>'+esc(T('nd_core_missing'))+'</b></span>')+'</div>':'<div class="noff">'+ic('plugoff')+'<b>'+esc(T('not_available'))+'</b>'+(i.error?'<span>· '+esc(i.error)+'</span>':'')+'</div>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" onclick="testNode(\\''+n.id+'\\')">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" onclick="kernelTune(\\''+n.id+'\\')">'+ic('gauge')+'</button>':'')+'<button class="act reset" title="'+esc(T('tip_nreset'))+'" onclick="resetNodeTraffic(\\''+n.id+'\\')">'+ic('reset')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" onclick="nodeDetails(\\''+n.id+'\\')">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openNodeEdit(\\''+n.id+'\\')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_test'))+'" data-ha="'+esc(n.id)+'" onclick="testNode(hA(this))">'+ic('bolt')+'</button>'+(n.online?'<button class="act" title="'+esc(T('tip_tune'))+'" data-ha="'+esc(n.id)+'" onclick="kernelTune(hA(this))">'+ic('gauge')+'</button>':'')+'<button class="act reset" title="'+esc(T('tip_nreset'))+'" data-ha="'+esc(n.id)+'" onclick="resetNodeTraffic(hA(this))">'+ic('reset')+'</button><button class="act info" title="'+esc(T('tip_details'))+'" data-ha="'+esc(n.id)+'" onclick="nodeDetails(hA(this))">'+ic('info')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" data-ha="'+esc(n.id)+'" onclick="openNodeEdit(hA(this))">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-nid="'+esc(n.id)+'" data-nm="'+esc(n.name)+'" data-online="'+(n.online?'1':'0')+'" onclick="delNode(this)">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+(en?'':' off')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="nodes">'+head+ndTraf(n)+'<div class="cbody"><div class="cbody-in">'+body+upBar(n)+acts+rmsgHTML('ntm_'+n.id)+'</div></div></div>'}
 async function toggleNode(id,e){e.stopPropagation();var n=NODES.filter(function(x){return x.id==id})[0];if(!n)return;  
  var dis=!(n.disabled===true);n.disabled=dis;
@@ -9112,8 +9315,8 @@ function ktRows(s){var active=!!s.active;
 function ktShow(id,s){var ex=document.querySelector('.modal.ktmodal');if(ex)closeModal(ex.closest('.modalov'));  
  var bbr=!!s.bbr_available,active=!!s.active;
  var note=bbr?'':'<div class="msg err" style="margin-top:9px">'+esc(T('kt_nobbr'))+'</div>';
- var btn=active?'<button class="primary" onclick="ktDo(this,\\''+id+'\\',\\'revert\\')">'+esc(T('kt_disable'))+'</button>'
-  :'<button class="primary"'+(bbr?'':' disabled')+' onclick="ktDo(this,\\''+id+'\\',\\'apply\\')">'+esc(T('kt_enable'))+'</button>';
+ var btn=active?'<button class="primary" data-ha="'+esc(id)+'" onclick="ktDo(this,hA(this),\\'revert\\')">'+esc(T('kt_disable'))+'</button>'
+  :'<button class="primary"'+(bbr?'':' disabled')+' data-ha="'+esc(id)+'" onclick="ktDo(this,hA(this),\\'apply\\')">'+esc(T('kt_enable'))+'</button>';
  openModal('<div class="msticky"><span class="medi">'+ic('gauge')+'</span><div class="ttl"><h3>'+esc(T('kt_title'))+'</h3><div class="sb">'+esc(T('kt_sub'))+'</div></div></div><div class="mbody"><div class="kt-desc">'+esc(T('kt_desc'))+'</div>'+ktRows(s)+note+'<div class="msg kt_msg"></div></div><div class="mfoot hug">'+btn+'<button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'ktmodal'})}
 async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.querySelector('.kt_msg'):null;  
  btn.disabled=true;if(m){m.className='msg kt_msg';m.textContent=T('kt_working')}
@@ -9124,8 +9327,8 @@ async function ktDo(btn,id,action){var ov=btn.closest('.modalov'),m=ov?ov.queryS
 function doForceWipe(id){return confirmBox(T('del_wipe_force_ask'),T('del_wipe_force_yes')).then(function(ok){if(ok)return doDelNode(id,true)})}
 function delNode(btn){var id=btn.getAttribute('data-nid');var nm=btn.getAttribute('data-nm');var offline=btn.getAttribute('data-online')==='0';
  var wipeOpt=offline
-  ?'<button type="button" class="delopt danger" onclick="doForceWipe(\\''+id+'\\')"><div class="do-t">'+ic('warn')+esc(T('del_wipe_force_yes'))+'</div><div class="do-s">'+esc(T('del_wipe_force_s'))+'</div></button>'
-  :'<button type="button" class="delopt danger" onclick="doDelNode(\\''+id+'\\')"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>';
+  ?'<button type="button" class="delopt danger" data-ha="'+esc(id)+'" onclick="doForceWipe(hA(this))"><div class="do-t">'+ic('warn')+esc(T('del_wipe_force_yes'))+'</div><div class="do-s">'+esc(T('del_wipe_force_s'))+'</div></button>'
+  :'<button type="button" class="delopt danger" data-ha="'+esc(id)+'" onclick="doDelNode(hA(this))"><div class="do-t">'+ic('warn')+esc(T('del_wipe_t'))+'</div><div class="do-s">'+esc(T('del_wipe_s'))+'</div></button>';
  var b='<div class="muted" style="font-size:12.5px;margin-bottom:13px">'+esc(T('del_how'))+'</div>'+
   wipeOpt+
   '<div class="msg" id="del_msg"></div>';
@@ -9209,8 +9412,8 @@ function accHead(l,isCore){var on=l.enabled!==false;
 var typ=isCore?'<span class="ctag c-'+esc(carrierFamily(l))+'">'+esc(carrierLabel(l))+'</span>'
               :'<span class="ctag '+esc(l.type||'')+'">'+esc((l.type||'').toUpperCase())+'</span>';
  var off=on?'':'<span class="offtxt" style="font-size:11px">'+esc(T('st_off'))+'</span>';
- return '<div class="chead" onclick="cardTog(\\''+l.id+'\\',event)">'+grip()+
-  '<div class="tsw'+(on?' on':'')+'" onclick="toggleLink(\\''+l.id+'\\',event)" title="'+esc(T('tip_toggle'))+'"></div>'+
+ return '<div class="chead" data-ha="'+esc(l.id)+'" onclick="cardTog(hA(this),event)">'+grip()+
+  '<div class="tsw'+(on?' on':'')+'" data-ha="'+esc(l.id)+'" onclick="toggleLink(hA(this),event)" title="'+esc(T('tip_toggle'))+'"></div>'+
   '<div class="hmain"><div class="hrow1"><span class="hname">'+esc(l.name)+'</span>'+typ+off+
    '<span class="hpeers" dir="ltr">'+accDot(l,sl)+esc(l[sl+'_name'])+' ↔ '+esc(l[sr+'_name'])+accDot(l,sr)+'</span></div></div>'+CHEVI+'</div>'}
 function accBodyTraf(l){if(l.enabled===false)return '<div class="offbadge">'+ic('warn','var(--bad)')+'<span>'+esc(T('tun_off_note'))+'</span></div>';
@@ -9309,8 +9512,8 @@ function accShell(l,isCore,inner){var open=!!TOPEN[l.id];
   '<div class="cbody"><div class="cbody-in">'+inner+'</div></div></div>'}
 function linkFooter(l,editFn){
  var msg=rmsgHTML('lchk_'+l.id);
- var flip='<button class="act flip" onclick="flipView(\\''+l.id+'\\')" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" onclick="checkLink(\\''+l.id+'\\')">'+ic('activity')+'</button><button class="act info" title="'+esc(T('tip_speed'))+'" onclick="speedLink(\\''+l.id+'\\')">'+ic('gauge')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetTraffic(\\''+l.id+'\\')">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="'+editFn+'(\\''+l.id+'\\')">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" onclick="rebuildLink(\\''+l.id+'\\')">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" onclick="restartLink(\\''+l.id+'\\')">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delLink(\\''+l.id+'\\')">'+ic('trash')+'</button></div>';
+ var flip='<button class="act flip" data-ha="'+esc(l.id)+'" onclick="flipView(hA(this))" title="'+esc(T('tip_flip'))+esc(l.view_name||'—')+'">'+ic('swap')+'</button>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('tip_ping'))+'" data-ha="'+esc(l.id)+'" onclick="checkLink(hA(this))">'+ic('activity')+'</button><button class="act info" title="'+esc(T('tip_speed'))+'" data-ha="'+esc(l.id)+'" onclick="speedLink(hA(this))">'+ic('gauge')+'</button>'+flip+'<button class="act reset" title="'+esc(T('tip_reset'))+'" data-ha="'+esc(l.id)+'" onclick="resetTraffic(hA(this))">'+ic('reset')+'</button><button class="act warn" title="'+esc(T('tip_edit'))+'" data-ha="'+esc(l.id)+'" onclick="'+editFn+'(hA(this))">'+ic('pen')+'</button><button class="act" title="'+esc(T('tip_rebuild'))+'" data-ha="'+esc(l.id)+'" onclick="rebuildLink(hA(this))">'+ic('redo')+'</button>'+(l.type=='core'?'<button class="act info" title="'+esc(T('tip_restart'))+'" data-ha="'+esc(l.id)+'" onclick="restartLink(hA(this))">'+ic('restart')+'</button>':'')+'<button class="act danger" title="'+esc(T('tip_delete'))+'" data-ha="'+esc(l.id)+'" onclick="delLink(hA(this))">'+ic('trash')+'</button></div>';
  var drift=l.drift?'<div class="msg err" style="margin:0 0 9px;display:flex;align-items:center;gap:6px">'+ic('warn','#e0564f')+'<span>'+esc(T('drift_note'))+'</span></div>':'';
  if(l.rb&&!l.rb.ok)drift+='<div class="msg err" style="margin:0 0 9px">'+esc(T('rb_last_fail'))+esc(terr(l.rb.error||T('rebuild_failed')))+'</div>';
  return {drift:drift,acts:acts,msg:msg}}
@@ -9404,7 +9607,7 @@ function ipTagsHTML(ips){ips=ips||[];if(!ips.length)return '<div class="muted" s
  return ips.map(function(x){return '<div class="iptag"><span class="mono" style="direction:ltr;font-size:12.5px">'+esc(x.ip)+'</span><span class="tgs">'+ipChips(x)+'</span></div>'}).join('')}
 var _rbSel={},_rbOv=null;
 function openRebuildPicker(id){
- j('link-rebuild-info?id='+id).then(function(r){
+ post('link-rebuild-info',{id:id}).then(function(v){var r=v.d;
   if(!r||!r.id){toast(T('rb_no_link'),'err');return}
   _rbSel={};var secs='';
   [['a','a_ip'],['b','b_ip']].forEach(function(pp){var side=r[pp[0]],key=pp[1];
@@ -9415,10 +9618,10 @@ function openRebuildPicker(id){
      (side.ips&&side.ips.length?side.ips.map(function(x){return rbRow(key,x)}).join(''):'<div class="muted" style="font-size:12px;padding:4px 2px">'+esc(T('rb_no_ip'))+'</div>')+'</div>'});
   if(!secs){toast(T('rb_no_drift'),'ok');refreshTunnels();return}
   var body='<div style="color:var(--sub);font-size:12px;margin-bottom:12px">'+esc(T('rb_info'))+'</div>'+secs+'<div class="msg" id="rb_msg"></div>';
-  _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>'+esc(T('rb_title'))+'</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" onclick="doRebuildPick(\\''+id+'\\')">'+ic('redo')+esc(T('tip_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
+  _rbOv=openModal('<div class="msticky"><span class="medi">'+ic('redo')+'</span><div class="ttl"><h3>'+esc(T('rb_title'))+'</h3><div class="sb">'+esc(r.name||'')+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+body+'</div><div class="mfoot"><button class="primary" data-ha="'+esc(id)+'" onclick="doRebuildPick(hA(this))">'+ic('redo')+esc(T('tip_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>');
  }).catch(function(){toast(T('rb_fetch_err'),'err')})}
 function rbRow(key,x){var sel=_rbSel[key]==x.ip;
- return '<div class="rbrow'+(sel?' sel':'')+'" data-ip="'+esc(x.ip)+'" onclick="rbPick(\\''+key+'\\',this)"><span class="rbdot"></span><span class="mono" style="direction:ltr;font-size:13px">'+esc(x.ip)+'</span><span class="rbtags">'+ipChips(x)+'</span></div>'}
+ return '<div class="rbrow'+(sel?' sel':'')+'" data-ip="'+esc(x.ip)+'" data-ha="'+esc(key)+'" onclick="rbPick(hA(this),this)"><span class="rbdot"></span><span class="mono" style="direction:ltr;font-size:13px">'+esc(x.ip)+'</span><span class="rbtags">'+ipChips(x)+'</span></div>'}
 function rbPick(key,row){_rbSel[key]=row.getAttribute('data-ip');
  var sec=row.closest('.rbsec')||row.parentNode;sec.querySelectorAll('.rbrow').forEach(function(r){r.classList.remove('sel')});
  row.classList.add('sel')}
@@ -9677,7 +9880,7 @@ function portRows(l){var t=l.transport||'udp';
  if(live&&portTriesOn({Tr:t}))rows+='<div>'+esc(T('port_src'))+': <b class="mono">'+esc(live)+'</b></div>';
  return rows}
 function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m')},{v:'icmp',m:T('rawp_icmp_m')},{v:'gre',m:T('rawp_gre_m')},{v:'ipip',m:T('rawp_ipip_m')},{v:'udp',m:T('rawp_udp_m')},{v:'tcp',m:T('rawp_tcp_m')},{v:'esp',m:T('rawp_esp_m')},{v:'l2tpv3',m:T('rawp_l2tpv3_m')},{v:'ah',m:T('rawp_ah_m')},{v:'ipcomp',m:T('rawp_ipcomp_m')},{v:'etherip',m:T('rawp_etherip_m')}]}
-function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" onclick="'+px+'SetProfile(\\''+p.v+'\\')">'+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
+function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" data-ha="'+esc(p.v)+'" onclick="'+px+'SetProfile(hA(this))">'+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
 var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},downw:{k:'http_streams',lo:1,hi:16,d:1}};
@@ -9688,7 +9891,7 @@ function cdnShapeOn(S){return S.Tr=='ws'&&(S.Cdn=='http'||S.Cdn=='grpc')}
 function corCdnShapeGate(){cdnShapeRow('e_',_corS);grpcZoneGate(_corS,'e_')}
 function ceCdnShapeGate(){cdnShapeRow('ee_',_eeS);grpcZoneGate(_eeS,'ee_')}
 function cdnShapeRow(px,S){var r=el(px+'cdnprow');if(r)r.style.display=cdnShapeOn(S)?'':'none';var u=el(px+'cdnup');if(u)u.style.display=(S.Cdn=='http')?'flex':'none'}
-function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" onclick="'+px+'SetWsProf(\\''+p.v+'\\')"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
+function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" data-ha="'+esc(p.v)+'" onclick="'+px+'SetWsProf(hA(this))"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function grpcZoneGate(S,px){var w=el(px+'grpczone');if(w)w.style.display=(S.Cdn=='grpc')?'':'none'}
 function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
@@ -9739,11 +9942,11 @@ function poolRenderKind(pfx,kind){var d=poolGet(pfx);
     else{rowc='ok';sc='ok';sic='okc';stt=T('ph_healthy');}
     var rt=(h&&(h.state=='suspect'||h.state=='dead'))?'<span class="ert">'+poolCd(d,h.next)+poolBar(d,h)+'</span>':'';
     var acts='';
-    if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="poolRetestNow(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('redo')+'</button>';
+    if(h&&(h.state=='suspect'||h.state=='dead')&&d.lid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" data-ha="'+esc(d.lid)+'" data-hb="'+esc(kind)+'" data-hc="'+esc(v)+'" onclick="poolRetestNow(hA(this),hB(this),hC(this))">'+ic('redo')+'</button>';
     if(d.lid){var pend=d.selPending;var isTarget=pend&&pend.kind==kind&&pend.key==v;
       if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_selecting'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
-      else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" onclick="poolSelect(\\''+d.lid+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('pin')+'</button>';}
-    acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'" onclick="poolDel(\\''+pfx+'\\',\\''+kind+'\\',\\''+esc(v)+'\\')">'+ic('trash')+'</button>';
+      else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-ha="'+esc(d.lid)+'" data-hb="'+esc(kind)+'" data-hc="'+esc(v)+'" onclick="poolSelect(hA(this),hB(this),hC(this))">'+ic('pin')+'</button>';}
+    acts+='<button type="button" class="eib del" title="'+esc(T('tip_delete'))+'" data-ha="'+esc(pfx)+'" data-hb="'+esc(kind)+'" data-hc="'+esc(v)+'" onclick="poolDel(hA(this),hB(this),hC(this))">'+ic('trash')+'</button>';
     return '<div class="erow '+rowc+((h&&h.state=='dead')?' dead':'')+'">'
      +'<span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span>'
      +'<span class="eip" title="'+esc(v)+'">'+esc(v)+'</span>'+rt
@@ -9832,7 +10035,7 @@ function peerRow(side,ip){var d=_peerData[side],h=d.live[ip],act=(d.active===ip)
   var burned=(h&&(h.state=='suspect'||h.state=='dead'));
   var cd=burned?'<div class="ecd">'+peerCd(h.next)+peerBar(h)+'</div>':'';
   var pend=_peerData.selPending,isTarget=pend&&pend.side==side&&pend.key==ip,acts='';
-  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" onclick="peerRetestNow(\\''+side+'\\',\\''+esc(ip)+'\\')">'+ic('redo')+'</button>';
+  if(burned&&_peerLid)acts+='<button type="button" class="eib" title="'+esc(T('pa_testnow'))+'" data-ha="'+esc(side)+'" data-hb="'+esc(ip)+'" onclick="peerRetestNow(hA(this),hB(this))">'+ic('redo')+'</button>';
   if(pend)acts+='<button type="button" class="eib aim'+(act?' on':'')+'" disabled style="opacity:.45;pointer-events:none" title="'+esc(T('pa_selecting'))+'">'+(isTarget?'<span class="bspin"></span>':ic('pin'))+'</button>';
   else acts+='<button type="button" class="eib aim'+(act?' on':'')+'" title="'+(act?esc(T('pa_active_ip')):esc(T('pa_activate')))+'" data-side="'+side+'" data-ip="'+esc(ip)+'" onclick="peerSelect(this)">'+ic('pin')+'</button>';
   return '<div class="erow pcol '+rowc+((h&&h.state=='dead')?' dead':'')+'"><div class="etop"><span class="estat '+sc+'" title="'+stt+'">'+ic(sic)+'</span><span class="eip" title="'+esc(ip)+'">'+esc(ip)+'</span><span class="eacts">'+acts+'</span></div>'+cd+'</div>';}
@@ -9848,7 +10051,7 @@ function peerBox(side,lab){var d=_peerData[side];if(!d||d.addrs.length<2)return 
   var badges='<span class="pbadge ok">'+(d.addrs.length-ns-nd)+' '+T('pb_healthy')+'</span>'+(ns?'<span class="pbadge warn">'+ns+' '+T('pb_temp')+'</span>':'')+(nd?'<span class="pbadge bad">'+nd+' '+T('pb_dead')+'</span>':'');
   var acc=d.addrs.length>PEER_ACC_MIN,open=peerAccOpen(side);
   var chev=acc?'<div class="pchev'+(open?' open':'')+'">&#9662;</div>':'';
-  var hd='<div class="pacchd"'+(acc?' data-acc role="button" tabindex="0" onclick="peerAcc(\\''+side+'\\')"':' style="cursor:default"')+'>'
+  var hd='<div class="pacchd"'+(acc?' data-acc role="button" tabindex="0" data-ha="'+esc(side)+'" onclick="peerAcc(hA(this))"':' style="cursor:default"')+'>'
     +'<div class="pacctl"><div class="pacct">'+esc(lab)+'</div><div class="paccs">'+badges+'</div></div>'
     +'<div style="display:flex;align-items:center;gap:8px">'+chev+'</div></div>';
   var body='<div class="paccbody"'+(open?'':' style="display:none"')+'><div class="rpool">'
@@ -9909,9 +10112,9 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
    +'<label class="first">'+esc(T('band_lbl'))+'</label>'
    +'<div class="grid2">'
      +'<div><label>'+esc(T('band_lo'))+'</label>'
-       +'<input id="'+idp+'bandlo" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_LO+'" oninput="bandWarnUpd(&quot;'+idp+'&quot;)" style="text-align:center;direction:ltr"></div>'
+       +'<input id="'+idp+'bandlo" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_LO+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
      +'<div><label>'+esc(T('band_hi'))+'</label>'
-       +'<input id="'+idp+'bandhi" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_HI+'" oninput="bandWarnUpd(&quot;'+idp+'&quot;)" style="text-align:center;direction:ltr"></div>'
+       +'<input id="'+idp+'bandhi" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_HI+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
    +'</div>'
    +'<div class="muted" style="font-size:11px;margin-top:4px">'+esc(T('band_hint').replace('{lo}',String(RAW_ROT_LO)).replace('{hi}',String(RAW_ROT_HI)))+'</div>'
    +'<div class="warncap no" id="'+idp+'bandwarn" style="display:none;margin-top:8px"></div></div>'
@@ -9933,7 +10136,7 @@ function portTriesOn(S){
  return PORT_RUNG_TRANSPORTS.indexOf(S.Tr)>=0}
 function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(rng(T('porttries_lbl'),1,PORT_TRIES_MAX))+'</label>'
- +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr" oninput="portTriesWarnUpd(&quot;'+idp+'&quot;)">'
+ +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr" data-ha="'+esc(idp)+'" oninput="portTriesWarnUpd(hA(this))">'
  +'<div class="warncap no" id="'+idp+'ptwarn" style="display:none;margin-top:8px"></div></div>'}
 function portTriesN(idp){var e=el(idp+'porttries');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function portTriesErr(idp,S){if(!portTriesOn(S))return '';var n=portTriesN(idp);
@@ -9977,7 +10180,7 @@ function sprotWarnUpd(idp,S){var w=el(idp+'sprotwarn');if(!w)return;var e=sprotE
 function workersSection(idp,fnp){
  var one=function(sd){return '<div id="'+idp+'wkone_'+sd+'">'+'<div class="muted" style="font-size:11px;margin-top:7px" id="'+idp+'wklbl_'+sd+'"></div>'
    +'<div class="trwrap"><div class="seg2 trbar" id="'+idp+'wkg_'+sd+'" onscroll="trFade(this)">'
-   +_WKMAX.map(function(n){return '<button type="button" class="segopt'+(n==1?' on':'')+'" id="'+idp+'wk_'+sd+'_'+n+'" onclick="'+fnp+'SetWorkers(&quot;'+sd+'&quot;,'+n+')"><b>'+n+'</b><span>'+esc(T('workers_'+n))+'</span></button>'}).join('')
+   +_WKMAX.map(function(n){return '<button type="button" class="segopt'+(n==1?' on':'')+'" id="'+idp+'wk_'+sd+'_'+n+'" data-ha="'+esc(sd)+'" data-hb="'+n+'" onclick="'+fnp+'SetWorkers(hA(this),+hB(this))"><b>'+n+'</b><span>'+esc(T('workers_'+n))+'</span></button>'}).join('')
    +'</div></div></div>'};
  return '<div id="'+idp+'wrkrow" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(T('workers_lbl'))+'</label>'
@@ -10029,10 +10232,10 @@ function rawProtoErr(idp){var e=el(idp+'rawproto');if(!e)return '';
 function FEC_RATES(){return [{d:20,p:2,n:T('fec_light'),ov:T('fec_ov10')},{d:16,p:4,n:T('fec_balanced'),ov:T('fec_ov25')},{d:8,p:4,n:T('fec_strong'),ov:T('fec_ov50')}]}
 
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
- +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||16)&&r.p==(fp||4));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" onclick="'+fnp+'SetFecRate('+r.d+','+r.p+')"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--gold)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
+ +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||16)&&r.p==(fp||4));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" data-ha="'+r.d+'" data-hb="'+r.p+'" onclick="'+fnp+'SetFecRate(+hA(this),+hB(this))"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--gold)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
 function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
 function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
- +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" onclick="'+fnp+'SetDesyncMode(\\''+m.v+'\\')"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
+ +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" data-ha="'+esc(m.v)+'" onclick="'+fnp+'SetDesyncMode(hA(this))"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
  +'<div class="grid2"><div><label>'+esc(T('ds_ttl_lbl'))+'</label><input id="'+idp+'dsttl" dir="ltr" inputmode="numeric" value="'+(ttl||4)+'"></div><div><label>'+esc(T('ds_count_lbl'))+'</label><input id="'+idp+'dscount" dir="ltr" inputmode="numeric" value="'+(count||2)+'"></div></div>'
  +'<div class="warncap no" id="'+idp+'dsttlcap" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('ds_ttl_cap'))+'</span></div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
@@ -10053,7 +10256,7 @@ function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyurl,sni,pos,mode,ttl,show
   +'<div id="'+idp+'echpxbody" style="margin-top:6px'+pxfhide+'"><input id="'+idp+'echproxyurl" dir="ltr" placeholder="socks5://host:1080  |  http://user:pass@host:8080" value="'+esc(echproxyurl||'')+'"></div>'
   +'<div class="tglbox" id="'+idp+'snisplitrow" style="margin-top:9px'+hide+'"><div class="tglsw'+(sni?' on':'')+'" id="'+idp+'snisplit" onclick="'+fnp+'ToggleSni()"></div><div class="tt"><b>'+esc(T('sni_t'))+'</b><small>'+esc(T('sni_d'))+'</small></div></div>'
   +'<div id="'+idp+'snisplitbody" style="margin-top:6px'+((sni&&show)?'':';display:none')+'"><label>'+esc(T('sni_pos_lbl'))+'</label><input id="'+idp+'snisplitpos" type="number" min="0" max="1400" value="'+(pos||0)+'">'
-  +'<label style="margin-top:10px;display:block">'+esc(T('sni_mode_lbl'))+'</label><div class="seg2" id="'+idp+'snimodeseg">'+SNI_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'split')?' on':'')+'" id="'+idp+'snim_'+m.v+'" onclick="'+fnp+'SetSniMode(\\''+m.v+'\\')"><b>'+esc(m.v)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
+  +'<label style="margin-top:10px;display:block">'+esc(T('sni_mode_lbl'))+'</label><div class="seg2" id="'+idp+'snimodeseg">'+SNI_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'split')?' on':'')+'" id="'+idp+'snim_'+m.v+'" data-ha="'+esc(m.v)+'" onclick="'+fnp+'SetSniMode(hA(this))"><b>'+esc(m.v)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
   +'<div id="'+idp+'snittlbody" style="margin-top:6px'+((mode=='disorder')?'':';display:none')+'"><label>'+esc(T('sni_ttl_lbl'))+'</label><input id="'+idp+'splitttl" type="number" min="0" max="__SPLITTTLMAX__" value="'+(ttl||0)+'"></div></div>';}
 function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_dis_s')},{v:'fake',s:T('m_fake_s')}]}
 function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,shape){return '<div id="'+idp+'wsblk" style="display:none">'
@@ -10075,12 +10278,12 @@ function wsPoolInner(idp,fnp,lid){
  var rotOpts=[[180,T('rot_3m')],[300,T('rot_5m')],[600,T('rot_10m')],[900,T('rot_15m')],[1800,T('rot_30m')],[3600,T('rot_1h')],[14400,T('rot_4h')],[28800,T('rot_8h')],[0,T('rot_off_fo')]];
  var sel=ssHTML(idp+'poolrot',rotOpts.map(function(o){return {v:o[0],label:o[1]}}),poolGet(idp).rotate,T('rot_int_lbl'));
  function block(kind,label,ph){
-   return '<div class="pacc"><div class="pacchd" data-acc role="button" tabindex="0" onclick="poolAcc(\\''+idp+'\\',\\''+kind+'\\')">'
+   return '<div class="pacc"><div class="pacchd" data-acc role="button" tabindex="0" data-ha="'+esc(idp)+'" data-hb="'+esc(kind)+'" onclick="poolAcc(hA(this),hB(this))">'
      +'<div class="pacctl"><div class="pacct">'+label+'</div><div class="paccs" id="'+idp+'hd_'+kind+'"></div></div>'
      +'<div style="display:flex;align-items:center;gap:8px"><div class="pchev open" id="'+idp+'chev_'+kind+'">&#9662;</div></div></div>'
      +'<div class="paccbody" id="'+idp+'body_'+kind+'">'
      +'<div id="'+idp+'lst_'+kind+'" style="display:flex;flex-direction:column;gap:6px"></div>'
-     +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" onclick="poolAdd(\\''+idp+'\\',\\''+kind+'\\')" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
+     +'<div style="display:flex;gap:6px;margin-top:8px"><input id="'+idp+'add_'+kind+'" class="mono" dir="ltr" style="flex:1;text-align:left" placeholder="'+ph+'"><button type="button" data-ha="'+esc(idp)+'" data-hb="'+esc(kind)+'" onclick="poolAdd(hA(this),hB(this))" style="background:var(--acc);color:#fff;border:none;border-radius:9px;min-width:42px;font-size:18px;cursor:pointer">+</button></div>'
      +'</div></div>';}
  return '<div class="warncap no" id="'+idp+'poolstale" style="display:none;margin-bottom:8px"></div>'
    +block('ip',T('pool_ip_lbl'),'104.16.0.1:443')
@@ -10188,7 +10391,7 @@ function pickedIP(px,side,stored){var st=rotSt(px),ips=(side=='a')?st.aIps:st.bI
 function corRotVis(px){px=px||'e_';var st=rotSt(px);rotRefreshIps(px);var w=el(px+'rotrow');if(!w)return;
  var multi=(st.aIps.length>1||st.bIps.length>1)&&rotIsDirect(px);
  if(!multi){st.on=false;w.innerHTML='';var r0=el(px+'rotset');if(r0)r0.style.display='none';renderRotIps(px);return}
- w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" onclick="corToggleRot(\\''+px+'\\')"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
+ w.innerHTML='<div class="tglbox" style="margin-top:12px"><div class="tglsw'+(st.on?' on':'')+'" id="'+px+'rotsw" data-ha="'+esc(px)+'" onclick="corToggleRot(hA(this))"></div><div class="tt"><b>'+esc(T('rot_t'))+'</b><small>'+esc(T('rot_d'))+'</small></div></div>';
  var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function corToggleRot(px){var st=rotSt(px);st.on=!st.on;var s=el(px+'rotsw');if(s)s.classList.toggle('on',st.on);var rs=el(px+'rotset');if(rs)rs.style.display=st.on?'block':'none';renderRotIps(px)}
 function ceStoredIP(px,side){if(px!='ee_')return '';
@@ -10206,7 +10409,7 @@ function rotPoolHTML(px,side,ips,lab){var st=rotSt(px),sel=(side=='a')?st.aSel:s
  var CKI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M8.3 12.4l2.6 2.6 4.8-5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
  var OFI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>';
  var rows=ips.map(function(ip){var on=!!sel[ip];
-  return '<div class="rrow'+(on?' on':'')+'" onclick="rotToggleIp(\\''+px+'\\',\\''+side+'\\',this)" data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span></div>'}).join('');
+  return '<div class="rrow'+(on?' on':'')+'" data-ha="'+esc(px)+'" data-hb="'+esc(side)+'" onclick="rotToggleIp(hA(this),hB(this),this)" data-ip="'+esc(ip)+'"><span class="sic">'+(on?CKI:OFI)+'</span><span class="rip">'+esc(ip)+'</span></div>'}).join('');
  return '<label class="first">'+lab+' <span style="color:var(--acc)">('+rotCount(px,side)+')</span></label><div class="rpool">'+rows+'</div>'}
 function rotCount(px,side){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ips=(side=='a')?st.aIps:st.bIps,n=0;ips.forEach(function(ip){if(sel[ip])n++});return n}
 function rotToggleIp(px,side,row){var st=rotSt(px),sel=(side=='a')?st.aSel:st.bSel,ip=row.getAttribute('data-ip');
@@ -10366,7 +10569,7 @@ async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})
   '<div id="ee_coreportrow"><label>'+esc(rng(T('core_port_lbl2'),1,PORT_MAX))+'</label><input id="ee_port" inputmode="numeric" value="'+esc(l.port||'')+'" placeholder="'+esc(T('port_band_ph'))+'"></div>'+
   '<div class="muted" style="font-size:11px;margin:2px 2px 0">'+esc(T('core_edit_note'))+'</div></div>';
  var b=corTabsHTML()+_t1+_t2+'<div class="msg" id="ee_msg"></div>';
- openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" onclick="doCoreEdit(\\''+id+'\\')">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
+ openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" data-ha="'+esc(id)+'" onclick="doCoreEdit(hA(this))">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  ceRoleLbls();renderRotIps('ee_');cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function cePrefillFields(l){
  [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],['ee_rawdports',l.raw_dports],['ee_bandlo',l.raw_sport_lo],['ee_bandhi',l.raw_sport_hi],
@@ -10434,9 +10637,9 @@ function pxCard(p,i){var open=!!TOPEN[p.id];
   +'<span class="ndot '+dotk+'" title="'+esc(ttl)+'"></span>'+CHEVI+'</div>';
  var meta='<div class="pxused">'+used+'</div>'
   +(st.error?'<div class="pxused" style="color:var(--bad)">'+esc(terr(st.error))+'</div>':'');
- var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" onclick="testPx('+i+')">'+ic('bolt')+'</button>'
-  +'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPxModal('+i+')">'+ic('pen')+'</button>'
-  +'<button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPx('+i+')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act ok" title="'+esc(T('px_test'))+'" data-ha="'+i+'" onclick="testPx(+hA(this))">'+ic('bolt')+'</button>'
+  +'<button class="act warn" title="'+esc(T('tip_edit'))+'" data-ha="'+i+'" onclick="openPxModal(+hA(this))">'+ic('pen')+'</button>'
+  +'<button class="act danger" title="'+esc(T('tip_delete'))+'" data-ha="'+i+'" onclick="delPx(+hA(this))">'+ic('trash')+'</button></div>';
  return '<div class="card node acc'+(open?' open':'')+'" id="c_'+esc(p.id)+'" data-rid="'+esc(p.id)+'">'
   +head+'<div class="cbody"><div class="cbody-in">'+meta+acts
   +rmsgHTML('pxm_'+p.id)+'</div></div></div>'}
@@ -10447,7 +10650,7 @@ async function testPx(i){var p=PX[i];if(!p)return;var k='pxm_'+p.id;
  else{rmsgClear(k);formErr(null,terr(d.error||T('failed')))}}
 function openPxModal(i){var p=(i==null)?null:PX[i];
  var sc=(p&&p.scheme)||'socks5';
- var seg=function(s,lbl){return '<button type="button" data-s="'+s+'"'+(sc==s?' class="on"':'')+' onclick="pxScheme(\\''+s+'\\')">'+lbl+'</button>'};
+ var seg=function(s,lbl){return '<button type="button" data-s="'+s+'"'+(sc==s?' class="on"':'')+' data-ha="'+esc(s)+'" onclick="pxScheme(hA(this))">'+lbl+'</button>'};
  var body='<label class="first">'+esc(T('px_name'))+'</label><input id="px_name" maxlength="40" value="'+esc(p?p.name:'')+'">'
   +'<div class="authhd" style="margin-top:16px"><span class="t">'+esc(T('px_type'))+'</span><span class="authseg" id="px_seg">'+seg('socks5','SOCKS5')+seg('http','HTTP')+'</span></div>'
   +'<div class="grid2"><div><label class="first">'+esc(T('px_ip'))+'</label><input id="px_host" class="mono" value="'+esc(p?p.host:'')+'"></div>'
@@ -10475,7 +10678,7 @@ function pxFields(pre,node,lbl,sub){
  var pick=opts.length
   ?ssHTML(pre+'proxy_id',opts,sel||opts[0].v,'','')
   :'<div class="muted" style="font-size:12px">'+esc(T('nd_proxy_none'))+'</div>';
- return '<div class="tglbox"><div class="tglsw'+(on?' on':'')+'" id="'+pre+'proxy_tgl" onclick="pxToggle(\\''+pre+'\\')"></div>'
+ return '<div class="tglbox"><div class="tglsw'+(on?' on':'')+'" id="'+pre+'proxy_tgl" data-ha="'+esc(pre)+'" onclick="pxToggle(hA(this))"></div>'
   +'<div class="tt"><b>'+esc(T(lbl||'nd_proxy_on'))+'</b><small>'+esc(T(sub||'nd_proxy_all'))+'</small></div></div>'
   +'<div id="'+pre+'proxy_box"'+(on?'':' style="display:none"')+'>'
   +'<label>'+esc(T('nd_proxy_pick'))+'</label>'+pick+'</div>'}
@@ -10519,7 +10722,7 @@ function pfCard(p,i){var h=p.health||{};
    live+
   '</div></div>';
  var traf='<div class="ltraf"><span class="din iso">↓ '+fmtRate(p.rx_bps)+'</span><span class="dout iso">↑ '+fmtRate(p.tx_bps)+'</span><span class="tot">'+esc(T('total'))+' <span class="iso"><b class="din">↓'+fmtBytes(p.rx_total)+'</b><b class="dout">↑'+fmtBytes(p.tx_total)+'</b></span></span></div>';
- var acts='<div class="nact iconly"><button class="act reset" title="'+esc(T('tip_reset'))+'" onclick="resetPfTraffic('+i+')">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="'+esc(T('pf_rotate_now'))+'" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" onclick="pfNext('+i+')">'+ic('redo')+'</button>':'')+'<button class="act warn" title="'+esc(T('tip_edit'))+'" onclick="openPfEdit('+i+')">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" onclick="delPf('+i+')">'+ic('trash')+'</button></div>';
+ var acts='<div class="nact iconly"><button class="act reset" title="'+esc(T('tip_reset'))+'" data-ha="'+i+'" onclick="resetPfTraffic(+hA(this))">'+ic('reset')+'</button>'+((multi&&h.active)?'<button class="act" title="'+esc(T('pf_rotate_now'))+'" style="color:#fb923c;border-color:color-mix(in srgb,#fb923c 46%,transparent)" data-ha="'+i+'" onclick="pfNext(+hA(this))">'+ic('redo')+'</button>':'')+'<button class="act warn" title="'+esc(T('tip_edit'))+'" data-ha="'+i+'" onclick="openPfEdit(+hA(this))">'+ic('pen')+'</button><button class="act danger" title="'+esc(T('tip_delete'))+'" data-ha="'+i+'" onclick="delPf(+hA(this))">'+ic('trash')+'</button></div>';
  return '<div class="card acc'+(open?' open':'')+'" id="c_'+esc(key)+'" data-rid="'+esc(key)+'" data-rk="portfw">'+head+'<div class="cbody"><div class="cbody-in">'+body+traf+acts+'</div></div></div>'}
 function pfTgl(){var sw=el('pe_tgl'),on=!sw.classList.contains('on');sw.classList.toggle('on',on);
  setT('pe_tgllbl',on?T('on_word'):T('off_word'));var w=el('pe_intwrap');if(w)w.style.display=on?'block':'none'}
@@ -10561,7 +10764,7 @@ var DLV={agent:'push',core:'push'};
 var DLV_OPTS=[['push','dlv_push_t'],['github','dlv_git_t'],['panel','dlv_pan_t']];
 function dlSeg(kind){
  return '<div class="opdlv"><label>'+esc(T('dlv_lbl'))+'</label><div class="seg2" id="dlseg_'+kind+'">'+
-  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" onclick="setDelivery(\\''+kind+'\\',\\''+o[0]+'\\')"><b>'+esc(T(o[1]))+'</b></button>'}).join('')+
+  DLV_OPTS.map(function(o){return '<button type="button" class="segopt'+(o[0]==DLV[kind]?' on':'')+'" id="dlo_'+kind+'_'+o[0]+'" data-ha="'+esc(kind)+'" data-hb="'+esc(o[0])+'" onclick="setDelivery(hA(this),hB(this))"><b>'+esc(T(o[1]))+'</b></button>'}).join('')+
   '</div></div>'}
 function paintDelivery(){['agent','core'].forEach(function(k){var g=el('dlseg_'+k);if(!g)return;
  Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='dlo_'+k+'_'+DLV[k])})});
@@ -10653,7 +10856,7 @@ async function loadCoreVersions(want){
  var mt=el('cor_meta');
  if(mt){
   if(STAGED){var a=(STAGED.arches&&STAGED.arches[0])||'amd64';var sh=(STAGED.sha&&STAGED.sha[a])||'';var sz=(STAGED.size&&STAGED.size[a])||0;
-   mt.innerHTML='<span>'+esc(T('ag_word_core'))+'</span><span class="mono">'+esc(STAGED.version)+'</span>'+(sh?'<span class="sep"></span><span class="mono">'+esc(String(sh).slice(0,12))+'</span>':'')+(sz?'<span class="sep"></span><span>'+(sz/1048576).toFixed(1)+' '+esc(T('unit_mb_full'))+'</span>':'')+((STAGED.arches||[]).length?'<span class="sep"></span><span>'+STAGED.arches.join(' · ')+'</span>':'');}
+   mt.innerHTML='<span>'+esc(T('ag_word_core'))+'</span><span class="mono">'+esc(STAGED.version)+'</span>'+(sh?'<span class="sep"></span><span class="mono">'+esc(String(sh).slice(0,12))+'</span>':'')+(sz?'<span class="sep"></span><span>'+(sz/1048576).toFixed(1)+' '+esc(T('unit_mb_full'))+'</span>':'')+((STAGED.arches||[]).length?'<span class="sep"></span><span>'+esc(STAGED.arches.join(' · '))+'</span>':'');}
   else mt.innerHTML='<span class="muted">'+esc(T('ag_no_core_staged'))+'</span>';
  }
  var box=el('cor_ver_box');if(!box)return;   
@@ -10693,7 +10896,7 @@ function corStagePaint(pct){var m=el('cor_msg');if(!m)return;
 function corStageDone(d){var m=el('cor_msg');if(!m)return;var mis=d.missing||[];
  m.className=mis.length?'msg':'msg ok';
  m.innerHTML=T('cor_staged_pre')+esc(d.version)+T(d.meta_only?'cor_picked_post':'cor_staged_post')+
-  ((d.arches||[]).length?' ('+d.arches.join(', ')+')':'')+
+  ((d.arches||[]).length?' ('+esc(d.arches.join(', '))+')':'')+
   (mis.length?esc(T('cor_arch_missing').replace('{a}',mis.join('، '))):CK);
  loadCoreVersions();loadReadiness()}
 async function corStageCancel(){await post('core-stage-cancel',{})}
@@ -10762,8 +10965,8 @@ function agRow(n){var i=n.info||{};var agver=i.version?('v'+num(i.version)):'—
      vp(COR_IC,ccls,cinst?String(i.core_ver||'?'):'—',ctip)+'</div>'+   
    '<div class="msg agres" id="agres_'+n.id+'"></div>'+
    '<div class="nxa">'+
-     '<button class="ib'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LA)+'" onclick="agPush(\\''+n.id+'\\')">'+ic(AG_IC)+'</button>'+
-     '<button class="ib'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LC)+'" onclick="corPushStaged(\\''+n.id+'\\')">'+ic(COR_IC)+'</button>'+
+     '<button class="ib'+(agup&&n.online?' up':'')+'"'+(agdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LA)+'" data-ha="'+esc(n.id)+'" onclick="agPush(hA(this))">'+ic(AG_IC)+'</button>'+
+     '<button class="ib'+(cup&&n.online?' up':'')+'"'+(cdis?' disabled':'')+' title="'+esc(T('ag_send')+' '+LC)+'" data-ha="'+esc(n.id)+'" onclick="corPushStaged(hA(this))">'+ic(COR_IC)+'</button>'+
    '</div></div>'}
 function agPick(inp){var f=inp.files&&inp.files[0];if(!f)return;inp.value='';var rd=new FileReader();rd.onload=function(){window._agCode=rd.result;agUpload()};rd.readAsText(f)}
 async function agUpload(){var m=el('ag_msg');var code=window._agCode;
@@ -10776,7 +10979,7 @@ async function agFetchGit(){var m=el('ag_git_msg'),btn=el('ag_git_btn');
  m.className='msg';m.textContent=T('ag_fetching_git');if(btn)btn.disabled=true;
  var r=await post('agent-fetch-git',{});
  if(!(r.ok&&r.d.ok)){formErr(m,terr(r.d.error)||T('failed'));if(btn)btn.disabled=false;return}
- m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+r.d.version+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
+ m.className='msg ok';m.innerHTML=T('ag_fetched_pre')+esc(r.d.version)+' · <span class="mono">'+esc(r.d.sha256)+'</span>'+T('ag_fetched_post')+CK;
  if(btn)btn.disabled=false;
  await refreshAgent()}
 var PUSHJOB=null,PUSHSTATE=null,PUSH_ALL='*';
@@ -10893,7 +11096,7 @@ function logChipsHTML(c){
  c=c||logCounts();   
  var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   
-   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" onclick="logFilter(\\''+k+'\\')">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
+   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" data-ha="'+esc(k)+'" onclick="logFilter(hA(this))">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 var _lfQ=null,_lfSrc=null,_lfOut=null;
 function logFound(){var q=(QRY.logs||'').trim().toLowerCase();
  if(!q)return LOGEVS;
@@ -10910,7 +11113,7 @@ function logRows(){
    var p=evParts(e);
    var k=evKey(e);
    var tap=evFolds(p.lines)?(' logtap" role="button" tabindex="0" aria-expanded="'+(LOGOPEN[k]?'true':'false')+
-     '" onclick="logFold(\\''+k+'\\',event)" onkeydown="logKey(event,\\''+k+'\\')'):'';
+     '" data-ha="'+esc(k)+'" onclick="logFold(hA(this),event)" onkeydown="logKey(event,hA(this))'):'';
    return {k:k,h:'<div class="card logcard'+tap+'">'+
      '<span class="lstripe" style="background:'+col+'"></span>'+
      '<div class="lbody">'+
@@ -11051,7 +11254,7 @@ async function resetSettings(){if(!await confirmBox(T('set_reset_confirm'),T('se
  var r=await post('settings-set',b);
  if(r.ok&&r.d.ok){toast(T('set_saved'),'ok');refreshSettings()}
  else{toast(perr(r),'err')}}
-function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" onclick="pickMode(\\''+m+'\\')"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
+function openModePopup(){var opt=function(m,df){return '<div class="mopt'+(_setMode==m?' on':'')+'" data-ha="'+esc(m)+'" onclick="pickMode(hA(this))"><span class="mrad"></span><span class="mt">'+modeLabel(m)+'</span>'+(df?'<span class="mdf">'+esc(T('set_default'))+'</span>':'')+'</div>'};
  _modeOv=openModal('<div class="modelist">'+opt('auto',false)+opt('alert',true)+'</div>',{cls:'modesheet'})}
 function pickMode(m){_setMode=m;setT('set_mode_val',modeLabel(m));if(_modeOv){closeModal(_modeOv);_modeOv=null}}
 async function saveSettings(){var m=el('set_msg');
@@ -11099,11 +11302,12 @@ function palRender(q){q=(q||'').trim().toLowerCase();
  var groups=[[T('pal_g_nodes'),nodes],[T('pal_g_tuns'),tuns],[T('pal_g_acts'),acts]];PALITEMS=[];var html='';
  groups.forEach(function(g){if(!g[1].length)return;html+='<div class="palsec">'+g[0]+'</div>';
   g[1].forEach(function(it){var idx=PALITEMS.length;PALITEMS.push(it);
-   html+='<div class="palrow" onmouseenter="PALIDX='+idx+';palHi()" onclick="palGo('+idx+')"><span class="gi">'+ic(it.i)+'</span>'+it.label+(it.sub?'<span class="sub mono">'+it.sub+'</span>':'')+'</div>'})});
+   html+='<div class="palrow" data-ha="'+idx+'" onmouseenter="palHover(this)" onclick="palGo(hA(this))"><span class="gi">'+ic(it.i)+'</span>'+it.label+(it.sub?'<span class="sub mono">'+it.sub+'</span>':'')+'</div>'})});
  if(!PALITEMS.length)html='<div class="palrow" style="cursor:default;color:var(--sub)">'+esc(T('pal_none'))+'</div>';
  var lst=el('pal_list');if(lst)lst.innerHTML=html;PALIDX=0;palHi()}
 function palHi(){document.querySelectorAll('#pal_list .palrow').forEach(function(r,i){r.classList.toggle('sel',i==PALIDX)})}
-function palGo(i){var it=PALITEMS[i];if(it&&it.act)it.act()}
+function palHover(e){PALIDX=+hA(e);palHi()}
+function palGo(i){var it=PALITEMS[+i];if(it&&it.act)it.act()}
 function palKey(e){if(e.key=='ArrowDown'){e.preventDefault();PALIDX=Math.min(PALIDX+1,PALITEMS.length-1);palHi();palSc()}
  else if(e.key=='ArrowUp'){e.preventDefault();PALIDX=Math.max(PALIDX-1,0);palHi();palSc()}
  else if(e.key=='Enter'){e.preventDefault();palGo(PALIDX)}else if(e.key=='Escape'){e.preventDefault();closePal()}}
@@ -11306,14 +11510,33 @@ def menu():
             print(f"[!] {e}")
 
 
+_BUSY_BODY = json.dumps({"error": "پنل شلوغ است — چند لحظه بعد دوباره"}, ensure_ascii=False).encode()
+_BUSY_RESP = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+              b"Content-Length: " + str(len(_BUSY_BODY)).encode() +
+              b"\r\nConnection: close\r\n\r\n" + _BUSY_BODY)
+
+
 class BoundedThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 128
     _MAX_WORKERS = 256
     _sem = threading.BoundedSemaphore(_MAX_WORKERS)
 
+    def _refuse(self, request):
+        try:
+            request.sendall(_BUSY_RESP)
+            request.setblocking(False)
+            for _ in range(4):
+                if not request.recv(65536):
+                    break
+        except OSError:
+            pass
+        self.shutdown_request(request)
+
     def process_request(self, request, client_address):
-        self._sem.acquire()
+        if not self._sem.acquire(blocking=False):
+            self._refuse(request)
+            return
         try:
             super().process_request(request, client_address)
         except BaseException:
@@ -11342,6 +11565,7 @@ def serve():
         print(f"warning: could not init signing key (openssl missing?): {e}")
     _tf_load()
     _uh_load()
+    checkin_ctr_load()
     threading.Thread(target=poller_loop, daemon=True).start()
     threading.Thread(target=traffic_persist_loop, daemon=True).start()
     threading.Thread(target=reconcile_loop, daemon=True).start()

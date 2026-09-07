@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import base64
+import hashlib
+import hmac
 import http.server
 import importlib.util
 import json
@@ -37,6 +40,15 @@ def load_panel(state):
     return m
 
 
+NODE_TOKEN = 'tok'
+
+
+def resp_sig(ctr, status, data):
+    msg = 'resp\n%s\n%s\n%s' % (ctr, status, hashlib.sha256(data).hexdigest())
+    return base64.b64encode(hmac.new(NODE_TOKEN.encode('utf-8'), msg.encode('utf-8'),
+                                     hashlib.sha256).digest()).decode()
+
+
 class Sink(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
@@ -52,6 +64,7 @@ class Sink(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(out)))
+        self.send_header('X-Resp-Sig', resp_sig(self.headers.get('X-Ctr', ''), 200, out))
         self.end_headers()
         self.wfile.write(out)
 
