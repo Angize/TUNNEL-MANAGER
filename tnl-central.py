@@ -498,6 +498,7 @@ LOGIN_GATE = 4
 _fails = {}
 _fails_lock = threading.Lock()
 _login_gate = threading.BoundedSemaphore(LOGIN_GATE)
+_blk_logged = {}
 
 
 def _fails_trim(now):
@@ -546,6 +547,54 @@ def is_ip(s):
         return True
     except ValueError:
         return False
+
+
+UA_MAX = 140
+UA_BROWSERS = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"),
+               ("Chrome/", "Chrome"), ("Version/", "Safari"))
+UA_SYSTEMS = (("Windows NT 10.0", "Windows 10/11"), ("Windows NT", "Windows"),
+              ("Android", "Android"), ("iPhone", "iPhone"), ("iPad", "iPad"),
+              ("CrOS", "ChromeOS"), ("Mac OS X", "macOS"), ("X11", "Linux"), ("Linux", "Linux"))
+
+
+def ua_clean(ua):
+    out = "".join(c for c in str(ua) if c.isprintable())
+    return out.replace("\u2190", "-").strip()
+
+
+def ua_browser(ua):
+    for tag, name in UA_BROWSERS:
+        i = ua.find(tag)
+        if i < 0:
+            continue
+        ver = ua[i + len(tag):].split(".")[0].split(" ")[0]
+        return "%s %s" % (name, ver) if ver.isdigit() else name
+    return ""
+
+
+def ua_system(ua):
+    for tag, name in UA_SYSTEMS:
+        if tag in ua:
+            return name
+    return ""
+
+
+def fail_count(ip):
+    with _fails_lock:
+        rec = _fails.get(ip)
+        return rec[0] if rec else 0
+
+
+def note_blocked(ip):
+    now = time.time()
+    with _fails_lock:
+        if now - _blk_logged.get(ip, 0) < FAIL_WINDOW:
+            return False
+        _blk_logged.pop(ip, None)
+        _blk_logged[ip] = now
+        while len(_blk_logged) > FAIL_MAX_KEYS:
+            del _blk_logged[next(iter(_blk_logged))]
+        return True
 
 
 def log_internal(where):
@@ -6236,6 +6285,8 @@ def _ev_count_get():
 
 
 def _ev_cat(kind):
+    if kind == "auth":
+        return "auth"
     if kind == "link":
         return "tunnel"
     if kind in ("rot", "edge", "burn", "heal"):
@@ -7347,6 +7398,7 @@ class Handler(BaseHTTPRequestHandler):
             conf = self._conf()
             if self._user():
                 bump_sess_epoch(conf)
+                self._auth_log("ok", "خروج از پنل — همهٔ نشست‌ها باطل شد")
             secure = "; Secure" if conf.get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
         elif path.startswith("/api/"):
@@ -7376,16 +7428,31 @@ class Handler(BaseHTTPRequestHandler):
             chain.pop()
         return chain[-1] if chain and is_ip(chain[-1]) else peer
 
+    def _auth_log(self, level, title, extra=None):
+        ua = ua_clean(self.headers.get("User-Agent", "") or "")
+        rows = ["از: %s" % self._client_ip()] + list(extra or [])
+        b = ua_browser(ua)
+        if b:
+            rows.append("مرورگر: %s" % b)
+        sysname = ua_system(ua)
+        if sysname:
+            rows.append("دستگاه: %s" % sysname)
+        if ua:
+            rows.append("نشانه: %s" % ua[:UA_MAX])
+        log_event(level, "auth", title, "\n".join(rows))
+
     def _login(self):
+        d = self._body()
         ip = self._client_ip()
         if rate_limited(ip):
+            if note_blocked(ip):
+                self._auth_log("bad", "تلاشِ ورود در حالِ قفل — همچنان ادامه دارد")
             self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         if not _login_gate.acquire(blocking=False):
             self._send(429, {"error": "تلاشِ زیاد — چند لحظه صبر کن"})
             return
         try:
-            d = self._body()
             conf = self._conf()
             time.sleep(0.3)
             user_ok = hmac.compare_digest(str(d.get("user", "")), str(conf.get("user") or ""))
@@ -7395,9 +7462,20 @@ class Handler(BaseHTTPRequestHandler):
         if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
+            self._auth_log("ok", "ورود موفق به پنل")
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
             note_fail(ip)
+            tries = fail_count(ip)
+            who = "درست" if user_ok else "ناشناخته"
+            if tries >= FAIL_LIMIT:
+                self._auth_log("bad", "ورودِ ناموفق — این نشانی قفل شد",
+                               ["نام کاربری: %s" % who,
+                                "تلاش‌ها: %d در %d دقیقه" % (tries, FAIL_WINDOW // 60)])
+            else:
+                self._auth_log("warn", "ورودِ ناموفق به پنل",
+                               ["نام کاربری: %s" % who,
+                                "تلاش‌ها: %d از %d" % (tries, FAIL_LIMIT)])
             self._send(401, {"error": "نام کاربری یا رمز اشتباه است"})
 
     def _dl(self):
@@ -8353,7 +8431,7 @@ var I18N={fa:{
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، حداکثر __LOGMAX__ تا — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه، به‌علاوهٔ چند کارِ دستی که روی کلِ فلیت اثر دارند (لغوِ آپلود و افزودن/ویرایش/حذفِ پروکسی). قدیمی‌تر از آن (یا فراتر از این تعداد، روی فلیتِ شلوغ) خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
- logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_sys:"سیستم",logc_err:"فقط خطاها",
+ logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",logc_sys:"سیستم",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
@@ -11087,14 +11165,14 @@ function logIco(e){var k=e.kind;
  return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
 var LOGEVS=[],LOGFILTER='all',LOGSIG='',LOGQ='',LOGPAINT='',LOGSHOW=200;
 var LOGPAGE=200;   
-function logCounts(){var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,sys:0,err:0};
+function logCounts(){var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,auth:0,sys:0,err:0};
  found.forEach(function(e){c[e.cat]++;if(e.level=='bad')c.err++});return c}
 function logResolveFilter(){var c=logCounts();
  if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';
  return c}
 function logChipsHTML(c){
  c=c||logCounts();   
- var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['sys','logc_sys'],['err','logc_err']];
+ var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['auth','logc_auth'],['sys','logc_sys'],['err','logc_err']];
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" data-ha="'+esc(k)+'" onclick="logFilter(hA(this))">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 var _lfQ=null,_lfSrc=null,_lfOut=null;
