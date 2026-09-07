@@ -72,9 +72,19 @@ def main():
         else:
             print("  ok  the %s pool's probe button asks for its own row only" % name)
 
-        for call in re.findall(r'onclick="' + fn + r'\(([^"]*)\)"', js):
-            if "kind" not in call and "side" not in call:
-                fails.append("a %s row renders %s(%s) — it does not pass the row's own axis"
+        # The axis and key now ride in data-h* attributes on the button, read back through the
+        # hA/hB/hC bridge, so the row's own values must appear in the attributes that sit on the SAME
+        # element as the handler -- not inside the handler string, where esc() was the wrong escaping.
+        rendered = re.findall(r'((?:data-h[abc]="[^"]*"\s*)*)onclick="' + fn + r'\(([^"]*)\)"', js)
+        if not rendered:
+            fails.append("no row renders %s at all any more — this check went blind" % fn)
+        for attrs, call in rendered:
+            carried = attrs + call
+            if "kind" not in carried and "side" not in carried:
+                fails.append("a %s row renders %s(%s) with attributes %r — it does not pass the row's "
+                             "own axis" % (name, fn, call, attrs))
+            elif not re.search(r'\bh[ABC]\(this\)', call) and "kind" not in call and "side" not in call:
+                fails.append("a %s row renders %s(%s) — the axis is not reaching the handler"
                              % (name, fn, call))
 
     if "pool_probe_sent" in js:

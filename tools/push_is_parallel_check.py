@@ -248,7 +248,7 @@ def main():
     _t.Thread(target=deaf, daemon=True).start()
     node = {"id": "slow", "name": "SLOW", "host": "127.0.0.1", "port": port, "token": "t"}
     P.node_proxy = lambda n: None
-    P._auth_headers = lambda n, m, p, b: {"X-Auth": "x"}
+    P._auth_headers = lambda n, m, p, b: {"X-Auth": "x", "X-Ctr": "1", "X-Body": "", "X-Sig": "x"}
     flag = {"go": False}
     t0 = time.time()
     out = {}

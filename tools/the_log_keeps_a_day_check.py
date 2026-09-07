@@ -257,7 +257,8 @@ var out={};
  // whole page skeleton, so the box is built here and the fact that logsSkel builds it is asserted
  // against the source on the python side.
  var tb=toolbar('logs',T('logs_search'));
- out.searchBox=(tb.indexOf('id="q_logs"')>=0 && tb.indexOf("onSearch('logs')")>=0);
+ out.searchBox=(tb.indexOf('id="q_logs"')>=0 && tb.indexOf('onSearch(hA(this))')>=0
+                && tb.indexOf('data-ha="logs"')>=0);
  await refreshLogs();
  out.loaded=LOGEVS.length;
  out.painted=PAINTED.length;

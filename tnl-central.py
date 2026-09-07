@@ -7343,6 +7343,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/checkin":
             self._checkin()
         elif path == "/api/logout":
+            self._body()
             conf = self._conf()
             if self._user():
                 bump_sess_epoch(conf)
