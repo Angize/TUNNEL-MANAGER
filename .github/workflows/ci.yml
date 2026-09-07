@@ -552,3 +552,6 @@ jobs:
       - name: no inline handler carries a runtime value, where esc() cannot protect it
         working-directory: TUNNEL-MANAGER
         run: python tools/handlers_carry_no_runtime_values_check.py
+      - name: every way in and out of the panel is written down
+        working-directory: TUNNEL-MANAGER
+        run: python tools/every_login_is_recorded_check.py
