@@ -454,11 +454,10 @@ def main():
     # Order-free on purpose: WHICH axis is the low digit is the core's decision and it has already
     # changed once -- the edge pool swapped, so the edge is now the cheap digit and the domain the
     # one a spent row condemns. What must hold is that all four names exist and the node takes them.
-    kinds_go = set()
-    for f in ("peer_pool.go", "ws_pool.go"):
-        src = (Path(a.core) / "internal" / "packet" / f).read_text(encoding="utf-8")
-        for lo, hi in re.findall(r'kinds.*return "(dst|src|sni|ip)", "(dst|src|sni|ip)"', src):
-            kinds_go |= {lo, hi}
+    # ws_pool.go is gone -- every carrier walks a PeerPool, so peerPair carries the two kind names
+    # as data and the four are declared once, as constants.
+    peer_src = (Path(a.core) / "internal" / "packet" / "peer_pool.go").read_text(encoding="utf-8")
+    kinds_go = set(re.findall(r'\n\taxis\w+\s*=\s*"(dst|src|sni|ip)"', peer_src))
     node_kinds = set(re.findall(r'kind not in ."dst", "src", "ip", "sni".', node_src))
     check(kinds_go == {"dst", "src", "ip", "sni"},
           "the core names all four axes: %s" % sorted(kinds_go))

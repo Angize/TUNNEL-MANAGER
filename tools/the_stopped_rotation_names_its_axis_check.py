@@ -74,37 +74,42 @@ def main():
               "%s without an axis renders a sentence" % code, title)
         check(isinstance(body, str), "  and a body", body)
 
-    print("\n== the core really does tag both pools, and with these axis names ==")
+    print("\n== the core really does tag every pool, and with these axis names ==")
     pp = os.path.join(CORE, "internal", "packet", "peer_pool.go")
-    wp = os.path.join(CORE, "internal", "packet", "ws_pool.go")
-    if not (os.path.exists(pp) and os.path.exists(wp)):
+    if not os.path.exists(pp):
         print("  SKIP cross-repo check: no core checkout at %s" % CORE)
     else:
         peer = open(pp, encoding="utf-8").read()
-        ws = open(wp, encoding="utf-8").read()
         check('ev("pool", "degraded"' in peer and 'ev("pool", "restored"' in peer,
-              "the DIRECT pool reports a stopped rotation at all")
-        check('p.event("pool", "degraded"' in ws and 'p.event("pool", "restored"' in ws,
-              "and so does the edge pool")
-        tagged = re.search(r'detail := axis \+ ":"', peer)
-        check(bool(tagged), "the direct pool puts its axis in the detail")
-        # It used to be a hardcoded `detail := "ip:"`, and this read that literal. CORE #481 made the
-        # edge pool tag the axis it ACTUALLY rotated, which is what this guard wanted all along -- so
-        # match the shape, not the spelling of the one axis it happened to hardcode.
-        tagged_ws = re.search(r'detail := (\w+) \+ ":"', ws)
-        check(bool(tagged_ws), "and the edge pool puts its own in",
-              'no `detail := <axis> + ":"` in ws_pool.go')
-        axes = set()
+              "the pool reports a stopped rotation at all")
+        check(bool(re.search(r'detail := axis \+ ":"', peer)),
+              "and puts its axis in the detail")
+        # ws_pool.go is gone: every carrier walks a PeerPool now, so there is ONE reporter and the four
+        # axis names are constants rather than literals scattered over the carriers. Read the constants,
+        # then confirm nothing tags a pool with a name that is not one of them.
+        names = dict(re.findall(r'\n\taxis(\w+)\s*=\s*"(\w+)"', peer))
+        check(len(names) == 4,
+              "the core declares four axis names and this script found them all: %s"
+              % sorted(names.values()), sorted(names.items()))
+        used, literal = set(), []
         pkg = os.path.join(CORE, "internal", "packet")
         for f in sorted(os.listdir(pkg)):
             if not f.endswith(".go") or f.endswith("_test.go"):
                 continue
             src = open(os.path.join(pkg, f), encoding="utf-8").read()
-            axes |= set(re.findall(r'joinStatus\([^,]+, [^,]+, "(\w+)"\)', src))
-            axes |= set(x for pair in re.findall(r'kinds\(\) \(string, string\) \{ return "(\w+)", "(\w+)"', src)
-                        for x in pair)
-        check(len(axes) == 4,
-              "the core tags four axes and this script found them all: %s" % sorted(axes), sorted(axes))
+            used |= set(re.findall(r'joinStatus\([^,]+, [^,]+, axis(\w+)\)', src))
+            for lo, hi in re.findall(r'\.bind\([^,]+, [^,]+, axis(\w+), axis(\w+)\)', src):
+                used |= {lo, hi}
+            literal += [(f, a) for a in re.findall(r'joinStatus\([^,]+, [^,]+, "(\w+)"\)', src)]
+            literal += [(f, a) for pair in re.findall(r'\.bind\([^,]+, [^,]+, "(\w+)", "(\w+)"\)', src)
+                        for a in pair]
+        check(not literal,
+              "no carrier tags a pool with a bare string instead of the constant", literal)
+        check(bool(used) and used <= set(names),
+              "every pool the core tags uses one of those constants",
+              sorted(used - set(names)))
+        check(used == set(names), "and all four are actually in use", sorted(set(names) - used))
+        axes = set(names.values())
         check(axes <= set(m._HEAL_AXIS),
               "and every one has a name in the panel",
               sorted(axes - set(m._HEAL_AXIS)))
