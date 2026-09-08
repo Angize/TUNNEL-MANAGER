@@ -117,6 +117,11 @@ def main():
     def detail(e):
         return dict(l.split(": ", 1) for l in e["dfa"].split("\n") if ": " in l)
 
+    def whole(e):
+        """The sentence AND its fields. The try count moved into the sentence when the log page
+        was redesigned; what the operator must see is the count, not which half it sits in."""
+        return e["fa"] + chr(10) + e["dfa"]
+
     print("== a successful login leaves a line ==")
     st, setc = call("/api/login", {"user": "admin", "pass": "right-pw"}, ua=CHROME)
     sess = setc.split("tnl_session=", 1)[1].split(";", 1)[0] if "tnl_session=" in setc else ""
@@ -139,7 +144,7 @@ def main():
     d = detail(auth_events()[0])
     check("a failure with the real username is marked «درست»", d.get("نام کاربری") == "درست", d)
     check("...and names the browser and device", (d.get("مرورگر"), d.get("دستگاه")) == ("Firefox 128", "Linux"), d)
-    check("...and counts the try", d.get("تلاش‌ها", "").startswith("1 از"), d)
+    check("...and counts the try", "1 از 8" in whole(auth_events()[0]), whole(auth_events()[0]))
     m._fails.clear()
     call("/api/login", {"user": "someone-else", "pass": "no"}, ua=ANDROID)
     d = detail(auth_events()[0])
@@ -155,12 +160,16 @@ def main():
         call("/api/login", {"user": "admin", "pass": "no"}, ua=FIREFOX)
     added = auth_events()[:len(auth_events()) - before]
     warns = [x for x in added if x["level"] == "warn"]
-    locked = [x for x in added if "قفل شد" in x["fa"]]
+    locked = [x for x in added if "قفل شد." in x["fa"]]
     still = [x for x in added if "همچنان" in x["fa"]]
     check("every attempt that reached the check was recorded", len(warns) == m.FAIL_LIMIT - 1,
           "%d warns for a limit of %d" % (len(warns), m.FAIL_LIMIT))
-    check("the lock-out is recorded once, with its count", len(locked) == 1 and "تلاش‌ها" in detail(locked[0]),
+    check("the lock-out is recorded once, with its count",
+          len(locked) == 1 and str(m.FAIL_LIMIT) in whole(locked[0]),
           [x["fa"] for x in added])
+    check("...and every recorded failure numbers itself",
+          all(re.search("تلاشِ \d+ از %d" % m.FAIL_LIMIT, x["fa"]) for x in warns),
+          [x["fa"][:52] for x in warns[:2]])
     check("hammering a locked address cannot flood the log", len(still) <= 1, len(still))
     check("...so 40 attempts cost far fewer than 40 events", len(added) <= m.FAIL_LIMIT + 2, len(added))
 
