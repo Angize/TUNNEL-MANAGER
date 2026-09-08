@@ -67,6 +67,19 @@ def main():
     print("== 1) every rotation the core reports is a code the panel knows ==")
     # st.rotated(axis, ...) emits "<axis>-rotate". Collect the axes the core actually passes.
     axes = set(re.findall(r'\.rotated\(\s*"([a-z]+)"', blob))
+    # One *TCP now serves tcp, ws, http and grpc off the same two PeerPools, so it does not pass a
+    # literal: axes() returns the tag and the detail prefix for each axis, and the four names live in
+    # that one table. Read them, resolving the axis constants -- otherwise the edge and sni axes vanish
+    # from this set and the checks below go green because they found nothing to check.
+    consts = dict(re.findall(r'\n\taxis(\w+)\s*=\s*"(\w+)"', blob))
+    table = re.search(r'func \(b \*TCP\) axes\(\) \(low, high axisNames\) \{(.*?)\n\}', blob, re.S)
+    check(bool(table), "the carrier still names its axes in one place")
+    if table:
+        for lit, const in re.findall(r'axisNames\{(?:"([a-z]+)"|axis(\w+)),', table.group(1)):
+            if lit:
+                axes.add(lit)
+            elif const in consts:
+                axes.add(consts[const])
     check(axes, "the core routes its rotations through one place (axes found: %s)" % sorted(axes))
     for a in sorted(axes):
         code = a + "-rotate"
@@ -74,6 +87,11 @@ def main():
               "%s is rendered as an informational step, not a red «disconnected»" % code)
 
     print("\n== 2) the edge pool reports its own rotation ==")
+    # BOTH of its axes. They are two PeerPools now and each is walked by a different arm, so an edge
+    # step and a domain step are two different lines in the operator's log. A tag helper that quietly
+    # collapses the domain onto the source axis would leave every SNI rotation invisible.
+    check({"edge", "sni"} <= axes,
+          "both edge axes report themselves: found %s" % sorted(axes))
     check("edge" in axes,
           "the edge pool calls the same reporter the direct carriers do — inferring it from `active` "
           "changing between polls is 15 s late and silent when the rotation does not land")
