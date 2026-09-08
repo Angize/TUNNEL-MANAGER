@@ -7398,7 +7398,7 @@ class Handler(BaseHTTPRequestHandler):
             conf = self._conf()
             if self._user():
                 bump_sess_epoch(conf)
-                self._auth_log("ok", "خروج از پنل — همهٔ نشست‌ها باطل شد")
+                self._auth_log("ok", "خروج از پنل انجام شد و همهٔ نشست‌های باز باطل شدند.")
             secure = "; Secure" if conf.get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
         elif path.startswith("/api/"):
@@ -7446,7 +7446,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = self._client_ip()
         if rate_limited(ip):
             if note_blocked(ip):
-                self._auth_log("bad", "تلاشِ ورود در حالِ قفل — همچنان ادامه دارد")
+                self._auth_log("bad", "تلاش برای ورود در حالی که این نشانی قفل است همچنان ادامه دارد.")
             self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         if not _login_gate.acquire(blocking=False):
@@ -7462,20 +7462,19 @@ class Handler(BaseHTTPRequestHandler):
         if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
-            self._auth_log("ok", "ورود موفق به پنل")
+            self._auth_log("ok", "ورود موفق به پنل انجام شد.")
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
             note_fail(ip)
             tries = fail_count(ip)
             who = "درست" if user_ok else "ناشناخته"
             if tries >= FAIL_LIMIT:
-                self._auth_log("bad", "ورودِ ناموفق — این نشانی قفل شد",
-                               ["نام کاربری: %s" % who,
-                                "تلاش‌ها: %d در %d دقیقه" % (tries, FAIL_WINDOW // 60)])
+                self._auth_log("bad", "پس از %d تلاشِ ناموفق در %d دقیقه، ورود از این نشانی قفل شد."
+                               % (tries, FAIL_WINDOW // 60),
+                               ["نام کاربری: %s" % who])
             else:
-                self._auth_log("warn", "ورودِ ناموفق به پنل",
-                               ["نام کاربری: %s" % who,
-                                "تلاش‌ها: %d از %d" % (tries, FAIL_LIMIT)])
+                self._auth_log("warn", "یک تلاشِ ناموفق برای ورود ثبت شد؛ تلاشِ %d از %d مجاز."
+                               % (tries, FAIL_LIMIT), ["نام کاربری: %s" % who])
             self._send(401, {"error": "نام کاربری یا رمز اشتباه است"})
 
     def _dl(self):
@@ -7771,6 +7770,80 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .fchip.on{color:#fff;background:var(--acc);border-color:var(--acc)}
 .fchip .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sub) 18%,transparent);border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
 .fchip.on .ct{background:rgba(255,255,255,.25);color:#fff}
+.sodlog{
+ --sod-ink:#232b36;--sod-dim:#7b8798;--sod-line:#e2e7ef;--sod-face:#fffdf9;
+ --sod-amber:#a4670f;--sod-amberw:rgba(198,132,26,.11);--sod-amberb:rgba(198,132,26,.28);
+ --sod-bad:#c9443c;--sod-warn:#a4670f;--sod-ok:#22815b;
+ background:linear-gradient(180deg,#f7f4ee,#f2f4f8 70%);
+ border:1px solid var(--sod-line);border-radius:14px;padding:4px 11px 8px;margin-top:2px;position:relative;overflow:hidden}
+body.dark .sodlog{
+ --sod-ink:#e2e9f2;--sod-dim:#6c7c92;--sod-line:#1b2534;--sod-face:#0e1520;
+ --sod-amber:#f5a623;--sod-amberw:rgba(245,166,35,.12);--sod-amberb:rgba(245,166,35,.3);
+ --sod-bad:#ff5f56;--sod-warn:#f5a623;--sod-ok:#3fd6a0;
+ background:radial-gradient(150% 60% at 50% -14%,rgba(245,166,35,.10),transparent 62%),linear-gradient(#0b1017,#111926);
+ border-color:#1b2534}
+.sodlog .sodsweep{position:absolute;inset:0;pointer-events:none;overflow:hidden;display:none}
+body.dark .sodlog .sodsweep{display:block}
+.sodlog .sodsweep::after{content:'';position:absolute;left:0;right:0;height:140px;
+ background:linear-gradient(180deg,transparent,rgba(245,166,35,.04),transparent);animation:sodsweep 8s linear infinite}
+@keyframes sodsweep{from{top:-150px}to{top:100%}}
+.sodlog h1{font-size:17px;font-weight:800;color:var(--sod-ink);margin:10px 2px 6px;display:flex;align-items:center;gap:9px}
+.sodlog h1 .ic{width:19px;height:19px;stroke:var(--sod-amber)}
+.sodlog p.sub{color:var(--sod-dim);font-size:12px;line-height:1.95;margin:0 2px 14px;max-width:60ch}
+.sodlog .tbtnrow{margin:0 0 11px}
+body .sodlog .chkall,body.dark .sodlog .chkall{background:transparent;color:var(--sod-dim);
+ border:1px solid var(--sod-line);box-shadow:none;font-size:12px;font-weight:700;padding:8px 14px;border-radius:9px}
+.sodlog .chkall:hover{color:var(--sod-bad);border-color:color-mix(in srgb,var(--sod-bad) 42%,var(--sod-line))}
+.sodlog .chkall .ic{width:14px;height:14px}
+.sodlog .toolbar{margin:0 0 11px}
+.sodlog .search{background:var(--sod-face);border:1px solid var(--sod-line);color:var(--sod-ink);
+ border-radius:9px;font-size:12.5px;padding:9px 12px}
+.sodlog .search::placeholder{color:var(--sod-dim)}
+.sodlog .search:focus{outline:none;border-color:var(--sod-amberb);box-shadow:0 0 0 3px var(--sod-amberw)}
+.sodlog .logchips{margin:0 0 4px;padding-bottom:9px}
+.sodlog .fchip{background:transparent;border:1px solid var(--sod-line);color:var(--sod-dim);
+ font-size:12px;font-weight:600;border-radius:8px}
+.sodlog .fchip:hover{border-color:var(--sod-amberb);color:var(--sod-ink)}
+.sodlog .fchip.on{background:var(--sod-amberw);border-color:var(--sod-amberb);color:var(--sod-amber)}
+.sodlog .fchip .ct{background:var(--sod-line);color:var(--sod-dim);font-size:10px}
+.sodlog .fchip.on .ct{background:var(--sod-amberb);color:var(--sod-amber)}
+.sodlog .logchips::-webkit-scrollbar-thumb{background:var(--sod-line)}
+.sodlog #logList{border-top:1px solid var(--sod-line);padding-top:2px}
+.sodlog .card.muted{background:transparent;border:1px dashed var(--sod-line);color:var(--sod-dim);
+ box-shadow:none;font-size:12.5px;text-align:center;padding:14px}
+.sodlog .sk{background:var(--sod-line)}
+.sodev{display:grid;grid-template-columns:3px 1fr;gap:12px;align-items:stretch;
+ padding:13px 4px 14px;border-bottom:1px solid var(--sod-line);position:relative;background:transparent}
+.sodev:last-of-type{border-bottom:0}
+.sodev .sbar{border-radius:2px;background:var(--sev)}
+body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
+.sodev .shead{display:flex;align-items:baseline;gap:9px;margin-bottom:6px}
+.sodev .slv{font-size:9px;font-weight:800;letter-spacing:.07em;color:var(--sev)}
+.sodev .stime{margin-inline-start:auto;font-size:10px;color:var(--sod-dim);font-variant-numeric:tabular-nums;
+ direction:rtl;unicode-bidi:plaintext;font-family:inherit;white-space:nowrap}
+.sodev .ssen{font-size:13px;line-height:2.05;font-weight:400;color:var(--sod-ink);overflow-wrap:anywhere}
+.sodev.bad .ssen{font-weight:500}
+.sodev .svals{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:8px;align-items:baseline}
+.sodev .svals .sp{display:inline-flex;align-items:baseline;gap:5px;min-width:0}
+.sodev .sval{font-family:ui-monospace,Consolas,monospace;font-size:11px;direction:ltr;unicode-bidi:isolate;
+ color:var(--sod-amber);background:var(--sod-amberw);border-radius:3px;padding:1px 6px;
+ border:1px solid var(--sod-amberb);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.sodev .sk2{color:var(--sod-dim);font-size:10.5px;flex:0 0 auto}
+.sodev.bad{--sev:var(--sod-bad)}.sodev.warn{--sev:var(--sod-warn)}.sodev.ok{--sev:var(--sod-ok)}
+.sodev.sodtap{cursor:pointer;border-radius:8px}
+.sodev.sodtap:hover{background:var(--sod-amberw)}
+.sodev.sodtap:focus-visible{outline:2px solid var(--sod-amber);outline-offset:-2px}
+.sodev .sfold{display:none;margin-top:9px;padding-top:9px;border-top:1px dashed var(--sod-line);
+ flex-direction:column;gap:5px}
+.sodev.open .sfold{display:flex}
+.sodev .sfold .sr{display:flex;gap:8px;align-items:baseline;font-size:11px;color:var(--sod-dim)}
+.sodev .sfold .sr b{font-weight:600;flex:0 0 auto}
+.sodev .sfold .sr span{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;direction:ltr;
+ unicode-bidi:isolate;color:var(--sod-ink);overflow-wrap:anywhere;min-width:0}
+.sodev .smore{font-size:10.5px;color:var(--sod-amber);font-weight:700;margin-top:7px;display:inline-block}
+.sodev .smore .less,.sodev.open .smore .more{display:none}
+.sodev.open .smore .less{display:inline}
+.sodlog .logmore{background:transparent;border:1px dashed var(--sod-line);color:var(--sod-dim);margin-top:9px}
 .logcard{display:flex;margin-bottom:9px;padding:0;overflow:hidden;box-shadow:var(--sh-sm)}
 .logcard .lstripe{width:4px;flex:0 0 auto}
 .logcard .lbody{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;flex:1;min-width:0}
@@ -8431,7 +8504,7 @@ var I18N={fa:{
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
  logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، حداکثر __LOGMAX__ تا — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه، به‌علاوهٔ چند کارِ دستی که روی کلِ فلیت اثر دارند (لغوِ آپلود و افزودن/ویرایش/حذفِ پروکسی). قدیمی‌تر از آن (یا فراتر از این تعداد، روی فلیتِ شلوغ) خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
- logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",logc_sys:"سیستم",logc_err:"فقط خطاها",
+ logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",logc_sys:"سیستم",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
@@ -11145,11 +11218,12 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
  await pushStart('update-agent',{ids:ids},ids)}
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
-function logsSkel(){el('view').innerHTML=vhead('list','logs_title','logs_sub')+
- '<div class="tbtnrow" style="margin-bottom:10px"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
+function logsSkel(){el('view').innerHTML='<div class="sodlog"><span class="sodsweep"></span>'+
+ vhead('list','logs_title','logs_sub')+
+ '<div class="tbtnrow"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  toolbar('logs',T('logs_search'))+
  '<div id="logChips"></div>'+
- '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div>';
+ '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div></div>';
  LOGPAINT='';markLogsSeen();refreshLogs();}   
 function skLog(){return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
  '<span class="sk" style="width:5px;flex:0 0 auto;border-radius:0"></span>'+
@@ -11186,24 +11260,41 @@ function logRows(){
  if(!all.length)return [{k:'__empty',h:'<div class="card muted">'+esc(T('logs_no_match'))+'</div>'}];
  var evs=all.slice(0,LOGSHOW),rest=all.length-evs.length;
  var rows=evs.map(function(e){
-   var lv=logIco(e);
-   var col=e.level=='bad'?'var(--bad)':(e.level=='warn'?'var(--gold)':'var(--ok)');
-   var p=evParts(e);
    var k=evKey(e);
-   var tap=evFolds(p.lines)?(' logtap" role="button" tabindex="0" aria-expanded="'+(LOGOPEN[k]?'true':'false')+
-     '" data-ha="'+esc(k)+'" onclick="logFold(hA(this),event)" onkeydown="logKey(event,hA(this))'):'';
-   return {k:k,h:'<div class="card logcard'+tap+'">'+
-     '<span class="lstripe" style="background:'+col+'"></span>'+
-     '<div class="lbody">'+
-       '<span class="lico" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+ic(lv)+'</span>'+
-       '<div class="lmain">'+
-         '<div class="lhead"><span dir="auto" class="ltitle">'+esc(p.title)+'</span>'+
-           '<span class="mono ltime">'+esc(fmtEvTime(e.ts))+'</span></div>'+
-         evDetail(p.lines,evKey(e))+'</div>'+
-     '</div></div>'};});
+   return {k:k,h:sodEvent(e,k)}});
  if(rest>0)rows.push({k:'__more',h:'<div class="card muted logmore" role="button" tabindex="0" onclick="logMore()" onkeydown="logMoreKey(event)">'+
    esc(T('logs_more').replace('{n}',rest))+'</div>'});
  return rows}
+var SOD_LEAD=3;
+function sodLevel(e){return e.level=='bad'?'bad':(e.level=='warn'?'warn':'ok')}
+function sodSentence(title,notes){
+ var t=String(title||'').trim();
+ for(var i=0;i<notes.length;i++){
+  var nx=String(notes[i]||'').trim();
+  if(!nx)continue;
+  t+=(/[.!\u061F\u06D4]$/.test(t)?' ':' \u2014 ')+nx;
+ }
+ return t}
+function sodEvent(e,k){
+ var p=evParts(e),sp=evSplit(p.lines);
+ var lead=sp.rows.slice(0,SOD_LEAD),rest=sp.rows.slice(SOD_LEAD);
+ var sen='<div class="ssen">'+esc(sodSentence(p.title,sp.notes))+'</div>';
+ if(lead.length)sen+='<div class="svals">'+lead.map(function(r){
+  return '<span class="sp"><span class="sk2">'+esc(r.k)+'</span><span class="sval">'+esc(r.v)+'</span></span>'}).join('')+'</div>';
+ var fold='';
+ if(rest.length){
+  fold='<div class="sfold">'+rest.map(function(r){
+   return '<div class="sr"><b>'+esc(r.k)+'</b><span>'+esc(r.v)+'</span></div>'}).join('')+'</div>'+
+   '<span class="smore"><span class="more">'+esc(T('sod_more'))+'</span>'+
+   '<span class="less">'+esc(T('sod_less'))+'</span></span>';
+ }
+ var tap=rest.length?(' sodtap'+(LOGOPEN[k]?' open':'')+'" role="button" tabindex="0" aria-expanded="'+
+   (LOGOPEN[k]?'true':'false')+'" data-ha="'+esc(k)+'" onclick="logFold(hA(this),event)" onkeydown="logKey(event,hA(this))'):'';
+ return '<div id="lf'+esc(k)+'" class="sodev '+sodLevel(e)+tap+'">'+
+   '<span class="sbar"></span>'+
+   '<div><div class="shead"><span class="slv">'+esc(T('sod_'+sodLevel(e)))+'</span>'+
+     '<span class="stime">'+esc(fmtEvTime(e.ts))+'</span></div>'+
+     sen+fold+'</div></div>'}
 function logMore(){LOGSHOW+=LOGPAGE;logPaint()}
 function logMoreKey(e){if(e.key===' '||e.key==='Enter'){e.preventDefault();logMore()}}
 function evKey(e){var s=(e.ts||0)+'|'+(e.fa||'')+'|'+(e.dfa||''),h=0;

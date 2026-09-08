@@ -555,3 +555,6 @@ jobs:
       - name: every way in and out of the panel is written down
         working-directory: TUNNEL-MANAGER
         run: python tools/every_login_is_recorded_check.py
+      - name: the log page is one surface, in both themes, and every event says why
+        working-directory: TUNNEL-MANAGER
+        run: python tools/the_log_page_is_one_surface_check.py
