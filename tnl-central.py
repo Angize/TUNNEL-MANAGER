@@ -6499,9 +6499,14 @@ def _events_once():
                         kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
                         lvl = _EV_ROT_CODE[ecode][0]
                         rotated.add(lid)
-                        log_event(lvl, "rot",
-                                  f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ پس از {kv.get('tries', '?')} تلاش، "
-                                  f"با پورتِ {kv.get('sport', '?')} برگشت", "")
+                        tries, sport = kv.get("tries"), kv.get("sport")
+                        say = f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ"
+                        if tries:
+                            say += f" پس از {tries} تلاش"
+                        if sport:
+                            say += f"، با پورتِ {sport}"
+                        say += " برگشت"
+                        log_event(lvl, "rot", say, "")
                         continue
                     if ekind == "down" and ecode in _EV_ROT_CODE:
                         ip = _ev_ip(edet)
@@ -7771,10 +7776,10 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .fchip .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sub) 18%,transparent);border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
 .fchip.on .ct{background:rgba(255,255,255,.25);color:#fff}
 .sodlog{
- --sod-ink:#232b36;--sod-dim:#7b8798;--sod-line:#e2e7ef;--sod-face:#fffdf9;
+ --sod-ink:var(--tx);--sod-dim:var(--sub);--sod-line:var(--bord);--sod-face:var(--field);
  --sod-amber:#a4670f;--sod-amberw:rgba(198,132,26,.11);--sod-amberb:rgba(198,132,26,.28);
  --sod-bad:#c9443c;--sod-warn:#a4670f;--sod-ok:#22815b;
- background:linear-gradient(180deg,#f7f4ee,#f2f4f8 70%);
+ background:var(--card);
  border:1px solid var(--sod-line);border-radius:14px;padding:4px 11px 8px;margin-top:2px;position:relative;overflow:hidden}
 body.dark .sodlog{
  --sod-ink:#e2e9f2;--sod-dim:#6c7c92;--sod-line:#1b2534;--sod-face:#0e1520;
@@ -7812,8 +7817,9 @@ body .sodlog .chkall,body.dark .sodlog .chkall{background:transparent;color:var(
 .sodlog .card.muted{background:transparent;border:1px dashed var(--sod-line);color:var(--sod-dim);
  box-shadow:none;font-size:12.5px;text-align:center;padding:14px}
 .sodlog .sk{background:var(--sod-line)}
-.sodev{display:grid;grid-template-columns:3px 1fr;gap:12px;align-items:stretch;
+.sodev{display:grid;grid-template-columns:3px minmax(0,1fr);gap:12px;align-items:stretch;
  padding:13px 4px 14px;border-bottom:1px solid var(--sod-line);position:relative;background:transparent}
+.sodev>div{min-width:0}
 .sodev:last-of-type{border-bottom:0}
 .sodev .sbar{border-radius:2px;background:var(--sev)}
 body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
@@ -7824,10 +7830,11 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
 .sodev .ssen{font-size:13px;line-height:2.05;font-weight:400;color:var(--sod-ink);overflow-wrap:anywhere}
 .sodev.bad .ssen{font-weight:500}
 .sodev .svals{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:8px;align-items:baseline}
-.sodev .svals .sp{display:inline-flex;align-items:baseline;gap:5px;min-width:0}
+.sodev .svals .sp{display:inline-flex;align-items:baseline;gap:5px;min-width:0;max-width:100%}
 .sodev .sval{font-family:ui-monospace,Consolas,monospace;font-size:11px;direction:ltr;unicode-bidi:isolate;
  color:var(--sod-amber);background:var(--sod-amberw);border-radius:3px;padding:1px 6px;
- border:1px solid var(--sod-amberb);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+ border:1px solid var(--sod-amberb);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+ min-width:0;flex:0 1 auto}
 .sodev .sk2{color:var(--sod-dim);font-size:10.5px;flex:0 0 auto}
 .sodev.bad{--sev:var(--sod-bad)}.sodev.warn{--sev:var(--sod-warn)}.sodev.ok{--sev:var(--sod-ok)}
 .sodev.sodtap{cursor:pointer;border-radius:8px}
@@ -7839,7 +7846,7 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
 .sodev .sfold .sr{display:flex;gap:8px;align-items:baseline;font-size:11px;color:var(--sod-dim)}
 .sodev .sfold .sr b{font-weight:600;flex:0 0 auto}
 .sodev .sfold .sr span{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;direction:ltr;
- unicode-bidi:isolate;color:var(--sod-ink);overflow-wrap:anywhere;min-width:0}
+ unicode-bidi:isolate;color:var(--sod-ink);overflow-wrap:anywhere;min-width:0;flex:1 1 auto}
 .sodev .smore{font-size:10.5px;color:var(--sod-amber);font-weight:700;margin-top:7px;display:inline-block}
 .sodev .smore .less,.sodev.open .smore .more{display:none}
 .sodev.open .smore .less{display:inline}
@@ -11265,7 +11272,7 @@ function logRows(){
  if(rest>0)rows.push({k:'__more',h:'<div class="card muted logmore" role="button" tabindex="0" onclick="logMore()" onkeydown="logMoreKey(event)">'+
    esc(T('logs_more').replace('{n}',rest))+'</div>'});
  return rows}
-var SOD_LEAD=3;
+var SOD_LEAD=3,SOD_INLINE_MAX=34;
 function sodLevel(e){return e.level=='bad'?'bad':(e.level=='warn'?'warn':'ok')}
 function sodSentence(title,notes){
  var t=String(title||'').trim();
@@ -11277,7 +11284,9 @@ function sodSentence(title,notes){
  return t}
 function sodEvent(e,k){
  var p=evParts(e),sp=evSplit(p.lines);
- var lead=sp.rows.slice(0,SOD_LEAD),rest=sp.rows.slice(SOD_LEAD);
+ var lead=[],rest=[];
+ sp.rows.forEach(function(r){
+  if(lead.length<SOD_LEAD&&String(r.v).length<=SOD_INLINE_MAX)lead.push(r);else rest.push(r)});
  var sen='<div class="ssen">'+esc(sodSentence(p.title,sp.notes))+'</div>';
  if(lead.length)sen+='<div class="svals">'+lead.map(function(r){
   return '<span class="sp"><span class="sk2">'+esc(r.k)+'</span><span class="sval">'+esc(r.v)+'</span></span>'}).join('')+'</div>';

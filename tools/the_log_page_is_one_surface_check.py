@@ -105,15 +105,22 @@ def main():
         check("every token that is used is declared", not (used - lt), sorted(used - lt))
 
     print("== a custom property never leans on a variable it cannot see ==")
+    # An ancestor's variable inherits down and resolves fine; a DESCENDANT's does not exist yet where
+    # the property is declared, so the whole property computes to the empty string. --sod-glow was
+    # written on .sodlog as `0 0 10px -1px var(--sev)` and --sev only exists on .sodev: no bar glowed.
+    below = set()
+    for sel, body in re.findall(r"(\.sodev[^{]*)\{([^}]*)\}", html):
+        below |= set(re.findall(r"(--[a-z0-9-]+)\s*:", body))
     bad = []
     for block, where in ((light, ".sodlog"), (dark, "body.dark .sodlog")):
         if not block:
             continue
         for name, val in re.findall(r"(--sod-[a-z0-9-]+)\s*:([^;]*)", block):
             for ref in re.findall(r"var\((--[a-z0-9-]+)", val):
-                if not re.search(re.escape(ref) + r"\s*:", block):
-                    bad.append("%s in %s references %s, which is not declared there" % (name, where, ref))
-    check("no token computes to the empty string", not bad, bad[:3])
+                if ref in below and not re.search(re.escape(ref) + r"\s*:", block):
+                    bad.append("%s in %s references %s, which only exists on the row" % (name, where, ref))
+    check("no token leans on a variable declared below it", not bad, bad[:3])
+    check("...and the check can see the row variables it is guarding against", "--sev" in below, sorted(below))
 
     print("== severity reads in both themes ==")
     bar = css_of(html, ".sodev .sbar")
@@ -144,8 +151,11 @@ def main():
           "the values row must be built from lead, not merely mentioned")
     check("...in monospace, so they can be scanned without reading",
           "monospace" in (css_of(html, ".sodev .sval") or ""))
-    check("only the first few values ride along; the rest fold",
-          re.search(r"SOD_LEAD\s*=\s*\d+", js) is not None and "sp.rows.slice(SOD_LEAD)" in js.replace(" ", ""))
+    check("only a few short values ride along; the rest fold",
+          re.search(r"SOD_LEAD\s*=\s*\d+", js) is not None and
+          re.search(r"SOD_INLINE_MAX\s*=\s*\d+", js) is not None and
+          "lead.length<SOD_LEAD&&String(r.v).length<=SOD_INLINE_MAX" in js.replace(" ", ""),
+          "a value too long to read inline must go to the fold, not be clipped")
     check("the three severity labels are real strings, not raw keys",
           all(re.search(r"sod_%s:\"[^\"]+\"" % k, js) for k in ("bad", "warn", "ok")))
 
