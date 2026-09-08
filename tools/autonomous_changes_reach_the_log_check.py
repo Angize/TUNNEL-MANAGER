@@ -83,8 +83,31 @@ def main():
     check(axes, "the core routes its rotations through one place (axes found: %s)" % sorted(axes))
     for a in sorted(axes):
         code = a + "-rotate"
-        check(code in P._EV_ROT_CODE,
-              "%s is rendered as an informational step, not a red «disconnected»" % code)
+        sched, forced = P._ev_rot("rot", code), P._ev_rot("down", code)
+        check(bool(sched) and bool(forced),
+              "%s is rendered as an informational step, not a red «disconnected»" % code,
+              (sched, forced))
+        if not (sched and forced):
+            continue
+        # Rendering both is not enough: they have to be DIFFERENT. A scheduled rotation is the clock
+        # coming due on a healthy tunnel; a forced one is the ladder walking off an endpoint that
+        # stopped carrying. One colour and one sentence for both is what the operator had before, and
+        # that is indistinguishable from having no signal at all.
+        check(sched[0] == "ok" and forced[0] == "warn",
+              "%s: the scheduled rotation is informational and the forced one is a warning" % code,
+              (sched[0], forced[0]))
+        check(sched[1] != forced[1],
+              "%s: and the two say different things, not just different colours" % code, sched[1])
+
+    # The other half of the pair, read out of the core: the panel can only tell them apart if the core
+    # publishes them apart. It used to send the identical event for both and keep the difference to
+    # itself in wasDown, which is why this reads the core source rather than a constant.
+    cs = src.get("core_status.go", "")
+    check(re.search(r'func \(s \*coreStatus\) rotated\([^)]*\)\s*\{\s*if proactive \{\s*s\.event\("rot",', cs),
+          "the core publishes a scheduled rotation under its own kind rather than as the tunnel "
+          "going down")
+    check(re.search(r'if proactive \{.*?\n\t\}\n\ts\.down\(axis\+"-rotate"', cs, re.S),
+          "and a forced one still goes through down(), which is what arms the recovery line")
 
     print("\n== 2) the edge pool reports its own rotation ==")
     # BOTH of its axes. They are two PeerPools now and each is walked by a different arm, so an edge

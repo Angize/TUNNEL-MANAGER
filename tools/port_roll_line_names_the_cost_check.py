@@ -7,15 +7,18 @@ The operator needs both halves: a tunnel that came back on its first draw and on
 its last are not the same news.
 
 This drives the REAL ingest loop (_events_once), not the renderer helper. That distinction is the
-whole point of the file: every code in _EV_ROT_CODE is answered inside that loop and `continue`s, so
-_ev_core_text is never reached for one — a fix written there renders nothing and the panel goes on
-printing the old sentence.
+whole point of the file: every rotation code -- _EV_ROT_CODE and _EV_ROT_AXIS alike -- is answered
+inside that loop and `continue`s, so _ev_core_text is never reached for one. A fix written there
+renders nothing and the panel goes on printing the old sentence.
 
     python3 tools/port_roll_line_names_the_cost_check.py
 """
 import importlib.util
 import os
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # the lines it prints are Persian
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PANEL = os.path.join(os.path.dirname(HERE), "tnl-central.py")
