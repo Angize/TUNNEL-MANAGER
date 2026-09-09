@@ -55,7 +55,7 @@ CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xcha
 CORE_RAW_PROFILE_PROTOS = {"bare": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 17, "tcp": 6, "esp": 50,
                            "ah": 51, "etherip": 97, "ipcomp": 108, "l2tpv3": 115}
 CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
-CORE_TRANSPORTS       = ("udp", "tcp", "raw", "ws", "dns")
+CORE_TRANSPORTS       = ("udp", "tcp", "raw", "ws")
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
@@ -64,7 +64,7 @@ DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
 CORE_MAX_WORKERS = 8
 QUEUEING_TRANSPORTS = ("raw", "udp")
-STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "ws", "dns")
+STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "ws")
 _reg_lock = threading.Lock()
 _pending_lock = threading.Lock()
 _agent_lock = threading.Lock()
@@ -1774,7 +1774,7 @@ _WORKERS_KEYS = ("a_workers", "b_workers")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
                     "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
-                    "raw_sport_lo", "raw_sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers", "dns_zone", "dns_resolvers",
+                    "raw_sport_lo", "raw_sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
                     "http_up_workers", "http_up_batch_kb", "http_streams",
@@ -1885,10 +1885,6 @@ def _tunnel_extra(src, refetch_ech=True):
         e["raw_sport_hi"] = src["raw_sport_hi"]
     if src.get("conntrack_bypass"):
         e["conntrack_bypass"] = True
-    if src.get("dns_zone"):
-        e["dns_zone"] = src["dns_zone"]
-        if src.get("dns_resolvers"):
-            e["dns_resolvers"] = src["dns_resolvers"]
     if src.get("fec"):
         e["fec"] = True
         e["fec_data"] = src.get("fec_data") or 16
@@ -4168,8 +4164,6 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
         t = (transport or "udp").lower()
         if t == "raw":
             return []
-        if t == "dns":
-            return [(srv, srv_ip, 53, "udp")]
         proto = "tcp" if t in ("tcp", "ws") else "udp"
         pool_ips = [ip for ip in srv_pool if ip] if t in ("udp", "tcp") else []
         if pool_ips:
@@ -4230,37 +4224,6 @@ def _core_l4_conflict(new_binds, exclude_id=None):
             return L
     return None
 
-
-def _dns_fields(d, transport, cipher, cur=None):
-    out = {}
-    if transport != "dns":
-        return out
-    if cipher == "none":
-        raise ValueError("حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-    cur = cur or {}
-    zone = str((d["dns_zone"] if "dns_zone" in d else cur.get("dns_zone")) or "").strip().lower()
-    if not zone or len(zone) > 253 or not re.match(r"^(?!-)[a-z0-9-]{1,63}(?:\.(?!-)[a-z0-9-]{1,63})+$", zone):
-        raise ValueError("نامِ دامنهٔ dns (zone) نامعتبر است — مثلاً t.example.com")
-    out["dns_zone"] = zone
-    raw_res = d["dns_resolvers"] if "dns_resolvers" in d else cur.get("dns_resolvers")
-    resolvers = []
-    for r in (raw_res or []):
-        rs = str(r).strip()
-        if not rs:
-            continue
-        if rs.count(":") == 1:
-            host, _, port = rs.partition(":")
-            if not (port.isdigit() and 1 <= int(port) <= 65535):
-                raise ValueError("پورتِ resolverِ dns نامعتبر است — باید 1 تا 65535 باشد: " + rs)
-        else:
-            host = rs
-        if not is_ipv4(host):
-            raise ValueError("آدرسِ resolverِ dns باید IPv4 باشد (به‌صورتِ ip یا ip:port): " + rs)
-        resolvers.append(rs)
-    if not resolvers:
-        raise ValueError("حاملِ dns حداقل به یک resolverِ معتبر (IPv4) نیاز دارد")
-    out["dns_resolvers"] = resolvers
-    return out
 
 
 
@@ -4831,8 +4794,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             if profile not in ("udp", "tcp"):
                 raise ValueError(f"«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp معنا دارد؛ «{profile}» به‌ازای هر پکت جریانِ تازه نمی‌سازد")
             ce["conntrack_bypass"] = True
-    if transport == "dns":
-        ce.update(_dns_fields(d, transport, cipher, cur))
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))
@@ -4841,8 +4802,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
         if cipher == "none":
             raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
-        if transport == "dns":
-            raise ValueError("استتار روی حاملِ dns پشتیبانی نمی‌شود (کریرِ DNS اصلاً فریمِ obfs ندارد) — استتار را خاموش کن")
         ce["obfs"] = True
     cover = (bool(d.get("cover")) if "cover" in d else bool(cur.get("cover"))) and transport == "tcp"
     if cover and cipher == "none":
@@ -6137,7 +6096,6 @@ _EV_DOWN_CODE = {
     "ws_upgrade": "ارتقاءِ WebSocket رد شد (Origin/CDN)",
     "closed": "اتصال قطع شد",
     "dropped": "اتصال قطع شد",
-    "session-dead": "سشنِ DNS تمام شد — مسیرِ ریزالور دیگر آن را حمل نمی‌کند",
     "peer-dead": "آی‌پیِ مقصدی که چرخش روی آن رفت جواب نداد — سوزانده شد و رفت روی آی‌پیِ بعدی",
 }
 _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
@@ -7678,7 +7636,7 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .hrow1{display:flex;align-items:center;gap:8px;min-width:0}
 .hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
-.ctag.core{background:var(--accw);color:var(--acc)}.ctag.c-udp{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}.ctag.c-tcp{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}.ctag.c-raw{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}.ctag.c-ws{color:#0ea5e9;background:color-mix(in srgb,#0ea5e9 14%,transparent)}.ctag.c-http{color:#14b8a6;background:color-mix(in srgb,#14b8a6 14%,transparent)}.ctag.c-grpc{color:#ec4899;background:color-mix(in srgb,#ec4899 14%,transparent)}.ctag.c-dns{color:#f97316;background:color-mix(in srgb,#f97316 14%,transparent)}
+.ctag.core{background:var(--accw);color:var(--acc)}.ctag.c-udp{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}.ctag.c-tcp{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}.ctag.c-raw{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}.ctag.c-ws{color:#0ea5e9;background:color-mix(in srgb,#0ea5e9 14%,transparent)}.ctag.c-http{color:#14b8a6;background:color-mix(in srgb,#14b8a6 14%,transparent)}.ctag.c-grpc{color:#ec4899;background:color-mix(in srgb,#ec4899 14%,transparent)}
 .ctag.vxlan{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}
 .ctag.gre{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
 .ctag.sit{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}
@@ -8739,8 +8697,7 @@ search:"جستجو…",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
- enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",tr_dns_d:"آخرین‌پناه",
- dns_zone_lbl:"دامنهٔ واگذارشده (zone)",dns_zone_note:"زیردامنه‌ای که NSِ آن به سرورِ تو واگذار (delegate) شده — سرور همان authoritative NS است. مثلاً <b>t.example.com</b>",dns_resolvers_lbl:"resolverهای بازگشتی (کلاینت)",dns_resolvers_note:"آی‌پیِ resolverهای DNSِ داخلیِ ایران که کلاینت به آن‌ها کوئری می‌زند (با کاما جدا کن). کلاینت هرگز به IPِ سرور بسته نمی‌فرستد — همین آن را از فیلترِ مقصد پنهان می‌کند.",dns_delegation_note:"قبل از استفاده: در registrarِ دامنه، NSِ این zone را به IPِ سرور delegate کن و پورتِ 53 سرور باز باشد. رمزنگاری الزامی است. سرعت کم است ولی در بدترین‌حالت دوام می‌آورد.",dns_need_enc:"حاملِ dns به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",dns_need_zone:"دامنهٔ dns (zone) را وارد کن — مثلاً t.example.com",dns_need_resolvers:"حداقل یک resolverِ داخلی (IPv4) وارد کن",
+ enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
 got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا {n} باشد",band_lbl:"بازهٔ چرخش (پورتِ مبدأ)",band_lo:"از",band_hi:"تا",band_bad:"بازه باید دو پورتِ بینِ {n} تا 65535 باشد و ابتدایش کوچک‌تر",band_narrow:"بازه دستِ‌کم {n} پورت پهنا می‌خواهد",band_hint:"پیش‌فرض {lo}-{hi} · اگر مسیری پورتِ بالا را می‌اندازد، بازه را زیرِ آن بیاور",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_lbl_cores:"دارای {c} هسته",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
@@ -10012,7 +9969,6 @@ function carrierFamily(l){var t=l.transport||'udp';
 function carrierLabel(l){return carrierFamily(l).toUpperCase()}
 function carrierProfile(l){var t=l.transport||'udp';
  if(t=='raw')return rawProfTag(l);
- if(t=='dns')return (l.dns_zone||'').toUpperCase();
  return ''}
 function rawProfTag(l){var p=(l.raw_profile||'bare');
  return p.toUpperCase()+((p=='bare')?('('+(num(l.raw_proto)||253)+')'):'')}
@@ -10050,7 +10006,6 @@ function portRows(l){var t=l.transport||'udp';
   var _rot=num(l.raw_sport_rotate);
   if(_rot||l.raw_sport_random)return _dst+rotSrcRows(l,_rot);
   return _dst+'<div>'+esc(T('port_src'))+': <b class="mono">'+esc(T('port_src_fixed')+' ('+(live||num(l.raw_sport)||RAW_SPORT_FIX)+')')+'</b></div>'}
- if(t=='dns')return '';
  var rows=(l.port)?('<div>'+esc(T('port'))+': <b class="mono">'+esc(l.port)+'</b></div>'):'';
  if(live&&portTriesOn({Tr:t}))rows+='<div>'+esc(T('port_src'))+': <b class="mono">'+esc(live)+'</b></div>';
  return rows}
@@ -10072,7 +10027,7 @@ function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
 function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnShapeGate()}
 function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnShapeGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='ws'?'CDN':(t=='dns'?'DNS':'UDP'))));corRawVis();corDnsVis();corWsVis();corPortGate();corCoverGate();corFecGate();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='ws'?'CDN':'UDP')));corRawVis();corWsVis();corPortGate();corCoverGate();corFecGate();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
 
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
@@ -10468,20 +10423,11 @@ function wsPoolInner(idp,fnp,lid){
 
 function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corS.Tr=='raw')?'':'none'}
 function corPortTriesVis(){portTriesVis('e_',_corS)}
-function corDnsVis(){var w=el('e_dnsblk');if(w)w.style.display=(_corS.Tr=='dns')?'':'none'}
 function trFade(bar){if(!bar)return;var w=bar.parentNode;if(!w)return;w.classList.toggle('atend',Math.abs(bar.scrollLeft)+bar.clientWidth>=bar.scrollWidth-4)}
-function corPortGate(){var p=el('e_port');if(!p)return;var np=(_corS.Tr=='raw'||_corS.Tr=='dns');var w=el('e_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_corS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph');corPortDraw()}
+function corPortGate(){var p=el('e_port');if(!p)return;var np=(_corS.Tr=='raw');var w=el('e_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_corS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph');corPortDraw()}
 async function corPortDraw(){var p=el('e_port');if(!p||p.value)return;
  var r=await j('next-port').catch(function(){return null});
  var q=el('e_port');if(q&&!q.value&&r&&r.ok&&r.port)q.value=String(r.port)}
-function dnsSection(idp,fnp){return '<div id="'+idp+'dnsblk" style="display:none">'
- +'<label class="first">'+esc(T('dns_zone_lbl'))+'</label>'
- +'<input id="'+idp+'dnszone" class="mono" placeholder="t.example.com" style="direction:ltr">'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:5px">'+T('dns_zone_note')+'</div>'
- +'<label>'+esc(T('dns_resolvers_lbl'))+'</label>'
- +'<input id="'+idp+'dnsresolvers" class="mono" placeholder="10.202.10.202, 10.202.10.102" style="direction:ltr">'
- +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:5px">'+T('dns_resolvers_note')+'</div>'
- +'<div class="autonote" style="margin-top:11px">'+ic('warn')+'<span>'+T('dns_delegation_note')+'</span></div></div>'}
 function corSetProfile(p){_corS.RawProfile=p;var g=el('e_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});corProtoVis();corPortVis();corPortTriesVis()}
 function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('e_',val)}
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
@@ -10511,7 +10457,7 @@ function corToggleObfs(){if(ssVal('e_cipher')=='none')return;_corS.Obfs=!_corS.O
 function corToggleCover(){if(_corS.Tr!='tcp')return;_corS.Cover=!_corS.Cover;var s=el('e_cover');if(s)s.classList.toggle('on',_corS.Cover);corSniVis()}
 function corSniVis(){var w=el('e_snirow');if(w)w.style.display=(_corS.Cover&&_corS.Tr=='tcp')?'':'none'}
 function corCoverGate(){var ok=_corS.Tr=='tcp'&&ssVal('e_cipher')!='none',row=el('e_coverrow'),s=el('e_cover');if(!ok){_corS.Cover=false;if(s)s.classList.remove('on')}if(row)row.style.display=ok?'':'none';corSniVis()}
-function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none'||S.Tr=='dns',row=el(px+'obfsrow'),s=el(px+'obfs');
+function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none',row=el(px+'obfsrow'),s=el(px+'obfs');
  if(off){S.Obfs=false;if(s)s.classList.remove('on')}if(row)row.style.display=off?'none':''}
 function onCorCipher(){_obfsGate('e_',_corS);corCoverGate()}
 async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
@@ -10523,12 +10469,11 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<div id="e_rotrow"></div>'+rotSetHTML('e_')+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2" id="e_roles"><button type="button" class="segopt on" id="e_srv_a" onclick="corSetSrv(\\'a\\')"></button><button type="button" class="segopt" id="e_srv_b" onclick="corSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('e_cipher',CORE_CIPHERS(),'auto',T('cipher_ph'),'onCorCipher')+
-  '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt" id="e_tr_dns" onclick="corSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
+  '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button></div></div>'+
   '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
   portTriesSection('e_')+
   workersSection('e_','cor')+
   wsSection('e_','cor','','',false,'',false,'ws','',null)+
-  dnsSection('e_','cor')+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw'+(_corS.Obfs?' on':'')+'" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
   '<div class="tglbox" id="e_coverrow" style="display:none"><div class="tglsw" id="e_cover" onclick="corToggleCover()"></div><div class="tt"><b>'+esc(T('cover_t'))+'</b><small>'+esc(T('cover_d'))+'</small></div></div>'+
   wsToggleRows('e_','cor',false,false,false,'',false,0,'split',0,false)+
@@ -10632,7 +10577,6 @@ function _collectCoreBody(S,px,m,body){
     body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}}
  var _pte=portTriesErr(px,S);if(_pte){formErr(m,_pte);return true}
  if(portTriesOn(S)){body.port_tries=portTriesN(px)}
- if(S.Tr=='dns'){if(ssVal(px+'cipher')=='none'){formErr(m,T('dns_need_enc'));return true}var _dz=(v(px+'dnszone')||'').trim().toLowerCase();if(!_dz){formErr(m,T('dns_need_zone'));return true}var _dr=(v(px+'dnsresolvers')||'').split(/[\\s,]+/).filter(Boolean);if(!_dr.length){formErr(m,T('dns_need_resolvers'));return true}body.dns_zone=_dz;body.dns_resolvers=_dr}
  if(fecDatagram(S)){body.fec=!!S.Fec;if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
@@ -10658,7 +10602,7 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Sprot=false,_eeS.Gso=false,_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=16,_eeS.FecParity=4,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceApplyGates(){ceRawVis();ceDnsVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
+function ceApplyGates(){ceRawVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
 function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
@@ -10678,8 +10622,7 @@ function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeS.Tr=='raw')?'':'none'}
 function cePortTriesVis(){portTriesVis('ee_',_eeS)}
-function ceDnsVis(){var w=el('ee_dnsblk');if(w)w.style.display=(_eeS.Tr=='dns')?'':'none'}
-function cePortGate(){var p=el('ee_port');if(!p)return;var np=(_eeS.Tr=='raw'||_eeS.Tr=='dns');var w=el('ee_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_eeS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph')}
+function cePortGate(){var p=el('ee_port');if(!p)return;var np=(_eeS.Tr=='raw');var w=el('ee_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_eeS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph')}
 function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceProtoVis();cePortVis();cePortTriesVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
@@ -10716,7 +10659,7 @@ async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})
  if(!_nr||!_nr.nodes){toast(T('failed'),'err');return}
  NODES=_nr.nodes;
  var _nitems=ceNodeItems(l);_eeS.NodeA=l.a_node;_eeS.NodeB=l.b_node;
- _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws','dns'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||16;_eeS.FecParity=l.fec_parity||4;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
+ _eeS.Srv=(l.server_side=='b')?'b':'a';_eeS.Tr=(['tcp','raw','ws'].indexOf(l.transport)>=0)?l.transport:'udp';_eeS.Obfs=!!l.obfs;_eeS.Cover=!!l.cover&&_eeS.Tr=='tcp';_eeS.RawProfile=l.raw_profile||'bare';_eeS.SportRandom=!!l.raw_sport_random;_eeS.Sprot=!!l.raw_sport_rotate;_eeS.Ctb=!!l.conntrack_bypass;_eeS.Gso=!!l.gso;_eeS.WsTls=!!l.ws_tls;_eeS.Ech=!!l.ech;_eeS.EchProxy=!!l.ech_proxy;_eeS.SniSplit=!!l.sni_split;_eeS.SplitPos=l.split_pos||0;_eeS.SniMode=(l.sni_mode=='disorder'||l.sni_mode=='fake')?l.sni_mode:'split';_eeS.SplitTtl=l.split_ttl||0;_eeS.Cdn=(l.cdn_carrier=='http'||l.cdn_carrier=='grpc')?l.cdn_carrier:'ws';_eeS.Fec=!!l.fec;_eeS.FecData=l.fec_data||16;_eeS.FecParity=l.fec_parity||4;_eeS.Desync=!!l.fake_desync;_eeS.DesyncTtl=l.fake_ttl||4;_eeS.DesyncCount=l.fake_count||2;_eeS.DesyncMode=l.fake_mode||'ttl';_eeS.WorkersA=wkClamp(l.a_workers);_eeS.WorkersB=wkClamp(l.b_workers);_eeS.Lid=l.id;_eeS.PoolLid=(l.ws_pool?l.id:'');poolInit('ee_',l);_peerLid=(l.ip_rotate?l.id:'');_peerData={dst:null,src:null,now:0,polledMs:0,selPending:null,open:{}};   
  _rotS['ee_']={on:!!l.ip_rotate,secs:(l.rotate_secs!=null?l.rotate_secs:600),aIps:nodeIps(l.a_node),bIps:nodeIps(l.b_node),aSel:{},bSel:{}};
  (l.a_ip_pool||[]).forEach(function(ip){_rotS['ee_'].aSel[ip]=true});(l.b_ip_pool||[]).forEach(function(ip){_rotS['ee_'].bSel[ip]=true});
  if(l.a_ip)_rotS['ee_'].aSel[l.a_ip]=true;if(l.b_ip)_rotS['ee_'].bSel[l.b_ip]=true;
@@ -10727,12 +10670,11 @@ async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})
   '<div id="ee_rotrow"></div>'+rotSetHTML('ee_')+'<div id="ee_peerlive"></div>'+
   '<label>'+esc(T('roles_lbl'))+'</label><div class="seg2"><button type="button" class="segopt'+(_eeS.Srv=='a'?' on':'')+'" id="ee_srv_a" onclick="ceSetSrv(\\'a\\')"></button><button type="button" class="segopt'+(_eeS.Srv=='b'?' on':'')+'" id="ee_srv_b" onclick="ceSetSrv(\\'b\\')"></button></div></div>';
  var _t2='<div class="ctabp" data-cp="set"><label>'+esc(T('enc_method_lbl'))+'</label>'+ssHTML('ee_cipher',CORE_CIPHERS(),(l.cipher||'auto'),T('cipher_ph'),'onEeCipher')+
-  '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='dns'?' on':'')+'" id="ee_tr_dns" onclick="ceSetTr(\\'dns\\')"><b>DNS</b><span>'+esc(T('tr_dns_d'))+'</span></button></div></div>'+
+  '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button></div></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
   portTriesSection('ee_')+
   workersSection('ee_','ce')+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,l)+
-  dnsSection('ee_','ce')+
   '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Obfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
   '<div class="tglbox" id="ee_coverrow"'+((_eeS.Tr!='tcp')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Cover?' on':'')+'" id="ee_cover" onclick="ceToggleCover()"></div><div class="tt"><b>'+esc(T('cover_t'))+'</b><small>'+esc(T('cover_d'))+'</small></div></div>'+
   wsToggleRows('ee_','ce',_eeS.WsTls,_eeS.Ech,_eeS.EchProxy,(l.ech_proxy_url||''),_eeS.SniSplit,_eeS.SplitPos,_eeS.SniMode,_eeS.SplitTtl,_eeS.Tr=='ws')+
@@ -10748,8 +10690,7 @@ async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})
  ceRoleLbls();renderRotIps('ee_');cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function cePrefillFields(l){
  [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],['ee_rawdports',l.raw_dports],['ee_bandlo',l.raw_sport_lo],['ee_bandhi',l.raw_sport_hi],
-  ['ee_porttries',l.port_tries],['ee_dnszone',l.dns_zone],
-  ['ee_dnsresolvers',(l.dns_resolvers||[]).join(', ')]].forEach(function(p){
+  ['ee_porttries',l.port_tries]].forEach(function(p){
    var e=el(p[0]);if(e&&p[1])e.value=p[1]})}
 function ceRoleLbls(){var an=ceNodeName(ssVal('ee_a')),bn=ceNodeName(ssVal('ee_b')),a=el('ee_srv_a'),b=el('ee_srv_b');
  if(a)a.innerHTML='<b>'+esc(an)+' '+esc(T('role_server_word'))+'</b><span>'+esc(bn)+' '+esc(T('role_client_word'))+'</span>';

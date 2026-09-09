@@ -27,12 +27,9 @@ A_IP, B_IP = "203.0.113.5", "198.51.100.7"
 A_IPS, B_IPS = [A_IP, "203.0.113.6"], [B_IP, "198.51.100.8"]
 
 WSS = {"transport": "ws", "cipher": "auto", "ws_host": "cdn.example.com", "ws_path": "/", "ws_tls": True}
-DNS = {"transport": "dns", "cipher": "auto", "dns_zone": "t.example.com", "dns_resolvers": ["10.0.0.1"]}
 
 # (name, request, the core rule it mirrors) — the panel MUST raise on every one of these.
 MUST_REJECT = [
-    ("obfs on dns", dict(DNS, obfs=True),
-     'config.go: obfs is not supported on the dns transport'),
     ('fake_mode "both" with one decoy', {"transport": "tcp", "cipher": "auto", "fake_desync": True,
                                          "fake_mode": "both", "fake_count": 1},
      'config.go: fake_mode "both" needs fake_count >= 2'),
@@ -45,8 +42,6 @@ MUST_REJECT = [
     ("ws_tls without ws_host", {"transport": "ws", "cipher": "auto", "ws_host": "", "ws_path": "/",
                                 "ws_tls": True},
      "config.go: ws_tls requires ws_host"),
-    ("dns without a zone", {"transport": "dns", "cipher": "auto", "dns_resolvers": ["10.0.0.1"]},
-     "config.go: dns transport requires dns_zone"),
     ("raw with crypto off", {"transport": "raw", "cipher": "none", "raw_profile": "bare"},
      "config.go: raw transport requires crypto enabled"),
     ("bare borrowing tcp's protocol number", {"transport": "raw", "cipher": "auto", "raw_profile": "bare",
@@ -56,8 +51,6 @@ MUST_REJECT = [
     ("bare borrowing esp's protocol number", {"transport": "raw", "cipher": "auto", "raw_profile": "bare",
                                              "raw_proto": 50},
      "config.go: rawProtoBorrowed — same, for every number a profile owns"),
-    ("dns with crypto off", dict(DNS, cipher="none"),
-     "config.go: dns transport requires crypto enabled"),
     ("obfs with crypto off", {"transport": "tcp", "cipher": "none", "obfs": True},
      "config.go: obfs requires crypto enabled"),
     ("split_ttl out of range", dict(WSS, sni_split=True, sni_mode="disorder", split_ttl=300),
@@ -144,7 +137,6 @@ MUST_ACCEPT = [
     ("grpc with ws_tls", dict(WSS, cdn_carrier="grpc")),
     ("http carrier with a shape", dict(WSS, cdn_carrier="http", http_up_workers=12,
                                       http_up_batch_kb=256, http_streams=4)),
-    ("dns, plain", dict(DNS)),
     ("sni_split with ws_tls", dict(WSS, sni_split=True, sni_mode="disorder", split_ttl=4)),
     ("fec on udp", {"transport": "udp", "cipher": "auto", "fec": True, "fec_data": 10, "fec_parity": 3}),
     ("a rolling source port on udp", {"transport": "raw", "cipher": "auto", "raw_profile": "udp",

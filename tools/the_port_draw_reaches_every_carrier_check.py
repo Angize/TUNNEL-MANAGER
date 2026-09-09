@@ -23,7 +23,6 @@ PANEL = ROOT / "tnl-central.py"
 
 # The carriers whose client arms rc.port.setRoll in the core, and the ones that do not.
 WITH_RUNG = ("udp", "tcp", "ws")
-WITHOUT_RUNG = ("dns",)
 
 
 def load_panel():
@@ -52,9 +51,6 @@ def js_pass(P, fails):
         print(("  ok   " if ok else " FAIL ") + "portTriesOn names %s" % tr)
         if not ok:
             fails.append("portTriesOn does not name %s, which has a port rung" % tr)
-    for tr in WITHOUT_RUNG:
-        if ("'%s'" % tr) in body:
-            fails.append("portTriesOn names %s, which has no port rung" % tr)
 
     for want in ("portTriesSection(", "portTriesVis(", "corPortTriesVis()", "cePortTriesVis()"):
         ok = want in js
