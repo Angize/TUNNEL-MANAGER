@@ -100,7 +100,6 @@ function node(id){ return document.getElementById(id) }
 function bodyFec(S, px){
   const b = {};
   for (const [id, val] of [['cipher','auto'], ['rawport','443'], ['rawproto','253'],
-                           ['dnszone','t.example.com'], ['dnsresolvers','1.1.1.1'],
                            ['decoyip','198.51.100.5'], ['wshost','a.example.com'], ['wspath','/x']]) {
     node(px+id).value = val;
   }

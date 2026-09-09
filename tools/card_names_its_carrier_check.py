@@ -8,15 +8,15 @@ cards have always named their kernel type in that slot; core cards now name thei
 
 Two ways this rots, and neither shows up in a screenshot:
 
-  * a new transport lands and `carrierLabel` falls through to the `UDP` default, so a DNS or a CDN
-    tunnel sits on the dashboard labelled UDP;
+  * a new transport lands and `carrierLabel` falls through to the `UDP` default, so that tunnel
+    sits on the dashboard labelled UDP;
   * the header and the expanded body derive the label separately and drift, so the card contradicts
     itself — the header saying WS while the body says GRPC.
 
 So this renders the REAL coreCard / linkCard for every transport out of the decoded INDEX_HTML under
 node, reads the chip back out of the header, and asserts it names the carrier AND that the body's own
 «نوع» row carries the IDENTICAL chip. The sub-choice the header drops (the raw profile, the CDN
-carrier, the dns zone) has its own row: the families that have one must print it, and
+carrier) has its own row: the families that have one must print it, and
 the families that do not must print no row at all rather than an empty one.
 
 Exit 1 on any failure.
@@ -201,7 +201,7 @@ def main():
               "%-11s -> body row chip %s, header chip %s" % (t, rc, hc))
 
     print("== 4) ...and the sub-choice the chip drops has its own row ==")
-    # The chip deliberately says only the family, so raw/dns would lose their second half
+    # The chip deliberately says only the family, so raw would lose its second half
     # entirely if this row went missing -- and a chip-equality check alone would still pass, which is
     # exactly how the previous version of this section went vacuous. The reverse is checked too: a
     # family with nothing to choose must print NO row, not an empty one.
