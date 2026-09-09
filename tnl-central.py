@@ -2802,12 +2802,9 @@ def api_node_adopt_ip(d):
         t = next((x for x in nodes if x["id"] == n["id"]), None)
         if not t:
             raise ValueError("نود پیدا نشد")
-        old, oldp = t["host"], int(t.get("port") or 0)
         t["host"], t["port"] = new, newp
         save_json(NODES_FILE, nodes)
     _moved_clear(n["id"])
-    log_event("ok", "node", f"نودِ «{n['name']}»: تنظیمِ نشانیِ تازه",
-              f"نشانی از {old}:{oldp} به {new}:{newp} عوض شد — تونل‌هایش را بازسازی کن")
     _refresh_cache([n["id"]])
     return {"ok": True, "host": new, "port": newp}
 
@@ -3404,7 +3401,6 @@ def api_push_cancel(d):
         for j in live:
             j["cancel"] = True
             _skip_waiting(j)
-    log_event("warn", "node", "لغوِ آپلود به فلیت توسطِ اپراتور")
     return {"ok": True, "job": jid}
 
 
@@ -3615,7 +3611,6 @@ def api_core_delete_blob(d):
                 pass
     if not gone:
         raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
-    log_event("ok", "core", "باینریِ سفارشیِ هسته حذف شد")
     return {"ok": True}
 
 
@@ -5495,10 +5490,7 @@ def _restart_link_impl(d, h=None):
         if not ok:
             errs.append(f"{N['name']}: {r.get('error') or r.get('msg') or '?'}")
     if errs:
-        log_event("bad", "link", f"تونلِ «{L['name']}»: ری‌استارتِ ناموفقِ هسته", "؛ ".join(errs))
         raise ValueError("؛ ".join(errs))
-    log_event("ok", "link", f"تونلِ «{L['name']}»: ری‌استارتِ هسته",
-              "پروسه روی هر دو نود تازه شد؛ کانفیگ دست‌نخورده")
     return {"ok": True, "ends": ends}
 
 
@@ -6898,7 +6890,6 @@ def api_proxy_add(d):
              "scheme": scheme, "host": host, "port": port, "user": user, "pass": pw or ""}
         ps.append(p)
         save_json(PROXIES_FILE, ps)
-    log_event("ok", "node", f"پروکسیِ «{p['name']}»: افزوده شد", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
@@ -6917,7 +6908,6 @@ def api_proxy_edit(d):
         elif not user:
             p["pass"] = ""
         save_json(PROXIES_FILE, ps)
-    log_event("ok", "node", f"پروکسیِ «{p['name']}»: ویرایش شد", f"{scheme}://{host}:{port}")
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
@@ -6942,7 +6932,6 @@ def api_proxy_del(d):
         if used:
             raise ValueError("این پروکسی روی این نودها فعال است: " + "، ".join(used))
         save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
-    log_event("ok", "node", f"پروکسیِ «{p['name']}»: حذف شد")
     return {"ok": True}
 
 
@@ -8457,9 +8446,9 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه، به‌علاوهٔ چند کارِ دستی که روی کلِ فلیت اثر دارند (لغوِ آپلود و افزودن/ویرایش/حذفِ پروکسی). فقط چیزی که از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد — قطع/وصلِ نود و تونل، ترمیم و چرخشِ خودکارِ لبه و کلید، و ورود/خروجِ پنل. کارهایی که خودت در پنل می‌کنی اینجا ثبت نمی‌شود؛ فقط چیزی که پنل بی‌آنکه بگویی انجام داده. هرچه از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
- logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",logc_sys:"سیستم",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
+ logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
@@ -11183,7 +11172,7 @@ function logResolveFilter(){var c=logCounts();
  return c}
 function logChipsHTML(c){
  c=c||logCounts();   
- var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['auth','logc_auth'],['sys','logc_sys'],['err','logc_err']];
+ var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['auth','logc_auth'],['err','logc_err']];
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" data-ha="'+esc(k)+'" onclick="logFilter(hA(this))">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 var _lfQ=null,_lfSrc=null,_lfOut=null;
