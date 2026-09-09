@@ -55,7 +55,7 @@ sudo python3 tnl-central.py --install
 
 | قابلیت | جزئیات |
 |---|---|
-| `core` | تونلِ رمزنگاری‌شدهٔ هسته — `udp`/`tcp`/`raw`/`ws`/`dns`، همراه با obfs / cover(REALITY) / FEC / جعلِ IP / ECH / حاملِ CDN (ws/http/grpc) / SNI-split / fake-desync |
+| `core` | تونلِ رمزنگاری‌شدهٔ هسته — `udp`/`tcp`/`raw`/`ws`، همراه با obfs / cover(REALITY) / FEC / جعلِ IP / ECH / حاملِ CDN (ws/http/grpc) / SNI-split / fake-desync |
 | kernel | تونلِ نودبه‌نود — VXLAN / GRE / SIT / IPIP / L2TPv3 / FOU / IPsec |
 | forward | پورت‌فوروارد با چرخشِ چند مقصد |
 | poolها | مدیریتِ زندهٔ poolِ چرخشیِ edge (IP×SNI) و poolِ مقصد/مبدأ — probe، انتخاب/pin، auto-burn، warm-standby |
