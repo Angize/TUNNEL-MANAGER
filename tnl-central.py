@@ -178,7 +178,6 @@ def save_bytes(path, data, mode=0o644):
 _TUNING_DEFAULTS = {
     "suspect_backoff": [600, 1800, 3600],
     "dead_retest_secs": 21600,
-    "min_liveness_secs": 20,
     "probe_min_pct": 15,
     "ladder_revive": [45, 180, 600],
     "sock_buf_mb": 4,
@@ -193,12 +192,10 @@ _TUNING_STEPS = {"probe_min_pct": (5, "حداقلِ بسته‌های برگشت
 _TUNING_LIST_LABELS = {"suspect_backoff": "زمان‌بندیِ تستِ مجددِ موقت‌سوخته",
                        "ladder_revive": "صبر پیش از تلاشِ دوبارهٔ نردبان"}
 _TUNING_NUM_LABELS = {"dead_retest_secs": "تستِ مجددِ آی‌پیِ سوخته",
-                      "min_liveness_secs": "حداقلِ عمرِ سشنِ سالم",
                       "probe_min_pct": "حداقلِ بسته‌های برگشتی",
                       "sock_buf_mb": "بافرِ سوکت"}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
-    "min_liveness_secs": (1, 3600),
     "probe_min_pct": (5, 100),
     "sock_buf_mb": (0, 64),
 }
@@ -8583,7 +8580,7 @@ search:"جستجو…",
 
 
  set_step_bad:"«{f}» باید مضربی از {s} باشد — {v} پذیرفته نیست",
- porttries_lbl:"چند بار پورتِ مبدأ عوض شود",porttries_bad:"عدد باید بینِ 1 تا 60 باشد", set_t_minlive:"حداقلِ عمرِ سشنِ سالم (ثانیه)",set_t_minlive_d:"اتصالی که زودتر از این‌قدر ثانیه بیفتد، یک <b>سشنِ واقعی</b> حساب نمی‌شود — مثل تماسی که ۵ ثانیه بعد قطع شد و اصلاً یک مکالمه نبود. روی استخرِ CDN باعث می‌شود کریر از همان لبه کنار برود، وگرنه «وصل شد و افتاد» بی‌وقفه تکرار می‌شود چون دیالِ موفق هیچ مکثی سرِ راه نمی‌گذارد. <b>هیچ آی‌پی‌ای را متهم نمی‌کند</b> — قضاوت دربارهٔ اینکه یک لبه سالم است یا نه فقط با پروبِ TUN است.",
+ porttries_lbl:"چند بار پورتِ مبدأ عوض شود",porttries_bad:"عدد باید بینِ 1 تا 60 باشد",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw",
@@ -8600,7 +8597,6 @@ search:"جستجو…",
 
 
 
- set_x_minlive:"<b>20</b> = اتصالی که بعد از 5ثانیه افتاد سشنِ واقعی نبود ← از آن لبه کنار برو، ولی متهمش نکن.",
  set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>5</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
  set_pm_hint:"= حداقل {n} بسته از {c} باید جواب بدهد",
  set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw.",
@@ -11339,7 +11335,6 @@ function settingsGroups(s){
   qr(T('set_ech_int'),'set_ech_range','set_x_ech','<input id="set_ech" class="search" type="number" step="1" min="0" max="1440" value="'+esc(String(_sv(s,'ech_refresh_mins')))+'">')+
   qr(T('set_upwin'),'set_upwin_d','set_x_upwin',ssHTML('set_upwin',[{v:'1',label:T('h1')},{v:'3',label:T('h3')},{v:'6',label:T('h6')},{v:'8',label:T('h8')},{v:'12',label:T('h12')},{v:'24',label:T('h24')}],String(_sv(s,'uptime_window')),'',''));
  var conn=
-  qr(T('set_t_minlive'),'set_t_minlive_d','set_x_minlive',tNum('set_t_minlive',_tv(s,'min_liveness_secs'),1,3600))+
   qr(T('set_t_probemin'),'set_t_probemin_d','set_x_probemin',tNum('set_t_probemin',_tv(s,'probe_min_pct'),5,100,5))+
   '<p class="srnote" id="tun_pmhint"></p>'+
   qr(T('set_t_revive'),'set_t_revive_d','set_x_revive','<input id="set_t_revive" class="search wtxt" type="text" inputmode="numeric" value="'+esc(_tv(s,'ladder_revive').join(', '))+'">');
@@ -11355,7 +11350,7 @@ function settingsGroups(s){
 function _collectTuning(){
  var sb=(v('set_t_suspect')||'').split(',').map(function(x){return _minSec(x.trim())}).filter(function(n){return !isNaN(n)});
  var rv=(v('set_t_revive')||'').split(',').map(function(x){return parseInt(x.trim(),10)}).filter(function(n){return !isNaN(n)});
- var t={dead_retest_secs:_minSec(v('set_t_deadretest')),min_liveness_secs:parseInt(v('set_t_minlive')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
+ var t={dead_retest_secs:_minSec(v('set_t_deadretest')),probe_min_pct:parseInt(v('set_t_probemin')),sock_buf_mb:parseInt(v('set_t_sockbuf'))};
  if(sb.length)t.suspect_backoff=sb;
  if(rv.length)t.ladder_revive=rv;
  return t}

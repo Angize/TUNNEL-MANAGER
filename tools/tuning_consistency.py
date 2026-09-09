@@ -25,7 +25,6 @@ TUNING_KNOBS = [
     # panel key,               go var name,           go ApplyTuning field,   is_list
     ("suspect_backoff",        "suspectBackoff",      "SuspectBackoff",       True),
     ("dead_retest_secs",       "deadRetest",          "DeadRetestSecs",       False),
-    ("min_liveness_secs",      "minLiveness",         "MinLivenessSecs",      False),
     ("ladder_revive",          "ladderRevive",        "LadderRevive",         True),
 ]
 
@@ -73,7 +72,7 @@ def go_default(src, var, is_list):
         if not m:
             raise KeyError(var)
         return [int(x) for x in re.findall(r"\d+", m.group(1))]
-    # scalar: matches `deadRetest int64 = 1800`, `dataFailThreshold = 2`, `minLiveness = 20 * time.Second`
+    # scalar: matches `deadRetest int64 = 1800`, `dataFailThreshold = 2`, `ladderRevive = ...`
     m = re.search(re.escape(var) + r"\b[^=\n]*=\s*(\d+)", src)
     if not m:
         raise KeyError(var)
