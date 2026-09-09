@@ -7851,6 +7851,8 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
  border:1px solid var(--sod-amberb);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
  min-width:0;flex:0 1 auto}
 .sodev .sk2{color:var(--sod-dim);font-size:10.5px;flex:0 0 auto}
+.sodev .svals .sp.pair{flex:1 1 100%}
+.sodev .sp.pair .sval{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
 .sodev.bad{--sev:var(--sod-bad)}.sodev.warn{--sev:var(--sod-warn)}.sodev.ok{--sev:var(--sod-ok)}
 .sodev.sodtap{cursor:pointer;border-radius:8px}
 .sodev.sodtap:hover{background:var(--sod-amberw)}
@@ -11287,7 +11289,7 @@ function logRows(){
  if(rest>0)rows.push({k:'__more',h:'<div class="card muted logmore" role="button" tabindex="0" onclick="logMore()" onkeydown="logMoreKey(event)">'+
    esc(T('logs_more').replace('{n}',rest))+'</div>'});
  return rows}
-var SOD_LEAD=3,SOD_INLINE_MAX=34;
+var SOD_LEAD=3,SOD_INLINE_MAX=34,SOD_PAIR={'\u0627\u0632':1,'\u0628\u0647':1};
 function sodLevel(e){return e.level=='bad'?'bad':(e.level=='warn'?'warn':'ok')}
 function sodSentence(title,notes){
  var t=String(title||'').trim();
@@ -11301,10 +11303,12 @@ function sodEvent(e,k){
  var p=evParts(e),sp=evSplit(p.lines);
  var lead=[],rest=[];
  sp.rows.forEach(function(r){
+  if(SOD_PAIR[r.k]){lead.push(r);return}
   if(lead.length<SOD_LEAD&&String(r.v).length<=SOD_INLINE_MAX)lead.push(r);else rest.push(r)});
  var sen='<div class="ssen">'+esc(sodSentence(p.title,sp.notes))+'</div>';
  if(lead.length)sen+='<div class="svals">'+lead.map(function(r){
-  return '<span class="sp"><span class="sk2">'+esc(r.k)+'</span><span class="sval">'+esc(r.v)+'</span></span>'}).join('')+'</div>';
+  return '<span class="sp'+(SOD_PAIR[r.k]?' pair':'')+'"><span class="sk2">'+esc(r.k)+
+         '</span><span class="sval">'+esc(r.v)+'</span></span>'}).join('')+'</div>';
  var fold='';
  if(rest.length){
   fold='<div class="sfold">'+rest.map(function(r){
