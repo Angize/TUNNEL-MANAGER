@@ -6053,7 +6053,6 @@ def ech_refresh_loop():
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")
 EVENTS_TTL = 24 * 3600
-EVENTS_MAX = 5000
 _events_lock = threading.Lock()
 _ev_seq_total = None
 _ev_count = None
@@ -6269,7 +6268,7 @@ def _ev_cat(kind):
 
 def _ev_prune(evs, now=None):
     cut = (time.time() if now is None else now) - EVENTS_TTL
-    return [e for e in evs if isinstance(e, dict) and _sint(e.get("ts")) >= cut][:EVENTS_MAX]
+    return [e for e in evs if isinstance(e, dict) and _sint(e.get("ts")) >= cut]
 
 
 def ev_sweep():
@@ -6290,8 +6289,6 @@ def log_event(level, kind, fa, dfa=""):
         evs = _ev_all()
         evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
                        "fa": fa, "dfa": dfa})
-        if len(evs) > EVENTS_MAX:
-            del evs[EVENTS_MAX:]
         _ev_count = len(evs)
         _ev_seq_total = _ev_seq_get() + 1
         _ev_dirty = True
@@ -6513,11 +6510,9 @@ def events_loop():
 
 
 def api_events(d):
-    d = d or {}
-    lim = max(1, min(EVENTS_MAX, _sint(d.get("limit")) or EVENTS_MAX))
     cut = time.time() - EVENTS_TTL
     evs = [dict(e, cat=_ev_cat(e.get("kind")))
-           for e in load_events()[:lim] if _sint(e.get("ts")) >= cut]
+           for e in load_events() if _sint(e.get("ts")) >= cut]
     return {"ok": True, "events": evs}
 
 
@@ -8462,7 +8457,7 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، حداکثر __LOGMAX__ تا — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه، به‌علاوهٔ چند کارِ دستی که روی کلِ فلیت اثر دارند (لغوِ آپلود و افزودن/ویرایش/حذفِ پروکسی). قدیمی‌تر از آن (یا فراتر از این تعداد، روی فلیتِ شلوغ) خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد — قطع/وصلِ نود و تونل و تغییرِ خودکارِ لبه، به‌علاوهٔ چند کارِ دستی که روی کلِ فلیت اثر دارند (لغوِ آپلود و افزودن/ویرایش/حذفِ پروکسی). فقط چیزی که از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
  logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",logc_sys:"سیستم",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
@@ -11439,7 +11434,6 @@ INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, 
 INDEX_HTML = INDEX_HTML.replace("__TUNSTEP_JSON__", json.dumps(_TUNING_STEPS, ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
 INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
-INDEX_HTML = INDEX_HTML.replace("__LOGMAX__", str(EVENTS_MAX))
 INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
     {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
