@@ -1774,7 +1774,7 @@ _WORKERS_KEYS = ("a_workers", "b_workers")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
                     "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
-                    "raw_sport_lo", "raw_sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
+                    "sport_lo", "sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
                     "http_up_workers", "http_up_batch_kb", "http_streams",
@@ -1880,9 +1880,9 @@ def _tunnel_extra(src, refetch_ech=True):
         e["raw_sport_rotate"] = src["raw_sport_rotate"]
     if src.get("raw_dports"):
         e["raw_dports"] = src["raw_dports"]
-    if src.get("raw_sport_lo") and src.get("raw_sport_hi"):
-        e["raw_sport_lo"] = src["raw_sport_lo"]
-        e["raw_sport_hi"] = src["raw_sport_hi"]
+    if src.get("sport_lo") and src.get("sport_hi"):
+        e["sport_lo"] = src["sport_lo"]
+        e["sport_hi"] = src["sport_hi"]
     if src.get("conntrack_bypass"):
         e["conntrack_bypass"] = True
     if src.get("fec"):
@@ -4773,20 +4773,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                     ce["raw_dports"] = _rdp
             elif int((d.get("raw_dports") or 0)) and "raw_dports" in d:
                 raise ValueError("«چند پورتِ مقصد» بدونِ «چرخشِ پورتِ مبدأ» بی‌اثر است — با مبدأِ ثابت هر پکت باز هم در همان سطلِ میدل‌باکس می‌افتد. اول چرخش را روشن کن")
-            if _rrot or _srand:
-                try:
-                    _blo = int((d["raw_sport_lo"] if "raw_sport_lo" in d else cur.get("raw_sport_lo")) or 0)
-                    _bhi = int((d["raw_sport_hi"] if "raw_sport_hi" in d else cur.get("raw_sport_hi")) or 0)
-                except (TypeError, ValueError):
-                    _blo = _bhi = 0
-                if _blo or _bhi:
-                    if not (RAW_BAND_MIN_LO <= _blo <= _bhi <= 65535):
-                        raise ValueError(f"«بازهٔ چرخش» باید دو پورتِ بینِ {RAW_BAND_MIN_LO} تا 65535 باشد و ابتدایش از انتهایش کوچک‌تر — زیرِ {RAW_BAND_MIN_LO} پورتِ ممتاز است و حاملِ جعلی دلیلی برای ادعای آن ندارد")
-                    if _bhi - _blo + 1 < RAW_BAND_MIN_SPAN:
-                        raise ValueError(f"«بازهٔ چرخش» دستِ‌کم باید {RAW_BAND_MIN_SPAN} پورت پهنا داشته باشد؛ باریک‌تر از آن یعنی پورتِ ثابت با چند قدمِ اضافه — برای آن «پورتِ مبدأِ ثابت» هست")
-                    ce["raw_sport_lo"], ce["raw_sport_hi"] = _blo, _bhi
-            elif (d.get("raw_sport_lo") or d.get("raw_sport_hi")) and ("raw_sport_lo" in d or "raw_sport_hi" in d):
-                raise ValueError("«بازهٔ چرخش» فقط وقتی معنا دارد که پورتِ مبدأ در حرکت باشد — «چرخشِ پورتِ مبدأ» یا «رندومِ واکنشی» را روشن کن")
         elif _rrot and "raw_sport_rotate" in d:
             raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
         _ctb = bool(d["conntrack_bypass"]) if "conntrack_bypass" in d else bool(cur.get("conntrack_bypass"))
@@ -4815,6 +4801,17 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         ce["cover"] = True
         ce["cover_sni"] = cover_sni
     try:
+        try:
+            _blo = int((d["sport_lo"] if "sport_lo" in d else cur.get("sport_lo")) or 0)
+            _bhi = int((d["sport_hi"] if "sport_hi" in d else cur.get("sport_hi")) or 0)
+        except (TypeError, ValueError):
+            _blo = _bhi = 0
+        if _blo or _bhi:
+            if not (RAW_BAND_MIN_LO <= _blo <= _bhi <= 65535):
+                raise ValueError(f"«بازهٔ پورتِ مبدأ» باید دو پورتِ بینِ {RAW_BAND_MIN_LO} تا 65535 باشد و ابتدایش از انتهایش کوچک‌تر — زیرِ {RAW_BAND_MIN_LO} پورتِ ممتاز است و هیچ حاملی دلیلی برای ادعای آن ندارد")
+            if _bhi - _blo + 1 < RAW_BAND_MIN_SPAN:
+                raise ValueError(f"«بازهٔ پورتِ مبدأ» دستِ‌کم باید {RAW_BAND_MIN_SPAN} پورت پهنا داشته باشد؛ باریک‌تر از آن یعنی پورتِ ثابت با چند قدمِ اضافه")
+            ce["sport_lo"], ce["sport_hi"] = _blo, _bhi
         _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
     except (TypeError, ValueError):
         _ptries = 0
@@ -8699,7 +8696,7 @@ search:"جستجو…",
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا {n} باشد",band_lbl:"بازهٔ چرخش (پورتِ مبدأ)",band_lo:"از",band_hi:"تا",band_bad:"بازه باید دو پورتِ بینِ {n} تا 65535 باشد و ابتدایش کوچک‌تر",band_narrow:"بازه دستِ‌کم {n} پورت پهنا می‌خواهد",band_hint:"پیش‌فرض {lo}-{hi} · اگر مسیری پورتِ بالا را می‌اندازد، بازه را زیرِ آن بیاور",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا {n} باشد",band_lbl:"بازهٔ پورتِ مبدأ",band_lo:"از",band_hi:"تا",band_bad:"بازه باید دو پورتِ بینِ {n} تا 65535 باشد و ابتدایش کوچک‌تر",band_narrow:"بازه دستِ‌کم {n} پورت پهنا می‌خواهد",band_hint:"پیش‌فرض {lo}-{hi} · هر کریری پورتِ مبدأش را از همین بازه می‌کشد · اگر مسیری پورتِ بالا را می‌اندازد، بازه را زیرِ آن بیاور",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_lbl_cores:"دارای {c} هسته",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -10238,7 +10235,11 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
          +'<input id="'+idp+'rawdports" class="mono" inputmode="numeric" maxlength="2" placeholder="1" oninput="'+fnp+'SprotWarn()" style="text-align:center;direction:ltr"></div>'
      +'</div>'
      +'<div class="warncap no" id="'+idp+'sprotwarn" style="display:none;margin-top:8px"></div></div></div>'
- +'<div id="'+idp+'bandrow" style="display:none;margin-top:11px">'
+ +'<div id="'+idp+'ctbrow" style="display:none">'
+   +'<div class="tglbox"><div class="tglsw" id="'+idp+'ctbsw" onclick="'+fnp+'ToggleCtb()"></div>'
+     +'<div class="tt"><b>'+esc(T('ctb_t'))+'</b><small>'+esc(T('ctb_d'))+'</small></div></div></div>'
+ +'</div>'}
+function bandSection(idp){return '<div style="margin-top:11px">'
    +'<label class="first">'+esc(T('band_lbl'))+'</label>'
    +'<div class="grid2">'
      +'<div><label>'+esc(T('band_lo'))+'</label>'
@@ -10247,11 +10248,7 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
        +'<input id="'+idp+'bandhi" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_HI+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
    +'</div>'
    +'<div class="muted" style="font-size:11px;margin-top:4px">'+esc(T('band_hint').replace('{lo}',String(RAW_ROT_LO)).replace('{hi}',String(RAW_ROT_HI)))+'</div>'
-   +'<div class="warncap no" id="'+idp+'bandwarn" style="display:none;margin-top:8px"></div></div>'
- +'<div id="'+idp+'ctbrow" style="display:none">'
-   +'<div class="tglbox"><div class="tglsw" id="'+idp+'ctbsw" onclick="'+fnp+'ToggleCtb()"></div>'
-     +'<div class="tt"><b>'+esc(T('ctb_t'))+'</b><small>'+esc(T('ctb_d'))+'</small></div></div></div>'
- +'</div>'}
+   +'<div class="warncap no" id="'+idp+'bandwarn" style="display:none;margin-top:8px"></div></div>'}
 function ctbOn(S){return S.Tr=='raw'&&(S.RawProfile=='udp'||S.RawProfile=='tcp')}
 function ctbVis(idp,S){var w=el(idp+'ctbrow'),on=ctbOn(S);
  if(!on)S.Ctb=false;
@@ -10285,15 +10282,13 @@ function sprotVis(idp,S){var w=el(idp+'sprotrow');var on=sprotOn(S);
  var sw=el(idp+'sprotsw');if(sw)sw.classList.toggle('on',sprotLive(S));
  var b=el(idp+'sprotbody');if(b)b.style.display=sprotLive(S)?'':'none';
  var src=el(idp+'srcblk');if(src)src.classList.toggle('portlock',sprotLive(S));
- sprotWarnUpd(idp,S);bandVis(idp,S)}
+ sprotWarnUpd(idp,S)}
 function sprotToggle(idp,S){if(!sprotOn(S))return;S.Sprot=!S.Sprot;
  if(S.Sprot){var e=el(idp+'rawsprot');if(e&&!sprotN(idp))e.value=String(SPROT_DEF);
   S.SportRandom=false;sportPaint(idp,false)}
  sprotVis(idp,S);ctbVis(idp,S);portTriesVis(idp,S)}
 function dportsN(idp){var e=el(idp+'rawdports');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function bandN(idp,which){var e=el(idp+which);if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
-function bandOn(S){return sprotOn(S)&&(!!S.Sprot||!!S.SportRandom)}
-function bandVis(idp,S){var w=el(idp+'bandrow');if(w)w.style.display=bandOn(S)?'':'none';bandWarnUpd(idp)}
 function bandErr(idp){var lo=bandN(idp,'bandlo'),hi=bandN(idp,'bandhi');
  if(!lo&&!hi)return '';
  if(!(lo>=RAW_BAND_MIN_LO&&lo<=65535)||!(hi>=RAW_BAND_MIN_LO&&hi<=65535)||hi<lo)return T('band_bad').replace('{n}',String(RAW_BAND_MIN_LO));
@@ -10433,7 +10428,7 @@ function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
 function protoVisOn(S){return S.Tr=='raw'&&S.RawProfile=='bare'}
 function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
-function corSetSport(on){if(sprotLive(_corS))return;_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis();bandVis('e_',_corS)}
+function corSetSport(on){if(sprotLive(_corS))return;_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis()}
 function corSetSportPort(n){if(sprotLive(_corS))return;var i=el('e_rawsport');if(i)i.value=n;sportPresetPaint('e_')}
 function corSportWarn(){sportPresetPaint('e_')}
 function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('e_rpg');
@@ -10472,6 +10467,7 @@ async function openCoreModal(){var r=await j('node-names');NODES=r.nodes||[];var
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="e_trwrap"><div class="seg2 trbar" id="e_trbar" onscroll="trFade(this)"><button type="button" class="segopt on" id="e_tr_udp" onclick="corSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_tcp" onclick="corSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt" id="e_tr_raw" onclick="corSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt" id="e_tr_ws" onclick="corSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button></div></div>'+
   '<div id="e_rawblk" style="display:none"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="e_pg">'+rawTiles('cor','bare')+'</div>'+protoSection('e_','cor')+portSection('e_','cor')+'</div>'+
   portTriesSection('e_')+
+  bandSection('e_')+
   workersSection('e_','cor')+
   wsSection('e_','cor','','',false,'',false,'ws','',null)+
   '<div class="tglbox" id="e_obfsrow"><div class="tglsw'+(_corS.Obfs?' on':'')+'" id="e_obfs" onclick="corToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
@@ -10562,11 +10558,11 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   var _sre=sprotErr(px,S);if(_sre){formErr(m,_sre);return true}
-  if(bandOn(S)){var _be=bandErr(px);if(_be){formErr(m,_be);return true}}
+  var _be=bandErr(px);if(_be){formErr(m,_be);return true}
   body.raw_sport_rotate=sprotLive(S)?sprotN(px):0;
   body.raw_dports=sprotLive(S)?dportsN(px):0;
-  body.raw_sport_lo=bandOn(S)?bandN(px,'bandlo'):0;
-  body.raw_sport_hi=bandOn(S)?bandN(px,'bandhi'):0;
+  body.sport_lo=bandN(px,'bandlo');
+  body.sport_hi=bandN(px,'bandhi');
   body.conntrack_bypass=ctbOn(S)&&!!S.Ctb;
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
@@ -10627,7 +10623,7 @@ function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototyp
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
 function ceSetPort(v){var i=el('ee_rawport');if(i)i.value=v;cePortWarn()}
-function ceSetSport(on){if(sprotLive(_eeS))return;_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis();bandVis('ee_',_eeS)}
+function ceSetSport(on){if(sprotLive(_eeS))return;_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis()}
 function ceSetSportPort(n){if(sprotLive(_eeS))return;var i=el('ee_rawsport');if(i)i.value=n;sportPresetPaint('ee_')}
 function ceSportWarn(){sportPresetPaint('ee_')}
 function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('ee_rpg');
@@ -10673,6 +10669,7 @@ async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})
   '<label>'+esc(T('transport_lbl'))+'</label><div class="trwrap" id="ee_trwrap"><div class="seg2 trbar" id="ee_trbar" onscroll="trFade(this)"><button type="button" class="segopt'+(_eeS.Tr=='udp'?' on':'')+'" id="ee_tr_udp" onclick="ceSetTr(\\'udp\\')"><b>UDP</b><span>'+esc(T('tr_udp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='tcp'?' on':'')+'" id="ee_tr_tcp" onclick="ceSetTr(\\'tcp\\')"><b>TCP</b><span>'+esc(T('tr_tcp_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='raw'?' on':'')+'" id="ee_tr_raw" onclick="ceSetTr(\\'raw\\')"><b>RAW</b><span>'+esc(T('tr_raw_d'))+'</span></button><button type="button" class="segopt'+(_eeS.Tr=='ws'?' on':'')+'" id="ee_tr_ws" onclick="ceSetTr(\\'ws\\')"><b>CDN</b><span>'+esc(T('tr_ws_d'))+'</span></button></div></div>'+
   '<div id="ee_rawblk" style="display:'+((_eeS.Tr=='raw')?'':'none')+'"><label>'+esc(T('raw_prof_lbl'))+'</label><div class="pgrid" id="ee_pg">'+rawTiles('ce',_eeS.RawProfile)+'</div>'+protoSection('ee_','ce')+portSection('ee_','ce')+'</div>'+
   portTriesSection('ee_')+
+  bandSection('ee_')+
   workersSection('ee_','ce')+
   wsSection('ee_','ce',l.ws_host,l.ws_path,_eeS.WsTls,l.edge_ip,_eeS.Ech,_eeS.Cdn,l.id,l)+
   '<div class="tglbox" id="ee_obfsrow"'+((l.cipher=='none')?' style="display:none"':'')+'><div class="tglsw'+(_eeS.Obfs?' on':'')+'" id="ee_obfs" onclick="ceToggleObfs()"></div><div class="tt"><b>'+esc(T('obfs_t'))+'</b><small>'+esc(T('obfs_d'))+'</small></div></div>'+
@@ -10689,7 +10686,7 @@ async function openCoreEdit(id){var l=FLEET.filter(function(x){return x.id==id})
  openModal('<div class="msticky"><span class="medi">'+ic('pen')+'</span><div class="ttl"><h3>'+esc(T('core_edit_t'))+'</h3><div class="sb">'+esc(l.name)+'</div></div><button class="mx" onclick="closeModal(this.closest(\\'.modalov\\'))">✕</button></div><div class="mbody">'+b+'</div><div class="mfoot"><button class="primary" data-ha="'+esc(id)+'" onclick="doCoreEdit(hA(this))">'+esc(T('save_rebuild'))+'</button><button class="ghost" onclick="closeModal(this.closest(\\'.modalov\\'))">'+esc(T('cancel'))+'</button></div>',{cls:'edit'});
  ceRoleLbls();renderRotIps('ee_');cePrefillFields(l);onCeSubRange();ceApplyGates();trFade(el('ee_trbar'));if(_eeS.PoolLid)setTimeout(poolTick,200);if(_peerLid)setTimeout(peerTick,200)}
 function cePrefillFields(l){
- [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],['ee_rawdports',l.raw_dports],['ee_bandlo',l.raw_sport_lo],['ee_bandhi',l.raw_sport_hi],
+ [['ee_rawproto',l.raw_proto],['ee_rawport',l.raw_port],['ee_rawsport',l.raw_sport],['ee_rawsprot',l.raw_sport_rotate],['ee_rawdports',l.raw_dports],['ee_bandlo',l.sport_lo],['ee_bandhi',l.sport_hi],
   ['ee_porttries',l.port_tries]].forEach(function(p){
    var e=el(p[0]);if(e&&p[1])e.value=p[1]})}
 function ceRoleLbls(){var an=ceNodeName(ssVal('ee_a')),bn=ceNodeName(ssVal('ee_b')),a=el('ee_srv_a'),b=el('ee_srv_b');
