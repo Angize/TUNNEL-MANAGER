@@ -8503,7 +8503,7 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد. کارهایی که خودت در پنل می‌کنی اینجا ثبت نمی‌شود؛ فقط چیزی که پنل بی‌آنکه بگویی انجام داده. با دکمهٔ «فیلترها» نوع‌به‌نوع انتخاب کن چه چیزی اینجا بیاید — هر تیک همان لحظه ذخیره می‌شود. هرچه از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
  logf_btn:"فیلترها",logf_head:"کدام رویدادها در این صفحه بیایند",logf_hint:"با هر تیک همان‌جا ذخیره می‌شود. تیک‌نخورده‌ها ثبت می‌شوند ولی نشان داده نمی‌شوند — هر وقت تیکشان را برگردانی، گذشته‌شان هم برمی‌گردد",logf_on:"{n} نوع رویداد پنهان است — با دکمهٔ «فیلترها» برشان گردان",logf_empty:"همهٔ رویدادهای این بازه را فیلترها پنهان کرده‌اند",
  logc_all:"همه",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
@@ -8718,7 +8718,7 @@ search:"جستجو…",
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
  enc_method_lbl:"روشِ رمزنگاری",cipher_ph:"رمز",transport_lbl:"نوعِ اتصال",tr_udp_d:"دیتاگرام",tr_ws_d:"پشتِ ابر",tr_tcp_d:"پایدارتر",tr_raw_d:"پکتِ خام",
  raw_prof_lbl:"پروفایلِ کپسوله‌سازی (raw)",
-got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا {n} باشد",band_lbl:"بازهٔ پورتِ مبدأ",band_lo:"از",band_hi:"تا",band_bad:"بازه باید دو پورتِ بینِ {n} تا 65535 باشد و ابتدایش کوچک‌تر",band_narrow:"بازه دستِ‌کم {n} پورت پهنا می‌خواهد",band_hint:"پیش‌فرض {lo}-{hi} · هر کریری پورتِ مبدأش را از همین بازه می‌کشد · اگر مسیری پورتِ بالا را می‌اندازد، بازه را زیرِ آن بیاور",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
+got_it:"باشه", raw_sport_lbl:"پورتِ سمتِ کلاینت (مبدأ)",raw_sport_fixed_n:"ثابت",raw_sport_fixed_m:"پیش‌فرض 51820 · قابلِ تغییر",raw_sport_ike:"IKE",raw_sport_bad:"پورتِ مبدأ باید بینِ 1 تا 65535 باشد",raw_sport_rand_n:"رندومِ واکنشی",raw_sport_rand_m:"روی خرابی و روی سکوت",raw_sprot_t:"چرخشِ پورتِ مبدأ",ctb_t:"رد شدن از conntrack",ctb_d:"جریانِ حامل در جدولِ conntrackِ نود ثبت نمی‌شود · یک ACCEPT هم کنارش گذاشته می‌شود تا فایروالِ deny نشکند",ctb_warn:"جدولِ conntrackِ نودِ «{n}» {p}٪ پر است ({c} از {m}). چرخشِ پورت به‌ازای هر پورتِ تازه یک جریانِ تازه می‌سازد؛ جدول که پر شود کرنل پکت می‌اندازد — هم برای این تونل هم برای بقیهٔ سرویس‌هایِ همان نود. «رد شدن از conntrack» را در ویرایشِ همین تونل روشن کن.",raw_sprot_d:"هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp",raw_sprot_lbl:"هر چند پکت",raw_sprot_bad:"عدد باید بینِ 1 تا 60 باشد",raw_dports_lbl:"چند پورتِ مقصد",raw_dports_bad:"عدد باید بینِ 1 تا {n} باشد",band_lbl:"بازهٔ پورتِ مبدأ (پیش‌فرض {r})",band_bad:"بازه باید دو پورتِ بینِ {n} تا 65535 باشد و ابتدایش کوچک‌تر",band_narrow:"بازه دستِ‌کم {n} پورت پهنا می‌خواهد",port_dst_rot:"چرخان",port_dst_rot_n:"{n} پورت",port_src_rot:"چرخان",port_src_rot_up:"پورتِ مبدأِ کلاینت",port_src_rot_down:"پورتِ مبدأِ سرور",port_src_rot_every:"هر {n} پکت",port_src_rot_fail:"روی هر خرابی",port_src_rot_drawn:"{n} پورت",raw_port_lbl:"پورتِ سمتِ سرور (مقصد)",raw_port_quic:"QUIC",raw_port_bad:"پورت باید بینِ 1 تا 65535 باشد",raw_proto_lbl:"شمارهٔ پروتکلِ IP (bare)",raw_proto_native:"نیتیو",raw_proto_hint:"bare هیچ هدرِ L4 نمی‌سازد؛ فقط شمارهٔ پروتکلِ بیرونی عوض می‌شود تا از فیلترِ شمارهٔ پروتکل رد شود. شماره‌های تخصیص‌نیافته امن‌ترین‌اند (143 تا 254)، چون هیچ دستگاهی پارسرشان را ندارد. بازهٔ مجاز 1 تا 255.",raw_proto_free:"آزاد",raw_proto_owned:"پروتکلِ {n} مالِ پروفایلِ «{p}» است. این حامل هدر نمی‌سازد، پس پاکت با همین شماره بیرون می‌رود ولی جای هدرِ {p} دادهٔ رمزشده دارد — میانِ راه بدشکل دیده و انداخته می‌شود. پروفایلِ «{p}» را بزن که هدرش را هم می‌سازد.",raw_proto_bad:"شمارهٔ پروتکلِ IP باید بینِ 1 تا 255 باشد",
  workers_lbl:"صف‌های موازیِ تونل",workers_lbl_node:"روی {n}",workers_lbl_cores:"دارای {c} هسته",workers_1:"پیش‌فرض",workers_2:"سبک",workers_3:"نیمه‌سبک",workers_4:"متوسط",workers_5:"نیمه‌سنگین",workers_6:"سنگین",workers_7:"خیلی سنگین",workers_8:"بیشینه",
  obfs_t:"استتار در برابرِ DPI",obfs_d:"اندازه و زمان‌بندیِ بسته‌ها را به‌هم می‌ریزد تا الگویِ ثابتی برای شناسایی نماند. رمزنگاری باید روشن باشد.",
  cover_t:"پوششِ TLS (شبیهِ HTTPS)",cover_d:"تونل از بیرون عینِ یک سایتِ HTTPS دیده می‌شود؛ اگر کسی سرور را وارسی کند هم چیزی لو نمی‌رود. فقط روی حاملِ TCP.",
@@ -8809,7 +8809,7 @@ function terr(msg){msg=String(msg==null?'':msg);
  return msg.trim()}
 function perr(r,fbk){return r&&r.net?T(r.net=='timeout'?'net_timeout':'net_drop')
  :terr((r.d&&(r.d.error||r.d.msg))||T(fbk||'failed'))}   
-function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1><p class="sub">'+esc(T(subK))+'</p>'}   
+function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1>'+(subK?'<p class="sub">'+esc(T(subK))+'</p>':'')}   
 function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
 function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
 (function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
@@ -10263,14 +10263,11 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
      +'<div class="tt"><b>'+esc(T('ctb_t'))+'</b><small>'+esc(T('ctb_d'))+'</small></div></div></div>'
  +'</div>'}
 function bandSection(idp){return '<div style="margin-top:11px">'
-   +'<label class="first">'+esc(T('band_lbl'))+'</label>'
+   +'<label class="first">'+esc(T('band_lbl')).replace('{r}','<span class="iso">'+RAW_ROT_LO+'-'+RAW_ROT_HI+'</span>')+'</label>'
    +'<div class="grid2">'
-     +'<div><label>'+esc(T('band_lo'))+'</label>'
-       +'<input id="'+idp+'bandlo" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_LO+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
-     +'<div><label>'+esc(T('band_hi'))+'</label>'
-       +'<input id="'+idp+'bandhi" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_HI+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
+     +'<div><input id="'+idp+'bandlo" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_LO+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
+     +'<div><input id="'+idp+'bandhi" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_HI+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
    +'</div>'
-   +'<div class="muted" style="font-size:11px;margin-top:4px">'+esc(T('band_hint').replace('{lo}',String(RAW_ROT_LO)).replace('{hi}',String(RAW_ROT_HI)))+'</div>'
    +'<div class="warncap no" id="'+idp+'bandwarn" style="display:none;margin-top:8px"></div></div>'}
 function ctbOn(S){return S.Tr=='raw'&&(S.RawProfile=='udp'||S.RawProfile=='tcp')}
 function ctbVis(idp,S){var w=el(idp+'ctbrow'),on=ctbOn(S);
@@ -11204,7 +11201,7 @@ async function agPush(target){if(!AGMETA||AGMETA.none){toast(T('ag_pick_first'),
 function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='nodes')p=refreshNodes();else if(cur=='tunnels')p=refreshTunnels();else if(cur=='core')p=refreshCore();else if(cur=='proxies')p=refreshProxies();else if(cur=='portfw')p=refreshPortfw();else if(cur=='agent')p=refreshAgent();else if(cur=='logs')p=refreshLogs();else if(cur=='settings'&&el('agList'))p=refreshAgent();return Promise.resolve(p)}
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML='<div class="sodlog"><span class="sodsweep"></span>'+
- vhead('list','logs_title','logs_sub')+
+ vhead('list','logs_title')+
  '<div class="tbtnrow"><button class="chkall lgfbtn" id="logFbtn" onclick="logFiltersToggle()"></button>'+
  '<button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  toolbar('logs',T('logs_search'))+
@@ -11533,7 +11530,6 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
 INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__TUNSTEP_JSON__", json.dumps(_TUNING_STEPS, ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
-INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
 INDEX_HTML = INDEX_HTML.replace("__EVTYPES_JSON__", json.dumps(
     [list(x) for x in EV_TYPES], ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__EVGROUPS_JSON__", json.dumps(
