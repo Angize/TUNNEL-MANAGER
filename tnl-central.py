@@ -10239,7 +10239,7 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
    +'<div class="tglbox"><div class="tglsw" id="'+idp+'ctbsw" onclick="'+fnp+'ToggleCtb()"></div>'
      +'<div class="tt"><b>'+esc(T('ctb_t'))+'</b><small>'+esc(T('ctb_d'))+'</small></div></div></div>'
  +'</div>'}
-function bandSection(idp){return '<div id="'+idp+'bandrow" style="display:none;margin-top:11px">'
+function bandSection(idp){return '<div style="margin-top:11px">'
    +'<label class="first">'+esc(T('band_lbl'))+'</label>'
    +'<div class="grid2">'
      +'<div><label>'+esc(T('band_lo'))+'</label>'
@@ -10282,15 +10282,13 @@ function sprotVis(idp,S){var w=el(idp+'sprotrow');var on=sprotOn(S);
  var sw=el(idp+'sprotsw');if(sw)sw.classList.toggle('on',sprotLive(S));
  var b=el(idp+'sprotbody');if(b)b.style.display=sprotLive(S)?'':'none';
  var src=el(idp+'srcblk');if(src)src.classList.toggle('portlock',sprotLive(S));
- sprotWarnUpd(idp,S);bandVis(idp,S)}
+ sprotWarnUpd(idp,S)}
 function sprotToggle(idp,S){if(!sprotOn(S))return;S.Sprot=!S.Sprot;
  if(S.Sprot){var e=el(idp+'rawsprot');if(e&&!sprotN(idp))e.value=String(SPROT_DEF);
   S.SportRandom=false;sportPaint(idp,false)}
  sprotVis(idp,S);ctbVis(idp,S);portTriesVis(idp,S)}
 function dportsN(idp){var e=el(idp+'rawdports');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function bandN(idp,which){var e=el(idp+which);if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
-function bandOn(S){return true}
-function bandVis(idp,S){var w=el(idp+'bandrow');if(w)w.style.display=bandOn(S)?'':'none';bandWarnUpd(idp)}
 function bandErr(idp){var lo=bandN(idp,'bandlo'),hi=bandN(idp,'bandhi');
  if(!lo&&!hi)return '';
  if(!(lo>=RAW_BAND_MIN_LO&&lo<=65535)||!(hi>=RAW_BAND_MIN_LO&&hi<=65535)||hi<lo)return T('band_bad').replace('{n}',String(RAW_BAND_MIN_LO));
@@ -10430,7 +10428,7 @@ function corSetProto(val){var i=el('e_rawproto');if(i)i.value=val;protoWarnUpd('
 function corProtoWarn(){var i=el('e_rawproto');if(i)protoWarnUpd('e_',i.value)}
 function protoVisOn(S){return S.Tr=='raw'&&S.RawProfile=='bare'}
 function corSetPort(v){var i=el('e_rawport');if(i)i.value=v;corPortWarn()}
-function corSetSport(on){if(sprotLive(_corS))return;_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis();bandVis('e_',_corS)}
+function corSetSport(on){if(sprotLive(_corS))return;_corS.SportRandom=!!on;sportPaint('e_',_corS.SportRandom);corPortTriesVis()}
 function corSetSportPort(n){if(sprotLive(_corS))return;var i=el('e_rawsport');if(i)i.value=n;sportPresetPaint('e_')}
 function corSportWarn(){sportPresetPaint('e_')}
 function corPortWarn(){var i=el('e_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('e_rpg');
@@ -10560,7 +10558,7 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   var _sre=sprotErr(px,S);if(_sre){formErr(m,_sre);return true}
-  if(bandOn(S)){var _be=bandErr(px);if(_be){formErr(m,_be);return true}}
+  var _be=bandErr(px);if(_be){formErr(m,_be);return true}
   body.raw_sport_rotate=sprotLive(S)?sprotN(px):0;
   body.raw_dports=sprotLive(S)?dportsN(px):0;
   body.sport_lo=bandN(px,'bandlo');
@@ -10625,7 +10623,7 @@ function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototyp
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
 function ceProtoWarn(){var i=el('ee_rawproto');if(i)protoWarnUpd('ee_',i.value)}
 function ceSetPort(v){var i=el('ee_rawport');if(i)i.value=v;cePortWarn()}
-function ceSetSport(on){if(sprotLive(_eeS))return;_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis();bandVis('ee_',_eeS)}
+function ceSetSport(on){if(sprotLive(_eeS))return;_eeS.SportRandom=!!on;sportPaint('ee_',_eeS.SportRandom);cePortTriesVis()}
 function ceSetSportPort(n){if(sprotLive(_eeS))return;var i=el('ee_rawsport');if(i)i.value=n;sportPresetPaint('ee_')}
 function ceSportWarn(){sportPresetPaint('ee_')}
 function cePortWarn(){var i=el('ee_rawport');if(!i)return;var n=parseInt(i.value,10),g=el('ee_rpg');
