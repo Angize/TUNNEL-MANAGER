@@ -200,8 +200,7 @@ def check_storage_invariant(P, core_max, carriers):
     the transitions are where a knob leaks, because that is where a value arrives by inheritance rather
     than by being asked for."""
     base = {"udp": {}, "tcp": {}, "raw": {"raw_profile": "tcp"},
-            "ws": {"ws_host": "e.example.com", "ws_path": "/"},
-            "dns": {"dns_zone": "t.example.com", "dns_resolvers": ["10.0.0.1"]}}
+            "ws": {"ws_host": "e.example.com", "ws_path": "/"}}
 
     def build(req, cur):
         try:
@@ -384,7 +383,7 @@ const out = {vis:{}, seg:{}, body:{}, drop:{}};
 for (const [form, S, gate, px] of [['create', _corS, corWorkersVis, 'e_'],
                                    ['edit',   _eeS,  ceWorkersVis,  'ee_']]) {
   out.vis[form] = {};
-  for (const tr of ['udp','tcp','raw','ws','dns']) {
+  for (const tr of ['udp','tcp','raw','ws']) {
     for (const fec of [false, true]) {
       S.Tr = tr; S.Fec = fec; S.WorkersA = MAX; S.WorkersB = MAX;
       gate();

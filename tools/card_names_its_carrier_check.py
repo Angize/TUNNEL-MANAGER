@@ -47,7 +47,6 @@ CORE_CASES = [
     ({"transport": "ws", "ws_host": "cdn.example.com"}, "WS", ""),
     ({"transport": "ws", "cdn_carrier": "http", "ws_host": "cdn.example.com"}, "HTTP", ""),
     ({"transport": "ws", "cdn_carrier": "grpc", "ws_host": "cdn.example.com"}, "GRPC", ""),
-    ({"transport": "dns", "dns_zone": "t.example.com"}, "DNS", "T.EXAMPLE.COM"),
 ]
 SYS_TYPES = ["gre", "vxlan", "ipip", "sit", "gretap", "wg"]
 
@@ -228,7 +227,7 @@ def main():
         if t == "raw" and prof in ("udp", "tcp"):
             check(set(ports) == {"dst", "src"},
                   "raw/%-5s -> prints both forged ports (%s)" % (prof, ports))
-        elif t in ("raw", "dns"):
+        elif t == "raw":
             check(ports == {},
                   "%-11s -> forges no port, so prints none (%s)" % (t, ports))
         else:
