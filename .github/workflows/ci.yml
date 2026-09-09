@@ -447,6 +447,9 @@ jobs:
       - name: The port-roll line must name what the recovery COST, not just that it happened
         working-directory: TUNNEL-MANAGER
         run: python tools/port_roll_line_names_the_cost_check.py
+      - name: A rotation that was DUE must not read like one the tunnel was FORCED into
+        working-directory: TUNNEL-MANAGER
+        run: python tools/a_scheduled_rotation_is_not_a_failure_check.py
       - name: the tun-probe threshold reaches the node body, on every build path and every tunnel TYPE
         working-directory: TUNNEL-MANAGER
         run: python tools/probe_threshold_reaches_node_check.py

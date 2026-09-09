@@ -6146,16 +6146,31 @@ _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
 _EV_UP_CODE = {
     "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
 }
+_EV_ROT_AXIS = {
+    "peer-rotate": ("dst", "چرخش آی‌پیِ مقصد"),
+    "src-rotate":  ("src", "چرخش آی‌پیِ مبدأ"),
+    "edge-rotate": ("ip",  "چرخش لبهٔ CDN"),
+    "sni-rotate":  ("sni", "چرخش دامنه"),
+}
 _EV_ROT_CODE = {
-    "peer-rotate": ("ok", "چرخش آی‌پیِ مقصد"),
-    "src-rotate":  ("ok", "چرخش آی‌پیِ مبدأ"),
-    "edge-rotate": ("ok", "چرخش لبهٔ CDN"),
-    "sni-rotate":  ("ok", "چرخش دامنه"),
     "rehandshake": ("warn", "دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی"),
     "port-roll": ("ok", "با چرخشِ پورتِ مبدأ برگشت"),
     "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
     "ladder-revive": ("warn", "ازسرگیریِ نردبان پس از بن‌بست"),
 }
+
+
+def _ev_rot(kind, code):
+    if kind not in ("down", "rot"):
+        return None
+    ax = _EV_ROT_AXIS.get(code)
+    if ax is None:
+        lvl_fa = _EV_ROT_CODE.get(code) if kind == "down" else None
+        return (lvl_fa[0], lvl_fa[1], "") if lvl_fa else None
+    axis, fa = ax
+    if kind == "rot":
+        return ("ok", fa + " — طبقِ زمان‌بندی", axis)
+    return ("warn", fa + " — اجباری: مسیر جواب نداد", axis)
 
 
 def _rot_pair(axis, prev, cur, other):
@@ -6185,10 +6200,6 @@ def _ev_core_text(kind, code, detail, nm):
     axis, sep, rest = raw.partition(":")
     key = rest if sep and axis in ("dst", "src", "ip", "sni") else raw
     if kind == "down":
-        rot = _EV_ROT_CODE.get(code)
-        if rot:
-            lvl, fa = rot
-            return (lvl, "rot", f"تونلِ «{nm}»: {fa}", "")
         rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
         return ("bad", "link", f"تونلِ «{nm}»: قطع شد", rf)
     if kind == "up":
@@ -6489,15 +6500,16 @@ def _events_once():
                     if sq <= last:
                         continue
                     ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
-                    if ekind == "down" and ecode in ("edge-rotate", "sni-rotate"):
-                        lvl, fa = _EV_ROT_CODE[ecode]
+                    rot = _ev_rot(ekind, ecode)
+                    if rot and rot[2] in ("ip", "sni"):
+                        lvl, fa = rot[0], rot[1]
                         rotated.add(lid)
                         log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}",
                                   f"به: {_ev_value(edet)}" if _ev_value(edet) else "")
                         continue
-                    if ekind == "down" and ecode == "port-roll":
+                    if rot and ecode == "port-roll":
                         kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
-                        lvl = _EV_ROT_CODE[ecode][0]
+                        lvl = rot[0]
                         rotated.add(lid)
                         tries, sport = kv.get("tries"), kv.get("sport")
                         say = f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ"
@@ -6508,9 +6520,9 @@ def _events_once():
                         say += " برگشت"
                         log_event(lvl, "rot", say, "")
                         continue
-                    if ekind == "down" and ecode in _EV_ROT_CODE:
+                    if rot and rot[2]:
                         ip = _ev_ip(edet)
-                        axis = "src" if "src" in ecode else "dst"
+                        axis = rot[2]
                         rk = lid + ":" + axis
                         prev = _ev_state["rotip"].get(rk)
                         if ip:
@@ -6521,9 +6533,12 @@ def _events_once():
                             other = _ev_ip(str(r.get("active") or ""))
                             if other:
                                 _ev_state["rotip"][other_k] = other
-                        lvl, fa = _EV_ROT_CODE[ecode]
+                        lvl, fa = rot[0], rot[1]
                         dfa = _rot_pair(axis, prev, ip, other)
                         log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", dfa)
+                        continue
+                    if rot:
+                        log_event(rot[0], "rot", f"تونلِ «{nm}»: {rot[1]}", "")
                         continue
                     txt = _ev_core_text(ekind, ecode, edet, nm)
                     if txt:
