@@ -4801,17 +4801,17 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         ce["cover"] = True
         ce["cover_sni"] = cover_sni
     try:
-        try:
-            _blo = int((d["sport_lo"] if "sport_lo" in d else cur.get("sport_lo")) or 0)
-            _bhi = int((d["sport_hi"] if "sport_hi" in d else cur.get("sport_hi")) or 0)
-        except (TypeError, ValueError):
-            _blo = _bhi = 0
-        if _blo or _bhi:
-            if not (RAW_BAND_MIN_LO <= _blo <= _bhi <= 65535):
-                raise ValueError(f"«بازهٔ پورتِ مبدأ» باید دو پورتِ بینِ {RAW_BAND_MIN_LO} تا 65535 باشد و ابتدایش از انتهایش کوچک‌تر — زیرِ {RAW_BAND_MIN_LO} پورتِ ممتاز است و هیچ حاملی دلیلی برای ادعای آن ندارد")
-            if _bhi - _blo + 1 < RAW_BAND_MIN_SPAN:
-                raise ValueError(f"«بازهٔ پورتِ مبدأ» دستِ‌کم باید {RAW_BAND_MIN_SPAN} پورت پهنا داشته باشد؛ باریک‌تر از آن یعنی پورتِ ثابت با چند قدمِ اضافه")
-            ce["sport_lo"], ce["sport_hi"] = _blo, _bhi
+        _blo = int((d["sport_lo"] if "sport_lo" in d else cur.get("sport_lo")) or 0)
+        _bhi = int((d["sport_hi"] if "sport_hi" in d else cur.get("sport_hi")) or 0)
+    except (TypeError, ValueError):
+        _blo = _bhi = 0
+    if _blo or _bhi:
+        if not (RAW_BAND_MIN_LO <= _blo <= _bhi <= 65535):
+            raise ValueError(f"«بازهٔ پورتِ مبدأ» باید دو پورتِ بینِ {RAW_BAND_MIN_LO} تا 65535 باشد و ابتدایش از انتهایش کوچک‌تر — زیرِ {RAW_BAND_MIN_LO} پورتِ ممتاز است و هیچ حاملی دلیلی برای ادعای آن ندارد")
+        if _bhi - _blo + 1 < RAW_BAND_MIN_SPAN:
+            raise ValueError(f"«بازهٔ پورتِ مبدأ» دستِ‌کم باید {RAW_BAND_MIN_SPAN} پورت پهنا داشته باشد؛ باریک‌تر از آن یعنی پورتِ ثابت با چند قدمِ اضافه")
+        ce["sport_lo"], ce["sport_hi"] = _blo, _bhi
+    try:
         _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
     except (TypeError, ValueError):
         _ptries = 0

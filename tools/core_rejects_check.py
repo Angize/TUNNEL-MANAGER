@@ -78,21 +78,17 @@ MUST_REJECT = [
      {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_random": True,
       "raw_dports": 4},
      "config.go: raw_dports rides raw_sport_rotate, not raw_sport_random"),
-    ("a rotation band with the source port standing still",
-     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp",
-      "raw_sport_lo": 10000, "raw_sport_hi": 44999},
-     "config.go: raw_sport_lo/hi bound a band that only exists while the port moves"),
-    ("a rotation band narrower than the floor",
-     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_rotate": 6,
-      "raw_sport_lo": 30000, "raw_sport_hi": 30098},
+    # The band is EVERY carrier's now, so each of its three refusals is asked on a different
+    # transport: a rule the panel only enforced on the arm it was born in is a rule three carriers
+    # do not have.
+    ("a source-port band narrower than the floor, on udp",
+     {"transport": "udp", "cipher": "auto", "sport_lo": 30000, "sport_hi": 30098},
      "config.go: the band must span at least packet.MinSportBandSpan ports"),
-    ("a rotation band reaching into the privileged ports",
-     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_rotate": 6,
-      "raw_sport_lo": 500, "raw_sport_hi": 44999},
+    ("a source-port band reaching into the privileged ports, on tcp",
+     {"transport": "tcp", "cipher": "auto", "sport_lo": 500, "sport_hi": 44999},
      "config.go: the band starts at packet.MinSportBandLo or above"),
-    ("half a rotation band",
-     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_sport_rotate": 6,
-      "raw_sport_lo": 10000},
+    ("half a source-port band, on ws",
+     dict(WSS, sport_lo=10000),
      "config.go: lo <= hi, and one alone is not a range"),
 ]
 
@@ -141,6 +137,16 @@ MUST_ACCEPT = [
     ("fec on udp", {"transport": "udp", "cipher": "auto", "fec": True, "fec_data": 10, "fec_parity": 3}),
     ("a rolling source port on udp", {"transport": "raw", "cipher": "auto", "raw_profile": "udp",
                                       "raw_sport_random": True}),
+    # The band used to be legal only while the source port MOVED. It is now the band every carrier
+    # draws its source port from once, at bind, so a standing-still port has one too -- and these
+    # four say so on all four carriers, because deleting a precondition is only done once it is
+    # gone everywhere.
+    ("a band on raw with the source port standing still",
+     {"transport": "raw", "cipher": "auto", "raw_profile": "tcp",
+      "sport_lo": 10000, "sport_hi": 44999}),
+    ("a band on udp", {"transport": "udp", "cipher": "auto", "sport_lo": 10000, "sport_hi": 44999}),
+    ("a band on tcp", {"transport": "tcp", "cipher": "auto", "sport_lo": 20000, "sport_hi": 29999}),
+    ("a band on ws", dict(WSS, sport_lo=10000, sport_hi=59999)),
     ("a rolling source port on tcp, beside a custom server port",
      {"transport": "raw", "cipher": "auto", "raw_profile": "tcp", "raw_port": 4500,
       "raw_sport_random": True}),

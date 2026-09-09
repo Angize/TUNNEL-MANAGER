@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "tnl-central.py"
 
-GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "bandN", "bandOn", "bandVis", "bandErr", "bandWarnUpd", "sprotErr", "sprotWarnUpd",
+GRAB = ("_collectCoreBody", "sprotOn", "sprotLive", "sprotN", "dportsN", "bandN", "bandErr", "bandWarnUpd", "sprotErr", "sprotWarnUpd",
         "sprotToggle", "sprotVis", "ctbOn", "ctbVis", "portTriesOn", "portTriesVis", "portTriesN", "portTriesErr",
         "portTriesWarnUpd", "fecDatagram", "wkCarrier",
         "wkClamp", "desyncOk", "desyncInjects", "portErr", "sportErr", "rawProtoErr",
@@ -105,9 +105,8 @@ function fresh(profile, storedN){
 function body(S){ var b={}; _ERR=null; var blocked=_collectCoreBody(S,'ee_',null,b);
   return {blocked:!!blocked, err:_ERR, rot:('raw_sport_rotate' in b)?b.raw_sport_rotate:'<ABSENT>',
           dp:('raw_dports' in b)?b.raw_dports:'<ABSENT>',
-          blo:('raw_sport_lo' in b)?b.raw_sport_lo:'<ABSENT>',
-          bandshown:(el('ee_bandrow').style.display !== 'none'),
-          bhi:('raw_sport_hi' in b)?b.raw_sport_hi:'<ABSENT>',
+          blo:('sport_lo' in b)?b.sport_lo:'<ABSENT>',
+          bhi:('sport_hi' in b)?b.sport_hi:'<ABSENT>',
           rnd:b.raw_sport_random, sport:b.raw_sport, fec:b.fec, locked:el('ee_srcblk').classList.contains('portlock')}; }
 
 // 1. an existing rotating tunnel, operator turns the toggle OFF
@@ -156,7 +155,12 @@ OUT.push(['dports over the ceiling while rotating', body(S)]);
 S = fresh('udp', 5); el('ee_rawdports').value=String(RAW_DPORTS_MAX + 1); sprotToggle('ee_', S);
 OUT.push(['dports over the ceiling then toggled off', body(S)]);
 
-// 7b. the band rides the same toggle, and a band narrower than the floor blocks the save
+// 7b. the band does NOT ride the rotation toggle -- every carrier draws its source port from it, so
+// the only thing that can block the save is the band itself being unusable (narrower than the floor,
+// or inverted). The three modes below are the three states the toggle can leave the port in, and the
+// band has to come out of the form identically in all three: that is the whole point of #568, and
+// before it the band was collected only while the port MOVED, so a fixed-port tunnel silently
+// shipped none.
 S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999';
 OUT.push(['band while rotating', body(S)]);
 S = fresh('udp', 5); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999'; sprotToggle('ee_', S);
@@ -168,11 +172,9 @@ el('ee_bandlo').value='30000'; el('ee_bandhi').value=String(30000 + RAW_BAND_MIN
 OUT.push(['band one short of the floor', body(S)]);
 S = fresh('udp', 0); sprotToggle('ee_', S); el('ee_bandlo').value='50000'; el('ee_bandhi').value='40000';
 OUT.push(['band inverted', body(S)]);
-// the band belongs to "the source port moves", not to the rotation toggle: reactive random moves it
-// too, and the core and the node both accept a band for it. The row has to be reachable there.
 S = fresh('udp', 0); ceSetSport(1); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999';
 OUT.push(['band under reactive random', body(S)]);
-S = fresh('udp', 0);
+S = fresh('udp', 0); el('ee_bandlo').value='10000'; el('ee_bandhi').value='44999';
 OUT.push(['band with the port standing still', body(S)]);
 
 // 8. FEC and rotation must never leave the form together
@@ -205,12 +207,12 @@ EXPECT = {
     "dports over the ceiling while rotating": dict(blocked=True),
     "dports over the ceiling then toggled off": dict(rot=0, dp=0, blocked=False),
     "band while rotating": dict(rot=4, blo=10000, bhi=44999, blocked=False),
-    "band then toggled off": dict(rot=0, blo=0, bhi=0, blocked=False),
+    "band then toggled off": dict(rot=0, blo=10000, bhi=44999, blocked=False),
     "band left empty while rotating": dict(rot=4, blo=0, bhi=0, blocked=False),
     "band one short of the floor": dict(blocked=True),
     "band inverted": dict(blocked=True),
-    "band under reactive random": dict(rot=0, rnd=True, blo=10000, bhi=44999, blocked=False, bandshown=True),
-    "band with the port standing still": dict(rot=0, blo=0, bhi=0, blocked=False, bandshown=False),
+    "band under reactive random": dict(rot=0, rnd=True, blo=10000, bhi=44999, blocked=False),
+    "band with the port standing still": dict(rot=0, blo=10000, bhi=44999, blocked=False),
 }
 for _p in ("esp", "ah", "l2tpv3", "icmp", "bare", "gre", "ipip", "etherip", "ipcomp"):
     EXPECT["profile -> " + _p] = dict(rot=0, blocked=False, locked=False)
