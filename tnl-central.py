@@ -292,6 +292,7 @@ def settings_defaults():
         "core_delivery": "push",
         "dl_proxy_on": False,
         "dl_proxy_id": "",
+        "log_hidden": [],
         "tuning": dict(_TUNING_DEFAULTS),
     }
 
@@ -356,6 +357,15 @@ def validate_settings(d):
             if not get_proxy(pid):
                 raise ValueError("پروکسی پیدا نشد — شاید حذف شده باشد")
         out["dl_proxy_on"], out["dl_proxy_id"] = on, pid if on else ""
+    if "log_hidden" in d:
+        raw = d["log_hidden"]
+        if not isinstance(raw, list):
+            raise ValueError("فهرستِ فیلترِ لاگ باید یک آرایه باشد")
+        picked = {str(x) for x in raw}
+        bad = sorted(picked - set(EV_TYPE_GROUP))
+        if bad:
+            raise ValueError("این نوعِ رویداد را نمی‌شناسم: " + "، ".join(bad))
+        out["log_hidden"] = [t for t, _g, _fa in EV_TYPES if t in picked]
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
@@ -5879,51 +5889,51 @@ def _ech_refresh_once():
         if removed:
             if _ech_write(lid, kind, {}, degrade=True)[0]:
                 if _ech_safe_rebuild(lid):
-                    log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH",
+                    log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH",
                               f"کلید از DNS ناپدید شد؛ تونل فعلاً بدون ECH بازسازی شد. تنظیمِ ECH همچنان روشن است و "
                               f"پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند — به‌محضِ برگشتنِ رکورد خودش برمی‌گردد")
                 else:
-                    log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
+                    log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
             continue
         if gone and _ech_blank(lid, gone):
             names = "، ".join(gone)
             if _ech_safe_rebuild(lid):
-                log_event("warn", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
+                log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
                           f"رکوردِ ECHِ {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
                           f"بقیهٔ استخر دست‌نخورده ماند. پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند")
             else:
-                log_event("bad", "ech", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
+                log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
                           f"کلیدِ کهنهٔ {names} پاک شد ولی بازسازی شکست خورد — رفتن روی آن دامنه‌ها هنوز می‌میرد")
         changed, chmap = _ech_write(lid, kind, updates, degrade=False)
         if changed and chmap and blank_before:
             if _ech_safe_rebuild(lid):
-                log_event("ok", "ech", f"تونلِ «{nm}»: بازگشتِ ECH",
+                log_event("ok", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
                           "رکوردِ ECH دوباره منتشر شد؛ تونل با کلیدِ تازه بازسازی شد")
             else:
-                log_event("bad", "ech", f"تونلِ «{nm}»: بازگشتِ ECH",
+                log_event("bad", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
                           "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است")
         if changed and chmap:
             tried, pushed = _ech_live_push(lid, chmap)
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             if pushed:
                 dfa += "\nنودِ مقصد: %s" % pushed
-                log_event("ok", "ech", "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
+                log_event("ok", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
             elif tried:
                 if _ech_safe_rebuild(lid):
-                    log_event("warn", "ech", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی pushِ زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
+                    log_event("warn", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی pushِ زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
                 else:
-                    log_event("bad", "ech", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه pushِ زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
+                    log_event("bad", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه pushِ زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
             else:
-                log_event("ok", "ech", "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
+                log_event("ok", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
         reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
         if kind == "pool" and (down or stalled):
             if lid not in _ech_down_rebuilt or changed:
                 _ech_down_rebuilt.add(lid)
                 why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
                 if _ech_safe_rebuild(lid):
-                    log_event("ok", "ech", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
+                    log_event("ok", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
                 else:
-                    log_event("bad", "ech", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
+                    log_event("bad", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
                     _ech_down_rebuilt.discard(lid)
         else:
             _ech_down_rebuilt.discard(lid)
@@ -5947,9 +5957,9 @@ def _ech_heal_once():
         _ech_down_rebuilt.add(lid)
         why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
         if _ech_safe_rebuild(lid):
-            log_event("ok", "ech", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}")
+            log_event("ok", "ech-rebuild", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}")
         else:
-            log_event("bad", "ech", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
+            log_event("bad", "ech-rebuild", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
             _ech_down_rebuilt.discard(lid)
 
 
@@ -5979,7 +5989,7 @@ def _ech_ingest_selfheal():
                 except (TypeError, ValueError):
                     pass
         if ring_max < seen_max:
-            log_event("ok", "ech",
+            log_event("ok", "ech-seq-reset",
                       "شمارندهٔ رویدادِ هستهٔ تونلِ «%s» صفر شده (ری‌استارتِ هسته)؛ ثبتِ خودترمیمِ ECH از نو باز شد" % nm)
             seen_max = 0
         new_max = seen_max
@@ -6008,7 +6018,7 @@ def _ech_ingest_selfheal():
         changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
         if changed and chmap:
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
-            log_event("ok", "ech",
+            log_event("ok", "ech-saved",
                       "کلیدِ ECHِ خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
                       dfa)
     for dead in [k for k in _ech_healed_seq if k not in live_ids]:
@@ -6045,9 +6055,43 @@ def ech_refresh_loop():
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")
 EVENTS_TTL = 24 * 3600
+
+EV_GROUPS = (("tunnel", "تونل"), ("node", "نود"), ("rot", "چرخش و استخر"),
+             ("ech", "ECH"), ("cfg", "تنظیم"), ("auth", "ورود"))
+EV_TYPES = (
+    ("link-up", "tunnel", "تونل وصل شد"),
+    ("link-down", "tunnel", "تونل قطع شد"),
+    ("link-reconnect", "tunnel", "تونل خودش دوباره وصل شد"),
+    ("node-up", "node", "نود آنلاین شد"),
+    ("node-down", "node", "نود آفلاین شد"),
+    ("node-moved", "node", "نشانیِ نود جابه‌جا شد"),
+    ("rot-due", "rot", "چرخش طبقِ زمان‌بندی"),
+    ("rot-forced", "rot", "چرخشِ اجباری — مسیر جواب نداد"),
+    ("rehandshake", "rot", "دست‌دادنِ دوباره، پیش از سوزاندن"),
+    ("port-roll", "rot", "برگشت با چرخشِ پورتِ مبدأ"),
+    ("edge-walk", "rot", "گشتنِ لبه‌ها"),
+    ("ladder-revive", "rot", "ازسرگیریِ نردبان"),
+    ("burn", "rot", "سوختنِ آدرس"),
+    ("heal", "rot", "برگشتِ آدرس به فهرستِ سالم"),
+    ("pool-degraded", "rot", "توقفِ چرخش — فقط یکی مانده"),
+    ("pool-resumed", "rot", "ازسرگیریِ چرخشِ استخر"),
+    ("ech-heal", "ech", "ترمیمِ خودکارِ کلیدِ ECH در هسته"),
+    ("ech-gone", "ech", "حذفِ رکوردِ ECH از DNS"),
+    ("ech-back", "ech", "بازگشتِ رکوردِ ECH"),
+    ("ech-refresh", "ech", "تازه‌شدنِ کلیدِ ECH"),
+    ("ech-rotate", "ech", "چرخشِ کلیدِ ECH"),
+    ("ech-rebuild", "ech", "بازسازیِ سریعِ ECH"),
+    ("ech-saved", "ech", "ذخیرهٔ کلیدِ خودترمیمِ هسته"),
+    ("ech-seq-reset", "ech", "صفر شدنِ شمارندهٔ رویدادِ هسته"),
+    ("cfg-clamped", "cfg", "تنظیمی که کامل اعمال نشد"),
+    ("auth-in", "auth", "ورودِ موفق به پنل"),
+    ("auth-out", "auth", "خروج از پنل"),
+    ("auth-fail", "auth", "تلاشِ ناموفقِ ورود"),
+    ("auth-lock", "auth", "قفلِ نشانی پس از تلاشِ زیاد"),
+)
+EV_TYPE_GROUP = {t: g for t, g, _fa in EV_TYPES}
 _events_lock = threading.Lock()
 _ev_seq_total = None
-_ev_count = None
 _ev_list = None
 _ev_dirty = False
 _ev_state = {"init": False, "nodes": {}, "links": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}
@@ -6100,11 +6144,11 @@ def _ev_rot(kind, code):
     ax = _EV_ROT_AXIS.get(code)
     if ax is None:
         lvl_fa = _EV_ROT_CODE.get(code) if kind == "down" else None
-        return (lvl_fa[0], lvl_fa[1], "") if lvl_fa else None
+        return (lvl_fa[0], lvl_fa[1], "", code) if lvl_fa else None
     axis, fa = ax
     if kind == "rot":
-        return ("ok", fa + " — طبقِ زمان‌بندی", axis)
-    return ("warn", fa + " — اجباری: مسیر جواب نداد", axis)
+        return ("ok", fa + " — طبقِ زمان‌بندی", axis, "rot-due")
+    return ("warn", fa + " — اجباری: مسیر جواب نداد", axis, "rot-forced")
 
 
 _ROT_PARTNER = {"dst": "src", "src": "dst", "ip": "sni", "sni": "ip"}
@@ -6152,10 +6196,10 @@ def _ev_core_text(kind, code, detail, nm):
     key = rest if sep and axis in ("dst", "src", "ip", "sni") else raw
     if kind == "down":
         rf = _EV_DOWN_CODE.get(code, "اتصال قطع شد")
-        return ("bad", "link", f"تونلِ «{nm}»: قطع شد", rf)
+        return ("bad", "link-down", f"تونلِ «{nm}»: قطع شد", rf)
     if kind == "up":
         rf = _EV_UP_CODE.get(code, "تونل وصل شد")
-        return ("ok", "link", f"تونلِ «{nm}»: وصلِ مجدد", rf)
+        return ("ok", "link-reconnect", f"تونلِ «{nm}»: وصلِ مجدد", rf)
     if kind == "burn":
         what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
         return ("warn", "burn", f"تونلِ «{nm}»: سوختنِ {what}", f"{what}: {key}")
@@ -6164,14 +6208,14 @@ def _ev_core_text(kind, code, detail, nm):
             parts = key.split()
             title = f"تونلِ «{nm}»: بافرِ سوکت به‌اندازه‌ای که خواستی اعمال نشد"
             if len(parts) == 3 and parts[0] == "send":
-                return ("warn", "cfg", title,
+                return ("warn", "cfg-clamped", title,
                         f"بافرِ ارسال: {_mib(parts[1])} خواسته شد، {_mib(parts[2])} اعمال شد\n"
                         f"چاره: net.core.wmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
             if len(parts) == 3:
-                return ("warn", "cfg", title,
+                return ("warn", "cfg-clamped", title,
                         f"بافرِ دریافت: {_mib(parts[1])} خواسته شد، {_mib(parts[2])} اعمال شد\n"
                         f"چاره: net.core.rmem_max را روی آن نود بالا ببر، یا CAP_NET_ADMIN به سرویس بده")
-        return ("warn", "cfg", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
+        return ("warn", "cfg-clamped", f"تونلِ «{nm}»: یک تنظیم آن‌طور که خواسته شد اعمال نشد", f"جزئیات: {key}")
     if kind == "heal":
         if code == "tun-probe":
             what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
@@ -6181,17 +6225,17 @@ def _ev_core_text(kind, code, detail, nm):
         what = _HEAL_AXIS.get(axis, "آی‌پی")
         left = key if sep and axis in _HEAL_AXIS else ""
         if code == "degraded":
-            return ("warn", "edge",
+            return ("warn", "pool-degraded",
                     f"تونلِ «{nm}»: توقفِ چرخشِ {what} — فقط یکی در دسترس مانده",
                     (f"در دسترس: {left}\n" if left else "")
                     + "بقیه سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک می‌ماند")
-        return ("ok", "edge", f"تونلِ «{nm}»: ازسرگیریِ چرخشِ {what}",
+        return ("ok", "pool-resumed", f"تونلِ «{nm}»: ازسرگیریِ چرخشِ {what}",
                 (f"در دسترس: {left}\n" if left else "")
                 + "دوباره بیش از یک مورد در دسترسِ چرخش است")
     if kind == "ech":
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
-        return ("ok", "ech", f"تونلِ «{nm}»: ترمیمِ خودکارِ کلیدِ ECH", dfa)
+        return ("ok", "ech-heal", f"تونلِ «{nm}»: ترمیمِ خودکارِ کلیدِ ECH", dfa)
     return None
 
 
@@ -6239,23 +6283,22 @@ def _ev_seq_get():
 
 
 def _ev_count_get():
-    global _ev_count
-    if _ev_count is None:
-        with _events_lock:
-            _ev_count = len(_ev_all())
-    return _ev_count
+    hidden = _ev_hidden()
+    with _events_lock:
+        return len(_ev_shown(_ev_all(), hidden))
 
 
-def _ev_cat(kind):
-    if kind == "auth":
-        return "auth"
-    if kind == "link":
-        return "tunnel"
-    if kind in ("rot", "edge", "burn", "heal"):
-        return "rot"
-    if kind in ("ech", "node"):
-        return kind
-    return "sys"
+def _ev_cat(t):
+    return EV_TYPE_GROUP.get(t, "sys")
+
+
+def _ev_hidden():
+    h = get_settings().get("log_hidden")
+    return {str(t) for t in h if str(t) in EV_TYPE_GROUP} if isinstance(h, list) else set()
+
+
+def _ev_shown(evs, hidden):
+    return [e for e in evs if e.get("kind") not in hidden] if hidden else list(evs)
 
 
 def _ev_prune(evs, now=None):
@@ -6264,11 +6307,10 @@ def _ev_prune(evs, now=None):
 
 
 def ev_sweep():
-    global _ev_list, _ev_count, _ev_dirty
+    global _ev_list, _ev_dirty
     with _events_lock:
         before = len(_ev_all())
         _ev_list = _ev_prune(_ev_list)
-        _ev_count = len(_ev_list)
         if len(_ev_list) != before:
             _ev_dirty = True
         _ev_flush()
@@ -6276,13 +6318,13 @@ def ev_sweep():
 
 
 def log_event(level, kind, fa, dfa=""):
-    global _ev_seq_total, _ev_count, _ev_dirty
+    global _ev_seq_total, _ev_dirty
+    shown = kind not in _ev_hidden()
     with _events_lock:
-        evs = _ev_all()
-        evs.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
-                       "fa": fa, "dfa": dfa})
-        _ev_count = len(evs)
-        _ev_seq_total = _ev_seq_get() + 1
+        _ev_all().insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
+                             "fa": fa, "dfa": dfa})
+        if shown:
+            _ev_seq_total = _ev_seq_get() + 1
         _ev_dirty = True
 
 
@@ -6336,9 +6378,9 @@ def _events_once():
             continue
         nm = n.get("name", "")
         if online:
-            log_event("ok", "node", f"نودِ «{nm}»: آنلاین شد")
+            log_event("ok", "node-up", f"نودِ «{nm}»: آنلاین شد")
         else:
-            log_event("bad", "node", f"نودِ «{nm}»: آفلاین شد")
+            log_event("bad", "node-down", f"نودِ «{nm}»: آفلاین شد")
     for nid in [k for k in _ev_state["nodes"] if k not in seen]:
         _ev_state["nodes"].pop(nid, None)
 
@@ -6370,7 +6412,7 @@ def _events_once():
             if precise_core and lid not in _ev_state["links_coarse_down"]:
                 pass
             else:
-                log_event("ok", "link", f"تونلِ «{nm}»: وصل شد")
+                log_event("ok", "link-up", f"تونلِ «{nm}»: وصل شد")
             _ev_state["links_coarse_down"].discard(lid)
         else:
             a_off = _cache_get(L.get("a_node")) and not _node_online(L.get("a_node"))
@@ -6379,7 +6421,7 @@ def _events_once():
                 pass
             else:
                 rf = _link_down_reason(L, nmap)
-                log_event("bad", "link", f"تونلِ «{nm}»: قطع شد", rf)
+                log_event("bad", "link-down", f"تونلِ «{nm}»: قطع شد", rf)
                 if precise_core:
                     _ev_state["links_coarse_down"].add(lid)
     for lid in [k for k in _ev_state["links"] if k not in seen]:
@@ -6459,7 +6501,7 @@ def _events_once():
                         if sport:
                             say += f"، با پورتِ {sport}"
                         say += " برگشت"
-                        log_event(lvl, "rot", say, "")
+                        log_event(lvl, rot[3], say, "")
                         continue
                     if rot and rot[2]:
                         axis = rot[2]
@@ -6471,10 +6513,10 @@ def _events_once():
                         other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
                         lvl, fa = rot[0], rot[1]
                         dfa = _rot_pair(axis, prev, val, other)
-                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", dfa)
+                        log_event(lvl, rot[3], f"تونلِ «{nm}»: {fa}", dfa)
                         continue
                     if rot:
-                        log_event(rot[0], "rot", f"تونلِ «{nm}»: {rot[1]}", "")
+                        log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}", "")
                         continue
                     txt = _ev_core_text(ekind, ecode, edet, nm)
                     if txt:
@@ -6503,16 +6545,16 @@ def events_loop():
 
 def api_events(d):
     cut = time.time() - EVENTS_TTL
+    hidden = _ev_hidden()
     evs = [dict(e, cat=_ev_cat(e.get("kind")))
-           for e in load_events() if _sint(e.get("ts")) >= cut]
-    return {"ok": True, "events": evs}
+           for e in _ev_shown(load_events(), hidden) if _sint(e.get("ts")) >= cut]
+    return {"ok": True, "events": evs, "hidden": sorted(hidden)}
 
 
 def api_events_clear(d):
-    global _ev_count, _ev_dirty
+    global _ev_dirty
     with _events_lock:
         _ev_all()[:] = []
-        _ev_count = 0
         _ev_dirty = True
         _ev_flush()
     return {"ok": True}
@@ -7039,7 +7081,7 @@ def api_checkin_impl(source_ip, d):
         return {"ok": False, "unconfirmed": True, "host": host, "port": port}
     if get_settings().get("reconcile_mode") != "auto":
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
-            log_event("warn", "node", f"نودِ «{n_snap.get('name')}»: جابه‌جاییِ نشانی",
+            log_event("warn", "node-moved", f"نودِ «{n_snap.get('name')}»: جابه‌جاییِ نشانی",
                       f"از {host}:{port} به {want_host}:{want_port} رفته و از نشانیِ تازه جواب می‌دهد — روی"
                       " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
                       " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
@@ -7338,7 +7380,7 @@ class Handler(BaseHTTPRequestHandler):
             conf = self._conf()
             if self._user():
                 bump_sess_epoch(conf)
-                self._auth_log("ok", "خروج از پنل انجام شد و همهٔ نشست‌های باز باطل شدند.")
+                self._auth_log("ok", "auth-out", "خروج از پنل انجام شد و همهٔ نشست‌های باز باطل شدند.")
             secure = "; Secure" if conf.get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
         elif path.startswith("/api/"):
@@ -7368,7 +7410,7 @@ class Handler(BaseHTTPRequestHandler):
             chain.pop()
         return chain[-1] if chain and is_ip(chain[-1]) else peer
 
-    def _auth_log(self, level, title, extra=None):
+    def _auth_log(self, level, etype, title, extra=None):
         ua = ua_clean(self.headers.get("User-Agent", "") or "")
         rows = ["از: %s" % self._client_ip()] + list(extra or [])
         b = ua_browser(ua)
@@ -7379,14 +7421,14 @@ class Handler(BaseHTTPRequestHandler):
             rows.append("دستگاه: %s" % sysname)
         if ua:
             rows.append("نشانه: %s" % ua[:UA_MAX])
-        log_event(level, "auth", title, "\n".join(rows))
+        log_event(level, etype, title, "\n".join(rows))
 
     def _login(self):
         d = self._body()
         ip = self._client_ip()
         if rate_limited(ip):
             if note_blocked(ip):
-                self._auth_log("bad", "تلاش برای ورود در حالی که این نشانی قفل است همچنان ادامه دارد.")
+                self._auth_log("bad", "auth-lock", "تلاش برای ورود در حالی که این نشانی قفل است همچنان ادامه دارد.")
             self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         if not _login_gate.acquire(blocking=False):
@@ -7402,18 +7444,18 @@ class Handler(BaseHTTPRequestHandler):
         if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
-            self._auth_log("ok", "ورود موفق به پنل انجام شد.")
+            self._auth_log("ok", "auth-in", "ورود موفق به پنل انجام شد.")
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
             note_fail(ip)
             tries = fail_count(ip)
             who = "درست" if user_ok else "ناشناخته"
             if tries >= FAIL_LIMIT:
-                self._auth_log("bad", "پس از %d تلاشِ ناموفق در %d دقیقه، ورود از این نشانی قفل شد."
+                self._auth_log("bad", "auth-lock", "پس از %d تلاشِ ناموفق در %d دقیقه، ورود از این نشانی قفل شد."
                                % (tries, FAIL_WINDOW // 60),
                                ["نام کاربری: %s" % who])
             else:
-                self._auth_log("warn", "یک تلاشِ ناموفق برای ورود ثبت شد؛ تلاشِ %d از %d مجاز."
+                self._auth_log("warn", "auth-fail", "یک تلاشِ ناموفق برای ورود ثبت شد؛ تلاشِ %d از %d مجاز."
                                % (tries, FAIL_LIMIT), ["نام کاربری: %s" % who])
             self._send(401, {"error": "نام کاربری یا رمز اشتباه است"})
 
@@ -7730,7 +7772,23 @@ body.dark .sodlog .sodsweep{display:block}
 .sodlog h1{font-size:17px;font-weight:800;color:var(--sod-ink);margin:10px 2px 6px;display:flex;align-items:center;gap:9px}
 .sodlog h1 .ic{width:19px;height:19px;stroke:var(--sod-amber)}
 .sodlog p.sub{color:var(--sod-dim);font-size:12px;line-height:1.95;margin:0 2px 14px;max-width:60ch}
-.sodlog .tbtnrow{margin:0 0 11px}
+.sodlog .tbtnrow{margin:0 0 11px;display:flex;gap:8px;flex-wrap:wrap}
+.lgf{padding:14px 15px;margin-bottom:11px}
+.lgfhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-weight:800;font-size:13.5px;margin-bottom:11px}
+.lgfhead .mssub{margin-right:0;font-weight:600;font-size:12px;direction:rtl}
+.lgfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(216px,1fr));gap:11px;align-items:start}
+.lgfg{border:1px solid var(--bord);border-radius:12px;overflow:hidden;background:var(--card)}
+.lgfg .msrow{padding:8px 11px;font-size:12.5px;gap:9px}
+.lgfg .mscheck{width:17px;height:17px;border-radius:5px}
+.lgfgh{background:var(--glass);font-size:13px}
+.lgfgh .mssub{margin-right:auto;font-size:11px;direction:ltr}
+.lgfgh.part .mscheck{background:color-mix(in srgb,var(--acc) 45%,transparent);border-color:var(--acc)}
+.lgf .mbtns{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+.lgfnote{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--sod-warn);margin-bottom:9px}
+.lgfnote .ic{width:14px;height:14px}
+.lgfbtn .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sod-warn) 22%,transparent);
+ color:var(--sod-warn);border-radius:999px;padding:1px 7px;margin-inline-start:2px}
+body .sodlog .lgfbtn.on{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 55%,var(--sod-line))}
 body .sodlog .chkall,body.dark .sodlog .chkall{background:transparent;color:var(--sod-dim);
  border:1px solid var(--sod-line);box-shadow:none;font-size:12px;font-weight:700;padding:8px 14px;border-radius:9px}
 .sodlog .chkall:hover{color:var(--sod-bad);border-color:color-mix(in srgb,var(--sod-bad) 42%,var(--sod-line))}
@@ -8446,9 +8504,10 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد — قطع/وصلِ نود و تونل، ترمیم و چرخشِ خودکارِ لبه و کلید، و ورود/خروجِ پنل. کارهایی که خودت در پنل می‌کنی اینجا ثبت نمی‌شود؛ فقط چیزی که پنل بی‌آنکه بگویی انجام داده. هرچه از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد. کارهایی که خودت در پنل می‌کنی اینجا ثبت نمی‌شود؛ فقط چیزی که پنل بی‌آنکه بگویی انجام داده. با دکمهٔ «فیلترها» می‌توانی نوع‌به‌نوع انتخاب کنی چه چیزی اینجا بیاید و انتخابت را ذخیره کنی. هرچه از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
- logc_all:"همه",logc_tunnel:"تونل",logc_rot:"چرخش/استخر",logc_ech:"ECH",logc_node:"نود",logc_auth:"ورود",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
+ logf_btn:"فیلترها",logf_head:"کدام رویدادها در این صفحه بیایند",logf_hint:"تیک‌نخورده‌ها ثبت می‌شوند ولی نشان داده نمی‌شوند — هر وقت تیکشان را برگردانی، گذشته‌شان هم برمی‌گردد",logf_all:"همه را نشان بده",logf_saved:"فیلترها ذخیره شد",logf_on:"{n} نوع رویداد پنهان است — با دکمهٔ «فیلترها» برشان گردان",logf_empty:"همهٔ رویدادهای این بازه را فیلترها پنهان کرده‌اند",
+ logc_all:"همه",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
@@ -8903,6 +8962,7 @@ function wkCarrier(S){return (S.Tr=='raw'||S.Tr=='udp')&&!S.Fec}
 var _TUNDEF=__TUNDEF_JSON__;var _TUNSTEP=__TUNSTEP_JSON__;   
 var _SETDEF=__SETDEF_JSON__;   
 var _PROBESAMP=__PROBE_SAMPLES__;   
+var EVTYPES=__EVTYPES_JSON__,EVGROUPS=__EVGROUPS_JSON__;   
 function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){function it(b,k){return {v:b,label:T(k),sub:'('+subnetFree(b)+')'}}
@@ -11146,11 +11206,13 @@ function refresh(){var p;if(cur=='overview')p=refreshOverview();else if(cur=='no
 function fmtEvTime(ts){var d=new Date(ts*1000);try{return d.toLocaleString('fa-IR-u-nu-latn',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return d.toISOString().slice(0,16).replace('T',' ')}}
 function logsSkel(){el('view').innerHTML='<div class="sodlog"><span class="sodsweep"></span>'+
  vhead('list','logs_title','logs_sub')+
- '<div class="tbtnrow"><button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
+ '<div class="tbtnrow"><button class="chkall lgfbtn" id="logFbtn" onclick="logFiltersToggle()"></button>'+
+ '<button class="chkall" onclick="logsClear()">'+ic('trash')+esc(T('logs_clear'))+'</button></div>'+
  toolbar('logs',T('logs_search'))+
+ '<div id="logFilters"></div>'+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div></div>';
- LOGPAINT='';markLogsSeen();refreshLogs();}   
+ LOGPAINT='';LOGDRAFT=null;logFbtnPaint();logFiltersPaint();markLogsSeen();refreshLogs();}   
 function skLog(){return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
  '<span class="sk" style="width:5px;flex:0 0 auto;border-radius:0"></span>'+
  '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
@@ -11158,23 +11220,62 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
    '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px"><span class="sk" style="width:62%;height:13px"></span><span class="sk" style="width:40%;height:11px"></span></div>'+
    '<span class="sk" style="width:38px;height:11px;flex:0 0 auto"></span>'+
  '</div></div>';}
-function logIco(e){var k=e.kind;
- if(k=='rot'||k=='edge')return 'swap';
- if(k=='burn')return 'warn';
- if(k=='heal')return 'check';
- return e.level=='bad'?'xc':(e.level=='warn'?'warn':'okc');}
 var LOGEVS=[],LOGFILTER='all',LOGSIG='',LOGQ='',LOGPAINT='',LOGSHOW=200;
-var LOGPAGE=200;   
-function logCounts(){var found=logFound(),c={all:found.length,tunnel:0,rot:0,ech:0,node:0,auth:0,sys:0,err:0};
- found.forEach(function(e){c[e.cat]++;if(e.level=='bad')c.err++});return c}
+var LOGPAGE=200,LOGHIDE={},LOGDRAFT=null;
+function logCounts(){var found=logFound(),c={all:found.length,err:0};
+ EVGROUPS.forEach(function(g){c[g[0]]=0});c.sys=0;
+ found.forEach(function(e){if(c[e.cat]!=null)c[e.cat]++;if(e.level=='bad')c.err++});return c}
 function logResolveFilter(){var c=logCounts();
  if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';
  return c}
 function logChipsHTML(c){
  c=c||logCounts();   
- var order=[['all','logc_all'],['tunnel','logc_tunnel'],['rot','logc_rot'],['ech','logc_ech'],['node','logc_node'],['auth','logc_auth'],['err','logc_err']];
+ var order=[['all','logc_all']].concat(EVGROUPS.map(function(g){return [g[0],null,g[1]]})).concat([['err','logc_err']]);
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   
-   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" data-ha="'+esc(k)+'" onclick="logFilter(hA(this))">'+esc(T(o[1]))+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
+   return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" data-ha="'+esc(k)+'" onclick="logFilter(hA(this))">'+esc(o[1]?T(o[1]):o[2])+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
+function logHideN(){var n=0;for(var k in LOGHIDE)if(LOGHIDE[k])n++;return n}
+function logFbtnPaint(){var b=el('logFbtn');if(!b)return;
+ var n=logHideN();
+ b.className='chkall lgfbtn'+(LOGDRAFT?' on':'');
+ b.innerHTML=ic('cog')+esc(T('logf_btn'))+(n?'<span class="ct">'+n+'</span>':'');}
+function logFiltersToggle(){
+ if(LOGDRAFT)LOGDRAFT=null;
+ else{LOGDRAFT={};for(var k in LOGHIDE)if(LOGHIDE[k])LOGDRAFT[k]=1}
+ logFbtnPaint();logFiltersPaint();}
+function logGroupRows(g){return EVTYPES.filter(function(t){return t[1]==g})}
+function logTypeToggle(t){if(!LOGDRAFT)return;
+ if(LOGDRAFT[t])delete LOGDRAFT[t];else LOGDRAFT[t]=1;
+ logFiltersPaint();}
+function logGroupToggle(g){if(!LOGDRAFT)return;
+ var rows=logGroupRows(g),hide=rows.every(function(t){return !LOGDRAFT[t[0]]});
+ rows.forEach(function(t){if(hide)LOGDRAFT[t[0]]=1;else delete LOGDRAFT[t[0]]});
+ logFiltersPaint();}
+function logFiltersAll(){if(!LOGDRAFT)return;LOGDRAFT={};logFiltersPaint();}
+function logFiltersPaint(){var box=el('logFilters');if(!box)return;
+ if(!LOGDRAFT){box.innerHTML='';return}
+ box.innerHTML='<div class="card lgf"><div class="lgfhead">'+esc(T('logf_head'))+
+  '<span class="mssub">'+esc(T('logf_hint'))+'</span></div><div class="lgfgrid">'+
+  EVGROUPS.map(function(g){var rows=logGroupRows(g[0]);
+   var on=rows.filter(function(t){return !LOGDRAFT[t[0]]}).length;
+   return '<div class="lgfg"><div class="msrow lgfgh'+(on?' sel':'')+(on&&on<rows.length?' part':'')+
+    '" role="button" tabindex="0" data-ha="'+esc(g[0])+'" onclick="logGroupToggle(hA(this))" onkeydown="logFkey(event,hA(this),1)">'+
+    '<span class="mscheck"></span><b>'+esc(g[1])+'</b><span class="mssub">'+on+'/'+rows.length+'</span></div>'+
+    rows.map(function(t){return '<div class="msrow'+(LOGDRAFT[t[0]]?'':' sel')+
+     '" role="button" tabindex="0" aria-pressed="'+(LOGDRAFT[t[0]]?'false':'true')+
+     '" data-ha="'+esc(t[0])+'" onclick="logTypeToggle(hA(this))" onkeydown="logFkey(event,hA(this),0)">'+
+     '<span class="mscheck"></span><span>'+esc(t[2])+'</span></div>'}).join('')+'</div>'}).join('')+
+  '</div><div class="mbtns"><button class="primary" onclick="logFiltersSave()">'+esc(T('save'))+
+  '</button><button class="ghost" onclick="logFiltersAll()">'+esc(T('logf_all'))+
+  '</button><button class="ghost" onclick="logFiltersToggle()">'+esc(T('cancel'))+'</button></div></div>';}
+function logFkey(e,k,grp){if(e.key!==' '&&e.key!=='Enter')return;e.preventDefault();
+ if(grp)logGroupToggle(k);else logTypeToggle(k);}
+async function logFiltersSave(){if(!LOGDRAFT)return;
+ var list=EVTYPES.filter(function(t){return LOGDRAFT[t[0]]}).map(function(t){return t[0]});
+ var r=await post('settings-set',{log_hidden:list});
+ if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
+ LOGHIDE={};list.forEach(function(k){LOGHIDE[k]=1});
+ LOGDRAFT=null;LOGSIG='';LOGPAINT='';
+ logFbtnPaint();logFiltersPaint();toast(T('logf_saved'),'ok');await refreshLogs();}
 var _lfQ=null,_lfSrc=null,_lfOut=null;
 function logFound(){var q=(QRY.logs||'').trim().toLowerCase();
  if(!q)return LOGEVS;
@@ -11239,8 +11340,12 @@ function logPaint(){
  if(q!==LOGQ){LOGQ=q;LOGSHOW=LOGPAGE}
  LOGPAINT=LOGSIG+'|'+q+'|'+LOGSHOW;
  var ch=el('logChips');
- if(!LOGEVS.length){if(ch)ch.innerHTML='';setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T('logs_empty'))+'</div>'}]);return}
- if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;ch.innerHTML=logChipsHTML(counts);var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl}
+ if(!LOGEVS.length){if(ch)ch.innerHTML='';
+  setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T(logHideN()?'logf_empty':'logs_empty'))+'</div>'}]);return}
+ if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;
+  var n=logHideN();
+  ch.innerHTML=(n&&!LOGDRAFT?'<div class="lgfnote">'+ic('cog')+esc(T('logf_on').replace('{n}',n))+'</div>':'')+logChipsHTML(counts);
+  var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl}
  setList(box,logRows())}
 function evParts(e){
  var det=e.dfa||'';
@@ -11279,7 +11384,8 @@ async function refreshLogs(){
  var sig=EVSEQ+':'+LOGN;
  if(sig!==LOGSIG){
   var r=await j('events').catch(function(){return null});
-  if(r&&r.events){LOGEVS=r.events;LOGSIG=sig}}
+  if(r&&r.events){LOGEVS=r.events;LOGSIG=sig;
+   LOGHIDE={};(r.hidden||[]).forEach(function(k){LOGHIDE[k]=1});logFbtnPaint()}}
  logPaint()}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;var r=await post('events-clear',{});
  if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
@@ -11423,6 +11529,10 @@ INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, 
 INDEX_HTML = INDEX_HTML.replace("__TUNSTEP_JSON__", json.dumps(_TUNING_STEPS, ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
 INDEX_HTML = INDEX_HTML.replace("__LOGKEEPH__", str(EVENTS_TTL // 3600))
+INDEX_HTML = INDEX_HTML.replace("__EVTYPES_JSON__", json.dumps(
+    [list(x) for x in EV_TYPES], ensure_ascii=False, separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__EVGROUPS_JSON__", json.dumps(
+    [list(x) for x in EV_GROUPS], ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
     {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
