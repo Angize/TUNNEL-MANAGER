@@ -5162,14 +5162,6 @@ def api_pool_select(d):
     r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
         return {"ok": False, "error": r.get("error") or r.get("msg") or "انتخاب ناموفق بود"}
-    now = int(time.time())
-    _ev_suppress[d["id"]] = now + 45
-    try:
-        for k, ts in list(_ev_suppress.items()):
-            if ts < now:
-                _ev_suppress.pop(k, None)
-    except RuntimeError:
-        pass
     return {"ok": True}
 
 
@@ -6070,7 +6062,7 @@ _ev_seq_total = None
 _ev_count = None
 _ev_list = None
 _ev_dirty = False
-_ev_state = {"init": False, "nodes": {}, "links": {}, "edge": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}
+_ev_state = {"init": False, "nodes": {}, "links": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}
 
 
 def _ev_ip(detail):
@@ -6081,7 +6073,6 @@ def _ev_value(detail):
     return rest.strip() if tag in ("ip", "sni") and rest.strip() else ""
 
 
-_ev_suppress = {}
 
 _EV_DOWN_CODE = {
     "ping_timeout": "بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش",
@@ -6128,10 +6119,27 @@ def _ev_rot(kind, code):
     return ("warn", fa + " — اجباری: مسیر جواب نداد", axis)
 
 
+_ROT_PARTNER = {"dst": "src", "src": "dst", "ip": "sni", "sni": "ip"}
+
+
+def _ev_seed_axes(lid, is_pool, active):
+    active = str(active or "")
+    if not active:
+        return
+    if is_pool:
+        left, sep, right = active.partition(" · ")
+        pairs = (("ip", left.strip()), ("sni", right.strip() if sep else ""))
+    else:
+        pairs = (("dst", _ev_ip(active)),)
+    for ax, v in pairs:
+        if v:
+            _ev_state["rotip"].setdefault(lid + ":" + ax, v)
+
+
 def _rot_pair(axis, prev, cur, other):
     if not cur:
         return ""
-    pair = (lambda one: f"{other} ← {one}" if other else one) if axis == "src" \
+    pair = (lambda one: f"{other} ← {one}" if other else one) if axis in ("src", "sni") \
         else (lambda one: f"{one} ← {other}" if other else one)
     if prev and prev != cur:
         return f"از: {pair(prev)}\nبه: {pair(cur)}"
@@ -6328,7 +6336,6 @@ def _events_once():
     links = load_links()
     nmap = {n["id"]: n.get("name", "") for n in nodes}
     first = not _ev_state["init"]
-    rotated = set()
 
     seen = set()
     for n in nodes:
@@ -6394,7 +6401,6 @@ def _events_once():
         _ev_state["links_coarse_down"].discard(lid)
 
     seen = set()
-    now = int(time.time())
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
             and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)]
 
@@ -6433,6 +6439,7 @@ def _events_once():
             continue
 
         try:
+            _ev_seed_axes(lid, is_pool, r.get("active"))
             raw_evs = r.get("events")
             clean = []
             if isinstance(raw_evs, list):
@@ -6456,16 +6463,9 @@ def _events_once():
                         continue
                     ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
                     rot = _ev_rot(ekind, ecode)
-                    if rot and rot[2] in ("ip", "sni"):
-                        lvl, fa = rot[0], rot[1]
-                        rotated.add(lid)
-                        log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}",
-                                  f"به: {_ev_value(edet)}" if _ev_value(edet) else "")
-                        continue
                     if rot and ecode == "port-roll":
                         kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
                         lvl = rot[0]
-                        rotated.add(lid)
                         tries, sport = kv.get("tries"), kv.get("sport")
                         say = f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ"
                         if tries:
@@ -6476,20 +6476,15 @@ def _events_once():
                         log_event(lvl, "rot", say, "")
                         continue
                     if rot and rot[2]:
-                        ip = _ev_ip(edet)
                         axis = rot[2]
+                        val = _ev_value(edet) or _ev_ip(edet)
                         rk = lid + ":" + axis
                         prev = _ev_state["rotip"].get(rk)
-                        if ip:
-                            _ev_state["rotip"][rk] = ip
-                        other_k = lid + ":" + ("dst" if axis == "src" else "src")
-                        other = _ev_state["rotip"].get(other_k) or ""
-                        if axis == "src" and not other:
-                            other = _ev_ip(str(r.get("active") or ""))
-                            if other:
-                                _ev_state["rotip"][other_k] = other
+                        if val:
+                            _ev_state["rotip"][rk] = val
+                        other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
                         lvl, fa = rot[0], rot[1]
-                        dfa = _rot_pair(axis, prev, ip, other)
+                        dfa = _rot_pair(axis, prev, val, other)
                         log_event(lvl, "rot", f"تونلِ «{nm}»: {fa}", dfa)
                         continue
                     if rot:
@@ -6500,19 +6495,8 @@ def _events_once():
                         log_event(*txt)
                 _ev_state["evseq"][lid] = max(last, mx)
 
-            if is_pool:
-                active = str(r.get("active") or "")
-                prev = _ev_state["edge"].get(lid)
-                if active:
-                    _ev_state["edge"][lid] = active
-                if lid in rotated:
-                    pass
-                elif not (first or prev is None or prev == active or not active) and _ev_suppress.get(lid, 0) <= now:
-                    log_event("ok", "edge", f"تونلِ «{nm}»: چرخش لبه", f"از: {prev}\nبه: {active}")
         except Exception:
             continue
-    for lid in [k for k in _ev_state["edge"] if k not in seen]:
-        _ev_state["edge"].pop(lid, None)
     for lid in [k for k in _ev_state["evseq"] if k not in seen]:
         _ev_state["evseq"].pop(lid, None)
     for rk in [k for k in _ev_state["rotip"] if k.rsplit(":", 1)[0] not in seen]:

@@ -489,6 +489,9 @@ jobs:
       - name: The rotation toggle must reach the request body on every gesture, including the ones that turn it OFF
         working-directory: TUNNEL-MANAGER
         run: python tools/sport_rotate_toggle_check.py
+      - name: One rotation is one log line, and every carrier writes it the same way
+        working-directory: TUNNEL-MANAGER
+        run: python tools/every_carrier_logs_a_rotation_the_same_way_check.py
       - name: The colour menu must outlive the long press that opens it
         working-directory: TUNNEL-MANAGER
         run: python tools/the_tag_menu_outlives_the_hold_check.py

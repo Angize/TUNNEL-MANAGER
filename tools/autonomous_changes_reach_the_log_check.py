@@ -119,11 +119,20 @@ def main():
           "the edge pool calls the same reporter the direct carriers do — inferring it from `active` "
           "changing between polls is 15 s late and silent when the rotation does not land")
 
-    print("\n== 3) and the panel's inference stands down when the ring already said it ==")
+    print("\n== 3) and the panel keeps NO inference of its own to race the ring ==")
     js = getattr(P, "INDEX_HTML", "")
     py = open(PANEL, encoding="utf-8").read()
-    check(re.search(r"rotated\s*=\s*set\(\)", py) and re.search(r"if lid in rotated", py),
-          "the poll-diff defers to the event, or one rotation is logged twice")
+    # This used to ask that the poll-diff DEFER to the event (a `rotated` set, checked before
+    # logging). Deferring only works when both land in the same 15 s poll, and for an edge pool they
+    # systematically do not: the core reports the instant the pool moves, but sets `active` only once
+    # the replacement connection is up. Straddle the boundary and the same rotation is logged twice,
+    # under two titles and two kinds. So the inference is GONE, not deferred -- its state (`rotated`,
+    # `_ev_state["edge"]`) and the 45 s manual-select gag it needed (`_ev_suppress`) went with it.
+    # tools/every_carrier_logs_a_rotation_the_same_way_check.py drives the survivor per carrier.
+    for gone in ("rotated = set()", '_ev_state["edge"]', "_ev_suppress"):
+        check(gone not in py,
+              "the panel infers a rotation from a poll-diff again (%s) -- one rotation, one producer"
+              % gone)
 
     print("\n== 4) the port line is written on the recovery, not on the draw ==")
     check(not re.search(r'event\("down",\s*"port-roll"', blob.replace("core_status.go", "")) or
