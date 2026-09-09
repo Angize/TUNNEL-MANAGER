@@ -7783,7 +7783,6 @@ body.dark .sodlog .sodsweep{display:block}
 .lgfgh{background:var(--glass);font-size:13px}
 .lgfgh .mssub{margin-right:auto;font-size:11px;direction:ltr}
 .lgfgh.part .mscheck{background:color-mix(in srgb,var(--acc) 45%,transparent);border-color:var(--acc)}
-.lgf .mbtns{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
 .lgfnote{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--sod-warn);margin-bottom:9px}
 .lgfnote .ic{width:14px;height:14px}
 .lgfbtn .ct{font-size:10.5px;font-weight:800;background:color-mix(in srgb,var(--sod-warn) 22%,transparent);
@@ -8504,9 +8503,9 @@ var I18N={fa:{
  nd_proxy_on:"ترافیکِ این نود از پروکسی برود",nd_proxy_pick:"پروکسی",
  nd_proxy_none:"پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز",
  nd_proxy_all:"هر درخواستی به این نود — کنترلِ ایجنت و SSHِ نصب — از این پروکسی رد می‌شود.",nav_tunnels:"تانل‌های سیستمی",nav_portfw:"پورت‌فوروارد",nav_core:"هستهٔ اختصاصی",nav_logs:"لاگ",nav_settings:"تنظیمات",nav_logout:"خروج",
- logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد. کارهایی که خودت در پنل می‌کنی اینجا ثبت نمی‌شود؛ فقط چیزی که پنل بی‌آنکه بگویی انجام داده. با دکمهٔ «فیلترها» می‌توانی نوع‌به‌نوع انتخاب کنی چه چیزی اینجا بیاید و انتخابت را ذخیره کنی. هرچه از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
+ logs_title:"لاگِ سیستم",logs_sub:"همهٔ رویدادهای خودکارِ __LOGKEEPH__ ساعتِ گذشته، بدونِ سقفِ تعداد. کارهایی که خودت در پنل می‌کنی اینجا ثبت نمی‌شود؛ فقط چیزی که پنل بی‌آنکه بگویی انجام داده. با دکمهٔ «فیلترها» نوع‌به‌نوع انتخاب کن چه چیزی اینجا بیاید — هر تیک همان لحظه ذخیره می‌شود. هرچه از این کهنه‌تر شود خودکار پاک می‌شود",logs_empty:"هنوز رویدادی ثبت نشده",logs_clear:"پاک‌کردنِ لاگ",logs_cleared:"لاگ پاک شد",logs_clear_confirm:"همهٔ لاگ‌ها پاک شوند؟",
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
- logf_btn:"فیلترها",logf_head:"کدام رویدادها در این صفحه بیایند",logf_hint:"تیک‌نخورده‌ها ثبت می‌شوند ولی نشان داده نمی‌شوند — هر وقت تیکشان را برگردانی، گذشته‌شان هم برمی‌گردد",logf_all:"همه را نشان بده",logf_saved:"فیلترها ذخیره شد",logf_on:"{n} نوع رویداد پنهان است — با دکمهٔ «فیلترها» برشان گردان",logf_empty:"همهٔ رویدادهای این بازه را فیلترها پنهان کرده‌اند",
+ logf_btn:"فیلترها",logf_head:"کدام رویدادها در این صفحه بیایند",logf_hint:"با هر تیک همان‌جا ذخیره می‌شود. تیک‌نخورده‌ها ثبت می‌شوند ولی نشان داده نمی‌شوند — هر وقت تیکشان را برگردانی، گذشته‌شان هم برمی‌گردد",logf_on:"{n} نوع رویداد پنهان است — با دکمهٔ «فیلترها» برشان گردان",logf_empty:"همهٔ رویدادهای این بازه را فیلترها پنهان کرده‌اند",
  logc_all:"همه",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
  brand_sub:"کنترل فلیت",theme:"تم",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
@@ -11212,7 +11211,7 @@ function logsSkel(){el('view').innerHTML='<div class="sodlog"><span class="sodsw
  '<div id="logFilters"></div>'+
  '<div id="logChips"></div>'+
  '<div id="logList">'+skLog()+skLog()+skLog()+skLog()+skLog()+'</div></div>';
- LOGPAINT='';LOGDRAFT=null;logFbtnPaint();logFiltersPaint();markLogsSeen();refreshLogs();}   
+ LOGPAINT='';LOGFOPEN=false;logFbtnPaint();logFiltersPaint();markLogsSeen();refreshLogs();}   
 function skLog(){return '<div class="card logcard" style="display:flex;margin-bottom:9px;padding:0;box-shadow:var(--sh-sm)">'+
  '<span class="sk" style="width:5px;flex:0 0 auto;border-radius:0"></span>'+
  '<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;flex:1;min-width:0">'+
@@ -11221,7 +11220,7 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
    '<span class="sk" style="width:38px;height:11px;flex:0 0 auto"></span>'+
  '</div></div>';}
 var LOGEVS=[],LOGFILTER='all',LOGSIG='',LOGQ='',LOGPAINT='',LOGSHOW=200;
-var LOGPAGE=200,LOGHIDE={},LOGDRAFT=null;
+var LOGPAGE=200,LOGHIDE={},LOGSRV=[],LOGFOPEN=false,LOGSAVING=false,LOGDIRTY=false,LOGSAVET=0;
 function logCounts(){var found=logFound(),c={all:found.length,err:0};
  EVGROUPS.forEach(function(g){c[g[0]]=0});c.sys=0;
  found.forEach(function(e){if(c[e.cat]!=null)c[e.cat]++;if(e.level=='bad')c.err++});return c}
@@ -11234,48 +11233,53 @@ function logChipsHTML(c){
  return '<div class="logchips">'+order.filter(function(o){return o[0]=='all'||c[o[0]]>0}).map(function(o){var k=o[0];   
    return '<div class="fchip'+(LOGFILTER==k?' on':'')+'" data-f="'+k+'" data-ha="'+esc(k)+'" onclick="logFilter(hA(this))">'+esc(o[1]?T(o[1]):o[2])+'<span class="ct">'+(c[k]||0)+'</span></div>';}).join('')+'</div>';}
 function logHideN(){var n=0;for(var k in LOGHIDE)if(LOGHIDE[k])n++;return n}
+function logHideList(){return EVTYPES.filter(function(t){return LOGHIDE[t[0]]}).map(function(t){return t[0]})}
 function logFbtnPaint(){var b=el('logFbtn');if(!b)return;
  var n=logHideN();
- b.className='chkall lgfbtn'+(LOGDRAFT?' on':'');
+ b.className='chkall lgfbtn'+(LOGFOPEN?' on':'');
  b.innerHTML=ic('cog')+esc(T('logf_btn'))+(n?'<span class="ct">'+n+'</span>':'');}
-function logFiltersToggle(){
- if(LOGDRAFT)LOGDRAFT=null;
- else{LOGDRAFT={};for(var k in LOGHIDE)if(LOGHIDE[k])LOGDRAFT[k]=1}
- logFbtnPaint();logFiltersPaint();}
+function logFiltersToggle(){LOGFOPEN=!LOGFOPEN;logFbtnPaint();logFiltersPaint();}
 function logGroupRows(g){return EVTYPES.filter(function(t){return t[1]==g})}
-function logTypeToggle(t){if(!LOGDRAFT)return;
- if(LOGDRAFT[t])delete LOGDRAFT[t];else LOGDRAFT[t]=1;
- logFiltersPaint();}
-function logGroupToggle(g){if(!LOGDRAFT)return;
- var rows=logGroupRows(g),hide=rows.every(function(t){return !LOGDRAFT[t[0]]});
- rows.forEach(function(t){if(hide)LOGDRAFT[t[0]]=1;else delete LOGDRAFT[t[0]]});
- logFiltersPaint();}
-function logFiltersAll(){if(!LOGDRAFT)return;LOGDRAFT={};logFiltersPaint();}
+function logTypeToggle(t){if(!LOGFOPEN)return;
+ if(LOGHIDE[t])delete LOGHIDE[t];else LOGHIDE[t]=1;
+ logFiltersPaint();logFbtnPaint();logSaveSoon();}
+function logGroupToggle(g){if(!LOGFOPEN)return;
+ var rows=logGroupRows(g),hide=rows.every(function(t){return !LOGHIDE[t[0]]});
+ rows.forEach(function(t){if(hide)LOGHIDE[t[0]]=1;else delete LOGHIDE[t[0]]});
+ logFiltersPaint();logFbtnPaint();logSaveSoon();}
+function logSavePending(){return LOGSAVING||LOGDIRTY||!!LOGSAVET}
+function logSaveSoon(){LOGDIRTY=true;clearTimeout(LOGSAVET);
+ LOGSAVET=setTimeout(function(){LOGSAVET=0;logSaveNow()},350);}
+async function logSaveNow(){
+ if(LOGSAVING)return;
+ LOGSAVING=true;
+ while(LOGDIRTY){
+  LOGDIRTY=false;
+  var list=logHideList();
+  var r=await post('settings-set',{log_hidden:list});
+  if(!(r.ok&&r.d&&r.d.ok)){
+   LOGDIRTY=false;LOGHIDE={};LOGSRV.forEach(function(k){LOGHIDE[k]=1});
+   LOGSAVING=false;logFiltersPaint();logFbtnPaint();toast(perr(r),'err');return}
+  LOGSRV=list;
+ }
+ LOGSAVING=false;
+ LOGSIG='';LOGPAINT='';await refreshLogs();}
 function logFiltersPaint(){var box=el('logFilters');if(!box)return;
- if(!LOGDRAFT){box.innerHTML='';return}
+ if(!LOGFOPEN){box.innerHTML='';return}
  box.innerHTML='<div class="card lgf"><div class="lgfhead">'+esc(T('logf_head'))+
   '<span class="mssub">'+esc(T('logf_hint'))+'</span></div><div class="lgfgrid">'+
   EVGROUPS.map(function(g){var rows=logGroupRows(g[0]);
-   var on=rows.filter(function(t){return !LOGDRAFT[t[0]]}).length;
+   var on=rows.filter(function(t){return !LOGHIDE[t[0]]}).length;
    return '<div class="lgfg"><div class="msrow lgfgh'+(on?' sel':'')+(on&&on<rows.length?' part':'')+
     '" role="button" tabindex="0" data-ha="'+esc(g[0])+'" onclick="logGroupToggle(hA(this))" onkeydown="logFkey(event,hA(this),1)">'+
     '<span class="mscheck"></span><b>'+esc(g[1])+'</b><span class="mssub">'+on+'/'+rows.length+'</span></div>'+
-    rows.map(function(t){return '<div class="msrow'+(LOGDRAFT[t[0]]?'':' sel')+
-     '" role="button" tabindex="0" aria-pressed="'+(LOGDRAFT[t[0]]?'false':'true')+
+    rows.map(function(t){return '<div class="msrow'+(LOGHIDE[t[0]]?'':' sel')+
+     '" role="button" tabindex="0" aria-pressed="'+(LOGHIDE[t[0]]?'false':'true')+
      '" data-ha="'+esc(t[0])+'" onclick="logTypeToggle(hA(this))" onkeydown="logFkey(event,hA(this),0)">'+
      '<span class="mscheck"></span><span>'+esc(t[2])+'</span></div>'}).join('')+'</div>'}).join('')+
-  '</div><div class="mbtns"><button class="primary" onclick="logFiltersSave()">'+esc(T('save'))+
-  '</button><button class="ghost" onclick="logFiltersAll()">'+esc(T('logf_all'))+
-  '</button><button class="ghost" onclick="logFiltersToggle()">'+esc(T('cancel'))+'</button></div></div>';}
+  '</div></div>';}
 function logFkey(e,k,grp){if(e.key!==' '&&e.key!=='Enter')return;e.preventDefault();
  if(grp)logGroupToggle(k);else logTypeToggle(k);}
-async function logFiltersSave(){if(!LOGDRAFT)return;
- var list=EVTYPES.filter(function(t){return LOGDRAFT[t[0]]}).map(function(t){return t[0]});
- var r=await post('settings-set',{log_hidden:list});
- if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
- LOGHIDE={};list.forEach(function(k){LOGHIDE[k]=1});
- LOGDRAFT=null;LOGSIG='';LOGPAINT='';
- logFbtnPaint();logFiltersPaint();toast(T('logf_saved'),'ok');await refreshLogs();}
 var _lfQ=null,_lfSrc=null,_lfOut=null;
 function logFound(){var q=(QRY.logs||'').trim().toLowerCase();
  if(!q)return LOGEVS;
@@ -11344,7 +11348,7 @@ function logPaint(){
   setList(box,[{k:'__empty',h:'<div class="card muted">'+esc(T(logHideN()?'logf_empty':'logs_empty'))+'</div>'}]);return}
  if(ch){var old=ch.querySelector('.logchips'),sl=old?old.scrollLeft:0;
   var n=logHideN();
-  ch.innerHTML=(n&&!LOGDRAFT?'<div class="lgfnote">'+ic('cog')+esc(T('logf_on').replace('{n}',n))+'</div>':'')+logChipsHTML(counts);
+  ch.innerHTML=(n&&!LOGFOPEN?'<div class="lgfnote">'+ic('cog')+esc(T('logf_on').replace('{n}',n))+'</div>':'')+logChipsHTML(counts);
   var nw=ch.querySelector('.logchips');if(nw)nw.scrollLeft=sl}
  setList(box,logRows())}
 function evParts(e){
@@ -11385,7 +11389,8 @@ async function refreshLogs(){
  if(sig!==LOGSIG){
   var r=await j('events').catch(function(){return null});
   if(r&&r.events){LOGEVS=r.events;LOGSIG=sig;
-   LOGHIDE={};(r.hidden||[]).forEach(function(k){LOGHIDE[k]=1});logFbtnPaint()}}
+   if(!logSavePending()){LOGSRV=(r.hidden||[]).slice();
+    LOGHIDE={};LOGSRV.forEach(function(k){LOGHIDE[k]=1});logFbtnPaint();logFiltersPaint()}}}
  logPaint()}
 async function logsClear(){if(!await confirmBox(T('logs_clear_confirm')))return;var r=await post('events-clear',{});
  if(!(r.ok&&r.d&&r.d.ok)){toast(perr(r),'err');return}
