@@ -59,6 +59,8 @@ CORE_TRANSPORTS       = ("udp", "tcp", "raw", "ws")
 SOCKBUF_TRANSPORTS    = ("udp", "raw")
 MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
+PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
+PORTED_RAW_PROFILES   = ("udp", "tcp")
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
 DESYNC_INJECT_TTL_MAX = 8
@@ -4715,7 +4717,59 @@ RAW_SPROT_MAX = 60
 PORT_TRIES_MAX = 60
 
 
+_SHAPE_RAW_PORTED = ("raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate",
+                     "raw_dports", "conntrack_bypass")
+_SHAPE_TCP_ONLY = ("cover", "cover_sni")
+_SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
+                  "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_snis",
+                  "ws_rotate_secs", "sni_split", "split_pos", "sni_mode", "split_ttl",
+                  "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
+_SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity", "a_workers", "b_workers")
+_SHAPE_DESYNC = ("fake_desync", "fake_ttl", "fake_count", "fake_mode")
+
+
+def _shape_consumes(key, transport, profile, srand):
+    ported = transport == "raw" and profile in PORTED_RAW_PROFILES
+    if key in _SHAPE_RAW_PORTED:
+        return ported
+    if key == "raw_proto":
+        return transport == "raw" and profile == "bare"
+    if key == "raw_profile":
+        return transport == "raw"
+    if key in _SHAPE_TCP_ONLY:
+        return transport == "tcp"
+    if key in _SHAPE_WS_ONLY:
+        return transport == "ws"
+    if key in _SHAPE_DATAGRAM:
+        return transport in QUEUEING_TRANSPORTS
+    if key in _SHAPE_DESYNC:
+        return transport != "udp"
+    if key in ("sport_lo", "sport_hi"):
+        return ported if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
+    if key == "port_tries":
+        return (ported and srand) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
+    if key in _ROTATION_KEYS:
+        return transport in DIRECT_TRANSPORTS
+    return True
+
+
+def _shape_of(d, cur):
+    transport = str(d.get("transport") or cur.get("transport") or "udp").strip().lower()
+    profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bare").strip().lower()
+    if "raw_sport_random" in d:
+        srand = bool(d["raw_sport_random"])
+    else:
+        srand = bool(cur.get("raw_sport_random")) and profile in PORTED_RAW_PROFILES
+    return transport, profile, srand
+
+
+def _carried(cur, d):
+    transport, profile, srand = _shape_of(d, cur)
+    return {k: v for k, v in cur.items() if _shape_consumes(k, transport, profile, srand)}
+
+
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
+    cur = _carried(cur, d)
     ce = {}
     cipher = str(d.get("cipher") or cur.get("cipher") or "auto").strip().lower()
     if cipher not in CORE_CIPHERS:
@@ -10309,14 +10363,14 @@ function portSection(idp,fnp){return '<div id="'+idp+'portrow" style="display:no
    +'<div class="tglbox"><div class="tglsw" id="'+idp+'ctbsw" onclick="'+fnp+'ToggleCtb()"></div>'
      +'<div class="tt"><b>'+esc(T('ctb_t'))+'</b><small>'+esc(T('ctb_d'))+'</small></div></div></div>'
  +'</div>'}
-function bandSection(idp){return '<div style="margin-top:11px">'
+function bandSection(idp){return '<div id="'+idp+'bandwrap" style="margin-top:11px">'
    +'<label class="first">'+esc(T('band_lbl')).replace('{r}','<span class="iso">'+RAW_ROT_LO+'-'+RAW_ROT_HI+'</span>')+'</label>'
    +'<div class="grid2">'
      +'<div><input id="'+idp+'bandlo" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_LO+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
      +'<div><input id="'+idp+'bandhi" class="mono" inputmode="numeric" maxlength="5" placeholder="'+RAW_ROT_HI+'" data-ha="'+esc(idp)+'" oninput="bandWarnUpd(hA(this))" style="text-align:center;direction:ltr"></div>'
    +'</div>'
    +'<div class="warncap no" id="'+idp+'bandwarn" style="display:none;margin-top:8px"></div></div>'}
-function ctbOn(S){return S.Tr=='raw'&&(S.RawProfile=='udp'||S.RawProfile=='tcp')}
+function ctbOn(S){return rawPorted(S)}
 function ctbVis(idp,S){var w=el(idp+'ctbrow'),on=ctbOn(S);
  if(!on)S.Ctb=false;
  if(w)w.style.display=on?'':'none';
@@ -10324,14 +10378,16 @@ function ctbVis(idp,S){var w=el(idp+'ctbrow'),on=ctbOn(S);
 function ctbToggle(idp,S){if(!ctbOn(S))return;S.Ctb=!S.Ctb;ctbVis(idp,S)}
 var PORT_MAX=65535;
 function rng(lbl,lo,hi){return lbl+' (بازه '+lo+' تا '+hi+')'}
-var PORT_RUNG_TRANSPORTS=['udp','tcp','ws'];
+function rawPorted(S){return S.Tr=='raw'&&_ENUMS.raw_ported.indexOf(S.RawProfile)>=0}
 function portTriesOn(S){
- if(S.Tr=='raw')return (S.RawProfile=='udp'||S.RawProfile=='tcp')&&!!S.SportRandom;
- return PORT_RUNG_TRANSPORTS.indexOf(S.Tr)>=0}
+ if(S.Tr=='raw')return rawPorted(S)&&!!S.SportRandom;
+ return _ENUMS.tr_rung.indexOf(S.Tr)>=0}
+function bandOn(S){return (S.Tr=='raw')?rawPorted(S):_ENUMS.tr_rung.indexOf(S.Tr)>=0}
 function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(rng(T('porttries_lbl'),1,PORT_TRIES_MAX))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr" data-ha="'+esc(idp)+'" oninput="portTriesWarnUpd(hA(this))">'
  +'<div class="warncap no" id="'+idp+'ptwarn" style="display:none;margin-top:8px"></div></div>'}
+function bandVis(idp,S){var w=el(idp+'bandwrap');if(w)w.style.display=bandOn(S)?'':'none'}
 function portTriesN(idp){var e=el(idp+'porttries');if(!e)return 0;var n=parseInt((e.value||'').trim(),10);return isNaN(n)?0:n}
 function portTriesErr(idp,S){if(!portTriesOn(S))return '';var n=portTriesN(idp);
  return (n===0||(n>=1&&n<=PORT_TRIES_MAX))?'':T('porttries_bad')}
@@ -10488,7 +10544,7 @@ function wsPoolInner(idp,fnp,lid){
 
 
 function corRawVis(){var w=el('e_rawblk');if(w)w.style.display=(_corS.Tr=='raw')?'':'none'}
-function corPortTriesVis(){portTriesVis('e_',_corS)}
+function corPortTriesVis(){portTriesVis('e_',_corS);bandVis('e_',_corS)}
 function trFade(bar){if(!bar)return;var w=bar.parentNode;if(!w)return;w.classList.toggle('atend',Math.abs(bar.scrollLeft)+bar.clientWidth>=bar.scrollWidth-4)}
 function corPortGate(){var p=el('e_port');if(!p)return;var np=(_corS.Tr=='raw');var w=el('e_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_corS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph');corPortDraw()}
 async function corPortDraw(){var p=el('e_port');if(!p||p.value)return;
@@ -10639,9 +10695,8 @@ function _collectCoreBody(S,px,m,body){
     body.raw_sport_random=!!S.SportRandom;
     var _st=parseInt(v(px+'rawsport'),10);
     body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}}
- var _be=bandErr(px);if(_be){formErr(m,_be);return true}
- body.sport_lo=bandN(px,'bandlo');
- body.sport_hi=bandN(px,'bandhi');
+ var _be=bandOn(S)?bandErr(px):'';if(_be){formErr(m,_be);return true}
+ if(bandOn(S)){body.sport_lo=bandN(px,'bandlo');body.sport_hi=bandN(px,'bandhi')}
  var _pte=portTriesErr(px,S);if(_pte){formErr(m,_pte);return true}
  if(portTriesOn(S)){body.port_tries=portTriesN(px)}
  if(fecDatagram(S)){body.fec=!!S.Fec;if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
@@ -10688,7 +10743,7 @@ function ceToggleFec(){if(!ceFecDatagram())return;_eeS.Fec=!_eeS.Fec;var s=el('e
 function ceSetFecRate(d,p){_eeS.FecData=d;_eeS.FecParity=p;var g=el('ee_fecrates');if(g)Array.prototype.forEach.call(g.querySelectorAll('[data-fd]'),function(t){t.classList.toggle('on',parseInt(t.getAttribute('data-fd'))==d&&parseInt(t.getAttribute('data-fp'))==p)})}
 function ceFecGate(){var dg=ceFecDatagram(),row=el('ee_fecrow');if(!dg){_eeS.Fec=false;var s=el('ee_fecsw');if(s)s.classList.remove('on');var r=el('ee_fecrates');if(r)r.style.display='none'}if(row)row.style.display=dg?'':'none'}
 function ceRawVis(){var w=el('ee_rawblk');if(w)w.style.display=(_eeS.Tr=='raw')?'':'none'}
-function cePortTriesVis(){portTriesVis('ee_',_eeS)}
+function cePortTriesVis(){portTriesVis('ee_',_eeS);bandVis('ee_',_eeS)}
 function cePortGate(){var p=el('ee_port');if(!p)return;var np=(_eeS.Tr=='raw');var w=el('ee_coreportrow');if(w)w.style.display=np?'none':'';if(np){p.value='';return}if(_eeS.Tr=='ws'){if(!p.value)p.value='80';p.placeholder=T('port_ws_ph');return}if(p.value=='80')p.value='';p.placeholder=T('port_band_ph')}
 function ceSetProfile(p){_eeS.RawProfile=p;var g=el('ee_pg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-p')==p)});ceProtoVis();cePortVis();cePortTriesVis()}
 function ceSetProto(val){var i=el('ee_rawproto');if(i)i.value=val;protoWarnUpd('ee_',val)}
@@ -11578,6 +11633,7 @@ INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
     {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
+     "tr_rung": list(PORT_RUNG_TRANSPORTS), "raw_ported": list(PORTED_RAW_PROFILES),
      "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
      "edge_ports": {"tls": list(_EDGE_TLS_PORTS), "plain": list(_EDGE_PLAIN_PORTS)}},
     separators=(",", ":")))
