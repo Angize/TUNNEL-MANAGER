@@ -1786,7 +1786,7 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "sport_lo", "sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
-                    "http_up_workers", "http_up_batch_kb", "http_streams",
+                    "http_up_workers", "http_up_batch_kb", "http_streams", "http_up_rate",
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_id", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_snis",
                     "ws_rotate_secs", "gso",
@@ -1825,14 +1825,20 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
         body["pool_listen"] = True
         if own_pool and body.get("transport") in ("udp", "tcp"):
             body["listen_ips"] = list(own_pool)
-        if peer_pool:
+        if peer_pool and body.get("transport") == "raw":
             body["peer_src_ips"] = list(peer_pool)
 
 
-def _core_rotation_bodies(src, a_body, b_body):
+def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
     if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
         return
     ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
+    if a_ips is not None:
+        ap = [x for x in ap if x in a_ips]
+    if b_ips is not None:
+        bp = [x for x in bp if x in b_ips]
+    if len(ap) < 2 and len(bp) < 2:
+        return
     rs = int(src.get("rotate_secs") or 0)
     _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
@@ -1853,8 +1859,9 @@ def _apply_core_tuning(a_body, b_body):
     _tn = {k: v for k, v in tn.items()
            if k not in ("sock_buf_mb", "probe_min_pct")}
     if _tn:
-        a_body["tuning"] = _tn
-        b_body["tuning"] = _tn
+        for body in (a_body, b_body):
+            if body.get("role") == "client":
+                body["tuning"] = _tn
 
 
 def _apply_probe_tuning(*bodies):
@@ -1881,8 +1888,11 @@ def _ech_or_stored(host, fetched, stored):
                   "رکوردِ HTTPS/ech= در دسترس نبود؛ کلیدِ ذخیره‌شده به کار رفت. اگر کلاودفلر"
                   " کلید را چرخانده باشد این تونل تا خواندنِ بعدی بالا نمی‌آید.")
         return stored
-    raise ValueError("کلیدِ ECH برای «%s» نه تازه خوانده شد نه ذخیره‌ای دارد — ECH روشن است و"
-                     " بدونِ کلید، SNI رمز نمی‌شود، پس متوقف شد." % host)
+    log_event("warn", "ech-stale",
+              "کلیدِ ECH برای «%s» نه تازه خوانده شد نه ذخیره‌ای دارد" % host,
+              "این تونل بدونِ ECH بالا می‌آید، یعنی SNI در روشناییِ روز می‌رود. تا وقتی رکوردِ"
+              " HTTPS/ech= دوباره خوانده شود همین‌طور می‌ماند.")
+    return ""
 
 
 def _tunnel_extra(src):
@@ -4472,7 +4482,9 @@ def _ech_px(src):
     if not src.get("ech_proxy"):
         return ""
     p = get_proxy(str(src.get("ech_proxy_id") or ""))
-    return proxy_url(p) if p else ""
+    if not p:
+        raise ValueError("پروکسیِ ECH این تونل دیگر وجود ندارد — یکی بساز و در ویرایشِ تونل انتخابش کن")
+    return proxy_url(p)
 
 
 def _ech_proxy_fields(d, cur, out):
@@ -4728,7 +4740,7 @@ _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity", "a_workers", "b_workers")
 _SHAPE_DESYNC = ("fake_desync", "fake_ttl", "fake_count", "fake_mode")
 
 
-def _shape_consumes(key, transport, profile, srand):
+def _shape_consumes(key, transport, profile, srand, moving=True):
     ported = transport == "raw" and profile in PORTED_RAW_PROFILES
     if key in _SHAPE_RAW_PORTED:
         return ported
@@ -4745,7 +4757,7 @@ def _shape_consumes(key, transport, profile, srand):
     if key in _SHAPE_DESYNC:
         return transport != "udp"
     if key in ("sport_lo", "sport_hi"):
-        return ported if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
+        return (ported and moving) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
     if key == "port_tries":
         return (ported and srand) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
     if key in _ROTATION_KEYS:
@@ -4756,20 +4768,25 @@ def _shape_consumes(key, transport, profile, srand):
 def _shape_of(d, cur):
     transport = str(d.get("transport") or cur.get("transport") or "udp").strip().lower()
     profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bare").strip().lower()
+    ported = profile in PORTED_RAW_PROFILES
     if "raw_sport_random" in d:
         srand = bool(d["raw_sport_random"])
     else:
-        srand = bool(cur.get("raw_sport_random")) and profile in PORTED_RAW_PROFILES
-    return transport, profile, srand
+        srand = bool(cur.get("raw_sport_random")) and ported
+    if "raw_sport_rotate" in d:
+        rot = bool(d["raw_sport_rotate"])
+    else:
+        rot = bool(cur.get("raw_sport_rotate")) and ported
+    return transport, profile, srand, srand or rot
 
 
-def _carried(cur, d):
-    transport, profile, srand = _shape_of(d, cur)
-    return {k: v for k, v in cur.items() if _shape_consumes(k, transport, profile, srand)}
+def _carried(cur, shape):
+    return {k: v for k, v in cur.items() if _shape_consumes(k, *shape)}
 
 
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
-    cur = _carried(cur, d)
+    shape = _shape_of(d, cur)
+    cur = _carried(cur, shape)
     ce = {}
     cipher = str(d.get("cipher") or cur.get("cipher") or "auto").strip().lower()
     if cipher not in CORE_CIPHERS:
@@ -4881,6 +4898,8 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         _blo = int((d["sport_lo"] if "sport_lo" in d else cur.get("sport_lo")) or 0)
         _bhi = int((d["sport_hi"] if "sport_hi" in d else cur.get("sport_hi")) or 0)
     except (TypeError, ValueError):
+        _blo = _bhi = 0
+    if (_blo or _bhi) and not _shape_consumes("sport_lo", *shape):
         _blo = _bhi = 0
     if _blo or _bhi:
         if not (RAW_BAND_MIN_LO <= _blo <= _bhi <= 65535):
@@ -5153,7 +5172,9 @@ def _restore_link(A, B, L, extra=None):
     if ttype == "core":
         a_body["role"] = _core_role(L, A["id"]) if A else ""
         b_body["role"] = _core_role(L, B["id"]) if B else ""
-        _core_rotation_bodies(L, a_body, b_body)
+        _core_rotation_bodies(L, a_body, b_body,
+                              _flat_ips(_cached_ping(A["id"])) if A else None,
+                              _flat_ips(_cached_ping(B["id"])) if B else None)
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -5649,7 +5670,7 @@ def _rebuild_link_impl(d, h=None):
               "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
     if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-        _core_rotation_bodies(L, a_body, b_body)
+        _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips)
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -8720,7 +8741,7 @@ search:"جستجو…",
 
 
 
- set_x_probemin:"<b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>5</b> = یک جواب هم بس است (رفتارِ قبلی). <b>100</b> = هر 20 تا باید برگردند.",
+ set_x_probemin:"درصدی از بسته‌هایی که واقعاً فرستاده شدند. <b>15</b> = از 20 بسته حداقل 3 تا باید برگردد. <b>100</b> = هر 20 تا باید برگردند. اگر کمتر از 5 بسته اصلاً فرستاده نشود، نود هیچ حکمی نمی‌دهد و وضعیتِ قبلی می‌ماند.",
  set_pm_hint:"= حداقل {n} بسته از {c} باید جواب بدهد",
  set_x_sockbuf:"<b>4</b> = همان پیش‌فرضِ هسته. وقتی بسته‌ها یک‌دفعه سیل‌آسا می‌رسند، هرچه اتاقِ انتظار بزرگ‌تر باشد کمترش دور ریخته می‌شود (در تستِ IR↔DE سرعتِ TCP حدود 2٫7 برابر شد). <b>0</b> = خاموش، بافرِ پیش‌فرضِ کرنل. حافظهٔ مصرفی ≈ همین عدد × چند سوکت روی هر نود، پس روی سرورِ کم‌رم بالا نبر. فقط udp / raw.",
  h1:"ساعت",h3:"3 ساعت",h6:"6 ساعت",h8:"8 ساعت",h12:"12 ساعت",h24:"24 ساعت",
@@ -8784,7 +8805,7 @@ search:"جستجو…",
  fec_note:"«16+4» یعنی هر 16 پکتِ داده، 4 پکتِ پریتی؛ گیرنده تا 4 تا از هر 20 تا را گم کند بازسازی می‌کند. هزینهٔ پردازش فقط به عددِ دوم بستگی دارد، نه به اولی؛ پس بلوکِ بزرگ‌تر با همان پریتی هم ارزان‌تر است هم قوی‌تر. هر دو سرِ تونل یک تنظیم می‌گیرند. درصدِ روی کاشی برای بلوکِ پُر است: روی تونلِ کم‌ترافیک بلوک با پکتِ کمتری بسته می‌شود و همیشه دستِ‌کم یک پکتِ پریتی می‌رود، پس سربارِ لحظه‌ای بالاتر می‌رود (برای بلوکِ تک‌پکتی تا 100٪). نسبتِ محافظت هرگز از عددِ انتخابی کمتر نمی‌شود.",
  ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"چند بستهٔ قلابی می‌فرستد تا فیلترچی ردِ اتصالِ واقعی را گم کند؛ خودِ تونل دست‌نخورده می‌ماند. روی حاملِ UDP و HTTP در دسترس نیست.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
  ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (1 برای رله‌ٔ کوتاه، 3 تا 5 برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
- ds_both_needs2:"حالتِ «هر دو» یعنی هم طعمهٔ TTL و هم طعمهٔ چک‌سام — پس دستِ‌کم به ۲ طعمه نیاز دارد؛ عدد را بالا ببر یا یکی از دو حالت را انتخاب کن",ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود — روی هر چهار حامل، raw هم همین‌طور.",
+ ds_both_needs2:"حالتِ «هر دو» یعنی هم طعمهٔ TTL و هم طعمهٔ چک‌سام — پس دستِ‌کم به ۲ طعمه نیاز دارد؛ عدد را بالا ببر یا یکی از دو حالت را انتخاب کن",ds_ttl_cap:"TTLِ طعمه سقفِ 8 دارد و عددِ بزرگ‌تر بی‌صدا به 8 کم می‌شود — روی هر چهار حامل. روی tcp و CDN طعمه روی همان اتصالِ واقعی می‌رود، پس طعمه‌ای که به سرور برسد RST می‌گیرد و اتصال را می‌کشد؛ به همین دلیل آنجا فقط حالتِ «TTL کم» معنا دارد.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
  ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
@@ -9062,7 +9083,7 @@ var _TUNDEF=__TUNDEF_JSON__;var _TUNSTEP=__TUNSTEP_JSON__;
 var _SETDEF=__SETDEF_JSON__;   
 var _PROBESAMP=__PROBE_SAMPLES__;   
 var EVTYPES=__EVTYPES_JSON__,EVGROUPS=__EVGROUPS_JSON__;   
-function CORE_CIPHERS(){return _ENUMS.ciphers.map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
+function CORE_CIPHERS(S){return _ENUMS.ciphers.filter(function(v){return !(v=='none'&&S&&S.Tr=='raw')}).map(function(v){return {v:v,label:(v=='auto'?T('cipher_auto'):(v=='none'?T('cipher_none'):v))}})}
 var TYPEITEMS=[{v:'vxlan',label:'VXLAN'},{v:'gre',label:'GRE'},{v:'sit',label:'SIT (IPv6)'},{v:'ipip',label:'IPIP'},{v:'l2tpv3',label:'L2TPv3'},{v:'fou',label:'IPIP-over-FOU'},{v:'ipsec',label:'IPsec'}];
 function SUBNETRANGES(){function it(b,k){return {v:b,label:T(k),sub:'('+subnetFree(b)+')'}}
  return [it('192.168','snr_192'),it('10','snr_10'),it('172.16','snr_172'),{v:'custom',label:T('snr_custom')}]}
@@ -9102,6 +9123,9 @@ function ssPick(key,row){var val=row.getAttribute('data-v');SEL[key]=val;
  if(SS_OV[key]){closeModal(SS_OV[key]);SS_OV[key]=null}
  if(SSCB[key]&&window[SSCB[key]])window[SSCB[key]]()}
 function ssVal(key){return SEL[key]||''}
+function cipherVis(idp,S){var k=idp+'cipher',items=CORE_CIPHERS(S);SSI[k]=items;
+ if(!items.filter(function(x){return x.v==SEL[k]}).length){SEL[k]='auto';
+  var cur=items.filter(function(x){return x.v=='auto'})[0];setT('sst_'+k,cur?cur.label:'auto')}}
 document.addEventListener('click',function(e){document.querySelectorAll('.mslist').forEach(function(l){
  if(l.style.display=='none')return;var b=l.previousElementSibling;
  if(l.contains(e.target)||(b&&b.contains(e.target)))return;
@@ -10148,12 +10172,12 @@ function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
 function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnShapeGate()}
 function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnShapeGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});corRawVis();corWsVis();corPortGate();corCoverGate();corFecGate();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
+function corSetTr(t){_corS.Tr=t;cipherVis('e_',_corS);_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});corRawVis();corWsVis();corPortGate();corCoverGate();corFecGate();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
 
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
 function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
-function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m=='disorder')?'':'none'}
+function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m=='split')?'none':'';var q=el('e_sniposbox');if(q)q.style.display=(m=='fake')?'none':''}
 function corWssGate(){var mand=poolGet('e_').pool||_corS.Cdn=='grpc';var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corS.Ech=!_corS.Ech;var s=el('e_wsech');if(s)s.classList.toggle('on',_corS.Ech);corEchPxGate()}
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
@@ -10166,7 +10190,7 @@ function poolInit(pfx,l){_poolData[pfx]={pool:!!(l&&l.ws_pool),rotate:(l&&l.ws_r
 function poolGet(pfx){if(!_poolData[pfx])poolInit(pfx,null);return _poolData[pfx];}
 var _ip4Re=/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/;
 var _domRe=/^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$/;
-function edgePortsOK(){var e=_ENUMS.edge_ports||{};return (poolGet('ee_').tls?e.tls:e.plain)||[]}
+function edgePortsOK(){return (_ENUMS.edge_ports||{}).tls||[]}
 function poolValid(kind,val){var h=val;if(kind=='ip'){var c=val.lastIndexOf(':');if(c>=0){h=val.slice(0,c);var p=val.slice(c+1);if(!(/^\\d+$/.test(p)&&edgePortsOK().indexOf(+p)>=0))return false;}return _ip4Re.test(h);}return _domRe.test(val);}
 function _cdRemain(now,polledMs,next){if(!next||!now)return -1;var e=now+(Date.now()-(polledMs||Date.now()))/1000;return Math.max(0,Math.round(next-e));}
 function _cdTick(host,now,polledMs){if(!host)return;
@@ -10382,7 +10406,7 @@ function rawPorted(S){return S.Tr=='raw'&&_ENUMS.raw_ported.indexOf(S.RawProfile
 function portTriesOn(S){
  if(S.Tr=='raw')return rawPorted(S)&&!!S.SportRandom;
  return _ENUMS.tr_rung.indexOf(S.Tr)>=0}
-function bandOn(S){return (S.Tr=='raw')?rawPorted(S):_ENUMS.tr_rung.indexOf(S.Tr)>=0}
+function bandOn(S){return (S.Tr=='raw')?(rawPorted(S)&&(!!S.SportRandom||!!S.Sprot)):_ENUMS.tr_rung.indexOf(S.Tr)>=0}
 function portTriesSection(idp){return '<div id="'+idp+'sptries" style="display:none;margin-top:11px">'
  +'<label class="first">'+esc(rng(T('porttries_lbl'),1,PORT_TRIES_MAX))+'</label>'
  +'<input id="'+idp+'porttries" class="mono" inputmode="numeric" maxlength="2" placeholder="2" style="text-align:center;direction:ltr" data-ha="'+esc(idp)+'" oninput="portTriesWarnUpd(hA(this))">'
@@ -10481,6 +10505,9 @@ function FEC_RATES(){return [{d:20,p:2,n:T('fec_light'),ov:T('fec_ov10')},{d:16,
 
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
  +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||16)&&r.p==(fp||4));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" data-ha="'+r.d+'" data-hb="'+r.p+'" onclick="'+fnp+'SetFecRate(+hA(this),+hB(this))"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--gold)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
+function dsModeVis(idp,S){var bad=!desyncInjects(S);
+ if(!bad&&S.DesyncMode!='ttl'){S.DesyncMode='ttl';var t=el(idp+'dsm_ttl');if(t)t.classList.add('on')}
+ ['badsum','both'].forEach(function(v){var e=el(idp+'dsm_'+v);if(e){e.style.display=bad?'':'none';if(!bad)e.classList.remove('on')}})}
 function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
 function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
  +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" data-ha="'+esc(m.v)+'" onclick="'+fnp+'SetDesyncMode(hA(this))"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
@@ -10491,12 +10518,12 @@ function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.
 function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
 function desyncOk(S){return S.Tr=='raw'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
 function desyncInjects(S){return S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
-function desyncTtlCap(idp,S){var cap=el(idp+'dsttlcap'),inj=desyncInjects(S);if(cap)cap.style.display=inj?'':'none';
- var t=el(idp+'dsttl');if(t&&inj){var n=parseInt(t.value,10);if(n>8)t.value='8'}}
-function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('e_',_corS)}
+function desyncTtlCap(idp){var cap=el(idp+'dsttlcap');if(cap)cap.style.display='';
+ var t=el(idp+'dsttl');if(t){var n=parseInt(t.value,10);if(n>8)t.value='8'}}
+function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('e_');dsModeVis('e_',_corS)}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
 function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
-function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('ee_',_eeS)}
+function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('ee_');dsModeVis('ee_',_eeS)}
 function echPxPick(idp,sel){
  var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.addr}});
  return opts.length?ssHTML(idp+'echproxyid',opts,sel||opts[0].v,'','')
@@ -10507,7 +10534,7 @@ function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyid,sni,pos,mode,ttl,show)
   +'<div class="tglbox" id="'+idp+'echpxrow" style="margin-top:9px'+pxhide+'"><div class="tglsw'+(echproxy?' on':'')+'" id="'+idp+'echpx" onclick="'+fnp+'ToggleEchProxy()"></div><div class="tt"><b>'+esc(T('echpx_t'))+'</b><small>'+esc(T('echpx_d'))+'</small></div></div>'
   +'<div id="'+idp+'echpxbody" style="margin-top:6px'+pxfhide+'"><label>'+esc(T('nd_proxy_pick'))+'</label>'+echPxPick(idp,echproxyid)+'</div>'
   +'<div class="tglbox" id="'+idp+'snisplitrow" style="margin-top:9px'+hide+'"><div class="tglsw'+(sni?' on':'')+'" id="'+idp+'snisplit" onclick="'+fnp+'ToggleSni()"></div><div class="tt"><b>'+esc(T('sni_t'))+'</b><small>'+esc(T('sni_d'))+'</small></div></div>'
-  +'<div id="'+idp+'snisplitbody" style="margin-top:6px'+((sni&&show)?'':';display:none')+'"><label>'+esc(T('sni_pos_lbl'))+'</label><input id="'+idp+'snisplitpos" type="number" min="0" max="1400" value="'+(pos||0)+'">'
+  +'<div id="'+idp+'snisplitbody" style="margin-top:6px'+((sni&&show)?'':';display:none')+'"><div id="'+idp+'sniposbox"'+((mode||'split')=='fake'?' style="display:none"':'')+'><label>'+esc(T('sni_pos_lbl'))+'</label><input id="'+idp+'snisplitpos" type="number" min="0" max="1400" value="'+(pos||0)+'"></div>'
   +'<label style="margin-top:10px;display:block">'+esc(T('sni_mode_lbl'))+'</label><div class="seg2" id="'+idp+'snimodeseg">'+SNI_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'split')?' on':'')+'" id="'+idp+'snim_'+m.v+'" data-ha="'+esc(m.v)+'" onclick="'+fnp+'SetSniMode(hA(this))"><b>'+esc(m.v)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
   +'<div id="'+idp+'snittlbody" style="margin-top:6px'+((mode=='disorder')?'':';display:none')+'"><label>'+esc(T('sni_ttl_lbl'))+'</label><input id="'+idp+'splitttl" type="number" min="0" max="__SPLITTTLMAX__" value="'+(ttl||0)+'"></div></div>';}
 function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_dis_s')},{v:'fake',s:T('m_fake_s')}]}
@@ -10566,10 +10593,10 @@ function corPortVis(){var w=el('e_portrow');if(!w)return;
  sprotVis('e_',_corS);ctbVis('e_',_corS)}
 function corSprotWarn(){sprotWarnUpd('e_',_corS)}
 function ceSprotWarn(){sprotWarnUpd('ee_',_eeS)}
-function corToggleSprot(){sprotToggle('e_',_corS);corFecGate()}
+function corToggleSprot(){sprotToggle('e_',_corS);corFecGate();corPortTriesVis()}
 function corToggleCtb(){ctbToggle('e_',_corS)}
 function ceToggleCtb(){ctbToggle('ee_',_eeS)}
-function ceToggleSprot(){sprotToggle('ee_',_eeS);ceFecGate()}
+function ceToggleSprot(){sprotToggle('ee_',_eeS);ceFecGate();cePortTriesVis()}
 function corSetWorkers(sd,n){_corS[sd=='a'?'WorkersA':'WorkersB']=n;workersPaint('e_',sd,n)}
 function corWorkersVis(){var a=ssVal('e_a'),b=ssVal('e_b');
  workersVis('e_',_corS,[nodeName(a),nodeCpus(a)],[nodeName(b),nodeCpus(b)])}
@@ -10725,12 +10752,12 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  closeModal(m.closest('.modalov'));refreshCore()}
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Sprot=false,_eeS.Gso=false,_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=16,_eeS.FecParity=4,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
 function ceApplyGates(){ceRawVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
-function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
+function ceSetTr(t){_eeS.Tr=t;cipherVis('ee_',_eeS);_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeS.WsTls=!_eeS.WsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeS.WsTls);if(!_eeS.WsTls){if(_eeS.Ech){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeS.SniSplit){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
 function ceToggleSni(){if(!_eeS.WsTls){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_eeS.SniSplit=!_eeS.SniSplit;var s=el('ee_snisplit');if(s)s.classList.toggle('on',_eeS.SniSplit);var b=el('ee_snisplitbody');if(b)b.style.display=_eeS.SniSplit?'':'none'}
-function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m=='disorder')?'':'none'}
+function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m=='split')?'none':'';var q=el('ee_sniposbox');if(q)q.style.display=(m=='fake')?'none':''}
 function ceWssGate(){var mand=poolGet('ee_').pool||_eeS.Cdn=='grpc';var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function ceToggleEch(){if(!_eeS.WsTls){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on');ceEchPxGate();alert(T('ech_need_wss_alert'));return}_eeS.Ech=!_eeS.Ech;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeS.Ech);ceEchPxGate()}
 function ceToggleEchProxy(){_eeS.EchProxy=!_eeS.EchProxy;var s=el('ee_echpx');if(s)s.classList.toggle('on',_eeS.EchProxy);var b=el('ee_echpxbody');if(b)b.style.display=_eeS.EchProxy?'':'none'}
