@@ -2863,7 +2863,7 @@ def api_node_traffic(d):
         if n["id"] in (L.get("a_node"), L.get("b_node")):
             t = ifs.get(L.get("name"))
             if t:
-                tunnels.append({"name": L.get("name"), "type": L.get("type"),
+                tunnels.append({"name": L.get("name"),
                                 "rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"],
                                 "rx_total": t["crx"], "tx_total": t["ctx"]})
     portfw = []
@@ -2873,7 +2873,7 @@ def api_node_traffic(d):
             continue
         t = ifs.get("pf:" + str(c.get("name") or ""))
         if t:
-            portfw.append({"name": c.get("name"), "type": "portfw",
+            portfw.append({"name": c.get("name"),
                            "rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"],
                            "rx_total": t["crx"], "tx_total": t["ctx"]})
     return {"online": online,
@@ -8872,7 +8872,7 @@ function fmtup(s){s=+s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m
  return c+' '+T('fmt_sec')}
 function fmtBytes(n){n=num(n);var u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<4){n/=1024;i++}return (i?(n<10?n.toFixed(2):n<100?n.toFixed(1):Math.round(n)):Math.round(n))+' '+u[i]}
 function fmtRate(b){b=num(b);var u=['bps','Kbps','Mbps','Gbps'],i=0;while(b>=1000&&i<3){b/=1000;i++}return (i?(b<10?b.toFixed(1):Math.round(b)):Math.round(b))+' '+u[i]}
-function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span><span class="tag '+esc(t.type)+'">'+esc(t.type)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b> <b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></div></div>'}
+function tfRow(t){return '<div class="tf-row"><div class="tf-nm"><span class="mono">'+esc(t.name)+'</span></div><div class="tf-fig"><span class="din iso">↓'+fmtRate(t.rx_bps)+'</span><span class="dout iso">↑'+fmtRate(t.tx_bps)+'</span><span class="tot iso"><b class="din">↓'+fmtBytes(t.rx_total)+'</b> <b class="dout">↑'+fmtBytes(t.tx_total)+'</b></span></div></div>'}
 function dualSpark(id,a,b){var svg=el(id);if(!svg||!a.length)return;var vb=svg.getAttribute('viewBox').split(' '),W=+vb[2],H=+vb[3],pad=3;
  var mx=Math.max.apply(null,a.concat(b).concat([1]));
  function P(v){if(v.length<2)v=v.concat(v);return 'M'+v.map(function(x,k){return (pad+k*(W-2*pad)/(v.length-1)).toFixed(1)+','+(H-pad-(num(x)/mx)*(H-2*pad)).toFixed(1)}).join(' L')}
