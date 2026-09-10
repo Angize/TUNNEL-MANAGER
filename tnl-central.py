@@ -11556,6 +11556,41 @@ def service_active():
     return subprocess.run(["systemctl", "is-active", "--quiet", SERVICE]).returncode == 0
 
 
+def service_settled(tries=6):
+    for _ in range(tries):
+        if service_active():
+            return True
+        time.sleep(1)
+    return False
+
+
+DEP_PACKAGES = ("openssl", "ca-certificates", "iproute2", "openssh-client", "sshpass")
+DEP_BINARIES = ("openssl", "ssh", "sshpass", "ip", "systemctl")
+
+
+def missing_binaries():
+    return [b for b in DEP_BINARIES if not shutil.which(b)]
+
+
+def install_deps():
+    if not missing_binaries():
+        print("[✔] dependencies already present.")
+        return
+    print("[*] installing dependencies: " + " ".join(DEP_PACKAGES))
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    try:
+        subprocess.run(["apt-get", "update", "-qq"], env=env, timeout=300)
+        subprocess.run(["apt-get", "install", "-yqq", *DEP_PACKAGES], env=env, timeout=900)
+    except Exception as e:
+        print(f"[!] apt failed: {e}")
+    still = missing_binaries()
+    if still:
+        print("[✘] still missing after install: " + " ".join(still))
+        print("    install them by hand and run --install again.")
+        sys.exit(1)
+    print("[✔] dependencies ready.")
+
+
 def central_ip():
     r = subprocess.run(["bash", "-c", "ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -n1"],
                        capture_output=True, text=True)
@@ -11596,22 +11631,39 @@ WantedBy=multi-user.target
 
 
 def do_install():
+    if not sys.stdin.isatty():
+        print("--install asks for a username and a password, so it needs a terminal.")
+        sys.exit(1)
     os.makedirs(CENTRAL_DIR, exist_ok=True)
     os.chmod(CENTRAL_DIR, 0o700)
     if os.path.realpath(SELF_PATH) != INSTALLED:
         shutil.copy2(SELF_PATH, INSTALLED)
         os.chmod(INSTALLED, 0o755)
+    install_deps()
     conf = load_conf() if os.path.isfile(WEB_CONF) else {}
     conf["port"] = int(input(f"Panel port [{conf.get('port', 8080)}]: ").strip() or conf.get("port", 8080))
     set_password(conf)
+    try:
+        _signing_keys()
+    except Exception as e:
+        print(f"[✘] openssl could not create the RSA signing key ({e}) — every push to a node would be refused.")
+        sys.exit(1)
     write_service()
     svc("enable")
     svc("restart")
+    if not service_settled():
+        print("[✘] the service did not come up — journalctl -u " + SERVICE)
+        sys.exit(1)
     try:
         info = _stage_core("latest")
         print(f"[✔] staged core {info['version']} ({', '.join(info['arches'])}) — ready to push to nodes")
     except Exception as e:
         print(f"[!] could not pre-download the core ({e}); stage it later from the panel (هستهٔ داده → دریافت از گیت‌هاب)")
+    try:
+        meta = api_agent_fetch_git({})
+        print(f"[✔] staged node agent v{meta['version']} — ready to add nodes over SSH")
+    except Exception as e:
+        print(f"[!] could not pre-download the node agent ({e}); stage it later from the panel (تنظیمات → بروزرسانیِ ایجنت)")
     print("[✔] tnl-central installed and started.")
     print(f"[→] open  http://{central_ip()}:{conf['port']}/   (user: {conf.get('user')})")
 
