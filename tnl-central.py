@@ -8513,7 +8513,7 @@ search:"جستجو…",
  err_rt_notperm:"کرنل اجازه نداد",err_rt_noroute:"از این نود مسیری به آن آدرس نیست",
  err_rt_addrused:"این آدرس از قبل روی نود گرفته شده",err_rt_nodev:"چنین اینترفیسی روی نود نیست",
  err_rt_badarg:"کرنل ورودی را نپذیرفت",err_rt_other:"کرنل رد کرد",
- err_kernel:"کرنل درخواست را رد کرد",err_refused:"اتصال رد شد",err_noroute:"مسیری به میزبان نیست",
+ err_kernel:"کرنل درخواست را رد کرد",err_refused:"اتصال رد شد",err_busy:"نود شلوغ است — کمی بعد دوباره بزن",err_noroute:"مسیری به میزبان نیست",
  err_dns:"نامِ میزبان پیدا نشد",err_reset:"اتصال از آن سر قطع شد",err_timeout:"وقت تمام شد",
  err_unreach:"در دسترس نبود",err_denied:"اجازه داده نشد",err_nocmd:"این دستور روی نود نیست",
  err_nofile:"چنین فایل یا مسیری نیست",err_afam:"این نوع آدرس پشتیبانی نمی‌شود",
@@ -8770,6 +8770,7 @@ var ERRFA=[
  [/No such file or directory/ig,'err_nofile'],
  [/Address family not supported/ig,'err_afam'],
  [/broken pipe/ig,'err_pipe'],
+ [/server busy,\\s*retry shortly/ig,'err_busy'],
  [/certificate/ig,'err_cert']];
 function terr(msg){msg=String(msg==null?'':msg);
  for(var i=0;i<ERRNOISE.length;i++)msg=msg.replace(ERRNOISE[i],'');
