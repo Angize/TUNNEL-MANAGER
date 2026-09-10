@@ -4025,6 +4025,30 @@ def api_core_stage_cancel(d):
     return {"ok": True, "done": False}
 
 
+def _overlay_ips(L):
+    try:
+        net = ipaddress.ip_network(str(L.get("subnet") or ""), strict=False)
+    except ValueError:
+        return
+    ttype, srv = L.get("type"), L.get("server_side")
+    for is_a in (True, False):
+        yield str(net.network_address + overlay_host(ttype, srv, is_a))
+
+
+def _link_haystack(L, nodes):
+    for f in (L["a_name"], L["b_name"], L.get("name"), L.get("type"),
+              L.get("tunnel_id"), L.get("subnet")):
+        if f not in (None, ""):
+            yield str(f).lower()
+    for ip in _overlay_ips(L):
+        yield ip
+    for s in ("a", "b"):
+        for f in [L.get(s + "_ip"), nodes.get(L.get(s + "_node"), {}).get("host"),
+                  *(L.get(s + "_ip_pool") or [])]:
+            if f:
+                yield str(f).lower()
+
+
 def api_fleet(d):
     q = _list_query(d)
     nodes = {n["id"]: n for n in load_nodes()}
@@ -4038,9 +4062,7 @@ def api_fleet(d):
         links.append({**L, "a_name": nodes.get(L.get("a_node"), {}).get("name", L.get("a_name", "")),
                       "b_name": nodes.get(L.get("b_node"), {}).get("name", L.get("b_name", ""))})
     if q:
-        links = [L for L in links if q in L["a_name"].lower() or q in L["b_name"].lower()
-                 or q in str(L.get("name", "")).lower()
-                 or q in L.get("type", "").lower() or q in str(L.get("tunnel_id", "")).lower()]
+        links = [L for L in links if any(q in h for h in _link_haystack(L, nodes))]
     total = len(links)
     page = links
     need = {L[k] for L in page for k in ("a_node", "b_node")}
@@ -8512,13 +8534,13 @@ search:"جستجو…",
  nd_tunnels:"تونل",nd_portfw:"پورت‌فوروارد",nd_agent:"ایجنت",nd_core:"هسته",nd_core_missing:"نصب نیست",nd_ctrlproxy:"پروکسیِ کنترل",nd_toggle:"نمایش/پنهان در لیستِ ساختِ تونل و پورت‌فوروارد (اتصال قطع نمی‌شود)",nd_hidden:"از لیستِ ساخت پنهان شد",nd_shown:"به لیستِ ساخت برگشت",
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
- tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
+ tun_search:"جستجوی نام نود / نوع / شناسه / آی‌پیِ نود یا لوکال…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
  st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {u} جریانِ آپلود · {d} جریانِ دانلود",speed_up:"آپلود",speed_down:"دانلود",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
  core_sub:"تونل‌های هستهٔ اختصاصی (Go) — حالتِ packet/core با رمزنگاریِ داخلی، جدا از تونل‌های سیستمی",core_add:"تونلِ هسته",
- core_search:"جستجوی نام نود / شناسه…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
+ core_search:"جستجوی نام نود / شناسه / آی‌پیِ نود یا لوکال…",core_empty:"هنوز تونلِ هسته‌ای نیست — دکمهٔ «تونلِ هسته» بالا را بزن.",
  server:"سرور",client:"کلاینت",profile:"پروفایل",port:"پورت",port_dst:"پورتِ مقصد",port_src:"پورتِ مبدأ",port_src_rand:"رندوم",caps:"قابلیت‌ها",no_cipher:"بدونِ رمز",cdn_edge:"لبهٔ CDN",active_edge:"لبهٔ فعالِ فعلی (زنده)",cor_tab_ips:"آی‌پی‌ها",cor_tab_set:"تنظیمات",
  err_rt_nomod:"کرنلِ این نود این نوع تونل را ندارد — ماژولش لود نیست",
  err_rt_exists:"این اینترفیس یا آدرس از قبل روی نود هست",
