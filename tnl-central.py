@@ -56,10 +56,11 @@ CORE_RAW_PROFILE_PROTOS = {"bare": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 
                            "ah": 51, "etherip": 97, "ipcomp": 108, "l2tpv3": 115}
 CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
 CORE_TRANSPORTS       = ("udp", "tcp", "raw", "ws")
+SOCKBUF_TRANSPORTS    = ("udp", "raw")
+MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
-DESYNC_INJECT_TRANSPORTS = ("tcp", "ws")
 DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
 CORE_MAX_WORKERS = 8
@@ -1796,6 +1797,18 @@ def _node_extra(extra):
     return {k: v for k, v in e.items() if k not in skip}
 
 
+def _rotate_secs(raw, hi, what):
+    try:
+        n = int(raw or 0)
+    except (TypeError, ValueError):
+        raise ValueError("«%s» باید عدد باشد" % what)
+    if n < 0 or n > hi:
+        raise ValueError("«%s» باید بین 0 تا %d ثانیه باشد" % (what, hi))
+    if 0 < n < MIN_ROTATE_SECS:
+        raise ValueError("«%s» یا 0 است (فقط روی خرابی) یا دستِ‌کم %d ثانیه — زیرِ آن پروب فرصتِ قضاوت ندارد و هسته بالا نمی‌آید" % (what, MIN_ROTATE_SECS))
+    return n
+
+
 def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
     if is_client:
         if peer_pool:
@@ -1815,7 +1828,7 @@ def _core_rotation_bodies(src, a_body, b_body):
     if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
         return
     ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
-    rs = max(0, min(86400, int(src.get("rotate_secs") or 0)))
+    rs = int(src.get("rotate_secs") or 0)
     _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
 
@@ -1829,7 +1842,7 @@ def _core_workers_bodies(src, a_body, b_body):
 
 def _apply_core_tuning(a_body, b_body):
     tn = _settings_tuning()
-    if "sock_buf_mb" in tn:
+    if "sock_buf_mb" in tn and a_body.get("transport") in SOCKBUF_TRANSPORTS:
         _mb = max(0, min(64, int(tn["sock_buf_mb"])))
         a_body["sock_buf"] = b_body["sock_buf"] = -1 if _mb == 0 else _mb * (1 << 20)
     _tn = {k: v for k, v in tn.items()
@@ -1850,7 +1863,7 @@ def _apply_probe_tuning(*bodies):
 
 
 HTTP_SHAPE = {"http_up_workers": (1, 16, 8), "http_up_batch_kb": (8, 512, 512),
-              "http_streams": (1, 16, 1)}
+              "http_up_rate": (0, 1000, 0), "http_streams": (1, 16, 1)}
 HTTP_SHAPE_GRPC = ("http_streams",)
 
 
@@ -3328,7 +3341,8 @@ def _push_one(jid, nid, plan):
             if gate and gate(r):
                 _push_set(jid, nid, state="same", step=code, pct=100)
                 return
-            _push_set(jid, nid, pct=at(i + 1, 0), restarted=r.get("restarted"))
+            _push_set(jid, nid, pct=at(i + 1, 0), restarted=r.get("restarted"),
+                      failed=len(r.get("failed") or []))
         _push_set(jid, nid, state="ok", pct=100)
     except Exception as e:
         _push_set(jid, nid, state="err", err="panel", detail=str(e)[:120])
@@ -4273,8 +4287,7 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
         raise ValueError("TTLِ طعمه باید بین 1 تا 255 باشد")
-    if transport in DESYNC_INJECT_TRANSPORTS:
-        ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
+    ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
     out["fake_ttl"] = ttl
     cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
     if cnt < 1 or cnt > 64:
@@ -4647,7 +4660,7 @@ def _ws_pool_fields(d, cur=None):
         "cdn_carrier": str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws"),
         "ws_edge_ips": clean_ips,
         "ws_edge_snis": snis,
-        "ws_rotate_secs": max(0, min(28800, int(_ws_rotate_default(d, cur)))),
+        "ws_rotate_secs": _rotate_secs(_ws_rotate_default(d, cur), 28800, "فاصلهٔ چرخشِ لبه"),
         "ws_path": path,
     }
     res.update(_cdn_shape_fields(d, cur, res["cdn_carrier"]))
@@ -4813,7 +4826,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             if len(ap) >= 2 or len(bp) >= 2:
                 ce["ip_rotate"] = True
                 ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
-                ce["rotate_secs"] = max(0, min(86400, int(d.get("rotate_secs") or 0)))
+                ce["rotate_secs"] = _rotate_secs(d.get("rotate_secs"), 86400, "فاصلهٔ چرخش")
     elif cur.get("ip_rotate"):
         for _k in _ROTATION_KEYS:
             if cur.get(_k) is not None:
@@ -5423,7 +5436,8 @@ def api_link_speed(d):
     if not q.get("ok"):
         raise ValueError("نودِ «%s» تست را اجرا نکرد: %s"
                          % (cli["name"], q.get("error") or q.get("msg") or "?"))
-    return {"ok": True, "from": cli["name"], "to": srv["name"], "secs": secs, "streams": streams,
+    return {"ok": True, "from": cli["name"], "to": srv["name"], "secs": secs,
+            "up_streams": int(q.get("up_streams") or 0), "down_streams": int(q.get("down_streams") or 0),
             "up_mbit": q.get("up_mbit"), "down_mbit": q.get("down_mbit")}
 
 
@@ -7609,7 +7623,7 @@ body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparen
 .hrow1{display:flex;align-items:center;gap:8px;min-width:0}
 .hname{font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .ctag{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:var(--field);color:var(--sub);flex:0 0 auto}
-.ctag.core{background:var(--accw);color:var(--acc)}.ctag.c-udp{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}.ctag.c-tcp{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}.ctag.c-raw{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}.ctag.c-ws{color:#0ea5e9;background:color-mix(in srgb,#0ea5e9 14%,transparent)}.ctag.c-http{color:#14b8a6;background:color-mix(in srgb,#14b8a6 14%,transparent)}.ctag.c-grpc{color:#ec4899;background:color-mix(in srgb,#ec4899 14%,transparent)}
+.ctag.core{background:var(--accw);color:var(--acc)}.ctag.c-sys{color:var(--gold);background:color-mix(in srgb,var(--gold) 13%,transparent)}.ctag.c-udp{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}.ctag.c-tcp{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}.ctag.c-raw{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}.ctag.c-ws{color:#0ea5e9;background:color-mix(in srgb,#0ea5e9 14%,transparent)}.ctag.c-http{color:#14b8a6;background:color-mix(in srgb,#14b8a6 14%,transparent)}.ctag.c-grpc{color:#ec4899;background:color-mix(in srgb,#ec4899 14%,transparent)}
 .ctag.vxlan{color:var(--acc);background:color-mix(in srgb,var(--acc) 13%,transparent)}
 .ctag.gre{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
 .ctag.sit{color:var(--gold);background:color-mix(in srgb,var(--gold) 15%,transparent)}
@@ -8456,11 +8470,11 @@ var I18N={fa:{
  px_del_confirm:"این پروکسی حذف شود؟",px_saved:"پروکسی ذخیره شد",px_deleted:"پروکسی حذف شد",
  ag_p_wait:"در نوبت",
  ups_of:"گامِ {i} از {n}",ups_check:"در حالِ بررسی",ups_deliver:"در حالِ فرستادن",ups_install:"در حالِ نصب",
- ups_stage:"دانلودِ هسته روی پنل",ups_paused:"متوقف شده — منتظرِ ادامه",ups_stagewait:"منتظرِ دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",
+ ups_stage:"دانلودِ هسته روی پنل",ups_paused:"متوقف شده — منتظرِ ادامه",ups_stagewait:"منتظرِ دانلودِ هسته روی پنل",ups_start:"در حالِ شروع",ups_restarted:"{n} تونل دوباره بالا آمد",ups_failed_n:"{n} تونل بالا نیامد",
  upe_offline:"نود آفلاین است",upe_node_gone:"نود حذف شد",upe_failed:"ناموفق",upe_panel:"خطای پنل",
  upe_unbuildable:"چیزی برای فرستادن به این نود نبود",upe_sha_mismatch:"بایت‌ها با چک‌سام نخواندند",
  upe_bad_signature:"امضای پنل تأیید نشد",upe_too_small:"فایل برای یک هسته خیلی کوچک است",
- upe_download_failed:"نود نتوانست دانلود کند",upe_nothing_staged:"چیزی روی نود آماده نبود",
+ upe_download_failed:"نود نتوانست دانلود کند",upe_nothing_staged:"چیزی روی نود آماده نبود",upe_checksum_unavailable:"چک‌سامِ بایناری خوانده نشد",
  ag_p_ok:"انجام شد",ag_p_same:"همین نسخه بود",ag_p_err:"ناموفق",
 
  ag_p_lost:"ردیابی قطع شد — آپلود روی پنل ادامه دارد؛ صفحه را باز کن تا دوباره وصل شود",
@@ -8500,7 +8514,7 @@ search:"جستجو…",
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {n} جریان",speed_up:"آپلود",speed_down:"دانلود",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {u} جریانِ آپلود · {d} جریانِ دانلود",speed_up:"آپلود",speed_down:"دانلود",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -8658,7 +8672,7 @@ search:"جستجو…",
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
  cdn_shape_lbl:"شکلِ حاملِ http",
- cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",
+ cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",cdn_uprate_lbl:"سقفِ آپلود (POST/ثانیه · 0 = بی‌سقف)",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
  
@@ -8672,7 +8686,7 @@ search:"جستجو…",
  fec_note:"«16+4» یعنی هر 16 پکتِ داده، 4 پکتِ پریتی؛ گیرنده تا 4 تا از هر 20 تا را گم کند بازسازی می‌کند. هزینهٔ پردازش فقط به عددِ دوم بستگی دارد، نه به اولی؛ پس بلوکِ بزرگ‌تر با همان پریتی هم ارزان‌تر است هم قوی‌تر. هر دو سرِ تونل یک تنظیم می‌گیرند. درصدِ روی کاشی برای بلوکِ پُر است: روی تونلِ کم‌ترافیک بلوک با پکتِ کمتری بسته می‌شود و همیشه دستِ‌کم یک پکتِ پریتی می‌رود، پس سربارِ لحظه‌ای بالاتر می‌رود (برای بلوکِ تک‌پکتی تا 100٪). نسبتِ محافظت هرگز از عددِ انتخابی کمتر نمی‌شود.",
  ds_t:"desync — بسته‌های طعمه (ضدِ DPI)",ds_d:"چند بستهٔ قلابی می‌فرستد تا فیلترچی ردِ اتصالِ واقعی را گم کند؛ خودِ تونل دست‌نخورده می‌ماند. روی حاملِ UDP و HTTP در دسترس نیست.",ds_mode_lbl:"حالتِ طعمه",ds_ttl_lbl:"TTL طعمه",ds_count_lbl:"تعدادِ طعمه",
  ds_note:"TTL کم = طعمه چند هاپ دوام می‌آورد و پیش از سرور می‌میرد (1 برای رله‌ٔ کوتاه، 3 تا 5 برای مسیرِ اینترنتی تا DPI). چک‌سامِ خراب = سرور دورش می‌ریزد. تعداد = چند طعمه سرِ هر دست‌دهی.",
- ds_both_needs2:"حالتِ «هر دو» یعنی هم طعمهٔ TTL و هم طعمهٔ چک‌سام — پس دستِ‌کم به ۲ طعمه نیاز دارد؛ عدد را بالا ببر یا یکی از دو حالت را انتخاب کن",ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود. روی raw کلِ 1 تا 255 اعمال می‌شود.",
+ ds_both_needs2:"حالتِ «هر دو» یعنی هم طعمهٔ TTL و هم طعمهٔ چک‌سام — پس دستِ‌کم به ۲ طعمه نیاز دارد؛ عدد را بالا ببر یا یکی از دو حالت را انتخاب کن",ds_ttl_cap:"طعمه روی همان اتصالِ واقعی تزریق می‌شود، پس TTL سقفِ 8 دارد (طعمه‌ای که به سرور برسد RST می‌گیرد) و عددِ بزرگ‌تر به 8 کم می‌شود — روی هر چهار حامل، raw هم همین‌طور.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
  ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
@@ -9055,7 +9069,7 @@ function apendCard(a){var fam=String(a.ttype||'').toLowerCase();
  return '<div class="card acc open apend'+(a.state=='run'?' acting':'')+'">'+
   '<div class="chead" style="cursor:default"><div class="hmain"><div class="hrow1">'+
    '<span class="hname">'+esc(T('a_pending'))+'</span>'+
-   (fam?'<span class="ctag c-'+esc(fam)+'">'+esc(fam.toUpperCase())+'</span>':'')+
+   (fam?'<span class="ctag '+ctagClass(fam)+'">'+esc(fam.toUpperCase())+'</span>':'')+
    '<span class="hpeers" dir="ltr">'+esc(a.target||'')+'</span>'+
   '</div></div></div>'+
   '<div class="cbody"><div class="cbody-in">'+actRow(a)+'</div></div></div>'}
@@ -9669,7 +9683,7 @@ async function speedLink(id){var k='lchk_'+id;
  var r=await post('link-speed',{id:id});
  if(!(r.ok&&r.d.ok)){rmsgSet(k,'err',esc(perr(r)));return}
  var d=r.d,up=num(d.up_mbit),dn=num(d.down_mbit);
- rmsgSet(k,(up>0&&dn>0)?'ok':'err',chkLines(CK+' '+esc(T('speed_done'))+' <span class="muted">'+esc(T('speed_how').replace('{s}',String(num(d.secs))).replace('{n}',String(num(d.streams))))+'</span>',
+ rmsgSet(k,(up>0&&dn>0)?'ok':'err',chkLines(CK+' '+esc(T('speed_done'))+' <span class="muted">'+esc(T('speed_how').replace('{s}',String(num(d.secs))).replace('{u}',String(num(d.up_streams))).replace('{d}',String(num(d.down_streams))))+'</span>',
    T('speed_down')+': '+ltr(fmtRate(dn*1e6)),
    T('speed_up')+': '+ltr(fmtRate(up*1e6)))
    +'<div class="wrap muted" style="margin-top:6px">'+T('speed_note')+'</div>')}
@@ -9953,6 +9967,8 @@ function coreCard(l){
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
 _corS.Srv='a',_corS.Tr='udp',_corS.Obfs=true,_corS.Cover=false,_corS.RawProfile='bare',_corS.Sprot=false,_corS.Gso=false,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=16,_corS.FecParity=4,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
+var CTAG_FAMILIES={udp:1,tcp:1,raw:1,ws:1,http:1,grpc:1};
+function ctagClass(fam){return CTAG_FAMILIES[String(fam).toLowerCase()]?('c-'+esc(fam)):'c-sys'}
 function carrierFamily(l){var t=l.transport||'udp';
  return (t=='ws')?((l.cdn_carrier=='grpc')?'grpc':(l.cdn_carrier=='http')?'http':'ws'):t}
 function carrierLabel(l){return carrierFamily(l).toUpperCase()}
@@ -10002,9 +10018,9 @@ function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m')},{v:'icmp',m:T(
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" data-ha="'+esc(p.v)+'" onclick="'+px+'SetProfile(hA(this))">'+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
-var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},downw:{k:'http_streams',lo:1,hi:16,d:1}};
+var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},uprate:{k:'http_up_rate',lo:0,hi:1000,d:0},downw:{k:'http_streams',lo:1,hi:16,d:1}};
 function cdnNum(idp,n,lbl,l){var f=CDN_SHAPE[n];var cur=(l&&l[f.k])||f.d;return '<div style="flex:1;min-width:92px"><label style="margin-top:0">'+esc(lbl)+'</label><input id="'+idp+'cdn'+n+'" type="number" min="'+f.lo+'" max="'+f.hi+'" value="'+cur+'"></div>'}
-function cdnShapeInputs(idp,l){return '<div id="'+idp+'cdnup" style="display:flex;gap:8px;flex:2">'+cdnNum(idp,'upw',T('cdn_upw_lbl'),l)+cdnNum(idp,'upkb',T('cdn_upkb_lbl'),l)+'</div>'+cdnNum(idp,'downw',T('cdn_strm_lbl'),l)}
+function cdnShapeInputs(idp,l){return '<div id="'+idp+'cdnup" style="display:flex;gap:8px;flex:2">'+cdnNum(idp,'upw',T('cdn_upw_lbl'),l)+cdnNum(idp,'upkb',T('cdn_upkb_lbl'),l)+cdnNum(idp,'uprate',T('cdn_uprate_lbl'),l)+'</div>'+cdnNum(idp,'downw',T('cdn_strm_lbl'),l)}
 function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(cdn!='http'&&f.k!='http_streams')return;var x=parseInt(v(px+'cdn'+n));if(!(x>=f.lo&&x<=f.hi))x=f.d;body[f.k]=x})}
 function cdnShapeOn(S){return S.Tr=='ws'&&(S.Cdn=='http'||S.Cdn=='grpc')}
 function corCdnShapeGate(){cdnShapeRow('e_',_corS);grpcZoneGate(_corS,'e_')}
@@ -10547,11 +10563,8 @@ function corSetSrv(s){_corS.Srv=s;var a=el('e_srv_a'),b=el('e_srv_b');if(a)a.cla
 function _collectCoreBody(S,px,m,body){
  if(S.Tr=='raw'){if(ssVal(px+'cipher')=='none'){formErr(m,T('raw_need_enc'));return true}body.raw_profile=S.RawProfile;if(S.RawProfile=='bare'){var _pe=rawProtoErr(px);if(_pe){formErr(m,_pe);return true}var _rp=parseInt(v(px+'rawproto')||'253',10);body.raw_proto=_rp}
   var _sre=sprotErr(px,S);if(_sre){formErr(m,_sre);return true}
-  var _be=bandErr(px);if(_be){formErr(m,_be);return true}
   body.raw_sport_rotate=sprotLive(S)?sprotN(px):0;
   body.raw_dports=sprotLive(S)?dportsN(px):0;
-  body.sport_lo=bandN(px,'bandlo');
-  body.sport_hi=bandN(px,'bandhi');
   body.conntrack_bypass=ctbOn(S)&&!!S.Ctb;
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
    var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
@@ -10560,6 +10573,9 @@ function _collectCoreBody(S,px,m,body){
     body.raw_sport_random=!!S.SportRandom;
     var _st=parseInt(v(px+'rawsport'),10);
     body.raw_sport=(!S.SportRandom&&_st>=1&&_st<=65535)?_st:0}}}
+ var _be=bandErr(px);if(_be){formErr(m,_be);return true}
+ body.sport_lo=bandN(px,'bandlo');
+ body.sport_hi=bandN(px,'bandhi');
  var _pte=portTriesErr(px,S);if(_pte){formErr(m,_pte);return true}
  if(portTriesOn(S)){body.port_tries=portTriesN(px)}
  if(fecDatagram(S)){body.fec=!!S.Fec;if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
@@ -11111,6 +11127,7 @@ function pushBar(st){
  var cls=st.state=='err'?' err':((st.state=='ok'||st.state=='same')?' ok':'');
  var txt=pushWord(st);
  if(st.state=='ok'&&num(st.restarted)>0)txt+=' · '+T('ups_restarted').replace('{n}',num(st.restarted));
+   if(num(st.failed)>0)txt+=' · '+T('ups_failed_n').replace('{n}',num(st.failed));
  return '<div class="pushbar'+cls+'"><i style="width:'+pct+'%"></i></div>'
   +'<div class="plbl"'+(st.detail?' title="'+esc(st.detail)+'"':'')+'><span>'+esc(txt)+'</span><b>'+pct+'%</b></div>'}
 function pushFab(d){var box=el('pushFab');if(!box)return;
@@ -11136,6 +11153,7 @@ function pushPaint(d){PUSHSTATE=d;var ns=d.nodes||{};
    fill.style.width=pct+'%';
    var txt=pushWord(st);
    if(st.state=='ok'&&num(st.restarted)>0)txt+=' · '+T('ups_restarted').replace('{n}',num(st.restarted));
+   if(num(st.failed)>0)txt+=' · '+T('ups_failed_n').replace('{n}',num(st.failed));
    var sp=lbl.querySelector('span'),bo=lbl.querySelector('b');
    if(sp&&sp.textContent!==txt)sp.textContent=txt;
    if(bo)bo.textContent=pct+'%';
