@@ -1816,16 +1816,16 @@ def _rotate_secs(raw, hi, what):
 
 def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
     if is_client:
-        if peer_pool:
+        if len(peer_pool) >= 2:
             body["peer_ips"] = list(peer_pool)
-        if own_pool:
+        if len(own_pool) >= 2:
             body["src_ips"] = list(own_pool)
         body["peer_rotate_secs"] = rotate_secs
     else:
         body["pool_listen"] = True
-        if own_pool and body.get("transport") in ("udp", "tcp"):
+        if len(own_pool) >= 2 and body.get("transport") in ("udp", "tcp"):
             body["listen_ips"] = list(own_pool)
-        if peer_pool and body.get("transport") == "raw":
+        if len(peer_pool) >= 2 and body.get("transport") == "raw":
             body["peer_src_ips"] = list(peer_pool)
 
 
@@ -1956,13 +1956,9 @@ def _tunnel_extra(src):
             if src.get("split_ttl"):
                 e["split_ttl"] = int(src["split_ttl"])
     if src.get("cdn_carrier"):
-        e["cdn_carrier"] = src["cdn_carrier"]
-        if src.get("cdn_carrier") in ("http", "grpc"):
-            for k in HTTP_SHAPE:
-                if src.get("cdn_carrier") == "grpc" and k not in HTTP_SHAPE_GRPC:
-                    continue
-                if src.get(k):
-                    e[k] = int(src[k])
+        _cdn = _cdn_carrier(src, None)
+        e["cdn_carrier"] = _cdn
+        e.update(_cdn_shape_fields(src, None, _cdn))
     if src.get("ech"):
         host = src.get("ws_host")
         if host:
@@ -1989,7 +1985,7 @@ def _tunnel_extra(src):
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
     if src.get("gso"):
         e["gso"] = True
-    return _node_extra(e)
+    return _node_extra(_carried(e, _shape_of({}, src)))
 
 
 def _core_role(L, node_id):
@@ -4303,8 +4299,9 @@ def _fec_fields(d, transport, cur=None):
     return out
 
 
-def _desync_fields(d, transport, cur=None, is_http=False):
+def _desync_fields(d, shape, cur=None, is_http=False):
     out = {}
+    transport = shape[0]
     if transport not in DESYNC_TRANSPORTS:
         return out
     if transport == "ws" and is_http:
@@ -4317,8 +4314,8 @@ def _desync_fields(d, transport, cur=None, is_http=False):
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
         raise ValueError("TTLِ طعمه باید بین 1 تا 255 باشد")
-    ttl = min(ttl, DESYNC_INJECT_TTL_MAX)
-    out["fake_ttl"] = ttl
+    if _shape_consumes("fake_ttl", *shape):
+        out["fake_ttl"] = min(ttl, DESYNC_INJECT_TTL_MAX)
     cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
     if cnt < 1 or cnt > 64:
         raise ValueError("تعدادِ طعمه باید بین 1 تا 64 باشد")
@@ -4500,13 +4497,22 @@ def _ech_proxy_fields(d, cur, out):
     return proxy_url(p)
 
 
-def _sni_split_fields(d, cur):
+def _cdn_carrier(d, cur):
+    v = str((d.get("cdn_carrier") if "cdn_carrier" in d else (cur or {}).get("cdn_carrier")) or "ws").strip().lower()
+    if v not in ("ws", "http", "grpc"):
+        raise ValueError("حاملِ CDN نامعتبر است")
+    return v
+
+
+def _sni_split_fields(d, cur, ech=False):
     on = d.get("sni_split") if ("sni_split" in d) else cur.get("sni_split")
     if not on:
         return {}
     sp = int((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0)
     if sp < 0 or sp > 1400:
         raise ValueError("split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)")
+    if ech and not sp:
+        raise ValueError("با ECHِ روشن نامِ دامنه در ClientHello رمز است، پس نقطهٔ برشِ خودکار پیدا نمی‌شود و هیچ چیزی تکه نمی‌شود — یا «نقطهٔ برش» را دستی بگذار یا تقسیمِ SNI را خاموش کن")
     out = {"sni_split": True}
     if sp:
         out["split_pos"] = sp
@@ -4605,16 +4611,14 @@ def _ws_fields(d, transport, cur=None):
             raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد)" % host)
         out["ech"] = True
         out["ws_ech"] = cfg
-    cdn = str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws").strip().lower()
-    if cdn not in ("ws", "http", "grpc"):
-        raise ValueError("حاملِ CDN نامعتبر است")
+    cdn = _cdn_carrier(d, cur)
     xh = cdn != "ws"
     if bool(xh):
         if cdn == "grpc" and not out.get("ws_tls"):
             raise ValueError("حاملِ grpc به wss نیاز دارد (برای HTTP/2 به لبه) — اول wss را روشن کن")
         out["cdn_carrier"] = cdn
         out.update(_cdn_shape_fields(d, cur, cdn))
-    ss = _sni_split_fields(d, cur)
+    ss = _sni_split_fields(d, cur, bool(out.get("ech")))
     if ss:
         if not out.get("ws_tls"):
             raise ValueError("تقسیمِ SNI به wss نیاز دارد — اول wss (TLS به CDN) را روشن کن")
@@ -4660,7 +4664,9 @@ def _ws_pool_fields(d, cur=None):
     def _hosts(key):
         seen, res = set(), []
         for x in _list(key):
+            hp = ""
             if isinstance(x, dict):
+                hp = str(x.get("path") or "").strip()
                 x = x.get("host", "")
             x = str(x).strip().lower()
             if not x or x in seen:
@@ -4668,14 +4674,17 @@ def _ws_pool_fields(d, cur=None):
             if not re.match(_DOMAIN_RE, x):
                 raise ValueError("دامنهٔ (SNI) نامعتبر (باید یک دامنهٔ معتبر باشد): %s" % x)
             seen.add(x)
-            res.append(x)
+            res.append((x, hp))
         return res
 
-    clean_ips, clean_hosts = _ips("ws_edge_ips"), _hosts("ws_edge_snis")
-    if len(clean_ips) < 2:
-        raise ValueError("استخرِ لبه به حداقل 2 آی‌پی نیاز دارد تا بچرخد")
+    clean_ips, clean_snis = _ips("ws_edge_ips"), _hosts("ws_edge_snis")
+    clean_hosts = [h for h, _ in clean_snis]
+    if not clean_ips:
+        raise ValueError("استخر به حداقل یک آی‌پیِ لبه نیاز دارد")
     if not clean_hosts:
         raise ValueError("استخر به حداقل یک دامنهٔ (SNI) نیاز دارد")
+    if len(clean_ips) < 2 and len(clean_hosts) < 2:
+        raise ValueError("استخرِ لبه باید دستِ‌کم روی یک محور بچرخد — یا ۲ آی‌پیِ لبه یا ۲ دامنه")
     if len(clean_ips) > 64 or len(clean_hosts) > 64:
         raise ValueError("استخر خیلی بزرگ است (حداکثر 64)")
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
@@ -4686,23 +4695,25 @@ def _ws_pool_fields(d, cur=None):
     _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""
     ech_map = _fetch_ech_map(clean_hosts, _epx) if ech_on else {}
     snis = []
-    for h in clean_hosts:
+    for h, hp in clean_snis:
         ec = ech_map.get(h, "") if ech_on else ""
         if ech_on and not ec:
             raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد). استخر با ECH روشن ساخته نمی‌شود." % h)
-        snis.append({"host": h, "ech": ec, "path": path})
+        if hp and not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", hp):
+            raise ValueError("مسیرِ WebSocket برای «%s» نامعتبر است (باید با / شروع شود)" % h)
+        snis.append({"host": h, "ech": ec, "path": hp or path})
     res = {
         "ws_pool": True,
         "ws_tls": True,
         "ech": ech_on,
-        "cdn_carrier": str((d.get("cdn_carrier") if "cdn_carrier" in d else cur.get("cdn_carrier")) or "ws"),
+        "cdn_carrier": _cdn_carrier(d, cur),
         "ws_edge_ips": clean_ips,
         "ws_edge_snis": snis,
         "ws_rotate_secs": _rotate_secs(_ws_rotate_default(d, cur), 28800, "فاصلهٔ چرخشِ لبه"),
         "ws_path": path,
     }
     res.update(_cdn_shape_fields(d, cur, res["cdn_carrier"]))
-    res.update(_sni_split_fields(d, cur))
+    res.update(_sni_split_fields(d, cur, ech_on))
     res.update(_epx_store)
     return res
 
@@ -4737,11 +4748,13 @@ _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech"
                   "ws_rotate_secs", "sni_split", "split_pos", "sni_mode", "split_ttl",
                   "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
 _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity", "a_workers", "b_workers")
-_SHAPE_DESYNC = ("fake_desync", "fake_ttl", "fake_count", "fake_mode")
+_SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
 
 
-def _shape_consumes(key, transport, profile, srand, moving=True):
+def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
     ported = transport == "raw" and profile in PORTED_RAW_PROFILES
+    if key == "fake_ttl":
+        return transport in DESYNC_TRANSPORTS and not (transport == "raw" and dsmode == "badsum")
     if key in _SHAPE_RAW_PORTED:
         return ported
     if key == "raw_proto":
@@ -4777,7 +4790,8 @@ def _shape_of(d, cur):
         rot = bool(d["raw_sport_rotate"])
     else:
         rot = bool(cur.get("raw_sport_rotate")) and ported
-    return transport, profile, srand, srand or rot
+    dsmode = str((d.get("fake_mode") if "fake_mode" in d else cur.get("fake_mode")) or "ttl").strip().lower()
+    return transport, profile, srand, srand or rot, dsmode
 
 
 def _carried(cur, shape):
@@ -4878,7 +4892,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))
     ce.update(_workers_field(d, transport, bool(ce.get("fec")), cur))
-    ce.update(_desync_fields(d, transport, cur, ce.get("cdn_carrier", "ws") != "ws"))
+    ce.update(_desync_fields(d, shape, cur, ce.get("cdn_carrier", "ws") != "ws"))
     if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
         if cipher == "none":
             raise ValueError("استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)")
@@ -4910,6 +4924,8 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     try:
         _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
     except (TypeError, ValueError):
+        _ptries = 0
+    if _ptries and not _shape_consumes("port_tries", *shape):
         _ptries = 0
     if _ptries:
         if not 1 <= _ptries <= PORT_TRIES_MAX:
@@ -5422,7 +5438,9 @@ def _edit_link_impl(d, h=None):
     extra = {}
     if ttype in ("l2tpv3", "fou", "core"):
         _asked = "port" in d and not str(d.get("port") or "").strip()
-        port = int(d.get("port") or 0) or (0 if _asked else (L.get("port") if L.get("type") in ("l2tpv3", "fou", "core") else 0)) or free_tunnel_port(A, B, exclude_id=L["id"])
+        _moved_carrier = ttype == "core" and str(d.get("transport") or "") != str(L.get("transport") or "")
+        _stale = _asked or _moved_carrier or L.get("type") not in ("l2tpv3", "fou", "core")
+        port = int(d.get("port") or 0) or (0 if _stale else L.get("port")) or free_tunnel_port(A, B, exclude_id=L["id"])
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
         extra["port"] = port
@@ -8717,7 +8735,7 @@ search:"جستجو…",
  set_upwin_d:"60 خانه؛ هر خانه = پنجره ÷ 60",set_mode_auto:"خودکار",set_mode_alert:"هشدار",set_default:"پیش‌فرض",set_agent_update:"بروزرسانیِ ایجنت",
  set_apply_note:"گروهِ «پنل» همان لحظه اعمال می‌شود. سه گروهِ دیگر روی هر تونل هنگامِ ساخت/بازسازیِ بعدی اثر می‌کنند — برای اعمالِ فوری، تونل را «بازسازی» کن. مقدارهای خارج از بازه در هسته کلَمپ می‌شوند.",set_reset:"بازگردانی همه به پیش‌فرض",set_reset_confirm:"همهٔ تنظیماتِ پنل به پیش‌فرض برگردند؟ این شاملِ مودهای تحویلِ ایجنت/هسته و پروکسیِ دانلود هم می‌شود، نه فقط این کارت.",set_reset_yes:"بازگردان",
  set_t_suspect:"زمان‌بندیِ تستِ مجددِ «موقت‌سوخته» (دقیقه)",set_t_suspect_d:"وقتی یک آی‌پی از کار می‌افتد، همان لحظه دورش نمی‌اندازیم — چند بار دیگر امتحانش می‌کنیم، ولی هر بار با صبرِ بیشتر. این عددها همان فاصله‌ها هستند، به دقیقه و با کاما جدا. یعنی: بار اول 10 دقیقه صبر کن و دوباره امتحان کن؛ باز نشد، 30 دقیقه؛ بعد 60… اگر تا آخرین عدد هم درست نشد، آن آی‌پی خراب علامت می‌خورد. عددهای کوچک‌تر یعنی زودتر دوباره امتحان می‌کند.",
- set_x_revive:"مثال: <b>45, 180, 600</b> — بارِ اول ۴۵ ثانیه صبر می‌کند، باز نشد ۱۸۰، بعد ۶۰۰، و از آن به بعد همان ۶۰۰ تکرار می‌شود. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه.",set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه است: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، پس صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود؛ و صبرِ بیشتر از یک ساعت عملاً یعنی «هرگز».",
+ set_x_revive:"مثال: <b>45, 180, 600</b> — بارِ اول ۴۵ ثانیه صبر می‌کند، باز نشد ۱۸۰، بعد ۶۰۰، و از آن به بعد همان ۶۰۰ تکرار می‌شود. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه.",set_t_revive:"صبر پیش از تلاشِ دوبارهٔ نردبان (ثانیه)",set_t_revive_d:"وقتی تونل می‌افتد، هسته پله‌پله چیزها را عوض می‌کند تا برش گرداند: اول پورتِ مبدأ را دوباره می‌کشد، بعد (فقط روی حاملِ udp و raw) یک‌بار دستِ دوباره می‌دهد، و آخرش می‌رود روی آی‌پی/لبهٔ بعدی. اگر همهٔ این پله‌ها خرج شود و جای دیگری هم برای رفتن نمانَد، کار همان‌جا تمام می‌شود و تونل دیگر <b>هیچ چیزی را عوض نمی‌کند</b> — تا وقتی یا ترافیک خودش دوباره رد شود یا هسته ری‌استارت شود. این عددها می‌گویند چقدر صبر کند و بعد همان پله‌ها را از نو به خودش بدهد. به ثانیه و با کاما جدا: بارِ اول ۴۵ ثانیه، باز نشد ۱۸۰، بعد ۶۰۰ — و آخرین عدد از آن به بعد تکرار می‌شود. به‌محضِ اینکه ترافیک رد شود همه‌چیز صفر می‌شود و دفعهٔ بعد باز از عددِ اول شروع می‌کند. کوچک‌تر یعنی زودتر دوباره تلاش می‌کند؛ خیلی کوچک یعنی روی مسیری که واقعاً مرده بی‌خود می‌چرخد. بازهٔ مجاز ۱۰ تا ۳۶۰۰ ثانیه است: نود وقتی تونل قطع است حدودِ هر یک ثانیه یک‌بار قضاوت می‌کند، پس صبرِ کوتاه‌تر از چند قضاوت یعنی نردبان زودتر از آنکه نتیجه‌اش دیده شود دوباره پر می‌شود؛ و صبرِ بیشتر از یک ساعت عملاً یعنی «هرگز».",
  set_t_deadretest:"بازهٔ تستِ IPِ «مرده» (دقیقه)",set_t_deadretest_d:"آی‌پی‌ای که خراب علامت خورده دیگر استفاده نمی‌شود، ولی برای همیشه کنار گذاشته نمی‌شود: هر این‌قدر دقیقه یک بار دوباره امتحانش می‌کند و اگر جواب داد، خودش برمی‌گردد سرِ کار. اگر فیلترها زود عوض می‌شوند، این عدد را کم کن تا آی‌پی زودتر برگردد.",
 
 
@@ -8728,7 +8746,7 @@ search:"جستجو…",
  set_g1:"1) پنل",set_g1c:"فقط مرکزی",
  set_g2:"3) آی‌پی و چرخش",set_g2c:"استخرِ IP و لبهٔ CDN",
  set_g5:"4) کارایی",set_g5c:"udp / raw",
- set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود 2٫7 برابر شد). <b>0</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن.",
+ set_t_sockbuf:"بافرِ سوکت (مگابایت)",set_t_sockbuf_d:"وقتی داده یک‌دفعه سیل‌آسا می‌رسد، سیستم باید جایی نگهشان دارد تا برسد پردازششان کند. این همان جاست. بزرگ‌ترش کنی، در لحظه‌های شلوغ کمتر داده از دست می‌رود و سرعت بالاتر می‌رود (در تستِ ایران↔آلمان حدود 2٫7 برابر شد). <b>0</b> یعنی دست نزن و همان تنظیمِ پیش‌فرضِ سیستم بماند. حواست باشد این مقدار حافظه از سرور می‌گیرد، پس روی سرورِ ضعیف زیادش نکن. فقط روی حاملِ udp و raw اثر دارد؛ سوکتِ tcp/ws را کرنل خودش تنظیم می‌کند و این عدد به آن نمی‌رسد.",
  set_x_ipchange:"IPِ نودِ آلمان عوض شد → «هشدار» فقط علامت می‌زند و دستی بازسازی می‌کنی؛ «خودکار» پنل خودش با IPِ جدید می‌سازد.",
  set_x_rec:"<b>15</b> = هر 15ثانیه یک بررسی؛ کوچک‌تر = واکنشِ سریع‌تر، بارِ کمی بیشتر.",
  set_x_poll:"<b>0٫9</b> = کارت‌های نود تقریباً هر ثانیه تازه؛ کوچک‌تر = زنده‌تر ولی pollِ بیشتر روی نودها.",
@@ -8808,13 +8826,13 @@ search:"جستجو…",
  ds_both_needs2:"حالتِ «هر دو» یعنی هم طعمهٔ TTL و هم طعمهٔ چک‌سام — پس دستِ‌کم به ۲ طعمه نیاز دارد؛ عدد را بالا ببر یا یکی از دو حالت را انتخاب کن",ds_ttl_cap:"TTLِ طعمه سقفِ 8 دارد و عددِ بزرگ‌تر بی‌صدا به 8 کم می‌شود — روی هر چهار حامل. روی tcp و CDN طعمه روی همان اتصالِ واقعی می‌رود، پس طعمه‌ای که به سرور برسد RST می‌گیرد و اتصال را می‌کشد؛ به همین دلیل آنجا فقط حالتِ «TTL کم» معنا دارد.",
  ds_m_ttl_t:"TTL کم",ds_m_ttl_s:"می‌میرد سرِ راه",ds_m_bad_t:"چک‌سامِ خراب",ds_m_bad_s:"سرور دور می‌ریزد",ds_m_both_t:"هردو",ds_m_both_s:"ترکیبی",
  wstls_t:"wss (TLS به CDN)",wstls_d:"اتصال به CDN رمز می‌شود تا از بیرون شبیهِ بازکردنِ یک سایتِ عادی باشد. برای پنهان‌شدن پشتِ CDN لازم است.",
- ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست — با ECHِ روشن کاری نمی‌کند. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
+ ech_t:"ECH — مخفی‌کردنِ SNI",ech_d:"نامِ دامنه را هم رمز می‌کند تا فیلترچی نفهمد به کدام سایت وصل شده‌ای. نیازمندِ wss؛ برای استخر خودکار گرفته می‌شود.",echpx_t:"پروکسی برای دریافتِ کلیدِ ECH",echpx_d:"برای دامنهٔ فیلترشده — پنل کلیدِ ECH را از این پروکسی (socks5/http) می‌گیرد. فقط برای گرفتنِ کلید است، نه ترافیکِ تونل.",sni_t:"تقسیمِ SNI (ضدِ DPI)",sni_d:"نامِ دامنه را بینِ دو بسته می‌شکند تا فیلترچی نتواند یکجا بخواندش. جایگزینِ ECH وقتی ECH در دسترس نیست. با ECHِ روشن نامِ دامنه رمز است و نقطهٔ برشِ خودکار پیدا نمی‌شود، پس باید «نقطهٔ برش» را دستی بگذاری. نیازمندِ wss.",sni_pos_lbl:"نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)",sni_ttl_lbl:"TTLِ سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8",sni_mode_lbl:"حالتِ تقسیم SNI",m_split_s:"دو سگمنتِ ساده",m_dis_s:"سگمنتِ سرْ با TTL پایین",m_fake_s:"ClientHelloِ جعلی (ضدِ reassembly)",
  ws_prof_lbl:"نوعِ اتصال روی CDN",
  ws_pool_t:"استخرِ لبه (چرخش + بلک‌لیست)",ws_pool_d:"چند IP و چند دامنه؛ هسته می‌چرخد و سوخته‌ها را کنار می‌گذارد. خاموش = یک لبهٔ ثابت.",
  ws_host_lbl:"دامنهٔ فرانت (Host / SNI)",ph_cdn_domain:"مثلاً cdn.example.com",ws_edge_lbl:"آی‌پیِ لبهٔ CDN (اختیاری) — کلاینت به‌جای مبدأ به این وصل می‌شود",ph_edge_ip:"مثلاً 104.16.0.1 یا 104.16.0.1:443",ws_path_lbl:"مسیر (path)",
  ws_note:"ترافیک شبیهِ HTTPS رویِ CDN دیده می‌شود (collateral freedom). سرور را پشتِ یک CDN (مثل Cloudflare) بگذار، SSL روی Flexible، پورتِ مبدأ 80. با <b>استخر</b> چند IP/دامنه بده تا بچرخد و سوخته‌ها کنار بروند.",
  rot_3m:"هر 3 دقیقه",rot_5m:"هر 5 دقیقه",rot_10m:"هر 10 دقیقه",rot_15m:"هر 15 دقیقه",rot_30m:"هر 30 دقیقه",rot_1h:"هر 1 ساعت",rot_4h:"هر 4 ساعت",rot_8h:"هر 8 ساعت",rot_off_fo:"خاموش (فقط failover)",
- pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_ip_min2:"استخر باید حداقل 2 آی‌پیِ فعال داشته باشد — کمتر از این نمی‌شود",
+ pool_ip_lbl:"آی‌پی‌های لبهٔ CDN",pool_sni_lbl:"دامنه‌ها (SNI)",pool_need_ip:"استخر به حداقل یک آی‌پیِ لبهٔ فعال نیاز دارد",pool_need_axis:"استخر باید دستِ‌کم روی یک محور بچرخد — یا ۲ آی‌پیِ لبه یا ۲ دامنه",sni_ech_need_pos:"با ECHِ روشن نامِ دامنه رمز است، پس «نقطهٔ برش» را دستی بگذار (۰ یعنی خودکار و با ECH چیزی تکه نمی‌شود)",
  pool_bad_ip:"آی‌پیِ نامعتبر (مثلاً 104.16.0.1 یا 104.16.0.1:443)",pool_bad_dom:"دامنهٔ نامعتبر (مثلاً cdn.example.com)",pool_need_clean:"استخر به حداقل یک IP تمیز و یک دامنهٔ تمیز نیاز دارد",
  ech_need_wss_alert:"اول wss (TLS به CDN) را روشن کن — ECH داخلِ همان TLS کار می‌کند.",
  roles_lbl:"نقش‌ها — کدام نود listen کند (سرور)",
@@ -10106,7 +10124,7 @@ function coreCard(l){
   coreMeta(l);
  var F=linkFooter(l,'openCoreEdit');
  return accShell(l,true,F.drift+body+accBodyTraf(l)+linkActRow(l)+F.acts+F.msg)}
-_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=true,_corS.Cover=false,_corS.RawProfile='bare',_corS.Sprot=false,_corS.Gso=false,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=16,_corS.FecParity=4,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
+_corS.Srv='a',_corS.Tr='udp',_corS.Obfs=true,_corS.Cover=false,_corS.RawProfile='bare',_corS.SportRandom=false,_corS.Sprot=false,_corS.Ctb=false,_corS.Gso=false,_corS.WsTls=false,_corS.Ech=false,_corS.EchProxy=false,_corS.Cdn='ws',_corS.Fec=false,_corS.FecData=16,_corS.FecParity=4,_corS.Desync=false,_corS.DesyncTtl=4,_corS.DesyncCount=2,_corS.DesyncMode='ttl',_corS.SniSplit=false,_corS.SplitPos=0,_corS.SniMode='split',_corS.SplitTtl=0;
 var CTAG_FAMILIES={udp:1,tcp:1,raw:1,ws:1,http:1,grpc:1};
 function ctagClass(fam){return CTAG_FAMILIES[String(fam).toLowerCase()]?('c-'+esc(fam)):'c-sys'}
 function carrierFamily(l){var t=l.transport||'udp';
@@ -10158,10 +10176,12 @@ function COR_RAW_PROFILES(){return [{v:'bare',m:T('rawp_bare_m')},{v:'icmp',m:T(
 function rawTiles(px,sel){return COR_RAW_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==sel?' on':'')+'" data-p="'+p.v+'" data-ha="'+esc(p.v)+'" onclick="'+px+'SetProfile(hA(this))">'+'<div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function WS_PROFILES(){return [{v:'ws',m:T('wsp_ws_m')},{v:'grpc',m:T('wsp_grpc_m')},{v:'http',m:T('wsp_http_m')}]}
 function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
-var CDN_SHAPE={upw:{k:'http_up_workers',lo:1,hi:16,d:8},upkb:{k:'http_up_batch_kb',lo:8,hi:512,d:512},uprate:{k:'http_up_rate',lo:0,hi:1000,d:0},downw:{k:'http_streams',lo:1,hi:16,d:1}};
+var CDN_SHAPE=(function(){var m={upw:'http_up_workers',upkb:'http_up_batch_kb',uprate:'http_up_rate',downw:'http_streams'},o={};
+ Object.keys(m).forEach(function(n){var s=_ENUMS.http_shape[m[n]];o[n]={k:m[n],lo:s.lo,hi:s.hi,d:s.d}});return o})();
+function cdnShapeApplies(f,cdn){return cdn=='http'||_ENUMS.http_shape_grpc.indexOf(f.k)>=0}
 function cdnNum(idp,n,lbl,l){var f=CDN_SHAPE[n];var cur=(l&&l[f.k])||f.d;return '<div style="flex:1;min-width:92px"><label style="margin-top:0">'+esc(lbl)+'</label><input id="'+idp+'cdn'+n+'" type="number" min="'+f.lo+'" max="'+f.hi+'" value="'+cur+'"></div>'}
 function cdnShapeInputs(idp,l){return '<div id="'+idp+'cdnup" style="display:flex;gap:8px;flex:2">'+cdnNum(idp,'upw',T('cdn_upw_lbl'),l)+cdnNum(idp,'upkb',T('cdn_upkb_lbl'),l)+cdnNum(idp,'uprate',T('cdn_uprate_lbl'),l)+'</div>'+cdnNum(idp,'downw',T('cdn_strm_lbl'),l)}
-function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(cdn!='http'&&f.k!='http_streams')return;var x=parseInt(v(px+'cdn'+n));if(!(x>=f.lo&&x<=f.hi))x=f.d;body[f.k]=x})}
+function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(!cdnShapeApplies(f,cdn))return;var x=parseInt(v(px+'cdn'+n));if(!(x>=f.lo&&x<=f.hi))x=f.d;body[f.k]=x})}
 function cdnShapeOn(S){return S.Tr=='ws'&&(S.Cdn=='http'||S.Cdn=='grpc')}
 function corCdnShapeGate(){cdnShapeRow('e_',_corS);grpcZoneGate(_corS,'e_')}
 function ceCdnShapeGate(){cdnShapeRow('ee_',_eeS);grpcZoneGate(_eeS,'ee_')}
@@ -10177,7 +10197,7 @@ function corSetTr(t){_corS.Tr=t;cipherVis('e_',_corS);_ENUMS.tr_all.forEach(func
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
 function corToggleSni(){if(!_corS.WsTls){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_corS.SniSplit=!_corS.SniSplit;var s=el('e_snisplit');if(s)s.classList.toggle('on',_corS.SniSplit);var b=el('e_snisplitbody');if(b)b.style.display=_corS.SniSplit?'':'none'}
-function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m=='split')?'none':'';var q=el('e_sniposbox');if(q)q.style.display=(m=='fake')?'none':''}
+function corSetSniMode(m){_corS.SniMode=m;var g=el('e_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_snim_'+m)});var b=el('e_snittlbody');if(b)b.style.display=(m=='disorder')?'':'none'}
 function corWssGate(){var mand=poolGet('e_').pool||_corS.Cdn=='grpc';var row=el('e_wstlsrow'),s=el('e_wstls');if(mand){_corS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function corToggleEch(){if(!_corS.WsTls){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on');corEchPxGate();alert(T('ech_need_wss_alert'));return}_corS.Ech=!_corS.Ech;var s=el('e_wsech');if(s)s.classList.toggle('on',_corS.Ech);corEchPxGate()}
 function corToggleEchProxy(){_corS.EchProxy=!_corS.EchProxy;var s=el('e_echpx');if(s)s.classList.toggle('on',_corS.EchProxy);var b=el('e_echpxbody');if(b)b.style.display=_corS.EchProxy?'':'none'}
@@ -10232,10 +10252,14 @@ function poolAccApply(pfx,kind){var d=poolGet(pfx),b=el(pfx+'body_'+kind),c=el(p
 function poolAcc(pfx,kind){var d=poolGet(pfx);d.open[kind]=!d.open[kind];poolAccApply(pfx,kind);}
 function poolRender(pfx){['ip','sni'].forEach(function(k){poolRenderKind(pfx,k);poolAccApply(pfx,k);});}
 function poolAdd(pfx,kind){var i=el(pfx+'add_'+kind);if(!i)return;var val=(i.value||'').trim();if(kind=='sni')val=val.toLowerCase();if(!val)return;if(!poolValid(kind,val)){alert(kind=='ip'?T('pool_bad_ip'):T('pool_bad_dom'));return;}var d=poolGet(pfx);if(d[kind].clean.indexOf(val)>=0){i.value='';return;}d[kind].clean.push(val);i.value='';d.open[kind]=true;poolAccApply(pfx,kind);poolRenderKind(pfx,kind);}
-function poolDel(pfx,kind,val){var d=poolGet(pfx);if(kind=='ip'&&d.ip.clean.length<=2){toast(T('pool_ip_min2'),'err');return}d[kind].clean=d[kind].clean.filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
+function poolDel(pfx,kind,val){var d=poolGet(pfx);var ip=d.ip.clean.length,sni=d.sni.clean.length;
+ if(kind=='ip')ip--;else sni--;
+ if(ip<1||sni<1){toast(T('pool_need_clean'),'err');return}
+ if(ip<2&&sni<2){toast(T('pool_need_axis'),'err');return}
+ d[kind].clean=d[kind].clean.filter(function(x){return x!=val});poolRenderKind(pfx,kind);}
 function poolVis(pfx){var d=poolGet(pfx),s=el(pfx+'wshostblk'),p=el(pfx+'wspool'),t=el(pfx+'pooltgl');if(t)t.classList.toggle('on',d.pool);if(s)s.style.display=d.pool?'none':'';if(p)p.style.display=d.pool?'':'none';if(d.pool)poolRender(pfx);}
 function poolToggle(pfx){poolGet(pfx).pool=!poolGet(pfx).pool;poolVis(pfx);}
-function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(d.ip.clean.length<2)return T('pool_ip_min2');if(!d.sni.clean.length)return T('pool_need_clean');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_snis=d.sni.clean;body.ws_rotate_secs=d.rotate;return true;}
+function poolCollect(pfx,body){var d=poolGet(pfx);if(!d.pool){body.ws_pool=false;return true;}var rv=ssVal(pfx+'poolrot');if(rv!=='')d.rotate=+rv;if(!d.ip.clean.length)return T('pool_need_ip');if(!d.sni.clean.length)return T('pool_need_clean');if(d.ip.clean.length<2&&d.sni.clean.length<2)return T('pool_need_axis');body.ws_pool=true;body.ws_tls=true;body.ws_edge_ips=d.ip.clean;body.ws_edge_snis=d.sni.clean;body.ws_rotate_secs=d.rotate;return true;}
 function corTogglePool(){poolToggle('e_');corWssGate()}
 function ceTogglePool(){poolToggle('ee_');ceWssGate()}
 
@@ -10505,25 +10529,23 @@ function FEC_RATES(){return [{d:20,p:2,n:T('fec_light'),ov:T('fec_ov10')},{d:16,
 
 function fecSection(idp,fnp,fec,fd,fp,dg){return '<div id="'+idp+'fecrow" class="tglbox" style="margin-top:11px'+(dg?'':';display:none')+'"><div class="tglsw'+(fec&&dg?' on':'')+'" id="'+idp+'fecsw" onclick="'+fnp+'ToggleFec()"></div><div class="tt"><b>'+esc(T('fec_t'))+'</b><small>'+esc(T('fec_d'))+'</small></div></div>'
  +'<div id="'+idp+'fecrates" style="'+(fec?'':'display:none')+'"><label>'+esc(T('fec_rate_lbl'))+'</label><div class="pgrid">'+FEC_RATES().map(function(r){var sel=(r.d==(fd||16)&&r.p==(fp||4));return '<button type="button" class="ptile'+(sel?' on':'')+'" data-fd="'+r.d+'" data-fp="'+r.p+'" data-ha="'+r.d+'" data-hb="'+r.p+'" onclick="'+fnp+'SetFecRate(+hA(this),+hB(this))"><div class="pn">'+r.d+'+'+r.p+'</div><div class="pmeta">'+esc(r.n)+'</div><div class="pmeta" style="color:var(--gold)">'+esc(r.ov)+'</div></button>'}).join('')+'</div><div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('fec_note'))+'</div></div>'}
-function dsModeVis(idp,S){var bad=!desyncInjects(S);
- if(!bad&&S.DesyncMode!='ttl'){S.DesyncMode='ttl';var t=el(idp+'dsm_ttl');if(t)t.classList.add('on')}
- ['badsum','both'].forEach(function(v){var e=el(idp+'dsm_'+v);if(e){e.style.display=bad?'':'none';if(!bad)e.classList.remove('on')}})}
+function dsTtlUsed(S){return !(S.Tr=='raw'&&S.DesyncMode=='badsum')}
+function dsTtlVis(idp,S){var w=el(idp+'dsttlbox');if(w)w.style.display=dsTtlUsed(S)?'':'none'}
 function DS_MODES(){return [{v:'ttl',t:T('ds_m_ttl_t'),s:T('ds_m_ttl_s')},{v:'badsum',t:T('ds_m_bad_t'),s:T('ds_m_bad_s')},{v:'both',t:T('ds_m_both_t'),s:T('ds_m_both_s')}]}
 function desyncSection(idp,fnp,on,ttl,count,mode,show){return '<div id="'+idp+'dsrow" class="tglbox" style="margin-top:11px'+(show?'':';display:none')+'"><div class="tglsw'+(on&&show?' on':'')+'" id="'+idp+'dssw" onclick="'+fnp+'ToggleDesync()"></div><div class="tt"><b>'+esc(T('ds_t'))+'</b><small>'+esc(T('ds_d'))+'</small></div></div>'
  +'<div id="'+idp+'dsbody" style="'+(on&&show?'':'display:none')+'"><label>'+esc(T('ds_mode_lbl'))+'</label><div class="seg2" id="'+idp+'dsmodeseg">'+DS_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'ttl')?' on':'')+'" id="'+idp+'dsm_'+m.v+'" data-ha="'+esc(m.v)+'" onclick="'+fnp+'SetDesyncMode(hA(this))"><b>'+esc(m.t)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
- +'<div class="grid2"><div><label>'+esc(T('ds_ttl_lbl'))+'</label><input id="'+idp+'dsttl" dir="ltr" inputmode="numeric" value="'+(ttl||4)+'"></div><div><label>'+esc(T('ds_count_lbl'))+'</label><input id="'+idp+'dscount" dir="ltr" inputmode="numeric" value="'+(count||2)+'"></div></div>'
+ +'<div class="grid2"><div id="'+idp+'dsttlbox"><label>'+esc(T('ds_ttl_lbl'))+'</label><input id="'+idp+'dsttl" dir="ltr" inputmode="numeric" value="'+(ttl||4)+'"></div><div><label>'+esc(T('ds_count_lbl'))+'</label><input id="'+idp+'dscount" dir="ltr" inputmode="numeric" value="'+(count||2)+'"></div></div>'
  +'<div class="warncap no" id="'+idp+'dsttlcap" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('ds_ttl_cap'))+'</span></div>'
  +'<div class="muted" style="font-size:11px;line-height:1.7;margin-top:6px">'+esc(T('ds_note'))+'</div></div>'}
 function corToggleDesync(){_corS.Desync=!_corS.Desync;var s=el('e_dssw');if(s)s.classList.toggle('on',_corS.Desync);var b=el('e_dsbody');if(b)b.style.display=_corS.Desync?'':'none'}
-function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)})}
+function corSetDesyncMode(m){_corS.DesyncMode=m;var g=el('e_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='e_dsm_'+m)});dsTtlVis('e_',_corS)}
 function desyncOk(S){return S.Tr=='raw'||S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
-function desyncInjects(S){return S.Tr=='tcp'||(S.Tr=='ws'&&S.Cdn=='ws')}
 function desyncTtlCap(idp){var cap=el(idp+'dsttlcap');if(cap)cap.style.display='';
  var t=el(idp+'dsttl');if(t){var n=parseInt(t.value,10);if(n>8)t.value='8'}}
-function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('e_');dsModeVis('e_',_corS)}
+function corDesyncGate(){var dg=desyncOk(_corS),row=el('e_dsrow');if(!dg){_corS.Desync=false;var s=el('e_dssw');if(s)s.classList.remove('on');var b=el('e_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('e_');dsTtlVis('e_',_corS)}
 function ceToggleDesync(){_eeS.Desync=!_eeS.Desync;var s=el('ee_dssw');if(s)s.classList.toggle('on',_eeS.Desync);var b=el('ee_dsbody');if(b)b.style.display=_eeS.Desync?'':'none'}
-function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)})}
-function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('ee_');dsModeVis('ee_',_eeS)}
+function ceSetDesyncMode(m){_eeS.DesyncMode=m;var g=el('ee_dsmodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_dsm_'+m)});dsTtlVis('ee_',_eeS)}
+function ceDesyncGate(){var dg=desyncOk(_eeS),row=el('ee_dsrow');if(!dg){_eeS.Desync=false;var s=el('ee_dssw');if(s)s.classList.remove('on');var b=el('ee_dsbody');if(b)b.style.display='none'}if(row)row.style.display=dg?'':'none';desyncTtlCap('ee_');dsTtlVis('ee_',_eeS)}
 function echPxPick(idp,sel){
  var opts=PX.map(function(p){return {v:p.id,label:p.name,sub:p.addr}});
  return opts.length?ssHTML(idp+'echproxyid',opts,sel||opts[0].v,'','')
@@ -10534,7 +10556,7 @@ function wsToggleRows(idp,fnp,tls,ech,echproxy,echproxyid,sni,pos,mode,ttl,show)
   +'<div class="tglbox" id="'+idp+'echpxrow" style="margin-top:9px'+pxhide+'"><div class="tglsw'+(echproxy?' on':'')+'" id="'+idp+'echpx" onclick="'+fnp+'ToggleEchProxy()"></div><div class="tt"><b>'+esc(T('echpx_t'))+'</b><small>'+esc(T('echpx_d'))+'</small></div></div>'
   +'<div id="'+idp+'echpxbody" style="margin-top:6px'+pxfhide+'"><label>'+esc(T('nd_proxy_pick'))+'</label>'+echPxPick(idp,echproxyid)+'</div>'
   +'<div class="tglbox" id="'+idp+'snisplitrow" style="margin-top:9px'+hide+'"><div class="tglsw'+(sni?' on':'')+'" id="'+idp+'snisplit" onclick="'+fnp+'ToggleSni()"></div><div class="tt"><b>'+esc(T('sni_t'))+'</b><small>'+esc(T('sni_d'))+'</small></div></div>'
-  +'<div id="'+idp+'snisplitbody" style="margin-top:6px'+((sni&&show)?'':';display:none')+'"><div id="'+idp+'sniposbox"'+((mode||'split')=='fake'?' style="display:none"':'')+'><label>'+esc(T('sni_pos_lbl'))+'</label><input id="'+idp+'snisplitpos" type="number" min="0" max="1400" value="'+(pos||0)+'"></div>'
+  +'<div id="'+idp+'snisplitbody" style="margin-top:6px'+((sni&&show)?'':';display:none')+'"><div><label>'+esc(T('sni_pos_lbl'))+'</label><input id="'+idp+'snisplitpos" type="number" min="0" max="1400" value="'+(pos||0)+'"></div>'
   +'<label style="margin-top:10px;display:block">'+esc(T('sni_mode_lbl'))+'</label><div class="seg2" id="'+idp+'snimodeseg">'+SNI_MODES().map(function(m){return '<button type="button" class="segopt'+(m.v==(mode||'split')?' on':'')+'" id="'+idp+'snim_'+m.v+'" data-ha="'+esc(m.v)+'" onclick="'+fnp+'SetSniMode(hA(this))"><b>'+esc(m.v)+'</b><span>'+esc(m.s)+'</span></button>'}).join('')+'</div>'
   +'<div id="'+idp+'snittlbody" style="margin-top:6px'+((mode=='disorder')?'':';display:none')+'"><label>'+esc(T('sni_ttl_lbl'))+'</label><input id="'+idp+'splitttl" type="number" min="0" max="__SPLITTTLMAX__" value="'+(ttl||0)+'"></div></div>';}
 function SNI_MODES(){return [{v:'split',s:T('m_split_s')},{v:'disorder',s:T('m_dis_s')},{v:'fake',s:T('m_fake_s')}]}
@@ -10611,7 +10633,7 @@ function _obfsGate(px,S){var off=ssVal(px+'cipher')=='none',row=el(px+'obfsrow')
 function onCorCipher(){_obfsGate('e_',_corS);corCoverGate()}
 async function openCoreModal(){await pxLoad();var r=await j('node-names');NODES=r.nodes||[];var on=NODES.filter(function(n){return n.online});
  if(on.length<2){toast(T('node_min2'),'err');return}
- var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=true;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Sprot=false;_corS.Gso=false;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=16;_corS.FecParity=4;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
+ var items=on.map(function(n){return {v:n.id,label:n.name,sub:n.host}});_corS.Srv='a';_corS.Tr='udp';_corS.Obfs=true;_corS.Cover=false;_corS.RawProfile='bare';_corS.SportRandom=false;_corS.Sprot=false;_corS.Ctb=false;_corS.Gso=false;_corS.WsTls=false;_corS.Ech=false;_corS.EchProxy=false;_corS.SniSplit=false;_corS.SplitPos=0;_corS.SniMode='split';_corS.SplitTtl=0;_corS.Cdn='ws';_corS.Fec=false;_corS.FecData=16;_corS.FecParity=4;_corS.Desync=false;_corS.DesyncTtl=4;_corS.DesyncCount=2;_corS.DesyncMode='ttl';_corS.WorkersA=1;_corS.WorkersB=1;_eeS.PoolLid='';_peerLid='';_rotS['e_']={on:false,secs:600,aIps:[],bIps:[],aSel:{},bSel:{}};poolInit('e_',null);
  var _t1='<div class="ctabp on" data-cp="ip"><div class="grid2"><div id="e_awrap"><label class="first" id="e_alab"></label>'+ssHTML('e_a',items,items[0].v,T('srv_node'),'onCorNode')+'</div>'+
   '<div id="e_bwrap"><label class="first" id="e_blab"></label>'+ssHTML('e_b',items,items[1].v,T('cli_node'),'onCorNode')+'</div></div>'+
   '<div class="grid2" style="margin-top:11px"><div id="e_aip"></div><div id="e_bip"></div></div>'+
@@ -10728,9 +10750,9 @@ function _collectCoreBody(S,px,m,body){
  if(portTriesOn(S)){body.port_tries=portTriesN(px)}
  if(fecDatagram(S)){body.fec=!!S.Fec;if(body.fec){body.fec_data=S.FecData;body.fec_parity=S.FecParity}}
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
- if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
+ if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){if(dsTtlUsed(S))body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
   if(body.fake_mode=='both'&&body.fake_count<2){formErr(m,T('ds_both_needs2'));return true}}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_id=ssVal(px+'echproxyid');body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_id=ssVal(px+'echproxyid');body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;if(S.Ech&&!body.split_pos){formErr(m,T('sni_ech_need_pos'));return true}}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){formErr(m,T('two_diff_nodes'));return}
@@ -10750,14 +10772,14 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(vr.gone)return;
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
-_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.Sprot=false,_eeS.Gso=false,_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=16,_eeS.FecParity=4,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
+_eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.SportRandom=false,_eeS.Sprot=false,_eeS.Ctb=false,_eeS.Gso=false,_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=16,_eeS.FecParity=4,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
 function ceApplyGates(){ceRawVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
 function ceSetTr(t){_eeS.Tr=t;cipherVis('ee_',_eeS);_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeS.WsTls=!_eeS.WsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeS.WsTls);if(!_eeS.WsTls){if(_eeS.Ech){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeS.SniSplit){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
 function ceToggleSni(){if(!_eeS.WsTls){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');alert(T('sni_need_wss'));return}_eeS.SniSplit=!_eeS.SniSplit;var s=el('ee_snisplit');if(s)s.classList.toggle('on',_eeS.SniSplit);var b=el('ee_snisplitbody');if(b)b.style.display=_eeS.SniSplit?'':'none'}
-function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m=='split')?'none':'';var q=el('ee_sniposbox');if(q)q.style.display=(m=='fake')?'none':''}
+function ceSetSniMode(m){_eeS.SniMode=m;var g=el('ee_snimodeseg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.segopt'),function(x){x.classList.toggle('on',x.id=='ee_snim_'+m)});var b=el('ee_snittlbody');if(b)b.style.display=(m=='disorder')?'':'none'}
 function ceWssGate(){var mand=poolGet('ee_').pool||_eeS.Cdn=='grpc';var row=el('ee_wstlsrow'),s=el('ee_wstls');if(mand){_eeS.WsTls=true;if(s)s.classList.add('on');if(row)row.classList.add('dis')}else if(row)row.classList.remove('dis')}
 function ceToggleEch(){if(!_eeS.WsTls){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on');ceEchPxGate();alert(T('ech_need_wss_alert'));return}_eeS.Ech=!_eeS.Ech;var s=el('ee_wsech');if(s)s.classList.toggle('on',_eeS.Ech);ceEchPxGate()}
 function ceToggleEchProxy(){_eeS.EchProxy=!_eeS.EchProxy;var s=el('ee_echpx');if(s)s.classList.toggle('on',_eeS.EchProxy);var b=el('ee_echpxbody');if(b)b.style.display=_eeS.EchProxy?'':'none'}
@@ -11661,6 +11683,8 @@ INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
 INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
     {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
      "tr_rung": list(PORT_RUNG_TRANSPORTS), "raw_ported": list(PORTED_RAW_PROFILES),
+     "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
+     "http_shape_grpc": list(HTTP_SHAPE_GRPC),
      "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
      "edge_ports": {"tls": list(_EDGE_TLS_PORTS), "plain": list(_EDGE_PLAIN_PORTS)}},
     separators=(",", ":")))
