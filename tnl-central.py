@@ -64,7 +64,6 @@ DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
 CORE_MAX_WORKERS = 8
 QUEUEING_TRANSPORTS = ("raw", "udp")
-STATUSRING_TRANSPORTS = ("udp", "tcp", "raw", "ws")
 _reg_lock = threading.Lock()
 _pending_lock = threading.Lock()
 _agent_lock = threading.Lock()
@@ -393,7 +392,7 @@ def _moved_save():
 def _moved_note(nid, name, old, new, new_port):
     with _moved_lock:
         prev = _moved.get(nid)
-        _moved[nid] = {"name": name, "from": old, "to": new, "to_port": new_port}
+        _moved[nid] = {"to": new, "to_port": new_port}
         fresh = not prev or (prev.get("to"), prev.get("to_port")) != (new, new_port)
         if fresh:
             _moved_save()
@@ -1159,7 +1158,7 @@ def _poll_node(n):
     if _tombed(n["id"], now):
         return
     with _pc_lock:
-        _pc[n["id"]] = {"ping": ping, "list": lst, "ping_ts": t_ping, "list_ts": now}
+        _pc[n["id"]] = {"ping": ping, "list": lst}
     if ping.get("ok"):
         _pending_drain(n)
 
@@ -2133,13 +2132,12 @@ def api_summary(d):
         nid, nm = n["id"], n.get("name", "")
         p = _cached_ping(nid)
         if not p.get("ok"):
-            heat.append({"id": nid, "name": nm, "pct": None, "online": False})
+            heat.append({"name": nm, "pct": None, "online": False})
             if _cache_get(nid):
-                alerts.append({"level": "bad", "kind": "node", "id": nid, "msg": f"نودِ «{nm}» آفلاین است"})
+                alerts.append({"level": "bad", "kind": "node", "msg": f"نودِ «{nm}» آفلاین است"})
             mv = moved_to(nid)
             if mv:
-                alerts.append({"level": "warn", "kind": "node", "id": nid,
-                               "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
+                alerts.append({"level": "warn", "kind": "node",                                "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
             continue
         on += 1
         tun += _sint(p.get("tunnels")); pf += _sint(p.get("portfw"))
@@ -2153,11 +2151,11 @@ def api_summary(d):
         ram = round(_sint(s.get("mem_used_mb")) / _sint(s.get("mem_total_mb")) * 100) if _sint(s.get("mem_total_mb")) else 0
         for key, val, lab in (("disk", disk, "دیسک"), ("ram", ram, "رم"), ("cpu", cpu, "CPU")):
             if worst[key] is None or val > worst[key]["pct"]:
-                worst[key] = {"name": nm, "id": nid, "pct": val}
+                worst[key] = {"name": nm, "pct": val}
             if val >= UP_CRIT:
-                alerts.append({"level": "bad", "kind": key, "id": nid, "msg": f"{lab}ِ «{nm}» به {val}٪ رسیده"})
+                alerts.append({"level": "bad", "kind": key, "msg": f"{lab}ِ «{nm}» به {val}٪ رسیده"})
         w = max(cpu, ram, disk)
-        heat.append({"id": nid, "name": nm, "pct": w, "online": True})
+        heat.append({"name": nm, "pct": w, "online": True})
         if w >= UP_CRIT:
             crit.append(nid)
 
@@ -2241,11 +2239,11 @@ def api_summary(d):
     return {"nodes_online": on, "nodes_total": len(nodes),
             "proxies": len(load_proxies()),
             "links": len(links) - n_core, "core": n_core, "link_total": len(links),
-            "links_healthy": up, "tunnels": tun, "portfw": pf,
+            "tunnels": tun, "portfw": pf,
             "health_score": score,
             "central": central_stats(),
             "heat": heat, "worst": worst,
-            "crit": len(crit), "outdated": outdated,
+            "crit": len(crit),
             "alerts": alerts[:10],
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
             "link_off": off_n,
@@ -2764,7 +2762,7 @@ def api_node_del(d):
         raise ValueError("صفِ حذفِ معلق نوشته نشد؛ برای پرهیز از تونلِ یتیم چیزی حذف نشد — دوباره تلاش کن.")
     with _reg_lock:
         save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
-    out = {"ok": True, "links_removed": len(mine_ids), "node_wiped": node_ok}
+    out = {"ok": True, "node_wiped": node_ok}
     with _reg_lock:
         save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
     _pending_prune_node(nid)
@@ -3407,7 +3405,7 @@ def api_push_cancel(d):
             raise ValueError("این کار دیگر در جریان نیست")
         live = [j for j in js if not j["done"]]
         if not live:
-            return {"ok": True, "already_done": True}
+            return {"ok": True}
         for j in live:
             j["cancel"] = True
             _skip_waiting(j)
@@ -3606,8 +3604,7 @@ def api_core_versions(d):
     if info:
         out.append({"id": "custom", "label": "\u0628\u0627\u06cc\u0646\u0631\u06cc\u0650 \u0622\u067e\u0644\u0648\u062f\u0634\u062f\u0647" + (" \u00b7 " + info["name"] if info.get("name") else ""),
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
-    return {"versions": out, "staged": _staged_info(), "checked_ts": int(_core_versions_cache["ts"] or 0),
-            "delivery": _delivery_mode("core")}
+    return {"versions": out, "staged": _staged_info(),             "delivery": _delivery_mode("core")}
 
 
 def api_core_delete_blob(d):
@@ -3874,11 +3871,6 @@ def _stage_core_meta(version):
         save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": {}, "size": {},
                                     "ts": int(time.time()), "meta_only": True})
     return {"version": rel, "arches": got, "missing": []}
-
-
-def _staged_sha(arch):
-    sha = str(((_staged_info() or {}).get("sha") or {}).get(arch) or "").lower()
-    return sha if len(sha) == 64 and all(c in "0123456789abcdef" for c in sha) else ""
 
 
 def _staged_bytes(arch):
@@ -4193,19 +4185,6 @@ def _guard_port_conflicts(bindings, exclude=frozenset()):
 def _core_bind_keys(bindings):
     return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
 
-
-
-
-def _peer_addrs(rec, side):
-    out = []
-    ip = rec.get(side + "_ip")
-    if ip:
-        out.append(ip)
-    if rec.get("ip_rotate"):
-        for x in (rec.get(side + "_ip_pool") or []):
-            if x and x not in out:
-                out.append(x)
-    return out
 
 
 
@@ -4957,7 +4936,7 @@ def _create_tunnel_impl(d, h=None):
             links = load_links()
             links.append({"id": secrets.token_hex(6), "name": name, "type": ttype, "subnet": subnet,
                           "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
-                          "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, "created": int(time.time()),
+                          "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, 
                           **extra, **({"server_side": server_side} if ttype == "core" else {})})
             save_json(LINKS_FILE, links)
         _pending_remove(A["id"], name)
@@ -4969,7 +4948,7 @@ def _create_tunnel_impl(d, h=None):
         warn = f" — هشدار: '{name}' روی {stuck} پاک نشد، دستی تمیزش کن" if stuck else ""
         raise ValueError(f"ذخیرهٔ رکوردِ لینک شکست خورد؛ تونل‌ها برچیده شدند{warn} ({str(e)[:80]})")
     _refresh_cache([A["id"], B["id"]])
-    return {"ok": True, "name": name, "a_tunnel_ip": ra.get("tunnel_ip"), "b_tunnel_ip": rb.get("tunnel_ip")}
+    return {"ok": True, "name": name}
 
 
 def api_delete_link(d):
@@ -5026,8 +5005,7 @@ def _delete_link_impl(d, h=None):
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
         if deferred:
-            return {"ok": True, "deferred": deferred,
-                    "msg": "لینک حذف شد؛ پاک‌سازیِ سمتِ «" + "»، «".join(deferred) + "» وقتی نود برگشت خودکار انجام می‌شود"}
+            return {"ok": True,                     "msg": "لینک حذف شد؛ پاک‌سازیِ سمتِ «" + "»، «".join(deferred) + "» وقتی نود برگشت خودکار انجام می‌شود"}
         return {"ok": True}
 
 
@@ -5348,7 +5326,7 @@ def _edit_link_impl(d, h=None):
         extra.update(ce)
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
     if not moved and ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
-        return {"ok": True, "unchanged": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
+        return {"ok": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
     _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
                      _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, was_a or A, was_b or B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
     if ttype == "core":
@@ -5414,7 +5392,7 @@ def _edit_link_impl(d, h=None):
                 break
         save_json(LINKS_FILE, links)
     _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
-    return {"ok": True, "name": new_name, "a_tunnel_ip": ra.get("tunnel_ip"), "b_tunnel_ip": rb.get("tunnel_ip")}
+    return {"ok": True, "name": new_name}
 
 
 SPEED_SECS = 8
@@ -5501,7 +5479,7 @@ def _restart_link_impl(d, h=None):
             errs.append(f"{N['name']}: {r.get('error') or r.get('msg') or '?'}")
     if errs:
         raise ValueError("؛ ".join(errs))
-    return {"ok": True, "ends": ends}
+    return {"ok": True}
 
 
 _rb_lock = threading.Lock()
@@ -5659,8 +5637,7 @@ def api_link_toggle(d):
     both = len(sides) == 2 and all((sides.get(t) or {}).get("ok") for t in ("a", "b"))
     bad = [t for t in ("a", "b") if not (sides.get(t) or {}).get("ok")]
     names = {"a": L.get("a_name") or "A", "b": L.get("b_name") or "B"}
-    return {"ok": True, "enabled": enabled, "both": both, "sides": sides,
-            "failed": [names[t] for t in bad],
+    return {"ok": True, "enabled": enabled, "both": both,             "failed": [names[t] for t in bad],
             "msg": "" if both else ("سمتِ %s جواب نداد — تونل روی آن سر عوض نشد"
                                     % "، ".join(names[t] for t in bad))}
 
@@ -6069,7 +6046,6 @@ EV_TYPES = (
     ("rot-forced", "rot", "چرخشِ اجباری — مسیر جواب نداد"),
     ("rehandshake", "rot", "دست‌دادنِ دوباره، پیش از سوزاندن"),
     ("port-roll", "rot", "برگشت با چرخشِ پورتِ مبدأ"),
-    ("edge-walk", "rot", "گشتنِ لبه‌ها"),
     ("ladder-revive", "rot", "ازسرگیریِ نردبان"),
     ("burn", "rot", "سوختنِ آدرس"),
     ("heal", "rot", "برگشتِ آدرس به فهرستِ سالم"),
@@ -6116,7 +6092,6 @@ _EV_DOWN_CODE = {
     "ws_upgrade": "ارتقاءِ WebSocket رد شد (Origin/CDN)",
     "closed": "اتصال قطع شد",
     "dropped": "اتصال قطع شد",
-    "peer-dead": "آی‌پیِ مقصدی که چرخش روی آن رفت جواب نداد — سوزانده شد و رفت روی آی‌پیِ بعدی",
 }
 _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
               "ip": "آی‌پیِ لبه", "sni": "دامنه (SNI)"}
@@ -6133,7 +6108,6 @@ _EV_ROT_AXIS = {
 _EV_ROT_CODE = {
     "rehandshake": ("warn", "دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی"),
     "port-roll": ("ok", "با چرخشِ پورتِ مبدأ برگشت"),
-    "edge-walk": ("warn", "گشتنِ لبه‌ها — اتصال زودتر از آن می‌میرد که پروب بتواند قضاوت کند"),
     "ladder-revive": ("warn", "ازسرگیریِ نردبان پس از بن‌بست"),
 }
 
@@ -6407,7 +6381,7 @@ def _events_once():
             continue
         nm = L.get("name", "")
         precise_core = L.get("type") == "core" and (
-            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)
+            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)
         if up:
             if precise_core and lid not in _ev_state["links_coarse_down"]:
                 pass
@@ -6430,7 +6404,7 @@ def _events_once():
 
     seen = set()
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
-            and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in STATUSRING_TRANSPORTS)]
+            and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)]
 
     srcneed = [L for L in links if L.get("type") == "core" and L.get("enabled", True) and L.get("ip_rotate")
                and not _ev_state["rotip"].get(L["id"] + ":src")]
@@ -6457,7 +6431,7 @@ def _events_once():
             continue
         is_pool = bool(L.get("ws_pool"))
         tr = str(L.get("transport") or "").lower()
-        if not is_pool and tr not in STATUSRING_TRANSPORTS:
+        if not is_pool and tr not in CORE_TRANSPORTS:
             continue
         lid = L["id"]
         seen.add(lid)
@@ -6850,7 +6824,7 @@ def api_link_rebuild_info(d):
         p = _cached_ping(nid)
         live = _flat_ips(p)
         return {"node_id": nid, "node": L.get(name_key) or (get_node(nid) or {}).get("name", ""),
-                "cur_ip": L.get(ip_key), "online": bool(p.get("ok")),
+                "online": bool(p.get("ok")),
                 "drifted": bool(p.get("ok")) and L.get(ip_key) not in live,
                 "multi": len(live) > 1, "ips": _node_ip_tags(nid)}
 
@@ -7071,10 +7045,10 @@ def api_checkin_impl(source_ip, d):
         want_port = port
     if (want_host, want_port) == (host, port):
         _moved_clear(n_snap["id"])
-        return {"ok": True, "updated": False, "host": host, "port": port}
+        return {"ok": True, "host": host, "port": port}
     if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
         _moved_clear(n_snap["id"])
-        return {"ok": True, "updated": False, "host": host, "port": port}
+        return {"ok": True, "host": host, "port": port}
     probe = dict(n_snap)
     probe["host"], probe["port"] = want_host, want_port
     if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
@@ -7085,7 +7059,7 @@ def api_checkin_impl(source_ip, d):
                       f"از {host}:{port} به {want_host}:{want_port} رفته و از نشانیِ تازه جواب می‌دهد — روی"
                       " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
                       " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
-        return {"ok": True, "updated": False, "host": host, "port": port, "moved_to": want_host}
+        return {"ok": True, "host": host, "port": port, "moved_to": want_host}
     _moved_clear(n_snap["id"])
     with _reg_lock:
         nodes = load_nodes()
@@ -7096,7 +7070,7 @@ def api_checkin_impl(source_ip, d):
         host, port, nid = want_host, want_port, n["id"]
         save_json(NODES_FILE, nodes)
     _refresh_cache([nid])
-    return {"ok": True, "updated": True, "host": host, "port": port}
+    return {"ok": True, "host": host, "port": port}
 
 
 ACT_KEEP = 20
@@ -7558,14 +7532,9 @@ button:active{transform:scale(.98)}
 <label id="lg_lpass">رمز عبور</label><input id="p" type="password" autocomplete="current-password">
 <button id="lg_btn">ورود</button><div class="e" id="e"></div></form>
 <script>
-var L2={fa:{brand:"کنترل فلیت",sub:"برای ورود، نام کاربری و رمز را وارد کنید",user:"نام کاربری",pass:"رمز عبور",go:"ورود",fail:"ورود ناموفق",title:"ورود · tnl"}};
-var LG='fa';
-(function(){var d=L2[LG],dir=(LG=='fa')?'rtl':'ltr';document.documentElement.lang=LG;document.documentElement.dir=dir;
- function set(id,t){var e=document.getElementById(id);if(e)e.textContent=t}
- set('lg_brand',d.brand);set('lg_sub',d.sub);set('lg_luser',d.user);set('lg_lpass',d.pass);set('lg_btn',d.go);try{document.title=d.title}catch(e){}})();
 async function login(ev){ev.preventDefault();var e=document.getElementById('e');e.textContent='';
  var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u.value,pass:p.value})});
- var j=await r.json().catch(()=>({}));if(r.ok)location.href='/';else e.textContent=j.error||L2[LG].fail;return false}
+ var j=await r.json().catch(()=>({}));if(r.ok)location.href='/';else e.textContent=j.error||'ورود ناموفق';return false}
 </script></body></html>"""
 
 INDEX_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
@@ -7574,11 +7543,11 @@ INDEX_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="ut
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap');
 :root{--acc:#4d6bf0;--acc2:#12a5b8;--ok:#2f9e6f;--bad:#d1524a;--gold:#bd7f18;
 --page:#eef1f6;--card:#ffffff;--side:#ffffff;--glass:#f1f4f8;--field:#f4f6fa;--bord:#e5e9f0;
---tx:#232b36;--sub:#727e8c;--chart1:#6d5cf0;--chart2:#12a5b8;--hi:transparent;--dsh:0 10px 26px -18px rgba(40,60,100,.2);
+--tx:#232b36;--sub:#727e8c;--hi:transparent;--dsh:0 10px 26px -18px rgba(40,60,100,.2);
 --accw:#eef1fe;--okw:#e8f6ef;--badw:#fbeceb;--warnw:#f7efe0;--goldw:color-mix(in srgb,var(--gold) 16%,transparent);--sh-sm:0 1px 2px rgba(20,30,50,.05);--sk-base:#d7dde8;--sk-hi:#f3f6fb}
 body.dark{--acc:#6f8dff;--acc2:#3fd0e0;--ok:#4ec99a;--bad:#f0736a;--gold:#e0a83a;
 --page:#0e1420;--card:#161f2e;--side:#111826;--glass:#1a2333;--field:#131c29;--bord:#243040;
---tx:#e6ecf4;--sub:#8b98aa;--chart1:#8f9dff;--chart2:#3fd0e0;--hi:transparent;--dsh:0 14px 34px -20px rgba(0,0,0,.6);
+--tx:#e6ecf4;--sub:#8b98aa;--hi:transparent;--dsh:0 14px 34px -20px rgba(0,0,0,.6);
 --accw:rgba(111,141,255,.14);--okw:rgba(78,201,154,.13);--badw:rgba(240,115,106,.13);--warnw:rgba(224,168,58,.12);--sh-sm:0 1px 2px rgba(0,0,0,.3);--sk-base:#1f2a3a;--sk-hi:#36465f}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 html{height:100%;background:var(--page)}
@@ -7605,7 +7574,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 .mtop .sbrand{font-size:14px;padding:0;letter-spacing:.3px;direction:ltr}
 .hb{width:38px;height:38px;border-radius:11px;border:1px solid var(--bord);background:transparent;color:var(--tx);display:grid;place-items:center;cursor:pointer;flex:0 0 auto}.hb .ic{width:20px;height:20px}
 .backdrop{display:none;position:fixed;inset:0;background:rgba(15,22,35,.42);z-index:35}
-.chip{width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:var(--hue,var(--acc));background:color-mix(in srgb,var(--hue,var(--acc)) 13%,transparent);border:1px solid color-mix(in srgb,var(--hue,var(--acc)) 26%,transparent)}
+
 .chip svg,.ic svg{width:100%;height:100%;display:block}.chip .ic{width:16px;height:16px}
 .ic{display:inline-flex;width:1.15em;height:1.15em;vertical-align:-3px;flex:0 0 auto;stroke:currentColor}
 @media(max-width:840px){
@@ -7619,7 +7588,7 @@ body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--pa
 }
 h1{font-size:18px;font-weight:800;display:flex;align-items:center;gap:8px;margin:4px 2px 3px}
 .sub{color:var(--sub);font-size:12.5px;margin:0 2px 16px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
 .card{position:relative;overflow:hidden;border-radius:15px;padding:14px;margin-bottom:11px;background:var(--card);border:1px solid var(--bord);box-shadow:var(--dsh)}
 .card.rdrag{z-index:60;overflow:visible;cursor:grabbing;box-shadow:0 20px 44px -14px rgba(20,40,90,.5);border-color:color-mix(in srgb,var(--acc) 45%,transparent);opacity:.98;transition:none}
 body.rdragging{cursor:grabbing;-webkit-user-select:none;user-select:none}
@@ -7631,7 +7600,7 @@ body.reord-on .card[data-rid]{border-color:color-mix(in srgb,var(--acc) 32%,tran
 .reordbtn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--sub);cursor:pointer;padding:0}
 .reordbtn svg{width:19px;height:19px}
 body.reord-on .reordbtn{background:var(--acc);color:#fff;border-color:transparent}
-.grid .card{margin-bottom:0}
+
 .card.acc{padding:0}
 .card.acc.off{opacity:.72}
 .chead{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none}
@@ -7665,15 +7634,15 @@ body.reord-on .cbody{transition:none}
 .sec{font-size:12.5px;font-weight:700;color:var(--sub);margin:20px 4px 9px;display:flex;align-items:center;gap:7px}
 .sec::after{content:'';flex:1;height:1px;background:linear-gradient(to left,var(--bord),transparent)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:1px}
-.seg{display:flex;align-items:center;gap:14px}.donut{flex:0 0 116px}
+.seg{display:flex;align-items:center;gap:14px}
 .ndot{width:10px;height:10px;border-radius:50%;background:var(--sub);flex:0 0 auto;box-shadow:0 0 8px var(--sub)}
 .ndot.on{background:var(--ok);box-shadow:0 0 9px color-mix(in srgb,var(--ok) 80%,transparent)}
 .ndot.off{background:var(--bad);box-shadow:0 0 9px color-mix(in srgb,var(--bad) 70%,transparent)}
 .name{font-weight:700;font-size:15px}.grow{flex:1}.muted{color:var(--sub)}.mono{font-family:ui-monospace,Consolas,monospace;direction:ltr;overflow-wrap:anywhere}
-.kv{color:var(--sub);font-size:12px;margin-top:12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 14px;overflow-wrap:anywhere}
-.kv>span{min-width:0}
-.kv.stack{grid-template-columns:1fr;gap:7px 0}
-.kv b{color:var(--tx);font-weight:600}
+
+
+
+
 .badge{font-size:11px;border-radius:10px;padding:3px 9px;font-weight:700}
 .badge.ok{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent)}
 .badge.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 32%,transparent)}
@@ -7682,7 +7651,7 @@ body.reord-on .cbody{transition:none}
 .tag{font-size:10.5px;line-height:1.5;text-transform:uppercase;letter-spacing:.4px;border:1px solid color-mix(in srgb,var(--acc) 40%,transparent);color:var(--acc);border-radius:7px;padding:0 6px;font-weight:700}
 .tag.sit{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
 .tag.gre{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
-.tag.portfw{color:#fb923c;border-color:color-mix(in srgb,#fb923c 40%,transparent)}
+
 .tag.ipip{color:#14b8a6;border-color:color-mix(in srgb,#14b8a6 45%,transparent)}
 .tag.l2tpv3{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 45%,transparent)}
 .tag.fou{color:#ec4899;border-color:color-mix(in srgb,#ec4899 45%,transparent)}
@@ -7694,7 +7663,7 @@ button.act.danger{color:var(--bad)}button.act.danger:hover{border-color:color-mi
 label{display:block;font-size:12px;color:var(--sub);margin:13px 2px 6px}
 input,select{width:100%;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13.5px;font-family:inherit}
 input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}
-.edit{margin-top:13px;padding:13px;border-radius:13px;background:var(--field);border:1px solid var(--bord)}
+
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
 .primary{margin-top:18px;background:var(--acc);color:#fff;border:0;font-weight:800;padding:12px 18px;border-radius:12px;cursor:pointer;font-family:inherit;box-shadow:0 9px 20px -11px color-mix(in srgb,var(--acc) 70%,transparent)}
 .primary:active{transform:scale(.98)}
@@ -7702,7 +7671,7 @@ input:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 
 .msg{margin-top:13px;font-size:12.5px;min-height:18px}.msg.ok{color:var(--ok)}.msg.err{color:var(--bad)}
 .msg:empty{margin-top:0;min-height:0}
 .chh{font-weight:700;margin-bottom:3px}.chl{padding:1.5px 0;line-height:1.6}
-.link{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.arrow{color:var(--acc);font-weight:800;font-size:16px}
+
 .msbtn{width:100%;padding:11px 12px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:13.5px;cursor:pointer;text-align:start;display:flex;align-items:center;justify-content:space-between;font-family:inherit}
 .mssub{margin-right:auto;color:var(--sub);font-size:12px;direction:ltr;unicode-bidi:isolate}
 .msbtn.ph{color:var(--sub)}.msbtn .cv{color:var(--sub);transition:.2s;font-size:12px}.msbtn.open .cv{transform:rotate(180deg);color:var(--acc)}
@@ -7875,7 +7844,7 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
 .lcat-rot{color:#12a5b8;background:color-mix(in srgb,#12a5b8 16%,transparent)}
 .lcat-ech{color:#8a63f0;background:color-mix(in srgb,#8a63f0 16%,transparent)}
 .lcat-node{color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
-.lcat-sys{color:var(--sub);background:color-mix(in srgb,var(--sub) 15%,transparent)}
+
 .modal.wide{width:414px;max-width:100%;display:flex;flex-direction:column;max-height:min(88vh,760px);padding:0;overflow:hidden;background:var(--card);animation:modrise .2s cubic-bezier(.2,.7,.3,1)}
 @keyframes modrise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
 .msticky{flex:0 0 auto;padding:15px 18px 12px;border-bottom:1px solid var(--bord);background:var(--card);display:flex;align-items:center;gap:10px}
@@ -7959,7 +7928,7 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
 .ochip b{font-weight:800;font-variant-numeric:tabular-nums}
 .ochip.a{background:var(--accw);color:var(--acc);border-color:transparent}
 .ochip.o{background:var(--okw);color:var(--ok);border-color:transparent}
-.ochip.w{background:var(--warnw);color:var(--gold);border-color:transparent}
+
 .ochip.b{background:var(--badw);color:var(--bad);border-color:transparent}
 .oalert{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--bord)}
 .oalert:last-child{border-bottom:0}
@@ -8009,8 +7978,8 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
 .uptop{display:flex;align-items:center;font-size:11.5px;color:var(--sub);margin-bottom:6px}.uptop b{color:var(--tx)}.uptop .r{margin-inline-start:auto}
 .upbar{display:flex;gap:2px;height:22px;direction:ltr}
 .upbar i{flex:1;border-radius:2px;background:var(--ok);min-width:1px}.upbar i.d{background:var(--bad)}.upbar i.g{background:color-mix(in srgb,var(--sub) 28%,transparent)}
-.drop{border:1.5px dashed color-mix(in srgb,var(--acc) 45%,transparent);border-radius:13px;padding:18px;text-align:center;background:var(--accw);color:var(--sub);font-size:12.5px;cursor:pointer;margin-top:4px}.drop b{color:var(--acc)}
-.banner{display:flex;align-items:center;gap:12px}.banner .v{font-size:13.5px;font-weight:800}
+
+
 .stpage{--sc-h:38px;--sc-w:186px;--sc-g:12px}
 .stgrid>.card{margin-bottom:var(--sc-g)}
 @media(min-width:900px){.stgrid{column-count:2;column-gap:var(--sc-g)}
@@ -8088,7 +8057,7 @@ body.dark .sodev .sbar{box-shadow:0 0 10px -1px var(--sev)}
 .opgo{width:100%;margin:auto 0 0;height:var(--sc-h);border-radius:10px;font-size:13px;display:inline-flex;
   align-items:center;justify-content:center;gap:7px}
 .opgo .ic{width:15px;height:15px}
-.ophint{font-size:10.5px;color:var(--sub);line-height:1.7;margin:0}
+
 #agList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sc-g);align-items:stretch}
 .nx{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--bord);
   border-radius:14px;padding:11px 13px;box-shadow:var(--dsh)}
@@ -8163,7 +8132,7 @@ body.dark .chkall{background:#1f7a56}
 .tninfo>*{direction:rtl}   
 .tnnode{background:var(--field);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;min-width:0}
 .tnnode.st-ok{border-color:var(--ok)}
-.tnnode.st-warn{border-color:var(--gold)}
+
 .tnnode.st-bad{border-color:var(--bad)}
 .tnnode.st-na{border-color:var(--bord)}
 .tnend .stat:empty,.tnhead .stat:empty{display:none}
@@ -8281,8 +8250,8 @@ button.act:disabled{opacity:.4;cursor:default}button.act:disabled:active{transfo
 .ipfree{font-size:10.5px;font-weight:700;color:var(--sub);border:1px dashed var(--bord);padding:2px 8px;border-radius:8px}
 .ippf{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,#fb923c 15%,transparent);color:#fb923c}.ippf .ic{width:12px;height:12px}
 .setfield{width:100%;display:flex;align-items:center;padding:11px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
-.pxhd{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.pxurl{font-size:12.5px;color:var(--sub);margin-top:6px;word-break:break-all}
+
+
 .pxused{font-size:11.5px;color:var(--sub);margin-top:6px}
 .setfield .val{color:var(--gold)}
 .setfield .cv{margin-inline-start:auto;color:var(--sub)}
@@ -8339,7 +8308,7 @@ body.dark .tag.core{color:#a78bfa}
 .erow.dead .eip{text-decoration:line-through;color:var(--sub)}
 .estat{flex:0 0 auto;display:grid;place-items:center}
 .estat .ic{width:16px;height:16px}
-.estat.ok{color:var(--ok)}.estat.warn{color:var(--gold)}.estat.bad{color:var(--bad)}.estat.mut{color:var(--sub)}
+.estat.ok{color:var(--ok)}.estat.warn{color:var(--gold)}.estat.bad{color:var(--bad)}
 .eip{flex:1 1 150px;min-width:0;font-family:ui-monospace,Consolas,monospace;direction:ltr;text-align:right;unicode-bidi:isolate;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ert{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
 .eacts{display:flex;gap:5px;flex:0 0 auto;margin-inline-start:auto}
@@ -8507,7 +8476,7 @@ var I18N={fa:{
  logs_search:"جست‌وجو در متنِ لاگ و جزئیاتش…",logs_more:"{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن",logs_no_match:"چیزی با این عبارت پیدا نشد",
  logf_btn:"فیلترها",logf_head:"کدام رویدادها در این صفحه بیایند",logf_hint:"با هر تیک همان‌جا ذخیره می‌شود. تیک‌نخورده‌ها ثبت می‌شوند ولی نشان داده نمی‌شوند — هر وقت تیکشان را برگردانی، گذشته‌شان هم برمی‌گردد",logf_on:"{n} نوع رویداد پنهان است — با دکمهٔ «فیلترها» برشان گردان",logf_empty:"همهٔ رویدادهای این بازه را فیلترها پنهان کرده‌اند",
  logc_all:"همه",sod_bad:"بحرانی",sod_warn:"هشدار",sod_ok:"عادی",sod_more:"جزئیاتِ بیشتر",sod_less:"بستن",logc_err:"فقط خطاها",
- brand_sub:"کنترل فلیت",theme:"تم",
+ brand_sub:"کنترل فلیت",
  save:"ذخیره",save_rebuild:"ذخیره و بازسازی",cancel:"انصراف",add:"افزودن",close:"بستن",confirm_del:"تأیید و حذف",yes_all:"بله، همه",
  online:"آنلاین",offline:"آفلاین",failed:"ناموفق",saving:"در حال ذخیره…",checking:"در حال بررسی…",loading:"در حال بارگذاری…",
  no_results:"موردی یافت نشد.",live:"زنده",select:"انتخاب کنید",ip:"آی‌پی",err_check:"خطا در بررسی",not_available:"در دسترس نیست",
@@ -8531,7 +8500,7 @@ search:"جستجو…",
  uptime_bar:"آپتایم",node_min2:"حداقل 2 نودِ آنلاین لازم است",
  tun_sub:"هر لینک نود‌به‌نود جداگانه است — بررسی، ویرایش و حذف مستقل دارد",add_tunnel:"افزودن تونل",check_all:"بررسی اتصال همگانی",
  tun_search:"جستجوی نام نود / نوع / شناسه…",tun_empty:"هنوز لینکی نیست — دکمهٔ «افزودن تونل» بالا.",
- st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {n} جریان",speed_up:"آپلود",speed_down:"دانلود",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restarted:"هسته ری‌استارت شد",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
+ st_off:"خاموش",st_disc:"قطع",reorder_err:"ذخیرهٔ ترتیب ناموفق بود",tag_title:"رنگِ نشانه‌گذاری",tag_clear:"بدونِ رنگ",tag_err:"ذخیرهٔ رنگ ناموفق بود",reord_t:"حالتِ جابه‌جایی کارت‌ها",tip_ping:"تستِ پینگ",tip_speed:"تستِ سرعتِ خودِ تونل",speed_run:"در حال اندازه‌گیریِ سرعت روی خودِ تونل…",speed_done:"سرعتِ تونل",speed_how:"{s} ثانیه در هر جهت · {n} جریان",speed_up:"آپلود",speed_down:"دانلود",speed_note:"روی آی‌پیِ داخلیِ تونل اندازه گرفته شد، پس عددْ ظرفیتِ خودِ تونل است نه خطِ اینترنت. عددِ گزارش‌شده چیزی است که سرِ دیگر <b>تحویل گرفته</b>، نه چیزی که فرستنده در سوکت ریخته.",tip_reset:"ریستِ حجمِ کل",tip_rebuild:"بازسازی",tip_restart:"ری‌استارتِ هسته",restart_confirm:"هستهٔ این تونل روی هر دو نود ری‌استارت شود؟ کانفیگ و استخرِ آی‌پی دست نمی‌خورد.",restart_yes:"ری‌استارت",restart_failed:"ری‌استارت ناموفق بود",tip_toggle:"روشن/خاموشِ تونل",
  subnet:"سابنت",tid:"شناسه",iface:"اینترفیس",ttype:"نوع",udp_port:"پورتِ UDP",enc:"رمزنگاری",encrypted:"رمزنگاری‌شده",total:"مجموع",
  no_live_side:"دادهٔ زنده از این سر نیست",tun_off_note:"این تونل خاموش است — اینترفیس down شده. توگلِ بالا را بزن تا دوباره بالا بیاید.",
  turned_on:"روشن شد",turned_off:"خاموش شد",
@@ -8810,8 +8779,8 @@ function terr(msg){msg=String(msg==null?'':msg);
 function perr(r,fbk){return r&&r.net?T(r.net=='timeout'?'net_timeout':'net_drop')
  :terr((r.d&&(r.d.error||r.d.msg))||T(fbk||'failed'))}   
 function vhead(icn,navK,subK){return '<h1>'+ic(icn,'var(--acc)')+' '+esc(T(navK))+'</h1>'+(subK?'<p class="sub">'+esc(T(subK))+'</p>':'')}   
-function paintThemeBtns(){var d=document.body.classList.contains('dark');var b1=el('thbtn');if(b1)b1.innerHTML=ic(d?'sun':'moon')+' '+esc(T('theme'));var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
-function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');var fo=el('foutbtn');if(fo){var fl=fo.querySelector('.nlbl');if(fl)fl.textContent=T('nav_logout')}paintThemeBtns()}
+function paintThemeBtns(){var d=document.body.classList.contains('dark');var b2=el('thbtn2');if(b2)b2.innerHTML=ic(d?'sun':'moon')}
+function paintNav(){try{document.title=T('app_title')}catch(e){}var n=document.getElementById('nav');if(n)n.querySelectorAll('.navi').forEach(function(p){var s=p.querySelector('.nlbl');if(s)s.textContent=T('nav_'+p.dataset.t)});var bs=el('brandsub');if(bs)bs.textContent=T('brand_sub');paintThemeBtns()}
 (function(){document.documentElement.lang='fa';document.documentElement.dir='rtl';try{document.body.dir='rtl'}catch(e){}})();
 var H={'Content-Type':'application/json','X-Requested-With':'tnl-central'};
 var NET_TIMEOUT=20000,NET_POST_TIMEOUT=300000;
@@ -9321,7 +9290,6 @@ async function refreshNodes(){if(listBusy())return;var r=await j('nodes?q='+enco
 function cnBanner(ns){var k=(ns||[]).filter(cnStale).length;if(!k)return '';
  return '<div class="rdbar" style="margin-bottom:12px">'+ic('warn')+'<div class="rdtx"><b>'+
   esc(k==1?T('cn_stale_one'):T('cn_stale_n').replace('{n}',k))+'</b><span>'+esc(T('cn_stale_sub'))+'</span></div></div>'}
-function kv(k,val){return '<span>'+k+': <b>'+val+'</b></span>'}
 function openModal(html,opts){opts=opts||{};
  var ov=document.createElement('div');ov.className='modalov';
  ov.innerHTML='<div class="modal wide'+(opts.cls?' '+opts.cls:'')+'">'+html+'</div>';
@@ -10047,7 +10015,7 @@ function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
  var g=el(px+'wspg');if(g)Array.prototype.forEach.call(g.querySelectorAll('.ptile'),function(t){t.classList.toggle('on',t.getAttribute('data-wp')==p)})}
 function corSetWsProf(p){_setWsProf(_corS,'e_',p);corWssGate();corDesyncGate();corCdnShapeGate()}
 function ceSetWsProf(p){_setWsProf(_eeS,'ee_',p);ceWssGate();ceDesyncGate();ceCdnShapeGate()}
-function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});var w=el('e_trword');if(w)w.textContent=(t=='tcp'?'TCP':(t=='raw'?'raw-IP':(t=='ws'?'CDN':'UDP')));corRawVis();corWsVis();corPortGate();corCoverGate();corFecGate();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
+function corSetTr(t){_corS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('e_tr_'+x);if(b)b.classList.toggle('on',t==x)});corRawVis();corWsVis();corPortGate();corCoverGate();corFecGate();corProtoVis();corPortTriesVis();corDesyncGate();corCdnShapeGate();corRotVis('e_');corWorkersVis();onCorCipher()}   
 
 function corWsVis(){var ws=_corS.Tr=='ws';var w=el('e_wsblk');if(w)w.style.display=ws?'':'none';var t=el('e_wstlsrow'),e=el('e_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('e_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('e_snisplitbody');if(sb)sb.style.display=(ws&&_corS.SniSplit)?'':'none';corEchPxGate();if(ws){poolVis('e_');corWssGate()}}
 function corToggleWsTls(){_corS.WsTls=!_corS.WsTls;var s=el('e_wstls');if(s)s.classList.toggle('on',_corS.WsTls);if(!_corS.WsTls){if(_corS.Ech){_corS.Ech=false;var e=el('e_wsech');if(e)e.classList.remove('on')}if(_corS.SniSplit){_corS.SniSplit=false;var q=el('e_snisplit');if(q)q.classList.remove('on');var b=el('e_snisplitbody');if(b)b.style.display='none'}}corEchPxGate()}
@@ -11219,7 +11187,7 @@ function skLog(){return '<div class="card logcard" style="display:flex;margin-bo
 var LOGEVS=[],LOGFILTER='all',LOGSIG='',LOGQ='',LOGPAINT='',LOGSHOW=200;
 var LOGPAGE=200,LOGHIDE={},LOGSRV=[],LOGFOPEN=false,LOGSAVING=false,LOGDIRTY=false,LOGSAVET=0;
 function logCounts(){var found=logFound(),c={all:found.length,err:0};
- EVGROUPS.forEach(function(g){c[g[0]]=0});c.sys=0;
+ EVGROUPS.forEach(function(g){c[g[0]]=0});
  found.forEach(function(e){if(c[e.cat]!=null)c[e.cat]++;if(e.level=='bad')c.err++});return c}
 function logResolveFilter(){var c=logCounts();
  if(LOGFILTER!='all'&&!(c[LOGFILTER]>0))LOGFILTER='all';
@@ -11352,26 +11320,12 @@ function evParts(e){
  var det=e.dfa||'';
  return{title:e.fa||'',lines:det?det.split('\\n'):[]};
 }
-function evEndpoints(v){var p=v.split(' ← ');
- if(p.length!=2)return esc(v);
- return '<span class="ep">'+esc(p[0])+'</span><span class="ep-a">←</span><span class="ep">'+esc(p[1])+'</span>';}
 function evSplit(lines){var rows=[],notes=[];
  for(var i=0;i<(lines||[]).length;i++){var l=lines[i],c=l.indexOf(': ');
   var k=c>0?l.slice(0,c):'';
   if(k&&k.length<=16&&!/[\u060C\u061B\u061F.!?()\u00AB\u00BB\u2014]/.test(k))rows.push({k:k,v:l.slice(c+2)});
   else notes.push(l);}
  return {rows:rows,notes:notes}}
-function evFolds(lines){return evSplit(lines).rows.length>0}
-function evDetail(lines,id){if(!lines||!lines.length)return '';
- var sp=evSplit(lines),rows=sp.rows,notes=sp.notes;
- var out='';
- if(rows.length)out+='<div class="lfromto">'+rows.map(function(m){
-   return '<div class="lft'+(m.k=='\u0628\u0647'?' to':'')+'"><span class="k">'+esc(m.k)+':</span>'+
-          '<span class="v">'+evEndpoints(m.v)+'</span></div>'}).join('')+'</div>';
- for(var j=0;j<notes.length;j++)out+='<div class="lnote" dir="auto">'+esc(notes[j])+'</div>';
- if(!rows.length)return out;
- return '<div class="lfold'+(LOGOPEN[id]?' open':'')+'" id="lf'+id+'">'+
-   '<div class="lfbody">'+out+'</div></div>';}
 var LOGOPEN={};
 function logFold(id,e){
  try{if(window.getSelection&&String(window.getSelection())!=='')return}catch(_){}
