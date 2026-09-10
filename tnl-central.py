@@ -793,7 +793,7 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
 
 
 NODE_WIRE = {
-    "ping": "pg", "list": "ls", "check": "ck", "tunnel": "mk", "delete": "dl", "apply": "ap",
+    "ping": "pg", "list": "ls", "check": "ck", "tunnel": "mk", "delete": "dl",
     "update": "up", "wipe": "wz", "portfw": "pf", "portfw-edit": "pe", "portfw-next": "pn",
     "portcheck": "pc", "speedtest": "sd", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
     "pool-select": "qs", "retest-now": "rt", "ech-update": "eu",
@@ -1791,7 +1791,7 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
-_PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id")
+_PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id", "ech", "ws_pool")
 
 
 def _node_extra(extra):
@@ -1870,7 +1870,20 @@ HTTP_SHAPE = {"http_up_workers": (1, 16, 8), "http_up_batch_kb": (8, 512, 512),
 HTTP_SHAPE_GRPC = ("http_streams",)
 
 
-def _tunnel_extra(src, refetch_ech=True):
+def _ech_or_stored(host, fetched, stored):
+    if fetched:
+        return fetched
+    if stored:
+        log_event("warn", "ech-stale",
+                  "کلیدِ ECH برای «%s» تازه خوانده نشد" % host,
+                  "رکوردِ HTTPS/ech= در دسترس نبود؛ کلیدِ ذخیره‌شده به کار رفت. اگر کلاودفلر"
+                  " کلید را چرخانده باشد این تونل تا خواندنِ بعدی بالا نمی‌آید.")
+        return stored
+    raise ValueError("کلیدِ ECH برای «%s» نه تازه خوانده شد نه ذخیره‌ای دارد — ECH روشن است و"
+                     " بدونِ کلید، SNI رمز نمی‌شود، پس متوقف شد." % host)
+
+
+def _tunnel_extra(src):
     e = {}
     if src.get("port"):
         e["port"] = src["port"]
@@ -1939,35 +1952,25 @@ def _tunnel_extra(src, refetch_ech=True):
                 if src.get(k):
                     e[k] = int(src[k])
     if src.get("ech"):
-        e["ech"] = True
         host = src.get("ws_host")
-        if refetch_ech and host:
-            ec = _fetch_ech(host, _ech_px(src))
-            if not ec:
-                raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % host)
-            e["ws_ech"] = ec
+        if host:
+            e["ws_ech"] = _ech_or_stored(host, _fetch_ech(host, _ech_px(src)), src.get("ws_ech"))
         elif src.get("ws_ech"):
             e["ws_ech"] = src["ws_ech"]
     if src.get("edge_ip"):
         e["edge_ip"] = src["edge_ip"]
     if src.get("ws_pool") and src.get("ws_edge_ips") and src.get("ws_edge_snis"):
-        e["ws_pool"] = True
         e["ws_tls"] = True
         e["ws_edge_ips"] = src["ws_edge_ips"]
         pool_ech = bool(src.get("ech"))
         hosts = [s.get("host") for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
-        ech_map = _fetch_ech_map(hosts, _ech_px(src)) if (pool_ech and refetch_ech) else {}
+        ech_map = _fetch_ech_map(hosts, _ech_px(src)) if pool_ech else {}
         psnis = []
         for s in src["ws_edge_snis"]:
             if not (isinstance(s, dict) and s.get("host")):
                 continue
             h = s.get("host")
-            if refetch_ech:
-                ec = ech_map.get(h, "") if pool_ech else ""
-                if pool_ech and not ec:
-                    raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — بازسازی متوقف شد (ECH روشن است ولی رکوردِ HTTPS/ech= در دسترس نیست)." % h)
-            else:
-                ec = s.get("ech", "") if pool_ech else ""
+            ec = _ech_or_stored(h, ech_map.get(h, ""), s.get("ech")) if pool_ech else ""
             psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
         e["ws_edge_snis"] = psnis
         _rs = src.get("ws_rotate_secs")
@@ -4726,13 +4729,18 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             ce["raw_port"] = _rport
         elif _rport and "raw_port" in d:
             raise ValueError(f"«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
-        _srand = bool(d["raw_sport_random"] if "raw_sport_random" in d else cur.get("raw_sport_random"))
+        _srand_req, _rsport_req = "raw_sport_random" in d, "raw_sport" in d
+        _srand = bool(d["raw_sport_random"] if _srand_req else cur.get("raw_sport_random"))
         try:
-            _rsport = int((d["raw_sport"] if "raw_sport" in d else cur.get("raw_sport")) or 0)
+            _rsport = int((d["raw_sport"] if _rsport_req else cur.get("raw_sport")) or 0)
         except (TypeError, ValueError):
             _rsport = 0
-        if _srand and _rsport and "raw_sport" in d and "raw_sport_random" in d:
+        if _srand and _rsport and _srand_req and _rsport_req:
             raise ValueError("«پورتِ مبدأ» یا ثابت است یا چرخان — هر دو با هم نمی‌شود")
+        if _rsport_req and _rsport and not _srand_req:
+            _srand = False
+        if _srand_req and _srand and not _rsport_req:
+            _rsport = 0
         if profile in ("udp", "tcp"):
             if _srand:
                 ce["raw_sport_random"] = True
@@ -5058,10 +5066,7 @@ def api_reorder(d):
 def _restore_link(A, B, L, extra=None):
     tid = int(L["tunnel_id"])
     if extra is None:
-        try:
-            extra = _tunnel_extra(L)
-        except Exception:
-            extra = _tunnel_extra(L, refetch_ech=False)
+        extra = _tunnel_extra(L)
     ttype = L["type"]
     a_body = {"type": ttype, "self_ip": L["a_ip"], "peer_ip": L["b_ip"], "subnet": L["subnet"],
               "id": tid, "name": L["name"], "host": overlay_host(ttype, L.get("server_side"), True),
@@ -8526,6 +8531,24 @@ search:"جستجو…",
  err_rt_notperm:"کرنل اجازه نداد",err_rt_noroute:"از این نود مسیری به آن آدرس نیست",
  err_rt_addrused:"این آدرس از قبل روی نود گرفته شده",err_rt_nodev:"چنین اینترفیسی روی نود نیست",
  err_rt_badarg:"کرنل ورودی را نپذیرفت",err_rt_other:"کرنل رد کرد",
+ err_mtu_read:"MTUِ اینترفیسِ «$1» خوانده نشد — تونل از همین لینک بیرون می‌رود",
+ err_core_slow:"هسته بالاست ولی اینترفیسِ «$1» هنوز ظاهر نشده — احتمالاً استارتِ کند؛ چند لحظه بعد دوباره بزن",
+ err_core_why:"هسته بالا نیامد — پیامِ خودش: ",
+ err_iface_mod:"اینترفیسِ $1 ساخته نشد — «$2» روی این نود نصب/فعال نیست",
+ err_core_stuck:"واحدِ هستهٔ «$1» با وجودِ stop هنوز در حال اجراست",
+ err_knob_range:"$1 باید بین ۰ و $2 باشد (۰ = پیش‌فرض)",
+ err_wstls_host:"ws_tls به ws_host نیاز دارد (SNI/دامنهٔ فرانت‌کننده)",
+ err_raw_psk:"ترنسپورتِ raw به رمزنگاری (psk) نیاز دارد — هر فریم با AEAD رمز و احراز می‌شود",
+ err_cover_sni:"پوششِ TLS به cover_sni نیاز دارد (نامِ دامنه‌ای که ارائه می‌شود)",
+ err_tun_off:"تونل غیرفعال است",
+ err_core_nocfg:"کانفیگِ هسته روی این نود نیست — تونل را بازسازی کن",
+ err_core_noiface:"هسته بالا نیامد (اینترفیس ظاهر نشد)",
+ err_bad_key:"مقدارِ ورودی نامعتبر است",
+ err_cmdq_full:"صفِ فرمان پر است — هستهٔ این تونل فرمان‌ها را برنمی‌دارد",
+ err_no_ippool:"این تونل استخرِ آی‌پی ندارد",
+ err_no_edgepool:"این تونل استخرِ لبه ندارد",
+ err_bad_axis:"محورِ نامعتبر",
+ err_not_ws:"این تونل ws نیست",
  err_kernel:"کرنل درخواست را رد کرد",err_refused:"اتصال رد شد",err_busy:"نود شلوغ است — کمی بعد دوباره بزن",err_noroute:"مسیری به میزبان نیست",
  err_dns:"نامِ میزبان پیدا نشد",err_reset:"اتصال از آن سر قطع شد",err_timeout:"وقت تمام شد",
  err_unreach:"در دسترس نبود",err_denied:"اجازه داده نشد",err_nocmd:"این دستور روی نود نیست",
@@ -8756,7 +8779,25 @@ function T(k){return (k in I18N.fa)?I18N.fa[k]:k}
 var ERRNOISE=[/^(dial|read|write) (tcp|udp)\\s*/i,/connect:\\s*/i,
  /context deadline exceeded:?\\s*/i,/^bash: line \\d+:\\s*/i,/^sh: \\d+:\\s*/i,/^ssh:\\s*/i,
  /^connect:\\s*/i,/^Error:\\s*/i,/^error:\\s*/i];
-var ERRWHOLE=[[/x509:[^,]*signed by unknown authority/i,'err_cert_unknown'],
+var ERRWHOLE=[[/^mtu of iface ([^ ]+) unreadable$/i,'err_mtu_read'],
+ [/^core is up but iface ([^ ]+) has not appeared yet$/i,'err_core_slow'],
+ [/^core did not come up: /i,'err_core_why'],
+ [/^iface ([^ ]+) not created: (.+) is missing on this node$/i,'err_iface_mod'],
+ [/^core unit ([^ ]+) still running after stop$/i,'err_core_stuck'],
+ [/^([^ ]+) must be between 0 and ([0-9]+)$/i,'err_knob_range'],
+ [/^ws_tls requires ws_host$/i,'err_wstls_host'],
+ [/^raw requires a psk$/i,'err_raw_psk'],
+ [/^cover requires cover_sni$/i,'err_cover_sni'],
+ [/^tunnel disabled$/i,'err_tun_off'],
+ [/^core config missing on this node$/i,'err_core_nocfg'],
+ [/^core did not come up [(]no iface[)]$/i,'err_core_noiface'],
+ [/^bad key$/i,'err_bad_key'],
+ [/^command queue full$/i,'err_cmdq_full'],
+ [/^no ip pool on this tunnel$/i,'err_no_ippool'],
+ [/^no edge pool on this tunnel$/i,'err_no_edgepool'],
+ [/^bad axis$/i,'err_bad_axis'],
+ [/^not a ws tunnel$/i,'err_not_ws'],
+ [/x509:[^,]*signed by unknown authority/i,'err_cert_unknown'],
  [/x509:[^,]*certificate has expired[^,]*/i,'err_cert_expired'],
  [/i\\/o timeout/i,'err_timeout'],
  [/EOF$/,'err_eof']];
