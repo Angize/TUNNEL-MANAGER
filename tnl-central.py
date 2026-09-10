@@ -11572,6 +11572,14 @@ def missing_binaries():
     return [b for b in DEP_BINARIES if not shutil.which(b)]
 
 
+def _port_or(value, fallback):
+    try:
+        p = int(str(value).strip())
+    except Exception:
+        return fallback
+    return p if 1 <= p <= 65535 else fallback
+
+
 def install_deps():
     if not missing_binaries():
         print("[✔] dependencies already present.")
@@ -11641,7 +11649,8 @@ def do_install():
         os.chmod(INSTALLED, 0o755)
     install_deps()
     conf = load_conf() if os.path.isfile(WEB_CONF) else {}
-    conf["port"] = int(input(f"Panel port [{conf.get('port', 8080)}]: ").strip() or conf.get("port", 8080))
+    have = conf.get("port", 8080)
+    conf["port"] = _port_or(input(f"Panel port [{have}]: "), have)
     set_password(conf)
     try:
         _signing_keys()
@@ -11673,10 +11682,11 @@ def change_port():
         print("Not configured yet - run Install first.")
         return
     conf = load_conf()
-    p = input(f"New panel port [{conf.get('port', 8080)}]: ").strip()
+    have = conf.get("port", 8080)
+    p = input(f"New panel port [{have}]: ").strip()
     if not p:
         return
-    conf["port"] = int(p)
+    conf["port"] = _port_or(p, have)
     save_json(WEB_CONF, conf)
     if os.path.isfile(SERVICE_FILE):
         svc("restart")
