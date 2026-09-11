@@ -721,9 +721,24 @@ def _pending_gc(valid):
                 pass
 
 
+_EV_END_MISSING = {"srv": "نودِ سرورِ این تونل پیدا نشد",
+                   "cli": "نودِ کلاینتِ این تونل پیدا نشد"}
+
+
+def _srv_is_a(L):
+    return L.get("server_side") != "b"
+
+
+def _node_id_of(L, end):
+    return L.get("a_node") if (end == "srv") == _srv_is_a(L) else L.get("b_node")
+
+
+def _end_node_name(L, end):
+    return (L.get("a_name") if (end == "srv") == _srv_is_a(L) else L.get("b_name")) or ""
+
+
 def _client_node(L):
-    server_side = L.get("server_side", "a")
-    return get_node(L.get("b_node") if server_side == "a" else L.get("a_node"))
+    return get_node(_node_id_of(L, "cli"))
 
 
 def _recvn(s, n):
@@ -1821,12 +1836,13 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
         if len(own_pool) >= 2:
             body["src_ips"] = list(own_pool)
         body["peer_rotate_secs"] = rotate_secs
-    else:
+        return
+    if len(own_pool) >= 2:
         body["pool_listen"] = True
-        if len(own_pool) >= 2 and body.get("transport") in ("udp", "tcp"):
+        if body.get("transport") in ("udp", "tcp"):
             body["listen_ips"] = list(own_pool)
-        if len(peer_pool) >= 2 and body.get("transport") == "raw":
-            body["peer_src_ips"] = list(peer_pool)
+    if len(peer_pool) >= 2 and body.get("transport") == "raw":
+        body["peer_src_ips"] = list(peer_pool)
 
 
 def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
@@ -1991,8 +2007,7 @@ def _tunnel_extra(src):
 def _core_role(L, node_id):
     if L.get("type") != "core":
         return None
-    server_node = L.get("b_node") if L.get("server_side") == "b" else L.get("a_node")
-    return "server" if node_id == server_node else "client"
+    return "server" if node_id == _node_id_of(L, "srv") else "client"
 
 
 def _require(d, keys):
@@ -4109,11 +4124,11 @@ def api_fleet(d):
                 _nm, _w = max(_ct, key=lambda t: t[1]["count"] / float(t[1]["max"]))
                 rec["ct"] = {"count": int(_w["count"]), "max": int(_w["max"]),
                              "pct": int(round(100.0 * _w["count"] / _w["max"])), "node": _nm}
-            _cl = lb if (L.get("server_side") != "b") else la
+            _cl = lb if _srv_is_a(L) else la
             _sp = (_cl.get("sports") or {}).get(L["name"])
             if _sp:
                 rec["sport_live"] = int(_sp)
-            _srv = la if (L.get("server_side") != "b") else lb
+            _srv = la if _srv_is_a(L) else lb
             _rc = (_cl.get("rots") or {}).get(L["name"]) or {}
             _rs = (_srv.get("rots") or {}).get(L["name"]) or {}
             if _rc or _rs:
@@ -4125,7 +4140,7 @@ def api_fleet(d):
                                    "hi": int((_rc or _rs).get("hi") or 0),
                                    "drawn": int((_rc or _rs).get("drawn") or 0)}
         if L.get("type") == "core" and L.get("ip_rotate"):
-            srvA = (L.get("server_side") != "b")
+            srvA = _srv_is_a(L)
             cl = lb if srvA else la
             pd = (cl.get("pools") or {}).get(L["name"]) or {}
             dact = str(pd.get("dst") or "").split(":")[0]
@@ -4602,6 +4617,10 @@ def _ws_fields(d, transport, cur=None):
         if ep.isdigit():
             _edge_port_ok(int(ep), bool(out.get("ws_tls")))
         out["edge_ip"] = edge
+    if out.get("ws_tls") and not edge:
+        raise ValueError("wss یعنی TLS روی لبهٔ CDN باز می‌شود، ولی «آی‌پیِ لبهٔ CDN» خالی است — "
+                         "کلاینت مستقیم به خودِ سرور دیال می‌کند و هستهٔ سرور هیچ‌جا TLS را باز نمی‌کند، "
+                         "پس تونل هرگز بالا نمی‌آید. آی‌پیِ لبه را بگذار یا wss را خاموش کن")
     ech = d.get("ech") if ("ech" in d) else cur.get("ech")
     if ech:
         if not out.get("ws_tls"):
@@ -4796,6 +4815,12 @@ def _shape_of(d, cur):
 
 def _carried(cur, shape):
     return {k: v for k, v in cur.items() if _shape_consumes(k, *shape)}
+
+
+def _needs_tunnel_port(ttype, d, cur):
+    if ttype in ("l2tpv3", "fou"):
+        return True
+    return ttype == "core" and _shape_of(d, cur)[0] != "raw"
 
 
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
@@ -5014,7 +5039,7 @@ def _create_tunnel_impl(d, h=None):
     _guard_subnet_overlap(A, B, subnet)
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}
-    if ttype in ("l2tpv3", "fou", "core"):
+    if _needs_tunnel_port(ttype, d, {}):
         port = int(d.get("port") or 0) or free_tunnel_port(A, B)
         if not 1 <= port <= 65535:
             raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
@@ -5218,10 +5243,13 @@ def api_edge_status(d):
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L or L.get("type") != "core":
         return {"ok": True, "pool": False, "active": "", "health": [], "events": []}
+    return _edge_status_of(L, _client_node(L), _EV_END_MISSING["cli"])
+
+
+def _edge_status_of(L, node, missing):
     is_pool = bool(L.get("ws_pool"))
-    node = _client_node(L)
     if not node:
-        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": "نودِ کلاینتِ این تونل پیدا نشد"}
+        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": missing}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": r.get("error") or r.get("msg")}
@@ -5436,7 +5464,7 @@ def _edit_link_impl(d, h=None):
     name_changed = new_name != old_name
     type_changed = ttype != L["type"]
     extra = {}
-    if ttype in ("l2tpv3", "fou", "core"):
+    if _needs_tunnel_port(ttype, d, L):
         _asked = "port" in d and not str(d.get("port") or "").strip()
         _moved_carrier = ttype == "core" and str(d.get("transport") or "") != str(L.get("transport") or "")
         _stale = _asked or _moved_carrier or L.get("type") not in ("l2tpv3", "fou", "core")
@@ -6346,6 +6374,69 @@ def _ev_core_text(kind, code, detail, nm):
     return None
 
 
+def _ev_dfa(dfa, where):
+    return (dfa + "\n" + where) if dfa else where
+
+
+def _ev_where(L, end):
+    return "سمتِ %s: نودِ «%s»" % ("سرور" if end == "srv" else "کلاینت", _end_node_name(L, end))
+
+
+def _ingest_core_events(lid, end, nm, where, events, first):
+    key = lid + "|" + end
+    clean = []
+    if isinstance(events, list):
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            try:
+                sq = int(e.get("seq") or 0)
+            except (TypeError, ValueError):
+                continue
+            clean.append((sq, e))
+    mx = max([0] + [sq for sq, _ in clean])
+    if first:
+        _ev_state["evseq"][key] = mx
+        return
+    last = _ev_state["evseq"].get(key, 0)
+    if clean and mx < last:
+        last = 0
+    for sq, e in sorted(clean, key=lambda x: x[0]):
+        if sq <= last:
+            continue
+        ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
+        rot = _ev_rot(ekind, ecode)
+        if rot and end == "cli" and ecode == "port-roll":
+            kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
+            tries, sport = kv.get("tries"), kv.get("sport")
+            fa = f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ"
+            if tries:
+                fa += f" پس از {tries} تلاش"
+            if sport:
+                fa += f"، با پورتِ {sport}"
+            fa += " برگشت"
+            log_event(rot[0], rot[3], fa, where)
+            continue
+        if rot and end == "cli" and rot[2]:
+            axis = rot[2]
+            val = _ev_value(edet) or _ev_ip(edet)
+            rk = lid + ":" + axis
+            prev = _ev_state["rotip"].get(rk)
+            if val:
+                _ev_state["rotip"][rk] = val
+            other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
+            log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}",
+                      _ev_dfa(_rot_pair(axis, prev, val, other), where))
+            continue
+        if rot:
+            log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}", where)
+            continue
+        txt = _ev_core_text(ekind, ecode, edet, nm)
+        if txt:
+            log_event(txt[0], txt[1], txt[2], _ev_dfa(txt[3], where))
+    _ev_state["evseq"][key] = max(last, mx)
+
+
 def _ev_all():
     global _ev_list, _ev_dirty
     if _ev_list is None:
@@ -6553,12 +6644,16 @@ def _events_once():
             if a and not _ev_state["rotip"].get(L["id"] + ":" + ax):
                 _ev_state["rotip"][L["id"] + ":" + ax] = a
 
-    def _es(L):
+    _nodes = {n["id"]: n for n in nodes}
+
+    def _es(t):
+        L, end = t
         try:
-            return api_edge_status({"id": L["id"]})
+            return _edge_status_of(L, _nodes.get(_node_id_of(L, end)), _EV_END_MISSING[end])
         except Exception:
             return None
-    pre = dict(zip((L["id"] for L in todo), parallel_map(_es, todo)))
+    ends = [(L, e) for L in todo for e in ("cli", "srv")]
+    pre = dict(zip(((L["id"], e) for L, e in ends), parallel_map(_es, ends)))
     for L in links:
         if L.get("type") != "core" or not L.get("enabled", True):
             continue
@@ -6569,71 +6664,18 @@ def _events_once():
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
-        r = pre.get(lid)
-        if not r or "error" in r:
-            continue
-
-        try:
-            _ev_seed_axes(lid, is_pool, r.get("active"))
-            raw_evs = r.get("events")
-            clean = []
-            if isinstance(raw_evs, list):
-                for e in raw_evs:
-                    if not isinstance(e, dict):
-                        continue
-                    try:
-                        sq = int(e.get("seq") or 0)
-                    except (TypeError, ValueError):
-                        continue
-                    clean.append((sq, e))
-            mx = max([0] + [sq for sq, _ in clean])
-            if first:
-                _ev_state["evseq"][lid] = mx
-            else:
-                last = _ev_state["evseq"].get(lid, 0)
-                if clean and mx < last:
-                    last = 0
-                for sq, e in sorted(clean, key=lambda x: x[0]):
-                    if sq <= last:
-                        continue
-                    ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
-                    rot = _ev_rot(ekind, ecode)
-                    if rot and ecode == "port-roll":
-                        kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
-                        lvl = rot[0]
-                        tries, sport = kv.get("tries"), kv.get("sport")
-                        say = f"تونلِ «{nm}»: با چرخشِ پورتِ مبدأ"
-                        if tries:
-                            say += f" پس از {tries} تلاش"
-                        if sport:
-                            say += f"، با پورتِ {sport}"
-                        say += " برگشت"
-                        log_event(lvl, rot[3], say, "")
-                        continue
-                    if rot and rot[2]:
-                        axis = rot[2]
-                        val = _ev_value(edet) or _ev_ip(edet)
-                        rk = lid + ":" + axis
-                        prev = _ev_state["rotip"].get(rk)
-                        if val:
-                            _ev_state["rotip"][rk] = val
-                        other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
-                        lvl, fa = rot[0], rot[1]
-                        dfa = _rot_pair(axis, prev, val, other)
-                        log_event(lvl, rot[3], f"تونلِ «{nm}»: {fa}", dfa)
-                        continue
-                    if rot:
-                        log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}", "")
-                        continue
-                    txt = _ev_core_text(ekind, ecode, edet, nm)
-                    if txt:
-                        log_event(*txt)
-                _ev_state["evseq"][lid] = max(last, mx)
-
-        except Exception:
-            continue
-    for lid in [k for k in _ev_state["evseq"] if k not in seen]:
-        _ev_state["evseq"].pop(lid, None)
+        for end in ("cli", "srv"):
+            r = pre.get((lid, end))
+            if not r or "error" in r:
+                continue
+            try:
+                if end == "cli":
+                    _ev_seed_axes(lid, is_pool, r.get("active"))
+                _ingest_core_events(lid, end, nm, _ev_where(L, end), r.get("events"), first)
+            except Exception:
+                continue
+    for k in [k for k in _ev_state["evseq"] if k.split("|", 1)[0] not in seen]:
+        _ev_state["evseq"].pop(k, None)
     for rk in [k for k in _ev_state["rotip"] if k.rsplit(":", 1)[0] not in seen]:
         _ev_state["rotip"].pop(rk, None)
 
@@ -8718,7 +8760,7 @@ search:"جستجو…",
  rb_no_link:"اطلاعاتِ لینک در دسترس نیست",rb_no_drift:"این تونل driftی ندارد",rebuilding:"در حال بازسازی…",rb_fetch_err:"خطا در دریافتِ اطلاعات",
  core_edit_t:"ویرایشِ تونلِ هسته",not_found:"یافت نشد",core_tun_t:"تونلِ هسته",core_tun_sub:"هستهٔ اختصاصی · packet/core",
  raw_need_enc:"حاملِ raw به رمزنگاری نیاز دارد",
- wss_need_host:"برای wss باید دامنه (Host) را وارد کنی",ech_need_wss:"ECH به wss نیاز دارد — اول wss را روشن کن",sni_need_wss:"تقسیمِ SNI به wss نیاز دارد — اول wss را روشن کن",
+ wss_need_host:"برای wss باید دامنه (Host) را وارد کنی",wss_need_edge:"wss یعنی TLS روی لبهٔ CDN باز می‌شود؛ با خالی بودنِ «آی‌پیِ لبهٔ CDN» کلاینت مستقیم به خودِ سرور وصل می‌شود و هسته آن‌جا TLS را باز نمی‌کند",ech_need_wss:"ECH به wss نیاز دارد — اول wss را روشن کن",sni_need_wss:"تقسیمِ SNI به wss نیاز دارد — اول wss را روشن کن",
  cdn_need_wss:"gRPC نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا حاملِ HTTP را انتخاب کن",
  cover_need_sni:"برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی",
  creating_core:"در حال ساختِ تونلِ هسته روی دو نود…",saving_rebuild_both:"در حال ذخیره و بازسازیِ دو سر…",
@@ -10759,7 +10801,7 @@ function _collectCoreBody(S,px,m,body){
   body.raw_dports=sprotLive(S)?dportsN(px):0;
   body.conntrack_bypass=ctbOn(S)&&!!S.Ctb;
   if(S.RawProfile=='udp'||S.RawProfile=='tcp'){var _po=portErr(px);if(_po){formErr(m,_po);return true}
-   var _rt=parseInt(v(px+'rawport'),10);if(_rt>=1&&_rt<=65535)body.raw_port=_rt
+   var _rt=parseInt(v(px+'rawport'),10);body.raw_port=(_rt>=1&&_rt<=65535)?_rt:0
    if(body.raw_sport_rotate){body.raw_sport_random=false;body.raw_sport=0}
    else{var _se=sportErr(px);if(_se){formErr(m,_se);return true}
     body.raw_sport_random=!!S.SportRandom;
@@ -10773,7 +10815,7 @@ function _collectCoreBody(S,px,m,body){
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){if(dsTtlUsed(S))body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
   if(body.fake_mode=='both'&&body.fake_count<2){formErr(m,T('ds_both_needs2'));return true}}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_id=ssVal(px+'echproxyid');body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;if(S.Ech&&!body.split_pos){formErr(m,T('sni_ech_need_pos'));return true}}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc'){var _ce=cdnShapeErr(px,S);if(_ce){formErr(m,_ce);return true}cdnShapeBody(px,body,S.Cdn)}if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_id=ssVal(px+'echproxyid');body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;if(S.Ech&&!body.split_pos){formErr(m,T('sni_ech_need_pos'));return true}}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc'){var _ce=cdnShapeErr(px,S);if(_ce){formErr(m,_ce);return true}cdnShapeBody(px,body,S.Cdn)}if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.WsTls&&!body.edge_ip){formErr(m,T('wss_need_edge'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){formErr(m,T('two_diff_nodes'));return}
@@ -10794,8 +10836,8 @@ async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e
  if(vr.err){formErr(m,vr.err);return}
  closeModal(m.closest('.modalov'));refreshCore()}
 _eeS.Srv='a',_eeS.Tr='udp',_eeS.Obfs=false,_eeS.Cover=false,_eeS.RawProfile='bare',_eeS.SportRandom=false,_eeS.Sprot=false,_eeS.Ctb=false,_eeS.Gso=false,_eeS.WsTls=false,_eeS.Ech=false,_eeS.EchProxy=false,_eeS.Cdn='ws',_eeS.Fec=false,_eeS.FecData=16,_eeS.FecParity=4,_eeS.Desync=false,_eeS.DesyncTtl=4,_eeS.DesyncCount=2,_eeS.DesyncMode='ttl',_eeS.SniSplit=false,_eeS.SplitPos=0,_eeS.SniMode='split',_eeS.SplitTtl=0;
-function ceApplyGates(){ceRawVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
-function ceSetTr(t){_eeS.Tr=t;cipherVis('ee_',_eeS);_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
+function ceApplyGates(){cipherVis('ee_',_eeS);ceRawVis();ceWsVis();cePortGate();ceCoverGate();ceFecGate();ceProtoVis();cePortVis();cePortTriesVis();ceDesyncGate();ceCdnShapeGate();corRotVis('ee_');ceWorkersVis();onEeCipher()}   
+function ceSetTr(t){_eeS.Tr=t;_ENUMS.tr_all.forEach(function(x){var b=el('ee_tr_'+x);if(b)b.classList.toggle('on',t==x)});ceApplyGates()}
 
 function ceWsVis(){var ws=_eeS.Tr=='ws';var w=el('ee_wsblk');if(w)w.style.display=ws?'':'none';var t=el('ee_wstlsrow'),e=el('ee_wsechrow');if(t)t.style.display=ws?'':'none';if(e)e.style.display=ws?'':'none';var sr=el('ee_snisplitrow');if(sr)sr.style.display=ws?'':'none';var sb=el('ee_snisplitbody');if(sb)sb.style.display=(ws&&_eeS.SniSplit)?'':'none';ceEchPxGate();if(ws){poolVis('ee_');ceWssGate()}}
 function ceToggleWsTls(){_eeS.WsTls=!_eeS.WsTls;var s=el('ee_wstls');if(s)s.classList.toggle('on',_eeS.WsTls);if(!_eeS.WsTls){if(_eeS.Ech){_eeS.Ech=false;var e=el('ee_wsech');if(e)e.classList.remove('on')}if(_eeS.SniSplit){_eeS.SniSplit=false;var q=el('ee_snisplit');if(q)q.classList.remove('on');var b=el('ee_snisplitbody');if(b)b.style.display='none'}}ceEchPxGate()}
