@@ -8809,7 +8809,7 @@ search:"جستجو…",
  snr_192:"خودکار · 192.168.x (پیشنهادی)",snr_10:"خودکار · 10.x",snr_172:"خودکار · 172.16.x",snr_custom:"دلخواه (دستی وارد کن)",
  rawp_bare_m:"proto دلخواه · بدونِ هدر",rawp_icmp_m:"proto 1 · شبیهِ ping",rawp_gre_m:"proto 47 · GRE",rawp_ipip_m:"proto 4 · IP-in-IP",rawp_udp_m:"proto 17 · UDP",rawp_tcp_m:"proto 6 · TCP جعلی",rawp_esp_m:"proto 50 · IPsec ESP",rawp_l2tpv3_m:"proto 115 · تونلِ L2TPv3",rawp_ah_m:"proto 51 · IPsec AH",rawp_ipcomp_m:"proto 108 · IPComp",rawp_etherip_m:"proto 97 · EtherIP",
  cdn_shape_lbl:"شکلِ حاملِ http",
- cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",cdn_uprate_lbl:"سقفِ آپلود (POST/ثانیه · 0 = بی‌سقف)",
+ cdn_upw_lbl:"کارگرِ آپلود",cdn_upkb_lbl:"اندازهٔ هر آپلود (KB)",cdn_strm_lbl:"جریانِ حامل",cdn_uprate_lbl:"سقفِ آپلود (POST/ثانیه؛ ۰ = بی‌سقف)",cdn_bad:"مقدار بیرونِ بازه است:",
  wsp_ws_m:"وب‌سوکت",wsp_grpc_m:"استریمِ دوطرفه",wsp_http_m:"GET + POST",
  grpc_zone_warn:"این حامل باید روی خودِ زونِ CDN فعال باشد، وگرنه لبه درخواست را با 403 رد می‌کند و تونل اصلاً بالا نمی‌آید.",
  
@@ -10179,13 +10179,34 @@ function wsProfOf(S){return (S.Cdn=='http'||S.Cdn=='grpc')?S.Cdn:'ws'}
 var CDN_SHAPE=(function(){var m={upw:'http_up_workers',upkb:'http_up_batch_kb',uprate:'http_up_rate',downw:'http_streams'},o={};
  Object.keys(m).forEach(function(n){var s=_ENUMS.http_shape[m[n]];o[n]={k:m[n],lo:s.lo,hi:s.hi,d:s.d}});return o})();
 function cdnShapeApplies(f,cdn){return cdn=='http'||_ENUMS.http_shape_grpc.indexOf(f.k)>=0}
-function cdnNum(idp,n,lbl,l){var f=CDN_SHAPE[n];var cur=(l&&l[f.k])||f.d;return '<div style="flex:1;min-width:92px"><label style="margin-top:0">'+esc(lbl)+'</label><input id="'+idp+'cdn'+n+'" type="number" min="'+f.lo+'" max="'+f.hi+'" value="'+cur+'"></div>'}
-function cdnShapeInputs(idp,l){return '<div id="'+idp+'cdnup" style="display:flex;gap:8px;flex:2">'+cdnNum(idp,'upw',T('cdn_upw_lbl'),l)+cdnNum(idp,'upkb',T('cdn_upkb_lbl'),l)+cdnNum(idp,'uprate',T('cdn_uprate_lbl'),l)+'</div>'+cdnNum(idp,'downw',T('cdn_strm_lbl'),l)}
-function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(!cdnShapeApplies(f,cdn))return;var x=parseInt(v(px+'cdn'+n));if(!(x>=f.lo&&x<=f.hi))x=f.d;body[f.k]=x})}
+function cdnLbl(n){return {upw:T('cdn_upw_lbl'),upkb:T('cdn_upkb_lbl'),uprate:T('cdn_uprate_lbl'),downw:T('cdn_strm_lbl')}[n]}
+function cdnNum(idp,fnp,n,l){var f=CDN_SHAPE[n];var cur=(l&&l[f.k])||f.d;
+ return '<div id="'+idp+'cdnbox'+n+'" style="display:flex;flex-direction:column;min-width:0">'
+  +'<label style="margin-top:0;flex:1">'+esc(cdnLbl(n))+' <span class="muted" dir="ltr">'+f.lo+'–'+f.hi+'</span></label>'
+  +'<input id="'+idp+'cdn'+n+'" type="number" inputmode="numeric" min="'+f.lo+'" max="'+f.hi+'" value="'+cur+'" oninput="'+fnp+'CdnWarn()"></div>'}
+function cdnShapeVal(px,n){var f=CDN_SHAPE[n],e=el(px+'cdn'+n);if(!e)return f.d;
+ var s=(e.value||'').trim();if(s==='')return f.d;
+ var x=parseInt(s,10);return isNaN(x)?NaN:x}
+function cdnShapeErr(px,S){if(!cdnShapeOn(S))return '';
+ var bad='';
+ Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(bad||!cdnShapeApplies(f,S.Cdn))return;
+  var x=cdnShapeVal(px,n);if(isNaN(x)||x<f.lo||x>f.hi)bad=T('cdn_bad')+' '+cdnLbl(n)+' '+f.lo+'–'+f.hi});
+ return bad}
+function cdnWarnUpd(px,S){var w=el(px+'cdnwarn');if(!w)return;
+ var e=cdnShapeErr(px,S);
+ if(e){w.style.display='';w.innerHTML=ic('warn')+'<span>'+esc(e)+'</span>'}else{w.style.display='none';w.innerHTML=''}}
+function corCdnWarn(){cdnWarnUpd('e_',_corS)}
+function ceCdnWarn(){cdnWarnUpd('ee_',_eeS)}
+function cdnShapeInputs(idp,fnp,l){return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px">'
+ +cdnNum(idp,fnp,'upw',l)+cdnNum(idp,fnp,'upkb',l)+cdnNum(idp,fnp,'uprate',l)+cdnNum(idp,fnp,'downw',l)
+ +'</div><div class="warncap no" id="'+idp+'cdnwarn" style="display:none"></div>'}
+function cdnShapeBody(px,body,cdn){Object.keys(CDN_SHAPE).forEach(function(n){var f=CDN_SHAPE[n];if(!cdnShapeApplies(f,cdn))return;var x=cdnShapeVal(px,n);if(isNaN(x)||x<f.lo||x>f.hi)x=f.d;body[f.k]=x})}
 function cdnShapeOn(S){return S.Tr=='ws'&&(S.Cdn=='http'||S.Cdn=='grpc')}
 function corCdnShapeGate(){cdnShapeRow('e_',_corS);grpcZoneGate(_corS,'e_')}
 function ceCdnShapeGate(){cdnShapeRow('ee_',_eeS);grpcZoneGate(_eeS,'ee_')}
-function cdnShapeRow(px,S){var r=el(px+'cdnprow');if(r)r.style.display=cdnShapeOn(S)?'':'none';var u=el(px+'cdnup');if(u)u.style.display=(S.Cdn=='http')?'flex':'none'}
+function cdnShapeRow(px,S){var r=el(px+'cdnprow');if(r)r.style.display=cdnShapeOn(S)?'':'none';
+ ['upw','upkb','uprate'].forEach(function(n){var e=el(px+'cdnbox'+n);if(e)e.style.display=(S.Cdn=='http')?'flex':'none'});
+ cdnWarnUpd(px,S)}
 function wsProfTiles(px,cur){return WS_PROFILES().map(function(p){return '<button type="button" class="ptile'+(p.v==cur?' on':'')+'" data-wp="'+p.v+'" data-ha="'+esc(p.v)+'" onclick="'+px+'SetWsProf(hA(this))"><div class="pn">'+p.v+'</div><div class="pmeta">'+esc(p.m)+'</div></button>'}).join('')}
 function grpcZoneGate(S,px){var w=el(px+'grpczone');if(w)w.style.display=(S.Cdn=='grpc')?'':'none'}
 function _setWsProf(S,px,p){S.Cdn=p;grpcZoneGate(S,px);
@@ -10564,7 +10585,7 @@ function wsSection(idp,fnp,host,path,tls,edge,ech,cdn,lid,shape){return '<div id
  +'<label>'+esc(T('ws_prof_lbl'))+'</label><div class="pgrid p3" id="'+idp+'wspg">'+wsProfTiles(fnp,wsProfOf({Cdn:cdn}))+'</div>'
  +'<div class="warncap no" id="'+idp+'grpczone" style="display:none;margin-top:8px">'+ic('warn')+'<span>'+esc(T('grpc_zone_warn'))+'</span></div>'
  +'<div id="'+idp+'cdnprow" style="display:none;margin-bottom:8px"><label style="margin-top:2px">'+esc(T('cdn_shape_lbl'))+'</label>'
- +'<div style="display:flex;gap:8px">'+cdnShapeInputs(idp,shape)+'</div>'
+ +cdnShapeInputs(idp,fnp,shape)
  +'</div>'
  +'<div class="tglbox"><div class="tglsw" id="'+idp+'pooltgl" onclick="'+fnp+'TogglePool()"></div><div class="tt"><b>'+esc(T('ws_pool_t'))+'</b><small>'+esc(T('ws_pool_d'))+'</small></div></div>'
  +'<div id="'+idp+'wshostblk" style="margin-top:11px">'
@@ -10752,7 +10773,7 @@ function _collectCoreBody(S,px,m,body){
  if(wkCarrier(S)){body.a_workers=wkClamp(S.WorkersA);body.b_workers=wkClamp(S.WorkersB)}
  if(desyncOk(S)){body.fake_desync=S.Desync;if(S.Desync){if(dsTtlUsed(S))body.fake_ttl=parseInt(v(px+'dsttl'))||4;body.fake_count=parseInt(v(px+'dscount'))||2;body.fake_mode=S.DesyncMode;
   if(body.fake_mode=='both'&&body.fake_count<2){formErr(m,T('ds_both_needs2'));return true}}}
- if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_id=ssVal(px+'echproxyid');body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;if(S.Ech&&!body.split_pos){formErr(m,T('sni_ech_need_pos'));return true}}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc')cdnShapeBody(px,body,S.Cdn);if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
+ if(S.Tr=='ws'){body.ws_path=(v(px+'wspath')||'').trim();body.ws_tls=S.WsTls;body.ech=S.Ech;body.ech_proxy=(S.Ech&&S.EchProxy);if(S.Ech&&S.EchProxy)body.ech_proxy_id=ssVal(px+'echproxyid');body.sni_split=S.SniSplit;if(S.SniSplit){body.split_pos=parseInt(v(px+'snisplitpos'))||0;body.sni_mode=S.SniMode;if(S.SniMode=='disorder')body.split_ttl=parseInt(v(px+'splitttl'))||0;if(S.Ech&&!body.split_pos){formErr(m,T('sni_ech_need_pos'));return true}}body.cdn_carrier=S.Cdn;if(S.Cdn=='http'||S.Cdn=='grpc'){var _ce=cdnShapeErr(px,S);if(_ce){formErr(m,_ce);return true}cdnShapeBody(px,body,S.Cdn)}if(poolGet(px+'').pool){var pe=poolCollect(px+'',body);if(pe!==true){formErr(m,pe);return true}}else{body.ws_pool=false;body.ws_host=(v(px+'wshost')||'').trim();body.edge_ip=(v(px+'wsedge')||'').trim();if(S.WsTls&&!body.ws_host){formErr(m,T('wss_need_host'));return true}if(S.Ech&&!S.WsTls){formErr(m,T('ech_need_wss'));return true}if(S.Cdn=='grpc'&&!S.WsTls){formErr(m,T('cdn_need_wss'));return true}}}
  return false}
 async function doCreateCore(){var m=el('e_msg');m.className='msg';var a=ssVal('e_a'),bb=ssVal('e_b');
  if(a==bb){formErr(m,T('two_diff_nodes'));return}
