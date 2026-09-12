@@ -179,3 +179,155 @@ select:focus {
   background: var(--acc);
   color: #fff;
 }
+
+.seg2 {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 11px;
+}
+
+.seg2 .segopt {
+  flex: 1;
+  border: 1.5px solid var(--bord);
+  background: var(--field);
+  border-radius: 11px;
+  padding: 9px 8px;
+  text-align: center;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--tx);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.seg2 .segopt b {
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.seg2 .segopt span {
+  font-size: 10px;
+  color: var(--sub);
+}
+
+.seg2 .segopt.on {
+  border-color: var(--acc);
+  background: var(--accw);
+}
+
+.seg2 .segopt.on span {
+  color: color-mix(in srgb, var(--acc) 80%, var(--sub));
+}
+
+.pgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 2px 0 4px;
+}
+
+.pgrid.p3 {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.pgrid.p3 .ptile {
+  padding: 9px 8px;
+}
+
+.ptile {
+  position: relative;
+  border: 1.5px solid var(--bord);
+  background: var(--field);
+  border-radius: 12px;
+  padding: 9px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: start;
+  color: var(--tx);
+}
+
+.ptile .pn {
+  font-size: 13px;
+  font-weight: 800;
+  direction: ltr;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+
+.ptile .pmeta {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--sub);
+}
+
+.ptile.on {
+  border-color: color-mix(in srgb, var(--acc) 60%, transparent);
+  background: var(--accw);
+}
+
+.ptile.on .pn {
+  color: var(--acc);
+}
+
+.trwrap {
+  position: relative;
+  margin: 2px 0 11px;
+}
+
+.trwrap .trbar {
+  margin: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.trwrap .trbar::-webkit-scrollbar {
+  display: none;
+}
+
+.trwrap .trbar .segopt {
+  flex: 0 0 auto;
+  width: 82px;
+  scroll-snap-align: start;
+}
+
+.trwrap .trbar .segopt span {
+  white-space: nowrap;
+}
+
+.trwrap::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 2px;
+  inset-inline-end: 0;
+  width: 34px;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity .2s;
+  background: linear-gradient(to left, transparent, var(--card));
+}
+
+[dir="ltr"] .trwrap::before {
+  background: linear-gradient(to right, transparent, var(--card));
+}
+
+.trwrap.atend::before {
+  opacity: 0;
+}
+
+.tglbox.dis {
+  opacity: .45;
+  pointer-events: none;
+}
+
+.portlock {
+  opacity: .42;
+  pointer-events: none;
+}

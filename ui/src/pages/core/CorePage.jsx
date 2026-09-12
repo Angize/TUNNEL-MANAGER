@@ -5,6 +5,7 @@ import Toolbar from '../../components/Toolbar.jsx'
 import PendingCard from '../../components/PendingCard.jsx'
 import { CardSkeletons } from '../../components/Skeleton.jsx'
 import CoreCard from './CoreCard.jsx'
+import CoreFormModal from './form/CoreFormModal.jsx'
 import { tagClassForFamily } from './carrier.js'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
@@ -20,6 +21,7 @@ export default function CorePage() {
   const [checking, setChecking] = useState(false)
   const [tagOverrides, setTagOverrides] = useState({})
   const [edges, setEdges] = useState({})
+  const [editing, setEditing] = useState(null)
   const checkRefs = useRef({})
 
   const load = useCallback(async () => {
@@ -89,6 +91,8 @@ export default function CorePage() {
     toast(T('checkall_done'), 'ok')
   }
 
+  const closeForm = useCallback(() => setEditing(null), [])
+
   const afterAction = useCallback(async () => {
     await actsRefresh()
     await reload()
@@ -104,7 +108,7 @@ export default function CorePage() {
       <PageHead icon="cpu" titleKey="nav_core" subKey="core_sub" />
 
       <div className="tbtnrow">
-        <button className="primary" disabled>
+        <button className="primary" onClick={() => setEditing({})}>
           <Icon name="plus" />
           {T('core_add')}
         </button>
@@ -131,7 +135,7 @@ export default function CorePage() {
                 key={link.id}
                 link={link}
                 activeEdge={edges[link.id] || ''}
-                onEdit={null}
+                onEdit={setEditing}
                 onReload={afterAction}
                 onTag={setTag}
                 registerCheck={(fn) => {
@@ -147,6 +151,14 @@ export default function CorePage() {
           <div className="card muted">{query ? T('no_results') : T('core_empty')}</div>
         )}
       </div>
+
+      {editing ? (
+        <CoreFormModal
+          link={editing.id ? editing : null}
+          onClose={closeForm}
+          onDone={afterAction}
+        />
+      ) : null}
     </>
   )
 }

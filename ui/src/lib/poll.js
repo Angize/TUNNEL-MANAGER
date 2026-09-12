@@ -15,3 +15,13 @@ export function runPageRefresh() {
     return Promise.resolve()
   }
 }
+
+let uiInterval = 2000
+
+export function setUiInterval(ms) {
+  uiInterval = ms
+}
+
+export function getUiInterval() {
+  return uiInterval
+}

@@ -370,8 +370,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
               <button
                 className="act warn"
                 title={T('tip_edit')}
-                disabled={!onEdit}
-                onClick={() => onEdit && onEdit(link)}
+                onClick={() => onEdit(link)}
               >
                 <Icon name="pen" />
               </button>

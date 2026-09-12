@@ -10,6 +10,7 @@ import tunnels from './fa/tunnels.js'
 import agent from './fa/agent.js'
 import settings from './fa/settings.js'
 import core from './fa/core.js'
+import coreform from './fa/coreform.js'
 
 export const FA = {
   ...common,
@@ -24,6 +25,7 @@ export const FA = {
   ...agent,
   ...settings,
   ...core,
+  ...coreform,
 }
 
 export function T(key) {

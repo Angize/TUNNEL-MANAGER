@@ -6,7 +6,7 @@ import { apiGet } from './lib/api.js'
 import { getLS, setLS } from './lib/storage.js'
 import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
 import { num } from './lib/num.js'
-import { runPageRefresh } from './lib/poll.js'
+import { runPageRefresh, setUiInterval } from './lib/poll.js'
 import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
@@ -102,6 +102,7 @@ function Shell() {
       })
       if (s.ui_interval) {
         interval.current = Math.max(MIN_INTERVAL, Math.round(num(s.ui_interval) * 1000))
+        setUiInterval(interval.current)
       }
 
       const raw = getLS(SEEN_KEY)
