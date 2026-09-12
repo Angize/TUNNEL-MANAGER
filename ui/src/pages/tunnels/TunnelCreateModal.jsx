@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import ModalLoading from '../../components/ModalLoading.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
@@ -11,6 +12,7 @@ import { ipItems, nodeIps } from '../../lib/nodes.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 
 const PORT_TYPES = ['l2tpv3', 'fou']
 
@@ -85,9 +87,9 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   const [port, setPort] = useState('')
   const [range, setRange] = useState('192.168')
   const [customSubnet, setCustomSubnet] = useState('')
-  const [subnetFree, setSubnetFree] = useState(null)
   const [message, setMessage] = useState('')
   const { waitAccepted } = useActs()
+  const { subnetFree } = useSummary()
   const mounted = useRef(true)
 
   useEffect(() => () => {
@@ -110,17 +112,21 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
         setBNode(online[1].id)
       })
       .catch(() => {})
-    apiGet('summary')
-      .then((s) => {
-        if (alive && s.subnet_free) setSubnetFree(s.subnet_free)
-      })
-      .catch(() => {})
     return () => {
       alive = false
     }
   }, [onClose])
 
-  if (!nodes) return null
+  if (!nodes) {
+    return (
+      <ModalLoading
+        icon="plus"
+        title={T('add_tunnel_t')}
+        subtitle={T('create_sub')}
+        onClose={onClose}
+      />
+    )
+  }
 
   const items = nodes.map((n) => ({ v: n.id, label: n.name, sub: n.host }))
   const aIps = nodeIps(nodes, aNode)

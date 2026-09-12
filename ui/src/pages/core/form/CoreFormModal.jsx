@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Modal from '../../../components/Modal.jsx'
+import ModalLoading from '../../../components/ModalLoading.jsx'
 import Icon from '../../../components/Icon.jsx'
 import IpsTab from './IpsTab.jsx'
 import SettingsTab from './SettingsTab.jsx'
@@ -15,6 +16,7 @@ import { toast } from '../../../lib/toast.js'
 import { nodeIps } from '../../../lib/nodes.js'
 import { subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
+import { useSummary } from '../../../state/SummaryContext.jsx'
 import { useUiConfig } from '../../../state/UiConfigContext.jsx'
 import { T } from '../../../i18n/fa.js'
 import '../coreform.css'
@@ -27,9 +29,9 @@ const TABS = [
 export default function CoreFormModal({ link, onClose, onDone }) {
   const cfg = useUiConfig()
   const { waitAccepted } = useActs()
+  const { subnetFree } = useSummary()
   const [nodes, setNodes] = useState(null)
   const [proxies, setProxies] = useState([])
-  const [subnetFree, setSubnetFree] = useState(null)
   const [tab, setTab] = useState('ip')
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
@@ -72,9 +74,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     load()
     apiGet('proxies')
       .then((r) => alive && setProxies(r.proxies || []))
-      .catch(() => {})
-    apiGet('summary')
-      .then((s) => alive && s.subnet_free && setSubnetFree(s.subnet_free))
       .catch(() => {})
     return () => {
       alive = false
@@ -152,7 +151,17 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const poolLive = usePoolStatus(poolLid, !!(form && form.pool.pool))
   const peerLive = usePeerStatus(peerLid)
 
-  if (!form) return null
+  if (!form) {
+    return (
+      <ModalLoading
+        icon={link ? 'pen' : 'cpu'}
+        title={T(link ? 'core_edit_t' : 'core_tun_t')}
+        subtitle={link ? link.name : T('core_tun_sub')}
+        cls="edit"
+        onClose={onClose}
+      />
+    )
+  }
 
   const sides = {
     a: { name: nodeLabel(items, form.aNode), cpus: nodeCpus(nodes, form.aNode) },

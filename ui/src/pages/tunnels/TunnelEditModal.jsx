@@ -3,13 +3,14 @@ import Modal from '../../components/Modal.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
-import { apiGet, apiPost } from '../../lib/api.js'
+import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { ipItems } from '../../lib/nodes.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetBaseOf, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 
 const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
 
@@ -38,6 +39,7 @@ function EndIpField({ label, ips, current, value, onChange }) {
 
 export default function TunnelEditModal({ link, onClose, onSaved }) {
   const { waitAccepted } = useActs()
+  const { subnetFree } = useSummary()
   const mounted = useRef(true)
   const [type, setType] = useState(link.type)
   const [base, setBase] = useState(() => subnetBaseOf(link))
@@ -45,24 +47,12 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const [aIp, setAIp] = useState('')
   const [bIp, setBIp] = useState('')
   const [port, setPort] = useState(link.port == null ? '' : String(link.port))
-  const [subnetFree, setSubnetFree] = useState(null)
   const [message, setMessage] = useState('')
 
   useEffect(() => () => {
     mounted.current = false
   }, [])
 
-  useEffect(() => {
-    let alive = true
-    apiGet('summary')
-      .then((s) => {
-        if (alive && s.subnet_free) setSubnetFree(s.subnet_free)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
 
   const recalc = (nextType, nextBase) => {
     if (nextBase && nextBase !== 'custom') {

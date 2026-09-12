@@ -101,6 +101,7 @@ function Shell() {
         },
         evSeq: seq,
         logCount: num(s.log_count),
+        subnetFree: s.subnet_free || null,
       })
       if (s.ui_interval) {
         interval.current = Math.max(MIN_INTERVAL, Math.round(num(s.ui_interval) * 1000))
@@ -163,7 +164,12 @@ function Shell() {
   }, [])
 
   const summaryValue = useMemo(
-    () => ({ counts: summary.counts, evSeq: summary.evSeq, logCount: summary.logCount }),
+    () => ({
+      counts: summary.counts,
+      evSeq: summary.evSeq,
+      logCount: summary.logCount,
+      subnetFree: summary.subnetFree,
+    }),
     [summary]
   )
 

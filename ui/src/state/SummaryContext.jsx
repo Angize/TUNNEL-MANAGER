@@ -1,6 +1,12 @@
 import { createContext, useContext } from 'react'
 
-const SummaryContext = createContext({ counts: {}, evSeq: 0, logCount: 0, markLogsSeen: () => {} })
+const SummaryContext = createContext({
+  counts: {},
+  evSeq: 0,
+  logCount: 0,
+  subnetFree: null,
+  markLogsSeen: () => {},
+})
 
 export function SummaryProvider({ value, children }) {
   return <SummaryContext.Provider value={value}>{children}</SummaryContext.Provider>
