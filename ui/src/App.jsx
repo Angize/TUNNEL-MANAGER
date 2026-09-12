@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
 import ReadinessBar from './shell/ReadinessBar.jsx'
+import CommandPalette from './shell/CommandPalette.jsx'
 import { apiGet } from './lib/api.js'
 import { getLS, setLS } from './lib/storage.js'
 import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
@@ -32,6 +33,7 @@ function Shell() {
   const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0 })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
+  const [palette, setPalette] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const [readiness, setReadiness] = useState(null)
   const [uiConfig, setUiConfig] = useState(null)
@@ -165,6 +167,24 @@ function Shell() {
     [summary]
   )
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K'))) return
+      if (palette) {
+        e.preventDefault()
+        setPalette(false)
+        return
+      }
+      const tag = e.target && e.target.tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      if (document.querySelector('.modalov')) return
+      e.preventDefault()
+      setPalette(true)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [palette])
+
   const Page = pageComponent(page) || pageComponent('overview')
 
   return (
@@ -188,6 +208,14 @@ function Shell() {
           </div>
         </main>
       </div>
+      {palette ? (
+        <CommandPalette
+          dark={dark}
+          onNavigate={navigate}
+          onToggleTheme={onToggleTheme}
+          onClose={() => setPalette(false)}
+        />
+      ) : null}
       <ToastHost />
       <DialogHost />
     </>

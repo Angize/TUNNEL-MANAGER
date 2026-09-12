@@ -7,6 +7,7 @@ import TunnelMeta from './TunnelMeta.jsx'
 import RichText from '../../components/RichText.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { boxClass, sideState, sideText } from './sideHealth.js'
+import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { T } from '../../i18n/fa.js'
@@ -91,6 +92,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   const hold = useLongPress(() => setPicking(true))
   const act = actFor(link.id)
   const dragging = useDragging(link.id)
+  const [pickingRebuild, setPickingRebuild] = useState(false)
   const enabled = link.enabled !== false
 
   const toggle = async (e) => {
@@ -184,6 +186,10 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   }
 
   const rebuild = async () => {
+    if (link.drift) {
+      setPickingRebuild(true)
+      return
+    }
     if (!(await confirmBox(T('rebuild_confirm')))) return
     const r = await apiPost('rebuild-link', { id: link.id })
     if (!(r.ok && r.d.act)) {
@@ -382,6 +388,14 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
             onTag(link, tag)
           }}
           onClose={() => setPicking(false)}
+        />
+      ) : null}
+
+      {pickingRebuild ? (
+        <RebuildPicker
+          id={link.id}
+          onClose={() => setPickingRebuild(false)}
+          onDone={onReload}
         />
       ) : null}
     </>

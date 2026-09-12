@@ -8,6 +8,12 @@ const DEBOUNCE = 280
 export default function Toolbar({ value, placeholder, reorder, onSearch }) {
   const [text, setText] = useState(value || '')
   const timer = useRef(0)
+  const lastValue = useRef(value)
+
+  if (lastValue.current !== value) {
+    lastValue.current = value
+    if ((value || '') !== text.trim()) setText(value || '')
+  }
 
   useEffect(() => () => clearTimeout(timer.current), [])
 

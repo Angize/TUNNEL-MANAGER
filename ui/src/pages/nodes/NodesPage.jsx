@@ -14,6 +14,7 @@ import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import './nodes.css'
@@ -45,7 +46,7 @@ function StaleBanner({ count }) {
 }
 
 export default function NodesPage() {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = usePageQuery('nodes')
   const [overrides, setOverrides] = useState({})
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(null)

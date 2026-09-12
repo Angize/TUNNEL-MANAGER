@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
+import IpChips from '../../components/IpChips.jsx'
 import Gauge from '../overview/Gauge.jsx'
 import Sparkline from '../overview/Sparkline.jsx'
 import { T } from '../../i18n/fa.js'
@@ -287,11 +288,7 @@ export default function NodeDetailsModal({ node, onClose }) {
                     {entry.ip}
                   </span>
                   <span className="tgs">
-                    {(entry.peers || []).map((p, i) => (
-                      <span className="ippeer" key={p.node + i}>
-                        <span className="ipn">{p.node}</span>
-                      </span>
-                    ))}
+                    <IpChips entry={entry} />
                   </span>
                 </div>
               ))

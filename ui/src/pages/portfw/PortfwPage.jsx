@@ -10,6 +10,7 @@ import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import usePolledData from '../../lib/usePolledData.js'
+import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 
@@ -21,7 +22,7 @@ const ADD_BUTTON_STYLE = {
 }
 
 export default function PortfwPage() {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = usePageQuery('portfw')
   const [nodes, setNodes] = useState([])
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(null)

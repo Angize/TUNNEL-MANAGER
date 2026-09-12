@@ -696,3 +696,46 @@
 .delopt.danger .do-s {
   color: color-mix(in srgb, var(--bad) 72%, var(--sub));
 }
+
+.ippeer .ipi {
+  display: none;
+}
+
+.ippeer.show .ipn {
+  display: none;
+}
+
+.ippeer.show .ipi {
+  display: inline;
+}
+
+.ippeer.show {
+  background: var(--acc);
+  color: #fff;
+}
+
+.ipfree {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sub);
+  border: 1px dashed var(--bord);
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.ippf {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #fb923c 15%, transparent);
+  color: #fb923c;
+}
+
+.ippf .ic {
+  width: 12px;
+  height: 12px;
+}

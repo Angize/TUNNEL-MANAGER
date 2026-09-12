@@ -12,6 +12,8 @@ import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import usePageQuery from '../../lib/pageQuery.js'
+import { registerCommand } from '../../lib/pageCommand.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
@@ -23,12 +25,13 @@ function ctagClass(family) {
 
 export default function TunnelsPage() {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = usePageQuery('tunnels')
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(null)
   const [checking, setChecking] = useState(false)
   const [tagOverrides, setTagOverrides] = useState({})
   const checkRefs = useRef({})
+  const checkAllRef = useRef(null)
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -58,6 +61,14 @@ export default function TunnelsPage() {
     []
   )
 
+  useEffect(() => {
+    const off = [
+      registerCommand('tunnels:create', () => setCreating(true)),
+      registerCommand('tunnels:checkall', () => checkAllRef.current && checkAllRef.current()),
+    ]
+    return () => off.forEach((fn) => fn())
+  }, [])
+
   const checkAll = async () => {
     const links = list || []
     if (!links.length) {
@@ -77,6 +88,8 @@ export default function TunnelsPage() {
     }
     toast(T('checkall_done'), 'ok')
   }
+
+  checkAllRef.current = checkAll
 
   const afterAction = useCallback(async () => {
     await actsRefresh()

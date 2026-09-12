@@ -12,6 +12,7 @@ import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
@@ -19,7 +20,7 @@ import './core.css'
 
 export default function CorePage() {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = usePageQuery('core')
   const [checking, setChecking] = useState(false)
   const [tagOverrides, setTagOverrides] = useState({})
   const [edges, setEdges] = useState({})

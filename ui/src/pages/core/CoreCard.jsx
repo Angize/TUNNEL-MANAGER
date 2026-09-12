@@ -8,6 +8,7 @@ import CoreMeta from './CoreMeta.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { boxClass, sideState, sideText } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
+import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { T } from '../../i18n/fa.js'
@@ -115,6 +116,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   const hold = useLongPress(() => setPicking(true))
   const act = actFor(link.id)
   const dragging = useDragging(link.id)
+  const [pickingRebuild, setPickingRebuild] = useState(false)
   const enabled = link.enabled !== false
   const [first, second] = sideOrder(link)
 
@@ -222,6 +224,10 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   }
 
   const rebuild = async () => {
+    if (link.drift) {
+      setPickingRebuild(true)
+      return
+    }
     if (!(await confirmBox(T('rebuild_confirm')))) return
     const r = await apiPost('rebuild-link', { id: link.id })
     if (!(r.ok && r.d.act)) {
@@ -434,6 +440,14 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
             onTag(link, tag)
           }}
           onClose={() => setPicking(false)}
+        />
+      ) : null}
+
+      {pickingRebuild ? (
+        <RebuildPicker
+          id={link.id}
+          onClose={() => setPickingRebuild(false)}
+          onDone={onReload}
         />
       ) : null}
     </>

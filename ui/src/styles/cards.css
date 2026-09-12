@@ -367,3 +367,54 @@ body.reord-on .reordbtn {
   color: #fff;
   border-color: transparent;
 }
+
+.rbrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1.5px solid var(--bord);
+  border-radius: 11px;
+  background: var(--field);
+  margin-bottom: 7px;
+  cursor: pointer;
+  transition: .15s;
+}
+
+.rbrow:hover {
+  border-color: color-mix(in srgb, var(--acc) 50%, var(--bord));
+}
+
+.rbrow.sel {
+  border-color: var(--acc);
+  background: var(--accw);
+}
+
+.rbrow .rbdot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--sub);
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.rbrow.sel .rbdot {
+  border-color: var(--acc);
+}
+
+.rbrow.sel .rbdot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+
+.rbrow .rbtags {
+  margin-inline-start: auto;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}

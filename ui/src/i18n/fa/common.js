@@ -77,4 +77,17 @@ export default {
   unit_kb: 'کیلوبایت',
   unit_mb_full: 'مگابایت',
   reorder_err: 'ذخیرهٔ ترتیب ناموفق بود',
+
+  pal_search: 'جستجوی نود، تونل یا دستور…',
+  pal_move: 'حرکت',
+  pal_pick: 'انتخاب',
+  pal_close: 'بستن',
+  pal_none: 'موردی یافت نشد',
+  pal_g_nodes: 'نودها',
+  pal_g_tuns: 'تونل‌ها',
+  pal_g_acts: 'دستورها',
+  pal_add_tun: 'افزودن تونل',
+  pal_agent: 'بروزرسانیِ ایجنت',
+  pal_checkall: 'تستِ همهٔ تونل‌های صفحه',
+  pal_theme: 'تغییرِ تمِ روشن/تیره',
 }
