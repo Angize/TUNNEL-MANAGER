@@ -1,0 +1,331 @@
+.stpage {
+  --sc-h: 38px;
+  --sc-w: 186px;
+  --sc-g: 12px;
+}
+
+.stgrid > .card {
+  margin-bottom: var(--sc-g);
+}
+
+@media (min-width: 900px) {
+  .stgrid {
+    column-count: 2;
+    column-gap: var(--sc-g);
+  }
+
+  .stgrid > .card {
+    break-inside: avoid;
+  }
+}
+
+.sg {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sghd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--bord);
+}
+
+.sghd .sgt {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: var(--scbg);
+  color: var(--sc);
+}
+
+.sghd .sgt .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.sghd b {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.sghd .schip {
+  margin-inline-start: auto;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 9px;
+  border-radius: 20px;
+  background: var(--scbg);
+  color: var(--sc);
+  white-space: nowrap;
+}
+
+.sc-conn {
+  --sc: var(--acc2);
+  --scbg: color-mix(in srgb, var(--acc2) 13%, transparent);
+}
+
+.sc-pool {
+  --sc: var(--gold);
+  --scbg: var(--warnw);
+}
+
+.sgb {
+  padding: 2px 14px 12px;
+}
+
+.sr {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--bord);
+}
+
+.sr:last-child {
+  border-bottom: 0;
+}
+
+.srtop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--sc-h);
+}
+
+.srlbl {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.srlbl u {
+  text-decoration: none;
+  color: var(--sub);
+  font-weight: 600;
+}
+
+.srq {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bord);
+  background: var(--field);
+  color: var(--sub);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.srq:hover {
+  border-color: var(--acc);
+  color: var(--acc);
+}
+
+.sr.exp-open .srq {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #fff;
+}
+
+.srctl {
+  flex: none;
+  width: var(--sc-w);
+  max-width: 52%;
+}
+
+.srctl > * {
+  width: 100%;
+  height: var(--sc-h);
+  margin: 0;
+}
+
+.srctl input.search {
+  min-width: 0;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.srctl .setfield {
+  padding: 0 12px;
+  border-radius: 10px;
+}
+
+.srctl .msbtn {
+  padding: 0 12px;
+  border-radius: 10px;
+}
+
+.srctl input.wtxt {
+  max-width: none;
+  text-align: left;
+  direction: ltr;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+
+.srexp {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height .28s ease, opacity .2s, margin .2s;
+  background: var(--field);
+  border-radius: 11px;
+  padding: 0 12px;
+}
+
+.sr.exp-open .srexp {
+  max-height: 300px;
+  opacity: 1;
+  margin-top: 9px;
+  padding: 10px 12px;
+}
+
+.srexp p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.srexp .srex {
+  margin-top: 5px;
+  color: var(--sub);
+}
+
+.srexp .srex b {
+  color: var(--acc);
+  font-weight: 700;
+}
+
+.srnote {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  line-height: 1.85;
+  color: var(--sub);
+}
+
+.stnote {
+  margin: 2px 2px 10px;
+  font-size: 11px;
+  line-height: 1.85;
+  color: var(--sub);
+}
+
+.stsave {
+  position: sticky;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: var(--sc-g);
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--bord);
+  box-shadow: var(--dsh);
+}
+
+.stsave button {
+  margin: 0;
+  flex: none;
+  height: var(--sc-h);
+  padding: 0 15px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stsave .msg {
+  flex: none;
+  margin: 0;
+}
+
+.setfield {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 11px 13px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--tx);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.setfield .cv {
+  margin-inline-start: auto;
+  color: var(--sub);
+}
+
+.modal.modesheet {
+  max-width: 320px;
+  padding: 6px;
+}
+
+.modelist {
+  padding: 2px;
+}
+
+.mopt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 13px;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.mopt.on {
+  background: var(--accw);
+}
+
+.mopt .mrad {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 2px solid var(--sub);
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.mopt.on .mrad {
+  border-color: var(--acc);
+}
+
+.mopt.on .mrad::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+
+.mopt .mt {
+  font-weight: 800;
+  font-size: 15.5px;
+}
+
+.mopt .mdf {
+  margin-inline-start: auto;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--gold);
+  background: var(--goldw);
+  padding: 3px 9px;
+  border-radius: 20px;
+}

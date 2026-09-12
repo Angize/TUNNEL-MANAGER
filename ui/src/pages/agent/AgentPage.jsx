@@ -24,7 +24,7 @@ function Meta({ children }) {
   return <div className="opmeta">{children}</div>
 }
 
-export default function AgentPage() {
+export default function AgentPage({ headless }) {
   const [agentMeta, setAgentMeta] = useState(null)
   const [versions, setVersions] = useState([])
   const [staged, setStaged] = useState(null)
@@ -89,12 +89,14 @@ export default function AgentPage() {
 
   const push = usePushJob({ onSettled: refreshAll })
 
+  const adoptPush = push.adopt
+
   useEffect(() => {
     refreshAll()
-    push.adopt()
+    adoptPush()
     const off = setPageRefresh(loadNodes)
     return off
-  }, [refreshAll, loadNodes, push])
+  }, [refreshAll, loadNodes, adoptPush])
 
   useEffect(() => {
     loadNodes()
@@ -399,7 +401,7 @@ export default function AgentPage() {
 
   return (
     <>
-      <PageHead icon="server" titleKey="ag_title" subKey="ag_sub" />
+      {headless ? null : <PageHead icon="server" titleKey="ag_title" subKey="ag_sub" />}
 
       <div className="opgrid">
         <div className="card opc sc-panel">

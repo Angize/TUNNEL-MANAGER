@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
@@ -124,5 +124,8 @@ export default function usePushJob({ onSettled }) {
     setState((prev) => (prev ? { ...prev, paused: !!paused } : prev))
   }, [])
 
-  return { state, seeded, start, adopt, cancel, pause }
+  return useMemo(
+    () => ({ state, seeded, start, adopt, cancel, pause }),
+    [state, seeded, start, adopt, cancel, pause]
+  )
 }

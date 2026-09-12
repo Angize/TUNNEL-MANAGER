@@ -6,6 +6,7 @@ import LogsPage from './logs/LogsPage.jsx'
 import NodesPage from './nodes/NodesPage.jsx'
 import TunnelsPage from './tunnels/TunnelsPage.jsx'
 import AgentPage from './agent/AgentPage.jsx'
+import SettingsPage from './settings/SettingsPage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
@@ -17,7 +18,7 @@ const PAGES = {
   core: { icon: 'cpu', titleKey: 'nav_core', subKey: 'core_sub' },
   logs: { component: LogsPage },
   agent: { component: AgentPage },
-  settings: { icon: 'cog', titleKey: 'nav_settings', subKey: 'set_sub' },
+  settings: { component: SettingsPage },
 }
 
 export function hasPage(id) {
