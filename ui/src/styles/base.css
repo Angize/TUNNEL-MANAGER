@@ -1,0 +1,57 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html {
+  height: 100%;
+  background: var(--page);
+}
+
+body {
+  font-family: Vazirmatn, Tahoma, sans-serif;
+  color: var(--tx);
+  background: var(--page);
+  min-height: 100vh;
+  touch-action: manipulation;
+}
+
+h1 {
+  font-size: 18px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 2px 3px;
+}
+
+.sub {
+  color: var(--sub);
+  font-size: 12.5px;
+  margin: 0 2px 16px;
+}
+
+.ic {
+  display: inline-flex;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -3px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+}
+
+.chip svg,
+.ic svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.chip .ic {
+  width: 16px;
+  height: 16px;
+}
