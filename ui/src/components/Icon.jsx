@@ -62,6 +62,34 @@ const PATHS = {
   logout: <path d="M15 12H4M9 7l-5 5 5 5M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4" />,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   moon: <path d="M20 14a8 8 0 01-10-10 8 8 0 1010 10z" />,
+  bolt: <path d="M13 3L4 14h7l-1 7 9-11h-7z" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  pen: (
+    <>
+      <path d="M4 20h4L19 9l-4-4L4 16z" />
+      <path d="M14 6l4 4" />
+    </>
+  ),
+  trash: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />,
+  okc: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.4 12.4l2.4 2.4 4.7-5.4" />
+    </>
+  ),
+  xc: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15 9l-6 6M9 9l6 6" />
+    </>
+  ),
+  reset: (
+    <>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />
+      <path d="M10 16v-4M14 16v-7" />
+    </>
+  ),
+  check: <path d="M20 6 9 17l-5-5" />,
   sun: (
     <>
       <circle cx="12" cy="12" r="4" />

@@ -4,6 +4,11 @@ import App from './App.jsx'
 import './styles/tokens.css'
 import './styles/base.css'
 import './styles/shell.css'
+import './styles/cards.css'
+import './styles/forms.css'
+import './styles/modal.css'
+import './styles/toast.css'
+import './styles/skeleton.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

@@ -5,6 +5,9 @@ import { apiGet } from './lib/api.js'
 import { getLS, setLS } from './lib/storage.js'
 import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
 import { num } from './lib/num.js'
+import { runPageRefresh } from './lib/poll.js'
+import ToastHost from './components/ToastHost.jsx'
+import DialogHost from './components/DialogHost.jsx'
 import { T } from './i18n/fa.js'
 import PAGES from './pages/index.jsx'
 
@@ -47,6 +50,10 @@ export default function App() {
     let timer = 0
 
     const tick = async () => {
+      if (document.hidden) {
+        timer = setTimeout(tick, Math.max(interval.current, 4000))
+        return
+      }
       let s = {}
       try {
         s = await apiGet('summary')
@@ -79,13 +86,23 @@ export default function App() {
       }
       setUnread(Math.max(0, seq - seen))
 
+      await runPageRefresh()
+      if (!alive) return
       timer = setTimeout(tick, interval.current)
     }
 
+    const onVisible = () => {
+      if (document.hidden) return
+      clearTimeout(timer)
+      tick()
+    }
+
     tick()
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       alive = false
       clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 
@@ -112,6 +129,8 @@ export default function App() {
           </div>
         </main>
       </div>
+      <ToastHost />
+      <DialogHost />
     </>
   )
 }

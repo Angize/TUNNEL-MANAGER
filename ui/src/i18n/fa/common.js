@@ -31,6 +31,14 @@ export default {
 
   online: 'آنلاین',
   offline: 'آفلاین',
+  pending_check: 'در حال بررسی…',
+
+  tip_edit: 'ویرایش',
+  tip_delete: 'حذف',
+  tip_copy: 'بزن تا کپی شود',
+  copied: 'کپی شد',
+  copy_fail: 'کپی نشد',
+
   failed: 'ناموفق',
   saving: 'در حال ذخیره…',
   checking: 'در حال بررسی…',

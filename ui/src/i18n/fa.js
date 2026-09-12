@@ -1,9 +1,11 @@
 import common from './fa/common.js'
 import errors from './fa/errors.js'
+import proxies from './fa/proxies.js'
 
 export const FA = {
   ...common,
   ...errors,
+  ...proxies,
 }
 
 export function T(key) {
