@@ -4,13 +4,14 @@ import ProxiesPage from './proxies/ProxiesPage.jsx'
 import PortfwPage from './portfw/PortfwPage.jsx'
 import LogsPage from './logs/LogsPage.jsx'
 import NodesPage from './nodes/NodesPage.jsx'
+import TunnelsPage from './tunnels/TunnelsPage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
   overview: { component: OverviewPage },
   nodes: { component: NodesPage },
   proxies: { component: ProxiesPage },
-  tunnels: { icon: 'link', titleKey: 'nav_tunnels', subKey: 'tun_sub' },
+  tunnels: { component: TunnelsPage },
   portfw: { component: PortfwPage },
   core: { icon: 'cpu', titleKey: 'nav_core', subKey: 'core_sub' },
   logs: { component: LogsPage },
