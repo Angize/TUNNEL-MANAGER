@@ -5,6 +5,7 @@ import portfw from './fa/portfw.js'
 import overview from './fa/overview.js'
 import logs from './fa/logs.js'
 import nodes from './fa/nodes.js'
+import acts from './fa/acts.js'
 
 export const FA = {
   ...common,
@@ -14,6 +15,7 @@ export const FA = {
   ...overview,
   ...logs,
   ...nodes,
+  ...acts,
 }
 
 export function T(key) {

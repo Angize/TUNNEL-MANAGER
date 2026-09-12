@@ -12,6 +12,7 @@ import './styles/skeleton.css'
 import './styles/select.css'
 import './styles/traffic.css'
 import './styles/readiness.css'
+import './styles/acts.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

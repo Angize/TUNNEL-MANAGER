@@ -11,6 +11,7 @@ import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
+import { ActsProvider, useActs } from './state/ActsContext.jsx'
 import { T } from './i18n/fa.js'
 import { hasPage, pageComponent } from './pages/index.jsx'
 
@@ -26,7 +27,7 @@ function firstPage() {
   return hasPage(saved) ? saved : 'overview'
 }
 
-export default function App() {
+function Shell() {
   const [page, setPage] = useState(firstPage)
   const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0 })
   const [unread, setUnread] = useState(0)
@@ -34,6 +35,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(false)
   const [readiness, setReadiness] = useState(null)
   const [uiConfig, setUiConfig] = useState(null)
+  const { refresh: actsRefresh } = useActs()
   const interval = useRef(DEFAULT_INTERVAL)
   const pageRef = useRef(page)
 
@@ -124,6 +126,8 @@ export default function App() {
       }
       await fetchSummary()
       if (!alive) return
+      await actsRefresh()
+      if (!alive) return
       await runPageRefresh()
       if (!alive) return
       timer = setTimeout(tick, interval.current)
@@ -136,6 +140,7 @@ export default function App() {
     }
 
     fetchSummary()
+    actsRefresh()
     timer = setTimeout(tick, BOOT_INTERVAL)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -143,7 +148,7 @@ export default function App() {
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [])
+  }, [actsRefresh])
 
   const navigate = useCallback((id) => {
     setPage(id)
@@ -185,5 +190,13 @@ export default function App() {
       <ToastHost />
       <DialogHost />
     </>
+  )
+}
+
+export default function App() {
+  return (
+    <ActsProvider>
+      <Shell />
+    </ActsProvider>
   )
 }
