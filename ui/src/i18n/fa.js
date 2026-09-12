@@ -7,6 +7,7 @@ import logs from './fa/logs.js'
 import nodes from './fa/nodes.js'
 import acts from './fa/acts.js'
 import tunnels from './fa/tunnels.js'
+import agent from './fa/agent.js'
 
 export const FA = {
   ...common,
@@ -18,6 +19,7 @@ export const FA = {
   ...nodes,
   ...acts,
   ...tunnels,
+  ...agent,
 }
 
 export function T(key) {

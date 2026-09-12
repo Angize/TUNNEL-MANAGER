@@ -92,6 +92,8 @@ const PATHS = {
     </>
   ),
   chev: <path d="M6 9l6 6 6-6" />,
+  pause: <path d="M9 5v14M15 5v14" />,
+  play: <path d="M7 4l13 8-13 8z" />,
   gauge: (
     <>
       <path d="M3.5 18a9 9 0 1 1 17 0" />
