@@ -1,0 +1,118 @@
+.msbtn {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--tx);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: start;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: inherit;
+}
+
+.msbtn.ph {
+  color: var(--sub);
+}
+
+.msbtn .cv {
+  color: var(--sub);
+  transition: .2s;
+  font-size: 12px;
+}
+
+.msbtn.open .cv {
+  transform: rotate(180deg);
+  color: var(--acc);
+}
+
+.mssub {
+  margin-right: auto;
+  color: var(--sub);
+  font-size: 12px;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.msrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--bord);
+}
+
+.msrow:last-child {
+  border-bottom: 0;
+}
+
+.msrow:hover {
+  background: var(--glass);
+}
+
+.msrow.sel {
+  background: color-mix(in srgb, var(--acc) 12%, transparent);
+}
+
+.mscheck {
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  border: 1.6px solid var(--sub);
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.msrow.sel .mscheck {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #fff;
+}
+
+.modal.sssheet {
+  max-width: 360px;
+  padding: 8px;
+}
+
+.sspop {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sspop .sspopq {
+  margin-bottom: 8px;
+  flex: 0 0 auto;
+}
+
+.sspoplist {
+  overflow: auto;
+  max-height: min(58vh, 420px);
+  min-height: 0;
+}
+
+.search {
+  flex: 1;
+  min-width: 150px;
+  padding: 10px 13px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--tx);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.search:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--acc) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 15%, transparent);
+}

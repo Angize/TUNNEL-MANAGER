@@ -1,0 +1,19 @@
+@keyframes shim {
+  from { background-position: 200% 0 }
+  to { background-position: -200% 0 }
+}
+
+.sk {
+  display: block;
+  background: linear-gradient(90deg, var(--sk-base) 0%, var(--sk-base) 38%, var(--sk-hi) 50%, var(--sk-base) 62%, var(--sk-base) 100%);
+  background-color: var(--sk-base);
+  background-size: 220% 100%;
+  border-radius: 7px;
+  animation: shim 1.25s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk {
+    animation: none;
+  }
+}

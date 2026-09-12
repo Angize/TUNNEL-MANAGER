@@ -1,0 +1,420 @@
+.card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 15px;
+  padding: 14px;
+  margin-bottom: 11px;
+  background: var(--card);
+  border: 1px solid var(--bord);
+  box-shadow: var(--dsh);
+}
+
+.card.acc {
+  padding: 0;
+}
+
+.card.acc.off {
+  opacity: .72;
+}
+
+.chead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chead:hover {
+  background: color-mix(in srgb, var(--acc) 4%, transparent);
+}
+
+.hmain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.hrow1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hname {
+  font-size: 13.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+.hpeers {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--tx);
+}
+
+.chev {
+  width: 16px;
+  height: 16px;
+  color: var(--sub);
+  transition: transform .2s;
+  flex: 0 0 auto;
+}
+
+.card.open .chev {
+  transform: rotate(180deg);
+}
+
+.cbody {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .28s ease;
+}
+
+.card.open .cbody {
+  max-height: 720px;
+}
+
+.cbody-in {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--bord);
+}
+
+.ndot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sub);
+  flex: 0 0 auto;
+  box-shadow: 0 0 8px var(--sub);
+}
+
+.ndot.on {
+  background: var(--ok);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--ok) 80%, transparent);
+}
+
+.ndot.off {
+  background: var(--bad);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--bad) 70%, transparent);
+}
+
+.name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.muted {
+  color: var(--sub);
+}
+
+.mono {
+  font-family: ui-monospace, Consolas, monospace;
+  direction: ltr;
+  overflow-wrap: anywhere;
+}
+
+.ctag {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--field);
+  color: var(--sub);
+  flex: 0 0 auto;
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: 10px;
+  padding: 3px 9px;
+  font-weight: 700;
+}
+
+.badge.ok {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+}
+
+.badge.bad {
+  background: color-mix(in srgb, var(--bad) 13%, transparent);
+  color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 32%, transparent);
+}
+
+.badge.na {
+  background: var(--glass);
+  color: var(--sub);
+  border: 1px solid var(--bord);
+}
+
+.badge.warn {
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  color: var(--gold);
+  border: 1px solid color-mix(in srgb, var(--gold) 34%, transparent);
+}
+
+.nact {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+  flex-wrap: wrap;
+}
+
+.nact.iconly {
+  gap: 6px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.nact.iconly .act {
+  padding: 8px 0;
+  justify-content: center;
+}
+
+.nact.iconly .act .ic {
+  width: 15px;
+  height: 15px;
+}
+
+button.act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--glass);
+  border: 1px solid var(--bord);
+  color: var(--tx);
+  border-radius: 11px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-family: inherit;
+}
+
+button.act:active {
+  transform: scale(.97);
+}
+
+button.act .ic {
+  width: 14px;
+  height: 14px;
+}
+
+button.act.ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 42%, transparent);
+}
+
+button.act.warn {
+  color: #fb923c;
+  border-color: color-mix(in srgb, #fb923c 46%, transparent);
+}
+
+button.act.danger {
+  color: var(--bad);
+}
+
+button.act.danger:hover {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+}
+
+@media (min-width: 900px) {
+  .cardgrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+
+  .cardgrid > .card {
+    margin-bottom: 0;
+  }
+
+  .cardgrid > .card.muted {
+    grid-column: 1/-1;
+  }
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.sec {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--sub);
+  margin: 20px 4px 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sec::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to left, var(--bord), transparent);
+}
+
+.cpv {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.cpv:active {
+  opacity: .5;
+}
+
+.card.rdrag {
+  z-index: 60;
+  overflow: visible;
+  cursor: grabbing;
+  box-shadow: 0 20px 44px -14px rgba(20, 40, 90, .5);
+  border-color: color-mix(in srgb, var(--acc) 45%, transparent);
+  opacity: .98;
+  transition: none;
+}
+
+body.rdragging {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body.rdragging .card:not(.rdrag) {
+  transition: transform .12s ease;
+}
+
+.rgrip {
+  display: none;
+}
+
+body.reord-on .rgrip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 13%, transparent);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  margin-inline-end: 2px;
+}
+
+body.reord-on.rdragging .rgrip {
+  cursor: grabbing;
+}
+
+body.reord-on .card[data-rid] {
+  border-color: color-mix(in srgb, var(--acc) 32%, transparent);
+}
+
+body.reord-on .cbody {
+  transition: none;
+}
+
+.reordbtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--sub);
+  cursor: pointer;
+  padding: 0;
+}
+
+.reordbtn svg {
+  width: 19px;
+  height: 19px;
+}
+
+body.reord-on .reordbtn {
+  background: var(--acc);
+  color: #fff;
+  border-color: transparent;
+}
+
+.rbrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1.5px solid var(--bord);
+  border-radius: 11px;
+  background: var(--field);
+  margin-bottom: 7px;
+  cursor: pointer;
+  transition: .15s;
+}
+
+.rbrow:hover {
+  border-color: color-mix(in srgb, var(--acc) 50%, var(--bord));
+}
+
+.rbrow.sel {
+  border-color: var(--acc);
+  background: var(--accw);
+}
+
+.rbrow .rbdot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--sub);
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.rbrow.sel .rbdot {
+  border-color: var(--acc);
+}
+
+.rbrow.sel .rbdot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+
+.rbrow .rbtags {
+  margin-inline-start: auto;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}

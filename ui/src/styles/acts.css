@@ -1,0 +1,182 @@
+.arow {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--bord);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+  color: var(--sub);
+  flex-wrap: wrap;
+}
+
+.ast {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 20px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ast.run {
+  color: var(--acc);
+  background: var(--accw);
+}
+
+.ast.cancel {
+  color: var(--gold);
+  background: var(--goldw);
+}
+
+.ast.fail {
+  color: var(--bad);
+  background: var(--badw);
+}
+
+.ast.done {
+  color: var(--ok);
+  background: var(--okw);
+}
+
+.astep {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.7;
+  color: var(--tx);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.astep.sw {
+  animation: astepin .34s cubic-bezier(.22, .7, .3, 1);
+}
+
+@keyframes astepin {
+  from { opacity: 0; transform: translateY(5px) }
+  to { opacity: 1; transform: none }
+}
+
+.aclock {
+  font-family: ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--sub);
+  flex: 0 0 auto;
+}
+
+.abar {
+  flex: 1 1 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bord);
+  overflow: hidden;
+}
+
+.abar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--acc);
+  border-radius: 3px;
+  transition: width .6s cubic-bezier(.4, 0, .2, 1);
+}
+
+.abar.cancel > i {
+  background: var(--gold);
+}
+
+.abar.fail > i {
+  background: var(--bad);
+}
+
+.abar.done > i {
+  background: var(--ok);
+}
+
+.abar.spin > i {
+  width: 38%;
+  background: linear-gradient(90deg, transparent, var(--acc), transparent);
+  transition: none;
+  animation: asweep 1.25s ease-in-out infinite;
+}
+
+@keyframes asweep {
+  from { transform: translateX(-100%) }
+  to { transform: translateX(263%) }
+}
+
+.abtn {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 5px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--bord);
+  background: var(--field);
+  color: var(--sub);
+  transition: .15s;
+}
+
+.abtn:hover {
+  color: var(--tx);
+  border-color: var(--sub);
+}
+
+.abtn.danger {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+}
+
+.abtn.danger:hover {
+  background: var(--badw);
+}
+
+.apulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acc);
+  flex: 0 0 auto;
+  animation: jp 1.5s ease-in-out infinite;
+}
+
+@keyframes jp {
+  0%, 100% { opacity: .35; transform: scale(.8) }
+  50% { opacity: 1; transform: scale(1.15) }
+}
+
+.card.acting::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 34%;
+  border-radius: 2px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--acc), transparent);
+  animation: acardsweep 1.9s ease-in-out infinite;
+}
+
+@keyframes acardsweep {
+  from { transform: translateX(-100%) }
+  to { transform: translateX(194%) }
+}
+
+.card.acting .tninfo,
+.card.acting .enmeta {
+  opacity: .72;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apulse { animation: none; opacity: .9 }
+  .abar > i { transition: none }
+  .abar.spin > i,
+  .card.acting::after,
+  .astep.sw { animation: none }
+}
