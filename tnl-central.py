@@ -7325,6 +7325,32 @@ def api_act_cancel(d):
     return {"ok": True, "act": key}
 
 
+def ui_config():
+    return {
+        "tuning_defaults": _TUNING_DEFAULTS,
+        "tuning_steps": _TUNING_STEPS,
+        "probe_samples": _PROBE_SAMPLES,
+        "ev_types": [list(x) for x in EV_TYPES],
+        "ev_groups": [list(x) for x in EV_GROUPS],
+        "settings_defaults": {k: v for k, v in settings_defaults().items() if k != "tuning"},
+        "split_ttl_max": SPLIT_TTL_MAX,
+        "workers_max": CORE_MAX_WORKERS,
+        "enums": {
+            "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
+            "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
+            "raw_ported": list(PORTED_RAW_PROFILES),
+            "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
+            "http_shape_grpc": list(HTTP_SHAPE_GRPC),
+            "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
+            "edge_ports": {"tls": list(_EDGE_TLS_PORTS), "plain": list(_EDGE_PLAIN_PORTS)},
+        },
+    }
+
+
+def api_ui_config(d):
+    return ui_config()
+
+
 def _dispatch(cmd, d):
     return API[cmd](d)
 
@@ -7332,6 +7358,7 @@ def _dispatch(cmd, d):
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary, "next-port": api_next_port,
     "settings": api_settings, "settings-set": api_settings_set, "readiness": api_readiness,
+    "ui-config": api_ui_config,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
@@ -11722,25 +11749,19 @@ function palSc(){var r=document.querySelectorAll('#pal_list .palrow')[PALIDX];if
  TT=setTimeout(tick,6000)})();
 </script></body></html>"""
 
-INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_TUNING_DEFAULTS, separators=(",", ":")))
-INDEX_HTML = INDEX_HTML.replace("__TUNSTEP_JSON__", json.dumps(_TUNING_STEPS, ensure_ascii=False, separators=(",", ":")))
-INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_PROBE_SAMPLES))
+_UI_CFG = ui_config()
+INDEX_HTML = INDEX_HTML.replace("__TUNDEF_JSON__", json.dumps(_UI_CFG["tuning_defaults"], separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__TUNSTEP_JSON__", json.dumps(_UI_CFG["tuning_steps"], ensure_ascii=False, separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__PROBE_SAMPLES__", str(_UI_CFG["probe_samples"]))
 INDEX_HTML = INDEX_HTML.replace("__EVTYPES_JSON__", json.dumps(
-    [list(x) for x in EV_TYPES], ensure_ascii=False, separators=(",", ":")))
+    _UI_CFG["ev_types"], ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__EVGROUPS_JSON__", json.dumps(
-    [list(x) for x in EV_GROUPS], ensure_ascii=False, separators=(",", ":")))
+    _UI_CFG["ev_groups"], ensure_ascii=False, separators=(",", ":")))
 INDEX_HTML = INDEX_HTML.replace("__SETDEF_JSON__", json.dumps(
-    {k: v for k, v in settings_defaults().items() if k != "tuning"}, separators=(",", ":")))
-INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(
-    {"ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS), "tr_direct": list(DIRECT_TRANSPORTS),
-     "tr_rung": list(PORT_RUNG_TRANSPORTS), "raw_ported": list(PORTED_RAW_PROFILES),
-     "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
-     "http_shape_grpc": list(HTTP_SHAPE_GRPC),
-     "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
-     "edge_ports": {"tls": list(_EDGE_TLS_PORTS), "plain": list(_EDGE_PLAIN_PORTS)}},
-    separators=(",", ":")))
-INDEX_HTML = INDEX_HTML.replace("__SPLITTTLMAX__", str(SPLIT_TTL_MAX))
-INDEX_HTML = INDEX_HTML.replace("__WORKERSMAX__", str(CORE_MAX_WORKERS))
+    _UI_CFG["settings_defaults"], separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__ENUMS_JSON__", json.dumps(_UI_CFG["enums"], separators=(",", ":")))
+INDEX_HTML = INDEX_HTML.replace("__SPLITTTLMAX__", str(_UI_CFG["split_ttl_max"]))
+INDEX_HTML = INDEX_HTML.replace("__WORKERSMAX__", str(_UI_CFG["workers_max"]))
 
 
 SERVICE = "tnl-central.service"
