@@ -7,6 +7,7 @@ import NodesPage from './nodes/NodesPage.jsx'
 import TunnelsPage from './tunnels/TunnelsPage.jsx'
 import AgentPage from './agent/AgentPage.jsx'
 import SettingsPage from './settings/SettingsPage.jsx'
+import CorePage from './core/CorePage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
@@ -15,7 +16,7 @@ const PAGES = {
   proxies: { component: ProxiesPage },
   tunnels: { component: TunnelsPage },
   portfw: { component: PortfwPage },
-  core: { icon: 'cpu', titleKey: 'nav_core', subKey: 'core_sub' },
+  core: { component: CorePage },
   logs: { component: LogsPage },
   agent: { component: AgentPage },
   settings: { component: SettingsPage },
