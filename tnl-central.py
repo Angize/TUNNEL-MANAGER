@@ -733,10 +733,6 @@ def _node_id_of(L, end):
     return L.get("a_node") if (end == "srv") == _srv_is_a(L) else L.get("b_node")
 
 
-def _end_node_name(L, end):
-    return (L.get("a_name") if (end == "srv") == _srv_is_a(L) else L.get("b_name")) or ""
-
-
 def _client_node(L):
     return get_node(_node_id_of(L, "cli"))
 
@@ -6374,15 +6370,7 @@ def _ev_core_text(kind, code, detail, nm):
     return None
 
 
-def _ev_dfa(dfa, where):
-    return (dfa + "\n" + where) if dfa else where
-
-
-def _ev_where(L, end):
-    return "سمتِ %s: نودِ «%s»" % ("سرور" if end == "srv" else "کلاینت", _end_node_name(L, end))
-
-
-def _ingest_core_events(lid, end, nm, where, events, first):
+def _ingest_core_events(lid, end, nm, events, first):
     key = lid + "|" + end
     clean = []
     if isinstance(events, list):
@@ -6415,7 +6403,7 @@ def _ingest_core_events(lid, end, nm, where, events, first):
             if sport:
                 fa += f"، با پورتِ {sport}"
             fa += " برگشت"
-            log_event(rot[0], rot[3], fa, where)
+            log_event(rot[0], rot[3], fa)
             continue
         if rot and end == "cli" and rot[2]:
             axis = rot[2]
@@ -6426,14 +6414,14 @@ def _ingest_core_events(lid, end, nm, where, events, first):
                 _ev_state["rotip"][rk] = val
             other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
             log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}",
-                      _ev_dfa(_rot_pair(axis, prev, val, other), where))
+                      _rot_pair(axis, prev, val, other))
             continue
         if rot:
-            log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}", where)
+            log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}")
             continue
         txt = _ev_core_text(ekind, ecode, edet, nm)
         if txt:
-            log_event(txt[0], txt[1], txt[2], _ev_dfa(txt[3], where))
+            log_event(txt[0], txt[1], txt[2], txt[3])
     _ev_state["evseq"][key] = max(last, mx)
 
 
@@ -6671,7 +6659,7 @@ def _events_once():
             try:
                 if end == "cli":
                     _ev_seed_axes(lid, is_pool, r.get("active"))
-                _ingest_core_events(lid, end, nm, _ev_where(L, end), r.get("events"), first)
+                _ingest_core_events(lid, end, nm, r.get("events"), first)
             except Exception:
                 continue
     for k in [k for k in _ev_state["evseq"] if k.split("|", 1)[0] not in seen]:
