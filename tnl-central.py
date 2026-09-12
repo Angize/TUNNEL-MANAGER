@@ -37,6 +37,7 @@ TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
 SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")
 PENDING_FILE = os.path.join(CENTRAL_DIR, "pending_del.json")
 UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")
+UI_DIR = os.path.join(CENTRAL_DIR, "ui")
 PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")
 MOVED_FILE = os.path.join(CENTRAL_DIR, "moved.json")
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")
@@ -7325,6 +7326,29 @@ def api_act_cancel(d):
     return {"ok": True, "act": key}
 
 
+UI_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".webmanifest": "application/manifest+json",
+    ".woff2": "font/woff2",
+}
+
+
+def ui_asset(rel):
+    root = os.path.realpath(UI_DIR)
+    full = os.path.realpath(os.path.join(root, rel))
+    if full != root and not full.startswith(root + os.sep):
+        return None, ""
+    if not os.path.isfile(full):
+        return None, ""
+    with open(full, "rb") as fh:
+        return fh.read(), UI_TYPES.get(os.path.splitext(full)[1], "application/octet-stream")
+
+
 def ui_config():
     return {
         "tuning_defaults": _TUNING_DEFAULTS,
@@ -7470,7 +7494,7 @@ class Handler(BaseHTTPRequestHandler):
 
     GZIP_MIN = 4096
 
-    def _send(self, code, body, ctype="application/json", extra=None, big=False):
+    def _send(self, code, body, ctype="application/json", extra=None, big=False, cache="no-store"):
         if isinstance(body, (dict, list)):
             body = json.dumps(body)
         data = body.encode() if isinstance(body, str) else body
@@ -7490,7 +7514,7 @@ class Handler(BaseHTTPRequestHandler):
                          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
                          "font-src https://fonts.gstatic.com; img-src 'self' data:; "
                          "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -7525,7 +7549,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
-            self._send(200, INDEX_HTML if self._user() else LOGIN_HTML, "text/html; charset=utf-8")
+            if not self._user():
+                self._send(200, LOGIN_HTML, "text/html; charset=utf-8")
+                return
+            page, ctype = ui_asset("index.html")
+            if page is None:
+                self._send(500, {"error": "رابط کاربری نصب نشده — پوشهٔ ui کنارِ دادهٔ پنل نیست"})
+                return
+            self._send(200, page, ctype)
+        elif path.startswith("/assets/"):
+            if not self._user():
+                self._send(404, {"error": "پیدا نشد"})
+                return
+            blob, ctype = ui_asset(path[1:])
+            if blob is None:
+                self._send(404, {"error": "پیدا نشد"})
+                return
+            self._send(200, blob, ctype, cache="public, max-age=31536000, immutable")
         elif path == "/api/dl":
             self._dl()
         elif path.startswith("/api/"):
@@ -11857,6 +11897,20 @@ WantedBy=multi-user.target
     subprocess.run(["systemctl", "daemon-reload"])
 
 
+def install_ui():
+    src = os.path.join(os.path.dirname(SELF_PATH), "ui")
+    if os.path.realpath(src) == os.path.realpath(UI_DIR):
+        return True
+    if not os.path.isdir(os.path.join(src, "assets")):
+        return False
+    staged = UI_DIR + ".new"
+    shutil.rmtree(staged, ignore_errors=True)
+    shutil.copytree(src, staged)
+    shutil.rmtree(UI_DIR, ignore_errors=True)
+    os.replace(staged, UI_DIR)
+    return True
+
+
 def do_install():
     if not sys.stdin.isatty():
         print("--install asks for a username and a password, so it needs a terminal.")
@@ -11866,6 +11920,9 @@ def do_install():
     if os.path.realpath(SELF_PATH) != INSTALLED:
         shutil.copy2(SELF_PATH, INSTALLED)
         os.chmod(INSTALLED, 0o755)
+    if not install_ui():
+        print("[x] the ui/ folder is not next to this script - unpack the release tarball and run --install from inside it.")
+        sys.exit(1)
     install_deps()
     conf = load_conf() if os.path.isfile(WEB_CONF) else {}
     have = conf.get("port", 8080)
@@ -12078,6 +12135,14 @@ def main():
             print("Run as root (sudo).")
             sys.exit(1)
         do_install()
+    elif arg == "--install-ui":
+        if os.geteuid() != 0:
+            print("Run as root (sudo).")
+            sys.exit(1)
+        if not install_ui():
+            print("[x] the ui/ folder is not next to this script - unpack the release tarball and run --install-ui from inside it.")
+            sys.exit(1)
+        print("[v] ui refreshed at " + UI_DIR)
     elif arg == "--set-pass":
         if os.geteuid() != 0:
             print("Run as root (sudo).")
