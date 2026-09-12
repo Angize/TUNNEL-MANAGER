@@ -1,0 +1,100 @@
+name: release-panel
+
+# Build the React UI on GitHub and attach the installable panel to a Release.
+#
+# The asset is one tarball that unpacks to exactly what --install expects:
+#
+#   tnl-central.py
+#   ui/index.html
+#   ui/assets/...
+#
+# Two ways to run it — both create the Release + asset automatically:
+#
+#   1) Push a tag  v1, v2 …           -> builds THAT tagged commit, publishes its release.
+#        git tag v2 <sha> && git push origin v2
+#
+#   2) Actions -> release-panel -> Run workflow  (no local git needed):
+#        tag = v2   ref = main       -> creates tag v2 at main and releases it
+#      If the tag does not exist yet it is CREATED at `ref`; if it already exists,
+#      its asset is refreshed.
+#
+# Nothing built is committed to the repo tree — ui/dist stays ignored.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/publish, e.g. v1 or v2'
+        required: true
+      ref:
+        description: 'Commit SHA / branch / tag to build from (default: main)'
+        required: false
+        default: main
+
+permissions:
+  contents: write        # needed to create tags, releases and upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag + build ref
+        id: t
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${{ github.event.inputs.ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the commit to build
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.t.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build the UI
+        working-directory: ui
+        run: |
+          set -eux
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Assemble the tarball
+        run: |
+          set -eux
+          python -W error::SyntaxWarning -m py_compile tnl-central.py
+          rm -rf stage out && mkdir -p stage out
+          cp tnl-central.py stage/
+          cp -a ui/dist stage/ui
+          test -f stage/ui/index.html
+          test -d stage/ui/assets
+          tar -czf out/tnl-central.tar.gz -C stage .
+          ( cd out && sha256sum tnl-central.tar.gz > tnl-central.tar.gz.sha256 )
+          tar -tzf out/tnl-central.tar.gz
+          ls -l out
+
+      - name: Publish the release + asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          TAG="${{ steps.t.outputs.tag }}"
+          SHA="$(git rev-parse HEAD)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" --target "$SHA" --title "$TAG" --notes "tnl-central $TAG" out/*
+          fi
