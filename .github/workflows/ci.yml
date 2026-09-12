@@ -16,3 +16,25 @@ jobs:
 
       - name: py_compile (warnings are errors)
         run: python -W error::SyntaxWarning -m py_compile tnl-central.py
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: install
+        working-directory: ui
+        run: npm ci
+
+      - name: lint
+        working-directory: ui
+        run: npm run lint
+
+      - name: build
+        working-directory: ui
+        run: npm run build

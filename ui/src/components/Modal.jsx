@@ -3,7 +3,7 @@ import Icon from './Icon.jsx'
 
 const open = []
 
-export default function Modal({ icon, title, subtitle, footer, onClose, children }) {
+export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, children }) {
   const id = useId()
   const box = useRef(null)
 
@@ -35,7 +35,11 @@ export default function Modal({ icon, title, subtitle, footer, onClose, children
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="modal wide" ref={box}>
+      <div className={'modal wide' + (cls ? ' ' + cls : '')} ref={box}>
+        {bare ? (
+          children
+        ) : (
+          <>
         <div className="msticky">
           {icon ? (
             <span className="medi">
@@ -52,6 +56,8 @@ export default function Modal({ icon, title, subtitle, footer, onClose, children
         </div>
         <div className="mbody">{children}</div>
         {footer ? <div className="mfoot">{footer}</div> : null}
+          </>
+        )}
       </div>
     </div>
   )

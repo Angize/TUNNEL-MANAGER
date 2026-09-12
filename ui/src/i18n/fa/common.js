@@ -35,6 +35,18 @@ export default {
 
   tip_edit: 'ویرایش',
   tip_delete: 'حذف',
+  tip_reset: 'ریستِ حجمِ کل',
+  t_reset_done: 'حجمِ کل صفر شد',
+
+  select: 'انتخاب کنید',
+  search: 'جستجو…',
+  no_results: 'موردی یافت نشد.',
+  total: 'مجموع',
+  on_word: 'روشن',
+  off_word: 'خاموش',
+  creating_dots: 'در حال ساخت…',
+  ip: 'آی‌پی',
+  reord_t: 'حالتِ جابه‌جایی کارت‌ها',
   tip_copy: 'بزن تا کپی شود',
   copied: 'کپی شد',
   copy_fail: 'کپی نشد',

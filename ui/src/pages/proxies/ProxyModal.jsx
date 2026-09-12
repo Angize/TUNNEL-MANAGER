@@ -5,12 +5,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-
-const PORT_MAX = 65535
-
-function range(label, lo, hi) {
-  return label + ' (بازه ' + lo + ' تا ' + hi + ')'
-}
+import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 
 export default function ProxyModal({ proxy, onClose, onSaved }) {
   const [name, setName] = useState(proxy ? proxy.name : '')
@@ -88,7 +83,7 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
           <input className="mono" value={host} onChange={(e) => setHost(e.target.value)} />
         </div>
         <div>
-          <label className="first">{range(T('px_port'), 1, PORT_MAX)}</label>
+          <label className="first">{rangeLabel(T('px_port'), 1, PORT_MAX)}</label>
           <input
             className="mono"
             inputMode="numeric"

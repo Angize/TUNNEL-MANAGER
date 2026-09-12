@@ -7,24 +7,7 @@ import { translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
-
-function CheckMark() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ verticalAlign: '-2px', marginInlineStart: '3px' }}
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  )
-}
+import { Check } from '../../components/Marks.jsx'
 
 export default function ProxyCard({ proxy, onEdit, onChanged }) {
   const [msg, setMsg] = useState(null)
@@ -104,7 +87,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
       <div className={msg ? 'msg ' + msg.cls : 'msg'}>
         {msg ? (
           <>
-            {msg.check ? <CheckMark /> : null}
+            {msg.check ? <Check /> : null}
             {msg.check ? ' ' + msg.text : msg.text}
           </>
         ) : null}

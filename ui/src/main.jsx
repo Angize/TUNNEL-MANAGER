@@ -9,6 +9,8 @@ import './styles/forms.css'
 import './styles/modal.css'
 import './styles/toast.css'
 import './styles/skeleton.css'
+import './styles/select.css'
+import './styles/traffic.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
