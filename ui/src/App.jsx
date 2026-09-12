@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
 import ReadinessBar from './shell/ReadinessBar.jsx'
@@ -9,27 +9,31 @@ import { num } from './lib/num.js'
 import { runPageRefresh } from './lib/poll.js'
 import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
+import { UiConfigProvider } from './state/UiConfigContext.jsx'
+import { SummaryProvider } from './state/SummaryContext.jsx'
 import { T } from './i18n/fa.js'
-import PAGES from './pages/index.jsx'
+import { hasPage, pageComponent } from './pages/index.jsx'
 
 const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
 const BOOT_INTERVAL = 6000
+const MIN_INTERVAL = 300
 const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
 
 function firstPage() {
   const saved = getLS(PAGE_KEY)
-  return saved && PAGES[saved] ? saved : 'overview'
+  return hasPage(saved) ? saved : 'overview'
 }
 
 export default function App() {
   const [page, setPage] = useState(firstPage)
-  const [counts, setCounts] = useState({})
+  const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0 })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const [readiness, setReadiness] = useState(null)
+  const [uiConfig, setUiConfig] = useState(null)
   const interval = useRef(DEFAULT_INTERVAL)
   const pageRef = useRef(page)
 
@@ -43,6 +47,11 @@ export default function App() {
 
   useEffect(() => {
     let alive = true
+    apiGet('ui-config')
+      .then((cfg) => {
+        if (alive) setUiConfig(cfg)
+      })
+      .catch(() => {})
     apiGet('readiness')
       .then((r) => {
         if (!alive) return
@@ -75,17 +84,24 @@ export default function App() {
         s = {}
       }
       if (!alive) return
-      setCounts({
-        nodes_total: num(s.nodes_total),
-        proxies: num(s.proxies),
-        links: num(s.links),
-        portfw: num(s.portfw),
-        core: num(s.core),
-        log_count: num(s.log_count),
-      })
-      if (s.ui_interval) interval.current = Math.max(300, Math.round(num(s.ui_interval) * 1000))
 
       const seq = num(s.ev_seq)
+      setSummary({
+        counts: {
+          nodes_total: num(s.nodes_total),
+          proxies: num(s.proxies),
+          links: num(s.links),
+          portfw: num(s.portfw),
+          core: num(s.core),
+          log_count: num(s.log_count),
+        },
+        evSeq: seq,
+        logCount: num(s.log_count),
+      })
+      if (s.ui_interval) {
+        interval.current = Math.max(MIN_INTERVAL, Math.round(num(s.ui_interval) * 1000))
+      }
+
       const raw = getLS(SEEN_KEY)
       let seen
       if (raw === '') {
@@ -138,18 +154,31 @@ export default function App() {
     setDark(toggleTheme())
   }, [])
 
-  const Page = PAGES[page] || PAGES.overview
+  const summaryValue = useMemo(
+    () => ({ counts: summary.counts, evSeq: summary.evSeq, logCount: summary.logCount }),
+    [summary]
+  )
+
+  const Page = pageComponent(page) || pageComponent('overview')
 
   return (
     <>
       <div className="backdrop" onClick={() => setDrawer(false)} />
       <div className="shell">
-        <Sidebar page={page} counts={counts} unread={unread} onNavigate={navigate} />
+        <Sidebar page={page} counts={summary.counts} unread={unread} onNavigate={navigate} />
         <main className="main">
           <TopBar dark={dark} onMenu={() => setDrawer(true)} onToggleTheme={onToggleTheme} />
           <ReadinessBar readiness={readiness} onNavigate={navigate} />
           <div id="view">
-            <Page onNavigate={navigate} />
+            {uiConfig ? (
+              <UiConfigProvider value={uiConfig}>
+                <SummaryProvider value={summaryValue}>
+                  <Page onNavigate={navigate} />
+                </SummaryProvider>
+              </UiConfigProvider>
+            ) : (
+              <div className="card muted">{T('loading')}</div>
+            )}
           </div>
         </main>
       </div>

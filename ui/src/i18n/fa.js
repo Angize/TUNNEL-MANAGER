@@ -3,6 +3,7 @@ import errors from './fa/errors.js'
 import proxies from './fa/proxies.js'
 import portfw from './fa/portfw.js'
 import overview from './fa/overview.js'
+import logs from './fa/logs.js'
 
 export const FA = {
   ...common,
@@ -10,6 +11,7 @@ export const FA = {
   ...proxies,
   ...portfw,
   ...overview,
+  ...logs,
 }
 
 export function T(key) {
