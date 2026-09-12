@@ -72,7 +72,7 @@ export default function PortfwPage() {
 
       <Toolbar value={query} placeholder={T('pf_search')} onSearch={setQuery} />
 
-      <div>
+      <div className="cardgrid">
         {list === null ? (
           <CardSkeletons />
         ) : list.length ? (

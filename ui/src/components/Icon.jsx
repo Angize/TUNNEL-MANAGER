@@ -92,6 +92,46 @@ const PATHS = {
     </>
   ),
   chev: <path d="M6 9l6 6 6-6" />,
+  gauge: (
+    <>
+      <path d="M3.5 18a9 9 0 1 1 17 0" />
+      <path d="M12 18l4.2-5.2" />
+      <circle cx="12" cy="18" r="1.5" />
+    </>
+  ),
+  swap: <path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4" />,
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
+    </>
+  ),
+  plugoff: (
+    <>
+      <path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 01-12 0zM12 17v5" />
+      <path d="M3 3l18 18" />
+    </>
+  ),
+  cores: (
+    <>
+      <rect x="3" y="3" width="8" height="8" rx="2" />
+      <rect x="13" y="3" width="8" height="8" rx="2" />
+      <rect x="3" y="13" width="8" height="8" rx="2" />
+      <rect x="13" y="13" width="8" height="8" rx="2" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </>
+  ),
+  os: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M8 20h8M12 16v4" />
+    </>
+  ),
   bolt: <path d="M13 3L4 14h7l-1 7 9-11h-7z" />,
   plus: <path d="M12 5v14M5 12h14" />,
   pen: (

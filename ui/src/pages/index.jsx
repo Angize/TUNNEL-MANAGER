@@ -3,11 +3,12 @@ import OverviewPage from './overview/OverviewPage.jsx'
 import ProxiesPage from './proxies/ProxiesPage.jsx'
 import PortfwPage from './portfw/PortfwPage.jsx'
 import LogsPage from './logs/LogsPage.jsx'
+import NodesPage from './nodes/NodesPage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
   overview: { component: OverviewPage },
-  nodes: { icon: 'server', titleKey: 'nav_nodes', subKey: 'nodes_sub' },
+  nodes: { component: NodesPage },
   proxies: { component: ProxiesPage },
   tunnels: { icon: 'link', titleKey: 'nav_tunnels', subKey: 'tun_sub' },
   portfw: { component: PortfwPage },

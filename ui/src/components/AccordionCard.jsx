@@ -17,7 +17,7 @@ function Chevron() {
   )
 }
 
-export default function AccordionCard({ id, className, head, children }) {
+export default function AccordionCard({ id, className, head, beforeBody, children }) {
   const [open, setOpen] = useState(() => isCardOpen(id))
 
   useEffect(() => subscribeOpenCards(() => setOpen(isCardOpen(id))), [id])
@@ -32,6 +32,7 @@ export default function AccordionCard({ id, className, head, children }) {
         {head}
         <Chevron />
       </div>
+      {beforeBody}
       <div className="cbody">
         <div className="cbody-in">{children}</div>
       </div>
