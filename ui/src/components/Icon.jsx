@@ -63,6 +63,21 @@ const PATHS = {
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   moon: <path d="M20 14a8 8 0 01-10-10 8 8 0 1010 10z" />,
   activity: <path d="M3 12h4l3 8 4-16 3 8h4" />,
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  traf: <path d="M4 20V8M10 20V4M16 20v-7M22 20H2" />,
+  grid: (
+    <>
+      <rect x="4" y="4" width="7" height="7" rx="1" />
+      <rect x="13" y="4" width="7" height="7" rx="1" />
+      <rect x="4" y="13" width="7" height="7" rx="1" />
+      <rect x="13" y="13" width="7" height="7" rx="1" />
+    </>
+  ),
   redo: <path d="M21 12a9 9 0 11-2.64-6.36M21 4v4h-4" />,
   warn: (
     <>

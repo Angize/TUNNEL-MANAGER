@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
+import ReadinessBar from './shell/ReadinessBar.jsx'
 import { apiGet } from './lib/api.js'
 import { getLS, setLS } from './lib/storage.js'
 import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
@@ -12,6 +13,8 @@ import { T } from './i18n/fa.js'
 import PAGES from './pages/index.jsx'
 
 const DEFAULT_INTERVAL = 2000
+const HIDDEN_INTERVAL = 4000
+const BOOT_INTERVAL = 6000
 const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
 
@@ -26,6 +29,7 @@ export default function App() {
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
   const [drawer, setDrawer] = useState(false)
+  const [readiness, setReadiness] = useState(null)
   const interval = useRef(DEFAULT_INTERVAL)
   const pageRef = useRef(page)
 
@@ -35,6 +39,20 @@ export default function App() {
     applyStoredTheme()
     setDark(isDark())
     document.title = T('app_title')
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    apiGet('readiness')
+      .then((r) => {
+        if (!alive) return
+        setReadiness(r)
+        if (r && !r.ok) setPage('settings')
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
   }, [])
 
   useEffect(() => {
@@ -49,11 +67,7 @@ export default function App() {
     let alive = true
     let timer = 0
 
-    const tick = async () => {
-      if (document.hidden) {
-        timer = setTimeout(tick, Math.max(interval.current, 4000))
-        return
-      }
+    const fetchSummary = async () => {
       let s = {}
       try {
         s = await apiGet('summary')
@@ -85,7 +99,15 @@ export default function App() {
         setLS(SEEN_KEY, String(seq))
       }
       setUnread(Math.max(0, seq - seen))
+    }
 
+    const tick = async () => {
+      if (document.hidden) {
+        timer = setTimeout(tick, Math.max(interval.current, HIDDEN_INTERVAL))
+        return
+      }
+      await fetchSummary()
+      if (!alive) return
       await runPageRefresh()
       if (!alive) return
       timer = setTimeout(tick, interval.current)
@@ -97,7 +119,8 @@ export default function App() {
       tick()
     }
 
-    tick()
+    fetchSummary()
+    timer = setTimeout(tick, BOOT_INTERVAL)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       alive = false
@@ -124,8 +147,9 @@ export default function App() {
         <Sidebar page={page} counts={counts} unread={unread} onNavigate={navigate} />
         <main className="main">
           <TopBar dark={dark} onMenu={() => setDrawer(true)} onToggleTheme={onToggleTheme} />
+          <ReadinessBar readiness={readiness} onNavigate={navigate} />
           <div id="view">
-            <Page />
+            <Page onNavigate={navigate} />
           </div>
         </main>
       </div>

@@ -2,12 +2,14 @@ import common from './fa/common.js'
 import errors from './fa/errors.js'
 import proxies from './fa/proxies.js'
 import portfw from './fa/portfw.js'
+import overview from './fa/overview.js'
 
 export const FA = {
   ...common,
   ...errors,
   ...proxies,
   ...portfw,
+  ...overview,
 }
 
 export function T(key) {
