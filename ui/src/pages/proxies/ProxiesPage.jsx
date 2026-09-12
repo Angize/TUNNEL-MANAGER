@@ -7,6 +7,7 @@ import ProxyModal from './ProxyModal.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import usePolledData from '../../lib/usePolledData.js'
+import { listBusy } from '../../lib/reorder.js'
 import './proxies.css'
 
 const ADD_BUTTON_STYLE = {
@@ -20,6 +21,7 @@ export default function ProxiesPage() {
   const [editing, setEditing] = useState(undefined)
 
   const load = useCallback(async () => {
+    if (listBusy()) return undefined
     const r = await apiGet('proxies')
     return r.proxies || []
   }, [])

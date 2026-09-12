@@ -288,3 +288,82 @@ button.act.danger:hover {
 .cpv:active {
   opacity: .5;
 }
+
+.card.rdrag {
+  z-index: 60;
+  overflow: visible;
+  cursor: grabbing;
+  box-shadow: 0 20px 44px -14px rgba(20, 40, 90, .5);
+  border-color: color-mix(in srgb, var(--acc) 45%, transparent);
+  opacity: .98;
+  transition: none;
+}
+
+body.rdragging {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body.rdragging .card:not(.rdrag) {
+  transition: transform .12s ease;
+}
+
+.rgrip {
+  display: none;
+}
+
+body.reord-on .rgrip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 13%, transparent);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  margin-inline-end: 2px;
+}
+
+body.reord-on.rdragging .rgrip {
+  cursor: grabbing;
+}
+
+body.reord-on .card[data-rid] {
+  border-color: color-mix(in srgb, var(--acc) 32%, transparent);
+}
+
+body.reord-on .cbody {
+  transition: none;
+}
+
+.reordbtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--sub);
+  cursor: pointer;
+  padding: 0;
+}
+
+.reordbtn svg {
+  width: 19px;
+  height: 19px;
+}
+
+body.reord-on .reordbtn {
+  background: var(--acc);
+  color: #fff;
+  border-color: transparent;
+}

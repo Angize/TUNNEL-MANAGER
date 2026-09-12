@@ -151,6 +151,7 @@ export default function NodeCard({
   return (
     <AccordionCard
       id={node.id}
+      kind="nodes"
       className={'node acc' + (enabled ? '' : ' off')}
       head={head}
       beforeBody={<NodeTraffic traffic={node.traffic} />}

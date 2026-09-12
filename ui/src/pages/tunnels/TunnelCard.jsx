@@ -7,6 +7,8 @@ import TunnelMeta from './TunnelMeta.jsx'
 import RichText from '../../components/RichText.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { boxClass, sideState, sideText } from './sideHealth.js'
+import Grip from '../../components/Grip.jsx'
+import useDragging from '../../lib/useDragging.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
@@ -88,6 +90,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
 
   const hold = useLongPress(() => setPicking(true))
   const act = actFor(link.id)
+  const dragging = useDragging(link.id)
   const enabled = link.enabled !== false
 
   const toggle = async (e) => {
@@ -214,13 +217,16 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
           (enabled ? '' : ' off') +
           (open ? ' open' : '') +
           (act && act.state === 'run' ? ' acting' : '') +
+          (dragging ? ' rdrag' : '') +
           tagClass(link)
         }
         id={'c_' + link.id}
         data-rid={link.id}
+        data-rk="tunnels"
         style={tagStyle(link.tag)}
       >
         <div className="chead" onClick={() => toggleCard(link.id)} {...hold}>
+          <Grip />
           <div
             className={'tsw' + (enabled ? ' on' : '')}
             title={T('tip_toggle')}

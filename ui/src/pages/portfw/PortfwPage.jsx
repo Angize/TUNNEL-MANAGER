@@ -10,6 +10,8 @@ import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import usePolledData from '../../lib/usePolledData.js'
+import useCardReorder from '../../lib/useCardReorder.js'
+import { listBusy } from '../../lib/reorder.js'
 
 const ADD_BUTTON_STYLE = {
   margin: '0 0 14px',
@@ -25,6 +27,7 @@ export default function PortfwPage() {
   const [editing, setEditing] = useState(null)
 
   const load = useCallback(async () => {
+    if (listBusy()) return undefined
     const r = await apiGet('portfw-list?q=' + encodeURIComponent(query))
     return (r.portfw || []).filter((x) => x.name)
   }, [query])
@@ -57,6 +60,11 @@ export default function PortfwPage() {
     setEditing(item)
   }
 
+  const items = list || []
+  const order = useCardReorder('portfw', items.map((x) => x.node_id + x.name), reload)
+  const byId = new Map(items.map((x) => [x.node_id + x.name, x]))
+  const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+
   return (
     <>
       <PageHead icon="fwd" titleKey="nav_portfw" subKey="pf_sub" />
@@ -70,13 +78,13 @@ export default function PortfwPage() {
         {T('pf_active')}
       </div>
 
-      <Toolbar value={query} placeholder={T('pf_search')} onSearch={setQuery} />
+      <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
       <div className="cardgrid">
         {list === null ? (
           <CardSkeletons />
-        ) : list.length ? (
-          list.map((item) => (
+        ) : ordered.length ? (
+          ordered.map((item) => (
             <PortfwCard
               key={item.node_id + item.name}
               item={item}

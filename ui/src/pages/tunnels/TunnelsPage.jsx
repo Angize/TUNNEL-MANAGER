@@ -12,6 +12,8 @@ import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import useCardReorder from '../../lib/useCardReorder.js'
+import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import './tunnels.css'
 
@@ -29,6 +31,7 @@ export default function TunnelsPage() {
   const checkRefs = useRef({})
 
   const load = useCallback(async () => {
+    if (listBusy()) return undefined
     const r = await apiGet('fleet?kind=tunnels&q=' + encodeURIComponent(query))
     return r.links || []
   }, [query])
@@ -85,6 +88,10 @@ export default function TunnelsPage() {
     tagOverrides[link.id] === undefined ? link : { ...link, tag: tagOverrides[link.id] }
   )
 
+  const order = useCardReorder('tunnels', links.map((l) => l.id), afterAction)
+  const byId = new Map(links.map((l) => [l.id, l]))
+  const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+
   return (
     <>
       <PageHead icon="link" titleKey="nav_tunnels" subKey="tun_sub" />
@@ -105,14 +112,14 @@ export default function TunnelsPage() {
         </button>
       </div>
 
-      <Toolbar value={query} placeholder={T('tun_search')} onSearch={setQuery} />
+      <Toolbar value={query} placeholder={T('tun_search')} reorder onSearch={setQuery} />
 
       <div className="cardgrid">
         {list === null ? (
           <CardSkeletons />
         ) : links.length || pending.length ? (
           <>
-            {links.map((link) => (
+            {ordered.map((link) => (
               <TunnelCard
                 key={link.id}
                 link={link}

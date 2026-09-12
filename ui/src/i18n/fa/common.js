@@ -76,4 +76,5 @@ export default {
   list_sep: '، ',
   unit_kb: 'کیلوبایت',
   unit_mb_full: 'مگابایت',
+  reorder_err: 'ذخیرهٔ ترتیب ناموفق بود',
 }

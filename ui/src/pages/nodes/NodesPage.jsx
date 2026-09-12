@@ -14,6 +14,8 @@ import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import useCardReorder from '../../lib/useCardReorder.js'
+import { listBusy } from '../../lib/reorder.js'
 import './nodes.css'
 
 const ADD_BUTTON_STYLE = {
@@ -53,6 +55,7 @@ export default function NodesPage() {
   const [moved, setMoved] = useState(null)
 
   const load = useCallback(async () => {
+    if (listBusy()) return undefined
     const r = await apiGet('nodes?q=' + encodeURIComponent(query))
     setOverrides({})
     return { nodes: r.nodes || [], windowHours: num(r.uptime_window) || 1 }
@@ -69,6 +72,10 @@ export default function NodesPage() {
   )
   const staleCount = nodes.filter(isCentralStale).length
 
+  const order = useCardReorder('nodes', nodes.map((n) => n.id), reload)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+
   return (
     <>
       <PageHead icon="server" titleKey="nav_nodes" subKey="nodes_sub" />
@@ -83,15 +90,15 @@ export default function NodesPage() {
         {T('nodes_fleet')}
       </div>
 
-      <Toolbar value={query} placeholder={T('nodes_search')} onSearch={setQuery} />
+      <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
       <div className="cardgrid">
         {data === null ? (
           <CardSkeletons />
         ) : (
           <>
-            {nodes.length ? (
-              nodes.map((node) => (
+            {ordered.length ? (
+              ordered.map((node) => (
                 <NodeCard
                   key={node.id}
                   node={node}

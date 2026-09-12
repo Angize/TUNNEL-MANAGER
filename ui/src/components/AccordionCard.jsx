@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import Grip from './Grip.jsx'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../lib/openCards.js'
+import useDragging from '../lib/useDragging.js'
 
 function Chevron() {
   return (
@@ -17,18 +19,23 @@ function Chevron() {
   )
 }
 
-export default function AccordionCard({ id, className, head, beforeBody, children }) {
+export default function AccordionCard({ id, kind, className, head, beforeBody, children }) {
   const [open, setOpen] = useState(() => isCardOpen(id))
+  const dragging = useDragging(id)
 
   useEffect(() => subscribeOpenCards(() => setOpen(isCardOpen(id))), [id])
 
   return (
     <div
-      className={'card ' + (className || '') + (open ? ' open' : '')}
+      className={
+        'card ' + (className || '') + (open ? ' open' : '') + (dragging ? ' rdrag' : '')
+      }
       id={'c_' + id}
       data-rid={id}
+      data-rk={kind}
     >
       <div className="chead" onClick={() => toggleCard(id)}>
+        {kind ? <Grip /> : null}
         {head}
         <Chevron />
       </div>

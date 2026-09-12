@@ -8,6 +8,8 @@ import CoreMeta from './CoreMeta.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { boxClass, sideState, sideText } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
+import Grip from '../../components/Grip.jsx'
+import useDragging from '../../lib/useDragging.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
@@ -112,6 +114,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
 
   const hold = useLongPress(() => setPicking(true))
   const act = actFor(link.id)
+  const dragging = useDragging(link.id)
   const enabled = link.enabled !== false
   const [first, second] = sideOrder(link)
 
@@ -252,13 +255,16 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
           (enabled ? '' : ' off') +
           (open ? ' open' : '') +
           (act && act.state === 'run' ? ' acting' : '') +
+          (dragging ? ' rdrag' : '') +
           tagClass(link)
         }
         id={'c_' + link.id}
         data-rid={link.id}
+        data-rk="core"
         style={tagStyle(link.tag)}
       >
         <div className="chead" onClick={() => toggleCard(link.id)} {...hold}>
+          <Grip />
           <div className={'tsw' + (enabled ? ' on' : '')} title={T('tip_toggle')} onClick={toggle} />
           <div className="hmain">
             <div className="hrow1">

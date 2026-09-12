@@ -12,6 +12,8 @@ import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import useCardReorder from '../../lib/useCardReorder.js'
+import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import './core.css'
 
@@ -25,6 +27,7 @@ export default function CorePage() {
   const checkRefs = useRef({})
 
   const load = useCallback(async () => {
+    if (listBusy()) return undefined
     const r = await apiGet('fleet?kind=core&q=' + encodeURIComponent(query))
     return r.links || []
   }, [query])
@@ -103,6 +106,10 @@ export default function CorePage() {
     tagOverrides[link.id] === undefined ? link : { ...link, tag: tagOverrides[link.id] }
   )
 
+  const order = useCardReorder('core', links.map((l) => l.id), afterAction)
+  const byId = new Map(links.map((l) => [l.id, l]))
+  const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+
   return (
     <>
       <PageHead icon="cpu" titleKey="nav_core" subKey="core_sub" />
@@ -123,14 +130,14 @@ export default function CorePage() {
         </button>
       </div>
 
-      <Toolbar value={query} placeholder={T('core_search')} onSearch={setQuery} />
+      <Toolbar value={query} placeholder={T('core_search')} reorder onSearch={setQuery} />
 
       <div className="cardgrid">
         {list === null ? (
           <CardSkeletons />
         ) : links.length || pending.length ? (
           <>
-            {links.map((link) => (
+            {ordered.map((link) => (
               <CoreCard
                 key={link.id}
                 link={link}

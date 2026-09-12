@@ -118,7 +118,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   )
 
   return (
-    <AccordionCard id={item.node_id + item.name} className="acc" head={head}>
+    <AccordionCard id={item.node_id + item.name} kind="portfw" className="acc" head={head}>
       <div className="enmeta">
         <div className="emcol">
           <div>
