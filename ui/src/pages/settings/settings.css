@@ -329,3 +329,7 @@
   padding: 3px 9px;
   border-radius: 20px;
 }
+
+.setfield .val {
+  color: var(--gold);
+}

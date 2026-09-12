@@ -7862,61 +7862,147 @@ WantedBy=multi-user.target
     subprocess.run(["systemctl", "daemon-reload"])
 
 
+def _colour_ok():
+    if os.environ.get("NO_COLOR") or os.environ.get("TERM") == "dumb":
+        return False
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+_COLOUR = _colour_ok()
+
+
+def paint(code, text):
+    return "[" + code + "m" + str(text) + "[0m" if _COLOUR else str(text)
+
+
+def bold(t):
+    return paint("1", t)
+
+
+def dim(t):
+    return paint("2", t)
+
+
+def red(t):
+    return paint("31", t)
+
+
+def green(t):
+    return paint("32", t)
+
+
+def gold(t):
+    return paint("33", t)
+
+
+def cyan(t):
+    return paint("36", t)
+
+
+OK = green("[v]")
+BAD = red("[x]")
+WARN = gold("[!]")
+STEP = cyan("[*]")
+
+def ui_files():
+    try:
+        return len(os.listdir(os.path.join(UI_DIR, "assets")))
+    except OSError:
+        return 0
+
+
 def install_ui():
     src = os.path.join(os.path.dirname(SELF_PATH), "ui")
     if os.path.realpath(src) == os.path.realpath(UI_DIR):
-        return True
+        return "same"
     if not os.path.isdir(os.path.join(src, "assets")):
-        return False
+        return "missing"
     staged = UI_DIR + ".new"
     shutil.rmtree(staged, ignore_errors=True)
     shutil.copytree(src, staged)
     shutil.rmtree(UI_DIR, ignore_errors=True)
     os.replace(staged, UI_DIR)
-    return True
+    return "copied"
+
+
+def step(n, total, title):
+    print()
+    print("%s %s" % (cyan("[%d/%d]" % (n, total)), bold(title)))
 
 
 def do_install():
     if not sys.stdin.isatty():
-        print("--install asks for a username and a password, so it needs a terminal.")
-        sys.exit(1)
+        print("%s install asks for a username and a password, so it needs a terminal." % BAD)
+        return False
+    total = 6
+
+    step(1, total, "files")
     os.makedirs(CENTRAL_DIR, exist_ok=True)
     os.chmod(CENTRAL_DIR, 0o700)
     if os.path.realpath(SELF_PATH) != INSTALLED:
         shutil.copy2(SELF_PATH, INSTALLED)
         os.chmod(INSTALLED, 0o755)
-    if not install_ui():
-        print("[x] the ui/ folder is not next to this script - unpack the release tarball and run --install from inside it.")
-        sys.exit(1)
+        print("%s panel installed at %s" % (OK, INSTALLED))
+    else:
+        print("%s already running from %s" % (OK, INSTALLED))
+    outcome = install_ui()
+    if outcome == "copied":
+        print("%s web ui installed - %d files" % (OK, ui_files()))
+    elif outcome == "same" and ui_files():
+        print("%s web ui already in place - %d files" % (OK, ui_files()))
+    else:
+        print("%s no ui folder next to %s" % (BAD, SELF_PATH))
+        print("    unpack the release tarball and run it from inside that folder.")
+        return False
+
+    step(2, total, "dependencies")
     install_deps()
+
+    step(3, total, "port and login")
     conf = load_conf() if os.path.isfile(WEB_CONF) else {}
     have = conf.get("port", 8080)
-    conf["port"] = _port_or(input(f"Panel port [{have}]: "), have)
+    conf["port"] = _port_or(input("Panel port [%s]: " % have), have)
     set_password(conf)
+
+    step(4, total, "signing key")
     try:
         _signing_keys()
+        print("%s rsa key ready" % OK)
     except Exception as e:
-        print(f"[✘] openssl could not create the RSA signing key ({e}) — every push to a node would be refused.")
-        sys.exit(1)
+        print("%s openssl could not create the signing key (%s)" % (BAD, e))
+        print("    without it every push to a node is refused, so the install stops here.")
+        return False
+
+    step(5, total, "service")
     write_service()
     svc("enable")
     svc("restart")
     if not service_settled():
-        print("[✘] the service did not come up — journalctl -u " + SERVICE)
-        sys.exit(1)
+        print("%s the service did not come up - journalctl -u %s" % (BAD, SERVICE))
+        return False
+    print("%s %s is active" % (OK, SERVICE))
+
+    step(6, total, "core and agent")
     try:
         info = _stage_core("latest")
-        print(f"[✔] staged core {info['version']} ({', '.join(info['arches'])}) — ready to push to nodes")
+        print("%s core %s staged (%s)" % (OK, info["version"], ", ".join(info["arches"])))
     except Exception as e:
-        print(f"[!] could not pre-download the core ({e}); stage it later from the panel (هستهٔ داده → دریافت از گیت‌هاب)")
+        print("%s could not pre-download the core (%s)" % (WARN, e))
+        print("    stage it later from the panel: %s" % dim("هستهٔ داده / دریافت از گیت‌هاب"))
     try:
         meta = api_agent_fetch_git({})
-        print(f"[✔] staged node agent v{meta['version']} — ready to add nodes over SSH")
+        print("%s node agent v%s staged" % (OK, meta["version"]))
     except Exception as e:
-        print(f"[!] could not pre-download the node agent ({e}); stage it later from the panel (تنظیمات → بروزرسانیِ ایجنت)")
-    print("[✔] tnl-central installed and started.")
-    print(f"[→] open  http://{central_ip()}:{conf['port']}/   (user: {conf.get('user')})")
+        print("%s could not pre-download the node agent (%s)" % (WARN, e))
+        print("    stage it later from the panel: %s" % dim("تنظیمات / بروزرسانیِ ایجنت"))
 
+    print()
+    print("%s tnl-central is installed and running." % green("[done]"))
+    print("      open %s   user: %s" % (cyan("http://%s:%s/" % (central_ip(), conf["port"])), bold(conf.get("user"))))
+    return True
 
 def change_port():
     if not os.path.isfile(WEB_CONF):
@@ -7967,16 +8053,49 @@ def do_restart():
           else "[!] restarted but not active - check Status / logs.")
 
 
+MENU = [
+    ("1", "Install / reinstall", "asks for the port and a password"),
+    ("2", "Update the web UI", "copies the ui folder next to this script"),
+    ("3", "Restart the service", "picks up a replaced tnl-central.py"),
+    ("4", "Change the port", ""),
+    ("5", "Change the password", ""),
+    ("6", "Uninstall", "keeps nodes, links and settings"),
+    ("0", "Exit", ""),
+]
+
+
 def status():
     exists = os.path.isfile(SERVICE_FILE)
     conf = load_conf() if os.path.isfile(WEB_CONF) else {}
+    if service_active():
+        state = green("active")
+    elif exists:
+        state = gold("stopped")
+    else:
+        state = red("not installed")
+    files = ui_files()
+    ui = green("%d files" % files) if files else red("missing - use 2")
     print()
-    print(f"  service : {'active' if service_active() else ('installed, stopped' if exists else 'not installed')}")
-    print(f"  url     : http://{central_ip()}:{conf.get('port', '-')}/")
-    print(f"  user    : {conf.get('user', '-')}")
-    print(f"  nodes   : {len(load_nodes())}")
-    print(f"  links   : {len(load_links())}")
-    print()
+    print("  %s  %s" % (dim("service"), state))
+    print("  %s  %s" % (dim("panel  "), cyan("http://%s:%s/" % (central_ip(), conf.get("port", "-")))))
+    print("  %s  %s" % (dim("user   "), conf.get("user", "-")))
+    print("  %s  %s" % (dim("web ui "), ui))
+    print("  %s  %d nodes %s %d links" % (dim("fleet  "), len(load_nodes()), dim("/"), len(load_links())))
+
+
+def refresh_ui():
+    outcome = install_ui()
+    if outcome == "copied":
+        print("%s web ui refreshed - %d files in %s" % (OK, ui_files(), UI_DIR))
+        return True
+    if outcome == "same":
+        print("%s this IS the installed copy, so there is nothing beside it to copy from." % WARN)
+        print("    unpack the release tarball and run it from there:")
+        print("    %s" % dim("cd /tmp/tnl && python3 tnl-central.py"))
+        return False
+    print("%s no ui folder next to %s" % (BAD, SELF_PATH))
+    print("    unpack the release tarball and run this from inside it.")
+    return False
 
 
 def menu():
@@ -7985,24 +8104,23 @@ def menu():
         sys.exit(1)
     os.makedirs(CENTRAL_DIR, exist_ok=True)
     while True:
-        exists = os.path.isfile(SERVICE_FILE)
-        st = "active" if service_active() else ("stopped" if exists else "not installed")
-        print(f"\n=== tnl-central . control plane   [{st}] ===")
-        print("  1) Install / reinstall")
-        print("  2) Show URL")
-        print("  3) Restart service (apply an updated file)")
-        print("  4) Change port")
-        print("  5) Change password")
-        print("  6) Status")
-        print("  7) Uninstall")
-        print("  8) Exit")
-        c = input("choice: ").strip()
+        print()
+        print(bold(cyan("=== tnl-central . control plane ===")))
+        status()
+        print()
+        for key, title, note in MENU:
+            line = "  %s %s" % (cyan(key + ")"), title)
+            print(line + ("  " + dim(note) if note else ""))
+        try:
+            c = input(nl_prompt()).strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
         try:
             if c == "1":
                 do_install()
             elif c == "2":
-                conf = load_conf() if os.path.isfile(WEB_CONF) else {}
-                print(f"  http://{central_ip()}:{conf.get('port', 8080)}/")
+                refresh_ui()
             elif c == "3":
                 do_restart()
             elif c == "4":
@@ -8010,16 +8128,22 @@ def menu():
             elif c == "5":
                 change_password()
             elif c == "6":
-                status()
-            elif c == "7":
                 uninstall()
-            elif c == "8":
-                break
+            elif c == "0":
+                return
             else:
-                print("invalid.")
+                print("%s pick one of %s" % (WARN, ", ".join(k for k, _, _ in MENU)))
+        except KeyboardInterrupt:
+            print()
+            print("%s cancelled - nothing was changed." % WARN)
+        except SystemExit:
+            print("%s that step stopped early." % WARN)
         except Exception as e:
-            print(f"[!] {e}")
+            print("%s %s" % (BAD, e))
 
+
+def nl_prompt():
+    return "\n" + bold("choice: ")
 
 _BUSY_BODY = json.dumps({"error": "پنل شلوغ است — چند لحظه بعد دوباره"}, ensure_ascii=False).encode()
 _BUSY_RESP = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
@@ -8099,15 +8223,14 @@ def main():
         if os.geteuid() != 0:
             print("Run as root (sudo).")
             sys.exit(1)
-        do_install()
+        if not do_install():
+            sys.exit(1)
     elif arg == "--install-ui":
         if os.geteuid() != 0:
             print("Run as root (sudo).")
             sys.exit(1)
-        if not install_ui():
-            print("[x] the ui/ folder is not next to this script - unpack the release tarball and run --install-ui from inside it.")
+        if not refresh_ui():
             sys.exit(1)
-        print("[v] ui refreshed at " + UI_DIR)
     elif arg == "--set-pass":
         if os.geteuid() != 0:
             print("Run as root (sudo).")
@@ -8118,4 +8241,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        sys.exit(130)

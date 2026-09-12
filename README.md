@@ -1,8 +1,13 @@
 # TUNNEL-MANAGER
 
+پنلِ کنترلِ فلیت. یک سرویسِ پایتون روی سرورِ مرکزی، با رابطِ کاربریِ React.
+
+> `<TOKEN>` در همهٔ دستورهای زیر = یک GitHub PAT با دسترسیِ **Contents: Read**
+> (این ریپو خصوصی است). آن را یک‌بار در خطِ اولِ هر بلوک بگذار.
+
 ## نصب
 
-روی سرورِ مرکزی — Debian/Ubuntu با systemd، به‌عنوان root:
+روی سرورِ مرکزی — Debian/Ubuntu با systemd، به‌عنوان root. کلِ بلوک را یک‌جا کپی کن:
 
 ```bash
 TOKEN=<TOKEN>
@@ -14,24 +19,23 @@ rm -rf /tmp/tnl && mkdir -p /tmp/tnl && tar xzf /tmp/tnl.tgz -C /tmp/tnl
 cd /tmp/tnl && sudo python3 tnl-central.py --install
 ```
 
-پنل دیگر یک فایلِ تنها نیست: رابطِ کاربری یک بیلدِ React است که کنارِ اسکریپت در `ui/`
-می‌نشیند، و گیت‌هاب خودش می‌سازدش (ورک‌فلوی `release-panel` روی هر تگِ `v*`). به همین
-دلیل نصب از **ریلیز** است نه از فایلِ خامِ `main`؛ نصب‌کننده `ui/` را در
-`/opt/tnl-central/ui` می‌گذارد و اگر پیدایش نکند اجرا را متوقف می‌کند.
+نصب‌کننده شش مرحله را نشان می‌دهد: فایل‌ها، پیش‌نیازها (`openssl`, `ca-certificates`,
+`iproute2`, `openssh-client`, `sshpass`)، پورت و نام‌کاربری/رمز، کلیدِ امضا، سرویسِ
+systemd، و دانلودِ هستهٔ `latest` و ایجنتِ نود. آخرش نشانیِ پنل را چاپ می‌کند.
 
-`<TOKEN>` = یک GitHub PAT با دسترسیِ **Contents: Read** (این repo خصوصی است).
-
-نصب‌کننده خودش پیش‌نیازها را می‌گیرد (`openssl`, `ca-certificates`, `iproute2`,
-`openssh-client`, `sshpass`)، پورت و نام‌کاربری/رمز می‌پرسد، کلیدِ امضا را می‌سازد، سرویسِ
-systemd را بالا می‌آورد، و هستهٔ `latest` و ایجنتِ نود را از پیش دانلود می‌کند.
-
-بعدش: `http://<SERVER-IP>:<PORT>`
+اگر وسطِ کار Ctrl+C بزنی، هیچ‌چیز نصفه نمی‌ماند — پیغامِ لغو می‌دهد و برمی‌گردد.
 
 ## بروزرسانی
 
-همان خط‌های بالا تا `tar xzf`، بعد:
+همین یک بلوک، کامل:
 
 ```bash
+TOKEN=<TOKEN>
+REPO=https://api.github.com/repos/Angize/TUNNEL-MANAGER
+ASSET=$(curl -fsSL -H "Authorization: token $TOKEN" "$REPO/releases/latest" \
+  | python3 -c "import json,sys;print([a['url'] for a in json.load(sys.stdin)['assets'] if a['name'].endswith('.tar.gz')][0])")
+curl -fsSL -H "Authorization: token $TOKEN" -H "Accept: application/octet-stream" "$ASSET" -o /tmp/tnl.tgz
+rm -rf /tmp/tnl && mkdir -p /tmp/tnl && tar xzf /tmp/tnl.tgz -C /tmp/tnl
 cd /tmp/tnl
 sudo install -m755 tnl-central.py /opt/tnl-central/tnl-central.py
 sudo python3 tnl-central.py --install-ui
@@ -42,20 +46,67 @@ sudo systemctl restart tnl-central
 نیست — فایل‌ها از روی دیسک سرو می‌شوند. نامِ فایل‌های `ui/assets/` هش‌دار است، پس
 مرورگر نسخهٔ تازه را می‌گیرد و کهنه را از کش نمی‌خواند.
 
-## دستورها
+> دستورِ قدیمی که فقط `tnl-central.py` را می‌گرفت دیگر کار نمی‌کند. رابطِ کاربری
+> یک بیلدِ جداست که گیت‌هاب روی هر تگِ `v*` می‌سازد (ورک‌فلوی `release-panel`) و باید
+> در `/opt/tnl-central/ui` بنشیند؛ به همین دلیل نصب و آپدیت از **ریلیز** است نه از
+> فایلِ خامِ `main`.
 
-| دستور | کار |
+## منویِ روت
+
+```bash
+sudo python3 /opt/tnl-central/tnl-central.py
+```
+
+بالای منو وضعیتِ زنده را می‌بینی: سرویس، نشانیِ پنل، نام‌کاربری، تعدادِ فایل‌های
+رابطِ کاربری، و تعدادِ نود و لینک. گزینه‌ها:
+
+| | |
 |---|---|
-| `sudo python3 tnl-central.py --install` | نصب (ترمینال لازم دارد) |
-| `sudo python3 tnl-central.py --install-ui` | فقط تازه‌کردنِ رابطِ کاربری از `ui/`ِ کنارِ اسکریپت |
-| `sudo python3 tnl-central.py --set-pass` | تغییرِ نام‌کاربری/رمزِ ورود |
-| `sudo python3 tnl-central.py` | منویِ root: وضعیت / ری‌استارت / تغییرِ پورت / تغییرِ رمز / حذف |
+| **1** | نصب / نصبِ دوباره |
+| **2** | تازه‌کردنِ رابطِ کاربری از `ui/`ِ کنارِ اسکریپت |
+| **3** | ری‌استارتِ سرویس (بعد از جایگزینیِ فایل) |
+| **4** | تغییرِ پورت |
+| **5** | تغییرِ رمز |
+| **6** | حذف (نودها، لینک‌ها و تنظیمات می‌مانند) |
+| **0** | خروج |
+
+گزینهٔ **2** را باید از داخلِ پوشهٔ بازشدهٔ ریلیز اجرا کنی، نه از `/opt/tnl-central`؛
+اگر آنجا بزنی خودش می‌گوید چرا کاری نکرد.
+
+## دستورهای تکی
+
+نصب (ترمینال لازم دارد):
+
+```bash
+sudo python3 tnl-central.py --install
+```
+
+فقط تازه‌کردنِ رابطِ کاربری از `ui/`ِ کنارِ اسکریپت:
+
+```bash
+sudo python3 tnl-central.py --install-ui
+```
+
+تغییرِ نام‌کاربری و رمزِ ورود:
+
+```bash
+sudo python3 tnl-central.py --set-pass
+```
+
+دیدنِ لاگِ سرویس:
+
+```bash
+journalctl -u tnl-central -f
+```
 
 ## حذف
 
 ```bash
-sudo python3 /opt/tnl-central/tnl-central.py    # گزینهٔ ۷) Uninstall
+sudo python3 /opt/tnl-central/tnl-central.py
 ```
+
+و گزینهٔ **6) Uninstall** را بزن. سرویس برداشته می‌شود ولی `/opt/tnl-central`
+با نودها، لینک‌ها و تنظیمات سرِ جایش می‌ماند.
 
 ---
 

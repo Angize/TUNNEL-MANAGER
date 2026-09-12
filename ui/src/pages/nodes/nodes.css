@@ -417,6 +417,7 @@
 
 .seg {
   display: flex;
+  align-items: center;
   background: var(--field);
   border: 1px solid var(--bord);
   border-radius: 12px;

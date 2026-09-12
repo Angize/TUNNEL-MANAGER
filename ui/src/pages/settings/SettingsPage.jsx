@@ -241,7 +241,7 @@ export default function SettingsPage() {
         <p className="stnote">{T('set_apply_note')}</p>
         <div className="stsave">
           <button className="ghost" onClick={reset}>
-            <Icon name="reset" />
+            <Icon name="undo" />
             {T('set_reset')}
           </button>
           <button className="primary" onClick={save}>

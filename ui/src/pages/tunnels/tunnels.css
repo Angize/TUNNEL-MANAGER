@@ -11,6 +11,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.2;
+  padding: 9px 15px;
+  min-height: 38px;
+  border-radius: 10px;
 }
 
 .tbtnrow > button.primary {
