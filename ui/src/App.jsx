@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
+import TabBar from './shell/TabBar.jsx'
 import ReadinessBar from './shell/ReadinessBar.jsx'
 import CommandPalette from './shell/CommandPalette.jsx'
 import { apiGet } from './lib/api.js'
@@ -201,7 +202,7 @@ function Shell() {
         <main className="main">
           <TopBar dark={dark} onMenu={() => setDrawer(true)} onToggleTheme={onToggleTheme} />
           <ReadinessBar readiness={readiness} onNavigate={navigate} />
-          <div id="view">
+          <div id="view" className="pg" key={page}>
             {uiConfig ? (
               <UiConfigProvider value={uiConfig}>
                 <SummaryProvider value={summaryValue}>
@@ -214,6 +215,7 @@ function Shell() {
           </div>
         </main>
       </div>
+      <TabBar page={page} unread={unread} onNavigate={navigate} onMore={() => setDrawer(true)} />
       {palette ? (
         <CommandPalette
           dark={dark}

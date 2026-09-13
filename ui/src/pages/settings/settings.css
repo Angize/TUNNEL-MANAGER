@@ -229,10 +229,12 @@
   flex-wrap: wrap;
   margin-top: var(--sc-g);
   padding: 9px 13px;
-  border-radius: 14px;
+  border-radius: 18px;
   background: var(--card);
-  border: 1px solid var(--bord);
-  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: var(--dsh-hi);
 }
 
 .stsave button {

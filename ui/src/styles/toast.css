@@ -6,13 +6,19 @@
   z-index: 60;
   max-width: 88%;
   padding: 12px 18px;
-  border-radius: 14px;
+  border-radius: 16px;
   font-size: 13px;
-  background: var(--card);
-  border: 1px solid var(--bord);
-  box-shadow: var(--dsh);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--modal);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: var(--dsh-hi);
   opacity: 0;
-  transition: .3s;
+  transition: transform .35s cubic-bezier(.25, 1.2, .4, 1), opacity .25s;
   pointer-events: none;
 }
 
@@ -22,11 +28,15 @@
 }
 
 .toast.err {
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
   color: var(--bad);
 }
 
 .toast.ok {
-  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
   color: var(--ok);
+}
+
+@media (max-width: 840px) {
+  .toast {
+    bottom: 92px;
+  }
 }

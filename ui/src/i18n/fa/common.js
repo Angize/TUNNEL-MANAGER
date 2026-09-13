@@ -11,6 +11,7 @@ export default {
   nav_logs: 'لاگ',
   nav_settings: 'تنظیمات',
   nav_logout: 'خروج',
+  nav_more: 'بیشتر',
 
   ov_sub: 'آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده',
   nodes_sub: 'افزودن و وضعیت زنده‌ی نودها',

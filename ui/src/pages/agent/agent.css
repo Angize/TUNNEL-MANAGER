@@ -392,8 +392,10 @@
   padding: 6px 8px;
   border-radius: 999px;
   background: var(--card);
-  border: 1px solid color-mix(in srgb, var(--acc) 55%, transparent);
-  box-shadow: var(--dsh);
+  border: 1px solid color-mix(in srgb, var(--acc) 55%, var(--edge));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: var(--dsh-hi);
 }
 
 .pfab .pfn {

@@ -1,16 +1,24 @@
 .card {
   position: relative;
   overflow: hidden;
-  border-radius: 15px;
+  border-radius: 20px;
   padding: 14px;
   margin-bottom: 11px;
   background: var(--card);
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   box-shadow: var(--dsh);
+  transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s;
 }
 
 .card.acc {
   padding: 0;
+}
+
+body:not(.rdragging) .card.acc:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--dsh-hi);
 }
 
 .card.acc.off {
@@ -27,7 +35,7 @@
 }
 
 .chead:hover {
-  background: color-mix(in srgb, var(--acc) 4%, transparent);
+  background: var(--ctl);
 }
 
 .hmain {
@@ -69,7 +77,7 @@
   width: 16px;
   height: 16px;
   color: var(--sub);
-  transition: transform .2s;
+  transition: transform .35s cubic-bezier(.2, .8, .2, 1);
   flex: 0 0 auto;
 }
 
@@ -78,18 +86,26 @@
 }
 
 .cbody {
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
   overflow: hidden;
-  transition: max-height .28s ease;
+  transition: grid-template-rows .4s cubic-bezier(.2, .8, .2, 1);
 }
 
 .card.open .cbody {
-  max-height: 720px;
+  grid-template-rows: 1fr;
 }
 
 .cbody-in {
+  min-height: 0;
+  padding: 0 14px;
+  border-top: 0 solid var(--bord);
+  transition: padding .4s cubic-bezier(.2, .8, .2, 1);
+}
+
+.card.open .cbody-in {
   padding: 12px 14px 14px;
-  border-top: 1px solid var(--bord);
+  border-top-width: 1px;
 }
 
 .ndot {
@@ -186,13 +202,13 @@
 }
 
 .nact.iconly .act {
-  padding: 8px 0;
+  padding: 9px 0;
   justify-content: center;
 }
 
 .nact.iconly .act .ic {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 button.act {
@@ -200,17 +216,23 @@ button.act {
   align-items: center;
   gap: 5px;
   background: var(--glass);
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   color: var(--tx);
-  border-radius: 11px;
+  border-radius: 13px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 12.5px;
   font-family: inherit;
+  transition: transform .18s cubic-bezier(.2, .8, .2, 1), background .18s, box-shadow .18s;
+}
+
+button.act:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px -12px rgba(15, 27, 45, .5);
 }
 
 button.act:active {
-  transform: scale(.97);
+  transform: scale(.94);
 }
 
 button.act .ic {
@@ -220,21 +242,26 @@ button.act .ic {
 
 button.act.ok {
   color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 42%, transparent);
+}
+
+button.act.ok:hover {
+  background: var(--okw);
 }
 
 button.act.warn {
-  color: #fb923c;
-  border-color: color-mix(in srgb, #fb923c 46%, transparent);
+  color: var(--gold);
+}
+
+button.act.warn:hover {
+  background: var(--goldw);
 }
 
 button.act.danger {
   color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
 }
 
 button.act.danger:hover {
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  background: var(--badw);
 }
 
 @media (min-width: 900px) {
@@ -350,9 +377,12 @@ body.reord-on .cbody {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border: 1px solid var(--bord);
-  border-radius: 12px;
-  background: var(--field);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--card);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  box-shadow: var(--dsh);
   color: var(--sub);
   cursor: pointer;
   padding: 0;
@@ -561,15 +591,24 @@ body.dark .tag.core {
 
 button.act.info {
   color: var(--acc);
-  border-color: color-mix(in srgb, var(--acc) 38%, transparent);
+}
+
+button.act.info:hover {
+  background: var(--accw);
 }
 
 .act.flip {
-  color: var(--acc);
-  border-color: color-mix(in srgb, var(--acc) 40%, transparent);
+  color: var(--acc2);
+}
+
+.act.flip:hover {
+  background: color-mix(in srgb, var(--acc2) 12%, transparent);
 }
 
 .act.reset {
-  color: var(--gold);
-  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
+  color: var(--sub);
+}
+
+.act.reset:hover {
+  background: var(--ctl);
 }
