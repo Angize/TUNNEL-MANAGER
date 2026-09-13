@@ -89,7 +89,7 @@ export default function PortRows({ link }) {
 
   return (
     <>
-      {link.port ? (
+      {link.port && transport !== 'ws' ? (
         <div>
           {T('port')}: <b className="mono">{link.port}</b>
         </div>
