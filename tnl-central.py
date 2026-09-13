@@ -7462,7 +7462,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "act-cancel", "api-token-new"}
 TOKEN_DENY = {"settings-set", "api-token-new"}
 API_MSG = {
-    "unauthorized": ("وارد نشده‌اید", 401, "not logged in: send Authorization: Bearer <token>"),
+    "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),
     "api_disabled": ("API در دسترس نیست", 403, "API is not available"),
     "bad_token": ("توکنِ API نامعتبر است", 401, "invalid API token"),
@@ -7802,7 +7802,8 @@ class Handler(BaseHTTPRequestHandler):
             self._api_log("warn", "api-refused", API_REFUSED[code] % cmd, cmd, method, API_MSG[code][1])
 
     def _api(self, cmd, method):
-        en = self.headers.get("Authorization", "").startswith("Bearer ")
+        en = (self.headers.get("Authorization", "").startswith("Bearer ")
+              or "tnl_session" not in self.headers.get("Cookie", ""))
         via_token = False
         if not self._user():
             why = self._bearer_check()
