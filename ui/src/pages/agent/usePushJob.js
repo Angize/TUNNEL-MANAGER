@@ -14,6 +14,7 @@ export default function usePushJob({ onSettled }) {
   const [state, setState] = useState(null)
   const [seeded, setSeeded] = useState({})
   const job = useRef(null)
+  const gen = useRef(0)
   const alive = useRef(true)
   const onSettledRef = useRef(onSettled)
 
@@ -32,7 +33,9 @@ export default function usePushJob({ onSettled }) {
   }, [state])
 
   const poll = useCallback(async () => {
+    const mine = gen.current
     let failures = 0
+    let finished = false
     try {
       for (;;) {
         let r = null
@@ -51,20 +54,27 @@ export default function usePushJob({ onSettled }) {
         } else {
           failures = 0
           setState(r)
-          if (r.done) break
+          if (r.done) {
+            finished = true
+            break
+          }
         }
         await new Promise((done) => setTimeout(done, POLL_MS))
       }
-      setTimeout(() => {
-        if (alive.current) onSettledRef.current()
-      }, SETTLE_MS)
     } finally {
       job.current = null
-      if (alive.current) {
+      if (alive.current && !finished) {
         setState(null)
         setSeeded({})
       }
     }
+    setTimeout(() => {
+      if (!alive.current) return
+      onSettledRef.current()
+      if (gen.current !== mine) return
+      setState(null)
+      setSeeded({})
+    }, SETTLE_MS)
   }, [])
 
   const adopt = useCallback(async () => {
@@ -77,12 +87,15 @@ export default function usePushJob({ onSettled }) {
     }
     if (!r || !r.ok || r.idle || !r.job || r.done) return
     job.current = JOB_ALL
+    gen.current += 1
     setState(r)
     poll()
   }, [poll])
 
   const start = useCallback(
     async (command, body, ids) => {
+      gen.current += 1
+      setState((prev) => (prev && prev.done ? null : prev))
       setSeeded(Object.fromEntries((ids || []).map((id) => [id, true])))
       const res = await apiPost(command, body)
       if (!(res.ok && res.d)) {
