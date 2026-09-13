@@ -1,5 +1,6 @@
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
+import { Kv, KvRow } from '../../components/Kv.jsx'
 import PortRows from './PortRows.jsx'
 import { CT_WARN_PCT, carrierFamily, carrierLabel, carrierProfile, edgeHost } from './carrier.js'
 import { T } from '../../i18n/fa.js'
@@ -35,7 +36,7 @@ function ConntrackWarning({ link }) {
     .split('{n}')
 
   return (
-    <div className="warncap no emwarn">
+    <div className="warncap no">
       <Icon name="warn" />
       <span>
         {parts[0]}
@@ -96,52 +97,38 @@ export default function CoreMeta({ link, activeEdge }) {
 
   return (
     <>
-      <div className="enmeta">
-        <div className="emcol">
-          <div>
-            {T('subnet')}: <CopyValue text={link.subnet} />
-          </div>
-          <PortRows link={link} />
-          <div>
-            {T('iface')}: <b className="mono">{link.name}</b>
-          </div>
-        </div>
-        <span className="tnarrow earrow">↔</span>
-        <div className="emcol">
-          <div className="tagrow">
-            {T('ttype')}: <span className={'ctag c-' + family}>{carrierLabel(link)}</span>
-          </div>
-          {profile ? (
-            <div>
-              {T('profile')}: <b className="mono">{profile}</b>
-            </div>
-          ) : null}
-          <div className="feat">
-            {T('caps')}:{' '}
-            {caps.length ? (
-              caps.map((tag, i) => (
-                <span key={tag + i}>
-                  {i ? ' ' : null}
-                  <span className="tag obfs">{tag}</span>
-                </span>
-              ))
-            ) : (
-              <span className="nofeat">—</span>
-            )}
-          </div>
-          <div className="enc-line">
-            {T('enc')}:{' '}
-            {cipher ? (
-              <span className="encval">
-                {link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher}
+      <Kv>
+        <KvRow label={T('ttype')}>
+          <span className={'ctag c-' + family}>{carrierLabel(link)}</span>
+          {profile ? <b className="mono">{profile}</b> : null}
+        </KvRow>
+        <KvRow label={T('subnet')} mono>
+          <CopyValue text={link.subnet} />
+        </KvRow>
+        <KvRow label={T('enc')}>
+          {cipher ? (
+            <span className="encval">{link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher}</span>
+          ) : (
+            <b>{T('no_cipher')}</b>
+          )}
+        </KvRow>
+        <KvRow label={T('iface')} mono>
+          {link.name}
+        </KvRow>
+        <KvRow label={T('caps')} wide>
+          {caps.length ? (
+            caps.map((tag, i) => (
+              <span key={tag + i} className="tag obfs">
+                {tag}
               </span>
-            ) : (
-              <b>{T('no_cipher')}</b>
-            )}
-          </div>
-        </div>
-        <ConntrackWarning link={link} />
-      </div>
+            ))
+          ) : (
+            <span className="nofeat">—</span>
+          )}
+        </KvRow>
+        <PortRows link={link} />
+      </Kv>
+      <ConntrackWarning link={link} />
       <EdgeBlock link={link} activeEdge={activeEdge} />
     </>
   )
