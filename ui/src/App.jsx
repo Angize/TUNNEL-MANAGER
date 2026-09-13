@@ -16,6 +16,7 @@ import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
 import { T } from './i18n/fa.js'
 import { hasPage, pageComponent } from './pages/index.jsx'
+import { isLinkKind } from './lib/linkKinds.js'
 
 const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
@@ -23,14 +24,24 @@ const BOOT_INTERVAL = 6000
 const MIN_INTERVAL = 300
 const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
+const LINK_KIND_KEY = 'tnl_link_kind'
 
 function firstPage() {
   const saved = getLS(PAGE_KEY)
+  if (isLinkKind(saved)) return 'links'
   return hasPage(saved) ? saved : 'overview'
+}
+
+function firstLinkKind() {
+  const saved = getLS(PAGE_KEY)
+  if (isLinkKind(saved)) return saved
+  const kind = getLS(LINK_KIND_KEY)
+  return isLinkKind(kind) ? kind : 'core'
 }
 
 function Shell() {
   const [page, setPage] = useState(firstPage)
+  const [linkKind, setLinkKind] = useState(firstLinkKind)
   const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0 })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
@@ -71,6 +82,10 @@ function Shell() {
   useEffect(() => {
     setLS(PAGE_KEY, page)
   }, [page])
+
+  useEffect(() => {
+    setLS(LINK_KIND_KEY, linkKind)
+  }, [linkKind])
 
   useEffect(() => {
     let alive = true
@@ -151,6 +166,11 @@ function Shell() {
   }, [actsRefresh])
 
   const navigate = useCallback((id) => {
+    if (isLinkKind(id)) {
+      setLinkKind(id)
+      setPage('links')
+      return
+    }
     setPage(id)
   }, [])
 
@@ -199,7 +219,7 @@ function Shell() {
             {uiConfig ? (
               <UiConfigProvider value={uiConfig}>
                 <SummaryProvider value={summaryValue}>
-                  <Page onNavigate={navigate} />
+                  <Page onNavigate={navigate} kind={linkKind} onKind={setLinkKind} />
                 </SummaryProvider>
               </UiConfigProvider>
             ) : (

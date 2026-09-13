@@ -1,0 +1,123 @@
+.lseg {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 6px 0 8px;
+  border-radius: 15px;
+  background: var(--field);
+  border: 1px solid var(--bord);
+}
+
+.lthumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 0;
+  border-radius: 11px;
+  background: var(--pill);
+  box-shadow: 0 6px 16px -10px rgba(15, 27, 45, .45);
+  pointer-events: none;
+}
+
+.lseg button {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--sub);
+  padding: 8px 4px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .25s;
+}
+
+.lseg button i {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 0 6px;
+  border-radius: 20px;
+  background: var(--ctl);
+  font-variant-numeric: tabular-nums;
+  transition: background .25s, color .25s;
+}
+
+.lseg button.on {
+  color: var(--tx);
+}
+
+.lseg button.on i {
+  background: var(--accw);
+  color: var(--acc);
+}
+
+.ldots {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  margin: 0 0 6px;
+}
+
+.ldots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 6px;
+  background: var(--ctl);
+  transition: width .3s cubic-bezier(.25, 1.1, .4, 1), background .3s;
+}
+
+.ldots i.on {
+  width: 18px;
+  background: var(--acc);
+}
+
+.lsub {
+  margin-bottom: 4px;
+}
+
+.lpager {
+  --gut: 26px;
+  display: flex;
+  align-items: flex-start;
+  margin-inline: calc(var(--gut) * -1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  transition: height .3s cubic-bezier(.2, .8, .2, 1);
+}
+
+.lpager::-webkit-scrollbar {
+  display: none;
+}
+
+.lpane {
+  flex: 0 0 100%;
+  min-width: 0;
+  padding: 0 var(--gut) 28px;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+body.reord-on .lpager {
+  overflow-x: hidden;
+}
+
+@media (max-width: 840px) {
+  .lpager {
+    --gut: 14px;
+  }
+}

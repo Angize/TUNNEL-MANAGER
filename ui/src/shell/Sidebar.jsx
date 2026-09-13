@@ -8,9 +8,7 @@ const ITEMS = [
   { id: 'overview', icon: 'dash' },
   { id: 'nodes', icon: 'server', count: 'nodes_total' },
   { id: 'proxies', icon: 'globe', count: 'proxies' },
-  { id: 'tunnels', icon: 'link', count: 'links' },
-  { id: 'portfw', icon: 'fwd', count: 'portfw' },
-  { id: 'core', icon: 'cpu', count: 'core' },
+  { id: 'links', icon: 'link', count: ['links', 'core', 'portfw'] },
   { id: 'logs', icon: 'list', count: 'log_count' },
   { id: 'settings', icon: 'cog' },
 ]
@@ -18,6 +16,13 @@ const ITEMS = [
 function Count({ value }) {
   if (value == null || value === '') return null
   return <span className="ct">{value}</span>
+}
+
+function countOf(counts, key) {
+  if (!key) return null
+  if (!Array.isArray(key)) return counts[key]
+  const parts = key.map((k) => counts[k]).filter((v) => v != null && v !== '')
+  return parts.length ? parts.reduce((sum, v) => sum + Number(v), 0) : null
 }
 
 export default function Sidebar({ page, counts, unread, onNavigate }) {
@@ -53,7 +58,7 @@ export default function Sidebar({ page, counts, unread, onNavigate }) {
                 ) : null}
               </span>
             ) : (
-              <Count value={it.count ? counts[it.count] : null} />
+              <Count value={countOf(counts, it.count)} />
             )}
           </a>
         ))}

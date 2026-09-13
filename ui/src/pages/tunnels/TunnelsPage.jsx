@@ -24,7 +24,7 @@ function ctagClass(family) {
   return family
 }
 
-export default function TunnelsPage() {
+export default function TunnelsPage({ embedded, active = true }) {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('tunnels')
@@ -41,7 +41,7 @@ export default function TunnelsPage() {
     return r.links || []
   }, [query])
 
-  const [list, reload] = usePolledData(load, query)
+  const [list, reload] = usePolledData(load, query, active)
 
   useEffect(() => {
     reload()
@@ -109,7 +109,7 @@ export default function TunnelsPage() {
 
   return (
     <>
-      <PageHead icon="link" titleKey="tun_title" subKey="tun_sub" />
+      {embedded ? null : <PageHead icon="link" titleKey="tun_title" subKey="tun_sub" />}
 
       <div className="tbtnrow">
         <button className="primary" onClick={() => setCreating(true)}>

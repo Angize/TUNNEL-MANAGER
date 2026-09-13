@@ -22,7 +22,7 @@ const ADD_BUTTON_STYLE = {
   gap: 6,
 }
 
-export default function PortfwPage() {
+export default function PortfwPage({ embedded, active = true }) {
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('portfw')
   const [nodes, setNodes] = useState([])
@@ -35,7 +35,7 @@ export default function PortfwPage() {
     return (r.portfw || []).filter((x) => x.name)
   }, [query])
 
-  const [list, reload] = usePolledData(load, query)
+  const [list, reload] = usePolledData(load, query, active)
 
   const loadNodes = useCallback(async () => {
     let r = {}
@@ -70,7 +70,7 @@ export default function PortfwPage() {
 
   return (
     <>
-      <PageHead icon="fwd" titleKey="nav_portfw" subKey="pf_sub" />
+      {embedded ? null : <PageHead icon="fwd" titleKey="nav_portfw" subKey="pf_sub" />}
       <button className="primary" onClick={openAdd} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('pf_add')}
