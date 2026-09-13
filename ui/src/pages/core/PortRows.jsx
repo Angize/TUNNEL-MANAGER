@@ -20,30 +20,22 @@ function RotatingSource({ link, every }) {
 
   return (
     <>
-      <KvRow label={T('port_src')}>
-        {client || server ? (
-          <>
-            {client ? (
-              <>
-                <span className="dim">{T('client')}</span>
-                <b className="mono">{client}</b>
-              </>
-            ) : null}
-            {client && server ? <Sep /> : null}
-            {server ? (
-              <>
-                <span className="dim">{T('server')}</span>
-                <b className="mono">{server}</b>
-              </>
-            ) : null}
-          </>
-        ) : (
-          mode
-        )}
-      </KvRow>
+      <KvRow label={T('port_src')}>{mode}</KvRow>
       <KvRow label={T('port_rot')} wide>
-        <span className="dim">{mode}</span>
-        <Sep />
+        {client ? (
+          <>
+            <span className="dim">{T('client')}</span>
+            <b className="mono">{client}</b>
+            <Sep />
+          </>
+        ) : null}
+        {server ? (
+          <>
+            <span className="dim">{T('server')}</span>
+            <b className="mono">{server}</b>
+            <Sep />
+          </>
+        ) : null}
         <b className="mono">{lo + '-' + hi}</b>
         <Sep />
         <span>{clock}</span>
