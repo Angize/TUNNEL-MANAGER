@@ -1,13 +1,20 @@
 export function Kv({ children }) {
-  return <dl className="kv">{children}</dl>
+  return (
+    <div className="kv">
+      <span className="tnarrow kvgut" aria-hidden="true">
+        ↔
+      </span>
+      {children}
+    </div>
+  )
 }
 
-export function KvRow({ label, wide, mono, children }) {
+export function KvRow({ label, side, wide, mono, children }) {
   return (
-    <>
-      <dt className={wide ? 'w' : undefined}>{label}</dt>
-      <dd className={(wide ? 'w' : '') + (mono ? ' mono' : '')}>{children}</dd>
-    </>
+    <dl className={'kvc' + (wide ? ' w' : side === 'l' ? ' l' : '')}>
+      <dt>{label}</dt>
+      <dd className={mono ? 'mono' : undefined}>{children}</dd>
+    </dl>
   )
 }
 
