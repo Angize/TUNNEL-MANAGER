@@ -179,7 +179,7 @@
 
 .cedge .echips {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
   min-width: 0;
