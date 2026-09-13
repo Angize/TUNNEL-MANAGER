@@ -7443,6 +7443,17 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "reorder", "link-tag",
              "act-cancel", "api-token-new"}
 TOKEN_DENY = {"settings-set", "api-token-new"}
+API_MSG = {
+    "unauthorized": ("وارد نشده‌اید", 401, "not logged in: send Authorization: Bearer <token>"),
+    "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),
+    "api_disabled": ("API در دسترس نیست", 403, "API is not available: external API access is switched off in the panel settings"),
+    "bad_token": ("توکنِ API نامعتبر است", 401, "invalid API token"),
+    "token_denied": ("این درخواست با توکنِ API مجاز نیست", 403, "this endpoint is not available with an API token"),
+    "unknown_route": ("مسیرِ ناشناخته", 404, "unknown API route"),
+    "post_only": ("این درخواست باید POST باشد", 405, "this endpoint requires POST"),
+    "bad_request": ("درخواستِ نامعتبر", 403, "invalid request"),
+    "internal": ("خطای داخلی", 500, "internal error"),
+}
 
 
 class HeaderDeadline:
@@ -7732,46 +7743,54 @@ class Handler(BaseHTTPRequestHandler):
             note_fail(ip)
         self._send(200 if res.get("ok") else 401, res)
 
-    def _bearer_ok(self):
+    def _fail(self, code, en, drain=False):
+        fa, status, msg = API_MSG[code]
+        if drain and self.command == "POST":
+            self._body()
+        self._send(status, {"error": code, "message": msg} if en else {"error": fa})
+
+    def _bearer_check(self):
         auth = self.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
-            return False
+            return "unauthorized"
         ip = self._client_ip()
         if rate_limited(ip):
             if note_blocked(ip):
                 self._auth_log("bad", "auth-lock", "درخواست با توکنِ API از نشانیِ قفل‌شده همچنان ادامه دارد.")
-            return False
+            return "locked"
         s = get_settings()
+        if not s.get("api_external"):
+            note_fail(ip)
+            self._auth_log("warn", "auth-fail", "درخواست با توکنِ API رد شد؛ دسترسیِ بیرونی به API خاموش است.")
+            return "api_disabled"
         stored = str(s.get("api_token_hash") or "")
-        if s.get("api_external") and stored and hmac.compare_digest(api_token_hash(auth[7:].strip()), stored):
-            return True
+        if stored and hmac.compare_digest(api_token_hash(auth[7:].strip()), stored):
+            return None
         note_fail(ip)
-        self._auth_log("warn", "auth-fail",
-                       "درخواست با توکنِ APIِ نامعتبر رد شد." if s.get("api_external")
-                       else "درخواست با توکنِ API رد شد؛ دسترسیِ بیرونی به API خاموش است.")
-        return False
+        self._auth_log("warn", "auth-fail", "درخواست با توکنِ APIِ نامعتبر رد شد.")
+        return "bad_token"
 
     def _api(self, cmd, method):
+        en = self.headers.get("Authorization", "").startswith("Bearer ")
         via_token = False
         if not self._user():
-            via_token = self._bearer_ok()
-            if not via_token:
-                self._send(401, {"error": "وارد نشده‌اید"})
+            why = self._bearer_check()
+            if why:
+                self._fail(why, en)
                 return
+            via_token = True
         if cmd not in API:
-            self._send(404, {"error": "مسیرِ ناشناخته"})
+            self._fail("unknown_route", en, drain=True)
             return
         if via_token and cmd in TOKEN_DENY:
-            if method == "POST":
-                self._body()
-            self._send(403, {"error": "این درخواست با توکنِ API مجاز نیست"})
+            self._fail("token_denied", en, drain=True)
             return
         if cmd in MUTATIONS:
             if method != "POST":
-                self._send(405, {"error": "این درخواست باید POST باشد"})
+                self._fail("post_only", en)
                 return
             if not via_token and self.headers.get("X-Requested-With") != "tnl-central":
-                self._send(403, {"error": "درخواستِ نامعتبر"})
+                self._fail("bad_request", en, drain=True)
                 return
         d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
         try:
@@ -7780,7 +7799,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(e)})
         except Exception:
             log_internal("api %s" % cmd)
-            self._send(500, {"error": "خطای داخلی"})
+            self._fail("internal", en)
 
 
 SERVICE = "tnl-central.service"
