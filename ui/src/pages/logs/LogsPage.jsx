@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
+import { Sk } from '../../components/Skeleton.jsx'
 import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
 import useHiddenTypes from './useHiddenTypes.js'
@@ -22,28 +23,19 @@ const SEEN_KEY = 'tnl_logs_seen'
 
 function LogSkeleton() {
   return (
-    <div
-      className="card logcard"
-      style={{ display: 'flex', marginBottom: 9, padding: 0, boxShadow: 'var(--sh-sm)' }}
-    >
-      <span className="sk" style={{ width: 5, flex: '0 0 auto', borderRadius: 0 }} />
-      <div
-        style={{
-          display: 'flex',
-          gap: 11,
-          alignItems: 'flex-start',
-          padding: '12px 13px',
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        <span className="sk" style={{ width: 30, height: 30, borderRadius: 9, flex: '0 0 auto' }} />
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span className="sk" style={{ width: '62%', height: 13 }} />
-          <span className="sk" style={{ width: '40%', height: 11 }} />
+    <div className="card loglist">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div className="lev" key={i}>
+          <span className="lev-bar sk" />
+          <div>
+            <div className="lev-head">
+              <Sk className="lev-lv" w={42} />
+              <Sk className="lev-time" w={64} />
+            </div>
+            <Sk as="div" className="lev-text" w={i % 2 ? '46%' : '62%'} />
+          </div>
         </div>
-        <span className="sk" style={{ width: 38, height: 11, flex: '0 0 auto' }} />
-      </div>
+      ))}
     </div>
   )
 }
@@ -150,21 +142,20 @@ export default function LogsPage() {
   const remaining = visible.length - shown.length
 
   return (
-    <div className="sodlog">
-      <span className="sodsweep" />
+    <div className="logs">
       <PageHead icon="list" titleKey="logs_title" />
 
       <div className="tbtnrow">
         <button
           type="button"
-          className={'chkall lgfbtn' + (filtersOpen ? ' on' : '')}
+          className={'ghost lgfbtn' + (filtersOpen ? ' on' : '')}
           onClick={() => setFiltersOpen(!filtersOpen)}
         >
           <Icon name="cog" />
           {T('logf_btn')}
           {hiddenCount ? <span className="ct">{hiddenCount}</span> : null}
         </button>
-        <button type="button" className="chkall" onClick={clearLogs}>
+        <button type="button" className="ghost" onClick={clearLogs}>
           <Icon name="trash" />
           {T('logs_clear')}
         </button>
@@ -183,11 +174,7 @@ export default function LogsPage() {
       ) : null}
 
       {events === null ? (
-        <div>
-          {Array.from({ length: 5 }, (_, i) => (
-            <LogSkeleton key={i} />
-          ))}
-        </div>
+        <LogSkeleton />
       ) : !events.length ? (
         <div className="card muted">{T(hiddenCount ? 'logf_empty' : 'logs_empty')}</div>
       ) : (
@@ -221,17 +208,19 @@ export default function LogsPage() {
 
           <div>
             {shown.length ? (
-              shown.map((event) => {
-                const key = eventKey(event)
-                return (
-                  <LogEvent
-                    key={key}
-                    event={event}
-                    open={!!openIds[key]}
-                    onToggle={() => setOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))}
-                  />
-                )
-              })
+              <div className="card loglist">
+                {shown.map((event) => {
+                  const key = eventKey(event)
+                  return (
+                    <LogEvent
+                      key={key}
+                      event={event}
+                      open={!!openIds[key]}
+                      onToggle={() => setOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))}
+                    />
+                  )
+                })}
+              </div>
             ) : (
               <div className="card muted">{T('logs_no_match')}</div>
             )}

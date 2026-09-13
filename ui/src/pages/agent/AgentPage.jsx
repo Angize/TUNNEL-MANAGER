@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
+import { AgentRowsSkeleton } from '../../components/Skeleton.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
@@ -10,6 +11,7 @@ import DeliverySegment from './DeliverySegment.jsx'
 import PushFab from './PushFab.jsx'
 import usePushJob from './usePushJob.js'
 import { T } from '../../i18n/fa.js'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
@@ -25,6 +27,7 @@ function Meta({ children }) {
 }
 
 export default function AgentPage({ headless }) {
+  const { counts } = useSummary()
   const [agentMeta, setAgentMeta] = useState(null)
   const [versions, setVersions] = useState([])
   const [staged, setStaged] = useState(null)
@@ -595,7 +598,9 @@ export default function AgentPage({ headless }) {
       <Toolbar value={query} placeholder={T('ag_search')} onSearch={setQuery} />
 
       <div id="agList">
-        {nodes === null ? null : nodes.length ? (
+        {nodes === null ? (
+          <AgentRowsSkeleton count={counts.nodes_total} />
+        ) : nodes.length ? (
           nodes.map((node) => (
             <AgentNodeRow
               key={node.id}

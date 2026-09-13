@@ -11,6 +11,7 @@ import KernelTuneModal from './KernelTuneModal.jsx'
 import DeleteNodeModal from './DeleteNodeModal.jsx'
 import MovedIpModal from './MovedIpModal.jsx'
 import { T } from '../../i18n/fa.js'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
@@ -46,6 +47,7 @@ function StaleBanner({ count }) {
 }
 
 export default function NodesPage() {
+  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('nodes')
   const [overrides, setOverrides] = useState({})
   const [adding, setAdding] = useState(false)
@@ -95,7 +97,7 @@ export default function NodesPage() {
 
       <div className="cardgrid">
         {data === null ? (
-          <CardSkeletons />
+          <CardSkeletons kind="node" count={counts.nodes_total} />
         ) : (
           <>
             {ordered.length ? (

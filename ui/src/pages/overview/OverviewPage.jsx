@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
+import { OverviewSkeleton } from '../../components/Skeleton.jsx'
 import AlertList from './AlertList.jsx'
 import NodeHeat from './NodeHeat.jsx'
 import Gauge from './Gauge.jsx'
@@ -57,7 +58,7 @@ export default function OverviewPage({ onNavigate }) {
     return (
       <>
         <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
-        <div className="card muted">{T('loading')}</div>
+        <OverviewSkeleton />
       </>
     )
   }

@@ -219,8 +219,8 @@
   inset: 0;
   z-index: 70;
   background: var(--veil);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(16px) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(16px) saturate(var(--sat));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -230,8 +230,6 @@
 .tagbox {
   background: var(--modal);
   border: 1px solid var(--edge);
-  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   border-radius: 22px;
   padding: 16px 18px;
   box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .5), inset 0 1px 0 var(--hi);

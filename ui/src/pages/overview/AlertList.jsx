@@ -14,7 +14,7 @@ const PAGE_FOR_KIND = {
 
 const PAGE_LABEL = {
   nodes: 'nav_nodes',
-  tunnels: 'nav_tunnels',
+  tunnels: 'tun_title',
   settings: 'nav_settings',
 }
 

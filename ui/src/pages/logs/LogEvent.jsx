@@ -32,37 +32,37 @@ export default function LogEvent({ event, open, onToggle }) {
 
   return (
     <div
-      className={'sodev ' + level + (foldable ? ' sodtap' : '') + (foldable && open ? ' open' : '')}
+      className={'lev ' + level + (foldable ? ' tap' : '') + (foldable && open ? ' open' : '')}
       {...interactive}
     >
-      <span className="sbar" />
+      <span className="lev-bar" />
       <div>
-        <div className="shead">
-          <span className="slv">{T('sod_' + level)}</span>
-          <span className="stime">{formatEventTime(event.ts)}</span>
+        <div className="lev-head">
+          <span className="lev-lv">{T('sod_' + level)}</span>
+          <span className="lev-time">{formatEventTime(event.ts)}</span>
         </div>
-        <div className="ssen">{text}</div>
+        <div className="lev-text">{text}</div>
         {lead.length ? (
-          <div className="svals">
+          <div className="lev-vals">
             {lead.map((row, i) => (
-              <span key={row.k + i} className={'sp' + (isPair(row.k) ? ' pair' : '')}>
-                <span className="sk2">{row.k}</span>
-                <span className="sval">{row.v}</span>
+              <span key={row.k + i} className={'lev-kv' + (isPair(row.k) ? ' pair' : '')}>
+                <span className="lev-k">{row.k}</span>
+                <span className="lev-v">{row.v}</span>
               </span>
             ))}
           </div>
         ) : null}
         {foldable ? (
           <>
-            <div className="sfold">
+            <div className="lev-fold">
               {rest.map((row, i) => (
-                <div className="sr" key={row.k + i}>
+                <div className="lev-row" key={row.k + i}>
                   <b>{row.k}</b>
                   <span>{row.v}</span>
                 </div>
               ))}
             </div>
-            <span className="smore">
+            <span className="lev-more">
               <span className="more">{T('sod_more')}</span>
               <span className="less">{T('sod_less')}</span>
             </span>

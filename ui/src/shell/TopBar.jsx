@@ -1,10 +1,12 @@
 import Icon from '../components/Icon.jsx'
+import { T } from '../i18n/fa.js'
+import { logout } from '../lib/api.js'
 
-export default function TopBar({ dark, onMenu, onToggleTheme }) {
+export default function TopBar({ dark, onToggleTheme }) {
   return (
     <div className="mtop">
-      <button className="hb" onClick={onMenu}>
-        <Icon name="menu" />
+      <button className="hb" title={T('nav_logout')} onClick={logout}>
+        <Icon name="logout" />
       </button>
       <div className="sbrand">
         <span className="logo" style={{ width: 28, height: 28, fontSize: 14 }}>

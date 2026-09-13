@@ -10,7 +10,7 @@
   --glow2: #d9f3ef;
   --card: rgba(255, 255, 255, .56);
   --side: rgba(255, 255, 255, .5);
-  --modal: rgba(255, 255, 255, .8);
+  --modal: rgba(255, 255, 255, .88);
   --glass: rgba(255, 255, 255, .5);
   --field: rgba(15, 27, 45, .04);
   --edge: rgba(255, 255, 255, .88);
@@ -47,7 +47,7 @@ body.dark {
   --glow2: #0f3a3a;
   --card: rgba(255, 255, 255, .06);
   --side: rgba(255, 255, 255, .05);
-  --modal: rgba(22, 31, 46, .84);
+  --modal: rgba(22, 31, 46, .92);
   --glass: rgba(255, 255, 255, .05);
   --field: rgba(0, 0, 0, .22);
   --edge: rgba(255, 255, 255, .1);

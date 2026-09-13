@@ -5,6 +5,7 @@ import { CardSkeletons } from '../../components/Skeleton.jsx'
 import ProxyCard from './ProxyCard.jsx'
 import ProxyModal from './ProxyModal.jsx'
 import { T } from '../../i18n/fa.js'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { listBusy } from '../../lib/reorder.js'
@@ -18,6 +19,7 @@ const ADD_BUTTON_STYLE = {
 }
 
 export default function ProxiesPage() {
+  const { counts } = useSummary()
   const [editing, setEditing] = useState(undefined)
 
   const load = useCallback(async () => {
@@ -38,7 +40,7 @@ export default function ProxiesPage() {
 
       <div>
         {list === null ? (
-          <CardSkeletons />
+          <CardSkeletons kind="proxy" count={counts.proxies} />
         ) : list.length ? (
           list.map((proxy) => (
             <ProxyCard

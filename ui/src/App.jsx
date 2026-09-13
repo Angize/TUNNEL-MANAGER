@@ -35,7 +35,6 @@ function Shell() {
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
   const [palette, setPalette] = useState(false)
-  const [drawer, setDrawer] = useState(false)
   const [readiness, setReadiness] = useState(null)
   const [uiConfig, setUiConfig] = useState(null)
   const { refresh: actsRefresh } = useActs()
@@ -68,10 +67,6 @@ function Shell() {
       alive = false
     }
   }, [])
-
-  useEffect(() => {
-    document.body.classList.toggle('navopen', drawer)
-  }, [drawer])
 
   useEffect(() => {
     setLS(PAGE_KEY, page)
@@ -157,7 +152,6 @@ function Shell() {
 
   const navigate = useCallback((id) => {
     setPage(id)
-    setDrawer(false)
   }, [])
 
   const onToggleTheme = useCallback(() => {
@@ -196,11 +190,10 @@ function Shell() {
 
   return (
     <>
-      <div className="backdrop" onClick={() => setDrawer(false)} />
       <div className="shell">
         <Sidebar page={page} counts={summary.counts} unread={unread} onNavigate={navigate} />
         <main className="main">
-          <TopBar dark={dark} onMenu={() => setDrawer(true)} onToggleTheme={onToggleTheme} />
+          <TopBar dark={dark} onToggleTheme={onToggleTheme} />
           <ReadinessBar readiness={readiness} onNavigate={navigate} />
           <div id="view" className="pg" key={page}>
             {uiConfig ? (
@@ -215,7 +208,7 @@ function Shell() {
           </div>
         </main>
       </div>
-      <TabBar page={page} unread={unread} onNavigate={navigate} onMore={() => setDrawer(true)} />
+      <TabBar page={page} unread={unread} onNavigate={navigate} />
       {palette ? (
         <CommandPalette
           dark={dark}
