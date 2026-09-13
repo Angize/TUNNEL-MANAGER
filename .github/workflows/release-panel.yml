@@ -80,6 +80,7 @@ jobs:
           cp tnl-central.py stage/
           cp -a ui/dist stage/ui
           test -f stage/ui/index.html
+          test -f stage/ui/login.html
           test -d stage/ui/assets
           tar -czf out/tnl-central.tar.gz -C stage .
           ( cd out && sha256sum tnl-central.tar.gz > tnl-central.tar.gz.sha256 )

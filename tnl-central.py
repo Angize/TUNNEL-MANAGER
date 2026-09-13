@@ -7549,14 +7549,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
-            if not self._user():
-                self._send(200, LOGIN_HTML, "text/html; charset=utf-8")
-                return
-            page, ctype = ui_asset("index.html")
+            page, ctype = ui_asset("index.html" if self._user() else "login.html")
             if page is None:
                 self._send(500, {"error": "رابط کاربری نصب نشده — پوشهٔ ui کنارِ دادهٔ پنل نیست"})
                 return
-            self._send(200, page, ctype)
+            self._send(200, page, ctype, cache="no-store")
         elif path.startswith("/assets/"):
             if not self._user():
                 self._send(404, {"error": "پیدا نشد"})
@@ -7733,40 +7730,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             log_internal("api %s" % cmd)
             self._send(500, {"error": "خطای داخلی"})
-
-
-LOGIN_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>ورود · کنترل فلیت</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap');
-:root{--acc:#4d6bf0;--acc2:#12a5b8;--page:#eef1f6;--card:#ffffff;--tx:#232b36;--sub:#727e8c;--bord:#e5e9f0;--field:#f4f6fa;--bad:#d1524a;--hi:transparent}
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-html{height:100%}body{font-family:Vazirmatn,Tahoma,sans-serif;color:var(--tx);background:var(--page);min-height:100%;display:flex;align-items:center;justify-content:center;padding:18px}
-body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(620px 420px at 85% -6%,color-mix(in srgb,var(--acc) 16%,transparent),transparent 70%),radial-gradient(520px 400px at -10% 40%,color-mix(in srgb,var(--acc2) 10%,transparent),transparent 70%)}
-.box{position:relative;overflow:hidden;width:340px;border-radius:18px;padding:26px 22px;background:var(--card);border:1px solid var(--bord);box-shadow:0 22px 54px -26px rgba(40,60,100,.28)}
-h1{font-size:20px;font-weight:800;display:flex;align-items:center;gap:9px}h1 b{color:var(--acc)}
-.chip{width:36px;height:36px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--acc) 16%,transparent);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent);box-shadow:0 0 18px -2px color-mix(in srgb,var(--acc) 45%,transparent)}
-.chip svg{width:19px;height:19px;stroke:var(--acc);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-p.s{color:var(--sub);font-size:12.5px;margin:8px 2px 18px}
-label{display:block;font-size:12px;color:var(--sub);margin:14px 2px 7px}
-input{width:100%;padding:12px 13px;border:1px solid var(--bord);border-radius:12px;background:var(--field);color:var(--tx);font-size:14px;font-family:inherit}
-input:focus{outline:none;border-color:color-mix(in srgb,var(--acc) 60%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 16%,transparent)}
-button{width:100%;margin-top:22px;padding:13px;border:0;border-radius:12px;background:var(--acc);color:#fff;font-weight:800;font-size:14px;font-family:inherit;cursor:pointer;box-shadow:0 10px 24px -12px color-mix(in srgb,var(--acc) 70%,transparent)}
-button:active{transform:scale(.98)}
-.e{color:var(--bad);font-size:12.5px;margin-top:14px;min-height:18px;text-align:center}
-</style></head><body>
-<form class="box" onsubmit="return login(event)">
-<h1><span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span> <span><b>tnl</b> <span id="lg_brand">کنترل فلیت</span></span></h1>
-<p class="s" id="lg_sub">برای ورود، نام کاربری و رمز را وارد کنید</p>
-<label id="lg_luser">نام کاربری</label><input id="u" autocomplete="username" autofocus>
-<label id="lg_lpass">رمز عبور</label><input id="p" type="password" autocomplete="current-password">
-<button id="lg_btn">ورود</button><div class="e" id="e"></div></form>
-<script>
-async function login(ev){ev.preventDefault();var e=document.getElementById('e');e.textContent='';
- var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u.value,pass:p.value})});
- var j=await r.json().catch(()=>({}));if(r.ok)location.href='/';else e.textContent=j.error||'ورود ناموفق';return false}
-</script></body></html>"""
-
 
 
 SERVICE = "tnl-central.service"

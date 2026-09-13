@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
@@ -16,7 +17,7 @@ export default function PushFab({ state, onPause, onResume, onCancel }) {
     return s === 'wait' || s === 'run'
   })
 
-  return (
+  return createPortal(
     <div className="pfab">
       <span className="pfn">
         {num(done)}
@@ -36,6 +37,7 @@ export default function PushFab({ state, onPause, onResume, onCancel }) {
       >
         <Icon name="xc" />
       </button>
-    </div>
+    </div>,
+    document.body
   )
 }

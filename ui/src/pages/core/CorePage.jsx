@@ -16,10 +16,12 @@ import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import './core.css'
 
 export default function CorePage() {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
+  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('core')
   const [checking, setChecking] = useState(false)
   const [tagOverrides, setTagOverrides] = useState({})
@@ -113,7 +115,7 @@ export default function CorePage() {
 
   return (
     <>
-      <PageHead icon="cpu" titleKey="nav_core" subKey="core_sub" />
+      <PageHead icon="cpu" titleKey="core_title" subKey="core_sub" />
 
       <div className="tbtnrow">
         <button className="primary" onClick={() => setEditing({})}>
@@ -135,7 +137,7 @@ export default function CorePage() {
 
       <div className="cardgrid">
         {list === null ? (
-          <CardSkeletons />
+          <CardSkeletons kind="tunnel" count={counts.core} />
         ) : links.length || pending.length ? (
           <>
             {ordered.map((link) => (

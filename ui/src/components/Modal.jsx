@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 
 const open = []
@@ -28,7 +29,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
     }
   }, [id, onClose])
 
-  return (
+  return createPortal(
     <div
       className="modalov"
       onMouseDown={(e) => {
@@ -40,25 +41,26 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
           children
         ) : (
           <>
-        <div className="msticky">
-          {icon ? (
-            <span className="medi">
-              <Icon name={icon} />
-            </span>
-          ) : null}
-          <div className="ttl">
-            <h3>{title}</h3>
-            {subtitle ? <div className="sb">{subtitle}</div> : null}
-          </div>
-          <button className="mx" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        <div className="mbody">{children}</div>
-        {footer ? <div className="mfoot">{footer}</div> : null}
+            <div className="msticky">
+              {icon ? (
+                <span className="medi">
+                  <Icon name={icon} />
+                </span>
+              ) : null}
+              <div className="ttl">
+                <h3>{title}</h3>
+                {subtitle ? <div className="sb">{subtitle}</div> : null}
+              </div>
+              <button className="mx" onClick={onClose}>
+                ✕
+              </button>
+            </div>
+            <div className="mbody">{children}</div>
+            {footer ? <div className="mfoot">{footer}</div> : null}
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

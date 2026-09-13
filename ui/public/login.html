@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ورود · کنترل فلیت</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap">
+<script>try{if(localStorage.getItem('tnl_dark'))document.documentElement.classList.add('dark')}catch(x){}</script>
+<style>
+:root {
+  --acc: #0b8f8c; --acc-deep: #0b6f9c; --page: #eef1f6; --glow1: #dbe6ff; --glow2: #d9f3ef;
+  --card: rgba(255, 255, 255, .62); --edge: rgba(255, 255, 255, .88); --bord: rgba(15, 27, 45, .09); --field: rgba(15, 27, 45, .04);
+  --tx: #0f1b2d; --sub: #5b6b82; --bad: #d13b3b; --hi: rgba(255, 255, 255, .95); --accw: rgba(11, 143, 140, .12);
+  --sh: 0 24px 60px -30px rgba(15, 27, 45, .4);
+}
+html.dark {
+  --acc: #2fc7bd; --acc-deep: #1a8fa8; --page: #0d1220; --glow1: #1c2a5a; --glow2: #0f3a3a;
+  --card: rgba(255, 255, 255, .06); --edge: rgba(255, 255, 255, .1); --bord: rgba(255, 255, 255, .08); --field: rgba(0, 0, 0, .22);
+  --tx: #e8edf5; --sub: #93a0b5; --bad: #f87171; --hi: rgba(255, 255, 255, .08); --accw: rgba(47, 199, 189, .14);
+  --sh: 0 24px 60px -30px rgba(0, 0, 0, .8);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { height: 100%; background: var(--page); }
+body {
+  font-family: Vazirmatn, Tahoma, sans-serif; color: var(--tx); min-height: 100%;
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+  background: radial-gradient(1100px 560px at 85% -8%, var(--glow1) 0%, transparent 60%), radial-gradient(900px 520px at -5% 105%, var(--glow2) 0%, transparent 55%), var(--page);
+  background-attachment: fixed;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98) } to { opacity: 1; transform: none } }
+@keyframes up { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+@keyframes shake { 0%, 100% { transform: none } 25% { transform: translateX(5px) } 75% { transform: translateX(-5px) } }
+.box {
+  position: relative; width: 360px; max-width: 100%; border-radius: 22px; padding: 26px 22px 22px;
+  background: var(--card); border: 1px solid var(--edge);
+  backdrop-filter: blur(9px) saturate(150%); -webkit-backdrop-filter: blur(9px) saturate(150%);
+  box-shadow: var(--sh), inset 0 1px 0 var(--hi);
+  animation: rise .55s cubic-bezier(.2, .7, .2, 1) both;
+}
+.box > * { animation: up .5s cubic-bezier(.2, .7, .2, 1) both; }
+.box > :nth-child(2) { animation-delay: .08s } .box > :nth-child(3) { animation-delay: .14s } .box > :nth-child(4) { animation-delay: .18s }
+.box > :nth-child(5) { animation-delay: .24s } .box > :nth-child(6) { animation-delay: .28s } .box > :nth-child(7) { animation-delay: .34s }
+h1 { font-size: 19px; font-weight: 800; display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
+h1 b { color: var(--acc); }
+.chip { width: 38px; height: 38px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--acc), var(--acc-deep)); box-shadow: 0 8px 18px -8px var(--acc); }
+.chip svg { width: 19px; height: 19px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+p.s { color: var(--sub); font-size: 12.5px; margin: 8px 2px 16px; }
+label { display: block; font-size: 12px; color: var(--sub); margin: 14px 2px 7px; }
+input { width: 100%; padding: 12px 13px; border: 1px solid var(--bord); border-radius: 13px; background: var(--field); color: var(--tx); font-size: 14px; font-family: inherit; transition: border-color .2s, box-shadow .2s; }
+input:focus { outline: none; border-color: color-mix(in srgb, var(--acc) 55%, transparent); box-shadow: 0 0 0 4px var(--accw); }
+button {
+  width: 100%; margin-top: 22px; padding: 13px; border: 0; border-radius: 14px;
+  background: linear-gradient(135deg, var(--acc), var(--acc-deep)); color: #fff; font-weight: 800; font-size: 14px; font-family: inherit; cursor: pointer;
+  box-shadow: 0 12px 24px -12px var(--acc);
+  transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .18s, opacity .2s;
+}
+button:hover { transform: translateY(-2px); box-shadow: 0 16px 30px -12px var(--acc); }
+button:active { transform: scale(.98); }
+button:disabled { opacity: .6; transform: none; cursor: wait; }
+.e { color: var(--bad); font-size: 12.5px; margin-top: 14px; min-height: 18px; text-align: center; }
+.box.err { animation: shake .4s cubic-bezier(.36, .07, .19, .97); }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<form class="box" id="box">
+  <h1><span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span> <span><b>tnl</b> کنترل فلیت</span></h1>
+  <p class="s">برای ورود، نام کاربری و رمز را وارد کنید</p>
+  <label for="u">نام کاربری</label><input id="u" autocomplete="username" autofocus>
+  <label for="p">رمز عبور</label><input id="p" type="password" autocomplete="current-password">
+  <button id="btn">ورود</button>
+  <div class="e" id="e"></div>
+</form>
+<script>
+(function () {
+  var box = document.getElementById('box'), btn = document.getElementById('btn'), err = document.getElementById('e')
+  box.addEventListener('submit', async function (ev) {
+    ev.preventDefault()
+    err.textContent = ''
+    box.classList.remove('err')
+    btn.disabled = true
+    try {
+      var r = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: document.getElementById('u').value, pass: document.getElementById('p').value })
+      })
+      var j = await r.json().catch(function () { return {} })
+      if (r.ok) { location.href = '/'; return }
+      err.textContent = j.error || 'ورود ناموفق'
+    } catch (x) {
+      err.textContent = 'ارتباط با پنل برقرار نشد'
+    }
+    btn.disabled = false
+    box.classList.add('err')
+  })
+})()
+</script>
+</body>
+</html>

@@ -17,6 +17,7 @@ import { registerCommand } from '../../lib/pageCommand.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import './tunnels.css'
 
 function ctagClass(family) {
@@ -25,6 +26,7 @@ function ctagClass(family) {
 
 export default function TunnelsPage() {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
+  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('tunnels')
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -107,7 +109,7 @@ export default function TunnelsPage() {
 
   return (
     <>
-      <PageHead icon="link" titleKey="nav_tunnels" subKey="tun_sub" />
+      <PageHead icon="link" titleKey="tun_title" subKey="tun_sub" />
 
       <div className="tbtnrow">
         <button className="primary" onClick={() => setCreating(true)}>
@@ -129,7 +131,7 @@ export default function TunnelsPage() {
 
       <div className="cardgrid">
         {list === null ? (
-          <CardSkeletons />
+          <CardSkeletons kind="tunnel" count={counts.links} />
         ) : links.length || pending.length ? (
           <>
             {ordered.map((link) => (

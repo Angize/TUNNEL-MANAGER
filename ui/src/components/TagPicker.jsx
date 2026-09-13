@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { CARD_TAGS } from '../lib/cardTags.js'
 import { T } from '../i18n/fa.js'
 
@@ -35,7 +36,7 @@ export default function TagPicker({ current, onPick, onClose }) {
     onPick(tag)
   }
 
-  return (
+  return createPortal(
     <div
       className="tagov"
       onContextMenu={(e) => e.preventDefault()}
@@ -61,6 +62,7 @@ export default function TagPicker({ current, onPick, onClose }) {
           {T('tag_clear')}
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

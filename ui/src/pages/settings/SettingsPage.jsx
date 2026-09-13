@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
+import { SettingsSkeleton } from '../../components/Skeleton.jsx'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
 import SettingRow from './SettingRow.jsx'
@@ -100,7 +101,26 @@ export default function SettingsPage() {
     return (
       <>
         <PageHead icon="cog" titleKey="nav_settings" subKey="set_sub" />
-        <div className="card muted">{T('loading')}</div>
+        <div className="stpage">
+          <SettingsSkeleton />
+          <p className="stnote">{T('set_apply_note')}</p>
+          <div className="stsave">
+            <button className="ghost" disabled>
+              <Icon name="undo" />
+              {T('set_reset')}
+            </button>
+            <button className="primary" disabled>
+              <Icon name="check" />
+              {T('save')}
+            </button>
+            <span className="msg" />
+          </div>
+          <div className="sec" style={{ marginTop: 16 }}>
+            <Icon name="redo" color="var(--acc)" />
+            {T('set_agent_update')}
+          </div>
+          <AgentPage headless />
+        </div>
       </>
     )
   }

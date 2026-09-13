@@ -1,28 +1,26 @@
-import { useRef } from 'react'
 import Icon from '../components/Icon.jsx'
-import useIndicator from '../lib/useIndicator.js'
 import { T } from '../i18n/fa.js'
 
 const ITEMS = [
   { id: 'overview', icon: 'dash' },
   { id: 'nodes', icon: 'server' },
+  { id: 'proxies', icon: 'globe' },
+  { id: 'tunnels', icon: 'link' },
+  { id: 'portfw', icon: 'fwd' },
   { id: 'core', icon: 'cpu' },
   { id: 'logs', icon: 'list' },
+  { id: 'settings', icon: 'cog' },
 ]
 
-export default function TabBar({ page, unread, onNavigate, onMore }) {
-  const bar = useRef(null)
-  const ind = useIndicator(bar, page, 'x')
-  const listed = ITEMS.some((it) => it.id === page)
-
+export default function TabBar({ page, unread, onNavigate }) {
   return (
-    <nav className="tabbar" ref={bar}>
-      <span className="tabind" style={ind} />
+    <nav className="tabbar">
       {ITEMS.map((it) => (
         <button
           key={it.id}
           type="button"
           className={'tab' + (page === it.id ? ' on' : '')}
+          title={T('nav_' + it.id)}
           onClick={() => onNavigate(it.id)}
         >
           <Icon name={it.icon} />
@@ -32,10 +30,6 @@ export default function TabBar({ page, unread, onNavigate, onMore }) {
           ) : null}
         </button>
       ))}
-      <button type="button" className={'tab' + (listed ? '' : ' on')} onClick={onMore}>
-        <Icon name="menu" />
-        <span>{T('nav_more')}</span>
-      </button>
     </nav>
   )
 }

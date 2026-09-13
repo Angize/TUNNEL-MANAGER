@@ -420,7 +420,7 @@
   align-items: center;
   background: var(--field);
   border: 1px solid var(--bord);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 4px;
   gap: 4px;
   margin-bottom: 14px;
@@ -435,18 +435,19 @@
   font-weight: 800;
   font-size: 13px;
   padding: 9px;
-  border-radius: 9px;
+  border-radius: 11px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  transition: background .2s, color .2s;
 }
 
 .seg button.on {
-  background: var(--card);
+  background: var(--pill);
   color: var(--acc);
-  box-shadow: 0 1px 3px rgba(20, 30, 50, .12);
+  box-shadow: 0 6px 16px -10px rgba(15, 27, 45, .4);
 }
 
 .seg button .ic {
@@ -606,7 +607,7 @@
   margin: 8px 0 2px;
   background: #0c1220;
   border: 1px solid var(--bord);
-  border-radius: 10px;
+  border-radius: 13px;
   padding: 9px 11px;
   font-family: ui-monospace, Consolas, monospace;
   direction: ltr;
@@ -732,8 +733,8 @@
   font-weight: 700;
   padding: 4px 9px;
   border-radius: 8px;
-  background: color-mix(in srgb, #fb923c 15%, transparent);
-  color: #fb923c;
+  background: var(--goldw);
+  color: var(--gold);
 }
 
 .ippf .ic {

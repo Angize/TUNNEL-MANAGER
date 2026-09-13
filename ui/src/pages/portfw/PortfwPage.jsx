@@ -7,6 +7,7 @@ import PortfwCard from './PortfwCard.jsx'
 import PortfwAddModal from './PortfwAddModal.jsx'
 import PortfwEditModal from './PortfwEditModal.jsx'
 import { T } from '../../i18n/fa.js'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
 import { toast } from '../../lib/toast.js'
 import usePolledData from '../../lib/usePolledData.js'
@@ -22,6 +23,7 @@ const ADD_BUTTON_STYLE = {
 }
 
 export default function PortfwPage() {
+  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('portfw')
   const [nodes, setNodes] = useState([])
   const [adding, setAdding] = useState(false)
@@ -83,7 +85,7 @@ export default function PortfwPage() {
 
       <div className="cardgrid">
         {list === null ? (
-          <CardSkeletons />
+          <CardSkeletons kind="portfw" count={counts.portfw} />
         ) : ordered.length ? (
           ordered.map((item) => (
             <PortfwCard
