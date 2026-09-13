@@ -11,7 +11,7 @@ export default function PendingCard({ act, tagClass }) {
             <span className="hname">{T('a_pending')}</span>
             {family ? <span className={'ctag ' + tagClass(family)}>{family.toUpperCase()}</span> : null}
             <span className="hpeers" dir="ltr">
-              {act.target || ''}
+              <span className="pn">{act.target || ''}</span>
             </span>
           </div>
         </div>

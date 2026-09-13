@@ -249,7 +249,9 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
               )}
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side="a" />
-                {link.a_name} ↔ {link.b_name}
+                <span className="pn">{link.a_name}</span>
+                ↔
+                <span className="pn">{link.b_name}</span>
                 <SideDot link={link} side="b" />
               </span>
             </div>

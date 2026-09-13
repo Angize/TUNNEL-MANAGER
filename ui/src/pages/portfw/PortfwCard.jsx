@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import { Check, Cross } from '../../components/Marks.jsx'
+import { Kv, KvRow } from '../../components/Kv.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
@@ -119,45 +120,36 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
 
   return (
     <AccordionCard id={item.node_id + item.name} kind="portfw" className="acc" head={head}>
-      <div className="enmeta">
-        <div className="emcol">
-          <div>
-            {T('pf_iface')}
-            <b className="mono">{item.iface}</b>
-          </div>
-          {listenIp ? (
-            <div>
-              {T('pf_lip_lbl')}
-              <b className="mono" style={{ color: 'var(--acc)' }}>
-                {listenIp}
-              </b>
-            </div>
-          ) : null}
-          <div>
-            {T('pf_lp_lbl')}
-            <b className="mono">{item.listen_port}</b>
-          </div>
-        </div>
-        <span className="tnarrow earrow">↔</span>
-        <div className="emcol">
-          <div>
-            {T('pf_dp_lbl')}
-            <b>{item.dst_port}</b>
-          </div>
-          <div className="wrap">
-            {T('pf_targets')}
-            <b className="mono">{(item.dst_ips || []).join(T('list_sep'))}</b>
-          </div>
-          {multiTarget && activeTarget ? (
-            <div className="wrap">
-              {T('pf_active_now')}
-              <b className="mono" style={{ color: 'var(--ok)' }}>
-                {activeTarget}
-              </b>
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <Kv>
+        <KvRow label={T('iface')} mono>
+          {item.iface}
+        </KvRow>
+        <KvRow label={T('pf_listen_port')} mono>
+          {item.listen_port}
+        </KvRow>
+        {listenIp ? (
+          <KvRow label={T('pf_lip_lbl')} mono>
+            <span style={{ color: 'var(--acc)' }}>{listenIp}</span>
+          </KvRow>
+        ) : null}
+        <KvRow label={T('pf_dst_port')} mono>
+          {item.dst_port}
+        </KvRow>
+        <KvRow label={T('pf_targets')} wide>
+          {(item.dst_ips || []).map((ip) => (
+            <b key={ip} className="mono">
+              {ip}
+            </b>
+          ))}
+        </KvRow>
+        {multiTarget && activeTarget ? (
+          <KvRow label={T('pf_active_now')} wide>
+            <b className="mono" style={{ color: 'var(--ok)' }}>
+              {activeTarget}
+            </b>
+          </KvRow>
+        ) : null}
+      </Kv>
 
       <div className="ltraf">
         <span className="din iso">↓ {fmtRate(item.rx_bps)}</span>

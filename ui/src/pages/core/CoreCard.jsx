@@ -283,7 +283,9 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
               )}
               <span className="hpeers" dir="ltr">
                 <HeaderDot link={link} side={first} />
-                {link[first + '_name']} ↔ {link[second + '_name']}
+                <span className="pn">{link[first + '_name']}</span>
+                ↔
+                <span className="pn">{link[second + '_name']}</span>
                 <HeaderDot link={link} side={second} />
               </span>
             </div>
