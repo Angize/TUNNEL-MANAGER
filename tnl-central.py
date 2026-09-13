@@ -7446,7 +7446,7 @@ TOKEN_DENY = {"settings-set", "api-token-new"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "not logged in: send Authorization: Bearer <token>"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),
-    "api_disabled": ("API در دسترس نیست", 403, "API is not available: external API access is switched off in the panel settings"),
+    "api_disabled": ("API در دسترس نیست", 403, "API is not available"),
     "bad_token": ("توکنِ API نامعتبر است", 401, "invalid API token"),
     "token_denied": ("این درخواست با توکنِ API مجاز نیست", 403, "this endpoint is not available with an API token"),
     "unknown_route": ("مسیرِ ناشناخته", 404, "unknown API route"),
