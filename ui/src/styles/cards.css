@@ -82,9 +82,22 @@ body:not(.rdragging) .card.acc:hover {
 }
 
 @media (max-width: 480px) {
+  .hrow1 {
+    gap: 6px;
+  }
+
+  .hname {
+    font-size: 13px;
+  }
+
   .hpeers {
     font-size: 10.5px;
     gap: 4px;
+  }
+
+  .hrow1 .ctag {
+    font-size: 9.5px;
+    padding: 2px 7px;
   }
 }
 
