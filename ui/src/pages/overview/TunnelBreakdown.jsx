@@ -47,7 +47,7 @@ function WorstTunnelNote({ worst, fleetPing }) {
         <>
           {' '}
           <span dir="ltr" style={{ color: 'var(--tx)', fontWeight: 800 }}>
-            {worst.a} ↔ {worst.b}
+            {worst.a} <Icon name="arrows" /> {worst.b}
           </span>
         </>
       ) : null}

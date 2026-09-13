@@ -123,7 +123,11 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
     <Modal
       icon="link"
       title={T('edit_tun_t')}
-      subtitle={link.a_name + ' ↔ ' + link.b_name}
+      subtitle={
+        <>
+          {link.a_name} <Icon name="arrows" /> {link.b_name}
+        </>
+      }
       footer={footer}
       onClose={onClose}
     >

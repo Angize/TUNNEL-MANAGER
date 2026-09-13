@@ -93,7 +93,9 @@ export default function TunnelMeta({ link }) {
   return (
     <div className="enmeta">
       <div className="emcol">{right}</div>
-      <span className="tnarrow earrow">↔</span>
+      <span className="tnarrow earrow">
+        <Icon name="arrows" />
+      </span>
       <div className="emcol">{left}</div>
     </div>
   )

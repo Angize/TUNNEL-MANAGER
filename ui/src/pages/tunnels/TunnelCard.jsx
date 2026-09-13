@@ -250,7 +250,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side="a" />
                 <span className="pn">{link.a_name}</span>
-                ↔
+                <Icon name="arrows" />
                 <span className="pn">{link.b_name}</span>
                 <SideDot link={link} side="b" />
               </span>
@@ -279,7 +279,9 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
 
             <div className="tninfo">
               <SideBox link={link} side="a" live={live} />
-              <span className="tnarrow">↔</span>
+              <span className="tnarrow">
+                <Icon name="arrows" />
+              </span>
               <SideBox link={link} side="b" live={live} />
             </div>
 

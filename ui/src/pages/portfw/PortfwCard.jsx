@@ -102,7 +102,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
           portfw
         </span>
         <b className="mono" dir="ltr" style={{ color: 'var(--sub)', fontSize: 12 }}>
-          {item.listen_port} ↔ {item.dst_port}
+          {item.listen_port} <Icon name="arrows" /> {item.dst_port}
         </b>
         <span className="hpeers">
           {rotates ? (
@@ -138,7 +138,9 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
             <b className="mono">{item.listen_port}</b>
           </div>
         </div>
-        <span className="tnarrow earrow">↔</span>
+        <span className="tnarrow earrow">
+          <Icon name="arrows" />
+        </span>
         <div className="emcol">
           <div>
             {T('pf_dp_lbl')}

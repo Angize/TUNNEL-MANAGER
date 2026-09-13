@@ -106,7 +106,9 @@ export default function CoreMeta({ link, activeEdge }) {
             {T('iface')}: <b className="mono">{link.name}</b>
           </div>
         </div>
-        <span className="tnarrow earrow">↔</span>
+        <span className="tnarrow earrow">
+          <Icon name="arrows" />
+        </span>
         <div className="emcol">
           <div className="tagrow">
             {T('ttype')}: <span className={'ctag c-' + family}>{carrierLabel(link)}</span>
