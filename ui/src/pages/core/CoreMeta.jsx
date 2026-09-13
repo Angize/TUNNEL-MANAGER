@@ -68,7 +68,7 @@ function EdgeBlock({ link, activeEdge }) {
           {T('active_edge')}
         </div>
         <div className="echips">
-          <EdgeChips ip={parts[0] || ''} domain={parts.slice(1).join(' · ')} />
+          <EdgeChips ip={edgeHost(parts[0] || '')} domain={parts.slice(1).join(' · ')} />
         </div>
       </div>
     )

@@ -179,7 +179,8 @@
 
 .cedge .echips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  justify-content: space-between;
   gap: 6px;
   margin-top: 8px;
   min-width: 0;
@@ -189,9 +190,9 @@
   font-family: ui-monospace, Consolas, monospace;
   direction: ltr;
   unicode-bidi: isolate;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
-  padding: 5px 11px;
+  padding: 5px 10px;
   border-radius: 9px;
   background: var(--card);
   border: 1px solid var(--bord);
