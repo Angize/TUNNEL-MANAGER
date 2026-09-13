@@ -17,6 +17,8 @@ export default {
   px_testing: 'در حالِ تست…',
   px_type: 'نوعِ پروکسی',
   px_up: 'وصل شد',
+  px_google: 'گوگل',
+  px_reach: 'گوگل از این پروکسی: ',
   px_used_by: 'در حالِ استفاده روی: ',
   px_used_none: 'روی هیچ نودی فعال نیست',
   px_user: 'یوزرنیم',

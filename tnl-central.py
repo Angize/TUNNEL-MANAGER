@@ -1354,8 +1354,12 @@ def _proxy_probe(p, timeout=6):
 
 
 PX_RELAY_GAP = 15
+PX_REACH_GAP = 60
+PX_REACH_HOST = "www.google.com"
+PX_REACH_PATH = "/generate_204"
 PX_ECHO_TTL = 120
 _px_relay = {}
+_px_reach = {}
 _px_echo = {"ts": 0.0, "addr": None}
 _px_echo_lock = threading.Lock()
 
@@ -1426,18 +1430,53 @@ def _proxy_relay(p, timeout=6):
     return {"ok": True, "skipped": False, "error": "", "ts": time.time()}
 
 
+def _proxy_reach(p, timeout=8):
+    t0 = time.monotonic()
+    sock = None
+    conn = None
+    try:
+        sock = _proxy_socket(proxy_url(p), PX_REACH_HOST, 443, timeout)
+        tls = ssl.create_default_context().wrap_socket(sock, server_hostname=PX_REACH_HOST)
+        sock = None
+        conn = http.client.HTTPConnection(PX_REACH_HOST, 443, timeout=timeout)
+        conn.sock = tls
+        conn.request("GET", PX_REACH_PATH, headers={"user-agent": "tnl-central"})
+        code = conn.getresponse().status
+        if code not in (200, 204):
+            raise OSError("HTTP %d" % code)
+    except Exception as e:
+        return {"ok": False, "ms": None, "ts": time.time(),
+                "error": "از پروکسی به گوگل نرسید — " + str(e).split("] ")[-1][:60]}
+    finally:
+        for c in (conn, sock):
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+    return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
+
+
+def _px_cached(store, p, gap, probe):
+    with _px_lock:
+        prev = store.get(p["id"])
+    if not prev or time.time() - prev["ts"] >= gap:
+        prev = probe(p)
+        with _px_lock:
+            store[p["id"]] = prev
+    return prev
+
+
 def _px_deep(p, st):
     if not st.get("ok"):
         return st
-    with _px_lock:
-        prev = _px_relay.get(p["id"])
-    if not prev or time.time() - prev["ts"] >= PX_RELAY_GAP:
-        prev = _proxy_relay(p)
-        with _px_lock:
-            _px_relay[p["id"]] = prev
-    if prev.get("skipped") or prev.get("ok"):
-        return st
-    return {**st, "ok": False, "error": prev["error"]}
+    relay = _px_cached(_px_relay, p, PX_RELAY_GAP, _proxy_relay)
+    if not (relay.get("skipped") or relay.get("ok")):
+        return {**st, "ok": False, "error": relay["error"]}
+    reach = _px_cached(_px_reach, p, PX_REACH_GAP, _proxy_reach)
+    if not reach.get("ok"):
+        return {**st, "ok": False, "error": reach["error"]}
+    return {**st, "reach": reach["ms"]}
 
 
 def _px_sweep(p):
