@@ -356,6 +356,21 @@
   transition: width .42s linear;
 }
 
+.pushbar.spin {
+  position: relative;
+}
+
+.pushbar.spin::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acc) 70%, #fff), transparent);
+  animation: asweep 1.25s ease-in-out infinite;
+}
+
 .pushbar.ok > i {
   background: var(--ok);
 }
