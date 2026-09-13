@@ -54,12 +54,13 @@ body:not(.rdragging) .card.acc:hover {
 }
 
 .hname {
+  flex: 0 0 auto;
   font-size: 13.5px;
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 40%;
+  max-width: 45%;
 }
 
 .hpeers {
@@ -67,10 +68,24 @@ body:not(.rdragging) .card.acc:hover {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
   color: var(--tx);
+}
+
+.hpeers .pn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+  .hpeers {
+    font-size: 10.5px;
+    gap: 4px;
+  }
 }
 
 .chev {
@@ -215,8 +230,9 @@ button.act {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: var(--glass);
-  border: 1px solid var(--edge);
+  background: var(--field);
+  border: 1px solid var(--bord);
+  box-shadow: var(--sh-sm);
   color: var(--tx);
   border-radius: 13px;
   padding: 8px 12px;
