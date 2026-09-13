@@ -23,7 +23,13 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
     const r = await apiPost('proxy-test', { id: proxy.id })
     const d = r.d || {}
     if (r.ok && d.ok) {
-      setMsg({ cls: 'ok', text: T('px_up') + ' · ' + num(d.ms) + 'ms', check: true })
+      setMsg({
+        cls: 'ok',
+        text:
+          T('px_up') + ' · ' + num(d.ms) + 'ms' +
+          (d.reach != null ? ' · ' + T('px_google') + ' ' + num(d.reach) + 'ms' : ''),
+        check: true,
+      })
     } else {
       setMsg(null)
       alertBox(translateError(d.error || T('failed')))
