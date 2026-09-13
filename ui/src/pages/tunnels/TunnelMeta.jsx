@@ -11,13 +11,13 @@ export default function TunnelMeta({ link }) {
       <KvRow label={T('ttype')}>
         <span className={'tag ' + link.type}>{link.type}</span>
       </KvRow>
-      <KvRow label={T('subnet')} mono>
+      <KvRow label={T('subnet')} side="l" mono>
         <CopyValue text={link.subnet} />
       </KvRow>
       <KvRow label={T('tid')} mono>
         {link.tunnel_id}
       </KvRow>
-      <KvRow label={T('iface')} mono>
+      <KvRow label={T('iface')} side="l" mono>
         {link.name}
       </KvRow>
       {link.type === 'ipsec' ? (

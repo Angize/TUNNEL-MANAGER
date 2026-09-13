@@ -20,7 +20,9 @@ function RotatingSource({ link, every }) {
 
   return (
     <>
-      <KvRow label={T('port_src')}>{mode}</KvRow>
+      <KvRow label={T('port_src')} side="l">
+        {mode}
+      </KvRow>
       <KvRow label={T('port_rot')} wide>
         {client ? (
           <>
@@ -79,7 +81,7 @@ export default function PortRows({ link }) {
         {rotateEvery || link.raw_sport_random ? (
           <RotatingSource link={link} every={rotateEvery} />
         ) : (
-          <KvRow label={T('port_src')}>
+          <KvRow label={T('port_src')} side="l">
             <b className="mono">{sportLive || num(link.raw_sport) || RAW_SPORT_FIXED}</b>
             <Sep />
             <span className="dim">{T('port_src_fixed')}</span>
@@ -97,7 +99,7 @@ export default function PortRows({ link }) {
         </KvRow>
       ) : null}
       {sportLive && portRungTransports.includes(transport) ? (
-        <KvRow label={T('port_src')} mono>
+        <KvRow label={T('port_src')} side="l" mono>
           {sportLive}
         </KvRow>
       ) : null}

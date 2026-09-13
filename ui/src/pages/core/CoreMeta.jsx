@@ -102,7 +102,7 @@ export default function CoreMeta({ link, activeEdge }) {
           <span className={'ctag c-' + family}>{carrierLabel(link)}</span>
           {profile ? <b className="mono">{profile}</b> : null}
         </KvRow>
-        <KvRow label={T('subnet')} mono>
+        <KvRow label={T('subnet')} side="l" mono>
           <CopyValue text={link.subnet} />
         </KvRow>
         <KvRow label={T('enc')}>
@@ -112,7 +112,7 @@ export default function CoreMeta({ link, activeEdge }) {
             <b>{T('no_cipher')}</b>
           )}
         </KvRow>
-        <KvRow label={T('iface')} mono>
+        <KvRow label={T('iface')} side="l" mono>
           {link.name}
         </KvRow>
         <KvRow label={T('caps')} wide>

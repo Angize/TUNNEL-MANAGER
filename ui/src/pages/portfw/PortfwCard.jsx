@@ -121,20 +121,20 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   return (
     <AccordionCard id={item.node_id + item.name} kind="portfw" className="acc" head={head}>
       <Kv>
-        <KvRow label={T('iface')} mono>
-          {item.iface}
-        </KvRow>
         <KvRow label={T('pf_listen_port')} mono>
           {item.listen_port}
         </KvRow>
-        {listenIp ? (
-          <KvRow label={T('pf_lip_lbl')} mono>
-            <span style={{ color: 'var(--acc)' }}>{listenIp}</span>
-          </KvRow>
-        ) : null}
+        <KvRow label={T('iface')} side="l" mono>
+          {item.iface}
+        </KvRow>
         <KvRow label={T('pf_dst_port')} mono>
           {item.dst_port}
         </KvRow>
+        {listenIp ? (
+          <KvRow label={T('pf_lip_lbl')} side="l" mono>
+            <span style={{ color: 'var(--acc)' }}>{listenIp}</span>
+          </KvRow>
+        ) : null}
         <KvRow label={T('pf_targets')} wide>
           {(item.dst_ips || []).map((ip) => (
             <b key={ip} className="mono">
