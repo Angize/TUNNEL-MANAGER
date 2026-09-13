@@ -3227,6 +3227,9 @@ _push_batch = set()
 _push_final = None
 PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
 PUSH_CAP = 256
+PUSH_TRACK_MIN = 256 * 1024
+_dl_watch = {}
+_dl_watch_lock = threading.Lock()
 
 
 PUSH_BUSY_STATES = ("wait", "run")
@@ -3255,7 +3258,7 @@ def _push_job_new(kind, nodes):
         _push_jobs[jid] = {"kind": kind, "order": [n["id"] for n in nodes], "done": False, "ts": now,
                            "cancel": False, "paused": False,
                            "nodes": {n["id"]: {"name": n["name"], "state": "wait", "pct": 0,
-                                               "step": "", "si": 0, "sn": 0,
+                                               "step": "", "si": 0, "sn": 0, "remote": False,
                                                "err": "", "detail": ""} for n in nodes}}
     return jid
 
@@ -3359,13 +3362,13 @@ def _push_one(jid, nid, plan):
                 _push_set(jid, nid, state="err", err="node_gone")
                 return
             if i and _push_paused(jid):
-                _push_set(jid, nid, state="run", step="paused", si=i + 1, sn=n, pct=at(i, 0))
+                _push_set(jid, nid, state="run", step="paused", si=i + 1, sn=n, pct=at(i, 0), remote=False)
                 while _push_paused(jid):
                     if _push_cancelled(jid):
                         _push_set(jid, nid, state="skip", step=code)
                         return
                     time.sleep(0.2)
-            _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0))
+            _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0), remote=False)
             if not keyed:
                 _ensure_update_key(fresh)
                 keyed = True
@@ -3382,11 +3385,27 @@ def _push_one(jid, nid, plan):
                 _push_set(jid, nid, state="skip", step=code)
                 return
 
-            def prog(sent, total, _nid=nid, _i=i):
-                _push_set(jid, _nid, pct=at(_i, (sent / total) * 0.95 if total and sent < total else 0.96))
+            def moved(sent, total, _nid=nid, _i=i):
+                if sent >= total:
+                    _push_set(jid, _nid, pct=at(_i, 0.95), remote=True)
+                else:
+                    _push_set(jid, _nid, pct=at(_i, (sent / total) * 0.95), remote=False)
 
-            r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
-                          should_abort=lambda: _push_cancelled(jid))
+            def prog(sent, total, _nid=nid):
+                if total >= PUSH_TRACK_MIN:
+                    moved(sent, total)
+                elif sent >= total:
+                    _push_set(jid, _nid, remote=True)
+
+            with _dl_watch_lock:
+                _dl_watch[nid] = moved
+            try:
+                r = node_push(fresh, endpoint, body, on_progress=prog, timeout=timeout,
+                              should_abort=lambda: _push_cancelled(jid))
+            finally:
+                with _dl_watch_lock:
+                    if _dl_watch.get(nid) is moved:
+                        del _dl_watch[nid]
             if r.get("cancelled"):
                 _push_set(jid, nid, state="skip", step=code,
                           detail="درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
@@ -3400,9 +3419,9 @@ def _push_one(jid, nid, plan):
             if gate and gate(r):
                 _push_set(jid, nid, state="same", step=code, pct=100)
                 return
-            _push_set(jid, nid, pct=at(i + 1, 0), restarted=r.get("restarted"),
+            _push_set(jid, nid, pct=at(i + 1, 0), remote=False, restarted=r.get("restarted"),
                       failed=len(r.get("failed") or []))
-        _push_set(jid, nid, state="ok", pct=100)
+        _push_set(jid, nid, state="ok", pct=100, remote=False)
     except Exception as e:
         _push_set(jid, nid, state="err", err="panel", detail=str(e)[:120])
 
@@ -7593,7 +7612,7 @@ class Handler(BaseHTTPRequestHandler):
 
     GZIP_MIN = 4096
 
-    def _send(self, code, body, ctype="application/json", extra=None, big=False, cache="no-store"):
+    def _send(self, code, body, ctype="application/json", extra=None, big=False, cache="no-store", on_chunk=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False)
         data = body.encode() if isinstance(body, str) else body
@@ -7628,6 +7647,8 @@ class Handler(BaseHTTPRequestHandler):
             mv = memoryview(data)
             for i in range(0, len(mv), self.SEND_CHUNK):
                 self.wfile.write(mv[i:i + self.SEND_CHUNK])
+                if on_chunk:
+                    on_chunk(min(len(mv), i + self.SEND_CHUNK))
         finally:
             if sock:
                 sock.settimeout(prev)
@@ -7766,7 +7787,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         q = {k: v[0] for k, v in
              urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "").items()}
-        if not _dl_ticket_node(q):
+        node = _dl_ticket_node(q)
+        if not node:
             note_fail(ip)
             self._send(401, {"error": "نشستِ شما منقضی شده — دوباره وارد شو"})
             return
@@ -7781,12 +7803,15 @@ class Handler(BaseHTTPRequestHandler):
         if start is None:
             self._send(416, {"error": "بازهٔ درخواستی نامعتبر است"}, extra={"Content-Range": "bytes */%d" % len(raw)})
             return
+        with _dl_watch_lock:
+            watch = _dl_watch.get(node["id"])
+        tick = (lambda sent, _w=watch, _s=start, _t=len(raw): _w(_s + sent, _t)) if watch else None
         if start:
-            self._send(206, raw[start:], "application/octet-stream", big=True,
+            self._send(206, raw[start:], "application/octet-stream", big=True, on_chunk=tick,
                        extra={"Accept-Ranges": "bytes",
                               "Content-Range": "bytes %d-%d/%d" % (start, len(raw) - 1, len(raw))})
             return
-        self._send(200, raw, "application/octet-stream", big=True,
+        self._send(200, raw, "application/octet-stream", big=True, on_chunk=tick,
                    extra={"Accept-Ranges": "bytes"})
 
     def _checkin(self):

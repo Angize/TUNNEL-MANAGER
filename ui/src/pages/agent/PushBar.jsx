@@ -39,9 +39,10 @@ export function pushTone(status) {
 export default function PushBar({ status }) {
   const pct = Math.max(0, Math.min(100, num(status.pct)))
   const tone = pushTone(status)
+  const spin = status.state === 'run' && status.remote
   return (
     <>
-      <div className={'pushbar' + (tone ? ' ' + tone : '')}>
+      <div className={'pushbar' + (tone ? ' ' + tone : '') + (spin ? ' spin' : '')}>
         <i style={{ width: pct + '%' }} />
       </div>
       <div className="plbl" title={status.detail || undefined}>

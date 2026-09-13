@@ -608,7 +608,7 @@ export default function AgentPage({ headless }) {
               agentMeta={agentMeta}
               staged={staged}
               wanted={wanted}
-              status={pushNodes[node.id] || (push.seeded[node.id] ? { state: 'run', pct: 0, step: 'start', si: 0, sn: 1 } : null)}
+              status={pushNodes[node.id] || (push.seeded[node.id] ? { state: 'run', pct: 0, step: 'start', si: 0, sn: 1, remote: true } : null)}
               onPushAgent={pushAgent}
               onPushCore={pushCore}
             />
