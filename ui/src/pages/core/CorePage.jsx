@@ -19,7 +19,7 @@ import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import './core.css'
 
-export default function CorePage() {
+export default function CorePage({ embedded, active = true }) {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('core')
@@ -35,7 +35,7 @@ export default function CorePage() {
     return r.links || []
   }, [query])
 
-  const [list, reload] = usePolledData(load, query)
+  const [list, reload] = usePolledData(load, query, active)
 
   useEffect(() => {
     reload()
@@ -115,7 +115,7 @@ export default function CorePage() {
 
   return (
     <>
-      <PageHead icon="cpu" titleKey="core_title" subKey="core_sub" />
+      {embedded ? null : <PageHead icon="cpu" titleKey="core_title" subKey="core_sub" />}
 
       <div className="tbtnrow">
         <button className="primary" onClick={() => setEditing({})}>

@@ -5,6 +5,7 @@ export default {
   nav_overview: 'نمای کلی',
   nav_nodes: 'نودها',
   nav_proxies: 'پروکسی‌ها',
+  nav_links: 'تونل‌ها',
   nav_tunnels: 'سیستمی',
   nav_portfw: 'پورت‌فوروارد',
   nav_core: 'هسته',

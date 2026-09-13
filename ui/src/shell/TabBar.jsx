@@ -5,9 +5,7 @@ const ITEMS = [
   { id: 'overview', icon: 'dash' },
   { id: 'nodes', icon: 'server' },
   { id: 'proxies', icon: 'globe' },
-  { id: 'tunnels', icon: 'link' },
-  { id: 'portfw', icon: 'fwd' },
-  { id: 'core', icon: 'cpu' },
+  { id: 'links', icon: 'link' },
   { id: 'logs', icon: 'list' },
   { id: 'settings', icon: 'cog' },
 ]
