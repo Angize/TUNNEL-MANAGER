@@ -8,6 +8,7 @@ const SETTINGS_GROUPS = [
   ['sc-conn', 2],
   ['sc-pool', 2],
   ['sc-perf', 1],
+  ['sc-panel', 2],
 ]
 
 export function Sk({ as, className, w, style }) {

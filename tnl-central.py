@@ -296,6 +296,8 @@ def settings_defaults():
         "dl_proxy_on": False,
         "dl_proxy_id": "",
         "log_hidden": [],
+        "api_external": False,
+        "api_token": "",
         "tuning": dict(_TUNING_DEFAULTS),
     }
 
@@ -351,6 +353,8 @@ def validate_settings(d):
             if m not in DELIVERY_MODES:
                 raise ValueError("حالتِ تحویل باید یکی از push / github / panel باشد")
             out[k] = m
+    if "api_external" in d:
+        out["api_external"] = bool(d["api_external"])
     if "dl_proxy_on" in d or "dl_proxy_id" in d:
         on = bool(d.get("dl_proxy_on", out.get("dl_proxy_on")))
         pid = str(d.get("dl_proxy_id", out.get("dl_proxy_id")) or "").strip()
@@ -7128,6 +7132,16 @@ def api_settings_set(d):
     return {"ok": True, "settings": obj}
 
 
+def api_token_new(d):
+    with _settings_lock:
+        obj = get_settings()
+        obj["api_token"] = secrets.token_urlsafe(32)
+        _settings.clear()
+        _settings.update(obj)
+        save_json(SETTINGS_FILE, obj)
+    return {"ok": True, "token": obj["api_token"]}
+
+
 CHECKIN_CTR_FILE = os.path.join(CENTRAL_DIR, "checkin_ctr.json")
 CHECKIN_CTR_PERSIST_MS = 60000
 
@@ -7382,7 +7396,7 @@ def _dispatch(cmd, d):
 API = {
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary, "next-port": api_next_port,
     "settings": api_settings, "settings-set": api_settings_set, "readiness": api_readiness,
-    "ui-config": api_ui_config,
+    "ui-config": api_ui_config, "api-token-new": api_token_new,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
@@ -7418,7 +7432,8 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "core-delete-blob", "core-stage-cancel",
              "update-agent", "update-core",
              "reorder", "link-tag",
-             "act-cancel"}
+             "act-cancel", "api-token-new"}
+TOKEN_DENY = {"settings-set", "api-token-new"}
 
 
 class HeaderDeadline:
@@ -7708,18 +7723,45 @@ class Handler(BaseHTTPRequestHandler):
             note_fail(ip)
         self._send(200 if res.get("ok") else 401, res)
 
+    def _bearer_ok(self):
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return False
+        ip = self._client_ip()
+        if rate_limited(ip):
+            if note_blocked(ip):
+                self._auth_log("bad", "auth-lock", "درخواست با توکنِ API از نشانیِ قفل‌شده همچنان ادامه دارد.")
+            return False
+        s = get_settings()
+        stored = str(s.get("api_token") or "")
+        if s.get("api_external") and stored and hmac.compare_digest(auth[7:].strip(), stored):
+            return True
+        note_fail(ip)
+        self._auth_log("warn", "auth-fail",
+                       "درخواست با توکنِ APIِ نامعتبر رد شد." if s.get("api_external")
+                       else "درخواست با توکنِ API رد شد؛ دسترسیِ بیرونی به API خاموش است.")
+        return False
+
     def _api(self, cmd, method):
+        via_token = False
         if not self._user():
-            self._send(401, {"error": "وارد نشده‌اید"})
-            return
+            via_token = self._bearer_ok()
+            if not via_token:
+                self._send(401, {"error": "وارد نشده‌اید"})
+                return
         if cmd not in API:
             self._send(404, {"error": "مسیرِ ناشناخته"})
+            return
+        if via_token and cmd in TOKEN_DENY:
+            if method == "POST":
+                self._body()
+            self._send(403, {"error": "این درخواست با توکنِ API مجاز نیست"})
             return
         if cmd in MUTATIONS:
             if method != "POST":
                 self._send(405, {"error": "این درخواست باید POST باشد"})
                 return
-            if self.headers.get("X-Requested-With") != "tnl-central":
+            if not via_token and self.headers.get("X-Requested-With") != "tnl-central":
                 self._send(403, {"error": "درخواستِ نامعتبر"})
                 return
         d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
