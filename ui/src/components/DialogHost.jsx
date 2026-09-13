@@ -13,7 +13,7 @@ function Dialog({ entry, top }) {
 
   return (
     <div
-      className="modalov"
+      className="modalov dlgov"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeDialog(entry.id, cancelValue)
       }}
