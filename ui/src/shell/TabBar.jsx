@@ -24,7 +24,7 @@ export default function TabBar({ page, unread, onNavigate }) {
           onClick={() => onNavigate(it.id)}
         >
           <Icon name={it.icon} />
-          <span>{T('nav_' + it.id)}</span>
+          <span className="tlbl">{T('nav_' + it.id)}</span>
           {it.id === 'logs' && unread > 0 ? (
             <i className="tbadge">{unread > 99 ? '99+' : String(unread)}</i>
           ) : null}

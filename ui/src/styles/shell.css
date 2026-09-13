@@ -241,7 +241,7 @@
   height: 19px;
 }
 
-.tab span {
+.tab .tlbl {
   display: none;
   white-space: nowrap;
   line-height: 1.2;
@@ -258,7 +258,7 @@
   color: var(--acc);
 }
 
-.tab.on span {
+.tab.on .tlbl {
   display: block;
 }
 
