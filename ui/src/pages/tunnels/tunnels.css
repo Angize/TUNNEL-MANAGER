@@ -79,6 +79,18 @@
   box-shadow: inset 3px 0 0 var(--sub);
 }
 
+.tninfo > .tnnode:last-child.st-ok {
+  box-shadow: inset -3px 0 0 var(--ok);
+}
+
+.tninfo > .tnnode:last-child.st-bad {
+  box-shadow: inset -3px 0 0 var(--bad);
+}
+
+.tninfo > .tnnode:last-child.st-na {
+  box-shadow: inset -3px 0 0 var(--sub);
+}
+
 .tnhead {
   display: flex;
   align-items: center;
