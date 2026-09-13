@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import { SettingsSkeleton } from '../../components/Skeleton.jsx'
 import Icon from '../../components/Icon.jsx'
+import CopyValue from '../../components/CopyValue.jsx'
 import Select from '../../components/Select.jsx'
 import SettingRow from './SettingRow.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
@@ -60,6 +61,7 @@ export default function SettingsPage() {
   const probeSamples = num(config.probe_samples) || 20
 
   const [form, setForm] = useState(null)
+  const [token, setToken] = useState('')
   const [mode, setMode] = useState('alert')
   const [picking, setPicking] = useState(false)
   const [message, setMessage] = useState('')
@@ -80,6 +82,7 @@ export default function SettingsPage() {
     const tuned = (key) => (tuning[key] != null ? tuning[key] : tuningDefaults[key])
     setMode(s.reconcile_mode === 'auto' ? 'auto' : 'alert')
     setForm({
+      apiOn: !!s.api_external,
       reconcile: String(settingValue(s, 'reconcile_interval')),
       poll: String(settingValue(s, 'poll_interval')),
       ui: String(settingValue(s, 'ui_interval')),
@@ -141,6 +144,7 @@ export default function SettingsPage() {
     }
     setMessage(T('saving'))
     const r = await apiPost('settings-set', {
+      api_external: form.apiOn,
       reconcile_mode: mode,
       reconcile_interval: form.reconcile.trim(),
       poll_interval: form.poll.trim(),
@@ -155,6 +159,17 @@ export default function SettingsPage() {
       return
     }
     alertBox(postError(r))
+  }
+
+  const newToken = async () => {
+    if (!(await confirmBox(T('set_api_new_confirm'), T('set_api_new')))) return
+    const r = await apiPost('api-token-new', {})
+    if (r.ok && r.d.ok) {
+      setToken(String(r.d.token || ''))
+      toast(T('set_api_new_done'), 'ok')
+      return
+    }
+    toast(postError(r), 'err')
   }
 
   const reset = async () => {
@@ -254,6 +269,36 @@ export default function SettingsPage() {
               exampleKey="set_x_sockbuf"
             >
               <NumberField value={form.sockBuf} onChange={set('sockBuf')} min={0} max={64} step={1} />
+            </SettingRow>
+          </SettingsGroup>
+
+          <SettingsGroup icon="globe" titleKey="set_g6" chipKey="set_g6c" tone="sc-panel">
+            <SettingRow label={T('set_api_on')} helpKey="set_api_on_d" exampleKey="set_x_api_on">
+              <div className="srtgl">
+                <div
+                  className={'tglsw' + (form.apiOn ? ' on' : '')}
+                  onClick={() => set('apiOn')(!form.apiOn)}
+                />
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              label={T('set_api_token')}
+              helpKey="set_api_token_d"
+              exampleKey="set_x_api_token"
+            >
+              <div className="srtoken">
+                {token ? (
+                  <>
+                    <CopyValue text={token} />
+                    <span className="srtonce">{T('set_api_once')}</span>
+                  </>
+                ) : null}
+                <button type="button" className="ghost" onClick={newToken}>
+                  <Icon name="redo" />
+                  {T('set_api_new')}
+                </button>
+              </div>
             </SettingRow>
           </SettingsGroup>
         </div>

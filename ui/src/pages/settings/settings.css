@@ -158,6 +158,49 @@
   border-radius: 10px;
 }
 
+.srtgl {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: var(--sc-h);
+}
+
+.srtoken {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.srtoken .cpv {
+  display: block;
+  font-size: 11px;
+  direction: ltr;
+  text-align: left;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--bord);
+}
+
+.srtonce {
+  font-size: 10.5px;
+  color: var(--gold);
+  line-height: 1.5;
+}
+
+.srtoken .ghost {
+  margin: 0;
+  height: var(--sc-h);
+  padding: 0 12px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
 .srctl .msbtn {
   padding: 0 12px;
   border-radius: 10px;
