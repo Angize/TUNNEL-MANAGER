@@ -1,4 +1,6 @@
+import { useRef } from 'react'
 import Icon from '../components/Icon.jsx'
+import useIndicator from '../lib/useIndicator.js'
 import { T } from '../i18n/fa.js'
 import { logout } from '../lib/api.js'
 
@@ -19,6 +21,9 @@ function Count({ value }) {
 }
 
 export default function Sidebar({ page, counts, unread, onNavigate }) {
+  const nav = useRef(null)
+  const ind = useIndicator(nav, page, 'y')
+
   return (
     <aside className="side">
       <div className="sbrand">
@@ -30,7 +35,8 @@ export default function Sidebar({ page, counts, unread, onNavigate }) {
           <small>{T('brand_sub')}</small>
         </span>
       </div>
-      <nav className="nav">
+      <nav className="nav" ref={nav}>
+        <span className="navind" style={ind} />
         {ITEMS.map((it) => (
           <a
             key={it.id}

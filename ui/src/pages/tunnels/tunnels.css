@@ -15,9 +15,9 @@
   margin: 0;
   font-size: 12.5px;
   line-height: 1.2;
-  padding: 9px 15px;
-  min-height: 38px;
-  border-radius: 10px;
+  padding: 9px 16px;
+  min-height: 40px;
+  border-radius: 14px;
 }
 
 .tbtnrow > button.primary {
@@ -30,15 +30,18 @@
 }
 
 .tbtnrow > button.ghost {
-  background: var(--glass);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  box-shadow: var(--dsh);
   color: var(--tx);
   font-weight: 700;
 }
 
 .tbtnrow > button.ghost:hover {
-  background: var(--field);
-  border-color: var(--sub);
+  background: var(--card);
+  box-shadow: var(--dsh-hi);
 }
 
 .tninfo {
@@ -57,21 +60,23 @@
 .tnnode {
   background: var(--field);
   border: 1px solid var(--bord);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 10px 12px;
   min-width: 0;
+  transition: background .3s, box-shadow .3s;
 }
 
 .tnnode.st-ok {
-  border-color: var(--ok);
+  box-shadow: inset 3px 0 0 var(--ok);
 }
 
 .tnnode.st-bad {
-  border-color: var(--bad);
+  background: var(--badw);
+  box-shadow: inset 3px 0 0 var(--bad);
 }
 
 .tnnode.st-na {
-  border-color: var(--bord);
+  box-shadow: inset 3px 0 0 var(--sub);
 }
 
 .tnhead {
@@ -213,7 +218,9 @@
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(8, 11, 18, .34);
+  background: var(--veil);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -221,11 +228,13 @@
 }
 
 .tagbox {
-  background: var(--card);
-  border: 1px solid var(--bord);
-  border-radius: 18px;
+  background: var(--modal);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  border-radius: 22px;
   padding: 16px 18px;
-  box-shadow: 0 18px 50px rgba(8, 11, 18, .28);
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .5), inset 0 1px 0 var(--hi);
   max-width: 340px;
   width: 100%;
 }

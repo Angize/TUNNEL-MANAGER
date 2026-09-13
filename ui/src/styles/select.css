@@ -2,7 +2,7 @@
   width: 100%;
   padding: 11px 12px;
   border: 1px solid var(--bord);
-  border-radius: 12px;
+  border-radius: 13px;
   background: var(--field);
   color: var(--tx);
   font-size: 13.5px;
@@ -102,17 +102,25 @@
 .search {
   flex: 1;
   min-width: 150px;
-  padding: 10px 13px;
-  border: 1px solid var(--bord);
-  border-radius: 12px;
-  background: var(--field);
+  padding: 10px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--card);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  box-shadow: var(--dsh);
   color: var(--tx);
   font-size: 13px;
   font-family: inherit;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.search::placeholder {
+  color: var(--sub);
 }
 
 .search:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--acc) 55%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 15%, transparent);
+  box-shadow: var(--dsh), 0 0 0 4px var(--accw);
 }
