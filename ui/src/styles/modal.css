@@ -22,6 +22,10 @@
   animation: fade .2s ease both;
 }
 
+.modalov.dlgov {
+  z-index: 59;
+}
+
 .modal {
   width: 344px;
   max-width: 100%;
