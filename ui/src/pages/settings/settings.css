@@ -165,7 +165,8 @@
   min-height: var(--sc-h);
 }
 
-.srtoken {
+.srctl > .srtoken {
+  height: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
