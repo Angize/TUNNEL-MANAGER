@@ -6196,7 +6196,8 @@ EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")
 EVENTS_TTL = 24 * 3600
 
 EV_GROUPS = (("tunnel", "تونل"), ("node", "نود"), ("rot", "چرخش و استخر"),
-             ("ech", "ECH"), ("cfg", "تنظیم"), ("auth", "ورود"))
+             ("ech", "ECH"), ("cfg", "تنظیم"), ("auth", "ورود"), ("api", "API"))
+API_OK_KEEP = 500
 EV_TYPES = (
     ("link-up", "tunnel", "تونل وصل شد"),
     ("link-down", "tunnel", "تونل قطع شد"),
@@ -6226,6 +6227,10 @@ EV_TYPES = (
     ("auth-out", "auth", "خروج از پنل"),
     ("auth-fail", "auth", "تلاشِ ناموفقِ ورود"),
     ("auth-lock", "auth", "قفلِ نشانی پس از تلاشِ زیاد"),
+    ("api-ok", "api", "درخواستِ موفقِ API"),
+    ("api-refused", "api", "درخواستِ ردشدهٔ API"),
+    ("api-error", "api", "درخواستِ API با خطا"),
+    ("api-lock", "api", "قفلِ نشانی پس از توکنِ غلطِ زیاد"),
 )
 EV_TYPE_GROUP = {t: g for t, g, _fa in EV_TYPES}
 _events_lock = threading.Lock()
@@ -6512,8 +6517,21 @@ def log_event(level, kind, fa, dfa=""):
     global _ev_seq_total, _ev_dirty
     shown = kind not in _ev_hidden()
     with _events_lock:
-        _ev_all().insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
-                             "fa": fa, "dfa": dfa})
+        lst = _ev_all()
+        lst.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
+                       "fa": fa, "dfa": dfa})
+        if kind == "api-ok":
+            seen = 0
+            for i in range(len(lst) - 1, -1, -1):
+                if lst[i]["kind"] != "api-ok":
+                    continue
+                seen += 1
+            for i in range(len(lst) - 1, -1, -1):
+                if seen <= API_OK_KEEP:
+                    break
+                if lst[i]["kind"] == "api-ok":
+                    del lst[i]
+                    seen -= 1
         if shown:
             _ev_seq_total = _ev_seq_get() + 1
         _ev_dirty = True
@@ -7454,6 +7472,13 @@ API_MSG = {
     "bad_request": ("درخواستِ نامعتبر", 403, "invalid request"),
     "internal": ("خطای داخلی", 500, "internal error"),
 }
+API_REFUSED = {
+    "api_disabled": "درخواستِ APIِ «%s» رد شد — دسترسیِ بیرونی به API خاموش است.",
+    "bad_token": "درخواستِ APIِ «%s» رد شد — توکن نامعتبر است.",
+    "token_denied": "درخواستِ APIِ «%s» رد شد — این مسیر با توکن مجاز نیست.",
+    "unknown_route": "درخواستِ APIِ «%s» رد شد — مسیرِ ناشناخته.",
+    "post_only": "درخواستِ APIِ «%s» رد شد — باید POST باشد.",
+}
 
 
 class HeaderDeadline:
@@ -7756,19 +7781,25 @@ class Handler(BaseHTTPRequestHandler):
         ip = self._client_ip()
         if rate_limited(ip):
             if note_blocked(ip):
-                self._auth_log("bad", "auth-lock", "درخواست با توکنِ API از نشانیِ قفل‌شده همچنان ادامه دارد.")
+                self._auth_log("bad", "api-lock", "درخواست با توکنِ API از نشانیِ قفل‌شده همچنان ادامه دارد.")
             return "locked"
         s = get_settings()
         if not s.get("api_external"):
             note_fail(ip)
-            self._auth_log("warn", "auth-fail", "درخواست با توکنِ API رد شد؛ دسترسیِ بیرونی به API خاموش است.")
             return "api_disabled"
         stored = str(s.get("api_token_hash") or "")
         if stored and hmac.compare_digest(api_token_hash(auth[7:].strip()), stored):
             return None
         note_fail(ip)
-        self._auth_log("warn", "auth-fail", "درخواست با توکنِ APIِ نامعتبر رد شد.")
         return "bad_token"
+
+    def _api_log(self, level, kind, title, cmd, method, status):
+        self._auth_log(level, kind, title, ["مسیر: %s /api/%s" % (method, cmd), "نتیجه: %d" % status])
+
+    def _refuse(self, code, cmd, method, en, drain=False):
+        self._fail(code, en, drain)
+        if en and code in API_REFUSED:
+            self._api_log("warn", "api-refused", API_REFUSED[code] % cmd, cmd, method, API_MSG[code][1])
 
     def _api(self, cmd, method):
         en = self.headers.get("Authorization", "").startswith("Bearer ")
@@ -7776,30 +7807,36 @@ class Handler(BaseHTTPRequestHandler):
         if not self._user():
             why = self._bearer_check()
             if why:
-                self._fail(why, en)
+                self._refuse(why, cmd, method, en)
                 return
             via_token = True
         if cmd not in API:
-            self._fail("unknown_route", en, drain=True)
+            self._refuse("unknown_route", cmd, method, en, drain=True)
             return
         if via_token and cmd in TOKEN_DENY:
-            self._fail("token_denied", en, drain=True)
+            self._refuse("token_denied", cmd, method, en, drain=True)
             return
         if cmd in MUTATIONS:
             if method != "POST":
-                self._fail("post_only", en)
+                self._refuse("post_only", cmd, method, en)
                 return
             if not via_token and self.headers.get("X-Requested-With") != "tnl-central":
-                self._fail("bad_request", en, drain=True)
+                self._refuse("bad_request", cmd, method, en, drain=True)
                 return
         d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
         try:
             self._send(200, _dispatch(cmd, d))
+            if via_token:
+                self._api_log("ok", "api-ok", "درخواستِ APIِ «%s» انجام شد." % cmd, cmd, method, 200)
         except ValueError as e:
             self._send(400, {"error": str(e)})
+            if via_token:
+                self._api_log("warn", "api-error", "درخواستِ APIِ «%s» با خطا برگشت: %s" % (cmd, e), cmd, method, 400)
         except Exception:
             log_internal("api %s" % cmd)
             self._fail("internal", en)
+            if via_token:
+                self._api_log("bad", "api-error", "درخواستِ APIِ «%s» به خطای داخلی خورد." % cmd, cmd, method, 500)
 
 
 SERVICE = "tnl-central.service"
