@@ -30,6 +30,11 @@
   gap: 6px;
 }
 
+.ltraf .tot .iso {
+  display: inline-flex;
+  gap: 9px;
+}
+
 .enmeta {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
