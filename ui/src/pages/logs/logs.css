@@ -135,7 +135,6 @@
   color: #fff;
   background: var(--acc);
   border-color: transparent;
-  box-shadow: 0 8px 18px -10px var(--acc);
 }
 
 .fchip .ct {
