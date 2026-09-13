@@ -7,6 +7,8 @@ const open = []
 export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, children }) {
   const id = useId()
   const box = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
 
   useEffect(() => {
     open.push(id)
@@ -16,7 +18,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
       if (e.key !== 'Escape') return
       if (open[open.length - 1] !== id) return
       e.stopImmediatePropagation()
-      onClose()
+      closeRef.current()
     }
     document.addEventListener('keydown', onKey)
     const field = box.current && box.current.querySelector('input,select,textarea')
@@ -27,7 +29,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
       document.removeEventListener('keydown', onKey)
       if (!open.length) document.body.style.overflow = prev
     }
-  }, [id, onClose])
+  }, [id])
 
   return createPortal(
     <div
