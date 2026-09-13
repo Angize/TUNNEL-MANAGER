@@ -67,6 +67,49 @@
   height: 13px;
 }
 
+.enmeta .emcol > div.feat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+}
+
+.enmeta .emcol > div.tagrow {
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.enmeta .feat .nofeat {
+  opacity: .55;
+}
+
+.enmeta .emcol > div.enc-line {
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.enmeta .enc-line .encval {
+  color: var(--ok);
+  font-weight: 700;
+  direction: ltr;
+}
+
+.enmeta .emwarn {
+  display: block;
+  grid-column: 1/-1;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.enmeta .emwarn .ic {
+  display: inline-block;
+  vertical-align: -3px;
+  margin-top: 0;
+  margin-left: 5px;
+}
+
 .warncap {
   display: flex;
   gap: 8px;

@@ -1,53 +1,45 @@
-import { KvRow, Sep } from '../../components/Kv.jsx'
 import { T } from '../../i18n/fa.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { num } from '../../lib/num.js'
 import { RAW_DPORT_DEFAULT, RAW_ROT_HI, RAW_ROT_LO, RAW_SPORT_FIXED } from './carrier.js'
 
-function count(n) {
-  return Number(n).toLocaleString('en-US')
-}
-
-function RotatingSource({ link, every }) {
+function RotatingSourceRows({ link, every }) {
   const live = link.rot_live || {}
   const client = num(live.cli)
   const server = num(live.srv)
   const lo = num(live.lo) || RAW_ROT_LO
   const hi = num(live.hi) || RAW_ROT_HI
-  const drawn = num(live.drawn)
   const mode = every ? T('port_src_rot') : T('port_src_rand')
   const clock = every ? T('port_src_rot_every').replace('{n}', every) : T('port_src_rot_fail')
+  const drawn = num(live.drawn)
+
+  let band = mode + ' · ' + lo + '-' + hi + ' · ' + clock
+  if (drawn) band += ' · ' + T('port_src_rot_drawn').replace('{n}', String(drawn))
+
+  if (!client && !server) {
+    return (
+      <>
+        <div>
+          {T('port_src')}: <b className="mono">{mode}</b>
+        </div>
+        <div className="wrap muted">{band}</div>
+      </>
+    )
+  }
 
   return (
     <>
-      <KvRow label={T('port_src')} side="l">
-        {mode}
-      </KvRow>
-      <KvRow label={T('port_rot')} wide>
-        {client ? (
-          <>
-            <span className="dim">{T('client')}</span>
-            <b className="mono">{client}</b>
-            <Sep />
-          </>
-        ) : null}
-        {server ? (
-          <>
-            <span className="dim">{T('server')}</span>
-            <b className="mono">{server}</b>
-            <Sep />
-          </>
-        ) : null}
-        <b className="mono">{lo + '-' + hi}</b>
-        <Sep />
-        <span>{clock}</span>
-        {drawn ? (
-          <>
-            <Sep />
-            <span>{T('port_src_rot_drawn').replace('{n}', count(drawn))}</span>
-          </>
-        ) : null}
-      </KvRow>
+      {client ? (
+        <div>
+          {T('port_src_rot_up')}: <b className="mono">{client}</b>
+        </div>
+      ) : null}
+      {server ? (
+        <div>
+          {T('port_src_rot_down')}: <b className="mono">{server}</b>
+        </div>
+      ) : null}
+      <div className="wrap muted">{band}</div>
     </>
   )
 }
@@ -67,25 +59,29 @@ export default function PortRows({ link }) {
 
     return (
       <>
-        <KvRow label={T('port_dst')}>
-          <b className="mono">{dports > 1 ? liveDport : num(link.raw_port) || RAW_DPORT_DEFAULT}</b>
-          {dports > 1 ? (
-            <>
-              <Sep />
-              <span className="dim">
-                {T('port_dst_rot') + ' · ' + T('port_dst_rot_n').replace('{n}', String(dports))}
-              </span>
-            </>
-          ) : null}
-        </KvRow>
+        <div>
+          {T('port_dst')}:{' '}
+          <b className="mono">
+            {dports > 1 ? liveDport : num(link.raw_port) || RAW_DPORT_DEFAULT}
+          </b>
+        </div>
+        {dports > 1 ? (
+          <div className="wrap muted">
+            {T('port_dst_rot') + ' · ' + T('port_dst_rot_n').replace('{n}', String(dports))}
+          </div>
+        ) : null}
         {rotateEvery || link.raw_sport_random ? (
-          <RotatingSource link={link} every={rotateEvery} />
+          <RotatingSourceRows link={link} every={rotateEvery} />
         ) : (
-          <KvRow label={T('port_src')} side="l">
-            <b className="mono">{sportLive || num(link.raw_sport) || RAW_SPORT_FIXED}</b>
-            <Sep />
-            <span className="dim">{T('port_src_fixed')}</span>
-          </KvRow>
+          <div>
+            {T('port_src')}:{' '}
+            <b className="mono">
+              {T('port_src_fixed') +
+                ' (' +
+                (sportLive || num(link.raw_sport) || RAW_SPORT_FIXED) +
+                ')'}
+            </b>
+          </div>
         )}
       </>
     )
@@ -94,14 +90,14 @@ export default function PortRows({ link }) {
   return (
     <>
       {link.port ? (
-        <KvRow label={T('port')} mono>
-          {link.port}
-        </KvRow>
+        <div>
+          {T('port')}: <b className="mono">{link.port}</b>
+        </div>
       ) : null}
       {sportLive && portRungTransports.includes(transport) ? (
-        <KvRow label={T('port_src')} side="l" mono>
-          {sportLive}
-        </KvRow>
+        <div>
+          {T('port_src')}: <b className="mono">{sportLive}</b>
+        </div>
       ) : null}
     </>
   )
