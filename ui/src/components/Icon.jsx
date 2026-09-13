@@ -108,6 +108,7 @@ const PATHS = {
     </>
   ),
   swap: <path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4" />,
+  arrows: <path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4" />,
   info: (
     <>
       <circle cx="12" cy="12" r="9" />

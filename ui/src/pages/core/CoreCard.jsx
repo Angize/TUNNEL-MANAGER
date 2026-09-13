@@ -284,7 +284,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
               <span className="hpeers" dir="ltr">
                 <HeaderDot link={link} side={first} />
                 <span className="pn">{link[first + '_name']}</span>
-                ↔
+                <Icon name="arrows" />
                 <span className="pn">{link[second + '_name']}</span>
                 <HeaderDot link={link} side={second} />
               </span>
@@ -319,7 +319,9 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
                 rotating={link[first + '_ip_rot']}
                 live={live}
               />
-              <span className="tnarrow">↔</span>
+              <span className="tnarrow">
+                <Icon name="arrows" />
+              </span>
               <SideBox
                 link={link}
                 side={second}
