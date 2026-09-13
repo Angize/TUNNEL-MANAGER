@@ -183,6 +183,12 @@
   border: 1px solid var(--bord);
 }
 
+.srtonce {
+  font-size: 10.5px;
+  color: var(--gold);
+  line-height: 1.5;
+}
+
 .srtoken .ghost {
   margin: 0;
   height: var(--sc-h);

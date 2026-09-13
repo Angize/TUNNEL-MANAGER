@@ -81,7 +81,6 @@ export default function SettingsPage() {
     const tuning = s.tuning || {}
     const tuned = (key) => (tuning[key] != null ? tuning[key] : tuningDefaults[key])
     setMode(s.reconcile_mode === 'auto' ? 'auto' : 'alert')
-    setToken(String(s.api_token || ''))
     setForm({
       apiOn: !!s.api_external,
       reconcile: String(settingValue(s, 'reconcile_interval')),
@@ -290,10 +289,11 @@ export default function SettingsPage() {
             >
               <div className="srtoken">
                 {token ? (
-                  <CopyValue text={token} />
-                ) : (
-                  <span className="muted">{T('set_api_none')}</span>
-                )}
+                  <>
+                    <CopyValue text={token} />
+                    <span className="srtonce">{T('set_api_once')}</span>
+                  </>
+                ) : null}
                 <button type="button" className="ghost" onClick={newToken}>
                   <Icon name="redo" />
                   {T('set_api_new')}

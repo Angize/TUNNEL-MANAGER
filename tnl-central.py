@@ -297,7 +297,7 @@ def settings_defaults():
         "dl_proxy_id": "",
         "log_hidden": [],
         "api_external": False,
-        "api_token": "",
+        "api_token_hash": "",
         "tuning": dict(_TUNING_DEFAULTS),
     }
 
@@ -7119,8 +7119,12 @@ def api_proxy_del(d):
     return {"ok": True}
 
 
+def settings_public(obj):
+    return {k: v for k, v in obj.items() if k != "api_token_hash"}
+
+
 def api_settings(d):
-    return get_settings()
+    return settings_public(get_settings())
 
 
 def api_settings_set(d):
@@ -7129,17 +7133,22 @@ def api_settings_set(d):
         _settings.clear()
         _settings.update(obj)
         save_json(SETTINGS_FILE, obj)
-    return {"ok": True, "settings": obj}
+    return {"ok": True, "settings": settings_public(obj)}
+
+
+def api_token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def api_token_new(d):
+    token = secrets.token_urlsafe(32)
     with _settings_lock:
         obj = get_settings()
-        obj["api_token"] = secrets.token_urlsafe(32)
+        obj["api_token_hash"] = api_token_hash(token)
         _settings.clear()
         _settings.update(obj)
         save_json(SETTINGS_FILE, obj)
-    return {"ok": True, "token": obj["api_token"]}
+    return {"ok": True, "token": token}
 
 
 CHECKIN_CTR_FILE = os.path.join(CENTRAL_DIR, "checkin_ctr.json")
@@ -7511,7 +7520,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, ctype="application/json", extra=None, big=False, cache="no-store"):
         if isinstance(body, (dict, list)):
-            body = json.dumps(body)
+            body = json.dumps(body, ensure_ascii=False)
         data = body.encode() if isinstance(body, str) else body
         enc = ""
         if not big and len(data) >= self.GZIP_MIN and "gzip" in self.headers.get("Accept-Encoding", ""):
@@ -7733,8 +7742,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._auth_log("bad", "auth-lock", "درخواست با توکنِ API از نشانیِ قفل‌شده همچنان ادامه دارد.")
             return False
         s = get_settings()
-        stored = str(s.get("api_token") or "")
-        if s.get("api_external") and stored and hmac.compare_digest(auth[7:].strip(), stored):
+        stored = str(s.get("api_token_hash") or "")
+        if s.get("api_external") and stored and hmac.compare_digest(api_token_hash(auth[7:].strip()), stored):
             return True
         note_fail(ip)
         self._auth_log("warn", "auth-fail",
