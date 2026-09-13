@@ -1457,23 +1457,23 @@ def _proxy_reach(p, timeout=8):
     return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
 
 
-def _px_cached(store, p, gap, probe):
+def _px_cached(store, p, gap, probe, fresh=False):
     with _px_lock:
         prev = store.get(p["id"])
-    if not prev or time.time() - prev["ts"] >= gap:
+    if fresh or not prev or time.time() - prev["ts"] >= gap:
         prev = probe(p)
         with _px_lock:
             store[p["id"]] = prev
     return prev
 
 
-def _px_deep(p, st):
+def _px_deep(p, st, fresh=False):
     if not st.get("ok"):
         return st
-    relay = _px_cached(_px_relay, p, PX_RELAY_GAP, _proxy_relay)
+    relay = _px_cached(_px_relay, p, PX_RELAY_GAP, _proxy_relay, fresh)
     if not (relay.get("skipped") or relay.get("ok")):
         return {**st, "ok": False, "error": relay["error"]}
-    reach = _px_cached(_px_reach, p, PX_REACH_GAP, _proxy_reach)
+    reach = _px_cached(_px_reach, p, PX_REACH_GAP, _proxy_reach, fresh)
     if not reach.get("ok"):
         return {**st, "ok": False, "error": reach["error"]}
     return {**st, "reach": reach["ms"]}
@@ -7157,7 +7157,7 @@ def api_proxy_test(d):
     p = get_proxy(str(d["id"]))
     if not p:
         raise ValueError("پروکسی پیدا نشد")
-    out = _px_deep(p, _proxy_probe(p, timeout=8))
+    out = _px_deep(p, _proxy_probe(p, timeout=8), fresh=True)
     _px_publish(p["id"], out)
     return out
 

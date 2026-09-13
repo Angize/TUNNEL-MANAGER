@@ -93,6 +93,19 @@ export default function LogsPage() {
     setShow(PAGE_SIZE)
   }, [filter, query])
 
+  const keys = useMemo(() => {
+    const list = events || []
+    const map = new Map()
+    const seen = {}
+    for (let i = list.length - 1; i >= 0; i--) {
+      const base = eventKey(list[i])
+      const n = seen[base] || 0
+      seen[base] = n + 1
+      map.set(list[i], n ? base + '-' + n : base)
+    }
+    return map
+  }, [events])
+
   const found = useMemo(() => {
     const list = events || []
     const q = query.trim().toLowerCase()
@@ -210,7 +223,7 @@ export default function LogsPage() {
             {shown.length ? (
               <div className="card loglist">
                 {shown.map((event) => {
-                  const key = eventKey(event)
+                  const key = keys.get(event)
                   return (
                     <LogEvent
                       key={key}
