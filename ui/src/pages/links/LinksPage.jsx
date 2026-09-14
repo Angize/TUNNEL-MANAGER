@@ -15,9 +15,16 @@ const KINDS = [
 ]
 
 const SETTLE_MS = 120
+const HAS_SCROLLEND = typeof window !== 'undefined' && 'onscrollend' in window
 
 function reducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+}
+
+function pageTop(el) {
+  let top = 0
+  for (let node = el; node; node = node.offsetParent) top += node.offsetTop
+  return top
 }
 
 export default function LinksPage({ onNavigate, kind, onKind }) {
@@ -27,13 +34,15 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
   const seg = useRef(null)
   const thumb = useRef(null)
   const dots = useRef(null)
+  const sub = useRef(null)
   const panes = useRef([])
   const placed = useRef(false)
   const settle = useRef(0)
-  const kindRef = useRef(kind)
+  const touching = useRef(false)
+  const indexRef = useRef(index)
   const [height, setHeight] = useState(null)
 
-  kindRef.current = kind
+  indexRef.current = index
 
   const paint = useCallback((f) => {
     const box = seg.current
@@ -67,17 +76,56 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
     return (rtl ? -1 : 1) * i * el.clientWidth
   }, [])
 
-  const onScroll = () => {
-    const f = position()
-    paint(f)
-    clearTimeout(settle.current)
-    settle.current = setTimeout(() => {
-      const near = KINDS[Math.round(position())]
-      if (near && near.id !== kindRef.current) onKind(near.id)
-    }, SETTLE_MS)
-  }
+  const fit = useCallback(() => {
+    const el = pager.current
+    const pane = panes.current[indexRef.current]
+    if (!el || !pane) return
+    setHeight(Math.max(pane.offsetHeight, Math.floor(window.innerHeight - pageTop(el))))
+  }, [])
 
-  useEffect(() => () => clearTimeout(settle.current), [])
+  useEffect(() => {
+    const el = pager.current
+    if (!el) return undefined
+    const passive = { passive: true }
+    const commit = () => {
+      const near = Math.round(position())
+      if (near !== indexRef.current && KINDS[near]) onKind(KINDS[near].id)
+    }
+    const later = () => {
+      clearTimeout(settle.current)
+      settle.current = setTimeout(() => {
+        if (!touching.current) commit()
+      }, SETTLE_MS)
+    }
+    const scroll = () => {
+      paint(position())
+      if (!HAS_SCROLLEND) later()
+    }
+    const down = () => {
+      touching.current = true
+    }
+    const up = (e) => {
+      if (e.touches.length) return
+      touching.current = false
+      later()
+    }
+    el.addEventListener('scroll', scroll, passive)
+    if (HAS_SCROLLEND) {
+      el.addEventListener('scrollend', commit, passive)
+    } else {
+      el.addEventListener('touchstart', down, passive)
+      el.addEventListener('touchend', up, passive)
+      el.addEventListener('touchcancel', up, passive)
+    }
+    return () => {
+      clearTimeout(settle.current)
+      el.removeEventListener('scroll', scroll, passive)
+      el.removeEventListener('scrollend', commit, passive)
+      el.removeEventListener('touchstart', down, passive)
+      el.removeEventListener('touchend', up, passive)
+      el.removeEventListener('touchcancel', up, passive)
+    }
+  }, [onKind, paint, position])
 
   useLayoutEffect(() => {
     const el = pager.current
@@ -95,26 +143,26 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
   }, [index, paint, target])
 
   useLayoutEffect(() => {
+    fit()
     const pane = panes.current[index]
-    if (!pane) return undefined
-    const measure = () => setHeight(pane.offsetHeight)
-    measure()
-    if (typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(measure)
+    if (!pane || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(fit)
     observer.observe(pane)
+    if (sub.current) observer.observe(sub.current)
     return () => observer.disconnect()
-  }, [index])
+  }, [index, fit])
 
   useEffect(() => {
     const onResize = () => {
       const el = pager.current
       if (!el) return
-      el.scrollLeft = target(KINDS.findIndex((k) => k.id === kindRef.current))
+      el.scrollLeft = target(indexRef.current)
       paint(position())
+      fit()
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [paint, position, target])
+  }, [fit, paint, position, target])
 
   return (
     <>
@@ -142,14 +190,11 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
         ))}
       </div>
 
-      <p className="sub lsub">{T(KINDS[index].subKey)}</p>
+      <p className="sub lsub" ref={sub}>
+        {T(KINDS[index].subKey)}
+      </p>
 
-      <div
-        className="lpager"
-        ref={pager}
-        onScroll={onScroll}
-        style={height ? { height } : undefined}
-      >
+      <div className="lpager" ref={pager} style={height ? { height } : undefined}>
         {KINDS.map((k, i) => (
           <section
             key={k.id}
