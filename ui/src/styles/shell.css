@@ -153,7 +153,8 @@
   flex: 1;
   min-width: 0;
   max-width: 1120px;
-  padding: 22px 26px 64px;
+  --main-pb: 64px;
+  padding: 22px 26px var(--main-pb);
 }
 
 .mtop {
@@ -291,7 +292,8 @@
   }
 
   .main {
-    padding: 12px 14px 92px;
+    --main-pb: 92px;
+    padding: 12px 14px var(--main-pb);
     max-width: none;
   }
 }
