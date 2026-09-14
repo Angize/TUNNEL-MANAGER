@@ -7085,11 +7085,7 @@ def _proxy_nodes(nodes=None):
 
 
 def _proxy_users(nodes=None):
-    out = {pid: [n["name"] for n in ns] for pid, ns in _proxy_nodes(nodes).items()}
-    own = str((get_settings() or {}).get("dl_proxy_id") or "").strip()
-    if own:
-        out.setdefault(own, []).append("پنل (دانلودِ خودش)")
-    return out
+    return {pid: [n["name"] for n in ns] for pid, ns in _proxy_nodes(nodes).items()}
 
 
 def proxy_url(p):
@@ -7106,6 +7102,7 @@ def _proxy_row(p, users=None):
             "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
             "addr": "%s://%s:%d" % (p["scheme"], p["host"], int(p["port"])),
             "nodes": (users if users is not None else _proxy_users()).get(p["id"], []),
+            "panel": str((get_settings() or {}).get("dl_proxy_id") or "").strip() == p["id"],
             "online": bool(st.get("ok")), "pending": not st, "status": st}
 
 

@@ -19,7 +19,11 @@ export default {
   px_up: 'وصل شد',
   px_google: 'گوگل',
   px_reach: 'گوگل از این پروکسی: ',
-  px_used_by: 'در حالِ استفاده روی: ',
+  px_used: 'در حالِ استفاده',
+  px_used_nodes: '{n} نود',
+  px_used_and_panel: '{n} نود + پنل',
+  px_used_panel_only: 'پنل',
+  px_used_panel: 'پنل هم برای دانلودِ خودش از این پروکسی رد می‌شود',
   px_used_none: 'روی هیچ نودی فعال نیست',
   px_user: 'یوزرنیم',
 }

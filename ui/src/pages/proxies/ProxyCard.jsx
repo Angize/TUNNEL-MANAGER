@@ -1,13 +1,49 @@
 import { useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import { Check } from '../../components/Marks.jsx'
+
+function UsedBy({ nodes, panel }) {
+  if (!nodes.length && !panel) {
+    return (
+      <div className="pxused">
+        <span className="muted">{T('px_used_none')}</span>
+      </div>
+    )
+  }
+  const count = !nodes.length
+    ? T('px_used_panel_only')
+    : TF(panel ? 'px_used_and_panel' : 'px_used_nodes', { n: nodes.length })
+  return (
+    <div className="pxu">
+      <div className="pxuh">
+        <b>{T('px_used')}</b>
+        <span className="pxuc">{count}</span>
+      </div>
+      {panel ? (
+        <div className="pxpanel">
+          <Icon name="server" />
+          {T('px_used_panel')}
+        </div>
+      ) : null}
+      {nodes.length ? (
+        <div className="pxgrid">
+          {nodes.map((name) => (
+            <span key={name} className="pxcell mono" title={name}>
+              {name}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export default function ProxyCard({ proxy, onEdit, onChanged }) {
   const [msg, setMsg] = useState(null)
@@ -67,13 +103,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
 
   return (
     <AccordionCard id={proxy.id} className="node acc" head={head}>
-      <div className="pxused">
-        {proxy.nodes && proxy.nodes.length ? (
-          T('px_used_by') + proxy.nodes.join('، ')
-        ) : (
-          <span className="muted">{T('px_used_none')}</span>
-        )}
-      </div>
+      <UsedBy nodes={proxy.nodes || []} panel={!!proxy.panel} />
       {status.error ? (
         <div className="pxused" style={{ color: 'var(--bad)' }}>
           {translateError(status.error)}

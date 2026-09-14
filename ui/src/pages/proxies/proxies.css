@@ -3,3 +3,66 @@
   color: var(--sub);
   margin-top: 6px;
 }
+
+.pxu {
+  margin-top: 2px;
+}
+
+.pxuh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+
+.pxuc {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--acc);
+  background: var(--accw);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pxpanel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  font-size: 11.5px;
+  color: var(--acc);
+}
+
+.pxpanel .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.pxgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--field);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bord) transparent;
+}
+
+.pxcell {
+  font-size: 11.5px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  background: var(--card);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
