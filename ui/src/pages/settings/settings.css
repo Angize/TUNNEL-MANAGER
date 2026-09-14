@@ -262,40 +262,104 @@
   color: var(--sub);
 }
 
-.stsave {
+.savedock {
   position: sticky;
-  bottom: 10px;
+  bottom: 14px;
   z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 9px;
-  flex-wrap: wrap;
-  margin-top: var(--sc-g);
-  padding: 9px 13px;
+  gap: 8px;
+  margin-bottom: var(--sc-g);
+  padding: 8px;
+  padding-inline-start: 14px;
   border-radius: 18px;
   background: var(--card);
   border: 1px solid var(--edge);
   backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   box-shadow: var(--dsh-hi);
+  animation: dockin .28s cubic-bezier(.25, 1.2, .4, 1);
 }
 
-.stsave button {
+.savedock .sdtext {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--tx);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.savedock .sdtext i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  flex: 0 0 auto;
+}
+
+.savedock button {
   margin: 0;
   flex: none;
-  height: var(--sc-h);
-  padding: 0 15px;
-  border-radius: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 13px;
   font-size: 12.5px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.stsave .msg {
-  flex: none;
+.savedock.docked {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  z-index: 46;
+  width: min(560px, calc(100% - 20px));
   margin: 0;
+  padding: 9px;
+  padding-inline-start: 13px;
+  border-radius: 22px;
+  background: var(--side);
+  box-shadow: var(--dsh);
+  transform: translateX(-50%);
+  animation-name: dockup;
+}
+
+body.dock-on .tabbar {
+  visibility: hidden;
+}
+
+.stdefaults {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 6px;
+}
+
+.stdefaults .ghost {
+  margin: 0;
+  height: var(--sc-h);
+  padding: 0 15px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@keyframes dockin {
+  from { opacity: 0; transform: translateY(8px) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes dockup {
+  from { opacity: 0; transform: translate(-50%, 12px) }
+  to { opacity: 1; transform: translateX(-50%) }
 }
 
 .setfield {
