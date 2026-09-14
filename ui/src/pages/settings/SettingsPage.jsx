@@ -7,6 +7,7 @@ import Select from '../../components/Select.jsx'
 import SettingRow from './SettingRow.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
+import SaveDock from './SaveDock.jsx'
 import AgentPage from '../agent/AgentPage.jsx'
 import { collectTuning, secondsToMinutes, stepViolation } from './tuning.js'
 import { T } from '../../i18n/fa.js'
@@ -26,6 +27,18 @@ const WINDOW_OPTIONS = [
   { v: '12', label: 'h12' },
   { v: '24', label: 'h24' },
 ]
+
+function changedCount(form, mode, saved) {
+  if (!form || !saved) return 0
+  let n = mode === saved.mode ? 0 : 1
+  for (const key of Object.keys(form)) {
+    const a = form[key]
+    const b = saved.form[key]
+    const same = typeof a === 'string' && typeof b === 'string' ? a.trim() === b.trim() : a === b
+    if (!same) n += 1
+  }
+  return n
+}
 
 function NumberField({ value, onChange, min, max, step, wide }) {
   return (
@@ -64,7 +77,8 @@ export default function SettingsPage() {
   const [token, setToken] = useState('')
   const [mode, setMode] = useState('alert')
   const [picking, setPicking] = useState(false)
-  const [message, setMessage] = useState('')
+  const [saved, setSaved] = useState(null)
+  const [busy, setBusy] = useState(false)
 
   const settingValue = useCallback(
     (source, key) => (source && source[key] != null && source[key] !== '' ? source[key] : defaults[key]),
@@ -80,8 +94,8 @@ export default function SettingsPage() {
     }
     const tuning = s.tuning || {}
     const tuned = (key) => (tuning[key] != null ? tuning[key] : tuningDefaults[key])
-    setMode(s.reconcile_mode === 'auto' ? 'auto' : 'alert')
-    setForm({
+    const nextMode = s.reconcile_mode === 'auto' ? 'auto' : 'alert'
+    const next = {
       apiOn: !!s.api_external,
       reconcile: String(settingValue(s, 'reconcile_interval')),
       poll: String(settingValue(s, 'poll_interval')),
@@ -93,7 +107,10 @@ export default function SettingsPage() {
       suspect: (tuned('suspect_backoff') || []).map((x) => secondsToMinutes(x)).join(', '),
       deadRetest: String(secondsToMinutes(tuned('dead_retest_secs'))),
       sockBuf: String(tuned('sock_buf_mb')),
-    })
+    }
+    setMode(nextMode)
+    setForm(next)
+    setSaved({ form: next, mode: nextMode })
   }, [settingValue, tuningDefaults])
 
   useEffect(() => {
@@ -107,16 +124,11 @@ export default function SettingsPage() {
         <div className="stpage">
           <SettingsSkeleton />
           <p className="stnote">{T('set_apply_note')}</p>
-          <div className="stsave">
+          <div className="stdefaults">
             <button className="ghost" disabled>
-              <Icon name="undo" />
-              {T('set_reset')}
+              <Icon name="reset" />
+              {T('set_reset_all')}
             </button>
-            <button className="primary" disabled>
-              <Icon name="check" />
-              {T('save')}
-            </button>
-            <span className="msg" />
           </div>
           <div className="sec" style={{ marginTop: 16 }}>
             <Icon name="redo" color="var(--acc)" />
@@ -129,6 +141,7 @@ export default function SettingsPage() {
   }
 
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }))
+  const dirty = changedCount(form, mode, saved)
 
   const probeHint = T('set_pm_hint')
     .replace('{n}', Math.ceil(Math.max(5, Math.min(100, parseInt(form.probeMin, 10) || 0)) * probeSamples / 100))
@@ -138,11 +151,10 @@ export default function SettingsPage() {
     const tuning = collectTuning(form)
     const bad = stepViolation(tuning, tuningSteps)
     if (bad) {
-      setMessage('')
       alertBox(bad)
       return
     }
-    setMessage(T('saving'))
+    setBusy(true)
     const r = await apiPost('settings-set', {
       api_external: form.apiOn,
       reconcile_mode: mode,
@@ -153,12 +165,19 @@ export default function SettingsPage() {
       uptime_window: form.window,
       tuning,
     })
-    setMessage('')
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
+      await load()
+      setBusy(false)
       return
     }
+    setBusy(false)
     alertBox(postError(r))
+  }
+
+  const revert = () => {
+    setForm(saved.form)
+    setMode(saved.mode)
   }
 
   const newToken = async () => {
@@ -304,16 +323,12 @@ export default function SettingsPage() {
         </div>
 
         <p className="stnote">{T('set_apply_note')}</p>
-        <div className="stsave">
-          <button className="ghost" onClick={reset}>
-            <Icon name="undo" />
-            {T('set_reset')}
+        {dirty ? <SaveDock count={dirty} busy={busy} onRevert={revert} onSave={save} /> : null}
+        <div className="stdefaults">
+          <button className="ghost" onClick={reset} disabled={busy}>
+            <Icon name="reset" />
+            {T('set_reset_all')}
           </button>
-          <button className="primary" onClick={save}>
-            <Icon name="check" />
-            {T('save')}
-          </button>
-          <span className="msg">{message}</span>
         </div>
 
         <div className="sec" style={{ marginTop: 16 }}>
