@@ -23,13 +23,21 @@ html {
 body {
   font-family: Vazirmatn, Tahoma, sans-serif;
   color: var(--tx);
-  background:
-    radial-gradient(1100px 560px at 85% -8%, var(--glow1) 0%, transparent 60%),
-    radial-gradient(900px 520px at -5% 105%, var(--glow2) 0%, transparent 55%),
-    var(--page);
-  background-attachment: fixed;
+  background: var(--page);
+  isolation: isolate;
   min-height: 100vh;
   touch-action: manipulation;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 560px at 85% -8%, var(--glow1) 0%, transparent 60%),
+    radial-gradient(900px 520px at -5% 105%, var(--glow2) 0%, transparent 55%);
 }
 
 h1 {

@@ -125,8 +125,6 @@
 .toolbar .search {
   border-color: var(--edge);
   background: var(--card);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   box-shadow: var(--dsh);
 }
 

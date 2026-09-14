@@ -7,8 +7,6 @@
   border-radius: 16px;
   background: color-mix(in srgb, var(--gold) 12%, var(--card));
   border: 1px solid color-mix(in srgb, var(--gold) 38%, var(--edge));
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   box-shadow: var(--dsh);
 }
 

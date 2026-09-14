@@ -32,8 +32,6 @@
 .tbtnrow > button.ghost {
   background: var(--card);
   border: 1px solid var(--edge);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   box-shadow: var(--dsh);
   color: var(--tx);
   font-weight: 700;

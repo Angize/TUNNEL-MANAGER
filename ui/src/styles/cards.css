@@ -6,8 +6,6 @@
   margin-bottom: 11px;
   background: var(--card);
   border: 1px solid var(--edge);
-  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   box-shadow: var(--dsh);
   transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s;
 }
@@ -410,8 +408,6 @@ body.reord-on .cbody {
   border: 1px solid var(--edge);
   border-radius: 14px;
   background: var(--card);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   box-shadow: var(--dsh);
   color: var(--sub);
   cursor: pointer;
