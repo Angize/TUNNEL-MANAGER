@@ -82,8 +82,6 @@ select:focus {
   background: var(--card);
   color: var(--ok);
   border: 1px solid var(--edge);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   box-shadow: var(--dsh);
   font-weight: 800;
   font-size: 13px;
