@@ -2221,11 +2221,11 @@ def api_summary(d):
         cpu = round(_sflt(s.get("cpu_pct")))
         disk = round(_sflt(s.get("disk_pct")))
         ram = round(_sint(s.get("mem_used_mb")) / _sint(s.get("mem_total_mb")) * 100) if _sint(s.get("mem_total_mb")) else 0
-        for key, val, lab in (("disk", disk, "دیسک"), ("ram", ram, "رم"), ("cpu", cpu, "CPU")):
+        for key, val, lab in (("disk", disk, "دیسکِ"), ("ram", ram, "رمِ"), ("cpu", cpu, "CPU")):
             if worst[key] is None or val > worst[key]["pct"]:
                 worst[key] = {"name": nm, "pct": val}
             if val >= UP_CRIT:
-                alerts.append({"level": "bad", "kind": key, "msg": f"{lab}ِ «{nm}» به {val}٪ رسیده"})
+                alerts.append({"level": "bad", "kind": key, "msg": f"{lab} «{nm}» به {val}٪ رسیده"})
         w = max(cpu, ram, disk)
         heat.append({"name": nm, "pct": w, "online": True})
         if w >= UP_CRIT:
@@ -4387,7 +4387,7 @@ def _desync_fields(d, shape, cur=None, is_http=False):
     out["fake_desync"] = True
     ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
     if ttl < 1 or ttl > 255:
-        raise ValueError("TTLِ طعمه باید بین 1 تا 255 باشد")
+        raise ValueError("TTL طعمه باید بین 1 تا 255 باشد")
     if _shape_consumes("fake_ttl", *shape):
         out["fake_ttl"] = min(ttl, DESYNC_INJECT_TTL_MAX)
     cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
@@ -4586,7 +4586,7 @@ def _sni_split_fields(d, cur, ech=False):
     if sp < 0 or sp > 1400:
         raise ValueError("split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)")
     if ech and not sp:
-        raise ValueError("با ECHِ روشن نامِ دامنه در ClientHello رمز است، پس نقطهٔ برشِ خودکار پیدا نمی‌شود و هیچ چیزی تکه نمی‌شود — یا «نقطهٔ برش» را دستی بگذار یا تقسیمِ SNI را خاموش کن")
+        raise ValueError("با ECH روشن نامِ دامنه در ClientHello رمز است، پس نقطهٔ برشِ خودکار پیدا نمی‌شود و هیچ چیزی تکه نمی‌شود — یا «نقطهٔ برش» را دستی بگذار یا تقسیمِ SNI را خاموش کن")
     out = {"sni_split": True}
     if sp:
         out["split_pos"] = sp
@@ -6096,7 +6096,7 @@ def _ech_refresh_once():
             names = "، ".join(gone)
             if _ech_safe_rebuild(lid):
                 log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
-                          f"رکوردِ ECHِ {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
+                          f"رکوردِ ECH {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
                           f"بقیهٔ استخر دست‌نخورده ماند. پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند")
             else:
                 log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
@@ -6114,14 +6114,14 @@ def _ech_refresh_once():
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             if pushed:
                 dfa += "\nنودِ مقصد: %s" % pushed
-                log_event("ok", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
+                log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
             elif tried:
                 if _ech_safe_rebuild(lid):
-                    log_event("warn", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی pushِ زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
+                    log_event("warn", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی push زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
                 else:
-                    log_event("bad", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه pushِ زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
+                    log_event("bad", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه push زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
             else:
-                log_event("ok", "ech-refresh", "کلیدِ ECHِ تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
+                log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
         reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
         if kind == "pool" and (down or stalled):
             if lid not in _ech_down_rebuilt or changed:
@@ -6216,7 +6216,7 @@ def _ech_ingest_selfheal():
         if changed and chmap:
             dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
             log_event("ok", "ech-saved",
-                      "کلیدِ ECHِ خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
+                      "کلیدِ ECH خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
                       dfa)
     for dead in [k for k in _ech_healed_seq if k not in live_ids]:
         _ech_healed_seq.pop(dead, None)
@@ -7531,11 +7531,11 @@ API_MSG = {
     "internal": ("خطای داخلی", 500, "internal error"),
 }
 API_REFUSED = {
-    "api_disabled": "درخواستِ APIِ «%s» رد شد — دسترسیِ بیرونی به API خاموش است.",
-    "bad_token": "درخواستِ APIِ «%s» رد شد — توکن نامعتبر است.",
-    "token_denied": "درخواستِ APIِ «%s» رد شد — این مسیر با توکن مجاز نیست.",
-    "unknown_route": "درخواستِ APIِ «%s» رد شد — مسیرِ ناشناخته.",
-    "post_only": "درخواستِ APIِ «%s» رد شد — باید POST باشد.",
+    "api_disabled": "درخواستِ API «%s» رد شد — دسترسیِ بیرونی به API خاموش است.",
+    "bad_token": "درخواستِ API «%s» رد شد — توکن نامعتبر است.",
+    "token_denied": "درخواستِ API «%s» رد شد — این مسیر با توکن مجاز نیست.",
+    "unknown_route": "درخواستِ API «%s» رد شد — مسیرِ ناشناخته.",
+    "post_only": "درخواستِ API «%s» رد شد — باید POST باشد.",
 }
 
 
@@ -7892,16 +7892,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._send(200, _dispatch(cmd, d))
             if via_token:
-                self._api_log("ok", "api-ok", "درخواستِ APIِ «%s» انجام شد." % cmd, cmd, method, 200)
+                self._api_log("ok", "api-ok", "درخواستِ API «%s» انجام شد." % cmd, cmd, method, 200)
         except ValueError as e:
             self._send(400, {"error": str(e)})
             if via_token:
-                self._api_log("warn", "api-error", "درخواستِ APIِ «%s» با خطا برگشت: %s" % (cmd, e), cmd, method, 400)
+                self._api_log("warn", "api-error", "درخواستِ API «%s» با خطا برگشت: %s" % (cmd, e), cmd, method, 400)
         except Exception:
             log_internal("api %s" % cmd)
             self._fail("internal", en)
             if via_token:
-                self._api_log("bad", "api-error", "درخواستِ APIِ «%s» به خطای داخلی خورد." % cmd, cmd, method, 500)
+                self._api_log("bad", "api-error", "درخواستِ API «%s» به خطای داخلی خورد." % cmd, cmd, method, 500)
 
 
 SERVICE = "tnl-central.service"
