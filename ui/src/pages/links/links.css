@@ -98,6 +98,9 @@
   scroll-snap-type: x mandatory;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
+}
+
+.lpager.glide {
   transition: height .3s cubic-bezier(.2, .8, .2, 1);
 }
 

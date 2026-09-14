@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import TunnelsPage from '../tunnels/TunnelsPage.jsx'
 import CorePage from '../core/CorePage.jsx'
@@ -37,10 +37,10 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
   const sub = useRef(null)
   const panes = useRef([])
   const placed = useRef(false)
+  const sized = useRef(false)
   const settle = useRef(0)
   const touching = useRef(false)
   const indexRef = useRef(index)
-  const [height, setHeight] = useState(null)
 
   indexRef.current = index
 
@@ -76,11 +76,14 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
     return (rtl ? -1 : 1) * i * el.clientWidth
   }, [])
 
-  const fit = useCallback(() => {
+  const fit = useCallback((glide) => {
     const el = pager.current
     const pane = panes.current[indexRef.current]
     if (!el || !pane) return
-    setHeight(Math.max(pane.offsetHeight, Math.floor(window.innerHeight - pageTop(el))))
+    const next = Math.max(pane.offsetHeight, Math.floor(window.innerHeight - pageTop(el))) + 'px'
+    if (el.style.height === next) return
+    el.classList.toggle('glide', glide === true)
+    el.style.height = next
   }, [])
 
   useEffect(() => {
@@ -143,10 +146,11 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
   }, [index, paint, target])
 
   useLayoutEffect(() => {
-    fit()
+    fit(sized.current)
+    sized.current = true
     const pane = panes.current[index]
     if (!pane || typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(fit)
+    const observer = new ResizeObserver(() => fit(false))
     observer.observe(pane)
     if (sub.current) observer.observe(sub.current)
     return () => observer.disconnect()
@@ -194,7 +198,7 @@ export default function LinksPage({ onNavigate, kind, onKind }) {
         {T(KINDS[index].subKey)}
       </p>
 
-      <div className="lpager" ref={pager} style={height ? { height } : undefined}>
+      <div className="lpager" ref={pager}>
         {KINDS.map((k, i) => (
           <section
             key={k.id}
