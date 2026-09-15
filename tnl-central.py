@@ -6052,9 +6052,9 @@ def _ech_safe_rebuild(lid):
 
 def _ech_refresh_once():
     try:
-        _mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)
+        mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)
     except Exception:
-        _mins_label = "15"
+        mins_label = "15"
     links = load_links()
     live_ids = {L.get("id") for L in links}
     with _ech_empty_lock:
@@ -6065,75 +6065,81 @@ def _ech_refresh_once():
         hk = _ech_link_hosts(L)
         if not hk:
             continue
-        kind, hosts = hk
-        lid, nm = L.get("id"), L.get("name")
-        ech_map = _fetch_ech_map(hosts, _ech_px(L))
-        updates, gone = {}, []
-        for h in hosts:
-            nk = ech_map.get(h, "")
-            key = (lid, h)
-            if nk:
-                with _ech_empty_lock:
-                    _ech_empty.pop(key, None)
-                updates[h] = nk
-            else:
-                with _ech_empty_lock:
-                    _ech_empty[key] = _ech_empty.get(key, 0) + 1
-                    if _ech_empty[key] >= _ECH_EMPTY_CYCLES:
-                        gone.append(h)
-        removed = bool(hosts) and len(gone) == len(hosts)
-        blank_before = _ech_keys_blank(L, kind, set(hosts))
-        if removed:
-            if _ech_write(lid, kind, {}, degrade=True)[0]:
-                if _ech_safe_rebuild(lid):
-                    log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH",
-                              f"کلید از DNS ناپدید شد؛ تونل فعلاً بدون ECH بازسازی شد. تنظیمِ ECH همچنان روشن است و "
-                              f"پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند — به‌محضِ برگشتنِ رکورد خودش برمی‌گردد")
-                else:
-                    log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
-            continue
-        if gone and _ech_blank(lid, gone):
-            names = "، ".join(gone)
-            if _ech_safe_rebuild(lid):
-                log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
-                          f"رکوردِ ECH {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
-                          f"بقیهٔ استخر دست‌نخورده ماند. پنل هر {_mins_label} دقیقه دوباره امتحان می‌کند")
-            else:
-                log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
-                          f"کلیدِ کهنهٔ {names} پاک شد ولی بازسازی شکست خورد — رفتن روی آن دامنه‌ها هنوز می‌میرد")
-        changed, chmap = _ech_write(lid, kind, updates, degrade=False)
-        if changed and chmap and blank_before:
-            if _ech_safe_rebuild(lid):
-                log_event("ok", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
-                          "رکوردِ ECH دوباره منتشر شد؛ تونل با کلیدِ تازه بازسازی شد")
-            else:
-                log_event("bad", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
-                          "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است")
-        if changed and chmap:
-            tried, pushed = _ech_live_push(lid, chmap)
-            dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
-            if pushed:
-                dfa += "\nنودِ مقصد: %s" % pushed
-                log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
-            elif tried:
-                if _ech_safe_rebuild(lid):
-                    log_event("warn", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی push زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
-                else:
-                    log_event("bad", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه push زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
-            else:
-                log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, _mins_label), dfa)
-        reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
-        if kind == "pool" and (down or stalled):
-            if lid not in _ech_down_rebuilt or changed:
-                _ech_down_rebuilt.add(lid)
-                why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
-                if _ech_safe_rebuild(lid):
-                    log_event("ok", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
-                else:
-                    log_event("bad", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
-                    _ech_down_rebuilt.discard(lid)
+        try:
+            _ech_refresh_link(L, hk[0], hk[1], mins_label)
+        except Exception:
+            log_internal("ech refresh %s" % L.get("name"))
+
+
+def _ech_refresh_link(L, kind, hosts, mins_label):
+    lid, nm = L.get("id"), L.get("name")
+    ech_map = _fetch_ech_map(hosts, _ech_px(L))
+    updates, gone = {}, []
+    for h in hosts:
+        nk = ech_map.get(h, "")
+        key = (lid, h)
+        if nk:
+            with _ech_empty_lock:
+                _ech_empty.pop(key, None)
+            updates[h] = nk
         else:
-            _ech_down_rebuilt.discard(lid)
+            with _ech_empty_lock:
+                _ech_empty[key] = _ech_empty.get(key, 0) + 1
+                if _ech_empty[key] >= _ECH_EMPTY_CYCLES:
+                    gone.append(h)
+    removed = bool(hosts) and len(gone) == len(hosts)
+    blank_before = _ech_keys_blank(L, kind, set(hosts))
+    if removed:
+        if _ech_write(lid, kind, {}, degrade=True)[0]:
+            if _ech_safe_rebuild(lid):
+                log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH",
+                          f"کلید از DNS ناپدید شد؛ تونل فعلاً بدون ECH بازسازی شد. تنظیمِ ECH همچنان روشن است و "
+                          f"پنل هر {mins_label} دقیقه دوباره امتحان می‌کند — به‌محضِ برگشتنِ رکورد خودش برمی‌گردد")
+            else:
+                log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
+        return
+    if gone and _ech_blank(lid, gone):
+        names = "، ".join(gone)
+        if _ech_safe_rebuild(lid):
+            log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
+                      f"رکوردِ ECH {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
+                      f"بقیهٔ استخر دست‌نخورده ماند. پنل هر {mins_label} دقیقه دوباره امتحان می‌کند")
+        else:
+            log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
+                      f"کلیدِ کهنهٔ {names} پاک شد ولی بازسازی شکست خورد — رفتن روی آن دامنه‌ها هنوز می‌میرد")
+    changed, chmap = _ech_write(lid, kind, updates, degrade=False)
+    if changed and chmap and blank_before:
+        if _ech_safe_rebuild(lid):
+            log_event("ok", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
+                      "رکوردِ ECH دوباره منتشر شد؛ تونل با کلیدِ تازه بازسازی شد")
+        else:
+            log_event("bad", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
+                      "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است")
+    if changed and chmap:
+        tried, pushed = _ech_live_push(lid, chmap)
+        dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
+        if pushed:
+            dfa += "\nنودِ مقصد: %s" % pushed
+            log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, mins_label), dfa)
+        elif tried:
+            if _ech_safe_rebuild(lid):
+                log_event("warn", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی push زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
+            else:
+                log_event("bad", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه push زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
+        else:
+            log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, mins_label), dfa)
+    reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
+    if kind == "pool" and (down or stalled):
+        if lid not in _ech_down_rebuilt or changed:
+            _ech_down_rebuilt.add(lid)
+            why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
+            if _ech_safe_rebuild(lid):
+                log_event("ok", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
+            else:
+                log_event("bad", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
+                _ech_down_rebuilt.discard(lid)
+    else:
+        _ech_down_rebuilt.discard(lid)
 
 
 def _ech_heal_once():
@@ -6141,23 +6147,29 @@ def _ech_heal_once():
         hk = _ech_link_hosts(L)
         if not hk or hk[0] != "pool":
             continue
-        kind, hosts = hk
-        lid, nm = L.get("id"), L.get("name")
-        _reachable, down, stalled = _ech_pool_state(lid)
-        if not (down or stalled):
-            _ech_down_rebuilt.discard(lid)
-            continue
-        if lid in _ech_down_rebuilt:
-            continue
-        updates = {h: k for h, k in _fetch_ech_map(hosts, _ech_px(L)).items() if k}
-        _ech_write(lid, kind, updates, degrade=False)
-        _ech_down_rebuilt.add(lid)
-        why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
-        if _ech_safe_rebuild(lid):
-            log_event("ok", "ech-rebuild", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}")
-        else:
-            log_event("bad", "ech-rebuild", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
-            _ech_down_rebuilt.discard(lid)
+        try:
+            _ech_heal_link(L, hk[0], hk[1])
+        except Exception:
+            log_internal("ech heal %s" % L.get("name"))
+
+
+def _ech_heal_link(L, kind, hosts):
+    lid, nm = L.get("id"), L.get("name")
+    _reachable, down, stalled = _ech_pool_state(lid)
+    if not (down or stalled):
+        _ech_down_rebuilt.discard(lid)
+        return
+    if lid in _ech_down_rebuilt:
+        return
+    updates = {h: k for h, k in _fetch_ech_map(hosts, _ech_px(L)).items() if k}
+    _ech_write(lid, kind, updates, degrade=False)
+    _ech_down_rebuilt.add(lid)
+    why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
+    if _ech_safe_rebuild(lid):
+        log_event("ok", "ech-rebuild", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}")
+    else:
+        log_event("bad", "ech-rebuild", f"تونلِ «{nm}»: بازسازیِ سریعِ ECH", f"{why_fa}؛ شکست خورد — تونل هنوز قطع است")
+        _ech_down_rebuilt.discard(lid)
 
 
 def _ech_ingest_selfheal():
@@ -6166,60 +6178,66 @@ def _ech_ingest_selfheal():
         hk = _ech_link_hosts(L)
         if not hk:
             continue
-        kind, hosts = hk
-        lid, nm = L.get("id"), L.get("name")
-        live_ids.add(lid)
+        live_ids.add(L.get("id"))
         try:
-            st = api_edge_status({"id": lid})
+            _ech_ingest_link(L, hk[0], hk[1])
         except Exception:
-            continue
-        if not st.get("ok") or st.get("error"):
-            continue
-        hostset = set(hosts)
-        events = st.get("events") or []
-        seen_max = _ech_healed_seq.get(lid, 0)
-        ring_max = 0
-        for e in events:
-            if isinstance(e, dict):
-                try:
-                    ring_max = max(ring_max, int(e.get("seq") or 0))
-                except (TypeError, ValueError):
-                    pass
-        if ring_max < seen_max:
-            log_event("ok", "ech-seq-reset",
-                      "شمارندهٔ رویدادِ هستهٔ تونلِ «%s» صفر شده (ری‌استارتِ هسته)؛ ثبتِ خودترمیمِ ECH از نو باز شد" % nm)
-            seen_max = 0
-        new_max = seen_max
-        latest = {}
-        for e in events:
-            if not isinstance(e, dict) or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
-                continue
-            try:
-                seq = int(e.get("seq") or 0)
-            except (TypeError, ValueError):
-                continue
-            if seq <= seen_max:
-                continue
-            if seq > new_max:
-                new_max = seq
-            parts = str(e.get("detail") or "").split(" ", 1)
-            if len(parts) != 2:
-                continue
-            host, b64 = parts[0], parts[1].strip()
-            if host in hostset and b64 and len(b64) <= 4096 and re.match(r"^[A-Za-z0-9+/=]+$", b64):
-                if host not in latest or seq >= latest[host][0]:
-                    latest[host] = (seq, b64)
-        _ech_healed_seq[lid] = new_max
-        if not latest:
-            continue
-        changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
-        if changed and chmap:
-            dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
-            log_event("ok", "ech-saved",
-                      "کلیدِ ECH خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
-                      dfa)
+            log_internal("ech self-heal %s" % L.get("name"))
     for dead in [k for k in _ech_healed_seq if k not in live_ids]:
         _ech_healed_seq.pop(dead, None)
+
+
+def _ech_ingest_link(L, kind, hosts):
+    lid, nm = L.get("id"), L.get("name")
+    try:
+        st = api_edge_status({"id": lid})
+    except Exception:
+        return
+    if not st.get("ok") or st.get("error"):
+        return
+    hostset = set(hosts)
+    events = st.get("events") or []
+    seen_max = _ech_healed_seq.get(lid, 0)
+    ring_max = 0
+    for e in events:
+        if isinstance(e, dict):
+            try:
+                ring_max = max(ring_max, int(e.get("seq") or 0))
+            except (TypeError, ValueError):
+                pass
+    if ring_max < seen_max:
+        log_event("ok", "ech-seq-reset",
+                  "شمارندهٔ رویدادِ هستهٔ تونلِ «%s» صفر شده (ری‌استارتِ هسته)؛ ثبتِ خودترمیمِ ECH از نو باز شد" % nm)
+        seen_max = 0
+    new_max = seen_max
+    latest = {}
+    for e in events:
+        if not isinstance(e, dict) or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
+            continue
+        try:
+            seq = int(e.get("seq") or 0)
+        except (TypeError, ValueError):
+            continue
+        if seq <= seen_max:
+            continue
+        if seq > new_max:
+            new_max = seq
+        parts = str(e.get("detail") or "").split(" ", 1)
+        if len(parts) != 2:
+            continue
+        host, b64 = parts[0], parts[1].strip()
+        if host in hostset and b64 and len(b64) <= 4096 and re.match(r"^[A-Za-z0-9+/=]+$", b64):
+            if host not in latest or seq >= latest[host][0]:
+                latest[host] = (seq, b64)
+    _ech_healed_seq[lid] = new_max
+    if not latest:
+        return
+    changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
+    if changed and chmap:
+        dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
+        log_event("ok", "ech-saved",
+                  "کلیدِ ECH خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
+                  dfa)
 
 
 def ech_refresh_loop():
