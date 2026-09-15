@@ -7076,16 +7076,22 @@ def api_link_rebuild_info(d):
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
 
 
-def _proxy_nodes(nodes=None):
+def _proxy_uses():
     out = {}
-    for n in (load_nodes() if nodes is None else nodes):
+
+    def use(pid):
+        return out.setdefault(str(pid or ""), {"nodes": [], "tunnels": [], "panel": False})
+
+    for n in load_nodes():
         if n.get("proxy_on"):
-            out.setdefault(str(n.get("proxy_id") or ""), []).append(n)
+            use(n.get("proxy_id"))["nodes"].append(n["name"])
+    for L in load_links():
+        if L.get("ech_proxy"):
+            use(L.get("ech_proxy_id"))["tunnels"].append(L["name"])
+    st = get_settings()
+    if st.get("dl_proxy_on"):
+        use(st.get("dl_proxy_id"))["panel"] = True
     return out
-
-
-def _proxy_users(nodes=None):
-    return {pid: [n["name"] for n in ns] for pid, ns in _proxy_nodes(nodes).items()}
 
 
 def proxy_url(p):
@@ -7096,19 +7102,19 @@ def proxy_url(p):
     return "%s://%s%s:%d" % (p["scheme"], auth, p["host"], int(p["port"]))
 
 
-def _proxy_row(p, users=None):
+def _proxy_row(p, uses=None):
     st = _px_get(p["id"])
+    u = (uses if uses is not None else _proxy_uses()).get(p["id"]) or {"nodes": [], "tunnels": [], "panel": False}
     return {"id": p["id"], "name": p["name"], "scheme": p["scheme"], "host": p["host"],
             "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
             "addr": "%s://%s:%d" % (p["scheme"], p["host"], int(p["port"])),
-            "nodes": (users if users is not None else _proxy_users()).get(p["id"], []),
-            "panel": str((get_settings() or {}).get("dl_proxy_id") or "").strip() == p["id"],
+            "nodes": u["nodes"], "tunnels": u["tunnels"], "panel": u["panel"],
             "online": bool(st.get("ok")), "pending": not st, "status": st}
 
 
 def api_proxies(d):
-    users = _proxy_users()
-    return {"proxies": [_proxy_row(p, users) for p in load_proxies()]}
+    uses = _proxy_uses()
+    return {"proxies": [_proxy_row(p, uses) for p in load_proxies()]}
 
 
 def _proxy_name(d, taken):
@@ -7185,9 +7191,16 @@ def api_proxy_del(d):
         p = next((x for x in ps if x["id"] == d["id"]), None)
         if not p:
             raise ValueError("پروکسی پیدا نشد")
-        used = _proxy_users().get(p["id"], [])
-        if used:
-            raise ValueError("این پروکسی روی این نودها فعال است: " + "، ".join(used))
+        u = _proxy_uses().get(p["id"])
+        if u:
+            where = []
+            if u["panel"]:
+                where.append("دانلودهای خودِ پنل")
+            if u["nodes"]:
+                where.append("نودهای " + "، ".join("«%s»" % x for x in u["nodes"]))
+            if u["tunnels"]:
+                where.append("ECH در تونل‌های " + "، ".join("«%s»" % x for x in u["tunnels"]))
+            raise ValueError("این پروکسی هنوز استفاده می‌شود: " + "؛ ".join(where) + " — اول آن‌ها را از این پروکسی جدا کن")
         save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
     return {"ok": True}
 
