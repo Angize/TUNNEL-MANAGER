@@ -62,20 +62,26 @@ function Shell() {
 
   useEffect(() => {
     let alive = true
-    apiGet('ui-config')
-      .then((cfg) => {
-        if (alive) setUiConfig(cfg)
-      })
-      .catch(() => {})
+    let retry = 0
+    const loadConfig = () =>
+      apiGet('ui-config')
+        .then((cfg) => {
+          if (alive) setUiConfig(cfg)
+        })
+        .catch(() => {
+          if (alive) retry = setTimeout(loadConfig, DEFAULT_INTERVAL)
+        })
+    loadConfig()
     apiGet('readiness')
       .then((r) => {
         if (!alive) return
         setReadiness(r)
-        if (r && !r.ok) setPage('settings')
+        if (!r.ok) setPage('settings')
       })
       .catch(() => {})
     return () => {
       alive = false
+      clearTimeout(retry)
     }
   }, [])
 
@@ -92,11 +98,11 @@ function Shell() {
     let timer = 0
 
     const fetchSummary = async () => {
-      let s = {}
+      let s
       try {
         s = await apiGet('summary')
       } catch {
-        s = {}
+        return
       }
       if (!alive) return
 

@@ -45,7 +45,7 @@ export default function usePushJob({ onSettled }) {
           r = null
         }
         if (!alive.current) return
-        if (!r || !r.ok) {
+        if (!r) {
           failures += 1
           if (failures >= MAX_FAILURES) {
             toast(T('ag_p_lost'), 'err')
@@ -79,13 +79,13 @@ export default function usePushJob({ onSettled }) {
 
   const adopt = useCallback(async () => {
     if (job.current) return
-    let r = null
+    let r
     try {
       r = await apiGet('push-status')
     } catch {
       return
     }
-    if (!r || !r.ok || r.idle || !r.job || r.done) return
+    if (r.done) return
     job.current = JOB_ALL
     gen.current += 1
     setState(r)

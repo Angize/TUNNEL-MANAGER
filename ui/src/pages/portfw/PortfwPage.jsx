@@ -9,6 +9,7 @@ import PortfwEditModal from './PortfwEditModal.jsx'
 import { T } from '../../i18n/fa.js'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
+import { readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
@@ -32,25 +33,25 @@ export default function PortfwPage({ embedded, active = true }) {
   const load = useCallback(async () => {
     if (listBusy()) return undefined
     const r = await apiGet('portfw-list?q=' + encodeURIComponent(query))
-    return (r.portfw || []).filter((x) => x.name)
+    return r.portfw.filter((x) => x.name)
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
 
   const loadNodes = useCallback(async () => {
-    let r = {}
     try {
-      r = await apiGet('node-names')
-    } catch {
-      r = {}
+      const r = await apiGet('node-names')
+      setNodes(r.nodes)
+      return r.nodes
+    } catch (e) {
+      toast(readError(e), 'err')
+      return null
     }
-    const all = r.nodes || []
-    setNodes(all)
-    return all
   }, [])
 
   const openAdd = async () => {
     const all = await loadNodes()
+    if (!all) return
     if (!all.some((n) => n.online)) {
       toast(T('pf_no_online'), 'err')
       return
@@ -59,8 +60,7 @@ export default function PortfwPage({ embedded, active = true }) {
   }
 
   const openEdit = async (item) => {
-    await loadNodes()
-    setEditing(item)
+    if (await loadNodes()) setEditing(item)
   }
 
   const items = list || []

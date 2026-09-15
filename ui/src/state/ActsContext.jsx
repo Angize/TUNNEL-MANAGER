@@ -36,15 +36,13 @@ export function ActsProvider({ children }) {
   const [dismissTick, setDismissTick] = useState(0)
 
   const refresh = useCallback(async () => {
-    let r = null
+    let r
     try {
       r = await apiGet('acts')
     } catch {
       return
     }
-    if (!r) return
-    const acts = r.acts || {}
-    setState({ acts, now: num(r.now), buildCount: runningBuilds(acts) })
+    setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
   }, [])
 
   const isLive = useCallback(
@@ -98,7 +96,7 @@ export function ActsProvider({ children }) {
       } catch {
         r = null
       }
-      if (r && r.acts) {
+      if (r) {
         setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
         const act = r.acts[key]
         if (!act) return { ok: true }

@@ -6,7 +6,6 @@ export default {
   err_cert: 'مشکلِ گواهیِ TLS',
   err_cert_expired: 'گواهیِ TLS این سرور منقضی شده',
   err_cert_unknown: 'گواهیِ TLS این سرور شناخته نشد',
-  err_check: 'خطا در بررسی',
   err_cmdq_full: 'صفِ فرمان پر است — هستهٔ این تونل فرمان‌ها را برنمی‌دارد',
   err_core_nocfg: 'کانفیگِ هسته روی این نود نیست — تونل را بازسازی کن',
   err_core_noiface: 'هسته بالا نیامد (اینترفیس ظاهر نشد)',

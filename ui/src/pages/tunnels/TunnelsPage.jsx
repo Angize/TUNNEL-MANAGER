@@ -38,7 +38,7 @@ export default function TunnelsPage({ embedded, active = true }) {
   const load = useCallback(async () => {
     if (listBusy()) return undefined
     const r = await apiGet('fleet?kind=tunnels&q=' + encodeURIComponent(query))
-    return r.links || []
+    return r.links
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)

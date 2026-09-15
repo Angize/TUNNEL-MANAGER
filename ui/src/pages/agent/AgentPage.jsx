@@ -13,7 +13,7 @@ import usePushJob from './usePushJob.js'
 import { T } from '../../i18n/fa.js'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError, translateError } from '../../lib/errors.js'
+import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
@@ -29,7 +29,7 @@ function Meta({ children }) {
 export default function AgentPage({ headless }) {
   const { counts } = useSummary()
   const [agentMeta, setAgentMeta] = useState(null)
-  const [versions, setVersions] = useState([])
+  const [versions, setVersions] = useState(null)
   const [staged, setStaged] = useState(null)
   const [wanted, setWanted] = useState('')
   const [delivery, setDelivery] = useState({ agent: 'push', core: 'push' })
@@ -49,41 +49,41 @@ export default function AgentPage({ headless }) {
   queryRef.current = query
 
   const loadAgentInfo = useCallback(async () => {
-    let info = { none: true }
+    let info
     try {
       info = await apiGet('agent-info')
     } catch {
-      info = { none: true }
+      return
     }
     setAgentMeta(info)
-    if (info && info.delivery) setDelivery((prev) => ({ ...prev, agent: info.delivery }))
+    setDelivery((prev) => ({ ...prev, agent: info.delivery }))
   }, [])
 
   const loadCoreVersions = useCallback(async () => {
-    let r = { versions: [] }
+    let r
     try {
       r = await apiGet('core-versions')
     } catch {
-      r = { versions: [] }
+      return
     }
-    setVersions(r.versions || [])
-    setStaged(r.staged || null)
-    if (r.delivery) setDelivery((prev) => ({ ...prev, core: r.delivery }))
+    setVersions(r.versions)
+    setStaged(r.staged)
+    setDelivery((prev) => ({ ...prev, core: r.delivery }))
     setWanted((prev) => {
       if (prev) return prev
       if (r.staged && r.staged.version) return r.staged.version
-      return (r.versions || []).length ? r.versions[0].id : ''
+      return r.versions.length ? r.versions[0].id : ''
     })
   }, [])
 
   const loadNodes = useCallback(async () => {
-    let r = { nodes: [] }
+    let r
     try {
       r = await apiGet('nodes?q=' + encodeURIComponent(queryRef.current))
     } catch {
-      r = { nodes: [] }
+      return
     }
-    setNodes(r.nodes || [])
+    setNodes(r.nodes)
   }, [])
 
   const refreshAll = useCallback(async () => {
@@ -94,12 +94,21 @@ export default function AgentPage({ headless }) {
 
   const adoptPush = push.adopt
 
+  const agentUnknown = agentMeta === null
+  const coreUnknown = versions === null
+
   useEffect(() => {
     refreshAll()
     adoptPush()
-    const off = setPageRefresh(loadNodes)
-    return off
-  }, [refreshAll, loadNodes, adoptPush])
+  }, [refreshAll, adoptPush])
+
+  useEffect(
+    () =>
+      setPageRefresh(() =>
+        Promise.all([loadNodes(), agentUnknown && loadAgentInfo(), coreUnknown && loadCoreVersions()])
+      ),
+    [loadNodes, loadAgentInfo, loadCoreVersions, agentUnknown, coreUnknown]
+  )
 
   useEffect(() => {
     loadNodes()
@@ -109,7 +118,7 @@ export default function AgentPage({ headless }) {
     let alive = true
     apiGet('proxies')
       .then((r) => {
-        if (alive) setProxies(r.proxies || [])
+        if (alive) setProxies(r.proxies)
       })
       .catch(() => {})
     apiGet('settings')
@@ -177,15 +186,25 @@ export default function AgentPage({ headless }) {
     reader.readAsText(file)
   }
 
+  const onlineIds = async () => {
+    try {
+      const r = await apiGet('node-names')
+      return r.nodes.filter((n) => n.online).map((n) => n.id)
+    } catch (e) {
+      toast(readError(e), 'err')
+      return null
+    }
+  }
+
   const pushAgent = async (target) => {
     if (!agentMeta || agentMeta.none) {
-      toast(T('ag_pick_first'), 'err')
+      toast(T(agentUnknown ? 'net_read' : 'ag_pick_first'), 'err')
       return
     }
     let ids
     if (target === 'all') {
-      const r = await apiGet('node-names')
-      ids = (r.nodes || []).filter((n) => n.online).map((n) => n.id)
+      ids = await onlineIds()
+      if (!ids) return
       if (!ids.length) {
         toast(T('ag_no_online'), 'err')
         return
@@ -259,7 +278,6 @@ export default function AgentPage({ headless }) {
       } catch {
         return
       }
-      if (!r || !r.ok) return
       if (r.done) {
         if (r.err) {
           setCoreMsg(null)
@@ -332,11 +350,11 @@ export default function AgentPage({ headless }) {
 
   const pushCoreAll = async () => {
     if (!wanted) {
-      toast(T('ag_pick_ver'), 'err')
+      toast(T(coreUnknown ? 'net_read' : 'ag_pick_ver'), 'err')
       return
     }
-    const r = await apiGet('node-names')
-    const ids = (r.nodes || []).filter((n) => n.online).map((n) => n.id)
+    const ids = await onlineIds()
+    if (!ids) return
     if (!ids.length) {
       toast(T('ag_no_online'), 'err')
       return
@@ -369,7 +387,7 @@ export default function AgentPage({ headless }) {
   }
 
   const agentReady = agentMeta && !agentMeta.none
-  const hasCustom = versions.some((v) => v.custom)
+  const hasCustom = !coreUnknown && versions.some((v) => v.custom)
   const stagedArch = (staged && staged.arches && staged.arches[0]) || 'amd64'
   const stagedSha = (staged && staged.sha && staged.sha[stagedArch]) || ''
   const stagedSize = (staged && staged.size && staged.size[stagedArch]) || 0
@@ -415,9 +433,11 @@ export default function AgentPage({ headless }) {
             <b>{T('ag_node_agent')}</b>
             <span className="grow" />
             <span>
-              <span className={'badge ' + (agentReady ? 'ok' : 'na')}>
-                {agentReady ? T('ag_ready') : T('ag_empty')}
-              </span>
+              {agentUnknown ? null : (
+                <span className={'badge ' + (agentReady ? 'ok' : 'na')}>
+                  {agentReady ? T('ag_ready') : T('ag_empty')}
+                </span>
+              )}
             </span>
           </div>
           <Meta>
@@ -433,7 +453,7 @@ export default function AgentPage({ headless }) {
                 </span>
               </>
             ) : (
-              <span className="muted">{T('ag_no_agent_loaded')}</span>
+              <span className="muted">{T(agentUnknown ? 'loading' : 'ag_no_agent_loaded')}</span>
             )}
           </Meta>
           <div className="oprow">
@@ -470,9 +490,11 @@ export default function AgentPage({ headless }) {
             <b>{T('ag_data_core')}</b>
             <span className="grow" />
             <span>
-              <span className={'badge ' + (staged ? 'ok' : 'na')}>
-                {staged ? T('ag_ready') : T('ag_empty')}
-              </span>
+              {coreUnknown ? null : (
+                <span className={'badge ' + (staged ? 'ok' : 'na')}>
+                  {staged ? T('ag_ready') : T('ag_empty')}
+                </span>
+              )}
             </span>
           </div>
           <Meta>
@@ -502,13 +524,13 @@ export default function AgentPage({ headless }) {
                 ) : null}
               </>
             ) : (
-              <span className="muted">{T('ag_no_core_staged')}</span>
+              <span className="muted">{T(coreUnknown ? 'loading' : 'ag_no_core_staged')}</span>
             )}
           </Meta>
 
           <div className="oprow">
             <div id="cor_ver_box">
-              {versions.length ? (
+              {!coreUnknown && versions.length ? (
                 <Select
                   items={versions.map((v) => ({ v: v.id, label: v.label || v.id }))}
                   value={wanted}
@@ -517,7 +539,7 @@ export default function AgentPage({ headless }) {
                 />
               ) : (
                 <div className="muted" style={{ fontSize: 12 }}>
-                  {T('cor_ver_empty')}
+                  {T(coreUnknown ? 'loading' : 'cor_ver_empty')}
                 </div>
               )}
             </div>
