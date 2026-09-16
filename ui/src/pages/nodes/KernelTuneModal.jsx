@@ -3,7 +3,7 @@ import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { readError, translateError } from '../../lib/errors.js'
+import { postError, readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 
 function Tile({ icon, label, children, wide }) {
@@ -59,7 +59,7 @@ export default function KernelTuneModal({ node, onClose }) {
       setBusy(false)
       return
     }
-    setMessage({ cls: 'err', text: translateError((r.d && r.d.error) || T('failed')) })
+    setMessage({ cls: 'err', text: postError(r) })
     setBusy(false)
   }
 
