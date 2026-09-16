@@ -1,3 +1,9 @@
+import { T } from '../../i18n/fa.js'
+
+export function coreVersionName(value) {
+  return value === 'custom' ? T('cor_custom') : value
+}
+
 export function versionNumber(value) {
   const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(value || ''))
   return m ? +m[1] * 1e6 + +m[2] * 1e3 + +m[3] : -1

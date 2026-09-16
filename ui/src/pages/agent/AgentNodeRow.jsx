@@ -1,6 +1,6 @@
 import Icon from '../../components/Icon.jsx'
 import PushBar, { pushTone } from './PushBar.jsx'
-import { versionIsNewer } from './versions.js'
+import { coreVersionName, versionIsNewer } from './versions.js'
 import { T } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
 
@@ -55,7 +55,7 @@ function corePill(node, staged, wanted) {
   if (wantDiff || stagedDiff) {
     return {
       tone: 'ok',
-      title: label + ': ' + T('ag_ver_pick').replace('{v}', wanted || stagedVersion),
+      title: label + ': ' + T('ag_ver_pick').replace('{v}', coreVersionName(wanted || stagedVersion)),
       disabled: false,
       highlight,
     }
@@ -89,7 +89,7 @@ export default function AgentNodeRow({ node, agentMeta, staged, wanted, status, 
         <VersionPill
           icon="cpu"
           tone={core.tone}
-          version={installed ? String(info.core_ver || '?') : '—'}
+          version={installed ? coreVersionName(String(info.core_ver || '?')) : '—'}
           title={core.title}
         />
       </div>

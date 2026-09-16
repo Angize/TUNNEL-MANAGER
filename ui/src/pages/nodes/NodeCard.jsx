@@ -3,6 +3,7 @@ import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import { Check } from '../../components/Marks.jsx'
 import UptimeBar from './UptimeBar.jsx'
+import { coreVersionName } from '../agent/versions.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
@@ -180,7 +181,7 @@ export default function NodeCard({
           {info.core_sha && String(info.core_sha).length ? (
             <span className="nchip">
               <Icon name="cpu" />
-              {T('nd_core')} <b>{info.core_ver || '?'}</b>
+              {T('nd_core')} <b>{coreVersionName(info.core_ver) || '?'}</b>
             </span>
           ) : (
             <span className="nchip" style={{ color: 'var(--sub)' }}>
