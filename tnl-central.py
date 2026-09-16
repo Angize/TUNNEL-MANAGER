@@ -96,12 +96,12 @@ def central_host():
         return _CENTRAL_HOST["ip"]
 
 
-def _central_headers():
+def _central_headers(node, proxied):
     if not _CENTRAL_PORT:
         return {}
     h = {"X-Central-Port": str(_CENTRAL_PORT), "X-Central-TLS": "1" if _CENTRAL_TLS else "0"}
-    ip = central_host()
-    if ip:
+    ip = _panel_host_for(node, proxied)
+    if is_ipv4(ip):
         h["X-Central-Host"] = ip
     return h
 
@@ -856,7 +856,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
         path = f"/api/{wire(endpoint)}"
         headers = dict(_auth_headers(node, method, path, data))
         ctr = headers["X-Ctr"]
-        headers.update(_central_headers())
+        headers.update(_central_headers(node, True))
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, path, body=data, headers=headers)
@@ -992,7 +992,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
     ctr = hdrs["X-Ctr"]
     for k, v in hdrs.items():
         req.add_header(k, v)
-    for k, v in _central_headers().items():
+    for k, v in _central_headers(node, False).items():
         req.add_header(k, v)
     if data is not None:
         req.add_header("Content-Type", "application/json")
@@ -1038,7 +1038,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         hdrs = _auth_headers(node, "POST", path, data)
         ctr = hdrs["X-Ctr"]
         head += ["%s: %s" % kv for kv in hdrs.items()]
-        head += ["%s: %s" % kv for kv in _central_headers().items()]
+        head += ["%s: %s" % kv for kv in _central_headers(node, bool(proxy)).items()]
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
         deadline = time.monotonic() + timeout
@@ -2787,6 +2787,8 @@ def api_node_edit(d):
                 L["b_name"], chg = name, True
         if chg:
             save_json(LINKS_FILE, links)
+    if moved_addr(d["id"]) in ("%s:%d" % (host, port), "%s:0" % host):
+        _moved_clear(d["id"])
     _refresh_bg([d["id"]])
     return {"ok": True, "checking": True}
 
@@ -3048,10 +3050,14 @@ def _route_src(host):
     return ip
 
 
+def _panel_host_for(node, proxied):
+    return central_host() if proxied else _route_src(str(node.get("host") or ""))
+
+
 def _panel_origin_for(node):
     if not _CENTRAL_PORT:
         return ""
-    ip = central_host() if node_proxy(node) else _route_src(str(node.get("host") or ""))
+    ip = _panel_host_for(node, bool(node_proxy(node)))
     return f"{'https' if _CENTRAL_TLS else 'http'}://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
 
 
