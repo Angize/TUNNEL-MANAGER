@@ -72,6 +72,7 @@ export default function SettingsPage() {
   const tuningDefaults = useMemo(() => config.tuning_defaults || {}, [config])
   const tuningSteps = useMemo(() => config.tuning_steps || {}, [config])
   const probeSamples = num(config.probe_samples) || 20
+  const [agentGen, setAgentGen] = useState(0)
 
   const [form, setForm] = useState(null)
   const [token, setToken] = useState('')
@@ -215,6 +216,7 @@ export default function SettingsPage() {
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
       apply(r.d.settings)
+      setAgentGen((n) => n + 1)
       return
     }
     toast(postError(r), 'err')
@@ -352,7 +354,7 @@ export default function SettingsPage() {
           <Icon name="redo" color="var(--acc)" />
           {T('set_agent_update')}
         </div>
-        <AgentPage headless />
+        <AgentPage key={agentGen} headless />
       </div>
 
       {picking ? (
