@@ -85,9 +85,9 @@ export default function OverviewPage({ onNavigate }) {
         <div className="ochips">
           <Chip kind="a" label={T('ov_chip_node')} value={num(summary.nodes_online) + '/' + num(summary.nodes_total)} ltr />
           <Chip kind="o" label={T('ov_chip_uplink')} value={num(summary.link_up) + '/' + linkTotal} ltr />
-          <Chip kind="a" label={T('ov_chip_tunnel')} value={num(summary.tunnels)} />
+          <Chip kind="a" label={T('ov_chip_tunnel')} value={num(summary.link_total)} />
           {alerts.length ? (
-            <Chip kind="b" label={T('ov_chip_alert')} value={alerts.length} />
+            <Chip kind="b" label={T('ov_chip_alert')} value={num(summary.alert_count)} />
           ) : (
             <Chip kind="o" label={T('ov_chip_noalert')} />
           )}
@@ -98,7 +98,7 @@ export default function OverviewPage({ onNavigate }) {
         <Icon name="warn" color="var(--acc)" />
         {T('ov_attention')}
       </div>
-      <AlertList alerts={alerts} onNavigate={onNavigate} />
+      <AlertList alerts={alerts} total={num(summary.alert_count)} onNavigate={onNavigate} />
 
       <div className="sec">
         <Icon name="grid" color="var(--acc)" />

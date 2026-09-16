@@ -2197,7 +2197,7 @@ def api_summary(d):
     except Exception:
         stored_ver = None
 
-    on = tun = pf = mu = mt = du = dt = 0
+    on = pf = mu = mt = du = dt = 0
     heat, crit, alerts, outdated = [], [], [], 0
     worst = {"disk": None, "ram": None, "cpu": None}
     for n in nodes:
@@ -2212,7 +2212,7 @@ def api_summary(d):
                 alerts.append({"level": "warn", "kind": "node",                                "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
             continue
         on += 1
-        tun += _sint(p.get("tunnels")); pf += _sint(p.get("portfw"))
+        pf += _sint(p.get("portfw"))
         if stored_ver and p.get("version") and _sint(p.get("version")) < _sint(stored_ver):
             outdated += 1
         s = p.get("stats") if isinstance(p.get("stats"), dict) else {}
@@ -2237,53 +2237,39 @@ def api_summary(d):
     worst_tun = None
     rtts = []
     for L in links:
+        types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
         if not L.get("enabled", True):
-            types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
             off_n += 1
             continue
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
         if (isinstance(ah, dict) and ah.get("up") is None) or (isinstance(bh, dict) and bh.get("up") is None):
-            types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
             continue
-        if L.get("type") == "core":
-            types["core"] = types.get("core", 0) + 1
-            if link_drift(L["id"]):
-                drift_n += 1
-            elif not _link_up(L):
-                down += 1
-            elif (isinstance(ah, dict) and ah.get("alive") is True) or (isinstance(bh, dict) and bh.get("alive") is True):
-                up += 1
-            else:
-                noping += 1
-            continue
-        types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
-        both_up = isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")
-        if both_up:
-            pinged = (ah.get("alive") is True) or (bh.get("alive") is True)
-            if pinged:
-                up += 1
-            else:
-                noping += 1
-            sides = [h for h in (ah, bh) if isinstance(h, dict)]
-            lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
-            lbad = any(h.get("alive") is False for h in sides)
-            lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
-            if lrtt > 0:
-                rtts.append(lrtt)
-            if lbad or lrtt > PING_BAD:
-                cand = {"name": L.get("name"),
-                        "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
-                        "b": nmap.get(L.get("b_node"), L.get("b_name", "")),
-                        "rtt": lrtt if lrtt > 0 else None, "loss": lloss}
-                if worst_tun is None or (cand["loss"], _sflt(cand["rtt"])) > (worst_tun["loss"], _sflt(worst_tun["rtt"])):
-                    worst_tun = cand
-        else:
-            down += 1
-            alerts.append({"level": "bad", "kind": "link", "id": L["id"], "msg": f"تونلِ «{L.get('name')}» قطع است"})
+        tab = "core" if L.get("type") == "core" else "tunnels"
         if link_drift(L["id"]):
             drift_n += 1
-            alerts.append({"level": "warn", "kind": "drift", "id": L["id"], "msg": f"تونلِ «{L.get('name')}» نیازمندِ بازسازی است"})
+            alerts.append({"level": "warn", "kind": "drift", "tab": tab, "id": L["id"], "msg": f"تونلِ «{L.get('name')}» نیازمندِ بازسازی است"})
+            continue
+        if not _link_up(L):
+            down += 1
+            alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "msg": f"تونلِ «{L.get('name')}» قطع است"})
+            continue
+        sides = [h for h in (ah, bh) if isinstance(h, dict)]
+        if any(h.get("alive") is True for h in sides):
+            up += 1
+        else:
+            noping += 1
+        lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
+        lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
+        if lrtt > 0:
+            rtts.append(lrtt)
+        if lrtt > PING_BAD:
+            cand = {"name": L.get("name"),
+                    "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
+                    "b": nmap.get(L.get("b_node"), L.get("b_name", "")),
+                    "rtt": lrtt, "loss": lloss}
+            if worst_tun is None or (cand["loss"], cand["rtt"]) > (worst_tun["loss"], worst_tun["rtt"]):
+                worst_tun = cand
     if outdated:
         alerts.append({"level": "warn", "kind": "agent", "msg": f"{outdated} نود ایجنتِ قدیمی دارد"})
 
@@ -2308,15 +2294,16 @@ def api_summary(d):
     offline = len(nodes) - on
     score = max(0, min(100, 100 - offline * 8 - len(crit) * 6 - down * 10 - drift_n * 4 - noping * 3))
     n_core = sum(1 for L in links if L.get("type") == "core")
+    alerts.sort(key=lambda a: a["level"] != "bad")
     return {"nodes_online": on, "nodes_total": len(nodes),
             "proxies": len(load_proxies()),
             "links": len(links) - n_core, "core": n_core, "link_total": len(links),
-            "tunnels": tun, "portfw": pf,
+            "portfw": pf,
             "health_score": score,
             "central": central_stats(),
             "heat": heat, "worst": worst,
             "crit": len(crit),
-            "alerts": alerts[:10],
+            "alerts": alerts[:10], "alert_count": len(alerts),
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
             "link_off": off_n,
             "link_types": types, "worst_tunnel": worst_tun,
