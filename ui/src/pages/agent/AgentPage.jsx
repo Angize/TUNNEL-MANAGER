@@ -48,6 +48,7 @@ export default function AgentPage({ headless }) {
   const queryRef = useRef(query)
   const mounted = useRef(true)
   const staging = useRef(false)
+  const adoptStage = useRef(null)
 
   queryRef.current = query
 
@@ -107,6 +108,7 @@ export default function AgentPage({ headless }) {
 
   useEffect(() => {
     mounted.current = true
+    adoptStage.current()
     return () => {
       mounted.current = false
     }
@@ -300,10 +302,34 @@ export default function AgentPage({ headless }) {
     }
   }
 
+  const attachRunning = async () => {
+    let status = null
+    try {
+      status = await apiGet('core-stage-status')
+    } catch {
+      return false
+    }
+    if (!mounted.current || !status || status.done || !status.job) return false
+    await watchStage(status.job)
+    return true
+  }
+
+  adoptStage.current = async () => {
+    if (staging.current) return
+    staging.current = true
+    try {
+      await attachRunning()
+    } finally {
+      staging.current = false
+    }
+  }
+
   const stageCore = async () => {
     if (staging.current) return
     staging.current = true
     try {
+      if (await attachRunning()) return
+      if (!mounted.current) return
       const version = wanted || 'latest'
       setCoreMsg({ cls: '', text: T(delivery.core === 'github' ? 'cor_picking' : 'cor_downloading') })
       const res = await apiPost('core-stage', { version })
