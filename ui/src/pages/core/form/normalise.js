@@ -45,10 +45,18 @@ export default function normalise(form, cfg, aIps, bIps) {
     else if (at('rawSport') === '') set('rawSport', String(RAW_SPORT_FIXED))
   }
 
-  if (at('Tr') === 'raw') set('port', '')
-  else if (at('Tr') === 'ws') {
-    if (at('port') === '') set('port', '80')
-  } else if (at('port') === '80') set('port', '')
+  if (at('Tr') === 'raw') {
+    set('port', '')
+    set('portAuto', false)
+  } else if (at('Tr') === 'ws') {
+    if (at('port') === '' || (at('portAuto') && at('port') !== '80')) {
+      set('port', '80')
+      set('portAuto', true)
+    }
+  } else if (at('portAuto') && at('port') === '80') {
+    set('port', '')
+    set('portAuto', false)
+  }
 
   if (form.rot.on && !rotMulti(view, enums, aIps, bIps)) {
     patch.rot = { ...form.rot, on: false }
