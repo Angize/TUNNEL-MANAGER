@@ -91,8 +91,10 @@ export default {
   pal_g_nodes: 'نودها',
   pal_g_tuns: 'تونل‌ها',
   pal_g_acts: 'دستورها',
-  pal_add_tun: 'افزودن تونل',
-  pal_agent: 'بروزرسانیِ ایجنت',
-  pal_checkall: 'تستِ همهٔ تونل‌های صفحه',
+  pal_add_core: 'افزودن تونلِ هسته',
+  pal_add_tun: 'افزودن تونلِ سیستمی',
+  pal_agent: 'بروزرسانیِ ایجنت و هسته',
+  pal_checkall_core: 'تستِ همهٔ تونل‌های هسته',
+  pal_checkall: 'تستِ همهٔ تونل‌های سیستمی',
   pal_theme: 'تغییرِ تمِ روشن/تیره',
 }

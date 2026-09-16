@@ -4,7 +4,6 @@ import ProxiesPage from './proxies/ProxiesPage.jsx'
 import LogsPage from './logs/LogsPage.jsx'
 import NodesPage from './nodes/NodesPage.jsx'
 import LinksPage from './links/LinksPage.jsx'
-import AgentPage from './agent/AgentPage.jsx'
 import SettingsPage from './settings/SettingsPage.jsx'
 import './overview/overview.css'
 
@@ -14,7 +13,6 @@ const PAGES = {
   proxies: { component: ProxiesPage },
   links: { component: LinksPage },
   logs: { component: LogsPage },
-  agent: { component: AgentPage },
   settings: { component: SettingsPage },
 }
 
