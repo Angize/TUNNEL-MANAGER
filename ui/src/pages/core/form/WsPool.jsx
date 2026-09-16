@@ -56,7 +56,7 @@ function EdgeRow({ value, kind, health, active, lid, pending, tuning, status, on
             onClick={() => onRetest(kind, value)}
           />
         ) : null}
-        {lid ? (
+        {lid && health ? (
           <ActionButton
             icon="pin"
             tone={'aim' + (active ? ' on' : '')}

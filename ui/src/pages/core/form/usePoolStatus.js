@@ -77,8 +77,12 @@ export default function usePoolStatus(lid, enabled) {
 
   useEffect(() => {
     if (!pending) return
-    if (status.act[pending.kind] === pending.key || Date.now() - pending.ts > PENDING_MS) {
+    if (status.act[pending.kind] === pending.key) {
       setPending(null)
+      toast(T('pool_edge_active'), 'ok')
+    } else if (Date.now() - pending.ts > PENDING_MS) {
+      setPending(null)
+      toast(T('select_not_taken'), 'err')
     }
   }, [status, pending])
 
@@ -107,7 +111,6 @@ export default function usePoolStatus(lid, enabled) {
       setPending({ kind, key, ts: Date.now() })
       const r = await apiPost('pool-select', { id: lid, kind, key })
       if (r.ok && r.d.ok) {
-        toast(T('pool_edge_active'), 'ok')
         schedule(SELECT_STEPS)
         return
       }
