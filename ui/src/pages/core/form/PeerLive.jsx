@@ -7,6 +7,7 @@ import {
   Countdown,
   PEER_TITLES,
   ProgressBar,
+  StaleCap,
   healthTone,
   isBurned,
 } from './HealthRow.jsx'
@@ -112,6 +113,7 @@ export default function PeerLive({ live, tuning }) {
   return (
     <div className="peerlive">
       <div className="pllabel">{T('peer_live_hd')}</div>
+      <StaleCap status={status} />
       {shown.length ? (
         shown.map((side) => (
           <PeerBox

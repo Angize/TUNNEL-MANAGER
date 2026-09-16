@@ -45,7 +45,7 @@ export default function usePoolStatus(lid, enabled) {
     if (!lid) return
     const r = await apiPost('edge-status', { id: lid })
     if (!alive.current) return
-    if (r.ok && r.d.ok && r.d.pool) setStatus(applyStatus(r.d))
+    if (r.ok && r.d.ok && r.d.pool && !r.d.error) setStatus(applyStatus(r.d))
     else setStatus((prev) => ({ ...prev, stale: true, why: readError(r) }))
   }, [lid])
 
