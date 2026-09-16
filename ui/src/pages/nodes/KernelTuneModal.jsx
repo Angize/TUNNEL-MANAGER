@@ -3,7 +3,7 @@ import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { translateError } from '../../lib/errors.js'
+import { readError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 
 function Tile({ icon, label, children, wide }) {
@@ -32,13 +32,12 @@ export default function KernelTuneModal({ node, onClose }) {
       .then((r) => {
         if (!alive) return
         if (!(r.ok && r.d.ok)) {
-          toast(translateError((r.d && r.d.error) || T('failed')), 'err')
+          toast(readError(r), 'err')
           closeRef.current()
           return
         }
         setStatus(r.d)
       })
-      .catch(() => {})
     return () => {
       alive = false
     }
