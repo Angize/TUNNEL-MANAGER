@@ -2375,10 +2375,10 @@ def api_node_add(d):
         raise ValueError("توکن لازم است")
     if len(token) < 16:
         raise ValueError("توکن کوتاه است — حداقل ۱۶ کاراکتر بگذار")
-    pon, pid = valid_proxy_ref(d)
-    node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
-            "proxy_on": pon, "proxy_id": pid}
     with _reg_lock:
+        pon, pid = valid_proxy_ref(d)
+        node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
+                "proxy_on": pon, "proxy_id": pid}
         nodes = load_nodes()
         if _name_taken(nodes, name):
             raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
@@ -2680,6 +2680,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
     except Exception as e:
         fail(_install_running(jid), "خطای غیرمنتظره", str(e))
     finally:
+        _release_proxies("install:" + jid)
         kf = cfg.get("keyfile")
         if kf:
             try:
@@ -2716,23 +2717,29 @@ def api_node_install(d):
     key = str(d.get("ssh_key") or "").strip()
     if not password and not key:
         raise ValueError("رمزِ SSH یا کلیدِ خصوصی لازم است")
-    cfg = {"host": host, "port": ssh_port, "user": user, "password": password,
-           "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
-    if key:
-        fd, kp = tempfile.mkstemp(prefix="tnlkey_")
-        with os.fdopen(fd, "w") as f:
-            f.write(key if key.endswith("\n") else key + "\n")
-        os.chmod(kp, 0o600)
-        cfg["keyfile"], cfg["password"] = kp, ""
-    now = int(time.time())
     jid = secrets.token_hex(6)
-    with _install_lock:
-        for k in [k for k, v in _install_jobs.items() if now - v.get("ts", now) > 3600]:
-            _install_jobs.pop(k, None)
-        _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
-                                        for k, l in _INSTALL_STEPS],
-                              "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
-    threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, pon, pid), daemon=True).start()
+    if pon:
+        _hold_proxy(pid, "install:" + jid)
+    try:
+        cfg = {"host": host, "port": ssh_port, "user": user, "password": password,
+               "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
+        if key:
+            fd, kp = tempfile.mkstemp(prefix="tnlkey_")
+            with os.fdopen(fd, "w") as f:
+                f.write(key if key.endswith("\n") else key + "\n")
+            os.chmod(kp, 0o600)
+            cfg["keyfile"], cfg["password"] = kp, ""
+        now = int(time.time())
+        with _install_lock:
+            for k in [k for k, v in _install_jobs.items() if now - v.get("ts", now) > 3600]:
+                _install_jobs.pop(k, None)
+            _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
+                                            for k, l in _INSTALL_STEPS],
+                                  "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
+        threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, pon, pid), daemon=True).start()
+    except Exception:
+        _release_proxies("install:" + jid)
+        raise
     return {"ok": True, "job": jid}
 
 
@@ -2756,8 +2763,8 @@ def api_node_edit(d):
     if not 1 <= port <= 65535:
         raise ValueError("پورت نامعتبر است")
     token = str(d.get("token") or "").strip()
-    pon, pid = valid_proxy_ref(d)
     with _reg_lock:
+        pon, pid = valid_proxy_ref(d)
         nodes = load_nodes()
         n = next((x for x in nodes if x["id"] == d["id"]), None)
         if not n:
@@ -4802,8 +4809,11 @@ def api_create_tunnel(d):
     ttype = str(d.get("type") or "")
 
     def build(h):
-        with _PairLock(d.get("a_node"), d.get("b_node")):
-            return _create_tunnel_impl(d, h)
+        try:
+            with _PairLock(d.get("a_node"), d.get("b_node")):
+                return _create_tunnel_impl(d, h)
+        finally:
+            _release_proxies(h["key"])
 
     return act_start("new:" + secrets.token_hex(4), build,
                      target="%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?")),
@@ -5040,7 +5050,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
 CREATE_STEPS = 4
 
 
-def _create_tunnel_impl(d, h=None):
+def _create_tunnel_impl(d, h):
     act_step(h, "خواندنِ وضعیتِ دو نود", 0, CREATE_STEPS)
     _require(d, ["a_node", "b_node", "type"])
     A, B = get_node(d["a_node"]), get_node(d["b_node"])
@@ -5114,6 +5124,8 @@ def _create_tunnel_impl(d, h=None):
     if ttype == "core":
         ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips)
         extra.update(ce)
+        if extra.get("ech_proxy"):
+            _hold_proxy(extra["ech_proxy_id"], h["key"])
     if ttype == "core":
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
         if _clash:
@@ -5290,8 +5302,11 @@ def _restore_link(A, B, L, extra=None):
 def api_edit_link(d):
     def edit(h):
         a, b = _link_nodes(d)
-        with _PairLock(a, b, (d or {}).get("a_node"), (d or {}).get("b_node")):
-            return _edit_link_impl(d, h)
+        try:
+            with _PairLock(a, b, (d or {}).get("a_node"), (d or {}).get("b_node")):
+                return _edit_link_impl(d, h)
+        finally:
+            _release_proxies(h["key"])
 
     return act_link(d, edit)
 
@@ -5476,7 +5491,7 @@ def _undo_move(was_a, was_b, A, B, name):
             node_call(N, "delete", "POST", {"name": name})
 
 
-def _edit_link_impl(d, h=None):
+def _edit_link_impl(d, h):
     act_step(h, "خواندنِ وضعیتِ دو نود", 0, EDIT_STEPS)
     _require(d, ["id", "type"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -5543,6 +5558,8 @@ def _edit_link_impl(d, h=None):
     if ttype == "core":
         ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)
         extra.update(ce)
+        if extra.get("ech_proxy"):
+            _hold_proxy(extra["ech_proxy_id"], h["key"])
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
     if not moved and ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
@@ -7102,6 +7119,24 @@ def proxy_url(p):
     return "%s://%s%s:%d" % (p["scheme"], auth, p["host"], int(p["port"]))
 
 
+_proxy_holds = {}
+
+
+def _hold_proxy(pid, holder):
+    with _reg_lock:
+        if not get_proxy(pid):
+            raise ValueError("پروکسیِ انتخاب‌شده همین حالا حذف شد — پروکسیِ دیگری انتخاب کن و دوباره بزن")
+        _proxy_holds.setdefault(pid, set()).add(holder)
+
+
+def _release_proxies(holder):
+    with _reg_lock:
+        for pid in [pid for pid, holders in _proxy_holds.items() if holder in holders]:
+            _proxy_holds[pid].discard(holder)
+            if not _proxy_holds[pid]:
+                del _proxy_holds[pid]
+
+
 def _proxy_row(p, uses=None):
     st = _px_get(p["id"])
     u = (uses if uses is not None else _proxy_uses()).get(p["id"]) or {"nodes": [], "tunnels": [], "panel": False}
@@ -7201,6 +7236,8 @@ def api_proxy_del(d):
             if u["tunnels"]:
                 where.append("ECH در تونل‌های " + "، ".join("«%s»" % x for x in u["tunnels"]))
             raise ValueError("این پروکسی هنوز استفاده می‌شود: " + "؛ ".join(where) + " — اول آن‌ها را از این پروکسی جدا کن")
+        if p["id"] in _proxy_holds:
+            raise ValueError("یک نصبِ نود یا ساخت/ویرایشِ تونل که همین حالا در جریان است از این پروکسی استفاده می‌کند — بعد از تمام‌شدنش دوباره حذف کن")
         save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
     return {"ok": True}
 
@@ -7214,7 +7251,7 @@ def api_settings(d):
 
 
 def api_settings_set(d):
-    with _settings_lock:
+    with _reg_lock, _settings_lock:
         obj = validate_settings(d or {})
         _settings.clear()
         _settings.update(obj)
