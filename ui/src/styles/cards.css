@@ -159,6 +159,25 @@ body:not(.rdragging) .card.acc:hover {
   font-size: 15px;
 }
 
+.nmrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.nmrow .tag {
+  flex: none;
+}
+
+.nmtxt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .grow {
   flex: 1;
 }
