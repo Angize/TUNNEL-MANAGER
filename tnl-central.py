@@ -6954,6 +6954,8 @@ def api_portfw_edit(d):
     for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
             body[k] = _pf_field(k, d[k])
+    if d.get("listen_ip") == "":
+        body["listen_ip"] = ""
     if "rotate" in d:
         body["rotate"] = bool(d["rotate"])
     return _pf_push(n, "portfw-edit", body)
@@ -7067,11 +7069,9 @@ def _node_ip_tags(nid):
                 if ip and not any(e["name"] == ent["name"] for e in peers.setdefault(ip, [])):
                     peers[ip].append(ent)
     pf = {}
-    only_ip = live[0] if len(live) == 1 else ""
     for c in (_cached_list(nid).get("configs") or []):
         if c.get("type") == "portfw":
-            ip = c.get("listen_ip") or only_ip
-            if ip:
+            for ip in ([c["listen_ip"]] if c.get("listen_ip") else live):
                 pf.setdefault(ip, []).append(c.get("name") or "")
     host = n.get("host")
     out = []
