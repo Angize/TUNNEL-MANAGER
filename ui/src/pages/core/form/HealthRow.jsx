@@ -1,5 +1,6 @@
 import Icon from '../../../components/Icon.jsx'
 import { barPercent, countdownText, remain, stepTotal } from './countdown.js'
+import { WarnCap } from './controls.jsx'
 import { T } from '../../../i18n/fa.js'
 
 export const EDGE_TITLES = {
@@ -68,6 +69,15 @@ export function Badges({ total, suspect, dead }) {
       {suspect ? <span className="pbadge warn">{suspect + ' ' + T('pb_temp')}</span> : null}
       {dead ? <span className="pbadge bad">{dead + ' ' + T('pb_dead')}</span> : null}
     </>
+  )
+}
+
+export function StaleCap({ status }) {
+  return (
+    <WarnCap
+      text={status.stale ? T(status.polledMs ? 'live_stale' : 'live_unread') + ' — ' + status.why : ''}
+      style={{ marginBottom: 8 }}
+    />
   )
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiPost } from '../../../lib/api.js'
-import { postError } from '../../../lib/errors.js'
+import { postError, readError } from '../../../lib/errors.js'
 import { getUiInterval } from '../../../lib/poll.js'
 import { toast } from '../../../lib/toast.js'
 import { T } from '../../../i18n/fa.js'
@@ -10,7 +10,7 @@ const RETEST_STEPS = [1200, 3000, 5500, 8000]
 const SELECT_STEPS = [1200, 3000, 5500, 8000, 11000]
 
 const EMPTY_SIDE = { active: '', addrs: [], live: {} }
-const EMPTY = { dst: EMPTY_SIDE, src: EMPTY_SIDE, now: 0, polledMs: 0 }
+const EMPTY = { dst: EMPTY_SIDE, src: EMPTY_SIDE, now: 0, polledMs: 0, stale: false, why: '' }
 
 function applySide(section) {
   const live = {}
@@ -39,12 +39,18 @@ export default function usePeerStatus(lid) {
     if (!lid) return
     const r = await apiPost('peer-status', { id: lid })
     if (!alive.current) return
-    if (!(r.ok && r.d.ok && r.d.pool)) return
+    if (r.ok && r.d.ok && !r.d.pool) return
+    if (!(r.ok && r.d.ok) || r.d.error) {
+      setStatus((prev) => ({ ...prev, stale: true, why: readError(r) }))
+      return
+    }
     setStatus({
       dst: applySide(r.d.dst),
       src: applySide(r.d.src),
       now: +r.d.now || Math.floor(Date.now() / 1000),
       polledMs: Date.now(),
+      stale: false,
+      why: '',
     })
   }, [lid])
 

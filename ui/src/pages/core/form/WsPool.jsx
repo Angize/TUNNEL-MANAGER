@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
 import Select from '../../../components/Select.jsx'
-import { WarnCap } from './controls.jsx'
 import {
   Accordion,
   ActionButton,
@@ -9,6 +8,7 @@ import {
   Countdown,
   EDGE_TITLES,
   ProgressBar,
+  StaleCap,
   healthTone,
   isBurned,
 } from './HealthRow.jsx'
@@ -119,10 +119,7 @@ export default function WsPool({ form, enums, tuning, lid, live, patch }) {
 
   return (
     <div style={{ marginTop: 11 }}>
-      <WarnCap
-        text={status.stale ? T('pool_stale') + (status.why ? ' — ' + status.why : '') : ''}
-        style={{ marginBottom: 8 }}
-      />
+      <StaleCap status={status} />
       {KINDS.map(({ kind, label, placeholder }) => {
         const entries = pool[kind]
         let suspect = 0
