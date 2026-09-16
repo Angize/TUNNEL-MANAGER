@@ -58,16 +58,15 @@ function SideStatus({ link, side }) {
   return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
 }
 
-function SideBox({ link, side, live }) {
-  const health = live ? live[side + '_health'] : link[side + '_health']
-  const online = live ? live[side + '_online'] : link[side + '_online']
-  const shown = live ? { ...link, [side + '_health']: health, [side + '_online']: online } : link
+function SideBox({ link, side }) {
+  const health = link[side + '_health']
+  const online = link[side + '_online']
   return (
     <div className={'tnnode ' + boxClass(online, health)} title={sideState(online, health).title}>
       <div className="tnhead">
         <span className="tnn">{link[side + '_name']}</span>
         <span className="stat">
-          <SideStatus link={shown} side={side} />
+          <SideStatus link={link} side={side} />
         </span>
       </div>
       <div className="tna mono cpv" title={T('tip_copy')} onClick={(e) => copyText(link[side + '_ip'], e)}>
@@ -81,7 +80,6 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   const { actFor } = useActs()
   const [open, setOpen] = useState(() => isCardOpen(link.id))
   const [message, setMessage] = useState(null)
-  const [live, setLive] = useState(null)
   const [picking, setPicking] = useState(false)
   const messageTimer = useRef(0)
 
@@ -117,7 +115,6 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       return
     }
     const d = r.d
-    setLive(d)
     const aUp = d.a_online && d.a_health && d.a_health.up
     const bUp = d.b_online && d.b_health && d.b_health.up
     const allOk = aUp && bUp && d.a_health.alive === true && d.b_health.alive === true
@@ -278,11 +275,11 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
             ) : null}
 
             <div className="tninfo">
-              <SideBox link={link} side="a" live={live} />
+              <SideBox link={link} side="a" />
               <span className="tnarrow">
                 <Icon name="arrows" />
               </span>
-              <SideBox link={link} side="b" live={live} />
+              <SideBox link={link} side="b" />
             </div>
 
             <TunnelMeta link={link} />

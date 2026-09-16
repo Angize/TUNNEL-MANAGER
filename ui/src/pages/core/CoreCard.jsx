@@ -54,7 +54,7 @@ function HeaderDot({ link, side }) {
   return <span className={'sdot ' + state.kind} title={state.title} />
 }
 
-function SideStatus({ link, side, live }) {
+function SideStatus({ link, side }) {
   if (link.enabled === false) {
     return (
       <>
@@ -63,16 +63,14 @@ function SideStatus({ link, side, live }) {
       </>
     )
   }
-  const health = live ? live[side + '_health'] : link[side + '_health']
-  const online = live ? live[side + '_online'] : link[side + '_online']
-  const state = sideState(online, health)
+  const state = sideState(link[side + '_online'], link[side + '_health'])
   return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
 }
 
-function SideBox({ link, side, activeIp, rotating, live }) {
+function SideBox({ link, side, activeIp, rotating }) {
   const isServer = (side === 'a') === serverIsA(link)
-  const health = live ? live[side + '_health'] : link[side + '_health']
-  const online = live ? live[side + '_online'] : link[side + '_online']
+  const health = link[side + '_health']
+  const online = link[side + '_online']
 
   return (
     <div className={'tnnode ' + boxClass(online, health)} title={sideState(online, health).title}>
@@ -90,7 +88,7 @@ function SideBox({ link, side, activeIp, rotating, live }) {
             ) : null}
           </span>
           <span className="stat">
-            <SideStatus link={link} side={side} live={live} />
+            <SideStatus link={link} side={side} />
           </span>
         </span>
       </div>
@@ -105,7 +103,6 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   const { actFor } = useActs()
   const [open, setOpen] = useState(() => isCardOpen(link.id))
   const [message, setMessage] = useState(null)
-  const [live, setLive] = useState(null)
   const [picking, setPicking] = useState(false)
   const messageTimer = useRef(0)
   const checkRef = useRef(null)
@@ -144,7 +141,6 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
       return
     }
     const d = r.d
-    setLive(d)
     const aUp = d.a_online && d.a_health && d.a_health.up
     const bUp = d.b_online && d.b_health && d.b_health.up
     const allOk = aUp && bUp && d.a_health.alive === true && d.b_health.alive === true
@@ -317,7 +313,6 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
                 side={first}
                 activeIp={activeIp(first)}
                 rotating={link[first + '_ip_rot']}
-                live={live}
               />
               <span className="tnarrow">
                 <Icon name="arrows" />
@@ -327,7 +322,6 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
                 side={second}
                 activeIp={activeIp(second)}
                 rotating={link[second + '_ip_rot']}
-                live={live}
               />
             </div>
 
