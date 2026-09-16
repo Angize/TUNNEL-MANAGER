@@ -6310,6 +6310,7 @@ EV_TYPES = (
     ("ech-back", "ech", "بازگشتِ رکوردِ ECH"),
     ("ech-refresh", "ech", "تازه‌شدنِ کلیدِ ECH"),
     ("ech-rotate", "ech", "چرخشِ کلیدِ ECH"),
+    ("ech-stale", "ech", "کلیدِ ECH تازه خوانده نشد"),
     ("ech-rebuild", "ech", "بازسازیِ سریعِ ECH"),
     ("ech-saved", "ech", "ذخیرهٔ کلیدِ خودترمیمِ هسته"),
     ("ech-seq-reset", "ech", "صفر شدنِ شمارندهٔ رویدادِ هسته"),
