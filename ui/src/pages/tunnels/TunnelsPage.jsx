@@ -9,6 +9,7 @@ import TunnelCreateModal from './TunnelCreateModal.jsx'
 import TunnelEditModal from './TunnelEditModal.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
+import { postError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
@@ -53,7 +54,7 @@ export default function TunnelsPage({ embedded, active = true }) {
       setTagOverrides((prev) => ({ ...prev, [link.id]: tag }))
       const r = await apiPost('link-tag', { id: link.id, tag }, NET_TIMEOUT)
       if (r.ok && r.d.ok) return
-      toast(r.d.error || T('tag_err'), 'err')
+      toast(postError(r, 'tag_err'), 'err')
       setTagOverrides((prev) => ({ ...prev, [link.id]: previous }))
     },
     []

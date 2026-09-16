@@ -9,6 +9,7 @@ import CoreFormModal from './form/CoreFormModal.jsx'
 import { tagClassForFamily } from './carrier.js'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
+import { postError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
@@ -50,7 +51,7 @@ export default function CorePage({ embedded, active = true }) {
         pooled.map(async (link) => {
           const r = await apiPost('edge-status', { id: link.id })
           if (!alive) return
-          if (r.ok && r.d && r.d.ok && r.d.pool && r.d.active) {
+          if (r.ok && r.d.ok && r.d.pool && r.d.active) {
             setEdges((prev) =>
               prev[link.id] === r.d.active ? prev : { ...prev, [link.id]: r.d.active }
             )
@@ -69,7 +70,7 @@ export default function CorePage({ embedded, active = true }) {
     setTagOverrides((prev) => ({ ...prev, [link.id]: tag }))
     const r = await apiPost('link-tag', { id: link.id, tag }, NET_TIMEOUT)
     if (r.ok && r.d.ok) return
-    toast(r.d.error || T('tag_err'), 'err')
+    toast(postError(r, 'tag_err'), 'err')
     setTagOverrides((prev) => ({ ...prev, [link.id]: previous }))
   }, [])
 

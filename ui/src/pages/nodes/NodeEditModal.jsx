@@ -3,7 +3,7 @@ import Modal from '../../components/Modal.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { translateError } from '../../lib/errors.js'
+import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { isNodeNameValid } from './nodeName.js'
 import useBusy from '../../lib/useBusy.js'
@@ -56,7 +56,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
       return
     }
     setMessage('')
-    alertBox(translateError(r.d.error || T('failed')))
+    alertBox(postError(r))
   }
 
   const footer = (

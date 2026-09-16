@@ -4,7 +4,7 @@ import Icon from '../../components/Icon.jsx'
 import { Check, Cross } from '../../components/Marks.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { postError, translateError } from '../../lib/errors.js'
+import { postError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate } from '../../lib/num.js'
@@ -70,7 +70,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
       toast(T('pf_rotate_done') + r.d.active, 'ok')
     } else {
       setOverride(null)
-      toast(translateError((r.d && (r.d.error || r.d.msg)) || T('pf_rotate_failed')), 'err')
+      toast(postError(r, 'pf_rotate_failed'), 'err')
     }
   }
 
@@ -88,9 +88,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   const remove = async () => {
     if (!(await confirmBox(T('pf_del_confirm')))) return
     const r = await apiPost('portfw-del', { node: item.node_id, name: item.name })
-    if (!(r.ok && r.d && r.d.ok)) {
-      toast(translateError((r.d && (r.d.msg || r.d.error)) || '') || T('failed'), 'err')
-    }
+    if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
     onChanged()
   }
 

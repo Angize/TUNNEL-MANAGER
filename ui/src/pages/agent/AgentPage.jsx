@@ -159,7 +159,7 @@ export default function AgentPage({ headless }) {
     setGitBusy(false)
     if (!(r.ok && r.d.ok)) {
       setGitMsg(null)
-      alertBox(translateError(r.d.error) || T('failed'))
+      alertBox(postError(r))
       return
     }
     setGitMsg({
@@ -189,7 +189,7 @@ export default function AgentPage({ headless }) {
         return
       }
       setAgentMsg(null)
-      alertBox(translateError(r.d.error) || T('failed'))
+      alertBox(postError(r))
     }
     reader.readAsText(file)
   }
@@ -231,10 +231,10 @@ export default function AgentPage({ headless }) {
   const checkCore = async () => {
     setCoreMsg({ cls: '', text: T('cor_checking') })
     const res = await apiPost('core-check', {})
-    const d = (res && res.d) || {}
+    const d = res.d
     if (!(res.ok && d.ok)) {
       setCoreMsg(null)
-      alertBox(translateError(d.error || T('err_github')))
+      alertBox(postError(res, 'err_github'))
       return
     }
     await loadCoreVersions()
@@ -308,9 +308,9 @@ export default function AgentPage({ headless }) {
       setCoreMsg({ cls: '', text: T(delivery.core === 'github' ? 'cor_picking' : 'cor_downloading') })
       const res = await apiPost('core-stage', { version })
       if (!mounted.current) return
-      if (!(res.ok && res.d && res.d.ok)) {
+      if (!(res.ok && res.d.ok)) {
         setCoreMsg(null)
-        alertBox(translateError((res.d && (res.d.error || res.d.msg)) || T('err_github')))
+        alertBox(postError(res, 'err_github'))
         return
       }
       if (res.d.done) {
@@ -323,7 +323,10 @@ export default function AgentPage({ headless }) {
     }
   }
 
-  const cancelStage = () => apiPost('core-stage-cancel', {})
+  const cancelStage = async () => {
+    const r = await apiPost('core-stage-cancel', {})
+    if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
+  }
 
   const uploadCoreBinary = (input) => {
     const file = input.files && input.files[0]
@@ -342,7 +345,7 @@ export default function AgentPage({ headless }) {
         data: comma >= 0 ? raw.slice(comma + 1) : raw,
         name: file.name,
       })
-      if (res.ok && res.d && res.d.ok) {
+      if (res.ok && res.d.ok) {
         setCoreMsg({
           cls: 'ok',
           check: true,
@@ -359,7 +362,7 @@ export default function AgentPage({ headless }) {
         return
       }
       setCoreMsg(null)
-      alertBox(translateError(res.d && res.d.error) || T('failed'))
+      alertBox(postError(res))
     }
     reader.readAsDataURL(file)
   }

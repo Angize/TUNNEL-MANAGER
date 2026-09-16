@@ -126,7 +126,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
     e.stopPropagation()
     const next = link.enabled === false
     const r = await apiPost('link-toggle', { id: link.id, enabled: next })
-    if (!(r.ok && r.d.ok)) toast(T('failed'), 'err')
+    if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
     else if (r.d.both === false) toast(translateError(r.d.msg) || T('failed'), 'err')
     else toast(next ? T('turned_on') : T('turned_off'), 'ok')
     onReload()
@@ -191,7 +191,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   const flip = async () => {
     const r = await apiPost('link-view', { id: link.id })
     if (!(r.ok && r.d.ok)) {
-      toast(T('failed'), 'err')
+      toast(postError(r), 'err')
       return
     }
     const name = r.d.view_side === 'b' ? link.b_name : link.a_name

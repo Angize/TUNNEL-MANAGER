@@ -98,7 +98,7 @@ export default function usePushJob({ onSettled }) {
       setState((prev) => (prev && prev.done ? null : prev))
       setSeeded(Object.fromEntries((ids || []).map((id) => [id, true])))
       const res = await apiPost(command, body)
-      if (!(res.ok && res.d)) {
+      if (!res.ok) {
         setSeeded({})
         toast(postError(res), 'err')
         return
@@ -124,13 +124,13 @@ export default function usePushJob({ onSettled }) {
     if (!job.current) return
     if (!(await confirmBox(T('ag_p_cancel_q'), T('ag_p_cancel')))) return
     const r = await apiPost('push-cancel', { job: job.current })
-    if (!(r.ok && r.d && r.d.ok)) toast(postError(r), 'err')
+    if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
   }, [])
 
   const pause = useCallback(async (paused) => {
     if (!job.current) return
     const r = await apiPost('push-pause', { job: job.current, paused: !!paused })
-    if (!(r.ok && r.d && r.d.ok)) {
+    if (!(r.ok && r.d.ok)) {
       toast(postError(r), 'err')
       return
     }

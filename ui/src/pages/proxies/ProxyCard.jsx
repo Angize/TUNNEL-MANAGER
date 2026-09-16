@@ -3,7 +3,7 @@ import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { translateError } from '../../lib/errors.js'
+import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
@@ -72,7 +72,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
   const test = async () => {
     setMsg({ cls: '', text: T('px_testing') })
     const r = await apiPost('proxy-test', { id: proxy.id })
-    const d = r.d || {}
+    const d = r.d
     if (r.ok && d.ok) {
       setMsg({
         cls: 'ok',
@@ -83,7 +83,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
       })
     } else {
       setMsg(null)
-      alertBox(translateError(d.error || T('failed')))
+      alertBox(readError(r))
     }
   }
 
@@ -94,7 +94,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
       toast(T('px_deleted'), 'ok')
       onChanged()
     } else {
-      toast(translateError((r.d && (r.d.error || r.d.msg)) || T('failed')), 'err')
+      toast(postError(r), 'err')
     }
   }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiPost } from '../../../lib/api.js'
-import { postError } from '../../../lib/errors.js'
+import { postError, readError } from '../../../lib/errors.js'
 import { getUiInterval } from '../../../lib/poll.js'
 import { toast } from '../../../lib/toast.js'
 import { T } from '../../../i18n/fa.js'
@@ -45,8 +45,8 @@ export default function usePoolStatus(lid, enabled) {
     if (!lid) return
     const r = await apiPost('edge-status', { id: lid })
     if (!alive.current) return
-    if (r.ok && r.d && r.d.ok && r.d.pool) setStatus(applyStatus(r.d))
-    else setStatus((prev) => ({ ...prev, stale: true, why: postError(r) }))
+    if (r.ok && r.d.ok && r.d.pool) setStatus(applyStatus(r.d))
+    else setStatus((prev) => ({ ...prev, stale: true, why: readError(r) }))
   }, [lid])
 
   const schedule = useCallback(
@@ -89,7 +89,7 @@ export default function usePoolStatus(lid, enabled) {
         return
       }
       const r = await apiPost('pool-retest-now', { id: lid, kind, key })
-      if (r.ok && r.d && r.d.ok) {
+      if (r.ok && r.d.ok) {
         toast(T('peer_probe_pulled'), 'ok')
         schedule(RETEST_STEPS)
       } else toast(postError(r), 'err')
@@ -106,7 +106,7 @@ export default function usePoolStatus(lid, enabled) {
       if (pending) return
       setPending({ kind, key, ts: Date.now() })
       const r = await apiPost('pool-select', { id: lid, kind, key })
-      if (r.ok && r.d && r.d.ok) {
+      if (r.ok && r.d.ok) {
         toast(T('pool_edge_active'), 'ok')
         schedule(SELECT_STEPS)
         return

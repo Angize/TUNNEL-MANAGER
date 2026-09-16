@@ -135,7 +135,7 @@ export default function LogsPage() {
   const clearLogs = async () => {
     if (!(await confirmBox(T('logs_clear_confirm')))) return
     const r = await apiPost('events-clear', {})
-    if (!(r.ok && r.d && r.d.ok)) {
+    if (!(r.ok && r.d.ok)) {
       toast(postError(r), 'err')
       return
     }
