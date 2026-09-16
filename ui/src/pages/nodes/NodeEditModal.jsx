@@ -20,7 +20,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
     let alive = true
     apiGet('proxies')
       .then((r) => {
-        if (alive) setProxies(r.proxies || [])
+        if (alive) setProxies(r.proxies)
       })
       .catch(() => {})
     return () => {

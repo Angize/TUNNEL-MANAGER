@@ -70,7 +70,6 @@ export default {
   inst_retry: 'تلاشِ مجدد',
   inst_node_installed: 'نود نصب شد',
   inst_panel_lost: 'ارتباط با پنل قطع شد',
-  inst_status_notfound: 'وضعیتِ نصب یافت نشد',
 
   kt_title: 'تیونینگِ کرنل (BBR)',
   kt_sub: 'شتاب‌دهیِ شبکه‌ی سرور',

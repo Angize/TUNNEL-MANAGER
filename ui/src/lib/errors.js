@@ -1,4 +1,5 @@
 import { T } from '../i18n/fa.js'
+import { ApiError } from './api.js'
 
 const NOISE = [
   /^(dial|read|write) (tcp|udp)\s*/i,
@@ -70,6 +71,10 @@ export function translateError(msg) {
   for (const [re, key] of WHOLE) out = out.replace(re, T(key))
   for (const [re, key] of PHRASE) out = out.replace(re, T(key))
   return out.trim()
+}
+
+export function readError(e) {
+  return e instanceof ApiError && e.message ? translateError(e.message) : T('net_read')
 }
 
 export function postError(r, fallbackKey) {

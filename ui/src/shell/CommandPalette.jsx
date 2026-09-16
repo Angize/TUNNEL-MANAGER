@@ -20,10 +20,10 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
   useEffect(() => {
     let alive = true
     apiGet('node-names')
-      .then((r) => alive && setNodes(r.nodes || []))
+      .then((r) => alive && setNodes(r.nodes))
       .catch(() => {})
     apiGet('fleet?limit=100')
-      .then((r) => alive && setLinks(r.links || []))
+      .then((r) => alive && setLinks(r.links))
       .catch(() => {})
     if (input.current) input.current.focus()
     return () => {

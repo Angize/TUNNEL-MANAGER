@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiGet } from '../../lib/api.js'
+import { ApiError, apiGet } from '../../lib/api.js'
+import { readError } from '../../lib/errors.js'
 import { T } from '../../i18n/fa.js'
 
 const TICK_MS = 150
@@ -41,30 +42,21 @@ export default function useInstallJob({ onFinished }) {
     apiGet('install-status?job=' + encodeURIComponent(c.job) + '&_=' + Date.now())
       .then((d) => {
         c.polling = false
-        if (d && d.ok) {
-          c.failures = 0
-          c.steps = d.steps || []
-          c.confirmed = c.steps.map((s) => s.state)
-          if (d.banner) c.banner = d.banner
-          c.done = !!d.done
-          c.success = !!d.success
-          return
-        }
-        if (d && /not found/.test(d.error || '')) {
-          c.error = T('inst_status_notfound')
-          c.done = true
-          c.success = false
-          return
-        }
-        c.failures++
-        if (c.failures >= MAX_POLL_FAILURES) {
-          c.error = T('inst_panel_lost')
-          c.done = true
-          c.success = false
-        }
+        c.failures = 0
+        c.steps = d.steps
+        c.confirmed = c.steps.map((s) => s.state)
+        if (d.banner) c.banner = d.banner
+        c.done = !!d.done
+        c.success = !!d.success
       })
-      .catch(() => {
+      .catch((e) => {
         c.polling = false
+        if (e instanceof ApiError && e.status === 400) {
+          c.error = readError(e)
+          c.done = true
+          c.success = false
+          return
+        }
         c.failures++
         if (c.failures >= MAX_POLL_FAILURES) {
           c.error = T('inst_panel_lost')
@@ -91,7 +83,7 @@ export default function useInstallJob({ onFinished }) {
     if (!c || c.cancelled) return
 
     const t = now()
-    if (!c.polling && t - c.lastPoll >= POLL_MS) {
+    if (!c.done && !c.polling && t - c.lastPoll >= POLL_MS) {
       c.polling = true
       c.lastPoll = t
       poll(c)

@@ -5,7 +5,7 @@ import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError, translateError } from '../../lib/errors.js'
+import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
@@ -101,7 +101,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
     apiGet('node-names')
       .then((r) => {
         if (!alive) return
-        const online = (r.nodes || []).filter((n) => n.online)
+        const online = r.nodes.filter((n) => n.online)
         if (online.length < 2) {
           toast(T('node_min2'), 'err')
           onClose()
@@ -111,7 +111,11 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
         setANode(online[0].id)
         setBNode(online[1].id)
       })
-      .catch(() => {})
+      .catch((e) => {
+        if (!alive) return
+        toast(readError(e), 'err')
+        onClose()
+      })
     return () => {
       alive = false
     }

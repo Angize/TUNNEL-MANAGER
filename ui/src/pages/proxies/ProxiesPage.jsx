@@ -25,7 +25,7 @@ export default function ProxiesPage() {
   const load = useCallback(async () => {
     if (listBusy()) return undefined
     const r = await apiGet('proxies')
-    return r.proxies || []
+    return r.proxies
   }, [])
 
   const [list, reload] = usePolledData(load)

@@ -65,16 +65,15 @@ export default function LogsPage() {
   const load = useCallback(async () => {
     const sig = evSeq + ':' + logCount
     if (sig === signature.current) return
-    let r = null
+    let r
     try {
       r = await apiGet('events')
     } catch {
       return
     }
-    if (!r || !r.events) return
     signature.current = sig
     setEvents(r.events)
-    if (!isPending()) adoptFromServer(r.hidden || [])
+    if (!isPending()) adoptFromServer(r.hidden)
   }, [evSeq, logCount, adoptFromServer, isPending])
 
   loadRef.current = load

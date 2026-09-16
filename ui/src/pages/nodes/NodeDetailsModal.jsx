@@ -6,6 +6,7 @@ import Gauge from '../overview/Gauge.jsx'
 import Sparkline from '../overview/Sparkline.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
+import { readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 
@@ -73,7 +74,7 @@ export default function NodeDetailsModal({ node, onClose }) {
       apiGet('node-stats?id=' + node.id)
         .then((r) => {
           if (!alive) return
-          if (r && r.online && r.stats) {
+          if (r.online) {
             setStats(r.stats)
             setOnline(true)
           } else {
@@ -84,11 +85,11 @@ export default function NodeDetailsModal({ node, onClose }) {
 
       apiGet('traffic?id=' + node.id)
         .then((r) => {
-          if (!alive || !r || !r.node) return
+          if (!alive) return
           setTraffic(r.node)
           rxHistory.current = [...rxHistory.current, num(r.node.rx_bps)].slice(-SPARK_POINTS)
           txHistory.current = [...txHistory.current, num(r.node.tx_bps)].slice(-SPARK_POINTS)
-          setRows((r.tunnels || []).concat(r.portfw || []))
+          setRows(r.tunnels.concat(r.portfw))
         })
         .catch(() => {})
     }
@@ -104,10 +105,10 @@ export default function NodeDetailsModal({ node, onClose }) {
   const retest = () => {
     apiGet('node-stats?id=' + node.id)
       .then((r) => {
-        if (r && r.online) toast(T('online'), 'ok')
-        else toast(T('offline') + ': ' + ((r && r.error) || T('not_available')), 'err')
+        if (r.online) toast(T('online'), 'ok')
+        else toast(T('offline') + ': ' + (r.error || T('not_available')), 'err')
       })
-      .catch(() => toast(T('err_check'), 'err'))
+      .catch((e) => toast(readError(e), 'err'))
   }
 
   const info = node.info || {}

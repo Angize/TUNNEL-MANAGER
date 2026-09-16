@@ -11,7 +11,7 @@ import { collectCarrier, rotCollect, rotValidate } from './collect.js'
 import { createForm, editForm, nodeCpus, nodeItemsForEdit, nodeLabel, pickedIp } from './state.js'
 import { apiGet, apiPost } from '../../../lib/api.js'
 import { alertBox } from '../../../lib/dialog.js'
-import { postError, translateError } from '../../../lib/errors.js'
+import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps } from '../../../lib/nodes.js'
 import { subnetForBase } from '../../../lib/subnet.js'
@@ -55,15 +55,13 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       let reply
       try {
         reply = await apiGet('node-names')
-      } catch {
-        reply = null
-      }
-      if (!alive) return
-      if (!reply || !reply.nodes) {
-        toast(T(link ? 'failed' : 'node_min2'), 'err')
+      } catch (e) {
+        if (!alive) return
+        toast(readError(e), 'err')
         closeRef.current()
         return
       }
+      if (!alive) return
       if (!link && reply.nodes.filter((n) => n.online).length < 2) {
         toast(T('node_min2'), 'err')
         closeRef.current()
@@ -73,7 +71,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     }
     load()
     apiGet('proxies')
-      .then((r) => alive && setProxies(r.proxies || []))
+      .then((r) => alive && setProxies(r.proxies))
       .catch(() => {})
     return () => {
       alive = false
@@ -137,7 +135,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     let alive = true
     apiGet('next-port')
       .then((r) => {
-        if (!alive || !r || !r.ok || !r.port) return
+        if (!alive) return
         setForm((f) => (f && f.port === '' ? { ...f, port: String(r.port) } : f))
       })
       .catch(() => {})

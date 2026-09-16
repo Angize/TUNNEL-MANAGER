@@ -61,7 +61,7 @@ export default function NodesPage() {
     if (listBusy()) return undefined
     const r = await apiGet('nodes?q=' + encodeURIComponent(query))
     setOverrides({})
-    return { nodes: r.nodes || [], windowHours: num(r.uptime_window) || 1 }
+    return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1 }
   }, [query])
 
   const [data, reload] = usePolledData(load, query)
