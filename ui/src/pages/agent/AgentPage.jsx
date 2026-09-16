@@ -31,6 +31,7 @@ export default function AgentPage({ headless }) {
   const [agentMeta, setAgentMeta] = useState(null)
   const [versions, setVersions] = useState(null)
   const [staged, setStaged] = useState(null)
+  const [coreReady, setCoreReady] = useState({ ready: false, missing: [] })
   const [wanted, setWanted] = useState('')
   const [delivery, setDelivery] = useState({ agent: 'push', core: 'push' })
   const [nodes, setNodes] = useState(null)
@@ -71,6 +72,7 @@ export default function AgentPage({ headless }) {
     }
     setVersions(r.versions)
     setStaged(r.staged)
+    setCoreReady({ ready: !!r.ready, missing: r.missing || [] })
     setDelivery((prev) => ({ ...prev, core: r.delivery }))
     setWanted((prev) => {
       if (prev) return prev
@@ -146,6 +148,7 @@ export default function AgentPage({ headless }) {
     const r = await apiPost('settings-set', { [kind + '_delivery']: value })
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
+      if (kind === 'core') loadCoreVersions()
       return
     }
     setDelivery((prev) => ({ ...prev, [kind]: was }))
@@ -525,8 +528,8 @@ export default function AgentPage({ headless }) {
             <span className="grow" />
             <span>
               {coreUnknown ? null : (
-                <span className={'badge ' + (staged ? 'ok' : 'na')}>
-                  {staged ? T('ag_ready') : T('ag_empty')}
+                <span className={'badge ' + (!staged ? 'na' : coreReady.ready ? 'ok' : 'warn')}>
+                  {T(!staged ? 'ag_empty' : coreReady.ready ? 'ag_ready' : 'ag_not_ready')}
                 </span>
               )}
             </span>
@@ -561,6 +564,11 @@ export default function AgentPage({ headless }) {
               <span className="muted">{T(coreUnknown ? 'loading' : 'ag_no_core_staged')}</span>
             )}
           </Meta>
+          {staged && !coreReady.ready && coreReady.missing.length ? (
+            <div className="muted" style={{ fontSize: 12 }}>
+              {T('cor_not_ready').replace('{a}', coreReady.missing.join('، '))}
+            </div>
+          ) : null}
 
           <div className="oprow">
             <div id="cor_ver_box">
