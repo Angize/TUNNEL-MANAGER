@@ -255,7 +255,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       if (subnet) body.subnet = subnet
     } else body.subnet_base = form.range
 
-    if (form.port) body.port = form.port
+    if (form.Tr === 'ws' && !form.port) body.port = '80'
+    else if (form.port) body.port = form.port
+    else if (link && form.Tr !== 'raw') body.port = ''
 
     if (!link) setMessage(T('creating_core'))
 
