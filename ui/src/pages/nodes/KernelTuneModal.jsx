@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
@@ -22,6 +22,9 @@ export default function KernelTuneModal({ node, onClose }) {
   const [status, setStatus] = useState(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null)
+  const closeRef = useRef(onClose)
+
+  closeRef.current = onClose
 
   useEffect(() => {
     let alive = true
@@ -30,7 +33,7 @@ export default function KernelTuneModal({ node, onClose }) {
         if (!alive) return
         if (!(r.ok && r.d.ok)) {
           toast(translateError((r.d && r.d.error) || T('failed')), 'err')
-          onClose()
+          closeRef.current()
           return
         }
         setStatus(r.d)
@@ -39,7 +42,7 @@ export default function KernelTuneModal({ node, onClose }) {
     return () => {
       alive = false
     }
-  }, [node.id, onClose])
+  }, [node.id])
 
   if (!status) return null
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from './Modal.jsx'
 import Icon from './Icon.jsx'
 import IpChips from './IpChips.jsx'
@@ -24,6 +24,11 @@ export default function RebuildPicker({ id, onClose, onDone }) {
   const [picked, setPicked] = useState({})
   const [message, setMessage] = useState('')
   const { waitAccepted } = useActs()
+  const closeRef = useRef(onClose)
+  const doneRef = useRef(onDone)
+
+  closeRef.current = onClose
+  doneRef.current = onDone
 
   useEffect(() => {
     let alive = true
@@ -33,7 +38,7 @@ export default function RebuildPicker({ id, onClose, onDone }) {
         const d = r.d
         if (!d || !d.id) {
           toast(T('rb_no_link'), 'err')
-          onClose()
+          closeRef.current()
           return
         }
         const chosen = {}
@@ -43,8 +48,8 @@ export default function RebuildPicker({ id, onClose, onDone }) {
         }
         if (!Object.keys(chosen).length) {
           toast(T('rb_no_drift'), 'ok')
-          onClose()
-          onDone()
+          closeRef.current()
+          doneRef.current()
           return
         }
         setPicked(chosen)
@@ -53,12 +58,12 @@ export default function RebuildPicker({ id, onClose, onDone }) {
       .catch(() => {
         if (!alive) return
         toast(T('rb_fetch_err'), 'err')
-        onClose()
+        closeRef.current()
       })
     return () => {
       alive = false
     }
-  }, [id, onClose, onDone])
+  }, [id])
 
   if (!info) return null
 

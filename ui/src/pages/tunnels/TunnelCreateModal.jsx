@@ -91,6 +91,9 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   const { waitAccepted } = useActs()
   const { subnetFree } = useSummary()
   const mounted = useRef(true)
+  const closeRef = useRef(onClose)
+
+  closeRef.current = onClose
 
   useEffect(() => () => {
     mounted.current = false
@@ -104,7 +107,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
         const online = r.nodes.filter((n) => n.online)
         if (online.length < 2) {
           toast(T('node_min2'), 'err')
-          onClose()
+          closeRef.current()
           return
         }
         setNodes(online)
@@ -114,12 +117,12 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
       .catch((e) => {
         if (!alive) return
         toast(readError(e), 'err')
-        onClose()
+        closeRef.current()
       })
     return () => {
       alive = false
     }
-  }, [onClose])
+  }, [])
 
   if (!nodes) {
     return (
