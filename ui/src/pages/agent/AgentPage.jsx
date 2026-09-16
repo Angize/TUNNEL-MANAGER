@@ -26,6 +26,35 @@ function Meta({ children }) {
   return <div className="opmeta">{children}</div>
 }
 
+function Message({ value, onCancel }) {
+  return (
+    <div className={value ? 'msg ' + value.cls : 'msg'}>
+      {value ? (
+        value.progress != null ? (
+          <>
+            <div className="pushbar">
+              <i style={{ width: value.progress + '%' }} />
+            </div>
+            <div className="plbl">
+              <span>{T('cor_downloading')}</span>
+              <b>{value.progress}%</b>
+            </div>
+            <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={onCancel}>
+              <Icon name="xc" />
+              {T('cor_dl_cancel')}
+            </button>
+          </>
+        ) : (
+          <>
+            {value.text}
+            {value.check ? <Check /> : null}
+          </>
+        )
+      ) : null}
+    </div>
+  )
+}
+
 export default function AgentPage({ headless }) {
   const { counts } = useSummary()
   const [agentMeta, setAgentMeta] = useState(null)
@@ -427,33 +456,6 @@ export default function AgentPage({ headless }) {
   const stagedSize = (staged && staged.size && staged.size[stagedArch]) || 0
   const pushNodes = (push.state && push.state.nodes) || {}
 
-  const Message = ({ value }) => (
-    <div className={value ? 'msg ' + value.cls : 'msg'}>
-      {value ? (
-        value.progress != null ? (
-          <>
-            <div className="pushbar">
-              <i style={{ width: value.progress + '%' }} />
-            </div>
-            <div className="plbl">
-              <span>{T('cor_downloading')}</span>
-              <b>{value.progress}%</b>
-            </div>
-            <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={cancelStage}>
-              <Icon name="xc" />
-              {T('cor_dl_cancel')}
-            </button>
-          </>
-        ) : (
-          <>
-            {value.text}
-            {value.check ? <Check /> : null}
-          </>
-        )
-      ) : null}
-    </div>
-  )
-
   return (
     <>
       {headless ? null : <PageHead icon="server" titleKey="ag_title" subKey="ag_sub" />}
@@ -600,7 +602,7 @@ export default function AgentPage({ headless }) {
           </div>
 
           <DeliverySegment value={delivery.core} onChange={(v) => changeDelivery('core', v)} />
-          <Message value={coreMsg} />
+          <Message value={coreMsg} onCancel={cancelStage} />
           <input
             type="file"
             ref={coreFile}
