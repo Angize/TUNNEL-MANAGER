@@ -341,6 +341,10 @@ body.dock-on .tabbar {
   margin: 2px 0 6px;
 }
 
+.stpage > .loadfail {
+  margin-bottom: var(--sc-g);
+}
+
 .stdefaults .ghost {
   margin: 0;
   height: var(--sc-h);
