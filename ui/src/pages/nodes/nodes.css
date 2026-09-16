@@ -599,10 +599,6 @@
   animation: isp 1s linear infinite;
 }
 
-@keyframes isp {
-  to { transform: rotate(360deg) }
-}
-
 .ilog {
   margin: 8px 0 2px;
   background: #0c1220;
@@ -618,17 +614,6 @@
   white-space: pre-wrap;
   max-height: 170px;
   overflow: auto;
-}
-
-.bspin {
-  display: block;
-  margin: 1px auto;
-  width: 19px;
-  height: 19px;
-  border: 3px solid rgba(255, 255, 255, .4);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: isp .9s linear infinite;
 }
 
 .primary.done {

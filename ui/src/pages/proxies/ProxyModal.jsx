@@ -6,9 +6,11 @@ import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
+import useBusy from '../../lib/useBusy.js'
 
 export default function ProxyModal({ proxy, onClose, onSaved }) {
   const [name, setName] = useState(proxy ? proxy.name : '')
+  const [busy, guard] = useBusy()
   const [scheme, setScheme] = useState((proxy && proxy.scheme) || 'socks5')
   const [host, setHost] = useState(proxy ? proxy.host : '')
   const [port, setPort] = useState(proxy ? String(proxy.port) : '')
@@ -37,8 +39,8 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={save}>
-        {T(proxy ? 'save' : 'add')}
+      <button className="primary" disabled={busy} onClick={guard(save)}>
+        {busy ? <span className="bspin" /> : T(proxy ? 'save' : 'add')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

@@ -11,6 +11,7 @@ import { toast } from '../../lib/toast.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
+import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 
@@ -79,6 +80,7 @@ function IpField({ label, ips, value, onChange }) {
 
 export default function TunnelCreateModal({ onClose, onCreated }) {
   const [nodes, setNodes] = useState(null)
+  const [busy, guard] = useBusy()
   const [aNode, setANode] = useState('')
   const [bNode, setBNode] = useState('')
   const [aIp, setAIp] = useState('')
@@ -184,8 +186,8 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={create}>
-        {T('create_tun_btn')}
+      <button className="primary" disabled={busy} onClick={guard(create)}>
+        {busy ? <span className="bspin" /> : T('create_tun_btn')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

@@ -50,6 +50,21 @@ select:focus {
   box-shadow: 0 16px 30px -12px color-mix(in srgb, var(--acc) 85%, transparent);
 }
 
+.bspin {
+  display: block;
+  margin: 1px auto;
+  width: 19px;
+  height: 19px;
+  border: 3px solid rgba(255, 255, 255, .4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: isp .9s linear infinite;
+}
+
+@keyframes isp {
+  to { transform: rotate(360deg) }
+}
+
 .primary:active {
   transform: scale(.98);
 }

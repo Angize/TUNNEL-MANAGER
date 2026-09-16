@@ -6,9 +6,11 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { isNodeNameValid } from './nodeName.js'
+import useBusy from '../../lib/useBusy.js'
 
 export default function NodeEditModal({ node, onClose, onSaved }) {
   const [proxies, setProxies] = useState([])
+  const [busy, guard] = useBusy()
   const [name, setName] = useState(node.name)
   const [host, setHost] = useState(node.host)
   const [port, setPort] = useState(String(node.port))
@@ -59,8 +61,8 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={save}>
-        {T('save')}
+      <button className="primary" disabled={busy} onClick={guard(save)}>
+        {busy ? <span className="bspin" /> : T('save')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}
