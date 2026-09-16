@@ -1497,6 +1497,10 @@ def _cached_ping(nid):
     return (_cache_get(nid) or {}).get("ping") or {}
 
 
+def _node_answered(nid):
+    return bool(_cached_ping(nid).get("ok")) or _cached_list(nid).get("configs") is not None
+
+
 def _known_offline(n):
     p = _cached_ping(n["id"])
     if "ok" in p:
@@ -4177,8 +4181,7 @@ def api_fleet(d):
         a_ips, b_ips = _flat_ips(pa), _flat_ips(pb)
         side = "b" if L.get("view_side") == "b" else "a"
         pub = {k: v for k, v in L.items() if k != "psk"}
-        rec = {**pub, "a_online": bool(la.get("ok")) or la.get("configs") is not None,
-               "b_online": bool(lb.get("ok")) or lb.get("configs") is not None,
+        rec = {**pub, "a_online": _node_answered(L["a_node"]), "b_online": _node_answered(L["b_node"]),
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), "tag": int(L.get("tag") or 0),
@@ -5198,10 +5201,10 @@ def _delete_link_impl(d, h):
         force = bool(d.get("force"))
         ends = [(L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])]
         if not force:
-            off = [nm for nid, nm in ends if not _cached_ping(nid).get("ok")]
+            off = [nm for nid, nm in ends if not _node_answered(nid)]
             if off:
                 _refresh_cache([L["a_node"], L["b_node"]])
-                return {"ok": False, "msg": "نودِ «" + "»، «".join(off) + "» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
+                return {"ok": False, "offer": "force", "msg": "نودِ «" + "»، «".join(off) + "» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         errs, deferred = [], []
         act_step(h, "برچیدنِ تونل روی دو نود", 1, DELETE_STEPS, more=False)
         for nid, nm in ends:
@@ -5224,7 +5227,7 @@ def _delete_link_impl(d, h):
                     errs.append(f"{nm}: صفِ حذفِ معلق نوشته نشد")
         if errs:
             _refresh_cache([L["a_node"], L["b_node"]])
-            return {"ok": False, "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
+            return {"ok": False, "offer": "force", "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         act_step(h, "برداشتنِ رکورد", 2, DELETE_STEPS, stop=False)
         with _reg_lock:
             save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
@@ -7432,7 +7435,7 @@ def _act_open(key, target="", page="", ttype=""):
         if cur and cur["state"] == "run":
             raise ValueError("همین کار روی این مورد در جریان است — تا تمام‌شدنش صبر کن")
         h = {"key": key, "target": target, "page": page, "ttype": ttype,
-             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "note": "",
+             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "note": "", "offer": "",
              "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
         _acts[key] = h
     return h
@@ -7445,7 +7448,8 @@ def _act_run(h, fn):
         bad = (res.get("msg") or res.get("error") or "") if res.get("ok") is False else ""
         with _act_lock:
             if bad:
-                h.update(state="fail", step="", err=str(bad)[:300], ended=int(time.time()))
+                h.update(state="fail", step="", err=str(bad)[:300], offer=str(res.get("offer") or ""),
+                         ended=int(time.time()))
             else:
                 h.update(state="done", step="", pct=100, si=h["sn"], can=False,
                          note=str(res.get("msg") or "")[:300], ended=int(time.time()))
