@@ -9,6 +9,7 @@ import { alertBox } from '../../lib/dialog.js'
 import { ipItems } from '../../lib/nodes.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetBaseOf, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
+import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 
@@ -39,6 +40,7 @@ function EndIpField({ label, ips, current, value, onChange }) {
 
 export default function TunnelEditModal({ link, onClose, onSaved }) {
   const { waitAccepted } = useActs()
+  const [busy, guard] = useBusy()
   const { subnetFree } = useSummary()
   const mounted = useRef(true)
   const [type, setType] = useState(link.type)
@@ -110,8 +112,8 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={save}>
-        {T('save_rebuild')}
+      <button className="primary" disabled={busy} onClick={guard(save)}>
+        {busy ? <span className="bspin" /> : T('save_rebuild')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

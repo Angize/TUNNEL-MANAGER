@@ -18,6 +18,7 @@ import { subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
 import { useUiConfig } from '../../../state/UiConfigContext.jsx'
+import useBusy from '../../../lib/useBusy.js'
 import { T } from '../../../i18n/fa.js'
 import '../coreform.css'
 
@@ -28,6 +29,7 @@ const TABS = [
 
 export default function CoreFormModal({ link, onClose, onDone }) {
   const cfg = useUiConfig()
+  const [busy, guard] = useBusy()
   const { waitAccepted } = useActs()
   const { subnetFree } = useSummary()
   const [nodes, setNodes] = useState(null)
@@ -278,8 +280,8 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={submit}>
-        {T(link ? 'save_rebuild' : 'create_tun_btn')}
+      <button className="primary" disabled={busy} onClick={guard(submit)}>
+        {busy ? <span className="bspin" /> : T(link ? 'save_rebuild' : 'create_tun_btn')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

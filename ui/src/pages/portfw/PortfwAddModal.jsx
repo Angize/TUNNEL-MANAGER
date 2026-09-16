@@ -8,10 +8,12 @@ import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
+import useBusy from '../../lib/useBusy.js'
 
 const DEFAULT_ROTATE_MINUTES = 5
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
+  const [busy, guard] = useBusy()
   const nodeItems = nodes.map((n) => ({ v: n.id, label: n.name, sub: n.host }))
   const [nodeId, setNodeId] = useState(nodeItems.length ? nodeItems[0].v : '')
   const [listenIp, setListenIp] = useState('')
@@ -57,8 +59,8 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={create}>
-        {T('add')}
+      <button className="primary" disabled={busy} onClick={guard(create)}>
+        {busy ? <span className="bspin" /> : T('add')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

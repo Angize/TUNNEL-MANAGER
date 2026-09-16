@@ -7,10 +7,12 @@ import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
+import useBusy from '../../lib/useBusy.js'
 
 const DEFAULT_ROTATE_MINUTES = 5
 
 export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
+  const [busy, guard] = useBusy()
   const ips = nodeIps(nodes, item.node_id)
   const hasIpChoice = ips.length > 1
   const rotatedBefore = item.switch_interval > 0
@@ -55,8 +57,8 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={save}>
-        {T('save')}
+      <button className="primary" disabled={busy} onClick={guard(save)}>
+        {busy ? <span className="bspin" /> : T('save')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

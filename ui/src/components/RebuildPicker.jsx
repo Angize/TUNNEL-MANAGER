@@ -6,6 +6,7 @@ import { T } from '../i18n/fa.js'
 import { apiPost } from '../lib/api.js'
 import { postError, translateError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
+import useBusy from '../lib/useBusy.js'
 import { useActs } from '../state/ActsContext.jsx'
 
 const SIDES = [
@@ -23,6 +24,7 @@ export default function RebuildPicker({ id, onClose, onDone }) {
   const [info, setInfo] = useState(null)
   const [picked, setPicked] = useState({})
   const [message, setMessage] = useState('')
+  const [busy, guard] = useBusy()
   const { waitAccepted } = useActs()
   const closeRef = useRef(onClose)
   const doneRef = useRef(onDone)
@@ -94,9 +96,15 @@ export default function RebuildPicker({ id, onClose, onDone }) {
 
   const footer = (
     <>
-      <button className="primary" onClick={rebuild}>
-        <Icon name="redo" />
-        {T('tip_rebuild')}
+      <button className="primary" disabled={busy} onClick={guard(rebuild)}>
+        {busy ? (
+          <span className="bspin" />
+        ) : (
+          <>
+            <Icon name="redo" />
+            {T('tip_rebuild')}
+          </>
+        )}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}
