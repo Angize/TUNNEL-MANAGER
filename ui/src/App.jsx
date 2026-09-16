@@ -42,7 +42,7 @@ function firstLinkKind() {
 function Shell() {
   const [page, setPage] = useState(firstPage)
   const [linkKind, setLinkKind] = useState(firstLinkKind)
-  const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0 })
+  const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0, loaded: false })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
   const [palette, setPalette] = useState(false)
@@ -119,6 +119,7 @@ function Shell() {
         evSeq: seq,
         logCount: num(s.log_count),
         subnetFree: s.subnet_free || null,
+        loaded: true,
       })
       if (s.ui_interval) {
         interval.current = Math.max(MIN_INTERVAL, Math.round(num(s.ui_interval) * 1000))
@@ -190,6 +191,7 @@ function Shell() {
       evSeq: summary.evSeq,
       logCount: summary.logCount,
       subnetFree: summary.subnetFree,
+      loaded: summary.loaded,
     }),
     [summary]
   )

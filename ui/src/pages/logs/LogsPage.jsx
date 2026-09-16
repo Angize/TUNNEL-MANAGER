@@ -42,7 +42,7 @@ function LogSkeleton() {
 
 export default function LogsPage() {
   const { ev_types: evTypes, ev_groups: evGroups } = useUiConfig()
-  const { evSeq, logCount } = useSummary()
+  const { evSeq, logCount, loaded } = useSummary()
 
   const [events, setEvents] = useState(null)
   const [filter, setFilter] = useState('all')
@@ -85,8 +85,8 @@ export default function LogsPage() {
   useEffect(() => setPageRefresh(() => loadRef.current()), [])
 
   useEffect(() => {
-    setLS(SEEN_KEY, String(evSeq))
-  }, [evSeq])
+    if (loaded) setLS(SEEN_KEY, String(evSeq))
+  }, [evSeq, loaded])
 
   useEffect(() => {
     setShow(PAGE_SIZE)
