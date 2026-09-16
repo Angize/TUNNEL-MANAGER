@@ -78,6 +78,7 @@ export default function NodesPage() {
   const order = useCardReorder('nodes', nodes.map((n) => n.id), reload)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+  const live = (snapshot) => byId.get(snapshot.id) || snapshot
 
   return (
     <>
@@ -126,10 +127,10 @@ export default function NodesPage() {
       {editing ? (
         <NodeEditModal node={editing} onClose={() => setEditing(null)} onSaved={reload} />
       ) : null}
-      {details ? <NodeDetailsModal node={details} onClose={() => setDetails(null)} /> : null}
+      {details ? <NodeDetailsModal node={live(details)} onClose={() => setDetails(null)} /> : null}
       {tuning ? <KernelTuneModal node={tuning} onClose={() => setTuning(null)} /> : null}
       {deleting ? (
-        <DeleteNodeModal node={deleting} onClose={() => setDeleting(null)} onDeleted={reload} />
+        <DeleteNodeModal node={live(deleting)} onClose={() => setDeleting(null)} onDeleted={reload} />
       ) : null}
       {moved ? (
         <MovedIpModal node={moved} onClose={() => setMoved(null)} onAdopted={reload} />

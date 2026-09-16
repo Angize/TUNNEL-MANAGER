@@ -106,11 +106,18 @@ export default function NodeDetailsModal({ node, onClose }) {
   const retest = () => {
     apiGet('node-stats?id=' + node.id)
       .then((r) => {
-        if (r.online) toast(T('online'), 'ok')
-        else toast(T('offline') + ': ' + (r.error || T('not_available')), 'err')
+        setOnline(!!r.online)
+        if (r.online) {
+          setStats(r.stats)
+          toast(T('online'), 'ok')
+        } else {
+          toast(T('offline') + ': ' + (r.error || T('not_available')), 'err')
+        }
       })
       .catch((e) => toast(readError(e), 'err'))
   }
+
+  const shownOnline = node.online && online
 
   const info = node.info || {}
   const ramPct = stats.mem_total_mb
@@ -123,7 +130,7 @@ export default function NodeDetailsModal({ node, onClose }) {
         <span className="pd" />
         {T('live')}
       </span>{' '}
-      {online ? T('refresh2s') : T('nd_off_last')}
+      {shownOnline ? T('refresh2s') : T('nd_off_last')}
     </>
   ) : (
     T('nd_status')
@@ -150,7 +157,7 @@ export default function NodeDetailsModal({ node, onClose }) {
       onClose={onClose}
     >
       <div className="nd-head">
-        <span className={'dot ' + (online ? 'ok' : 'bad')} />
+        <span className={'dot ' + (shownOnline ? 'ok' : 'bad')} />
         <div className="nd-id">
           <b className="nd-name">{node.name}</b>
           <span className="nd-hp">
@@ -162,8 +169,8 @@ export default function NodeDetailsModal({ node, onClose }) {
             {T('proxy')}
           </span>
         ) : null}
-        <span className={'badge ' + (online ? 'ok' : 'bad') + ' nd-ping'}>
-          {online ? T('online') : T('offline')}
+        <span className={'badge ' + (shownOnline ? 'ok' : 'bad') + ' nd-ping'}>
+          {shownOnline ? T('online') : T('offline')}
         </span>
       </div>
 
