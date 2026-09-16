@@ -5484,10 +5484,10 @@ def _guard_arrival_free(was_a, was_b, A, B, tid, names):
                                  f"پاکش کن؛ وگرنه شناسه‌ها تداخل دارند")
 
 
-def _undo_move(was_a, was_b, A, B, name):
+def _undo_apply(was_a, was_b, A, B, name, renamed):
     stay = {n["id"] for n in (was_a, was_b) if n}
     for N in _node_set(A, B):
-        if N["id"] not in stay:
+        if renamed or N["id"] not in stay:
             node_call(N, "delete", "POST", {"name": name})
 
 
@@ -5572,10 +5572,6 @@ def _edit_link_impl(d, h):
     _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
     if moved:
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
-    if name_changed or type_changed or moved or ttype == "core":
-        act_step(h, "برچیدنِ پیکربندیِ قبلی", 1, EDIT_STEPS)
-        for N in _node_set(was_a, was_b, A, B):
-            node_call(N, "delete", "POST", {"name": old_name})
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
               "host": overlay_host(ttype, server_side, True), "enabled": L.get("enabled", True), **node_extra}
@@ -5588,26 +5584,27 @@ def _edit_link_impl(d, h):
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
-    act_step(h, "اعمال روی نودِ «%s»" % A["name"], 2, EDIT_STEPS)
-    ra = _node_tunnel(A, a_body)
-    if not ra.get("ok"):
-        _undo_move(was_a, was_b, A, B, new_name)
-        _restore_link(was_a, was_b, L)
-        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
+    touched = False
     try:
+        if name_changed or type_changed or moved or ttype == "core":
+            act_step(h, "برچیدنِ پیکربندیِ قبلی", 1, EDIT_STEPS)
+            touched = True
+            for N in _node_set(was_a, was_b, A, B):
+                node_call(N, "delete", "POST", {"name": old_name})
+        act_step(h, "اعمال روی نودِ «%s»" % A["name"], 2, EDIT_STEPS)
+        touched = True
+        ra = _node_tunnel(A, a_body)
+        if not ra.get("ok"):
+            raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
         act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS, more=False)
-    except ActCancelled:
-        _undo_move(was_a, was_b, A, B, new_name)
-        _restore_link(was_a, was_b, L)
+        rb = _node_tunnel(B, b_body)
+        if not rb.get("ok"):
+            raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
+    except Exception:
+        if touched:
+            _undo_apply(was_a, was_b, A, B, new_name, name_changed)
+            _restore_link(was_a, was_b, L)
         raise
-    rb = _node_tunnel(B, b_body)
-    if not rb.get("ok"):
-        if name_changed:
-            for N in _node_set(A, B):
-                node_call(N, "delete", "POST", {"name": new_name})
-        _undo_move(was_a, was_b, A, B, new_name)
-        _restore_link(was_a, was_b, L)
-        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
     act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
     with _reg_lock:
         links = load_links()
@@ -5783,9 +5780,6 @@ def _rebuild_link_impl(d, h=None):
                 raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = _tunnel_extra(L)
-    act_step(h, "برچیدنِ هر دو سر", 1, REBUILD_STEPS)
-    node_call(A, "delete", "POST", {"name": name})
-    node_call(B, "delete", "POST", {"name": name})
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
     b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
@@ -5796,20 +5790,21 @@ def _rebuild_link_impl(d, h=None):
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
-    act_step(h, "ساخت روی نودِ «%s»" % A["name"], 2, REBUILD_STEPS)
-    ra = _node_tunnel(A, a_body)
-    if not ra.get("ok"):
-        _restore_link(A, B, L, extra)
-        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
+    act_step(h, "برچیدنِ هر دو سر", 1, REBUILD_STEPS)
     try:
+        node_call(A, "delete", "POST", {"name": name})
+        node_call(B, "delete", "POST", {"name": name})
+        act_step(h, "ساخت روی نودِ «%s»" % A["name"], 2, REBUILD_STEPS)
+        ra = _node_tunnel(A, a_body)
+        if not ra.get("ok"):
+            raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
         act_step(h, "ساخت روی نودِ «%s»" % B["name"], 3, REBUILD_STEPS, more=False)
-    except ActCancelled:
+        rb = _node_tunnel(B, b_body)
+        if not rb.get("ok"):
+            raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
+    except Exception:
         _restore_link(A, B, L, extra)
         raise
-    rb = _node_tunnel(B, b_body)
-    if not rb.get("ok"):
-        _restore_link(A, B, L, extra)
-        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
     if a_ip != L["a_ip"] or b_ip != L["b_ip"]:
         with _reg_lock:
             links = load_links()
