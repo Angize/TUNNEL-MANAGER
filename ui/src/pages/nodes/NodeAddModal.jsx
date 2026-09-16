@@ -8,7 +8,7 @@ import useInstallJob from './useInstallJob.js'
 import { isNodeNameValid } from './nodeName.js'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { translateError } from '../../lib/errors.js'
+import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
@@ -102,7 +102,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
     if (!(r.ok && r.d.ok)) {
       setBusy(false)
       reset()
-      alertBox(translateError((r.d && r.d.error) || '') || T('failed'))
+      alertBox(postError(r))
       return
     }
     start(r.d.job)
@@ -136,7 +136,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
       onAdded()
       return
     }
-    alertBox(translateError(r.d.error || T('failed')))
+    alertBox(postError(r))
   }
 
   const submit = () => {

@@ -83,10 +83,11 @@ export function translateError(msg) {
 
 export function readError(failure) {
   const msg = failure instanceof ApiError ? failure.message : failure.d && (failure.d.error || failure.d.msg)
-  return msg ? translateError(msg) : T('net_read')
+  if (msg) return translateError(msg)
+  return T(failure.ok ? 'failed' : 'net_read')
 }
 
 export function postError(r, fallbackKey) {
-  if (r && r.net) return T(r.net === 'timeout' ? 'net_timeout' : 'net_drop')
-  return translateError((r && r.d && (r.d.error || r.d.msg)) || T(fallbackKey || 'failed'))
+  if (r.net) return T(r.net === 'timeout' ? 'net_timeout' : 'net_drop')
+  return translateError(r.d.error || r.d.msg || T(fallbackKey || 'failed'))
 }

@@ -45,7 +45,7 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
       dirty.current = false
       const list = orderedList()
       const r = await apiPost('settings-set', { log_hidden: list })
-      if (!(r.ok && r.d && r.d.ok)) {
+      if (!(r.ok && r.d.ok)) {
         dirty.current = false
         publish(toMap(server.current))
         saving.current = false

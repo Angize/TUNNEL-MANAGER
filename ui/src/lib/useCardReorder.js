@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { apiPost, NET_TIMEOUT } from './api.js'
+import { postError } from './errors.js'
 import { closeCard } from './openCards.js'
 import { reorderMode, setDragging, setSaving } from './reorder.js'
 import { toast } from './toast.js'
-import { T } from '../i18n/fa.js'
 
 const EDGE = 76
 const MAX_STEP = 24
@@ -138,14 +138,9 @@ export default function useCardReorder(kind, ids, onSaved) {
   const persist = useCallback(
     async (id, targets) => {
       setSaving(true)
-      try {
-        const r = await apiPost('reorder', { kind, id, targets }, NET_TIMEOUT)
-        if (!r.ok || !r.d.ok) toast((r.d && r.d.error) || T('reorder_err'), 'err')
-      } catch {
-        toast(T('reorder_err'), 'err')
-      } finally {
-        setSaving(false)
-      }
+      const r = await apiPost('reorder', { kind, id, targets }, NET_TIMEOUT)
+      if (!(r.ok && r.d.ok)) toast(postError(r, 'reorder_err'), 'err')
+      setSaving(false)
       savedRef.current()
     },
     [kind]

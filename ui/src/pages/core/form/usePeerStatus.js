@@ -39,7 +39,7 @@ export default function usePeerStatus(lid) {
     if (!lid) return
     const r = await apiPost('peer-status', { id: lid })
     if (!alive.current) return
-    if (!(r.ok && r.d && r.d.ok && r.d.pool)) return
+    if (!(r.ok && r.d.ok && r.d.pool)) return
     setStatus({
       dst: applySide(r.d.dst),
       src: applySide(r.d.src),
@@ -88,7 +88,7 @@ export default function usePeerStatus(lid) {
         kind: side === 'src' ? 'src' : 'dst',
         key,
       })
-      if (r.ok && r.d && r.d.ok) {
+      if (r.ok && r.d.ok) {
         toast(T('peer_probe_pulled'), 'ok')
         schedule(RETEST_STEPS)
       } else toast(postError(r), 'err')
@@ -101,7 +101,7 @@ export default function usePeerStatus(lid) {
       if (!lid || pending || !key) return
       setPending({ side, key, ts: Date.now() })
       const r = await apiPost('peer-select', { id: lid, side, key })
-      if (r.ok && r.d && r.d.ok) {
+      if (r.ok && r.d.ok) {
         toast(T('peer_moved'), 'ok')
         schedule(SELECT_STEPS)
         return

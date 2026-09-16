@@ -5,7 +5,7 @@ import { Check } from '../../components/Marks.jsx'
 import UptimeBar from './UptimeBar.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { postError, translateError } from '../../lib/errors.js'
+import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
@@ -59,7 +59,7 @@ export default function NodeCard({
     const r = await apiPost('node-toggle', { id: node.id, disabled })
     if (!(r.ok && r.d.ok)) {
       onToggled(node.id, !disabled)
-      toast(T('failed'), 'err')
+      toast(postError(r), 'err')
       return
     }
     toast(disabled ? T('nd_hidden') : T('nd_shown'), 'ok')
@@ -68,8 +68,13 @@ export default function NodeCard({
   const test = async () => {
     setMessage({ cls: '', text: T('test_testing') })
     const r = await apiPost('node-test', { id: node.id })
-    const probe = (r.d && r.d.info) || {}
-    if (r.d && r.d.ok) {
+    if (!r.ok) {
+      setMessage(null)
+      alertBox(readError(r))
+      return
+    }
+    const probe = r.d.info
+    if (r.d.ok) {
       const ms = probe.rtt_ms
       setMessage({
         cls: 'ok',

@@ -3,7 +3,7 @@ import Modal from '../../components/Modal.jsx'
 import Select from '../../components/Select.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { translateError } from '../../lib/errors.js'
+import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
@@ -54,7 +54,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
       return
     }
     setMessage('')
-    alertBox(translateError(r.d.error || T('failed')))
+    alertBox(postError(r))
   }
 
   const footer = (
