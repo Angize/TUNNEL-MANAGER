@@ -127,7 +127,6 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
     const next = link.enabled === false
     const r = await apiPost('link-toggle', { id: link.id, enabled: next })
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
-    else if (r.d.both === false) toast(translateError(r.d.msg) || T('failed'), 'err')
     else toast(next ? T('turned_on') : T('turned_off'), 'ok')
     onReload()
   }

@@ -5849,6 +5849,10 @@ def api_link_tag(d):
     return {"ok": True, "tag": tag}
 
 
+def _link_enable(N, L, enabled):
+    return node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled}, timeout=NODE_OP_TIMEOUT)
+
+
 def api_link_toggle(d):
     _require(d, ["id"])
     enabled = bool(d.get("enabled"))
@@ -5856,26 +5860,41 @@ def api_link_toggle(d):
     if not a or not b:
         raise ValueError("تونل پیدا نشد")
     with _PairLock(a, b):
-        with _reg_lock:
-            links = load_links()
-            L = next((x for x in links if x["id"] == d["id"]), None)
-            if not L:
-                raise ValueError("تونل پیدا نشد")
-            L["enabled"] = enabled
-            save_json(LINKS_FILE, links)
-        sides = {}
-        for tag, nid in (("a", L["a_node"]), ("b", L["b_node"])):
-            N = get_node(nid)
-            if N:
-                sides[tag] = node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled},
-                                          timeout=NODE_OP_TIMEOUT)
-        _refresh_cache([L["a_node"], L["b_node"]])
-    both = len(sides) == 2 and all((sides.get(t) or {}).get("ok") for t in ("a", "b"))
-    bad = [t for t in ("a", "b") if not (sides.get(t) or {}).get("ok")]
-    names = {"a": L.get("a_name") or "A", "b": L.get("b_name") or "B"}
-    return {"ok": True, "enabled": enabled, "both": both,             "failed": [names[t] for t in bad],
-            "msg": "" if both else ("سمتِ %s جواب نداد — تونل روی آن سر عوض نشد"
-                                    % "، ".join(names[t] for t in bad))}
+        L = next((x for x in load_links() if x["id"] == d["id"]), None)
+        if not L:
+            raise ValueError("تونل پیدا نشد")
+        ends = [get_node(L["a_node"]), get_node(L["b_node"])]
+        if not all(ends):
+            raise ValueError("یکی از نودهای این تونل دیگر در پنل ثبت نیست")
+        off = [N["name"] for N in ends if _known_offline(N)]
+        if off:
+            raise ValueError("نودِ «%s» در دسترس نیست — تونل روی هیچ سری عوض نشد" % "»، «".join(off))
+        was = L.get("enabled") is not False
+        done = []
+        try:
+            for N in ends:
+                r = _link_enable(N, L, enabled)
+                if not r.get("ok"):
+                    why = "جواب نداد" if r.get("offline") else (r.get("error") or r.get("msg") or "ناموفق")
+                    back = [M["name"] for M in done]
+                    stuck = [M["name"] for M in done if not _link_enable(M, L, was).get("ok")]
+                    if stuck:
+                        tail = "؛ برگرداندنِ «%s» هم نشد — آن سر روی حالتِ جدید مانده است" % "»، «".join(stuck)
+                    elif back:
+                        tail = " — «%s» به حالتِ قبل برگشت" % "»، «".join(back)
+                    else:
+                        tail = " — تونل عوض نشد"
+                    raise ValueError("%s: %s%s" % (N["name"], why, tail))
+                done.append(N)
+            with _reg_lock:
+                links = load_links()
+                cur = next((x for x in links if x["id"] == d["id"]), None)
+                if cur is not None:
+                    cur["enabled"] = enabled
+                    save_json(LINKS_FILE, links)
+        finally:
+            _refresh_cache([L["a_node"], L["b_node"]])
+    return {"ok": True, "enabled": enabled}
 
 
 RECONCILE_GAP = 15
