@@ -24,8 +24,8 @@ function Side({ form, side, ips, stored, patch }) {
           onToggle={(ip, count) => {
             const selected = { ...form.rot[selKey] }
             if (selected[ip]) {
-              if (count <= 2) {
-                toast(T('rot_min2'), 'err')
+              if (count <= 1) {
+                toast(T('rot_keep_one'), 'err')
                 return
               }
               delete selected[ip]
@@ -68,6 +68,23 @@ export default function IpsTab({
   const bName = nodeLabel(items, form.bNode)
   const multi = rotMulti(form, cfg.enums, aIps, bIps)
 
+  const toggleRot = () => {
+    if (form.rot.on) {
+      patch({ rot: { ...form.rot, on: false } })
+      return
+    }
+    const seed = (ips, selected, chosen, stored) =>
+      !ips.length || ips.some((ip) => selected[ip]) ? selected : { [seedIp(ips, chosen, stored)]: true }
+    patch({
+      rot: {
+        ...form.rot,
+        on: true,
+        aSel: seed(aIps, form.rot.aSel, form.aIp, storedA),
+        bSel: seed(bIps, form.rot.bSel, form.bIp, storedB),
+      },
+    })
+  }
+
   return (
     <>
       {subtitle ? (
@@ -108,7 +125,7 @@ export default function IpsTab({
           title={T('rot_t')}
           note={T('rot_d')}
           gap={12}
-          onClick={() => patch({ rot: { ...form.rot, on: !form.rot.on } })}
+          onClick={toggleRot}
         />
       ) : null}
       {multi && form.rot.on ? (

@@ -169,8 +169,10 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   }
 
   const onNode = (side, value) => {
-    if (side === 'a') patch({ aNode: value, aIp: '', rot: { ...form.rot, aSel: {} } })
-    else patch({ bNode: value, bIp: '', rot: { ...form.rot, bSel: {} } })
+    const ips = nodeIps(nodes, value)
+    const sel = form.rot.on && ips.length ? { [ips[0]]: true } : {}
+    if (side === 'a') patch({ aNode: value, aIp: '', rot: { ...form.rot, aSel: sel } })
+    else patch({ bNode: value, bIp: '', rot: { ...form.rot, bSel: sel } })
   }
 
   const submit = async () => {

@@ -180,7 +180,7 @@ export function seedIp(ips, chosen, stored) {
 export function pickedIp(form, ips, selected, chosen, stored) {
   if (form.rot.on && ips.length > 1) {
     if (stored && selected[stored]) return stored
-    return ips.find((ip) => selected[ip]) || ips[0] || ''
+    return ips.find((ip) => selected[ip]) || seedIp(ips, chosen, stored) || ''
   }
   if (ips.length > 1) return seedIp(ips, chosen, stored) || ''
   return stored && ips.includes(stored) ? stored : ''
