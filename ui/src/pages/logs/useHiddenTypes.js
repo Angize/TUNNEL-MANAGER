@@ -13,6 +13,7 @@ function toMap(list) {
 
 export default function useHiddenTypes({ evTypes, onSaved }) {
   const [hidden, setHidden] = useState({})
+  const [known, setKnown] = useState(false)
   const current = useRef({})
   const server = useRef([])
   const saving = useRef(false)
@@ -72,6 +73,7 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
       if (isPending()) return
       server.current = (list || []).slice()
       publish(toMap(server.current))
+      setKnown(true)
     },
     [isPending, publish]
   )
@@ -102,5 +104,13 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
     [publish, scheduleSave]
   )
 
-  return { hidden, hiddenCount: Object.keys(hidden).length, adoptFromServer, isPending, toggleType, toggleGroup }
+  return {
+    hidden,
+    hiddenCount: Object.keys(hidden).length,
+    known,
+    adoptFromServer,
+    isPending,
+    toggleType,
+    toggleGroup,
+  }
 }

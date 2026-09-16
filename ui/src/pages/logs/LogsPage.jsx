@@ -59,7 +59,7 @@ export default function LogsPage() {
     loadRef.current()
   }, [])
 
-  const { hidden, hiddenCount, adoptFromServer, isPending, toggleType, toggleGroup } =
+  const { hidden, hiddenCount, known, adoptFromServer, isPending, toggleType, toggleGroup } =
     useHiddenTypes({ evTypes, onSaved })
 
   const load = useCallback(async () => {
@@ -161,6 +161,7 @@ export default function LogsPage() {
         <button
           type="button"
           className={'ghost lgfbtn' + (filtersOpen ? ' on' : '')}
+          disabled={!known}
           onClick={() => setFiltersOpen(!filtersOpen)}
         >
           <Icon name="cog" />
@@ -175,7 +176,7 @@ export default function LogsPage() {
 
       <Toolbar value={query} placeholder={T('logs_search')} onSearch={setQuery} />
 
-      {filtersOpen ? (
+      {filtersOpen && known ? (
         <LogFiltersPanel
           evTypes={evTypes}
           evGroups={evGroups}
