@@ -29,8 +29,22 @@ const ROTATE_BTN_STYLE = {
   borderColor: 'color-mix(in srgb, #fb923c 46%, transparent)',
 }
 
-function HealthBadge({ health }) {
-  if (!health.rule) return <span className="badge bad">{T('pf_disabled')}</span>
+function HealthBadge({ offline, health }) {
+  if (offline) {
+    return (
+      <span className="badge bad" title={T('pf_node_off_t')}>
+        {T('pf_node_off')}
+      </span>
+    )
+  }
+  if (health.up == null) return <span className="badge na">{T('checking')}</span>
+  if (!health.rule) {
+    return (
+      <span className="badge bad" title={T('pf_no_rule_t')}>
+        {T('pf_no_rule')}
+      </span>
+    )
+  }
   if (health.reachable) {
     return (
       <span className="badge ok">
@@ -109,7 +123,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
               {item.switch_interval / 60}m
             </span>
           ) : null}
-          <HealthBadge health={health} />
+          <HealthBadge offline={item.offline} health={health} />
         </span>
       </div>
     </div>
