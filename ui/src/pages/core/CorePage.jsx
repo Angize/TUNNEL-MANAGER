@@ -67,13 +67,9 @@ export default function CorePage({ embedded, active = true }) {
   const setTag = useCallback(async (link, tag) => {
     const previous = num(link.tag)
     setTagOverrides((prev) => ({ ...prev, [link.id]: tag }))
-    try {
-      const r = await apiPost('link-tag', { id: link.id, tag }, NET_TIMEOUT)
-      if (r.ok && r.d.ok) return
-      toast((r.d && r.d.error) || T('tag_err'), 'err')
-    } catch {
-      toast(T('tag_err'), 'err')
-    }
+    const r = await apiPost('link-tag', { id: link.id, tag }, NET_TIMEOUT)
+    if (r.ok && r.d.ok) return
+    toast(r.d.error || T('tag_err'), 'err')
     setTagOverrides((prev) => ({ ...prev, [link.id]: previous }))
   }, [])
 

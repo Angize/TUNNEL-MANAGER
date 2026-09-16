@@ -73,8 +73,9 @@ export function translateError(msg) {
   return out.trim()
 }
 
-export function readError(e) {
-  return e instanceof ApiError && e.message ? translateError(e.message) : T('net_read')
+export function readError(failure) {
+  const msg = failure instanceof ApiError ? failure.message : failure.d && (failure.d.error || failure.d.msg)
+  return msg ? translateError(msg) : T('net_read')
 }
 
 export function postError(r, fallbackKey) {

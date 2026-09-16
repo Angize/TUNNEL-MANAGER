@@ -4,7 +4,7 @@ import Icon from './Icon.jsx'
 import IpChips from './IpChips.jsx'
 import { T } from '../i18n/fa.js'
 import { apiPost } from '../lib/api.js'
-import { postError, translateError } from '../lib/errors.js'
+import { postError, readError, translateError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
 import useBusy from '../lib/useBusy.js'
 import { useActs } from '../state/ActsContext.jsx'
@@ -37,12 +37,12 @@ export default function RebuildPicker({ id, onClose, onDone }) {
     apiPost('link-rebuild-info', { id })
       .then((r) => {
         if (!alive) return
-        const d = r.d
-        if (!d || !d.id) {
-          toast(T('rb_no_link'), 'err')
+        if (!r.ok) {
+          toast(readError(r), 'err')
           closeRef.current()
           return
         }
+        const d = r.d
         const chosen = {}
         for (const [side, key] of SIDES) {
           if (!d[side] || !d[side].drifted) continue
@@ -56,11 +56,6 @@ export default function RebuildPicker({ id, onClose, onDone }) {
         }
         setPicked(chosen)
         setInfo(d)
-      })
-      .catch(() => {
-        if (!alive) return
-        toast(T('rb_fetch_err'), 'err')
-        closeRef.current()
       })
     return () => {
       alive = false

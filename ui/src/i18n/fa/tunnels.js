@@ -110,7 +110,5 @@ export default {
   rb_newip: 'آی‌پیِ جدید',
   rb_no_ip: 'آی‌پیِ قابلِ انتخابی نیست',
   rb_no_drift: 'این تونل driftی ندارد',
-  rb_no_link: 'اطلاعاتِ لینک در دسترس نیست',
-  rb_fetch_err: 'خطا در دریافتِ اطلاعات',
   rebuilding: 'در حال بازسازی…',
 }

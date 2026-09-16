@@ -57,6 +57,7 @@ export default function NodeDetailsModal({ node, onClose }) {
   const [traffic, setTraffic] = useState(null)
   const [rows, setRows] = useState([])
   const [ips, setIps] = useState(null)
+  const [ipsError, setIpsError] = useState('')
   const rxHistory = useRef([])
   const txHistory = useRef([])
 
@@ -64,11 +65,11 @@ export default function NodeDetailsModal({ node, onClose }) {
     if (!node.online) return undefined
     let alive = true
 
-    apiPost('node-ips', { id: node.id })
-      .then((v) => {
-        if (alive) setIps((v.d && v.d.ips) || [])
-      })
-      .catch(() => {})
+    apiPost('node-ips', { id: node.id }).then((v) => {
+      if (!alive) return
+      if (v.ok) setIps(v.d.ips)
+      else setIpsError(readError(v))
+    })
 
     const poll = () => {
       apiGet('node-stats?id=' + node.id)
@@ -280,7 +281,7 @@ export default function NodeDetailsModal({ node, onClose }) {
           <div className="ndips">
             {ips === null ? (
               <div className="muted" style={{ fontSize: 11.5, padding: '6px 2px' }}>
-                …
+                {ipsError || '…'}
               </div>
             ) : ips.length ? (
               ips.map((entry) => (
