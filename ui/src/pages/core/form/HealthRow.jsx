@@ -2,6 +2,7 @@ import Icon from '../../../components/Icon.jsx'
 import { barPercent, countdownText, remain, stepTotal } from './countdown.js'
 import { WarnCap } from './controls.jsx'
 import { T } from '../../../i18n/fa.js'
+import { pressable } from '../../../lib/keys.js'
 
 export const EDGE_TITLES = {
   activeRetry: 'ph_active_retry',
@@ -87,7 +88,7 @@ export function Accordion({ label, badges, collapsible, open, onToggle, children
       <div
         className="pacchd"
         style={collapsible ? undefined : { cursor: 'default' }}
-        onClick={collapsible ? onToggle : undefined}
+        {...(collapsible ? pressable(onToggle) : {})}
       >
         <div className="pacctl">
           <div className="pacct">{label}</div>

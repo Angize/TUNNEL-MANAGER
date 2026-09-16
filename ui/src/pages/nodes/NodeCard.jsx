@@ -9,6 +9,7 @@ import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
+import { checkable } from '../../lib/keys.js'
 
 const PENDING_DEL_STYLE = {
   fontSize: 9,
@@ -103,7 +104,7 @@ export default function NodeCard({
       <div
         className={'tsw' + (enabled ? ' on' : '')}
         title={T('nd_toggle')}
-        onClick={toggle}
+        {...checkable('switch', enabled, toggle)}
       />
       {node.moved_to ? (
         <button

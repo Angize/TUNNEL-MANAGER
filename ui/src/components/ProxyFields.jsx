@@ -1,5 +1,6 @@
 import Select from './Select.jsx'
 import { T } from '../i18n/fa.js'
+import { checkable } from '../lib/keys.js'
 
 export default function ProxyFields({ proxies, value, onChange, labelKey, subKey }) {
   const items = (proxies || []).map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
@@ -10,7 +11,7 @@ export default function ProxyFields({ proxies, value, onChange, labelKey, subKey
       <div className="tglbox">
         <div
           className={'tglsw' + (value.on ? ' on' : '')}
-          onClick={() => onChange({ on: !value.on, id: selected })}
+          {...checkable('switch', value.on, () => onChange({ on: !value.on, id: selected }))}
         />
         <div className="tt">
           <b>{T(labelKey || 'nd_proxy_on')}</b>

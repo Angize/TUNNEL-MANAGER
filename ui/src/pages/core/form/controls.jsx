@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
+import { checkable } from '../../../lib/keys.js'
 
 export function Seg2({ style, children }) {
   return (
@@ -65,7 +66,7 @@ export function TglBox({ on, title, note, locked, hidden, gap, onClick }) {
       className={'tglbox' + (locked ? ' dis' : '')}
       style={gap ? { marginTop: gap } : undefined}
     >
-      <div className={'tglsw' + (on ? ' on' : '')} onClick={onClick} />
+      <div className={'tglsw' + (on ? ' on' : '')} {...checkable('switch', on, onClick)} />
       <div className="tt">
         <b>{title}</b>
         <small>{note}</small>

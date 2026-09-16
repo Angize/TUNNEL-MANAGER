@@ -20,6 +20,7 @@ import { tagClass, tagStyle } from '../../lib/cardTags.js'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../../lib/openCards.js'
 import useLongPress from '../../lib/useLongPress.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import { checkable, pressable } from '../../lib/keys.js'
 
 const VIEW_MSG_MS = 4000
 
@@ -70,7 +71,7 @@ function SideBox({ link, side, live }) {
           <SideStatus link={shown} side={side} />
         </span>
       </div>
-      <div className="tna mono cpv" title={T('tip_copy')} onClick={(e) => copyText(link[side + '_ip'], e)}>
+      <div className="tna mono cpv" title={T('tip_copy')} {...pressable((e) => copyText(link[side + '_ip'], e))}>
         {link[side + '_ip']}
       </div>
     </div>
@@ -231,12 +232,16 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
         data-rk="tunnels"
         style={tagStyle(link.tag)}
       >
-        <div className="chead" onClick={() => toggleCard(link.id)} {...hold}>
+        <div
+          className="chead"
+          {...hold}
+          {...pressable(() => toggleCard(link.id), () => setPicking(true))}
+        >
           <Grip />
           <div
             className={'tsw' + (enabled ? ' on' : '')}
             title={T('tip_toggle')}
-            onClick={toggle}
+            {...checkable('switch', enabled, toggle)}
           />
           <div className="hmain">
             <div className="hrow1">
@@ -259,7 +264,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
           <Chevron />
         </div>
 
-        <div className="cbody">
+        <div className="cbody" inert={!open}>
           <div className="cbody-in">
             {link.drift ? (
               <div

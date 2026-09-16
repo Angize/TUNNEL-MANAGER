@@ -21,6 +21,7 @@ import { tagClass, tagStyle } from '../../lib/cardTags.js'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../../lib/openCards.js'
 import useLongPress from '../../lib/useLongPress.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import { checkable, pressable } from '../../lib/keys.js'
 
 const VIEW_MSG_MS = 4000
 
@@ -94,7 +95,7 @@ function SideBox({ link, side, activeIp, rotating, live }) {
           </span>
         </span>
       </div>
-      <div className="tna mono cpv" title={T('tip_copy')} onClick={(e) => copyText(activeIp, e)}>
+      <div className="tna mono cpv" title={T('tip_copy')} {...pressable((e) => copyText(activeIp, e))}>
         {activeIp}
       </div>
     </div>
@@ -269,9 +270,17 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
         data-rk="core"
         style={tagStyle(link.tag)}
       >
-        <div className="chead" onClick={() => toggleCard(link.id)} {...hold}>
+        <div
+          className="chead"
+          {...hold}
+          {...pressable(() => toggleCard(link.id), () => setPicking(true))}
+        >
           <Grip />
-          <div className={'tsw' + (enabled ? ' on' : '')} title={T('tip_toggle')} onClick={toggle} />
+          <div
+            className={'tsw' + (enabled ? ' on' : '')}
+            title={T('tip_toggle')}
+            {...checkable('switch', enabled, toggle)}
+          />
           <div className="hmain">
             <div className="hrow1">
               <span className="hname">{link.name}</span>
@@ -293,7 +302,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
           <Chevron />
         </div>
 
-        <div className="cbody">
+        <div className="cbody" inert={!open}>
           <div className="cbody-in">
             {link.drift ? (
               <div
