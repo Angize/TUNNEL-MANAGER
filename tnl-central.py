@@ -7482,6 +7482,7 @@ UI_TYPES = {
     ".webmanifest": "application/manifest+json",
     ".woff2": "font/woff2",
 }
+PUBLIC_ASSET = re.compile(r"/assets/fonts/[A-Za-z0-9_-]+\.woff2")
 
 
 def ui_asset(rel):
@@ -7676,8 +7677,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                         "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                         "style-src 'self' 'unsafe-inline'; "
+                         "font-src 'self'; img-src 'self' data:; "
                          "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         self.send_header("Cache-Control", cache)
         for k, v in (extra or {}).items():
@@ -7722,7 +7723,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, page, ctype, cache="no-store")
         elif path.startswith("/assets/"):
-            if not self._user():
+            if not PUBLIC_ASSET.fullmatch(path) and not self._user():
                 self._send(404, {"error": "پیدا نشد"})
                 return
             blob, ctype = ui_asset(path[1:])
