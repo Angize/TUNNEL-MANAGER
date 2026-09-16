@@ -21,9 +21,10 @@ export default {
   px_reach: 'گوگل از این پروکسی: ',
   px_used: 'در حالِ استفاده',
   px_used_nodes: '{n} نود',
-  px_used_and_panel: '{n} نود + پنل',
+  px_used_tunnels: '{n} تونل',
   px_used_panel_only: 'پنل',
-  px_used_panel: 'پنل هم برای دانلودِ خودش از این پروکسی رد می‌شود',
-  px_used_none: 'روی هیچ نودی فعال نیست',
+  px_used_panel: 'پنل برای دانلودِ خودش از این پروکسی رد می‌شود',
+  px_used_ech: 'ECH این تونل‌ها از این پروکسی گرفته می‌شود',
+  px_used_none: 'هیچ نود، تونل یا خودِ پنل از آن استفاده نمی‌کند',
   px_user: 'یوزرنیم',
 }

@@ -35,6 +35,10 @@
   color: var(--acc);
 }
 
+.pxgrid + .pxpanel {
+  margin-top: 9px;
+}
+
 .pxpanel .ic {
   width: 14px;
   height: 14px;

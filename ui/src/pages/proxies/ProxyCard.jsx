@@ -9,22 +9,36 @@ import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import { Check } from '../../components/Marks.jsx'
 
-function UsedBy({ nodes, panel }) {
-  if (!nodes.length && !panel) {
+function Names({ names }) {
+  return (
+    <div className="pxgrid">
+      {names.map((name) => (
+        <span key={name} className="pxcell mono" title={name}>
+          {name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function UsedBy({ nodes, tunnels, panel }) {
+  const parts = [
+    nodes.length ? TF('px_used_nodes', { n: nodes.length }) : '',
+    tunnels.length ? TF('px_used_tunnels', { n: tunnels.length }) : '',
+    panel ? T('px_used_panel_only') : '',
+  ].filter(Boolean)
+  if (!parts.length) {
     return (
       <div className="pxused">
         <span className="muted">{T('px_used_none')}</span>
       </div>
     )
   }
-  const count = !nodes.length
-    ? T('px_used_panel_only')
-    : TF(panel ? 'px_used_and_panel' : 'px_used_nodes', { n: nodes.length })
   return (
     <div className="pxu">
       <div className="pxuh">
         <b>{T('px_used')}</b>
-        <span className="pxuc">{count}</span>
+        <span className="pxuc">{parts.join(' + ')}</span>
       </div>
       {panel ? (
         <div className="pxpanel">
@@ -32,14 +46,15 @@ function UsedBy({ nodes, panel }) {
           {T('px_used_panel')}
         </div>
       ) : null}
-      {nodes.length ? (
-        <div className="pxgrid">
-          {nodes.map((name) => (
-            <span key={name} className="pxcell mono" title={name}>
-              {name}
-            </span>
-          ))}
-        </div>
+      {nodes.length ? <Names names={nodes} /> : null}
+      {tunnels.length ? (
+        <>
+          <div className="pxpanel">
+            <Icon name="link" />
+            {T('px_used_ech')}
+          </div>
+          <Names names={tunnels} />
+        </>
       ) : null}
     </div>
   )
@@ -103,7 +118,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
 
   return (
     <AccordionCard id={proxy.id} className="node acc" head={head}>
-      <UsedBy nodes={proxy.nodes || []} panel={!!proxy.panel} />
+      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} />
       {status.error ? (
         <div className="pxused" style={{ color: 'var(--bad)' }}>
           {translateError(status.error)}
