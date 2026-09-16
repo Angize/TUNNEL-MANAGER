@@ -458,8 +458,19 @@
   cursor: not-allowed;
 }
 
-body.pushing .toast {
+body.pushing .toast,
+body.pushing .savedock:not(.docked) {
   bottom: 74px;
+}
+
+@media (max-width: 840px) {
+  .pfab {
+    bottom: 80px;
+  }
+
+  body.pushing .toast {
+    bottom: 138px;
+  }
 }
 
 .cn-stale {
