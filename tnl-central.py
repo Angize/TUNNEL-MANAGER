@@ -5185,7 +5185,7 @@ def api_delete_link(d):
 DELETE_STEPS = 3
 
 
-def _delete_link_impl(d, h=None):
+def _delete_link_impl(d, h):
     act_step(h, "بررسیِ دو سر", 0, DELETE_STEPS)
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -5693,7 +5693,7 @@ def api_restart_link(d):
     return act_link(d, restart)
 
 
-def _restart_link_impl(d, h=None):
+def _restart_link_impl(d, h):
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
@@ -5756,7 +5756,7 @@ def api_rebuild_link(d):
 REBUILD_STEPS = 4
 
 
-def _rebuild_link_impl(d, h=None):
+def _rebuild_link_impl(d, h):
     act_step(h, "خواندنِ وضعیتِ دو نود", 0, REBUILD_STEPS)
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
@@ -7411,8 +7411,6 @@ class ActCancelled(Exception):
 
 
 def act_step(h, step, i=0, n=0, stop=True, more=None):
-    if h is None:
-        return
     with _act_lock:
         if stop and h.get("cancel"):
             raise ActCancelled()
