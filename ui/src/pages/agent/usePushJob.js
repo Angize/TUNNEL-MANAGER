@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
+import { MAX_POLL_FAILURES } from '../../lib/poll.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { T } from '../../i18n/fa.js'
 
 const POLL_MS = 400
-const MAX_FAILURES = 45
 const SETTLE_MS = 4500
 const JOB_ALL = '*'
 
@@ -47,7 +47,7 @@ export default function usePushJob({ onSettled }) {
         if (!alive.current) return
         if (!r) {
           failures += 1
-          if (failures >= MAX_FAILURES) {
+          if (failures >= MAX_POLL_FAILURES) {
             toast(T('ag_p_lost'), 'err')
             return
           }

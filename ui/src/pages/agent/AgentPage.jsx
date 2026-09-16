@@ -17,7 +17,7 @@ import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
-import { setPageRefresh } from '../../lib/poll.js'
+import { MAX_POLL_FAILURES, setPageRefresh } from '../../lib/poll.js'
 import './agent.css'
 
 const STAGE_POLL_MS = 400
@@ -46,6 +46,8 @@ export default function AgentPage({ headless }) {
   const agentFile = useRef(null)
   const coreFile = useRef(null)
   const queryRef = useRef(query)
+  const mounted = useRef(true)
+  const staging = useRef(false)
 
   queryRef.current = query
 
@@ -102,6 +104,13 @@ export default function AgentPage({ headless }) {
     refreshAll()
     adoptPush()
   }, [refreshAll, adoptPush])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   useEffect(
     () =>
@@ -256,28 +265,28 @@ export default function AgentPage({ headless }) {
     await loadCoreVersions()
   }
 
-  const stageCore = async () => {
-    const version = wanted || 'latest'
-    setCoreMsg({ cls: '', text: T(delivery.core === 'github' ? 'cor_picking' : 'cor_downloading') })
-    const res = await apiPost('core-stage', { version })
-    if (!(res.ok && res.d && res.d.ok)) {
-      setCoreMsg(null)
-      alertBox(translateError((res.d && (res.d.error || res.d.msg)) || T('err_github')))
-      return
-    }
-    if (res.d.done) {
-      await stageDone(res.d)
-      return
-    }
+  const watchStage = async (job) => {
     setCoreMsg({ cls: '', progress: 0 })
+    let failures = 0
     for (;;) {
-      let r = null
+      let r
       try {
         r = await apiGet('core-stage-status')
+        failures = 0
       } catch {
+        failures += 1
+      }
+      if (!mounted.current) return
+      if (failures >= MAX_POLL_FAILURES) {
+        setCoreMsg({ cls: '', text: T('cor_dl_lost') })
         return
       }
-      if (r.done) {
+      if (r && r.job !== job) {
+        setCoreMsg(null)
+        alertBox(T('cor_dl_gone'))
+        return
+      }
+      if (r && r.done) {
         if (r.err) {
           setCoreMsg(null)
           alertBox(translateError(r.err))
@@ -286,8 +295,31 @@ export default function AgentPage({ headless }) {
         }
         return
       }
-      setCoreMsg({ cls: '', progress: Math.max(0, Math.min(100, num(r.pct))) })
+      if (r) setCoreMsg({ cls: '', progress: Math.max(0, Math.min(100, num(r.pct))) })
       await new Promise((done) => setTimeout(done, STAGE_POLL_MS))
+    }
+  }
+
+  const stageCore = async () => {
+    if (staging.current) return
+    staging.current = true
+    try {
+      const version = wanted || 'latest'
+      setCoreMsg({ cls: '', text: T(delivery.core === 'github' ? 'cor_picking' : 'cor_downloading') })
+      const res = await apiPost('core-stage', { version })
+      if (!mounted.current) return
+      if (!(res.ok && res.d && res.d.ok)) {
+        setCoreMsg(null)
+        alertBox(translateError((res.d && (res.d.error || res.d.msg)) || T('err_github')))
+        return
+      }
+      if (res.d.done) {
+        await stageDone(res.d)
+        return
+      }
+      await watchStage(res.d.job)
+    } finally {
+      staging.current = false
     }
   }
 
