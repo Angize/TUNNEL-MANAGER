@@ -6,7 +6,7 @@ import Gauge from '../overview/Gauge.jsx'
 import Sparkline from '../overview/Sparkline.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { readError } from '../../lib/errors.js'
+import { readError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 
@@ -111,7 +111,7 @@ export default function NodeDetailsModal({ node, onClose }) {
           setStats(r.stats)
           toast(T('online'), 'ok')
         } else {
-          toast(T('offline') + ': ' + (r.error || T('not_available')), 'err')
+          toast(T('offline') + ': ' + (translateError(r.error) || T('not_available')), 'err')
         }
       })
       .catch((e) => toast(readError(e), 'err'))
@@ -312,7 +312,7 @@ export default function NodeDetailsModal({ node, onClose }) {
         <div className="nd-off">
           <Icon name="plugoff" />
           <b>{T('not_available')}</b>
-          {info.error ? <span>{info.error}</span> : null}
+          {info.error ? <span>{translateError(info.error)}</span> : null}
         </div>
       )}
     </Modal>

@@ -193,7 +193,7 @@ export default function NodeCard({
         <div className="noff">
           <Icon name="plugoff" />
           <b>{T('not_available')}</b>
-          {info.error ? <span>· {info.error}</span> : null}
+          {info.error ? <span>· {translateError(info.error)}</span> : null}
         </div>
       )}
 

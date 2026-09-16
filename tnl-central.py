@@ -845,6 +845,13 @@ def _proxy_socket(proxy, dh, dp, timeout):
     raise OSError(f"bad proxy scheme '{scheme}'")
 
 
+def _net_why(e):
+    r = getattr(e, "reason", None)
+    if isinstance(r, BaseException):
+        e = r
+    return str(getattr(e, "strerror", None) or e)
+
+
 def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True):
     dh, dp = node["host"], int(node["port"])
     sock = None
@@ -875,7 +882,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
             return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
         return out
     except Exception as e:
-        return {"ok": False, "offline": True, "error": ("proxy: " + str(e).split("] ")[-1])[:90]}
+        return {"ok": False, "offline": True, "error": ("پروکسی: " + _net_why(e))[:90]}
     finally:
         if sock is not None:
             try:
@@ -1017,7 +1024,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
             return node_call(node, endpoint, method, body, timeout, _retry=False)
         return out
     except Exception as e:
-        return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:80]}
+        return {"ok": False, "offline": True, "error": _net_why(e)[:80]}
 
 
 def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024,
@@ -1098,7 +1105,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
                              _retry=False)
         return out
     except Exception as e:
-        return {"ok": False, "offline": True, "error": str(e).split("] ")[-1][:90]}
+        return {"ok": False, "offline": True, "error": _net_why(e)[:90]}
     finally:
         if sock is not None:
             try:
@@ -1343,7 +1350,7 @@ def _proxy_probe(p, timeout=6):
             if code == "407":
                 raise OSError("یوزر/پسوردِ پروکسی پذیرفته نشد (407)")
     except Exception as e:
-        return {"ok": False, "ms": None, "error": str(e).split("] ")[-1][:90], "ts": time.time()}
+        return {"ok": False, "ms": None, "error": _net_why(e)[:90], "ts": time.time()}
     finally:
         if s is not None:
             try:
@@ -1420,7 +1427,7 @@ def _proxy_relay(p, timeout=6):
         _echo_over(s, addr[0], addr[1], timeout)
     except Exception as e:
         return {"ok": False, "skipped": False, "ts": time.time(),
-                "error": "پروکسی عبور نمی‌دهد — " + str(e).split("] ")[-1][:60]}
+                "error": "پروکسی عبور نمی‌دهد — " + _net_why(e)[:60]}
     finally:
         if s is not None:
             try:
@@ -1446,7 +1453,7 @@ def _proxy_reach(p, timeout=8):
             raise OSError("HTTP %d" % code)
     except Exception as e:
         return {"ok": False, "ms": None, "ts": time.time(),
-                "error": "از پروکسی به گوگل نرسید — " + str(e).split("] ")[-1][:60]}
+                "error": "از پروکسی به گوگل نرسید — " + _net_why(e)[:60]}
     finally:
         for c in (conn, sock):
             if c is not None:
