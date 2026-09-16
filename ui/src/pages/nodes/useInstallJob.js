@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, apiGet } from '../../lib/api.js'
 import { readError } from '../../lib/errors.js'
+import { MAX_POLL_FAILURES } from '../../lib/poll.js'
 import { T } from '../../i18n/fa.js'
 
 const TICK_MS = 150
 const POLL_MS = 380
 const MIN_SPIN_MS = 600
-const MAX_POLL_FAILURES = 45
 
 export function installSteps() {
   return [

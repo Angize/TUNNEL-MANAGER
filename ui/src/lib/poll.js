@@ -1,3 +1,5 @@
+export const MAX_POLL_FAILURES = 45
+
 let pageRefresh = null
 
 export function setPageRefresh(fn) {
