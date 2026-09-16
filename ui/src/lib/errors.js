@@ -31,7 +31,7 @@ const WHOLE = [
   [/^need >=2 destinations to rotate$/i, 'err_pf_one_dst'],
   [/^([0-9.]+) is not a local IP on this node$/i, 'err_ip_gone'],
   [/^no interface$/i, 'err_no_iface'],
-  [/^not found$/i, 'err_not_found'],
+  [/^(tunnel )?not found$/i, 'err_not_found'],
   [/^core config missing on this node$/i, 'err_core_nocfg'],
   [/^core did not come up [(]no iface[)]$/i, 'err_core_noiface'],
   [/^bad key$/i, 'err_bad_key'],
@@ -40,11 +40,32 @@ const WHOLE = [
   [/^no edge pool on this tunnel$/i, 'err_no_edgepool'],
   [/^bad axis$/i, 'err_bad_axis'],
   [/^not a ws tunnel$/i, 'err_not_ws'],
+  [/^agent is restarting, retry shortly$/i, 'err_agent_restart'],
+  [/^internal error [(]see node-agent\.log[)]$/i, 'err_agent_internal'],
+  [/^obfs requires a psk and encryption$/i, 'err_obfs_psk'],
+  [/^interface ([^ ]+) has no address$/i, 'err_tun_noaddr'],
+  [
+    /^nothing reached ([^ ]+) over ([^ ]+) -- the far end is not listening or the tunnel is not carrying$/i,
+    'err_speed_nothing',
+  ],
   [/x509:[^,]*signed by unknown authority/i, 'err_cert_unknown'],
   [/x509:[^,]*certificate has expired[^,]*/i, 'err_cert_expired'],
   [/i\/o timeout/i, 'err_timeout'],
   [/EOF$/, 'err_eof'],
 ]
+
+function segment([re, key]) {
+  const groups = new RegExp('(?:' + re.source + ')|').exec('').length - 1
+  let src = re.source.startsWith('^') ? '(^|: )' + re.source.slice(1) : '()' + re.source
+  if (src.endsWith('$')) src = src.slice(0, -1) + '(?=$| \\(|؛|;| —)'
+  return { re: new RegExp(src, re.flags + 'g'), key, groups }
+}
+
+const SEGMENTS = WHOLE.map(segment)
+
+function fill(text, values) {
+  return text.replace(/\$([1-9])/g, (all, n) => (n <= values.length ? values[n - 1] || '' : all))
+}
 
 const PHRASE = [
   [/RTNETLINK answers:\s*No such file or directory/gi, 'err_rt_nomod'],
@@ -60,6 +81,7 @@ const PHRASE = [
   [/Cannot find device/gi, 'err_rt_nodev'],
   [/Connection refused/gi, 'err_refused'],
   [/No route to host/gi, 'err_noroute'],
+  [/Network is unreachable/gi, 'err_noroute'],
   [/Name or service not known/gi, 'err_dns'],
   [/Connection reset by peer/gi, 'err_reset'],
   [/timed out|timeout/gi, 'err_timeout'],
@@ -76,7 +98,9 @@ const PHRASE = [
 export function translateError(msg) {
   let out = String(msg == null ? '' : msg)
   for (const re of NOISE) out = out.replace(re, '')
-  for (const [re, key] of WHOLE) out = out.replace(re, T(key))
+  for (const { re, key, groups } of SEGMENTS) {
+    out = out.replace(re, (...m) => m[1] + fill(T(key), m.slice(2, 2 + groups)))
+  }
   for (const [re, key] of PHRASE) out = out.replace(re, T(key))
   return out.trim()
 }
