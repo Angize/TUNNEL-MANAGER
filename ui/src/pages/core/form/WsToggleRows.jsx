@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import Select from '../../../components/Select.jsx'
 import { Seg2, SegOpt, TglBox } from './controls.jsx'
 import { wssMandatory } from './gates.js'
@@ -6,6 +7,12 @@ import { alertBox } from '../../../lib/dialog.js'
 import { T } from '../../../i18n/fa.js'
 
 function EchProxyPicker({ proxies, value, patch }) {
+  const first = proxies.length ? proxies[0].id : ''
+
+  useEffect(() => {
+    if (!value && first) patch({ echProxyId: first })
+  }, [value, first, patch])
+
   if (!proxies.length) {
     return (
       <div className="muted" style={{ fontSize: 12 }}>
@@ -17,8 +24,8 @@ function EchProxyPicker({ proxies, value, patch }) {
   return (
     <Select
       items={items}
-      value={value || items[0].v}
-      placeholder=""
+      value={value}
+      placeholder={T('select')}
       onChange={(v) => patch({ echProxyId: v })}
     />
   )
