@@ -5734,7 +5734,7 @@ def rb_last(lid):
         return dict(v) if v and time.time() - v["ts"] <= RB_KEEP else None
 
 
-def api_rebuild_link(d):
+def _rebuild_job(d):
     def rebuild(h):
         a, b = _link_nodes(d)
         with _PairLock(a, b):
@@ -5746,7 +5746,11 @@ def api_rebuild_link(d):
             _rb_note(str(d.get("id") or ""), bool(r.get("ok")))
             return r
 
-    return act_link(d, rebuild)
+    return rebuild
+
+
+def api_rebuild_link(d):
+    return act_link(d, _rebuild_job(d))
 
 
 REBUILD_STEPS = 4
@@ -5889,6 +5893,7 @@ def _reconcile_once():
     with _drift_lock:
         for k in [k for k in _drift if k not in valid_ids]:
             _drift.pop(k, None)
+    todo = []
     for L in links:
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         if not pa.get("ok") or not pb.get("ok"):
@@ -5909,14 +5914,13 @@ def _reconcile_once():
             continue
         if now - _reconcile_last.get(L["id"], 0) < RECONCILE_RETRY:
             continue
+        todo.append(L["id"])
+    for lid in todo:
         try:
-            r = api_rebuild_link({"id": L["id"]})
-            if r.get("ok"):
-                _set_drift(L["id"], False)
-            else:
-                _reconcile_last[L["id"]] = now
-        except Exception:
-            _reconcile_last[L["id"]] = now
+            _rebuild_now(lid)
+        except ValueError:
+            pass
+        _reconcile_last[lid] = time.time()
 
 
 def reconcile_loop():
@@ -6056,9 +6060,8 @@ def _ech_keys_blank(L, kind, hosts):
 
 def _ech_safe_rebuild(lid):
     try:
-        api_rebuild_link({"id": lid})
-        return True
-    except Exception:
+        return _rebuild_now(lid)
+    except ValueError:
         return False
 
 
@@ -7406,7 +7409,7 @@ def _act_prune():
         _acts.pop(k, None)
 
 
-def act_start(key, fn, target="", page="", ttype=""):
+def _act_open(key, target="", page="", ttype=""):
     with _act_lock:
         _act_prune()
         cur = _acts.get(key)
@@ -7416,35 +7419,52 @@ def act_start(key, fn, target="", page="", ttype=""):
              "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "note": "",
              "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
         _acts[key] = h
+    return h
 
-    def run():
-        try:
-            res = fn(h)
-            res = res if isinstance(res, dict) else {}
-            bad = (res.get("msg") or res.get("error") or "") if res.get("ok") is False else ""
-            with _act_lock:
-                if bad:
-                    h.update(state="fail", step="", err=str(bad)[:300], ended=int(time.time()))
-                else:
-                    h.update(state="done", step="", pct=100, si=h["sn"], can=False,
-                             note=str(res.get("msg") or "")[:300], ended=int(time.time()))
-        except ActCancelled:
-            with _act_lock:
-                h.update(state="cancel", step="", ended=int(time.time()))
-        except Exception as e:
-            with _act_lock:
-                h.update(state="fail", step="", err=str(e)[:300], ended=int(time.time()))
 
-    threading.Thread(target=run, daemon=True).start()
+def _act_run(h, fn):
+    try:
+        res = fn(h)
+        res = res if isinstance(res, dict) else {}
+        bad = (res.get("msg") or res.get("error") or "") if res.get("ok") is False else ""
+        with _act_lock:
+            if bad:
+                h.update(state="fail", step="", err=str(bad)[:300], ended=int(time.time()))
+            else:
+                h.update(state="done", step="", pct=100, si=h["sn"], can=False,
+                         note=str(res.get("msg") or "")[:300], ended=int(time.time()))
+    except ActCancelled:
+        with _act_lock:
+            h.update(state="cancel", step="", ended=int(time.time()))
+    except Exception as e:
+        with _act_lock:
+            h.update(state="fail", step="", err=str(e)[:300], ended=int(time.time()))
+
+
+def act_start(key, fn, target="", page="", ttype=""):
+    h = _act_open(key, target, page, ttype)
+    threading.Thread(target=_act_run, args=(h, fn), daemon=True).start()
     return {"ok": True, "act": key}
 
 
-def act_link(d, fn):
+def _link_act_key(d):
     lid = (d or {}).get("id")
     L = next((x for x in load_links() if x["id"] == lid), None)
     if not L:
         raise ValueError("تونل پیدا نشد")
-    return act_start("link:" + str(lid), fn, target=L.get("name") or "")
+    return "link:" + str(lid), L.get("name") or ""
+
+
+def act_link(d, fn):
+    key, name = _link_act_key(d)
+    return act_start(key, fn, target=name)
+
+
+def _rebuild_now(lid):
+    d = {"id": lid}
+    h = _act_open(*_link_act_key(d))
+    _act_run(h, _rebuild_job(d))
+    return h["state"] == "done"
 
 
 def api_acts(_d):
