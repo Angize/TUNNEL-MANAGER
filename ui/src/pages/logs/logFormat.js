@@ -4,6 +4,10 @@ const PAIR_KEYS = { 'از': true, 'به': true }
 const KEY_MAX = 16
 const KEY_FORBIDDEN = /[،؛؟.!?()«»—]/
 
+export function valueClass(value) {
+  return /[\u0600-\u06FF]/.test(String(value)) ? ' fa' : ''
+}
+
 export function eventLevel(event) {
   if (event.level === 'bad') return 'bad'
   if (event.level === 'warn') return 'warn'
