@@ -37,6 +37,7 @@ export default function AgentPage({ headless }) {
   const [query, setQuery] = useState('')
   const [proxies, setProxies] = useState([])
   const [dlProxy, setDlProxy] = useState(null)
+  const [dlError, setDlError] = useState('')
   const [agentMsg, setAgentMsg] = useState(null)
   const [gitMsg, setGitMsg] = useState(null)
   const [coreMsg, setCoreMsg] = useState(null)
@@ -114,22 +115,20 @@ export default function AgentPage({ headless }) {
     loadNodes()
   }, [query, loadNodes])
 
-  useEffect(() => {
-    let alive = true
-    apiGet('proxies')
-      .then((r) => {
-        if (alive) setProxies(r.proxies)
-      })
-      .catch(() => {})
-    apiGet('settings')
-      .then((s) => {
-        if (alive) setDlProxy({ on: !!s.dl_proxy_on, id: String(s.dl_proxy_id || '') })
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
+  const loadDlProxy = useCallback(async () => {
+    setDlError('')
+    try {
+      const [px, s] = await Promise.all([apiGet('proxies'), apiGet('settings')])
+      setProxies(px.proxies)
+      setDlProxy({ on: !!s.dl_proxy_on, id: String(s.dl_proxy_id || '') })
+    } catch (e) {
+      setDlError(readError(e))
     }
   }, [])
+
+  useEffect(() => {
+    loadDlProxy()
+  }, [loadDlProxy])
 
   const changeDelivery = async (kind, value) => {
     if (delivery[kind] === value) return
@@ -373,7 +372,7 @@ export default function AgentPage({ headless }) {
       alertBox(T('dlpx_none'))
       return
     }
-    const body = proxyBody(dlProxy || { on: false, id: '' })
+    const body = proxyBody(dlProxy)
     const r = await apiPost('settings-set', {
       dl_proxy_on: body.proxy_on,
       dl_proxy_id: body.proxy_id,
@@ -604,12 +603,22 @@ export default function AgentPage({ headless }) {
               {T('dlpx_none')}
             </div>
           )
+        ) : dlError ? (
+          <div className="msg loadfail">
+            <span>{T('dlpx_load_fail') + ' ' + dlError}</span>
+            <button type="button" className="ghost" onClick={loadDlProxy}>
+              <Icon name="redo" />
+              {T('retry')}
+            </button>
+          </div>
         ) : null}
         <Message value={proxyMsg} />
-        <button className="primary opgo" onClick={saveDownloadProxy}>
-          <Icon name="redo" />
-          {T('save')}
-        </button>
+        {dlProxy ? (
+          <button className="primary opgo" onClick={saveDownloadProxy}>
+            <Icon name="redo" />
+            {T('save')}
+          </button>
+        ) : null}
       </div>
 
       <div className="sec" style={{ marginTop: 16 }}>

@@ -12,7 +12,7 @@ import AgentPage from '../agent/AgentPage.jsx'
 import { collectTuning, secondsToMinutes, stepViolation } from './tuning.js'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError } from '../../lib/errors.js'
+import { postError, readError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
@@ -79,19 +79,14 @@ export default function SettingsPage() {
   const [picking, setPicking] = useState(false)
   const [saved, setSaved] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   const settingValue = useCallback(
     (source, key) => (source && source[key] != null && source[key] !== '' ? source[key] : defaults[key]),
     [defaults]
   )
 
-  const load = useCallback(async () => {
-    let s = {}
-    try {
-      s = await apiGet('settings')
-    } catch {
-      s = {}
-    }
+  const apply = useCallback((s) => {
     const tuning = s.tuning || {}
     const tuned = (key) => (tuning[key] != null ? tuning[key] : tuningDefaults[key])
     const nextMode = s.reconcile_mode === 'auto' ? 'auto' : 'alert'
@@ -113,6 +108,18 @@ export default function SettingsPage() {
     setSaved({ form: next, mode: nextMode })
   }, [settingValue, tuningDefaults])
 
+  const load = useCallback(async () => {
+    setLoadError('')
+    let s
+    try {
+      s = await apiGet('settings')
+    } catch (e) {
+      setLoadError(readError(e))
+      return
+    }
+    apply(s)
+  }, [apply])
+
   useEffect(() => {
     load()
   }, [load])
@@ -122,7 +129,17 @@ export default function SettingsPage() {
       <>
         <PageHead icon="cog" titleKey="nav_settings" subKey="set_sub" />
         <div className="stpage">
-          <SettingsSkeleton />
+          {loadError ? (
+            <div className="card loadfail">
+              <span>{T('set_load_fail') + ' ' + loadError}</span>
+              <button className="ghost" onClick={load}>
+                <Icon name="redo" />
+                {T('retry')}
+              </button>
+            </div>
+          ) : (
+            <SettingsSkeleton />
+          )}
           <p className="stnote">{T('set_apply_note')}</p>
           <div className="stdefaults">
             <button className="ghost" disabled>
@@ -167,7 +184,7 @@ export default function SettingsPage() {
     })
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
-      await load()
+      apply(r.d.settings)
       setBusy(false)
       return
     }
@@ -197,7 +214,7 @@ export default function SettingsPage() {
     const r = await apiPost('settings-set', body)
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
-      await load()
+      apply(r.d.settings)
       return
     }
     toast(postError(r), 'err')

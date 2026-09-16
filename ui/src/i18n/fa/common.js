@@ -55,6 +55,7 @@ export default {
   copy_fail: 'کپی نشد',
 
   failed: 'ناموفق',
+  retry: 'تلاشِ دوباره',
   saving: 'در حال ذخیره…',
   checking: 'در حال بررسی…',
   loading: 'در حال بارگذاری…',
