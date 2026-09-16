@@ -14,6 +14,7 @@ import re
 import secrets
 import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -1733,13 +1734,17 @@ def _tf_load():
                     e["seed"][k] = [int(v[0]), int(v[1])]
 
 
+def _persist_stats():
+    valid = {n["id"] for n in load_nodes()}
+    save_json(TRAFFIC_FILE, {k: v for k, v in _tf_snapshot().items() if k in valid})
+    save_json(UPTIME_FILE, {k: v for k, v in _uh_snapshot().items() if k in valid})
+
+
 def traffic_persist_loop():
     while True:
         time.sleep(60)
         try:
-            valid = {n["id"] for n in load_nodes()}
-            save_json(TRAFFIC_FILE, {k: v for k, v in _tf_snapshot().items() if k in valid})
-            save_json(UPTIME_FILE, {k: v for k, v in _uh_snapshot().items() if k in valid})
+            _persist_stats()
         except Exception:
             pass
 
@@ -8423,10 +8428,26 @@ def serve():
     httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
+    signal.signal(signal.SIGTERM, _stop_on_term)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        _flush_on_stop()
+
+
+def _stop_on_term(signum, frame):
+    raise KeyboardInterrupt
+
+
+def _flush_on_stop():
+    with _events_lock:
+        _ev_flush()
+    try:
+        _persist_stats()
+    except Exception:
+        log_internal("persist on stop")
 
 
 def main():
