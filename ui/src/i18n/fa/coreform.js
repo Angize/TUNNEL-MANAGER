@@ -5,7 +5,6 @@ export default {
   core_edit_note: 'ذخیره، تونل را روی هر دو نود از نو می‌سازد (لحظه‌ای قطع می‌شود).',
   creating_core: 'در حال ساختِ تونلِ هسته روی دو نود…',
   saving_rebuild_both: 'در حال ذخیره و بازسازیِ دو سر…',
-  save_rebuild: 'ذخیره و بازسازی',
   cor_tab_ips: 'آی‌پی‌ها',
   cor_tab_set: 'تنظیمات',
 
@@ -14,7 +13,6 @@ export default {
   roles_lbl: 'نقش‌ها — کدام نود listen کند (سرور)',
   role_server_word: 'سرور',
   role_client_word: 'کلاینت',
-  not_found: 'یافت نشد',
 
   rot_t: 'چرخشِ آی‌پی',
   rot_d: 'بینِ آی‌پی‌های هر نود می‌چرخد و آی‌پیِ بلاک‌شده را کنار می‌گذارد (مسیرِ مستقیم، بدونِ CDN)',
@@ -162,7 +160,6 @@ export default {
   pa_testnow: 'صبرش را صفر کن — در چرخشِ بعدی امتحان می‌شود',
   pa_activate: 'این را فعال کن',
   pa_active_ip: 'آی‌پیِ فعلی',
-  pa_selecting: 'در حالِ فعال‌سازی…',
 
   peer_live_hd: 'وضعیت زندهٔ استخر',
   peer_live_empty:

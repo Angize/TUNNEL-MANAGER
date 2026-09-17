@@ -26,7 +26,6 @@ export default {
   ov_tunbreak: 'وضعیتِ تفکیکیِ تونل‌ها',
   ov_txtot: '↑ خروجیِ کل',
   ov_uptime: 'آپ‌تایم',
-  ov_uptime_avg: 'میانگینِ آپ‌تایم',
   ov_uptime_lbl: 'میانگینِ آپ‌تایمِ',
   ov_worst: 'پرمصرف‌ترین نودها',
   ov_worst_q: 'بدترین کیفیت: تونلِ',

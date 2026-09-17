@@ -6,7 +6,7 @@ export function pushWord(status) {
   if (status.state === 'skip') return T('ag_p_skip')
   if (status.state === 'same') return T('ag_p_same')
   if (status.state === 'ok') return T('ag_p_ok')
-  if (status.state === 'err') return T('upe_' + (status.err || 'failed')) || T('ag_p_err')
+  if (status.state === 'err') return T('upe_' + (status.err || 'failed'))
   if (!status.step) return T('ag_p_wait')
   const word = T('ups_' + status.step)
   if (num(status.sn) > 1) {

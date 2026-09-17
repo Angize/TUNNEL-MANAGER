@@ -197,11 +197,6 @@
   margin: 0;
 }
 
-.mfoot.hug .primary,
-.mfoot.hug .ghost {
-  flex: 0 0 auto;
-}
-
 .modalov.palov {
   align-items: flex-start;
   padding-top: 64px;
