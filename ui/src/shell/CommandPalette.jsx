@@ -89,7 +89,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         i: 'server',
         label: n.name,
         sub: n.host,
-        act: () => goto('nodes', () => setPageQuery('nodes', n.name)),
+        act: () => goto('nodes', () => setPageQuery('nodes', '"' + n.name + '"')),
       }))
     const linkRows = links
       .filter(
@@ -106,7 +106,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         sub: l.name,
         act: () => {
           const page = l.type === 'core' ? 'core' : 'tunnels'
-          goto(page, () => setPageQuery(page, l.name))
+          goto(page, () => setPageQuery(page, '"' + l.name + '"'))
         },
       }))
     const actionRows = actions.filter((a) => !q || a.label.toLowerCase().includes(q))

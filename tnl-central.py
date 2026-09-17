@@ -1788,6 +1788,12 @@ def _list_query(d):
     return str(d.get("q") or "").strip().lower()
 
 
+def _q_match(q, values):
+    if len(q) > 1 and q[0] == q[-1] == '"':
+        return any(q[1:-1] == v for v in values)
+    return any(q in v for v in values)
+
+
 SUBNET_BASES = {"192.168": ("192.168.0.0", 16), "172.16": ("172.16.0.0", 12), "10": ("10.0.0.0", 8)}
 SUBNET_BASE_DEFAULT = "192.168"
 
@@ -2128,10 +2134,10 @@ def _node_view(n, pend=None, pxn=None):
 
 
 def api_nodes(d):
-    q = str((d or {}).get("q") or "").strip().lower()
+    q = _list_query(d or {})
     nodes = load_nodes()
     if q:
-        nodes = [n for n in nodes if q in n["name"].lower() or q in n["host"].lower()]
+        nodes = [n for n in nodes if _q_match(q, (n["name"].lower(), n["host"].lower()))]
     _ensure_cached(nodes)
     _pend = _pending_counts()
     _pxn = _proxy_names()
@@ -2140,12 +2146,12 @@ def api_nodes(d):
 
 
 def api_node_names(d):
-    q = str(d.get("q") or "").strip().lower()
+    q = _list_query(d)
     out = []
     for n in load_nodes():
         if n.get("disabled"):
             continue
-        if q and q not in n["name"].lower() and q not in n["host"].lower():
+        if q and not _q_match(q, (n["name"].lower(), n["host"].lower())):
             continue
         p = _cached_ping(n["id"])
         out.append({"id": n["id"], "name": n["name"], "host": n["host"],
@@ -4186,7 +4192,7 @@ def api_fleet(d):
         links.append({**L, "a_name": nodes.get(L.get("a_node"), {}).get("name", L.get("a_name", "")),
                       "b_name": nodes.get(L.get("b_node"), {}).get("name", L.get("b_name", ""))})
     if q:
-        links = [L for L in links if any(q in h for h in _link_haystack(L, nodes))]
+        links = [L for L in links if _q_match(q, _link_haystack(L, nodes))]
     total = len(links)
     page = links
     need = {L[k] for L in page for k in ("a_node", "b_node")}
