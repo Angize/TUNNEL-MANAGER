@@ -33,7 +33,7 @@ export default function MovedIpModal({ node, onClose, onAdopted }) {
     const r = await apiPost('node-adopt-ip', { id: node.id })
     if (r.ok && r.d.ok) {
       onClose()
-      toast(T('mv_done') + r.d.host, 'ok')
+      toast(T('mv_done') + r.d.host + ':' + r.d.port, 'ok')
       onAdopted()
       return
     }
@@ -59,7 +59,7 @@ export default function MovedIpModal({ node, onClose, onAdopted }) {
       <div className="kt-desc">{T('mv_desc')}</div>
       <div className="nd-grid">
         <Tile icon="globe" label={T('mv_new')} value={node.moved_to} />
-        <Tile icon="server" label={T('mv_old')} value={node.host} />
+        <Tile icon="server" label={T('mv_old')} value={node.host + ':' + node.port} />
       </div>
       <div className="msg">{message}</div>
     </Modal>
