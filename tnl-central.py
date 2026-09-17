@@ -4281,6 +4281,18 @@ def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_
     return []
 
 
+def _shared_ports(ttype, exclude_id=None):
+    if ttype != "vxlan":
+        return frozenset()
+    held = set()
+    for L in load_links():
+        if L.get("type") != "vxlan" or L.get("id") == exclude_id or L.get("enabled") is False:
+            continue
+        p = int(L.get("port") or 4789)
+        held.update({(L.get("a_node"), "", p, "udp"), (L.get("b_node"), "", p, "udp")})
+    return frozenset(held)
+
+
 def _guard_port_conflicts(bindings, exclude=frozenset()):
     for node, ip, port, proto in bindings:
         if (node["id"], ip or "", int(port), proto) in exclude:
@@ -5122,7 +5134,7 @@ def _create_tunnel_impl(d, h):
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
         if _clash:
             raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن — روی یک آی‌پی، حاملِ متفاوت یا پورتِ متفاوت مجاز است.")
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_shared_ports(ttype))
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, server_side, True), **node_extra}
@@ -5561,7 +5573,7 @@ def _edit_link_impl(d, h):
         _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
         if _clash:
             raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن.")
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own)
+    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own | _shared_ports(ttype, L["id"]))
     if moved:
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
     node_extra = _node_extra(extra)
