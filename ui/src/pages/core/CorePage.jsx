@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -11,6 +11,7 @@ import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { registerCommand } from '../../lib/pageCommand.js'
+import useCheckAll from '../../lib/useCheckAll.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
@@ -25,12 +26,9 @@ export default function CorePage({ embedded, active = true }) {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('core')
-  const [checking, setChecking] = useState(false)
   const [tagOverrides, setTagOverrides] = useState({})
   const [edges, setEdges] = useState({})
   const [editing, setEditing] = useState(null)
-  const checkRefs = useRef({})
-  const checkAllRef = useRef(null)
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -39,6 +37,7 @@ export default function CorePage({ embedded, active = true }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
+  const { checking, checkAll, checkRefs } = useCheckAll('core:checkall', list)
 
   useEffect(() => {
     reload()
@@ -79,35 +78,7 @@ export default function CorePage({ embedded, active = true }) {
     setTagOverrides((prev) => ({ ...prev, [link.id]: previous }))
   }, [])
 
-  const checkAll = async () => {
-    const links = list || []
-    if (!links.length) {
-      toast(T('no_tunnel_check'), 'err')
-      return
-    }
-    setChecking(true)
-    try {
-      await Promise.all(
-        links.map((link) => {
-          const run = checkRefs.current[link.id]
-          return run ? run() : Promise.resolve()
-        })
-      )
-    } finally {
-      setChecking(false)
-    }
-    toast(T('checkall_done'), 'ok')
-  }
-
-  checkAllRef.current = checkAll
-
-  useEffect(() => {
-    const off = [
-      registerCommand('core:create', () => setEditing({})),
-      registerCommand('core:checkall', () => checkAllRef.current && checkAllRef.current()),
-    ]
-    return () => off.forEach((fn) => fn())
-  }, [])
+  useEffect(() => registerCommand('core:create', () => setEditing({})), [])
 
   const closeForm = useCallback(() => setEditing(null), [])
 

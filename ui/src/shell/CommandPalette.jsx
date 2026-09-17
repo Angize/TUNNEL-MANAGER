@@ -5,8 +5,6 @@ import { apiGet } from '../lib/api.js'
 import { setPageQuery } from '../lib/pageQuery.js'
 import { runCommand } from '../lib/pageCommand.js'
 
-const CREATE_DELAY = 300
-const CHECK_DELAY = 600
 const LIMIT = 6
 
 export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClose }) {
@@ -54,7 +52,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         label: T('pal_add_core'),
         act: () => {
           goto('core')
-          setTimeout(() => runCommand('core:create'), CREATE_DELAY)
+          runCommand('core:create')
         },
       },
       {
@@ -62,7 +60,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         label: T('pal_add_tun'),
         act: () => {
           goto('tunnels')
-          setTimeout(() => runCommand('tunnels:create'), CREATE_DELAY)
+          runCommand('tunnels:create')
         },
       },
       { i: 'redo', label: T('pal_agent'), act: () => goto('settings') },
@@ -71,7 +69,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         label: T('pal_checkall_core'),
         act: () => {
           goto('core')
-          setTimeout(() => runCommand('core:checkall'), CHECK_DELAY)
+          runCommand('core:checkall')
         },
       },
       {
@@ -79,7 +77,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         label: T('pal_checkall'),
         act: () => {
           goto('tunnels')
-          setTimeout(() => runCommand('tunnels:checkall'), CHECK_DELAY)
+          runCommand('tunnels:checkall')
         },
       },
       {
