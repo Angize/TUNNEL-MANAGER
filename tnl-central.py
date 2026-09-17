@@ -4849,6 +4849,13 @@ def _ws_pool_fields(d, cur=None):
     return res
 
 
+def _create_family(d, ttype):
+    if ttype != "core":
+        return ttype
+    transport = str(d.get("transport") or "udp").strip().lower()
+    return _cdn_carrier(d, None) if transport == "ws" else transport
+
+
 def api_create_tunnel(d):
     d = d or {}
     A, B = get_node(d.get("a_node")), get_node(d.get("b_node"))
@@ -4864,7 +4871,7 @@ def api_create_tunnel(d):
     return act_start("new:" + secrets.token_hex(4), build,
                      target="%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?")),
                      page="core" if ttype == "core" else "tunnels",
-                     ttype=str(d.get("transport") or ttype))
+                     ttype=_create_family(d, ttype))
 
 
 RAW_DPORTS_MAX = 16
