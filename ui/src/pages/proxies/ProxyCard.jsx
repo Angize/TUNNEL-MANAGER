@@ -103,12 +103,12 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
       <span className="grow" />
       <div
         className="hmain"
-        style={{ direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 0 auto', minWidth: 0 }}
+        style={{ direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 1 auto', minWidth: 0 }}
       >
-        <div className="name" style={{ textAlign: 'left' }}>
-          {proxy.name}
+        <div className="name nmrow">
+          <span className="nmtxt">{proxy.name}</span>
         </div>
-        <div className="muted mono" style={{ fontSize: 12 }}>
+        <div className="muted mono nmtxt" style={{ fontSize: 12 }}>
           {proxy.addr}
         </div>
       </div>

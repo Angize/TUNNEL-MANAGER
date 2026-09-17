@@ -121,29 +121,23 @@ export default function NodeCard({
       <span className="grow" />
       <div
         className="hmain"
-        style={{ direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 0 auto', minWidth: 0 }}
+        style={{ direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 1 auto', minWidth: 0 }}
       >
-        <div className="name" style={{ textAlign: 'left' }}>
-          {node.name}
+        <div className="name nmrow">
+          <span className="nmtxt">{node.name}</span>
           {node.pending_del > 0 ? (
-            <>
-              {' '}
-              <span className="tag" style={PENDING_DEL_STYLE} title={T('pend_del_t')}>
-                <Icon name="trash" />
-                {num(node.pending_del)}
-              </span>
-            </>
+            <span className="tag" style={PENDING_DEL_STYLE} title={T('pend_del_t')}>
+              <Icon name="trash" />
+              {num(node.pending_del)}
+            </span>
           ) : null}
           {node.proxy_on ? (
-            <>
-              {' '}
-              <span className="tag" style={PROXY_TAG_STYLE}>
-                {T('proxy')}
-              </span>
-            </>
+            <span className="tag" style={PROXY_TAG_STYLE}>
+              {T('proxy')}
+            </span>
           ) : null}
         </div>
-        <div className="muted mono" style={{ fontSize: 12 }}>
+        <div className="muted mono nmtxt" style={{ fontSize: 12 }}>
           {node.host}:{node.port}
         </div>
       </div>
