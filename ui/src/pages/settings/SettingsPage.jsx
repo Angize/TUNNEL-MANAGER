@@ -67,6 +67,31 @@ function TextField({ value, onChange }) {
   )
 }
 
+function SettingsFrame({ agentGen, dock, onReset, resetDisabled, picker, children }) {
+  return (
+    <>
+      <PageHead icon="cog" titleKey="nav_settings" subKey="set_sub" />
+      <div className="stpage">
+        {children}
+        <p className="stnote">{T('set_apply_note')}</p>
+        {dock}
+        <div className="stdefaults">
+          <button className="ghost" onClick={onReset} disabled={resetDisabled}>
+            <Icon name="reset" />
+            {T('set_reset_all')}
+          </button>
+        </div>
+        <div className="sec" style={{ marginTop: 16 }}>
+          <Icon name="redo" color="var(--acc)" />
+          {T('set_agent_update')}
+        </div>
+        <AgentPage key={agentGen} headless />
+      </div>
+      {picker}
+    </>
+  )
+}
+
 export default function SettingsPage() {
   const config = useUiConfig()
   const defaults = useMemo(() => config.settings_defaults || {}, [config])
@@ -128,34 +153,19 @@ export default function SettingsPage() {
 
   if (!form) {
     return (
-      <>
-        <PageHead icon="cog" titleKey="nav_settings" subKey="set_sub" />
-        <div className="stpage">
-          {loadError ? (
-            <div className="card loadfail">
-              <span>{T('set_load_fail') + ' ' + loadError}</span>
-              <button className="ghost" onClick={load}>
-                <Icon name="redo" />
-                {T('retry')}
-              </button>
-            </div>
-          ) : (
-            <SettingsSkeleton />
-          )}
-          <p className="stnote">{T('set_apply_note')}</p>
-          <div className="stdefaults">
-            <button className="ghost" disabled>
-              <Icon name="reset" />
-              {T('set_reset_all')}
+      <SettingsFrame agentGen={agentGen} resetDisabled>
+        {loadError ? (
+          <div className="card loadfail">
+            <span>{T('set_load_fail') + ' ' + loadError}</span>
+            <button className="ghost" onClick={load}>
+              <Icon name="redo" />
+              {T('retry')}
             </button>
           </div>
-          <div className="sec" style={{ marginTop: 16 }}>
-            <Icon name="redo" color="var(--acc)" />
-            {T('set_agent_update')}
-          </div>
-          <AgentPage headless />
-        </div>
-      </>
+        ) : (
+          <SettingsSkeleton />
+        )}
+      </SettingsFrame>
     )
   }
 
@@ -224,150 +234,137 @@ export default function SettingsPage() {
   }
 
   return (
-    <>
-      <PageHead icon="cog" titleKey="nav_settings" subKey="set_sub" />
+    <SettingsFrame
+      agentGen={agentGen}
+      dock={dirty ? <SaveDock count={dirty} busy={busy} onRevert={revert} onSave={save} /> : null}
+      onReset={reset}
+      resetDisabled={busy}
+      picker={
+        picking ? (
+          <ModePicker
+            value={mode}
+            onPick={(next) => {
+              setMode(next)
+              setPicking(false)
+            }}
+            onClose={() => setPicking(false)}
+          />
+        ) : null
+      }
+    >
+      <div className="stgrid">
+        <SettingsGroup icon="cog" titleKey="set_g1" chipKey="set_g1c" tone="sc-panel">
+          <SettingRow
+            label={T('set_on_ipchange')}
+            helpKey="set_on_ipchange_d"
+            exampleKey="set_x_ipchange"
+          >
+            <button type="button" className="setfield" onClick={() => setPicking(true)}>
+              <span className="val">{modeLabel(mode)}</span>
+              <span className="cv">
+                <Icon name="chev" />
+              </span>
+            </button>
+          </SettingRow>
 
-      <div className="stpage">
-        <div className="stgrid">
-          <SettingsGroup icon="cog" titleKey="set_g1" chipKey="set_g1c" tone="sc-panel">
-            <SettingRow
-              label={T('set_on_ipchange')}
-              helpKey="set_on_ipchange_d"
-              exampleKey="set_x_ipchange"
-            >
-              <button type="button" className="setfield" onClick={() => setPicking(true)}>
-                <span className="val">{modeLabel(mode)}</span>
-                <span className="cv">
-                  <Icon name="chev" />
-                </span>
-              </button>
-            </SettingRow>
+          <SettingRow label={T('set_rec_int')} helpKey="set_rec_range" exampleKey="set_x_rec">
+            <NumberField value={form.reconcile} onChange={set('reconcile')} min={5} max={3600} />
+          </SettingRow>
 
-            <SettingRow label={T('set_rec_int')} helpKey="set_rec_range" exampleKey="set_x_rec">
-              <NumberField value={form.reconcile} onChange={set('reconcile')} min={5} max={3600} />
-            </SettingRow>
+          <SettingRow label={T('set_poll_int')} helpKey="set_poll_range" exampleKey="set_x_poll">
+            <NumberField value={form.poll} onChange={set('poll')} min={0.3} max={60} step={0.1} />
+          </SettingRow>
 
-            <SettingRow label={T('set_poll_int')} helpKey="set_poll_range" exampleKey="set_x_poll">
-              <NumberField value={form.poll} onChange={set('poll')} min={0.3} max={60} step={0.1} />
-            </SettingRow>
+          <SettingRow label={T('set_ui_int')} helpKey="set_ui_range" exampleKey="set_x_ui">
+            <NumberField value={form.ui} onChange={set('ui')} min={0.3} max={60} step={0.1} />
+          </SettingRow>
 
-            <SettingRow label={T('set_ui_int')} helpKey="set_ui_range" exampleKey="set_x_ui">
-              <NumberField value={form.ui} onChange={set('ui')} min={0.3} max={60} step={0.1} />
-            </SettingRow>
+          <SettingRow label={T('set_ech_int')} helpKey="set_ech_range" exampleKey="set_x_ech">
+            <NumberField value={form.ech} onChange={set('ech')} min={0} max={1440} step={1} />
+          </SettingRow>
 
-            <SettingRow label={T('set_ech_int')} helpKey="set_ech_range" exampleKey="set_x_ech">
-              <NumberField value={form.ech} onChange={set('ech')} min={0} max={1440} step={1} />
-            </SettingRow>
+          <SettingRow label={T('set_upwin')} helpKey="set_upwin_d" exampleKey="set_x_upwin">
+            <Select
+              items={WINDOW_OPTIONS.map((o) => ({ v: o.v, label: T(o.label) }))}
+              value={form.window}
+              onChange={set('window')}
+            />
+          </SettingRow>
+        </SettingsGroup>
 
-            <SettingRow label={T('set_upwin')} helpKey="set_upwin_d" exampleKey="set_x_upwin">
-              <Select
-                items={WINDOW_OPTIONS.map((o) => ({ v: o.v, label: T(o.label) }))}
-                value={form.window}
-                onChange={set('window')}
+        <SettingsGroup icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
+          <SettingRow
+            label={T('set_t_probemin')}
+            helpKey="set_t_probemin_d"
+            exampleKey="set_x_probemin"
+          >
+            <NumberField value={form.probeMin} onChange={set('probeMin')} min={5} max={100} step={5} />
+          </SettingRow>
+          <p className="srnote">{probeHint}</p>
+
+          <SettingRow label={T('set_t_revive')} helpKey="set_t_revive_d" exampleKey="set_x_revive">
+            <TextField value={form.revive} onChange={set('revive')} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup icon="redo" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
+          <SettingRow
+            label={T('set_t_suspect')}
+            helpKey="set_t_suspect_d"
+            exampleKey="set_x_suspect"
+          >
+            <TextField value={form.suspect} onChange={set('suspect')} />
+          </SettingRow>
+
+          <SettingRow
+            label={T('set_t_deadretest')}
+            helpKey="set_t_deadretest_d"
+            exampleKey="set_x_deadretest"
+          >
+            <NumberField value={form.deadRetest} onChange={set('deadRetest')} min={1} max={1440} step={1} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup icon="bolt" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
+          <SettingRow
+            label={T('set_t_sockbuf')}
+            helpKey="set_t_sockbuf_d"
+            exampleKey="set_x_sockbuf"
+          >
+            <NumberField value={form.sockBuf} onChange={set('sockBuf')} min={0} max={64} step={1} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup icon="globe" titleKey="set_g6" chipKey="set_g6c" tone="sc-panel">
+          <SettingRow label={T('set_api_on')} helpKey="set_api_on_d" exampleKey="set_x_api_on">
+            <div className="srtgl">
+              <div
+                className={'tglsw' + (form.apiOn ? ' on' : '')}
+                {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
               />
-            </SettingRow>
-          </SettingsGroup>
+            </div>
+          </SettingRow>
 
-          <SettingsGroup icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
-            <SettingRow
-              label={T('set_t_probemin')}
-              helpKey="set_t_probemin_d"
-              exampleKey="set_x_probemin"
-            >
-              <NumberField value={form.probeMin} onChange={set('probeMin')} min={5} max={100} step={5} />
-            </SettingRow>
-            <p className="srnote">{probeHint}</p>
-
-            <SettingRow label={T('set_t_revive')} helpKey="set_t_revive_d" exampleKey="set_x_revive">
-              <TextField value={form.revive} onChange={set('revive')} />
-            </SettingRow>
-          </SettingsGroup>
-
-          <SettingsGroup icon="redo" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
-            <SettingRow
-              label={T('set_t_suspect')}
-              helpKey="set_t_suspect_d"
-              exampleKey="set_x_suspect"
-            >
-              <TextField value={form.suspect} onChange={set('suspect')} />
-            </SettingRow>
-
-            <SettingRow
-              label={T('set_t_deadretest')}
-              helpKey="set_t_deadretest_d"
-              exampleKey="set_x_deadretest"
-            >
-              <NumberField value={form.deadRetest} onChange={set('deadRetest')} min={1} max={1440} step={1} />
-            </SettingRow>
-          </SettingsGroup>
-
-          <SettingsGroup icon="bolt" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
-            <SettingRow
-              label={T('set_t_sockbuf')}
-              helpKey="set_t_sockbuf_d"
-              exampleKey="set_x_sockbuf"
-            >
-              <NumberField value={form.sockBuf} onChange={set('sockBuf')} min={0} max={64} step={1} />
-            </SettingRow>
-          </SettingsGroup>
-
-          <SettingsGroup icon="globe" titleKey="set_g6" chipKey="set_g6c" tone="sc-panel">
-            <SettingRow label={T('set_api_on')} helpKey="set_api_on_d" exampleKey="set_x_api_on">
-              <div className="srtgl">
-                <div
-                  className={'tglsw' + (form.apiOn ? ' on' : '')}
-                  {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
-                />
-              </div>
-            </SettingRow>
-
-            <SettingRow
-              label={T('set_api_token')}
-              helpKey="set_api_token_d"
-              exampleKey="set_x_api_token"
-            >
-              <div className="srtoken">
-                {token ? (
-                  <>
-                    <CopyValue text={token} />
-                    <span className="srtonce">{T('set_api_once')}</span>
-                  </>
-                ) : null}
-                <button type="button" className="ghost" onClick={newToken}>
-                  <Icon name="redo" />
-                  {T('set_api_new')}
-                </button>
-              </div>
-            </SettingRow>
-          </SettingsGroup>
-        </div>
-
-        <p className="stnote">{T('set_apply_note')}</p>
-        {dirty ? <SaveDock count={dirty} busy={busy} onRevert={revert} onSave={save} /> : null}
-        <div className="stdefaults">
-          <button className="ghost" onClick={reset} disabled={busy}>
-            <Icon name="reset" />
-            {T('set_reset_all')}
-          </button>
-        </div>
-
-        <div className="sec" style={{ marginTop: 16 }}>
-          <Icon name="redo" color="var(--acc)" />
-          {T('set_agent_update')}
-        </div>
-        <AgentPage key={agentGen} headless />
+          <SettingRow
+            label={T('set_api_token')}
+            helpKey="set_api_token_d"
+            exampleKey="set_x_api_token"
+          >
+            <div className="srtoken">
+              {token ? (
+                <>
+                  <CopyValue text={token} />
+                  <span className="srtonce">{T('set_api_once')}</span>
+                </>
+              ) : null}
+              <button type="button" className="ghost" onClick={newToken}>
+                <Icon name="redo" />
+                {T('set_api_new')}
+              </button>
+            </div>
+          </SettingRow>
+        </SettingsGroup>
       </div>
-
-      {picking ? (
-        <ModePicker
-          value={mode}
-          onPick={(next) => {
-            setMode(next)
-            setPicking(false)
-          }}
-          onClose={() => setPicking(false)}
-        />
-      ) : null}
-    </>
+    </SettingsFrame>
   )
 }
