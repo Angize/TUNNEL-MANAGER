@@ -96,6 +96,7 @@ function Shell() {
   useEffect(() => {
     let alive = true
     let timer = 0
+    let ticking = false
 
     const fetchSummary = async () => {
       let s
@@ -141,15 +142,21 @@ function Shell() {
     }
 
     const tick = async () => {
+      if (ticking) return
       if (document.hidden) {
         timer = setTimeout(tick, Math.max(interval.current, HIDDEN_INTERVAL))
         return
       }
-      await fetchSummary()
-      if (!alive) return
-      await actsRefresh()
-      if (!alive) return
-      await runPageRefresh()
+      ticking = true
+      try {
+        await fetchSummary()
+        if (!alive) return
+        await actsRefresh()
+        if (!alive) return
+        await runPageRefresh()
+      } finally {
+        ticking = false
+      }
       if (!alive) return
       timer = setTimeout(tick, interval.current)
     }
