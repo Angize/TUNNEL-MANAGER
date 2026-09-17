@@ -30,9 +30,9 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
   }, [])
 
   const goto = useCallback(
-    (page) => {
+    (page, before) => {
       onClose()
-      onNavigate(page)
+      onNavigate(page, before)
     },
     [onClose, onNavigate]
   )
@@ -50,35 +50,23 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
       {
         i: 'plus',
         label: T('pal_add_core'),
-        act: () => {
-          goto('core')
-          runCommand('core:create')
-        },
+        act: () => goto('core', () => runCommand('core:create')),
       },
       {
         i: 'plus',
         label: T('pal_add_tun'),
-        act: () => {
-          goto('tunnels')
-          runCommand('tunnels:create')
-        },
+        act: () => goto('tunnels', () => runCommand('tunnels:create')),
       },
       { i: 'redo', label: T('pal_agent'), act: () => goto('settings') },
       {
         i: 'activity',
         label: T('pal_checkall_core'),
-        act: () => {
-          goto('core')
-          runCommand('core:checkall')
-        },
+        act: () => goto('core', () => runCommand('core:checkall')),
       },
       {
         i: 'activity',
         label: T('pal_checkall'),
-        act: () => {
-          goto('tunnels')
-          runCommand('tunnels:checkall')
-        },
+        act: () => goto('tunnels', () => runCommand('tunnels:checkall')),
       },
       {
         i: dark ? 'sun' : 'moon',
@@ -101,10 +89,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         i: 'server',
         label: n.name,
         sub: n.host,
-        act: () => {
-          setPageQuery('nodes', n.name)
-          goto('nodes')
-        },
+        act: () => goto('nodes', () => setPageQuery('nodes', n.name)),
       }))
     const linkRows = links
       .filter(
@@ -121,8 +106,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         sub: l.name,
         act: () => {
           const page = l.type === 'core' ? 'core' : 'tunnels'
-          setPageQuery(page, l.name)
-          goto(page)
+          goto(page, () => setPageQuery(page, l.name))
         },
       }))
     const actionRows = actions.filter((a) => !q || a.label.toLowerCase().includes(q))
