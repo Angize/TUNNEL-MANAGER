@@ -6,7 +6,7 @@ import TagPicker from '../../components/TagPicker.jsx'
 import RichText from '../../components/RichText.jsx'
 import CoreMeta from './CoreMeta.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
-import { boxClass, sideState, sideText } from '../tunnels/sideHealth.js'
+import { linkSideState, sideText } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
 import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
@@ -50,31 +50,29 @@ function sideOrder(link) {
 }
 
 function HeaderDot({ link, side }) {
-  if (link.enabled === false) return <span className="sdot na" title={T('st_off')} />
-  const state = sideState(link[side + '_online'], link[side + '_health'])
+  const state = linkSideState(link, side)
   return <span className={'sdot ' + state.kind} title={state.title} />
 }
 
 function SideStatus({ link, side }) {
-  if (link.enabled === false) {
+  const state = linkSideState(link, side)
+  if (state.off) {
     return (
       <>
-        <span className="stw na">{T('st_off')}</span>
+        <span className="stw na">{state.word}</span>
         <span className="sdot na" />
       </>
     )
   }
-  const state = sideState(link[side + '_online'], link[side + '_health'])
   return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
 }
 
 function SideBox({ link, side, activeIp, rotating }) {
   const isServer = (side === 'a') === serverIsA(link)
-  const health = link[side + '_health']
-  const online = link[side + '_online']
+  const state = linkSideState(link, side)
 
   return (
-    <div className={'tnnode ' + boxClass(online, health)} title={sideState(online, health).title}>
+    <div className={'tnnode st-' + state.kind} title={state.title}>
       <div className="tnhead">
         <span className="tnn">{link[side + '_name']}</span>
         <span className="tnend">

@@ -24,6 +24,11 @@ export function sideState(online, health) {
   return { kind: 'na', word: '…', title: T('checking') }
 }
 
+export function linkSideState(link, side) {
+  if (link.enabled === false) return { kind: 'na', word: T('st_off'), title: T('st_off'), off: true }
+  return sideState(link[side + '_online'], link[side + '_health'])
+}
+
 export function sideText(online, health) {
   if (!online) return T('t_side_off')
   if (!health) return T('t_side_notun')
@@ -42,8 +47,4 @@ export function sideText(online, health) {
     )
   }
   return T('t_side_up_unk')
-}
-
-export function boxClass(online, health) {
-  return 'st-' + sideState(online, health).kind
 }
