@@ -37,7 +37,7 @@ export default function useLongPress(onHold) {
   const start = useCallback(
     (event) => {
       if (event.touches && event.touches.length > 1) return
-      if (event.target.closest('button,input,select,a,.act,.tsw,.tglsw,.modalov')) return
+      if (event.target.closest('button,input,select,a,.act,.tsw,.tglsw,.rgrip,.modalov')) return
       const point = event.touches ? event.touches[0] : event
       origin.current = { x: point.clientX, y: point.clientY }
       clearTimeout(timer.current)
