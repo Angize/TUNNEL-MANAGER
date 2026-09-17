@@ -7,10 +7,14 @@ export default function ToastHost() {
 
   useEffect(() => subscribeToasts(setItems), [])
 
-  return items.map((t) => (
-    <div key={t.id} className={'toast ' + t.kind + (t.show ? ' show' : '')}>
-      {t.kind === 'ok' ? <Icon name="okc" /> : t.kind === 'err' ? <Icon name="xc" /> : null}
-      <span>{t.msg}</span>
+  return (
+    <div className="toasts">
+      {items.map((t) => (
+        <div key={t.id} className={'toast ' + t.kind + (t.show ? ' show' : '')}>
+          {t.kind === 'ok' ? <Icon name="okc" /> : t.kind === 'err' ? <Icon name="xc" /> : null}
+          <span>{t.msg}</span>
+        </div>
+      ))}
     </div>
-  ))
+  )
 }

@@ -458,7 +458,7 @@
   cursor: not-allowed;
 }
 
-body.pushing .toast,
+body.pushing .toasts,
 body.pushing .savedock:not(.docked) {
   bottom: 74px;
 }
@@ -468,7 +468,7 @@ body.pushing .savedock:not(.docked) {
     bottom: 80px;
   }
 
-  body.pushing .toast {
+  body.pushing .toasts {
     bottom: 138px;
   }
 }
