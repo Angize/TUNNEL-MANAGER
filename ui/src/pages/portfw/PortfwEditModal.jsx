@@ -8,9 +8,7 @@ import { alertBox } from '../../lib/dialog.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
-import { checkable } from '../../lib/keys.js'
-
-const DEFAULT_ROTATE_MINUTES = 5
+import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 
 export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const [busy, guard] = useBusy()
@@ -44,8 +42,7 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       listen_port: listenPort.trim(),
       dst_port: dstPort.trim(),
       dst_ips: dstIps.trim(),
-      rotate,
-      interval_min: rotateMinutes.trim() || DEFAULT_ROTATE_MINUTES,
+      ...rotateBody(rotate, rotateMinutes),
       ...(hasIpChoice ? { listen_ip: listenIp } : {}),
     })
     if (r.ok && r.d.ok) {
@@ -107,25 +104,12 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       <label>{T('pf_dst_ips')}</label>
       <input value={dstIps} onChange={(e) => setDstIps(e.target.value)} />
 
-      <label>{T('pf_rot_between')}</label>
-      <div className="tgl">
-        <span
-          className={'tglsw' + (rotate ? ' on' : '')}
-          {...checkable('switch', rotate, () => setRotate(!rotate))}
-        />
-        <span className="muted">{rotate ? T('on_word') : T('off_word')}</span>
-      </div>
-
-      {rotate ? (
-        <div>
-          <label>{T('pf_rot_interval')}</label>
-          <input value={rotateMinutes} onChange={(e) => setRotateMinutes(e.target.value)} />
-        </div>
-      ) : null}
-
-      <div className="muted" style={{ fontSize: 11.5, marginTop: 9 }}>
-        {T('pf_rot_note')}
-      </div>
+      <RotateFields
+        rotate={rotate}
+        minutes={rotateMinutes}
+        onRotate={setRotate}
+        onMinutes={setRotateMinutes}
+      />
       <div className="msg">{message}</div>
     </Modal>
   )

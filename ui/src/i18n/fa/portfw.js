@@ -32,7 +32,6 @@ export default {
   pf_reset_confirm: 'حجمِ کلِ این پورت‌فوروارد صفر شود؟',
   pf_rot_between: 'چرخش بینِ مقصدها',
   pf_rot_interval: 'بازهٔ چرخش (دقیقه)',
-  pf_rot_min: 'چرخش هر (دقیقه) — اگر چند آی‌پی دادی',
   pf_rot_note: 'چرخش فقط با 2 آی‌پیِ مقصد یا بیشتر فعال می‌شود.',
   pf_rotate_done: 'چرخش انجام شد ← ',
   pf_rotate_failed: 'چرخش ناموفق',
