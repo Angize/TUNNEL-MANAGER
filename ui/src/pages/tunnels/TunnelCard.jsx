@@ -165,7 +165,10 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
     const name = r.d.view_side === 'b' ? link.b_name : link.a_name
     setMessage({ cls: 'ok', swap: true, text: T('view_switched') + name + T('view_switched2') })
     clearTimeout(messageTimer.current)
-    messageTimer.current = setTimeout(() => setMessage(null), VIEW_MSG_MS)
+    messageTimer.current = setTimeout(
+      () => setMessage((cur) => (cur && cur.swap ? null : cur)),
+      VIEW_MSG_MS
+    )
     onReload()
   }
 
