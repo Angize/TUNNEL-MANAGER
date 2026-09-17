@@ -52,26 +52,33 @@ export default function LogsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [openIds, setOpenIds] = useState({})
   const signature = useRef('')
+  const flight = useRef(null)
 
   const loadRef = useRef(() => {})
 
-  const onSaved = useCallback(() => {
+  const refetch = useCallback(() => {
+    flight.current = null
     signature.current = ''
     loadRef.current()
   }, [])
 
   const { hidden, hiddenCount, known, adoptFromServer, isPending, toggleType, toggleGroup } =
-    useHiddenTypes({ evTypes, onSaved })
+    useHiddenTypes({ evTypes, onSaved: refetch })
 
   const load = useCallback(async () => {
     const sig = evSeq + ':' + logCount
-    if (sig === signature.current) return
-    let r
+    if (sig === signature.current || flight.current) return
+    const mine = {}
+    flight.current = mine
+    let r = null
     try {
       r = await apiGet('events')
     } catch {
-      return
+      r = null
     }
+    if (flight.current !== mine) return
+    flight.current = null
+    if (!r) return
     signature.current = sig
     setEvents(r.events)
     setHiddenOut(r.hidden_out)
@@ -144,8 +151,7 @@ export default function LogsPage() {
     toast(T('logs_cleared'), 'ok')
     setEvents([])
     setHiddenOut(0)
-    signature.current = ''
-    load()
+    refetch()
   }
 
   const chipOrder = [['all', T('logc_all')]]
