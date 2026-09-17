@@ -50,8 +50,11 @@ export function layoutEvent(event) {
   const { rows, notes } = splitDetail(event.dfa || '')
   const lead = []
   const rest = []
+  const repeated = new Set(rows.map((row) => row.k)).size < rows.length
   for (const row of rows) {
-    if (PAIR_KEYS[row.k]) {
+    if (repeated) {
+      rest.push(row)
+    } else if (PAIR_KEYS[row.k]) {
       lead.push(row)
     } else if (lead.length < LEAD_MAX && String(row.v).length <= INLINE_MAX) {
       lead.push(row)
