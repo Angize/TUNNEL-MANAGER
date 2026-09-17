@@ -112,7 +112,7 @@ export function ActionButton({ title, tone, spinning, disabled, icon, onClick })
       className={'eib' + (tone ? ' ' + tone : '')}
       title={title}
       disabled={disabled}
-      style={disabled ? { opacity: 0.45, pointerEvents: 'none' } : undefined}
+      style={disabled ? { opacity: spinning ? 1 : 0.45, pointerEvents: 'none' } : undefined}
       onClick={onClick}
     >
       {spinning ? <span className="bspin" /> : <Icon name={icon} />}
