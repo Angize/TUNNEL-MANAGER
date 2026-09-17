@@ -16,7 +16,6 @@ const ROTATE_TAG_STYLE = {
   color: 'var(--gold)',
   borderColor: 'color-mix(in srgb, var(--gold) 34%, transparent)',
   background: 'var(--goldw)',
-  direction: 'ltr',
 }
 
 const PORTFW_TAG_STYLE = {
@@ -27,6 +26,10 @@ const PORTFW_TAG_STYLE = {
 const ROTATE_BTN_STYLE = {
   color: '#fb923c',
   borderColor: 'color-mix(in srgb, #fb923c 46%, transparent)',
+}
+
+function rotateLabel(minutes) {
+  return minutes % 60 ? minutes + ' ' + T('fmt_min') : minutes / 60 + ' ' + T('fmt_hr')
 }
 
 function HealthBadge({ offline, health }) {
@@ -73,6 +76,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   }
 
   const rotates = item.switch_interval > 0
+  const rotateEvery = rotates ? rotateLabel(item.switch_interval / 60) : ''
   const multiTarget = (item.dst_ips || []).length > 1
   const listenIp = item.listen_ip || item.node_ip || ''
   const activeTarget = override != null ? override : serverActive
@@ -119,9 +123,8 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
         </b>
         <span className="hpeers">
           {rotates ? (
-            <span className="tag" style={ROTATE_TAG_STYLE}>
+            <span className="tag" style={ROTATE_TAG_STYLE} title={T('pf_rot_every') + rotateEvery}>
               <Icon name="redo" />
-              {item.switch_interval / 60}m
             </span>
           ) : null}
           <HealthBadge offline={item.offline} health={health} />
@@ -163,6 +166,12 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
             {T('pf_targets')}
             <b className="mono">{(item.dst_ips || []).join(T('list_sep'))}</b>
           </div>
+          {rotates ? (
+            <div className="wrap">
+              {T('pf_rot_every')}
+              <b>{rotateEvery}</b>
+            </div>
+          ) : null}
           {multiTarget && activeTarget ? (
             <div className="wrap">
               {T('pf_active_now')}
