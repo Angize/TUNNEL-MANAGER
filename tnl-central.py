@@ -2243,9 +2243,9 @@ def api_summary(d):
             heat.append({"name": nm, "pct": None, "online": False})
             if _cache_get(nid):
                 alerts.append({"level": "bad", "kind": "node", "msg": f"نودِ «{nm}» آفلاین است"})
-            mv = moved_to(nid)
+            mv = moved_addr(nid)
             if mv:
-                alerts.append({"level": "warn", "kind": "node",                                "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
+                alerts.append({"level": "warn", "kind": "node", "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — نشانی‌اش را عوض کن"})
             continue
         on += 1
         if stored_ver and p.get("version") and _sint(p.get("version")) < _sint(stored_ver):
@@ -7455,7 +7455,7 @@ def api_checkin_impl(source_ip, d):
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
             log_event("warn", "node-moved", f"نودِ «{n_snap.get('name')}»: جابه‌جاییِ نشانی",
                       f"از {host}:{port} به {want_host}:{want_port} رفته و از نشانیِ تازه جواب می‌دهد — روی"
-                      " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ آی‌پیِ نود»، بعد تونل‌هایش را بازسازی کن."
+                      " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ نشانیِ نود»، بعد تونل‌هایش را بازسازی کن."
                       " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)")
         return {"ok": True, "host": host, "port": port, "moved_to": want_host}
     _moved_clear(n_snap["id"])
