@@ -65,14 +65,16 @@ export default function usePeerStatus(lid) {
     alive.current = true
     const held = timers.current
     if (!lid) return () => {}
+    let running = true
     let timer = null
     const loop = () => {
       Promise.resolve(tick()).finally(() => {
-        if (alive.current) timer = setTimeout(loop, getUiInterval())
+        if (running) timer = setTimeout(loop, getUiInterval())
       })
     }
     loop()
     return () => {
+      running = false
       alive.current = false
       if (timer) clearTimeout(timer)
       for (const t of held) clearTimeout(t)
