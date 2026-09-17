@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import { apiPost, NET_TIMEOUT } from './api.js'
 import { postError } from './errors.js'
 import { closeCard } from './openCards.js'
-import { reorderMode, setDragging, setSaving } from './reorder.js'
+import { listBusy, reorderMode, setDragging, setSaving } from './reorder.js'
 import { toast } from './toast.js'
 
 const EDGE = 76
@@ -58,9 +58,11 @@ export default function useCardReorder(kind, ids, onSaved) {
   const orderRef = useRef(order)
   const savedRef = useRef(onSaved)
   const idsKey = useRef(ids.join(','))
+  const idsRef = useRef(ids)
 
   orderRef.current = order
   savedRef.current = onSaved
+  idsRef.current = ids
 
   const key = ids.join(',')
   if (idsKey.current !== key && !drag.current) {
@@ -139,7 +141,10 @@ export default function useCardReorder(kind, ids, onSaved) {
     async (id, targets) => {
       setSaving(true)
       const r = await apiPost('reorder', { kind, id, targets }, NET_TIMEOUT)
-      if (!(r.ok && r.d.ok)) toast(postError(r, 'reorder_err'), 'err')
+      if (!(r.ok && r.d.ok)) {
+        toast(postError(r, 'reorder_err'), 'err')
+        setOrder(idsRef.current.slice())
+      }
       setSaving(false)
       savedRef.current()
     },
@@ -148,7 +153,7 @@ export default function useCardReorder(kind, ids, onSaved) {
 
   useEffect(() => {
     const down = (e) => {
-      if (drag.current || !reorderMode()) return
+      if (drag.current || !reorderMode() || listBusy()) return
       if (e.isPrimary === false) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
       const handle = e.target.closest ? e.target.closest('.rgrip') : null
