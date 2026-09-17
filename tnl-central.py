@@ -6857,9 +6857,9 @@ def events_loop():
 def api_events(d):
     cut = time.time() - EVENTS_TTL
     hidden = _ev_hidden()
-    evs = [dict(e, cat=_ev_cat(e.get("kind")))
-           for e in _ev_shown(load_events(), hidden) if _sint(e.get("ts")) >= cut]
-    return {"ok": True, "events": evs, "hidden": sorted(hidden)}
+    recent = [e for e in load_events() if _sint(e.get("ts")) >= cut]
+    evs = [dict(e, cat=_ev_cat(e.get("kind"))) for e in _ev_shown(recent, hidden)]
+    return {"ok": True, "events": evs, "hidden": sorted(hidden), "hidden_out": len(recent) - len(evs)}
 
 
 def api_events_clear(d):

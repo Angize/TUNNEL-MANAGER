@@ -45,6 +45,7 @@ export default function LogsPage() {
   const { evSeq, logCount, loaded } = useSummary()
 
   const [events, setEvents] = useState(null)
+  const [hiddenOut, setHiddenOut] = useState(0)
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [show, setShow] = useState(PAGE_SIZE)
@@ -73,6 +74,7 @@ export default function LogsPage() {
     }
     signature.current = sig
     setEvents(r.events)
+    setHiddenOut(r.hidden_out)
     if (!isPending()) adoptFromServer(r.hidden)
   }, [evSeq, logCount, adoptFromServer, isPending])
 
@@ -141,6 +143,7 @@ export default function LogsPage() {
     }
     toast(T('logs_cleared'), 'ok')
     setEvents([])
+    setHiddenOut(0)
     signature.current = ''
     load()
   }
@@ -189,7 +192,7 @@ export default function LogsPage() {
       {events === null ? (
         <LogSkeleton />
       ) : !events.length ? (
-        <div className="card muted">{T(hiddenCount ? 'logf_empty' : 'logs_empty')}</div>
+        <div className="card muted">{T(hiddenOut ? 'logf_empty' : 'logs_empty')}</div>
       ) : (
         <>
           {hiddenCount && !filtersOpen ? (
