@@ -50,6 +50,11 @@ export default function NodeCard({
   onMovedIp,
 }) {
   const [message, setMessage] = useState(null)
+  const [messageOnline, setMessageOnline] = useState(node.online)
+  if (messageOnline !== node.online) {
+    setMessageOnline(node.online)
+    setMessage(null)
+  }
   const info = node.info || {}
   const enabled = node.disabled !== true
   const dot = node.online ? 'on' : node.pending ? '' : 'off'
