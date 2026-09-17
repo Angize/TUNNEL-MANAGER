@@ -48,7 +48,8 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const [subnet, setSubnet] = useState(link.subnet)
   const [aIp, setAIp] = useState('')
   const [bIp, setBIp] = useState('')
-  const [port, setPort] = useState(link.port == null ? '' : String(link.port))
+  const linkPort = link.port == null ? '' : String(link.port)
+  const [port, setPort] = useState(linkPort)
   const [message, setMessage] = useState('')
 
   useEffect(() => () => {
@@ -63,7 +64,9 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   }
 
   const changeType = (next) => {
+    if (next === type) return
     setType(next)
+    setPort(next === link.type ? linkPort : '')
     recalc(next, base)
   }
 
@@ -75,7 +78,6 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const multiIp = (link.a_ips || []).length > 1 || (link.b_ips || []).length > 1
   const showPort = PORT_TYPES.includes(type)
   const portLabel = type === 'vxlan' ? T('le_port_4789') : T('le_port_auto')
-  const portPrefill = type === link.type ? port : ''
 
   const save = async () => {
     if (!type) {
@@ -90,7 +92,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       a_ip: aIp || (link.a_ip && (link.a_ips || []).includes(link.a_ip) ? link.a_ip : ''),
       b_ip: bIp || (link.b_ip && (link.b_ips || []).includes(link.b_ip) ? link.b_ip : ''),
     }
-    if (showPort) body.port = portPrefill.trim()
+    if (showPort) body.port = port.trim()
 
     setMessage(T('rebuilding_both'))
     const r = await apiPost('edit-link', body)
@@ -158,7 +160,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
           <input
             inputMode="numeric"
             placeholder={type === 'vxlan' ? '4789' : T('ttype_port_ph')}
-            value={portPrefill}
+            value={port}
             onChange={(e) => setPort(e.target.value)}
           />
         </div>
