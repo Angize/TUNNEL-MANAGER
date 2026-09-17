@@ -1,4 +1,4 @@
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 import { num } from './num.js'
 
 export const TUNNEL_TYPES = [
@@ -19,6 +19,10 @@ const BASE_NETS = {
 
 const BASE_ORDER = ['192.168', '172.16', '10']
 
+function dotted(n) {
+  return ((n >>> 24) & 255) + '.' + ((n >>> 16) & 255) + '.' + ((n >>> 8) & 255) + '.' + (n & 255)
+}
+
 export function subnetCap(base) {
   const entry = BASE_NETS[base] || BASE_NETS['192.168']
   return (1 << (24 - entry[1])) - 1
@@ -29,12 +33,15 @@ export function subnetForBase(type, tunnelId, base) {
   if (type === 'sit') {
     return 'fd00:' + (tid >> 16).toString(16) + ':' + (tid & 0xffff).toString(16) + '::/64'
   }
-  let pick = base
-  if (tid > subnetCap(pick)) pick = BASE_ORDER.find((x) => tid <= subnetCap(x))
-  if (!pick || tid < 1 || tid > subnetCap(pick)) return ''
-  const entry = BASE_NETS[pick]
-  const n = (entry[0] + tid * 256) >>> 0
-  return ((n >>> 24) & 255) + '.' + ((n >>> 16) & 255) + '.' + ((n >>> 8) & 255) + '.' + (n & 255) + '/24'
+  const entry = BASE_NETS[base]
+  if (!entry || tid < 1 || tid > subnetCap(base)) return ''
+  return dotted((entry[0] + tid * 256) >>> 0) + '/24'
+}
+
+export function subnetFitError(type, tunnelId, base) {
+  if (type === 'sit' || subnetForBase(type, tunnelId, base)) return ''
+  const [net, prefix] = BASE_NETS[base]
+  return TF('snr_no_fit', { id: num(tunnelId), net: dotted(net) + '/' + prefix, cap: subnetCap(base) })
 }
 
 export function subnetBaseOf(link) {

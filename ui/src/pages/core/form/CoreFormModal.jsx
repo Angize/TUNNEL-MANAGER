@@ -14,7 +14,7 @@ import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps } from '../../../lib/nodes.js'
-import { subnetForBase } from '../../../lib/subnet.js'
+import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
 import { useUiConfig } from '../../../state/UiConfigContext.jsx'
@@ -261,8 +261,13 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       const subnet = form.subnet
       if (subnet) body.subnet = subnet
     } else if (link) {
-      const subnet = subnetForBase('core', link.tunnel_id, form.range)
-      if (subnet) body.subnet = subnet
+      const fitError = subnetFitError('core', link.tunnel_id, form.range)
+      if (fitError) {
+        setMessage('')
+        await alertBox(fitError)
+        return
+      }
+      body.subnet = subnetForBase('core', link.tunnel_id, form.range)
     } else body.subnet_base = form.range
 
     if (form.Tr === 'ws' && !form.port) body.port = '80'
