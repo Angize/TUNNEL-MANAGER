@@ -60,13 +60,13 @@ export function AccCardSkeleton() {
         <Toggle />
         <div className="hmain">
           <div className="hrow1">
-            <Sk className="hname" w={96} />
-            <Sk className="ctag" w={44} style={{ borderRadius: 20 }} />
-            <span className="hpeers">
+            <Sk className="hname" w={40} />
+            <Sk className="ctag" w={42} style={{ borderRadius: 20 }} />
+            <span className="hpeers" dir="ltr">
               <Dot size={7} />
-              <Sk w={58} />
-              <Sk w={10} />
-              <Sk w={58} />
+              <Sk w={28} />
+              <Sk w={12} />
+              <Sk w={28} />
               <Dot size={7} />
             </span>
           </div>
