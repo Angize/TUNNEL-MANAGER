@@ -28,7 +28,7 @@ function Dialog({ entry, top }) {
                 className="primary"
                 onClick={() => closeDialog(entry.id, true)}
               >
-                {entry.yesLabel || T('confirm_del')}
+                {entry.yesLabel}
               </button>
               <button className="ghost" onClick={() => closeDialog(entry.id, false)}>
                 {T('cancel')}

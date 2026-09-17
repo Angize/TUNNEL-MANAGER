@@ -198,7 +198,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   }
 
   const resetTraffic = async () => {
-    if (!(await confirmBox(T('reset_confirm')))) return
+    if (!(await confirmBox(T('reset_confirm'), T('reset_yes')))) return
     const r = await apiPost('traffic-reset', { id: link.id })
     if (r.ok && r.d.ok) {
       toast(T('t_reset_done'), 'ok')
@@ -224,7 +224,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
       setPickingRebuild(true)
       return
     }
-    if (!(await confirmBox(T('rebuild_confirm')))) return
+    if (!(await confirmBox(T('rebuild_confirm'), T('tip_rebuild')))) return
     const r = await apiPost('rebuild-link', { id: link.id })
     if (!(r.ok && r.d.act)) {
       toast(postError(r, 'rebuild_failed'), 'err')
@@ -241,7 +241,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
       (!!act && act.state === 'fail' && act.offer === 'force')
     const confirmed = force
       ? await confirmBox(T('del_force_ask'), T('del_force_yes'))
-      : await confirmBox(T('del_tun_confirm'))
+      : await confirmBox(T('del_tun_confirm'), T('confirm_del'))
     if (!confirmed) return
     const r = await apiPost('delete-link', force ? { id: link.id, force: true } : { id: link.id })
     if (!(r.ok && r.d.act)) {

@@ -429,7 +429,7 @@ export default function AgentPage({ headless }) {
   }
 
   const deleteCoreBlob = async () => {
-    if (!(await confirmBox(T('cor_del_blob_q')))) return
+    if (!(await confirmBox(T('cor_del_blob_q'), T('confirm_del')))) return
     setCoreMsg({ cls: '', text: T('cor_deleting') })
     const r = await apiPost('core-delete-blob', {})
     if (!(r.ok && r.d.ok)) {
