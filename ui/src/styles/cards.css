@@ -409,6 +409,18 @@ body.reord-on.rdragging .rgrip {
   cursor: grabbing;
 }
 
+@media (max-width: 840px) {
+  body.reord-on .rgrip {
+    position: relative;
+  }
+
+  body.reord-on .rgrip::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+  }
+}
+
 body.reord-on .card[data-rid] {
   border-color: color-mix(in srgb, var(--acc) 32%, transparent);
 }

@@ -287,6 +287,18 @@
   border-top-color: currentColor;
 }
 
+@media (max-width: 840px) {
+  .eib {
+    position: relative;
+  }
+
+  .eib::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+  }
+}
+
 .eib:hover {
   border-color: var(--acc);
   color: var(--acc);

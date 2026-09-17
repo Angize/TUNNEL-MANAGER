@@ -135,6 +135,26 @@
   right: 19px;
 }
 
+@media (max-width: 840px) {
+  .tsw::before,
+  .mvwarn::before {
+    content: "";
+    position: absolute;
+  }
+
+  .tsw::before {
+    inset: -9px -5px;
+  }
+
+  .mvwarn {
+    position: relative;
+  }
+
+  .mvwarn::before {
+    inset: -5px;
+  }
+}
+
 .mvwarn {
   flex: 0 0 auto;
   display: inline-flex;
