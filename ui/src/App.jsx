@@ -10,6 +10,7 @@ import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
 import { num } from './lib/num.js'
 import { runPageRefresh, setUiInterval } from './lib/poll.js'
 import { stopReorder } from './lib/reorder.js'
+import { mayLeave } from './lib/leaveGuard.js'
 import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
@@ -199,7 +200,9 @@ function Shell() {
     }
   }, [actsRefresh, loadReadiness])
 
-  const navigate = useCallback((id) => {
+  const navigate = useCallback(async (id, before) => {
+    if (!(await mayLeave(id))) return
+    if (before) before()
     navigated.current = true
     if (isLinkKind(id)) {
       setLinkKind(id)

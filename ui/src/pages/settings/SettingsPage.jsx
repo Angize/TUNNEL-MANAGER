@@ -10,10 +10,11 @@ import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import AgentPage from '../agent/AgentPage.jsx'
 import { collectTuning, listViolation, secondsToMinutes, stepViolation } from './tuning.js'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
+import { setLeaveGuard } from '../../lib/leaveGuard.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -126,6 +127,15 @@ export default function SettingsPage() {
     load()
   }, [load])
 
+  const dirty = changedCount(form, mode, saved)
+
+  useEffect(() => {
+    if (!dirty) return undefined
+    return setLeaveGuard(
+      (target) => target === 'settings' || confirmBox(TF('set_leave_confirm', { n: dirty }), T('set_leave_yes'))
+    )
+  }, [dirty])
+
   if (!form) {
     return (
       <>
@@ -160,7 +170,6 @@ export default function SettingsPage() {
   }
 
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }))
-  const dirty = changedCount(form, mode, saved)
 
   const probeHint = T('set_pm_hint')
     .replace('{n}', Math.ceil(Math.max(5, Math.min(100, parseInt(form.probeMin, 10) || 0)) * probeSamples / 100))
