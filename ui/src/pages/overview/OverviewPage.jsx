@@ -70,7 +70,7 @@ export default function OverviewPage({ onNavigate }) {
   const central = summary.central || {}
   const load1 = (central.load || [])[0]
   const worst = summary.worst || {}
-  const linkTotal = num(summary.link_total) - num(summary.link_off) || num(summary.links)
+  const linkTotal = num(summary.link_total) - num(summary.link_off)
   const uptimeWindow = num(summary.uptime_window) || 1
 
   return (
