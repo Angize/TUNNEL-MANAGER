@@ -8,7 +8,7 @@ import { postError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { ipItems } from '../../lib/nodes.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
-import { TUNNEL_TYPES, subnetBaseOf, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
+import { TUNNEL_TYPES, subnetBaseOf, subnetFitError, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
@@ -83,6 +83,12 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
     if (!type) {
       setMessage('')
       alertBox(T('tun_type'))
+      return
+    }
+    const fitError = base === 'custom' ? '' : subnetFitError(type, link.tunnel_id, base)
+    if (fitError) {
+      setMessage('')
+      alertBox(fitError)
       return
     }
     const body = {
