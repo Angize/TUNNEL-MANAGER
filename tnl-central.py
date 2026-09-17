@@ -1295,10 +1295,9 @@ def poller_loop():
             pxs = load_proxies()
             live_px = {p["id"] for p in pxs}
             with _px_lock:
-                for pid in [k for k in _px if k not in live_px]:
-                    _px.pop(pid, None)
-                for pid in [k for k in _px_relay if k not in live_px]:
-                    _px_relay.pop(pid, None)
+                for store in (_px, _px_relay, _px_reach):
+                    for pid in [k for k in store if k not in live_px]:
+                        store.pop(pid, None)
             for p in pxs:
                 with inflight_lock:
                     if ("px:" + p["id"]) in inflight:
@@ -1485,14 +1484,20 @@ def _proxy_reach(p, timeout=8):
     return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
 
 
+def _px_key(p):
+    return (p["scheme"], p["host"], int(p["port"]), p.get("user") or "", p.get("pass") or "")
+
+
 def _px_cached(store, p, gap, probe, fresh=False):
+    key = _px_key(p)
     with _px_lock:
         prev = store.get(p["id"])
-    if fresh or not prev or time.time() - prev["ts"] >= gap:
-        prev = probe(p)
+    if fresh or not prev or prev[0] != key or time.time() - prev[1]["ts"] >= gap:
+        res = probe(p)
         with _px_lock:
-            store[p["id"]] = prev
-    return prev
+            store[p["id"]] = (key, res)
+        return res
+    return prev[1]
 
 
 def _px_deep(p, st, fresh=False):
@@ -1508,17 +1513,18 @@ def _px_deep(p, st, fresh=False):
 
 
 def _px_sweep(p):
-    _px_publish(p["id"], _px_deep(p, _proxy_probe(p)))
+    _px_publish(p, _px_deep(p, _proxy_probe(p)))
 
 
-def _px_publish(pid, st):
+def _px_publish(p, st):
     with _px_lock:
-        _px[pid] = st
+        _px[p["id"]] = (_px_key(p), st)
 
 
-def _px_get(pid):
+def _px_get(p):
     with _px_lock:
-        return dict(_px.get(pid) or {})
+        got = _px.get(p["id"])
+    return dict(got[1]) if got and got[0] == _px_key(p) else {}
 
 
 def _cached_ping(nid):
@@ -2903,8 +2909,8 @@ def api_node_adopt_ip(d):
     probe = dict(n)
     probe["host"], probe["port"] = new, newp
     if not node_call(probe, "ping", "GET", timeout=8).get("ok"):
-        pid = str(n.get("proxy_id") or "") if n.get("proxy_on") else ""
-        px = _px_get(pid) if pid else {}
+        pxp = get_proxy(str(n.get("proxy_id") or "")) if n.get("proxy_on") else None
+        px = _px_get(pxp) if pxp else {}
         if px and not px.get("ok"):
             raise ValueError("پروکسیِ این نود قطع است، پس هیچ آدرسی از آن رد نمی‌شود — اول پروکسی را درست کن")
         raise ValueError(f"نشانیِ {new}:{newp} همین حالا جواب نمی‌دهد — چیزی عوض نشد")
@@ -7226,7 +7232,7 @@ def _release_proxies(holder):
 
 
 def _proxy_row(p, uses=None):
-    st = _px_get(p["id"])
+    st = _px_get(p)
     u = (uses if uses is not None else _proxy_uses()).get(p["id"]) or {"nodes": [], "tunnels": [], "panel": False}
     return {"id": p["id"], "name": p["name"], "scheme": p["scheme"], "host": p["host"],
             "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
@@ -7303,7 +7309,7 @@ def api_proxy_test(d):
     if not p:
         raise ValueError("پروکسی پیدا نشد")
     out = _px_deep(p, _proxy_probe(p, timeout=8), fresh=True)
-    _px_publish(p["id"], out)
+    _px_publish(p, out)
     return out
 
 
