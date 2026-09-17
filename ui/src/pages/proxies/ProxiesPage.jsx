@@ -21,6 +21,7 @@ const ADD_BUTTON_STYLE = {
 export default function ProxiesPage() {
   const { counts } = useSummary()
   const [editing, setEditing] = useState(undefined)
+  const [edits, setEdits] = useState({})
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -29,6 +30,11 @@ export default function ProxiesPage() {
   }, [])
 
   const [list, reload] = usePolledData(load)
+
+  const saved = (id) => {
+    if (id) setEdits((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }))
+    reload()
+  }
 
   return (
     <>
@@ -44,7 +50,7 @@ export default function ProxiesPage() {
         ) : list.length ? (
           list.map((proxy) => (
             <ProxyCard
-              key={proxy.id}
+              key={proxy.id + ':' + (edits[proxy.id] || 0)}
               proxy={proxy}
               onEdit={setEditing}
               onChanged={reload}
@@ -56,7 +62,11 @@ export default function ProxiesPage() {
       </div>
 
       {editing !== undefined ? (
-        <ProxyModal proxy={editing} onClose={() => setEditing(undefined)} onSaved={reload} />
+        <ProxyModal
+          proxy={editing}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => saved(editing && editing.id)}
+        />
       ) : null}
     </>
   )
