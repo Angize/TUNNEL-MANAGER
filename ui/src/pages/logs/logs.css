@@ -330,6 +330,12 @@
   flex: 1 1 auto;
 }
 
+.lev-v.fa,
+.lev-row span.fa {
+  direction: rtl;
+  font-family: inherit;
+}
+
 .lev-more {
   font-size: 11px;
   color: var(--acc);

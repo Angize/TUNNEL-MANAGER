@@ -1,5 +1,5 @@
 import { T } from '../../i18n/fa.js'
-import { eventLevel, formatEventTime, layoutEvent } from './logFormat.js'
+import { eventLevel, formatEventTime, layoutEvent, valueClass } from './logFormat.js'
 
 export default function LogEvent({ event, open, onToggle }) {
   const level = eventLevel(event)
@@ -47,7 +47,7 @@ export default function LogEvent({ event, open, onToggle }) {
             {lead.map((row, i) => (
               <span key={row.k + i} className={'lev-kv' + (isPair(row.k) ? ' pair' : '')}>
                 <span className="lev-k">{row.k}</span>
-                <span className="lev-v">{row.v}</span>
+                <span className={'lev-v' + valueClass(row.v)}>{row.v}</span>
               </span>
             ))}
           </div>
@@ -58,7 +58,7 @@ export default function LogEvent({ event, open, onToggle }) {
               {rest.map((row, i) => (
                 <div className="lev-row" key={row.k + i}>
                   <b>{row.k}</b>
-                  <span>{row.v}</span>
+                  <span className={valueClass(row.v)}>{row.v}</span>
                 </div>
               ))}
             </div>
