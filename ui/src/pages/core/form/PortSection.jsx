@@ -93,7 +93,7 @@ function SportRotation({ form, patch }) {
                 className="mono"
                 inputMode="numeric"
                 maxLength={2}
-                placeholder="5"
+                placeholder={String(SPROT_DEFAULT)}
                 style={{ textAlign: 'center', direction: 'ltr' }}
                 value={form.rawSprot}
                 onChange={(e) => patch({ rawSprot: e.target.value })}
