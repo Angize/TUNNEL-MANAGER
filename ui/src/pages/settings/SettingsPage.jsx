@@ -9,7 +9,7 @@ import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import AgentPage from '../agent/AgentPage.jsx'
-import { collectTuning, secondsToMinutes, stepViolation } from './tuning.js'
+import { collectTuning, listViolation, secondsToMinutes, stepViolation } from './tuning.js'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
@@ -167,7 +167,7 @@ export default function SettingsPage() {
 
   const save = async () => {
     const tuning = collectTuning(form)
-    const bad = stepViolation(tuning, tuningSteps)
+    const bad = listViolation(form) || stepViolation(tuning, tuningSteps)
     if (bad) {
       alertBox(bad)
       return
