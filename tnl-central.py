@@ -3731,7 +3731,9 @@ def api_core_versions(d):
     if info:
         out.append({"id": "custom", "label": "\u0628\u0627\u06cc\u0646\u0631\u06cc\u0650 \u0622\u067e\u0644\u0648\u062f\u0634\u062f\u0647" + (" \u00b7 " + info["name"] if info.get("name") else ""),
                     "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
-    return {"versions": out, "staged": _staged_info(),             "delivery": _delivery_mode("core")}
+    rd = _readiness()
+    return {"versions": out, "staged": _staged_info(), "delivery": _delivery_mode("core"),
+            "ready": rd["core"], "missing": rd["core_missing"]}
 
 
 def api_core_delete_blob(d):
