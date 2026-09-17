@@ -24,6 +24,7 @@ import {
   rawProtoErr,
   sportErr,
   sprotErr,
+  sprotOf,
 } from './validate.js'
 
 function poolCollect(form, body) {
@@ -77,7 +78,7 @@ export function collectCarrier(form, cfg, body) {
     }
     const sprotError = sprotErr(form)
     if (sprotError) return sprotError
-    body.raw_sport_rotate = sprotLive(form) ? intOf(form.rawSprot) : 0
+    body.raw_sport_rotate = sprotLive(form) ? sprotOf(form) : 0
     body.raw_dports = sprotLive(form) ? intOf(form.rawDports) : 0
     body.conntrack_bypass = ctbOn(form, enums) && !!form.Ctb
     if (rawPortOn(form)) {

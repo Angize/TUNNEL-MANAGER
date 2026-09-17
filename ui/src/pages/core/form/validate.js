@@ -5,6 +5,7 @@ import {
   RAW_BAND_MIN_SPAN,
   RAW_DPORTS_MAX,
   RAW_SPROT_MAX,
+  SPROT_DEFAULT,
   cdnLabel,
   cdnShape,
 } from './presets.js'
@@ -46,9 +47,13 @@ export function sportErr(text) {
   return n >= 1 && n <= 65535 ? '' : T('raw_sport_bad')
 }
 
+export function sprotOf(form) {
+  return String(form.rawSprot || '').trim() === '' ? SPROT_DEFAULT : intOf(form.rawSprot)
+}
+
 export function sprotErr(form) {
   if (!sprotLive(form)) return ''
-  const n = intOf(form.rawSprot)
+  const n = sprotOf(form)
   if (!(n >= 1 && n <= RAW_SPROT_MAX)) return T('raw_sprot_bad')
   const dports = intOf(form.rawDports)
   return dports === 0 || (dports >= 1 && dports <= RAW_DPORTS_MAX)
