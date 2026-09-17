@@ -183,7 +183,7 @@ export default function NodeDetailsModal({ node, onClose }) {
               sub={T('load') + ' ' + ((stats.load || [])[0] || '—')}
             />
             <Gauge
-              label="RAM"
+              label={T('ram')}
               pct={ramPct}
               sub={num(stats.mem_used_mb) + ' / ' + num(stats.mem_total_mb) + ' ' + T('unit_mb')}
             />

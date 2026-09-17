@@ -12,7 +12,7 @@ export default {
   nav_logs: 'لاگ',
   nav_settings: 'تنظیمات',
   nav_logout: 'خروج',
-  tun_title: 'تانل‌های سیستمی',
+  tun_title: 'تونل‌های سیستمی',
   core_title: 'هستهٔ اختصاصی',
 
   ov_sub: 'آمارِ دقیقِ فلیت — بدونِ میانگینِ گمراه‌کننده',

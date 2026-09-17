@@ -768,7 +768,7 @@ def _recvn(s, n):
     while len(buf) < n:
         c = s.recv(n - len(buf))
         if not c:
-            raise OSError("proxy closed the connection")
+            raise OSError("پروکسی اتصال را بست")
         buf += c
     return buf
 
@@ -781,13 +781,13 @@ def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
         _, method = _recvn(s, 2)
         if method == 2:
             if not pu:
-                raise OSError("socks5 proxy requires auth")
+                raise OSError("پروکسی یوزر/پسورد می‌خواهد")
             u, w = pu.encode(), (pw or "").encode()
             s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
             if _recvn(s, 2)[1] != 0:
-                raise OSError("socks5 auth rejected")
+                raise OSError("یوزر/پسوردِ پروکسی پذیرفته نشد")
         elif method != 0:
-            raise OSError("socks5 no supported auth method")
+            raise OSError("پروکسی روشِ احرازِ ما را نپذیرفت")
         try:
             addr = b"\x01" + socket.inet_aton(dh)
         except OSError:
@@ -796,7 +796,7 @@ def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
         s.sendall(b"\x05\x01\x00" + addr + int(dp).to_bytes(2, "big"))
         rep = _recvn(s, 4)
         if rep[1] != 0:
-            raise OSError(f"socks5 connect failed (code {rep[1]})")
+            raise OSError(f"پروکسیِ SOCKS5 اتصال به مقصد را نساخت (کدِ {rep[1]})")
         atyp = rep[3]
         _recvn(s, 4 if atyp == 1 else 16 if atyp == 4 else _recvn(s, 1)[0])
         _recvn(s, 2)
@@ -818,13 +818,13 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
         while b"\r\n\r\n" not in buf:
             c = s.recv(4096)
             if not c:
-                raise OSError("proxy closed the connection")
+                raise OSError("پروکسی اتصال را بست")
             buf += c
             if len(buf) > 65536:
-                raise OSError("proxy response too large")
+                raise OSError("پاسخِ پروکسی بیش از حد بزرگ است")
         line = buf.split(b"\r\n", 1)[0].decode(errors="replace")
         if " 200" not in line:
-            raise OSError("proxy CONNECT refused: " + line[:80])
+            raise OSError("پروکسی CONNECT را رد کرد: " + line[:80])
         return s
     except Exception:
         s.close()
@@ -856,14 +856,14 @@ def _proxy_socket(proxy, dh, dp, timeout):
     pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
     scheme = (pu.scheme or "socks5").lower()
     if not pu.hostname or not pu.port:
-        raise OSError("bad proxy address")
+        raise OSError("نشانیِ پروکسی نامعتبر است")
     uq = lambda v: urllib.parse.unquote(v) if v else v
     user, pw = uq(pu.username), uq(pu.password)
     if scheme.startswith("socks"):
         return _socks5_socket(pu.hostname, pu.port, user, pw, dh, dp, timeout)
     if scheme in ("http", "https", "connect"):
         return _http_connect_socket(pu.hostname, pu.port, user, pw, dh, dp, timeout)
-    raise OSError(f"bad proxy scheme '{scheme}'")
+    raise OSError(f"نوعِ پروکسیِ «{scheme}» پشتیبانی نمی‌شود")
 
 
 def _net_why(e):
@@ -1078,11 +1078,11 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             if select.select([sock], [], [], 0)[0]:
                 pre = sock.recv(65536)
                 if not pre:
-                    raise OSError("connection closed while sending")
+                    raise OSError("نود وسطِ ارسال اتصال را بست")
                 break
             n = sock.send(data[sent:sent + chunk])
             if not n:
-                raise OSError("connection closed while sending")
+                raise OSError("نود وسطِ ارسال اتصال را بست")
             sent += n
             if on_progress:
                 on_progress(sent, total)
@@ -1098,7 +1098,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             if should_abort and should_abort():
                 return {"ok": False, "cancelled": True, "delivered": True}
             if time.monotonic() > deadline:
-                raise OSError("timed out waiting for the node")
+                raise OSError("نود در مهلت جواب نداد")
             try:
                 b = sock.recv(65536)
             except socket.timeout:
@@ -1107,7 +1107,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
                 break
             raw += b
             if len(raw) > 1048576:
-                raise OSError("response too large")
+                raise OSError("پاسخِ نود بیش از حد بزرگ است")
         st = head_blob.split(b" ")
         status = st[1].decode() if len(st) > 1 else "?"
         sig = next((l.split(b":", 1)[1].strip().decode() for l in head_blob.split(b"\r\n")
@@ -2476,7 +2476,7 @@ def _recvn(s, n):
     while len(b) < n:
         c = s.recv(n - len(b))
         if not c:
-            raise OSError("proxy closed the connection")
+            raise OSError("پروکسی اتصال را بست")
         b += c
     return b
 
@@ -2485,13 +2485,13 @@ def _socks5(s, pu, pw, dh, dp):
     method = _recvn(s, 2)[1]
     if method == 2:
         if not pu:
-            raise OSError("socks5 proxy requires auth")
+            raise OSError("پروکسی یوزر/پسورد می‌خواهد")
         u, w = pu.encode(), (pw or "").encode()
         s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
         if _recvn(s, 2)[1] != 0:
-            raise OSError("socks5 auth rejected")
+            raise OSError("یوزر/پسوردِ پروکسی پذیرفته نشد")
     elif method != 0:
-        raise OSError("socks5 no supported auth method")
+        raise OSError("پروکسی روشِ احرازِ ما را نپذیرفت")
     try:
         addr = b"\x01" + socket.inet_aton(dh)
     except OSError:
@@ -2500,7 +2500,7 @@ def _socks5(s, pu, pw, dh, dp):
     s.sendall(b"\x05\x01\x00" + addr + int(dp).to_bytes(2, "big"))
     rep = _recvn(s, 4)
     if rep[1] != 0:
-        raise OSError("socks5 connect failed (code %d)" % rep[1])
+        raise OSError("پروکسیِ SOCKS5 اتصال به مقصد را نساخت (کدِ %d)" % rep[1])
     atyp = rep[3]
     _recvn(s, 4 if atyp == 1 else 16 if atyp == 4 else _recvn(s, 1)[0])
     _recvn(s, 2)
@@ -2514,14 +2514,14 @@ def _http(s, pu, pw, dh, dp):
     while b"\r\n\r\n" not in buf:
         c = s.recv(4096)
         if not c:
-            raise OSError("proxy closed the connection")
+            raise OSError("پروکسی اتصال را بست")
         buf += c
         if len(buf) > 65536:
-            raise OSError("proxy response too large")
+            raise OSError("پاسخِ پروکسی بیش از حد بزرگ است")
     line = buf.split(b"\r\n", 1)[0].decode("latin1")
     if " 200" not in line:
-        raise OSError("proxy CONNECT refused: " + line[:80])
-    return buf.split(b"\r\n\r\n", 1)[1]  # bytes past the header are tunnel data (e.g. the SSH banner)
+        raise OSError("پروکسی CONNECT را رد کرد: " + line[:80])
+    return buf.split(b"\r\n\r\n", 1)[1]
 
 def main():
     dh, dp = sys.argv[1], int(sys.argv[2])
@@ -2531,7 +2531,7 @@ def main():
     pu = os.environ.get("TNL_PXY_USER") or None
     pw = os.environ.get("TNL_PXY_PASS") or None
     if not ph or not pp:
-        raise OSError("proxy host/port missing")
+        raise OSError("هاست یا پورتِ پروکسی داده نشده")
     s = socket.create_connection((ph, pp), 20)
     s.settimeout(20)
     if scheme.startswith("socks"):
@@ -3726,7 +3726,7 @@ def api_core_versions(d):
     vers = list(_core_versions_cache["data"] or [])
     out = list(vers)
     if out:
-        out[0] = {**out[0], "label": (out[0].get("label") or out[0]["id"]) + " (latest)", "latest": True}
+        out[0] = {**out[0], "label": (out[0].get("label") or out[0]["id"]) + " (تازه‌ترین)", "latest": True}
     info = _core_blob_info()
     if info:
         out.append({"id": "custom", "label": "\u0628\u0627\u06cc\u0646\u0631\u06cc\u0650 \u0622\u067e\u0644\u0648\u062f\u0634\u062f\u0647" + (" \u00b7 " + info["name"] if info.get("name") else ""),
@@ -3862,7 +3862,7 @@ def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_ab
     for _ in range(hops):
         u = urllib.parse.urlparse(url)
         if u.scheme != "https":
-            raise OSError("through a proxy the panel fetches https only")
+            raise OSError("از راهِ پروکسی فقط نشانیِ https دریافت می‌شود")
         host, port = u.hostname, u.port or 443
         sock, conn = _proxy_socket(proxy, host, port, timeout), None
         try:
@@ -3876,11 +3876,11 @@ def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_ab
                 loc = r.getheader("Location") or ""
                 r.read()
                 if not loc:
-                    raise OSError("redirect without a location")
+                    raise OSError("گیت‌هاب به نشانیِ نامعلومی هدایت کرد")
                 url = urllib.parse.urljoin(url, loc)
                 continue
             if r.status != 200:
-                raise OSError(("HTTP %d %s" % (r.status, r.reason or "")).strip())
+                raise urllib.error.HTTPError(url, r.status, r.reason or "", r.headers, None)
             return _read_body(r, r.getheader("Content-Length"), on_progress, should_abort)
         finally:
             for c in (sock, conn):
@@ -3889,11 +3889,17 @@ def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_ab
                         c.close()
                     except Exception:
                         pass
-    raise OSError("too many redirects")
+    raise OSError("گیت‌هاب بیش از حد پشتِ‌سرِهم هدایت کرد")
 
 
 def _gh_why(e):
-    return (str(e).strip() or type(e).__name__)[:120]
+    if isinstance(e, urllib.error.HTTPError):
+        if e.code == 404:
+            return "این نسخه یا فایل روی گیت‌هاب نیست (HTTP 404)"
+        if e.code in (403, 429):
+            return "گیت‌هاب درخواست را محدود کرد (HTTP %d) — کمی بعد دوباره امتحان کن" % e.code
+        return "گیت‌هاب خطای HTTP %d داد" % e.code
+    return (_net_why(e).strip() or type(e).__name__)[:120]
 
 
 def _gh_get(url, timeout, headers=None, on_progress=None, should_abort=None):
@@ -3922,7 +3928,7 @@ def _release_sha(version, arch, should_abort=None):
     sha = _dl(_release_asset_url(version, arch) + ".sha256", 30,
               should_abort=should_abort).decode().split()[0].strip().lower()
     if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
-        raise RuntimeError("checksum unavailable from the release")
+        raise RuntimeError("چک‌سامِ فایل در انتشارِ گیت‌هاب نیست")
     return sha
 
 
@@ -3931,7 +3937,7 @@ def _fetch_release(version, arch, on_progress=None, should_abort=None):
     sha = _release_sha(version, arch, should_abort=should_abort)
     raw = _dl(base, 180, on_progress=on_progress, should_abort=should_abort)
     if hashlib.sha256(raw).hexdigest() != sha:
-        raise RuntimeError("release checksum mismatch")
+        raise RuntimeError("چک‌سامِ فایلِ دریافت‌شده با انتشارِ گیت‌هاب نمی‌خواند")
     return raw, sha
 
 
@@ -6215,12 +6221,12 @@ def _ech_refresh_link(L, kind, hosts, mins_label):
         dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
         if pushed:
             dfa += "\nنودِ مقصد: %s" % pushed
-            log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد و زنده به هسته push شد (هر %s دقیقه)" % (nm, mins_label), dfa)
+            log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد و بی‌بازسازی به هسته رسید (هر %s دقیقه)" % (nm, mins_label), dfa)
         elif tried:
             if _ech_safe_rebuild(lid):
-                log_event("warn", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی push زنده نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
+                log_event("warn", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی بی‌بازسازی به هسته نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
             else:
-                log_event("bad", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه push زنده جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
+                log_event("bad", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه رساندنِ بی‌بازسازی جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
         else:
             log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, mins_label), dfa)
     reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
@@ -6311,7 +6317,7 @@ def _ech_ingest_link(L, kind, hosts):
     if changed and chmap:
         dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
         log_event("ok", "ech-saved",
-                  "کلیدِ ECH خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ rebuild دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
+                  "کلیدِ ECH خودترمیمِ هستهٔ تونلِ «%s» در پنل ذخیره شد؛ بازسازیِ بعدی دیگر به کلیدِ کهنه برنمی‌گردد" % nm,
                   dfa)
 
 
@@ -6403,7 +6409,7 @@ def _ev_value(detail):
 _EV_DOWN_CODE = {
     "ping_timeout": "بی‌پاسخ ماند (keepalive) — گلوگاه/بلاک‌هول یا سرِ مقابل خاموش",
     "reset": "اتصال ریست شد (RST — احتمالاً کشتنِ DPI)",
-    "refused": "اتصال رد شد (connection refused)",
+    "refused": "اتصال رد شد",
     "timeout": "مهلتِ اتصال تمام شد / بی‌مسیر",
     "eof": "اتصال بسته شد (EOF)",
     "tls": "دستِ TLS شکست خورد (احتمالاً SNI بلاک شده)",
@@ -6415,7 +6421,7 @@ _HEAL_AXIS = {"dst": "آی‌پیِ مقصد", "src": "آی‌پیِ مبدأ",
               "ip": "آی‌پیِ لبه", "sni": "دامنه (SNI)"}
 
 _EV_UP_CODE = {
-    "reconnect": "پس از افتِ سشن، خودکار وصل شد (self-heal)",
+    "reconnect": "پس از افتِ سشن، خودکار وصل شد",
 }
 _EV_ROT_AXIS = {
     "peer-rotate": ("dst", "چرخش آی‌پیِ مقصد"),
@@ -6914,7 +6920,7 @@ def _pf_name(v):
 def _pf_push(n, endpoint, body, timeout=NODE_OP_TIMEOUT, ret="name"):
     r = node_call(n, endpoint, "POST", body, timeout=timeout)
     if not r.get("ok"):
-        raise ValueError(r.get("error") or r.get("msg") or "failed")
+        raise ValueError(r.get("error") or r.get("msg") or "نود کار را انجام نداد")
     _refresh_cache([n["id"]])
     return {"ok": True, ret: r.get(ret)}
 

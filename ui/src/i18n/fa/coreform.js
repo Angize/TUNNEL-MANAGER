@@ -205,9 +205,12 @@ export default {
   sni_need_wss: 'تقسیمِ SNI به wss نیاز دارد — اول wss را روشن کن',
   sni_pos_lbl: 'نقطهٔ برش (split_pos) — 0 = خودکار (وسطِ دامنه)',
   sni_mode_lbl: 'حالتِ تقسیم SNI',
+  m_split_t: 'دو تکه',
   m_split_s: 'دو سگمنتِ ساده',
+  m_dis_t: 'بی‌ترتیب',
   m_dis_s: 'سگمنتِ سرْ با TTL پایین',
-  m_fake_s: 'ClientHello جعلی (ضدِ reassembly)',
+  m_fake_t: 'جعلی',
+  m_fake_s: 'ClientHello جعلی (ضدِ بازچینیِ بسته‌ها)',
   sni_ttl_lbl: 'TTL سگمنتِ سرْ در حالتِ disorder (split_ttl) — 0 = پیش‌فرض (4)، بیشترین 8',
   sni_ech_need_pos:
     'با ECH روشن نامِ دامنه رمز است، پس «نقطهٔ برش» را دستی بگذار (۰ یعنی خودکار و با ECH چیزی تکه نمی‌شود)',

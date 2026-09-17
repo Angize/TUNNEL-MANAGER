@@ -126,7 +126,7 @@ export default function OverviewPage({ onNavigate }) {
             }
           />
           <Gauge
-            label="RAM"
+            label={T('ram')}
             pct={central.ram_pct}
             sub={
               central.mem_used_mb != null

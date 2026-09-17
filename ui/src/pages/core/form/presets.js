@@ -57,9 +57,9 @@ export function desyncModes() {
 
 export function sniModes() {
   return [
-    { v: 'split', s: T('m_split_s') },
-    { v: 'disorder', s: T('m_dis_s') },
-    { v: 'fake', s: T('m_fake_s') },
+    { v: 'split', t: T('m_split_t'), s: T('m_split_s') },
+    { v: 'disorder', t: T('m_dis_t'), s: T('m_dis_s') },
+    { v: 'fake', t: T('m_fake_t'), s: T('m_fake_s') },
   ]
 }
 

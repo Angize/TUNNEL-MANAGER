@@ -105,7 +105,7 @@ export default function WsToggleRows({ form, cfg, proxies, patch }) {
               <SegOpt
                 key={mode.v}
                 on={mode.v === form.SniMode}
-                title={mode.v}
+                title={mode.t}
                 sub={mode.s}
                 onClick={() => patch({ SniMode: mode.v })}
               />
