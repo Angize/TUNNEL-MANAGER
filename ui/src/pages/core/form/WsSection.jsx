@@ -103,7 +103,7 @@ export default function WsSection({ form, cfg, tuning, lid, live, patch }) {
             value={form.wsHost}
             onChange={(e) => patch({ wsHost: e.target.value })}
           />
-          <label>{T('ws_edge_lbl')}</label>
+          <label>{T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}</label>
           <input
             className="mono"
             dir="ltr"
