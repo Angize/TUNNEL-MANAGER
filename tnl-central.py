@@ -5336,13 +5336,24 @@ def _restore_link(A, B, L, extra=None):
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
+    stuck = []
     for N, body in ((A, a_body), (B, b_body)):
         if not N:
             continue
         try:
-            node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
+            ok = bool(node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT).get("ok"))
         except Exception:
-            pass
+            ok = False
+        if not ok:
+            stuck.append(N["name"])
+    return stuck
+
+
+def _restore_tail(stuck):
+    if not stuck:
+        return " (تونلِ قبلی بازگردانده شد)"
+    return (" (بازگردانیِ تونلِ قبلی روی «%s» هم نشد — آن سر الان تونل ندارد؛ «بازسازی» را بزن)"
+            % "»، «".join(stuck))
 
 
 def api_edit_link(d):
@@ -5641,15 +5652,17 @@ def _edit_link_impl(d, h):
         touched = True
         ra = _node_tunnel(A, a_body)
         if not ra.get("ok"):
-            raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تونلِ قبلی بازگردانده شد)")
+            raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
         act_step(h, "اعمال روی نودِ «%s»" % B["name"], 3, EDIT_STEPS, more=False)
         rb = _node_tunnel(B, b_body)
         if not rb.get("ok"):
-            raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تونلِ قبلی بازگردانده شد)")
-    except Exception:
+            raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')}")
+    except Exception as e:
         if touched:
             _undo_apply(was_a, was_b, A, B, new_name, name_changed)
-            _restore_link(was_a, was_b, L)
+            stuck = _restore_link(was_a, was_b, L)
+            if isinstance(e, ValueError):
+                raise ValueError(str(e) + _restore_tail(stuck)) from None
         raise
     act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
     with _reg_lock:
@@ -5847,13 +5860,15 @@ def _rebuild_link_impl(d, h):
         act_step(h, "ساخت روی نودِ «%s»" % A["name"], 2, REBUILD_STEPS)
         ra = _node_tunnel(A, a_body)
         if not ra.get("ok"):
-            raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')} (تلاش برای بازگردانی)")
+            raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
         act_step(h, "ساخت روی نودِ «%s»" % B["name"], 3, REBUILD_STEPS, more=False)
         rb = _node_tunnel(B, b_body)
         if not rb.get("ok"):
-            raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تلاش برای بازگردانی)")
-    except Exception:
-        _restore_link(A, B, L, extra)
+            raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')}")
+    except Exception as e:
+        stuck = _restore_link(A, B, L, extra)
+        if isinstance(e, ValueError):
+            raise ValueError(str(e) + _restore_tail(stuck)) from None
         raise
     if a_ip != L["a_ip"] or b_ip != L["b_ip"]:
         with _reg_lock:
