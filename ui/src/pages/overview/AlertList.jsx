@@ -1,11 +1,9 @@
 import Icon from '../../components/Icon.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { cssVar } from '../../lib/health.js'
 
 const PAGE_FOR_KIND = {
   node: 'nodes',
-  link: 'tunnels',
-  drift: 'tunnels',
   disk: 'nodes',
   ram: 'nodes',
   cpu: 'nodes',
@@ -15,6 +13,7 @@ const PAGE_FOR_KIND = {
 const PAGE_LABEL = {
   nodes: 'nav_nodes',
   tunnels: 'tun_title',
+  core: 'core_title',
   settings: 'nav_settings',
 }
 
@@ -29,7 +28,7 @@ const EMPTY_STYLE = {
   gap: 7,
 }
 
-export default function AlertList({ alerts, onNavigate }) {
+export default function AlertList({ alerts, total, onNavigate }) {
   if (!alerts.length) {
     return (
       <div className="card">
@@ -44,7 +43,7 @@ export default function AlertList({ alerts, onNavigate }) {
   return (
     <div className="card">
       {alerts.map((alert, i) => {
-        const page = PAGE_FOR_KIND[alert.kind] || 'nodes'
+        const page = alert.tab || PAGE_FOR_KIND[alert.kind] || 'nodes'
         const color = alert.level === 'bad' ? cssVar('--bad') : cssVar('--gold')
         return (
           <div className="oalert" key={alert.kind + ':' + alert.msg + ':' + i}>
@@ -67,6 +66,11 @@ export default function AlertList({ alerts, onNavigate }) {
           </div>
         )
       })}
+      {total > alerts.length ? (
+        <div className="oalert">
+          <span className="msg muted">{TF('ov_more_alerts', { n: total - alerts.length })}</span>
+        </div>
+      ) : null}
     </div>
   )
 }

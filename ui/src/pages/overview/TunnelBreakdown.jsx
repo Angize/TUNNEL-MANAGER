@@ -24,11 +24,20 @@ function StateTile({ value, label, color }) {
   )
 }
 
-function WorstTunnelNote({ worst, fleetPing }) {
+function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
   if (!worst) {
+    if (!counted) return null
     return (
       <div className="onote">
-        <Icon name="okc" color="var(--ok)" /> {T('ov_all_good')}
+        {trouble ? (
+          <>
+            <Icon name="warn" color="var(--bad)" /> {T('ov_trouble')}
+          </>
+        ) : (
+          <>
+            <Icon name="okc" color="var(--ok)" /> {T('ov_all_good')}
+          </>
+        )}
         {fleetPing != null ? (
           <>
             {' · '}
@@ -111,7 +120,12 @@ export default function TunnelBreakdown({ summary }) {
         )}
       </div>
 
-      <WorstTunnelNote worst={summary.worst_tunnel} fleetPing={summary.fleet_avg_ping} />
+      <WorstTunnelNote
+        worst={summary.worst_tunnel}
+        fleetPing={summary.fleet_avg_ping}
+        trouble={down + drift > 0}
+        counted={up + noPing + down + drift > 0}
+      />
     </div>
   )
 }
