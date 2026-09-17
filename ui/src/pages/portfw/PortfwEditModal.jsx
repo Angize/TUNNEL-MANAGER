@@ -17,8 +17,9 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const hasIpChoice = ips.length > 1
   const rotatedBefore = item.switch_interval > 0
 
-  const [listenIp, setListenIp] = useState(
-    item.listen_ip && ips.includes(item.listen_ip) ? item.listen_ip : ips[0] || ''
+  const [listenIp, setListenIp] = useState(item.listen_ip || '')
+  const listenItems = [{ v: '', label: T('pf_lip_all') }].concat(
+    ipItems(item.listen_ip && !ips.includes(item.listen_ip) ? ips.concat([item.listen_ip]) : ips)
   )
   const [listenPort, setListenPort] = useState(String(item.listen_port))
   const [dstPort, setDstPort] = useState(String(item.dst_port))
@@ -44,7 +45,7 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       dst_ips: dstIps.trim(),
       rotate,
       interval_min: rotateMinutes.trim() || DEFAULT_ROTATE_MINUTES,
-      listen_ip: hasIpChoice ? listenIp : '',
+      ...(hasIpChoice ? { listen_ip: listenIp } : {}),
     })
     if (r.ok && r.d.ok) {
       onClose()
@@ -80,13 +81,13 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
         <>
           <label className="first">{T('pf_lip')}</label>
           <Select
-            items={ipItems(ips)}
+            items={listenItems}
             value={listenIp}
             placeholder={T('ip')}
             onChange={setListenIp}
           />
           <div className="muted" style={{ fontSize: 11, margin: '-3px 2px 12px' }}>
-            {T('pf_lip_note')}
+            {T(listenIp ? 'pf_lip_note' : 'pf_lip_all_note')}
           </div>
         </>
       ) : null}
