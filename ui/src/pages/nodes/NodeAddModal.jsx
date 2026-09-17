@@ -71,7 +71,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
   const autoInstall = async () => {
     const name = auto.name.trim()
     const host = auto.host.trim()
-    const pass = authMode === 'pass' ? auto.pass.trim() : ''
+    const pass = authMode === 'pass' ? auto.pass : ''
     const key = authMode === 'key' ? auto.key.trim() : ''
 
     if (!name || !host) {
