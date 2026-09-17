@@ -60,6 +60,7 @@ function EdgeBlock({ link, activeEdge }) {
   if (link.transport !== 'ws') return null
 
   if (link.ws_pool) {
+    if (link.enabled === false) return null
     const parts = String(activeEdge || '').split(' · ')
     return (
       <div className="cedge live">

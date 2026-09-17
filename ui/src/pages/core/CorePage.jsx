@@ -45,19 +45,22 @@ export default function CorePage({ embedded, active = true }) {
   }, [buildCount, reload])
 
   useEffect(() => {
-    const pooled = (list || []).filter((l) => l.transport === 'ws' && l.ws_pool)
+    const pooled = (list || []).filter((l) => l.transport === 'ws' && l.ws_pool && l.enabled !== false)
+    const polled = new Set(pooled.map((l) => l.id))
+    setEdges((prev) =>
+      Object.keys(prev).every((id) => polled.has(id))
+        ? prev
+        : Object.fromEntries(Object.entries(prev).filter(([id]) => polled.has(id)))
+    )
     if (!pooled.length) return undefined
     let alive = true
     const tick = async () => {
       await Promise.all(
         pooled.map(async (link) => {
           const r = await apiPost('edge-status', { id: link.id })
-          if (!alive) return
-          if (r.ok && r.d.ok && r.d.pool && r.d.active) {
-            setEdges((prev) =>
-              prev[link.id] === r.d.active ? prev : { ...prev, [link.id]: r.d.active }
-            )
-          }
+          if (!alive || !(r.ok && r.d.ok)) return
+          const active = r.d.pool ? String(r.d.active || '') : ''
+          setEdges((prev) => (prev[link.id] === active ? prev : { ...prev, [link.id]: active }))
         })
       )
     }
