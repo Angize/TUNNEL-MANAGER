@@ -6267,40 +6267,20 @@ def _ech_ingest_link(L, kind, hosts):
     if not st.get("ok") or st.get("error"):
         return
     hostset = set(hosts)
-    events = st.get("events") or []
-    seen_max = _ech_healed_seq.get(lid, 0)
-    ring_max = 0
-    for e in events:
-        if isinstance(e, dict):
-            try:
-                ring_max = max(ring_max, int(e.get("seq") or 0))
-            except (TypeError, ValueError):
-                pass
-    if ring_max < seen_max:
-        log_event("ok", "ech-seq-reset",
-                  "شمارندهٔ رویدادِ هستهٔ تونلِ «%s» صفر شده (ری‌استارتِ هسته)؛ ثبتِ خودترمیمِ ECH از نو باز شد" % nm)
-        seen_max = 0
-    new_max = seen_max
+    clean = _core_event_marks(st.get("events"))
+    seen = _ech_healed_seq.get(lid, (0, 0))
     latest = {}
-    for e in events:
-        if not isinstance(e, dict) or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
+    for at, e in clean:
+        if at <= seen or str(e.get("kind")) != "ech" or str(e.get("code")) != "self_heal":
             continue
-        try:
-            seq = int(e.get("seq") or 0)
-        except (TypeError, ValueError):
-            continue
-        if seq <= seen_max:
-            continue
-        if seq > new_max:
-            new_max = seq
         parts = str(e.get("detail") or "").split(" ", 1)
         if len(parts) != 2:
             continue
         host, b64 = parts[0], parts[1].strip()
         if host in hostset and b64 and len(b64) <= 4096 and re.match(r"^[A-Za-z0-9+/=]+$", b64):
-            if host not in latest or seq >= latest[host][0]:
-                latest[host] = (seq, b64)
-    _ech_healed_seq[lid] = new_max
+            latest[host] = (at, b64)
+    if clean:
+        _ech_healed_seq[lid] = max(seen, clean[-1][0])
     if not latest:
         return
     changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
@@ -6368,7 +6348,6 @@ EV_TYPES = (
     ("ech-rotate", "ech", "چرخشِ کلیدِ ECH"),
     ("ech-rebuild", "ech", "بازسازیِ سریعِ ECH"),
     ("ech-saved", "ech", "ذخیرهٔ کلیدِ خودترمیمِ هسته"),
-    ("ech-seq-reset", "ech", "صفر شدنِ شمارندهٔ رویدادِ هسته"),
     ("cfg-clamped", "cfg", "تنظیمی که کامل اعمال نشد"),
     ("auth-in", "auth", "ورودِ موفق به پنل"),
     ("auth-out", "auth", "خروج از پنل"),
@@ -6527,28 +6506,24 @@ def _ev_core_text(kind, code, detail, nm):
     return None
 
 
-def _ingest_core_events(lid, end, nm, events, first):
+def _core_event_marks(events):
+    return sorted((((_sint(e.get("ts")), _sint(e.get("seq"))), e)
+                   for e in (events if isinstance(events, list) else []) if isinstance(e, dict)),
+                  key=lambda x: x[0])
+
+
+def _ingest_core_events(lid, end, nm, events):
     key = lid + "|" + end
-    clean = []
-    if isinstance(events, list):
-        for e in events:
-            if not isinstance(e, dict):
-                continue
-            try:
-                sq = int(e.get("seq") or 0)
-            except (TypeError, ValueError):
-                continue
-            clean.append((sq, e))
-    mx = max([0] + [sq for sq, _ in clean])
-    if first:
-        _ev_state["evseq"][key] = mx
+    clean = _core_event_marks(events)
+    newest = clean[-1][0] if clean else (0, 0)
+    last = _ev_state["evseq"].get(key, (0, 0))
+    if last is None:
+        _ev_state["evseq"][key] = newest
         return
-    last = _ev_state["evseq"].get(key, 0)
-    if clean and mx < last:
-        last = 0
-    for sq, e in sorted(clean, key=lambda x: x[0]):
-        if sq <= last:
+    for at, e in clean:
+        if at <= last:
             continue
+        ts = at[0] or None
         ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
         rot = _ev_rot(ekind, ecode)
         if rot and end == "cli" and ecode == "port-roll":
@@ -6560,7 +6535,7 @@ def _ingest_core_events(lid, end, nm, events, first):
             if sport:
                 fa += f"، با پورتِ {sport}"
             fa += " برگشت"
-            log_event(rot[0], rot[3], fa)
+            log_event(rot[0], rot[3], fa, ts=ts)
             continue
         if rot and end == "cli" and rot[2]:
             axis = rot[2]
@@ -6571,15 +6546,15 @@ def _ingest_core_events(lid, end, nm, events, first):
                 _ev_state["rotip"][rk] = val
             other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
             log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}",
-                      _rot_pair(axis, prev, val, other))
+                      _rot_pair(axis, prev, val, other), ts=ts)
             continue
         if rot:
-            log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}")
+            log_event(rot[0], rot[3], f"تونلِ «{nm}»: {rot[1]}", ts=ts)
             continue
         txt = _ev_core_text(ekind, ecode, edet, nm)
         if txt:
-            log_event(txt[0], txt[1], txt[2], txt[3])
-    _ev_state["evseq"][key] = max(last, mx)
+            log_event(txt[0], txt[1], txt[2], txt[3], ts=ts)
+    _ev_state["evseq"][key] = max(last, newest)
 
 
 def _ev_all():
@@ -6660,13 +6635,15 @@ def ev_sweep():
         return before - len(_ev_list)
 
 
-def log_event(level, kind, fa, dfa=""):
+def log_event(level, kind, fa, dfa="", ts=None):
     global _ev_seq_total, _ev_dirty
     shown = kind not in _ev_hidden()
+    now = int(time.time())
+    at = min(int(ts), now) if ts else now
     with _events_lock:
         lst = _ev_all()
-        lst.insert(0, {"ts": int(time.time()), "level": level, "kind": kind,
-                       "fa": fa, "dfa": dfa})
+        pos = next((i for i, x in enumerate(lst) if _sint(x.get("ts")) <= at), len(lst))
+        lst.insert(pos, {"ts": at, "level": level, "kind": kind, "fa": fa, "dfa": dfa})
         if kind == "api-ok":
             seen = 0
             for i in range(len(lst) - 1, -1, -1):
@@ -6823,13 +6800,15 @@ def _events_once():
         seen.add(lid)
         nm = L.get("name", "")
         for end in ("cli", "srv"):
+            if first:
+                _ev_state["evseq"].setdefault(lid + "|" + end, None)
             r = pre.get((lid, end))
             if not r or "error" in r:
                 continue
             try:
                 if end == "cli":
                     _ev_seed_axes(lid, is_pool, r.get("active"))
-                _ingest_core_events(lid, end, nm, r.get("events"), first)
+                _ingest_core_events(lid, end, nm, r.get("events"))
             except Exception:
                 continue
     for k in [k for k in _ev_state["evseq"] if k.split("|", 1)[0] not in seen]:
