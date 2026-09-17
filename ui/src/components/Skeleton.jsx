@@ -167,11 +167,12 @@ export function AgentRowsSkeleton({ count }) {
   ))
 }
 
-function Section({ icon, titleKey }) {
+function Section({ icon, titleKey, children }) {
   return (
     <div className="sec">
       <Icon name={icon} color="var(--acc)" />
       {T(titleKey)}
+      {children}
     </div>
   )
 }
@@ -185,10 +186,10 @@ export function OverviewSkeleton() {
           <Sk as="div" className="oscore-l" w={70} />
         </div>
         <div className="ochips">
-          <Sk className="ochip" w={82} style={{ borderRadius: 20 }} />
-          <Sk className="ochip" w={96} style={{ borderRadius: 20 }} />
-          <Sk className="ochip" w={72} style={{ borderRadius: 20 }} />
-          <Sk className="ochip" w={88} style={{ borderRadius: 20 }} />
+          <Sk className="ochip" w={56} style={{ borderRadius: 20 }} />
+          <Sk className="ochip" w={94} style={{ borderRadius: 20 }} />
+          <Sk className="ochip" w={58} style={{ borderRadius: 20 }} />
+          <Sk className="ochip" w={62} style={{ borderRadius: 20 }} />
         </div>
       </div>
 
@@ -219,6 +220,7 @@ export function OverviewSkeleton() {
           <Sk w={54} />
           <Sk w={54} />
         </div>
+        <Sk as="div" className="muted" w={260} style={{ margin: '6px auto 0', fontSize: 11 }} />
       </div>
 
       <Section icon="server" titleKey="ov_central" />
@@ -259,21 +261,36 @@ export function OverviewSkeleton() {
           ))}
         </div>
         <Box w="100%" h={12} r={20} style={{ marginTop: 11 }} />
+        <div className="typleg">
+          <Sk w={64} />
+          <Sk w={64} />
+        </div>
+        <div className="onote">
+          <Sk w="60%" />
+        </div>
       </div>
 
-      <Section icon="traf" titleKey="ov_traffic" />
+      <Section icon="traf" titleKey="ov_traffic">
+        <Box w={50} h={23} r={20} />
+      </Section>
       <div className="card">
         <div className="tf-chart">
           <div className="tf-top">
-            <Sk className="din iso" w={90} />
-            <Sk className="dout iso" w={90} />
+            <span className="din iso">
+              <Sk as="b" w={90} style={{ display: 'inline-block' }} />
+            </span>
+            <span className="dout iso">
+              <Sk as="b" w={90} style={{ display: 'inline-block' }} />
+            </span>
           </div>
           <Box w="100%" h={46} r={8} />
         </div>
         <div className="ttiles">
           {[0, 1].map((i) => (
             <div className="ttile" key={i}>
-              <Sk className="din" w={60} />
+              <span className="din">
+                <Sk w={60} style={{ display: 'inline-block' }} />
+              </span>
               <Sk as="b" w={84} />
             </div>
           ))}
