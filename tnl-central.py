@@ -130,6 +130,25 @@ class _PairLock:
         self._held = []
 
 
+def _int_or(v, msg):
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    try:
+        return int(str(v).strip())
+    except ValueError:
+        raise ValueError(msg)
+
+
+def _num_or(v, msg):
+    try:
+        return float(str(v).strip())
+    except ValueError:
+        raise ValueError(msg)
+
+
+TUNNEL_PORT_MSG = "پورت باید عددی بینِ 1 تا 65535 باشد"
+
+
 def _sint(v):
     try:
         return int(v)
@@ -336,16 +355,17 @@ def validate_settings(d):
             raise ValueError("حالت باید auto یا alert باشد")
         out["reconcile_mode"] = m
     if "reconcile_interval" in d and d["reconcile_interval"] not in (None, ""):
-        out["reconcile_interval"] = max(5, min(3600, int(d["reconcile_interval"])))
+        sec = _num_or(d["reconcile_interval"], "بازهٔ بررسیِ ترمیم باید عدد باشد (ثانیه)")
+        out["reconcile_interval"] = int(round(max(5, min(3600, sec))))
     if "poll_interval" in d and d["poll_interval"] not in (None, ""):
-        out["poll_interval"] = max(0.3, min(60.0, round(float(d["poll_interval"]), 2)))
+        out["poll_interval"] = max(0.3, min(60.0, round(_num_or(d["poll_interval"], "بازهٔ پایشِ فلیت باید عدد باشد (ثانیه)"), 2)))
     if "ui_interval" in d and d["ui_interval"] not in (None, ""):
-        out["ui_interval"] = max(0.3, min(60.0, round(float(d["ui_interval"]), 2)))
+        out["ui_interval"] = max(0.3, min(60.0, round(_num_or(d["ui_interval"], "بازهٔ رفرشِ نمایش باید عدد باشد (ثانیه)"), 2)))
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
-        w = int(d["uptime_window"])
+        w = _int_or(d["uptime_window"], "بازهٔ نمودارِ دسترس‌پذیری نامعتبر است")
         out["uptime_window"] = w if w in (1, 3, 6, 8, 12, 24) else 1
     if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
-        m = round(float(d["ech_refresh_mins"]), 2)
+        m = round(_num_or(d["ech_refresh_mins"], "بازهٔ تازه‌سازیِ کلیدِ ECH باید عدد باشد (دقیقه)"), 2)
         out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))
     for k in ("agent_delivery", "core_delivery"):
         if k in d:
@@ -2364,7 +2384,7 @@ def api_node_add(d):
     host = str(d["host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
         raise ValueError("آی‌پی یا هاستِ نود نامعتبر است")
-    port = int(d["port"])
+    port = _int_or(d["port"], "پورت نامعتبر است")
     if not 1 <= port <= 65535:
         raise ValueError("پورت نامعتبر است")
     token = str(d["token"]).strip()
@@ -2700,13 +2720,13 @@ def api_node_install(d):
         raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
     if _host_taken(_exist, host):
         raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
-    ssh_port = int(d.get("ssh_port") or 22)
+    ssh_port = _int_or(d.get("ssh_port") or 22, "پورتِ SSH نامعتبر است")
     if not 1 <= ssh_port <= 65535:
         raise ValueError("پورتِ SSH نامعتبر است")
     user = str(d.get("ssh_user") or "root").strip()
     if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", user):
         raise ValueError("کاربرِ SSH نامعتبر است")
-    agent_port = int(d.get("agent_port") or 8099)
+    agent_port = _int_or(d.get("agent_port") or 8099, "پورتِ ایجنت نامعتبر است")
     if not 1 <= agent_port <= 65535:
         raise ValueError("پورتِ ایجنت نامعتبر است")
     pon, pid = valid_proxy_ref(d)
@@ -2756,7 +2776,7 @@ def api_node_edit(d):
     host = str(d["host"]).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
         raise ValueError("آی‌پی یا هاستِ نود نامعتبر است")
-    port = int(d["port"])
+    port = _int_or(d["port"], "پورت نامعتبر است")
     if not 1 <= port <= 65535:
         raise ValueError("پورت نامعتبر است")
     token = str(d.get("token") or "").strip()
@@ -4383,10 +4403,11 @@ def _fec_fields(d, transport, cur=None):
     if not fec:
         return out
     out["fec"] = True
-    fd = int(d.get("fec_data") or cur.get("fec_data") or 16)
-    fp = int(d.get("fec_parity") or cur.get("fec_parity") or 4)
+    fec_msg = "مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥1، مجموع ≤255)"
+    fd = _int_or(d.get("fec_data") or cur.get("fec_data") or 16, fec_msg)
+    fp = _int_or(d.get("fec_parity") or cur.get("fec_parity") or 4, fec_msg)
     if fd < 1 or fp < 1 or fd + fp > 255:
-        raise ValueError("مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥1، مجموع ≤255)")
+        raise ValueError(fec_msg)
     if fd > 64:
         raise ValueError("دادهٔ FEC حداکثر 64 است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)")
     out["fec_data"] = fd
@@ -4406,12 +4427,12 @@ def _desync_fields(d, shape, cur=None, is_http=False):
     if not on:
         return out
     out["fake_desync"] = True
-    ttl = int(d.get("fake_ttl") or cur.get("fake_ttl") or 4)
+    ttl = _int_or(d.get("fake_ttl") or cur.get("fake_ttl") or 4, "TTL طعمه باید بین 1 تا 255 باشد")
     if ttl < 1 or ttl > 255:
         raise ValueError("TTL طعمه باید بین 1 تا 255 باشد")
     if _shape_consumes("fake_ttl", *shape):
         out["fake_ttl"] = min(ttl, DESYNC_INJECT_TTL_MAX)
-    cnt = int(d.get("fake_count") or cur.get("fake_count") or 2)
+    cnt = _int_or(d.get("fake_count") or cur.get("fake_count") or 2, "تعدادِ طعمه باید بین 1 تا 64 باشد")
     if cnt < 1 or cnt > 64:
         raise ValueError("تعدادِ طعمه باید بین 1 تا 64 باشد")
     out["fake_count"] = cnt
@@ -4603,9 +4624,10 @@ def _sni_split_fields(d, cur, ech=False):
     on = d.get("sni_split") if ("sni_split" in d) else cur.get("sni_split")
     if not on:
         return {}
-    sp = int((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0)
+    split_msg = "split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)"
+    sp = _int_or((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0, split_msg)
     if sp < 0 or sp > 1400:
-        raise ValueError("split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)")
+        raise ValueError(split_msg)
     if ech and not sp:
         raise ValueError("با ECH روشن نامِ دامنه در ClientHello رمز است، پس نقطهٔ برشِ خودکار پیدا نمی‌شود و هیچ چیزی تکه نمی‌شود — یا «نقطهٔ برش» را دستی بگذار یا تقسیمِ SNI را خاموش کن")
     out = {"sni_split": True}
@@ -4617,10 +4639,11 @@ def _sni_split_fields(d, cur, ech=False):
     if mode != "split":
         out["sni_mode"] = mode
     if mode == "disorder":
-        st = int((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0)
+        ttl_msg = ("split_ttl باید بین 0 تا " + str(SPLIT_TTL_MAX)
+                   + " باشد (0 = پیش‌فرض)؛ بالاتر از آن سگمنتِ سرْ به سرور می‌رسد و disorder بی‌اثر می‌شود")
+        st = _int_or((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0, ttl_msg)
         if st < 0 or st > SPLIT_TTL_MAX:
-            raise ValueError("split_ttl باید بین 0 تا " + str(SPLIT_TTL_MAX)
-                             + " باشد (0 = پیش‌فرض)؛ بالاتر از آن سگمنتِ سرْ به سرور می‌رسد و disorder بی‌اثر می‌شود")
+            raise ValueError(ttl_msg)
         if st:
             out["split_ttl"] = st
     return out
@@ -4987,7 +5010,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
                     if not 1 <= _rdp <= RAW_DPORTS_MAX:
                         raise ValueError(f"«چند پورتِ مقصد» باید بینِ 1 تا {RAW_DPORTS_MAX} باشد")
                     ce["raw_dports"] = _rdp
-            elif int((d.get("raw_dports") or 0)) and "raw_dports" in d:
+            elif _sint(d.get("raw_dports")) and "raw_dports" in d:
                 raise ValueError("«چند پورتِ مقصد» بدونِ «چرخشِ پورتِ مبدأ» بی‌اثر است — با مبدأِ ثابت هر پکت باز هم در همان سطلِ میدل‌باکس می‌افتد. اول چرخش را روشن کن")
         elif _rrot and "raw_sport_rotate" in d:
             raise ValueError(f"«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{profile}» هیچ پورتی جعل نمی‌کند")
@@ -5105,7 +5128,7 @@ def _create_tunnel_impl(d, h):
                 pass
     _cap = (TID_MAX if ttype == "sit" or str(d.get("subnet") or "").strip()
             else subnet_cap(d.get("subnet_base")))
-    explicit = int(d.get("id") or 0)
+    explicit = _int_or(d.get("id") or 0, f"شناسهٔ تونل خارج از محدوده است ({TID_MIN} تا {_cap})")
     if explicit and not TID_MIN <= explicit <= _cap:
         raise ValueError(f"شناسهٔ تونل خارج از محدوده است ({TID_MIN} تا {_cap})")
     if explicit and explicit in used:
@@ -5123,14 +5146,14 @@ def _create_tunnel_impl(d, h):
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}
     if _needs_tunnel_port(ttype, d, {}):
-        port = int(d.get("port") or 0) or free_tunnel_port(A, B)
+        port = _int_or(d.get("port") or 0, TUNNEL_PORT_MSG) or free_tunnel_port(A, B)
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
+            raise ValueError(TUNNEL_PORT_MSG)
         extra["port"] = port
     if ttype == "vxlan":
-        port = int(d.get("port") or 4789)
+        port = _int_or(d.get("port") or 4789, TUNNEL_PORT_MSG)
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
+            raise ValueError(TUNNEL_PORT_MSG)
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = secrets.token_hex(32)
@@ -5556,15 +5579,15 @@ def _edit_link_impl(d, h):
         _asked = "port" in d and not str(d.get("port") or "").strip()
         _moved_carrier = ttype == "core" and str(d.get("transport") or "") != str(L.get("transport") or "")
         _stale = _asked or _moved_carrier or L.get("type") not in ("l2tpv3", "fou", "core")
-        port = int(d.get("port") or 0) or (0 if _stale else L.get("port")) or free_tunnel_port(A, B, exclude_id=L["id"])
+        port = _int_or(d.get("port") or 0, TUNNEL_PORT_MSG) or (0 if _stale else L.get("port")) or free_tunnel_port(A, B, exclude_id=L["id"])
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
+            raise ValueError(TUNNEL_PORT_MSG)
         extra["port"] = port
     if ttype == "vxlan":
         _asked = "port" in d and not str(d.get("port") or "").strip()
-        port = int(d.get("port") or 0) or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or 4789
+        port = _int_or(d.get("port") or 0, TUNNEL_PORT_MSG) or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or 4789
         if not 1 <= port <= 65535:
-            raise ValueError("پورتِ UDP خارج از محدوده است (1 تا 65535)")
+            raise ValueError(TUNNEL_PORT_MSG)
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
@@ -5841,7 +5864,7 @@ CARD_TAGS = 6
 
 def api_link_tag(d):
     _require(d, ["id"])
-    tag = int(d.get("tag") or 0)
+    tag = _int_or(d.get("tag") or 0, "رنگِ نشانه‌گذاری نامعتبر است")
     if not 0 <= tag <= CARD_TAGS:
         raise ValueError("رنگِ نشانه‌گذاری نامعتبر است")
     with _reg_lock:
