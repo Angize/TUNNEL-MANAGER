@@ -241,8 +241,12 @@ export default function AgentPage({ headless }) {
   }
 
   const pushAgent = async (target) => {
-    if (!agentMeta || agentMeta.none) {
-      toast(T(agentUnknown ? 'net_read' : 'ag_pick_first'), 'err')
+    if (agentUnknown) {
+      toast(T('net_read'), 'err')
+      return
+    }
+    if (agentMeta.none && delivery.agent !== 'github') {
+      toast(T('ag_pick_first'), 'err')
       return
     }
     let ids
@@ -712,6 +716,7 @@ export default function AgentPage({ headless }) {
               key={node.id}
               node={node}
               agentMeta={agentMeta}
+              agentFromGit={delivery.agent === 'github'}
               staged={staged}
               wanted={wanted}
               status={pushNodes[node.id] || (push.seeded[node.id] ? { state: 'run', pct: 0, step: 'start', si: 0, sn: 1, remote: true } : null)}

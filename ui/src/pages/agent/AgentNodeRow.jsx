@@ -13,12 +13,15 @@ function VersionPill({ icon, tone, version, title }) {
   )
 }
 
-function agentPill(node, agentMeta) {
+function agentPill(node, agentMeta, fromGit) {
   const label = T('ag_lbl_agent')
   const info = node.info || {}
   const hasUpdate = !!(agentMeta && !agentMeta.none && info.sha256 !== agentMeta.sha256)
   const highlight = hasUpdate && node.online
   if (!node.online) return { tone: 'offl', title: label + ': ' + T('offline'), disabled: true, highlight }
+  if (agentMeta && agentMeta.none && fromGit) {
+    return { tone: 'na', title: label + ': ' + T('ag_from_git'), disabled: false, highlight }
+  }
   if (!agentMeta || agentMeta.none) return { tone: 'offl', title: label, disabled: true, highlight }
   if (hasUpdate) return { tone: 'up', title: label + ': ' + T('ag_up_avail'), disabled: false, highlight }
   return { tone: 'ok', title: label + ': ' + T('ag_uptodate'), disabled: true, highlight }
@@ -63,10 +66,19 @@ function corePill(node, staged, wanted) {
   return { tone: 'ok', title: label + ': ' + T('ag_uptodate'), disabled: true, highlight }
 }
 
-export default function AgentNodeRow({ node, agentMeta, staged, wanted, status, onPushAgent, onPushCore }) {
+export default function AgentNodeRow({
+  node,
+  agentMeta,
+  agentFromGit,
+  staged,
+  wanted,
+  status,
+  onPushAgent,
+  onPushCore,
+}) {
   const info = node.info || {}
   const installed = !!(info.core_sha && String(info.core_sha).length)
-  const agent = agentPill(node, agentMeta)
+  const agent = agentPill(node, agentMeta, agentFromGit)
   const core = corePill(node, staged, wanted)
 
   return (

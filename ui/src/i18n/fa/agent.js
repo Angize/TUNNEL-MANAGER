@@ -26,6 +26,7 @@ export default {
   ag_not_installed: 'نصب نیست',
   ag_up_avail: 'آپدیت دارد',
   ag_uptodate: 'به‌روز',
+  ag_from_git: 'موقعِ فرستادن از گیت‌هاب گرفته می‌شود',
   ag_ver_pick: 'نصبِ {v} روی این نود',
   ag_send: 'ارسالِ',
   ag_pick_first: 'اول یک ایجنت بارگذاری کن',
