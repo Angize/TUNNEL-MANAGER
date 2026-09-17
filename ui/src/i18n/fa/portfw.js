@@ -37,6 +37,6 @@ export default {
   pf_rotate_failed: 'چرخش ناموفق',
   pf_rotate_now: 'چرخش الان',
   pf_rule: 'قانون',
-  pf_search: 'جستجوی نود / نام…',
+  pf_search: 'جستجوی نود / پورت / آی‌پی…',
   pf_targets: 'مقصدها: ',
 }

@@ -7020,8 +7020,11 @@ def api_portfw_list(d):
         node_ip = node_ips[0] if len(node_ips) == 1 else ""
         tf = _tf_read(n["id"])
         for c in cfgs:
-            if q and q not in n["name"].lower() and q not in str(c.get("name", "")).lower():
-                continue
+            if q:
+                hay = (n["name"].lower(), str(c.get("listen_port", "")), str(c.get("dst_port", "")),
+                       str(c.get("iface") or "").lower(), c.get("listen_ip") or node_ip, *c.get("dst_ips", []))
+                if not any(q in v for v in hay if v):
+                    continue
             t = tf.get("pf:" + str(c.get("name") or ""))
             bw = ({"rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"], "rx_total": t["crx"], "tx_total": t["ctx"]}
                   if t else {"rx_bps": 0.0, "tx_bps": 0.0, "rx_total": 0, "tx_total": 0})
