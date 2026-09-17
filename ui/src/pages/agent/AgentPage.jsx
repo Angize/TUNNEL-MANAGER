@@ -11,7 +11,7 @@ import DeliverySegment from './DeliverySegment.jsx'
 import PushFab from './PushFab.jsx'
 import usePushJob from './usePushJob.js'
 import { coreVersionName } from './versions.js'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
@@ -274,15 +274,18 @@ export default function AgentPage({ headless }) {
       return
     }
     await loadCoreVersions()
+    const button = T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')
     setCoreMsg({
       cls: 'ok',
       text: !d.count
         ? T('cor_check_none')
-        : d.first_check
-          ? T('cor_check_first').replace('{n}', d.count)
-          : d.newer
-            ? T('cor_check_new')
-            : T('cor_check_same'),
+        : d.latest === d.staged
+          ? T('cor_check_same')
+          : d.first_check
+            ? T('cor_check_first').replace('{n}', d.count)
+            : d.newer
+              ? TF('cor_check_new', { b: button })
+              : TF('cor_check_avail', { v: d.latest, b: button }),
     })
   }
 

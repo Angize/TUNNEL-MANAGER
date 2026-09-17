@@ -3762,7 +3762,7 @@ def api_core_check(d):
         _core_versions_cache["ts"] = time.time()
     top = (vers[0].get("id") if vers else "")
     return {"ok": True, "count": len(vers), "latest": top, "newer": bool(top and top != prev_top),
-            "first_check": not before}
+            "first_check": not before, "staged": (_staged_info() or {}).get("version", "")}
 
 
 def _core_blob_info():
