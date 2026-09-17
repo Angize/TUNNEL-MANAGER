@@ -364,7 +364,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
               ) : message && message.speed ? (
                 <>
                   <div className="chh">
-                    <Check /> {T('speed_done')}{' '}
+                    {message.cls === 'ok' ? <Check /> : <Cross />} {T('speed_done')}{' '}
                     <span className="muted">{message.speed.how}</span>
                   </div>
                   <div className="chl">

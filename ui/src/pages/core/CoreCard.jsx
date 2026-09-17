@@ -418,7 +418,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
               ) : message && message.speed ? (
                 <>
                   <div className="chh">
-                    <Check /> {T('speed_done')} <span className="muted">{message.speed.how}</span>
+                    {message.cls === 'ok' ? <Check /> : <Cross />} {T('speed_done')}{' '}
+                    <span className="muted">{message.speed.how}</span>
                   </div>
                   <div className="chl">
                     {T('speed_down')}: {'⁦' + message.speed.down + '⁩'}
