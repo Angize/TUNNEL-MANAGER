@@ -1,5 +1,7 @@
 export default {
   a_pending: 'در حالِ ساخت',
+  a_pending_fail: 'ساخت ناموفق بود',
+  a_pending_cancel: 'ساخت لغو شد',
   a_working: 'در حالِ انجام…',
   a_cancel: 'لغو',
   a_dismiss: 'بستن',
