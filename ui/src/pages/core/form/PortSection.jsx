@@ -6,21 +6,32 @@ import { PORT_MAX, rangeLabel } from '../../../lib/form.js'
 import { RAW_SPORT_FIXED } from '../carrier.js'
 import { T } from '../../../i18n/fa.js'
 
-const DPORT_PRESETS = [
-  { v: 443, sub: () => T('raw_port_quic') },
-  { v: 51820, sub: () => 'WireGuard' },
-  { v: 4500, sub: () => 'IPsec' },
-]
+const DPORT_PRESETS = {
+  udp: [
+    { v: 443, sub: () => T('raw_port_quic') },
+    { v: 51820, sub: () => 'WireGuard' },
+    { v: 4500, sub: () => 'IPsec' },
+  ],
+  tcp: [
+    { v: 443, sub: () => 'HTTPS' },
+    { v: 80, sub: () => 'HTTP' },
+    { v: 8443, sub: () => 'HTTPS-alt' },
+  ],
+}
 
-const SPORT_PRESETS = [
-  { v: 51820, sub: () => 'WireGuard' },
-  { v: 4500, sub: () => 'IPsec' },
-  { v: 500, sub: () => T('raw_sport_ike') },
-]
+const SPORT_PRESETS = {
+  udp: [
+    { v: 51820, sub: () => 'WireGuard' },
+    { v: 4500, sub: () => 'IPsec' },
+    { v: 500, sub: () => T('raw_sport_ike') },
+  ],
+  tcp: [],
+}
 
 function SourcePort({ form, patch }) {
   const locked = sprotLive(form)
   const current = parseInt(form.rawSport, 10)
+  const presets = SPORT_PRESETS[form.RawProfile]
 
   return (
     <div className={locked ? 'portlock' : undefined} inert={locked}>
@@ -41,17 +52,19 @@ function SourcePort({ form, patch }) {
       </Seg2>
       {form.SportRandom ? null : (
         <div style={{ marginTop: 8 }}>
-          <Seg2 style={{ marginBottom: 8 }}>
-            {SPORT_PRESETS.map((preset) => (
-              <SegOpt
-                key={preset.v}
-                on={current === preset.v}
-                title={String(preset.v)}
-                sub={preset.sub()}
-                onClick={() => patch({ rawSport: String(preset.v) })}
-              />
-            ))}
-          </Seg2>
+          {presets.length ? (
+            <Seg2 style={{ marginBottom: 8 }}>
+              {presets.map((preset) => (
+                <SegOpt
+                  key={preset.v}
+                  on={current === preset.v}
+                  title={String(preset.v)}
+                  sub={preset.sub()}
+                  onClick={() => patch({ rawSport: String(preset.v) })}
+                />
+              ))}
+            </Seg2>
+          ) : null}
           <input
             className="mono"
             inputMode="numeric"
@@ -127,7 +140,7 @@ export default function PortSection({ form, enums, patch }) {
     <div style={{ marginTop: 11 }}>
       <label className="first">{rangeLabel(T('raw_port_lbl'), 1, PORT_MAX)}</label>
       <Seg2 style={{ marginBottom: 8 }}>
-        {DPORT_PRESETS.map((preset) => (
+        {DPORT_PRESETS[form.RawProfile].map((preset) => (
           <SegOpt
             key={preset.v}
             on={current === preset.v}
