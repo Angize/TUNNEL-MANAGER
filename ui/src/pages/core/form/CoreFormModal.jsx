@@ -146,7 +146,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     apiGet('next-port')
       .then((r) => {
         if (!alive) return
-        setForm((f) => (f && f.port === '' ? { ...f, port: String(r.port) } : f))
+        setForm((f) => (f && f.port === '' ? { ...f, port: String(r.port), portAuto: true } : f))
       })
       .catch(() => {})
     return () => {

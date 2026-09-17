@@ -165,7 +165,7 @@ export default function SettingsTab({
             inputMode="numeric"
             placeholder={T(form.Tr === 'ws' ? 'port_ws_ph' : 'port_band_ph')}
             value={form.port}
-            onChange={(e) => patch({ port: e.target.value })}
+            onChange={(e) => patch({ port: e.target.value, portAuto: false })}
           />
         </div>
       )}
