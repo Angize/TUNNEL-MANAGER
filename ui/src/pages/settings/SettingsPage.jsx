@@ -233,6 +233,7 @@ export default function SettingsPage() {
   const reset = async () => {
     if (!(await confirmBox(T('set_reset_confirm'), T('set_reset_yes')))) return
     const body = { tuning: tuningDefaults, ...defaults }
+    delete body.log_hidden
     const r = await apiPost('settings-set', body)
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
