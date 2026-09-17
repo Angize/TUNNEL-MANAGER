@@ -83,7 +83,13 @@ export default function usePeerStatus(lid) {
   useEffect(() => {
     if (!pending) return
     const side = status[pending.side] || EMPTY_SIDE
-    if (side.active === pending.key || Date.now() - pending.ts > PENDING_MS) setPending(null)
+    if (side.active === pending.key) {
+      setPending(null)
+      toast(T('peer_moved'), 'ok')
+    } else if (Date.now() - pending.ts > PENDING_MS) {
+      setPending(null)
+      toast(T('select_not_taken'), 'err')
+    }
   }, [status, pending])
 
   const retest = useCallback(
@@ -108,7 +114,6 @@ export default function usePeerStatus(lid) {
       setPending({ side, key, ts: Date.now() })
       const r = await apiPost('peer-select', { id: lid, side, key })
       if (r.ok && r.d.ok) {
-        toast(T('peer_moved'), 'ok')
         schedule(SELECT_STEPS)
         return
       }
