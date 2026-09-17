@@ -10,6 +10,7 @@ import AgentNodeRow from './AgentNodeRow.jsx'
 import DeliverySegment from './DeliverySegment.jsx'
 import PushFab from './PushFab.jsx'
 import usePushJob from './usePushJob.js'
+import { coreVersionName } from './versions.js'
 import { T } from '../../i18n/fa.js'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -359,6 +360,7 @@ export default function AgentPage({ headless }) {
             res.d.sha256 +
             T('cor_bin_saved_post'),
         })
+        setWanted('custom')
         await loadCoreVersions()
         return
       }
@@ -378,6 +380,7 @@ export default function AgentPage({ headless }) {
       return
     }
     setCoreMsg({ cls: 'ok', text: T('cor_del_blob_ok') })
+    setWanted((prev) => (prev === 'custom' ? '' : prev))
     await loadCoreVersions()
   }
 
@@ -395,7 +398,7 @@ export default function AgentPage({ headless }) {
       return
     }
     const ok = await confirmBox(
-      T('ag_confirm_core') + wanted + T('ag_confirm_core2') + ids.length + T('ag_confirm_core3'),
+      T('ag_confirm_core') + coreVersionName(wanted) + T('ag_confirm_core2') + ids.length + T('ag_confirm_core3'),
       T('yes_all')
     )
     if (!ok) return
