@@ -51,8 +51,25 @@ function Shell() {
   const { refresh: actsRefresh } = useActs()
   const interval = useRef(DEFAULT_INTERVAL)
   const pageRef = useRef(page)
+  const readinessRef = useRef(null)
+  const readinessSeq = useRef(0)
+  const navigated = useRef(false)
 
   pageRef.current = page
+
+  const loadReadiness = useCallback(async (boot) => {
+    const mine = ++readinessSeq.current
+    let r
+    try {
+      r = await apiGet('readiness')
+    } catch {
+      return
+    }
+    if (mine !== readinessSeq.current) return
+    readinessRef.current = r
+    setReadiness(r)
+    if (boot && !r.ok && !navigated.current) setPage('settings')
+  }, [])
 
   useEffect(() => {
     applyStoredTheme()
@@ -72,18 +89,16 @@ function Shell() {
           if (alive) retry = setTimeout(loadConfig, DEFAULT_INTERVAL)
         })
     loadConfig()
-    apiGet('readiness')
-      .then((r) => {
-        if (!alive) return
-        setReadiness(r)
-        if (!r.ok) setPage('settings')
-      })
-      .catch(() => {})
+    loadReadiness(true)
     return () => {
       alive = false
       clearTimeout(retry)
     }
-  }, [])
+  }, [loadReadiness])
+
+  useEffect(() => {
+    if (readinessRef.current) loadReadiness(false)
+  }, [page, loadReadiness])
 
   useEffect(() => {
     setLS(PAGE_KEY, page)
@@ -151,6 +166,8 @@ function Shell() {
       try {
         await fetchSummary()
         if (!alive) return
+        if (!readinessRef.current || !readinessRef.current.ok) await loadReadiness(!readinessRef.current)
+        if (!alive) return
         await actsRefresh()
         if (!alive) return
         await runPageRefresh()
@@ -176,9 +193,10 @@ function Shell() {
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [actsRefresh])
+  }, [actsRefresh, loadReadiness])
 
   const navigate = useCallback((id) => {
+    navigated.current = true
     if (isLinkKind(id)) {
       setLinkKind(id)
       setPage('links')
