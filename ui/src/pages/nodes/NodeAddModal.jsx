@@ -152,7 +152,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
   ) : mode === 'auto' ? (
     <>
       <Icon name="bolt" />
-      {progress && !progress.finished ? T('inst_retry') : T('nadd_install_connect')}
+      {progress && progress.finished && !progress.success ? T('inst_retry') : T('nadd_install_connect')}
     </>
   ) : (
     <>
