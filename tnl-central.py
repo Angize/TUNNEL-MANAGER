@@ -6825,11 +6825,14 @@ def api_events_clear(d):
     return {"ok": True}
 
 
+PF_PORT_LABELS = {"listen_port": "پورتِ ورودی", "dst_port": "پورتِ مقصد"}
+
+
 def _pf_field(k, v):
-    if k in ("listen_port", "dst_port"):
+    if k in PF_PORT_LABELS:
         p = _sint(v)
         if not 1 <= p <= 65535:
-            raise ValueError(f"«{k}» باید بینِ ۱ تا ۶۵۵۳۵ باشد")
+            raise ValueError(f"{PF_PORT_LABELS[k]} باید بینِ ۱ تا ۶۵۵۳۵ باشد")
         return p
     if k == "dst_ips":
         raw = v if isinstance(v, list) else re.split(r"[\s,]+", str(v))
