@@ -14,7 +14,7 @@ export default function TopBar({ dark, onToggleTheme }) {
         </span>
         <span>TUNNEL-MANAGER</span>
       </div>
-      <button className="hb" onClick={onToggleTheme}>
+      <button className="hb" title={T(dark ? 'theme_to_light' : 'theme_to_dark')} onClick={onToggleTheme}>
         <Icon name={dark ? 'sun' : 'moon'} />
       </button>
     </div>

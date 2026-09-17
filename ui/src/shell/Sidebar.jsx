@@ -26,7 +26,7 @@ function countOf(counts, key) {
   return parts.length ? parts.reduce((sum, v) => sum + Number(v), 0) : null
 }
 
-export default function Sidebar({ page, counts, unread, onNavigate }) {
+export default function Sidebar({ page, counts, unread, dark, onNavigate, onToggleTheme }) {
   const nav = useRef(null)
   const ind = useIndicator(nav, page, 'y')
 
@@ -63,6 +63,10 @@ export default function Sidebar({ page, counts, unread, onNavigate }) {
             )}
           </a>
         ))}
+        <a className="navi" {...pressable(onToggleTheme)}>
+          <Icon name={dark ? 'sun' : 'moon'} />
+          <span className="nlbl">{T(dark ? 'theme_to_light' : 'theme_to_dark')}</span>
+        </a>
         <a className="navi" {...pressable(logout)}>
           <Icon name="logout" />
           <span className="nlbl">{T('nav_logout')}</span>

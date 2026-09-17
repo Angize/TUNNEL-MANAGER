@@ -12,6 +12,8 @@ export default {
   nav_logs: 'لاگ',
   nav_settings: 'تنظیمات',
   nav_logout: 'خروج',
+  theme_to_light: 'تمِ روشن',
+  theme_to_dark: 'تمِ تیره',
   tun_title: 'تونل‌های سیستمی',
   core_title: 'هستهٔ اختصاصی',
 
