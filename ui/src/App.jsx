@@ -250,7 +250,14 @@ function Shell() {
   return (
     <>
       <div className="shell">
-        <Sidebar page={page} counts={summary.counts} unread={unread} onNavigate={navigate} />
+        <Sidebar
+          page={page}
+          counts={summary.counts}
+          unread={unread}
+          dark={dark}
+          onNavigate={navigate}
+          onToggleTheme={onToggleTheme}
+        />
         <main className="main">
           <TopBar dark={dark} onToggleTheme={onToggleTheme} />
           <ReadinessBar readiness={readiness} onNavigate={navigate} />
