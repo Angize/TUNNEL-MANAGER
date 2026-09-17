@@ -75,7 +75,8 @@ export default function AgentPage({ headless }) {
     setWanted((prev) => {
       if (prev) return prev
       if (r.staged && r.staged.version) return r.staged.version
-      return r.versions.length ? r.versions[0].id : ''
+      const release = r.versions.find((v) => !v.custom)
+      return release ? release.id : ''
     })
   }, [])
 

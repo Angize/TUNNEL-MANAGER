@@ -4120,6 +4120,8 @@ def _stage_run(version):
 
 def api_core_stage(d):
     version = str((d or {}).get("version") or "latest").strip()
+    if version == "custom":
+        raise ValueError("باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصبِ هسته روی همهٔ نودها» یا از منوی هر نود نصب کن")
     if _delivery_mode("core") == "github":
         info = _stage_core_meta(version)
         return {"ok": True, "meta_only": True, "done": True, **info}
