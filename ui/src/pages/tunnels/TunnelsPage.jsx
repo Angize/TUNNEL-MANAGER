@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -15,6 +15,7 @@ import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import { registerCommand } from '../../lib/pageCommand.js'
+import useCheckAll from '../../lib/useCheckAll.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
@@ -31,10 +32,7 @@ export default function TunnelsPage({ embedded, active = true }) {
   const [query, setQuery] = usePageQuery('tunnels')
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [checking, setChecking] = useState(false)
   const [tagOverrides, setTagOverrides] = useState({})
-  const checkRefs = useRef({})
-  const checkAllRef = useRef(null)
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -43,6 +41,7 @@ export default function TunnelsPage({ embedded, active = true }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
+  const { checking, checkAll, checkRefs } = useCheckAll('tunnels:checkall', list)
 
   useEffect(() => {
     reload()
@@ -60,35 +59,7 @@ export default function TunnelsPage({ embedded, active = true }) {
     []
   )
 
-  useEffect(() => {
-    const off = [
-      registerCommand('tunnels:create', () => setCreating(true)),
-      registerCommand('tunnels:checkall', () => checkAllRef.current && checkAllRef.current()),
-    ]
-    return () => off.forEach((fn) => fn())
-  }, [])
-
-  const checkAll = async () => {
-    const links = list || []
-    if (!links.length) {
-      toast(T('no_tunnel_check'), 'err')
-      return
-    }
-    setChecking(true)
-    try {
-      await Promise.all(
-        links.map((link) => {
-          const run = checkRefs.current[link.id]
-          return run ? run() : Promise.resolve()
-        })
-      )
-    } finally {
-      setChecking(false)
-    }
-    toast(T('checkall_done'), 'ok')
-  }
-
-  checkAllRef.current = checkAll
+  useEffect(() => registerCommand('tunnels:create', () => setCreating(true)), [])
 
   const afterAction = useCallback(async () => {
     await actsRefresh()
