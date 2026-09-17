@@ -70,7 +70,7 @@ export default function KernelTuneModal({ node, onClose }) {
           {T('kt_disable')}
         </button>
       ) : (
-        <button className="primary" disabled={busy || !bbr} onClick={() => run('apply')}>
+        <button className="primary" disabled={busy} onClick={() => run('apply')}>
           {T('kt_enable')}
         </button>
       )}
@@ -97,7 +97,7 @@ export default function KernelTuneModal({ node, onClose }) {
           <span className="mono">{status.qdisc || '?'}</span>
         </Tile>
       </div>
-      {bbr ? null : <div className="msg err" style={{ marginTop: 9 }}>{T('kt_nobbr')}</div>}
+      {bbr ? null : <div className="msg" style={{ marginTop: 9 }}>{T('kt_nobbr')}</div>}
       <div className={message ? 'msg ' + message.cls : 'msg'}>{message ? message.text : null}</div>
     </Modal>
   )
