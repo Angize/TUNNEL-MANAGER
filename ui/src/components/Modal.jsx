@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 
 const open = []
+let bodyOverflow = ''
 
 export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, children }) {
   const id = useId()
@@ -11,9 +12,11 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
   closeRef.current = onClose
 
   useEffect(() => {
+    if (!open.length) {
+      bodyOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+    }
     open.push(id)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     const onKey = (e) => {
       if (e.key !== 'Escape') return
       if (open[open.length - 1] !== id) return
@@ -27,7 +30,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
       const i = open.indexOf(id)
       if (i >= 0) open.splice(i, 1)
       document.removeEventListener('keydown', onKey)
-      if (!open.length) document.body.style.overflow = prev
+      if (!open.length) document.body.style.overflow = bodyOverflow
     }
   }, [id])
 
