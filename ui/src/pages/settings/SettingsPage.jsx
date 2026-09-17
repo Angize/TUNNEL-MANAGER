@@ -17,6 +17,7 @@ import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
+import { checkable } from '../../lib/keys.js'
 import './settings.css'
 
 const WINDOW_OPTIONS = [
@@ -315,7 +316,7 @@ export default function SettingsPage() {
               <div className="srtgl">
                 <div
                   className={'tglsw' + (form.apiOn ? ' on' : '')}
-                  onClick={() => set('apiOn')(!form.apiOn)}
+                  {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
                 />
               </div>
             </SettingRow>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
+import { pressable } from '../lib/keys.js'
 
 function LinkMark() {
   return (
@@ -26,10 +27,10 @@ function PeerChip({ peer }) {
     <span
       className={'ippeer' + (shown ? ' show' : '')}
       title={T('ip_toggle_hint')}
-      onClick={(e) => {
+      {...pressable((e) => {
         e.stopPropagation()
         setShown((v) => !v)
-      }}
+      })}
     >
       <span className="ipn">
         <LinkMark /> {peer.node}

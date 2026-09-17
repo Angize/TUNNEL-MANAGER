@@ -1,5 +1,6 @@
 import { T } from '../i18n/fa.js'
 import { toast } from '../lib/toast.js'
+import { pressable } from '../lib/keys.js'
 
 function copyFallback(text) {
   try {
@@ -40,7 +41,7 @@ export default function CopyValue({ text, className }) {
     <b
       className={'mono cpv' + (className ? ' ' + className : '')}
       title={T('tip_copy')}
-      onClick={(e) => copyText(value, e)}
+      {...pressable((e) => copyText(value, e))}
     >
       {value}
     </b>

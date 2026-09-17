@@ -3,6 +3,7 @@ import Modal from './Modal.jsx'
 import Icon from './Icon.jsx'
 import IpChips from './IpChips.jsx'
 import { T } from '../i18n/fa.js'
+import { checkable } from '../lib/keys.js'
 import { apiPost } from '../lib/api.js'
 import { postError, readError, translateError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
@@ -129,7 +130,9 @@ export default function RebuildPicker({ id, onClose, onDone }) {
                   <div
                     key={entry.ip}
                     className={'rbrow' + (picked[key] === entry.ip ? ' sel' : '')}
-                    onClick={() => setPicked((prev) => ({ ...prev, [key]: entry.ip }))}
+                    {...checkable('radio', picked[key] === entry.ip, () =>
+                      setPicked((prev) => ({ ...prev, [key]: entry.ip }))
+                    )}
                   >
                     <span className="rbdot" />
                     <span className="mono" style={{ direction: 'ltr', fontSize: 13 }}>

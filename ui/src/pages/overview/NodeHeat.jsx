@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { T } from '../../i18n/fa.js'
 import { usageColor } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
+import { pressable } from '../../lib/keys.js'
 
 const TIP_MS = 2400
 const OFFLINE_HEIGHT = 10
@@ -49,7 +50,7 @@ export default function NodeHeat({ heat }) {
               className="hbar"
               title={bar.name + ' — ' + bar.info}
               style={{ height: bar.height + 'px', background: bar.background }}
-              onClick={(e) => showTip(e, bar)}
+              {...pressable((e) => showTip(e, bar))}
             />
           ))
         ) : (

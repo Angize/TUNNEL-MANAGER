@@ -1,5 +1,6 @@
 import Select from '../../../components/Select.jsx'
 import { T } from '../../../i18n/fa.js'
+import { checkable } from '../../../lib/keys.js'
 
 const CHECKED = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -29,7 +30,7 @@ export default function RotIpPool({ label, ips, selected, onToggle }) {
             <div
               key={ip}
               className={'rrow' + (on ? ' on' : '')}
-              onClick={() => onToggle(ip, count)}
+              {...checkable('checkbox', on, () => onToggle(ip, count))}
             >
               <span className="sic">{on ? CHECKED : EMPTY}</span>
               <span className="rip">{ip}</span>

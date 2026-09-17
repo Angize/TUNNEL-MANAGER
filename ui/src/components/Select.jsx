@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
 import Modal from './Modal.jsx'
 import { T } from '../i18n/fa.js'
+import { checkable } from '../lib/keys.js'
 
 const SEARCH_FROM = 10
 
 export default function Select({ items, value, placeholder, onChange }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
+  const listRef = useRef(null)
+  const buttonRef = useRef(null)
 
   const list = items || []
   const cur = list.find((x) => String(x.v) === String(value))
@@ -18,15 +21,27 @@ export default function Select({ items, value, placeholder, onChange }) {
       )
     : list
 
-  const pick = (v) => {
+  useEffect(() => {
+    if (!open || !listRef.current || listRef.current.parentElement.querySelector('input')) return
+    const row = listRef.current.querySelector('.msrow.sel') || listRef.current.querySelector('.msrow')
+    if (row) row.focus()
+  }, [open])
+
+  const close = () => {
     setOpen(false)
     setQ('')
+    if (buttonRef.current) buttonRef.current.focus()
+  }
+
+  const pick = (v) => {
+    close()
     onChange(v)
   }
 
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         className={'msbtn' + (cur ? '' : ' ph') + (open ? ' open' : '')}
         onClick={() => list.length && setOpen(true)}
@@ -37,7 +52,7 @@ export default function Select({ items, value, placeholder, onChange }) {
         </span>
       </button>
       {open ? (
-        <Modal bare cls="sssheet" onClose={() => setOpen(false)}>
+        <Modal bare cls="sssheet" onClose={close}>
           <div className="sspop">
             {list.length > SEARCH_FROM ? (
               <input
@@ -48,12 +63,12 @@ export default function Select({ items, value, placeholder, onChange }) {
                 onChange={(e) => setQ(e.target.value)}
               />
             ) : null}
-            <div className="sspoplist">
+            <div className="sspoplist" ref={listRef}>
               {shown.map((it) => (
                 <div
                   key={String(it.v)}
                   className={'msrow' + (String(it.v) === String(value) ? ' sel' : '')}
-                  onClick={() => pick(it.v)}
+                  {...checkable('radio', String(it.v) === String(value), () => pick(it.v))}
                 >
                   <span className="mscheck" />
                   <span>{it.label}</span>

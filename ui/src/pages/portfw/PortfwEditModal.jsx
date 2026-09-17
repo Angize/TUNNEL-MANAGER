@@ -8,6 +8,7 @@ import { alertBox } from '../../lib/dialog.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
+import { checkable } from '../../lib/keys.js'
 
 const DEFAULT_ROTATE_MINUTES = 5
 
@@ -110,7 +111,7 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       <div className="tgl">
         <span
           className={'tglsw' + (rotate ? ' on' : '')}
-          onClick={() => setRotate(!rotate)}
+          {...checkable('switch', rotate, () => setRotate(!rotate))}
         />
         <span className="muted">{rotate ? T('on_word') : T('off_word')}</span>
       </div>

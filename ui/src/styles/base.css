@@ -6,6 +6,14 @@
   font-display: swap;
 }
 
+[role='button']:focus-visible,
+[role='switch']:focus-visible,
+[role='checkbox']:focus-visible,
+[role='radio']:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+}
+
 * {
   margin: 0;
   padding: 0;

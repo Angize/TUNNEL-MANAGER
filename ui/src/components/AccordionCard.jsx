@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Grip from './Grip.jsx'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../lib/openCards.js'
 import useDragging from '../lib/useDragging.js'
+import { pressable } from '../lib/keys.js'
 
 function Chevron() {
   return (
@@ -34,13 +35,13 @@ export default function AccordionCard({ id, kind, className, head, beforeBody, c
       data-rid={id}
       data-rk={kind}
     >
-      <div className="chead" onClick={() => toggleCard(id)}>
+      <div className="chead" {...pressable(() => toggleCard(id))}>
         {kind ? <Grip /> : null}
         {head}
         <Chevron />
       </div>
       {beforeBody}
-      <div className="cbody">
+      <div className="cbody" inert={!open}>
         <div className="cbody-in">{children}</div>
       </div>
     </div>

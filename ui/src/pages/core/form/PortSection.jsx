@@ -23,7 +23,7 @@ function SourcePort({ form, patch }) {
   const current = parseInt(form.rawSport, 10)
 
   return (
-    <div className={locked ? 'portlock' : undefined}>
+    <div className={locked ? 'portlock' : undefined} inert={locked}>
       <label style={{ marginTop: 13 }}>{rangeLabel(T('raw_sport_lbl'), 1, PORT_MAX)}</label>
       <Seg2>
         <SegOpt

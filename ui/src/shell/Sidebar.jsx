@@ -3,6 +3,7 @@ import Icon from '../components/Icon.jsx'
 import useIndicator from '../lib/useIndicator.js'
 import { T } from '../i18n/fa.js'
 import { logout } from '../lib/api.js'
+import { pressable } from '../lib/keys.js'
 
 const ITEMS = [
   { id: 'overview', icon: 'dash' },
@@ -46,7 +47,7 @@ export default function Sidebar({ page, counts, unread, onNavigate }) {
           <a
             key={it.id}
             className={'navi' + (page === it.id ? ' on' : '')}
-            onClick={() => onNavigate(it.id)}
+            {...pressable(() => onNavigate(it.id))}
           >
             <Icon name={it.icon} />
             <span className="nlbl">{T('nav_' + it.id)}</span>
@@ -62,7 +63,7 @@ export default function Sidebar({ page, counts, unread, onNavigate }) {
             )}
           </a>
         ))}
-        <a className="navi" onClick={logout}>
+        <a className="navi" {...pressable(logout)}>
           <Icon name="logout" />
           <span className="nlbl">{T('nav_logout')}</span>
         </a>
