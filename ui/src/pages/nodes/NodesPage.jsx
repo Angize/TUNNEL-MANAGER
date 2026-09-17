@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -12,7 +12,9 @@ import DeleteNodeModal from './DeleteNodeModal.jsx'
 import MovedIpModal from './MovedIpModal.jsx'
 import { T } from '../../i18n/fa.js'
 import { useSummary } from '../../state/SummaryContext.jsx'
-import { apiGet } from '../../lib/api.js'
+import { apiGet, apiPost } from '../../lib/api.js'
+import { postError } from '../../lib/errors.js'
+import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
@@ -56,23 +58,43 @@ export default function NodesPage() {
   const [tuning, setTuning] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [moved, setMoved] = useState(null)
+  const settled = useRef(0)
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
+    const epoch = settled.current
     const r = await apiGet('nodes?q=' + encodeURIComponent(query))
-    setOverrides({})
-    return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1 }
+    return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1, epoch }
   }, [query])
 
   const [data, reload] = usePolledData(load, query)
 
-  const onToggled = useCallback((id, disabled) => {
-    setOverrides((prev) => ({ ...prev, [id]: disabled }))
+  const onToggle = useCallback(async (node) => {
+    const disabled = node.disabled !== true
+    const token = {}
+    setOverrides((prev) => ({ ...prev, [node.id]: { disabled, epoch: Infinity, token } }))
+    const r = await apiPost('node-toggle', { id: node.id, disabled })
+    const ok = r.ok && r.d.ok
+    const epoch = ++settled.current
+    setOverrides((prev) => {
+      const cur = prev[node.id]
+      if (!cur || cur.token !== token) return prev
+      const next = { ...prev }
+      if (ok) next[node.id] = { ...cur, epoch }
+      else delete next[node.id]
+      return next
+    })
+    if (!ok) {
+      toast(postError(r), 'err')
+      return
+    }
+    toast(disabled ? T('nd_hidden') : T('nd_shown'), 'ok')
   }, [])
 
-  const nodes = (data ? data.nodes : []).map((n) =>
-    overrides[n.id] === undefined ? n : { ...n, disabled: overrides[n.id] }
-  )
+  const nodes = (data ? data.nodes : []).map((n) => {
+    const o = overrides[n.id]
+    return o && o.epoch > data.epoch ? { ...n, disabled: o.disabled } : n
+  })
   const staleCount = nodes.filter(isCentralStale).length
 
   const order = useCardReorder('nodes', nodes.map((n) => n.id), reload)
@@ -107,7 +129,7 @@ export default function NodesPage() {
                   key={node.id}
                   node={node}
                   windowHours={data.windowHours}
-                  onToggled={onToggled}
+                  onToggle={onToggle}
                   onChanged={reload}
                   onEdit={setEditing}
                   onDetails={setDetails}

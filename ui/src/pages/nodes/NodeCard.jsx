@@ -41,7 +41,7 @@ function NodeTraffic({ traffic }) {
 export default function NodeCard({
   node,
   windowHours,
-  onToggled,
+  onToggle,
   onChanged,
   onEdit,
   onDetails,
@@ -54,17 +54,9 @@ export default function NodeCard({
   const enabled = node.disabled !== true
   const dot = node.online ? 'on' : node.pending ? '' : 'off'
 
-  const toggle = async (e) => {
+  const toggle = (e) => {
     e.stopPropagation()
-    const disabled = enabled
-    onToggled(node.id, disabled)
-    const r = await apiPost('node-toggle', { id: node.id, disabled })
-    if (!(r.ok && r.d.ok)) {
-      onToggled(node.id, !disabled)
-      toast(postError(r), 'err')
-      return
-    }
-    toast(disabled ? T('nd_hidden') : T('nd_shown'), 'ok')
+    onToggle(node)
   }
 
   const test = async () => {
