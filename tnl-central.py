@@ -3796,6 +3796,10 @@ def _core_blob_info():
     return None
 
 
+CORE_UPLOAD_MB = 15
+CORE_UPLOAD_MAX = CORE_UPLOAD_MB * 1024 * 1024
+
+
 def api_core_upload(d):
     _require(d, ["data"])
     try:
@@ -3804,8 +3808,8 @@ def api_core_upload(d):
         raise ValueError("فایل base64 نامعتبر است")
     if len(raw) < 100000:
         raise ValueError("فایل خیلی کوچک است — این باینریِ هسته نیست")
-    if len(raw) > 15 * 1024 * 1024:
-        raise ValueError("فایل بیش از حد بزرگ است")
+    if len(raw) > CORE_UPLOAD_MAX:
+        raise ValueError("فایل بیش از حد بزرگ است — حداکثر %d مگابایت" % CORE_UPLOAD_MB)
     if raw[:4] != b"\x7fELF":
         raise ValueError("این یک باینریِ ELF لینوکسی نیست")
     sha = hashlib.sha256(raw).hexdigest()
@@ -7717,6 +7721,8 @@ API_MSG = {
     "post_only": ("این درخواست باید POST باشد", 405, "this endpoint requires POST"),
     "bad_request": ("درخواستِ نامعتبر", 403, "invalid request"),
     "internal": ("خطای داخلی", 500, "internal error"),
+    "too_large": ("درخواست بیش از حد بزرگ است — فایلِ هسته حداکثر %d مگابایت است" % CORE_UPLOAD_MB, 413,
+                  "request body too large; a core binary is at most %d MB" % CORE_UPLOAD_MB),
 }
 API_REFUSED = {
     "api_disabled": "درخواستِ API «%s» رد شد — دسترسیِ بیرونی به API خاموش است.",
@@ -7724,6 +7730,7 @@ API_REFUSED = {
     "token_denied": "درخواستِ API «%s» رد شد — این مسیر با توکن مجاز نیست.",
     "unknown_route": "درخواستِ API «%s» رد شد — مسیرِ ناشناخته.",
     "post_only": "درخواستِ API «%s» رد شد — باید POST باشد.",
+    "too_large": "درخواستِ API «%s» رد شد — بدنهٔ درخواست بیش از حد بزرگ بود.",
 }
 
 
@@ -7841,12 +7848,25 @@ class Handler(BaseHTTPRequestHandler):
             if sock:
                 sock.settimeout(prev)
 
-    def _body(self, cap=1048576):
+    BODY_CAP = 1048576
+    DRAIN_MAX = 64 * 1048576
+
+    def _content_length(self):
         try:
-            n = int(self.headers.get("Content-Length", "0"))
+            return max(int(self.headers.get("Content-Length", "0")), 0)
         except ValueError:
-            n = 0
-        n = min(max(n, 0), cap)
+            return 0
+
+    def _drain(self, n):
+        left = min(n, self.DRAIN_MAX)
+        while left > 0:
+            chunk = self.rfile.read(min(left, 65536))
+            if not chunk:
+                break
+            left -= len(chunk)
+
+    def _body(self, cap=BODY_CAP):
+        n = min(self._content_length(), cap)
         raw = self.rfile.read(n) if n > 0 else b""
         try:
             obj = json.loads(raw.decode()) if raw else {}
@@ -8023,7 +8043,7 @@ class Handler(BaseHTTPRequestHandler):
     def _fail(self, code, en, drain=False):
         fa, status, msg = API_MSG[code]
         if drain and self.command == "POST":
-            self._body()
+            self._drain(self._content_length())
         self._send(status, {"error": code, "message": msg} if en else {"error": fa})
 
     def _bearer_check(self):
@@ -8076,7 +8096,11 @@ class Handler(BaseHTTPRequestHandler):
             if not via_token and self.headers.get("X-Requested-With") != "tnl-central":
                 self._refuse("bad_request", cmd, method, en, drain=True)
                 return
-        d = self._body(cap=20971520 if cmd == "core-upload" else 1048576) if method == "POST" else query_dict(self.path)
+        cap = CORE_UPLOAD_MAX * 4 // 3 + self.BODY_CAP if cmd == "core-upload" else self.BODY_CAP
+        if method == "POST" and self._content_length() > cap:
+            self._refuse("too_large", cmd, method, en, drain=True)
+            return
+        d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
         try:
             self._send(200, _dispatch(cmd, d))
             if via_token:
