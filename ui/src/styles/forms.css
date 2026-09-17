@@ -394,11 +394,11 @@ select:focus {
   pointer-events: none;
   z-index: 2;
   transition: opacity .2s;
-  background: linear-gradient(to left, transparent, var(--card));
+  background: linear-gradient(to left, transparent, var(--modal));
 }
 
 [dir="ltr"] .trwrap::before {
-  background: linear-gradient(to right, transparent, var(--card));
+  background: linear-gradient(to right, transparent, var(--modal));
 }
 
 .trwrap.atend::before {

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --acc: #0b8f8c;
   --acc-deep: #0b6f9c;
   --acc2: #4d6bf0;
@@ -35,7 +36,8 @@
   --sk-hi: rgba(255, 255, 255, .8);
 }
 
-body.dark {
+html.dark {
+  color-scheme: dark;
   --acc: #2fc7bd;
   --acc-deep: #1a8fa8;
   --acc2: #8fa3ff;
