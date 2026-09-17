@@ -9,8 +9,7 @@ import { toast } from '../../lib/toast.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { ipItems, nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
-
-const DEFAULT_ROTATE_MINUTES = 5
+import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const [busy, guard] = useBusy()
@@ -20,7 +19,8 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const [listenPort, setListenPort] = useState('')
   const [dstPort, setDstPort] = useState('')
   const [dstIps, setDstIps] = useState('')
-  const [rotateMinutes, setRotateMinutes] = useState('')
+  const [rotate, setRotate] = useState(true)
+  const [rotateMinutes, setRotateMinutes] = useState(String(DEFAULT_ROTATE_MINUTES))
   const [message, setMessage] = useState('')
 
   const ips = nodeIps(nodes, nodeId)
@@ -44,7 +44,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
       listen_port: listenPort.trim(),
       dst_port: dstPort.trim(),
       dst_ips: dstIps.trim(),
-      interval_min: rotateMinutes.trim() || DEFAULT_ROTATE_MINUTES,
+      ...rotateBody(rotate, rotateMinutes),
       listen_ip: effectiveListenIp,
     })
     if (r.ok && r.d.ok) {
@@ -116,13 +116,12 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
         onChange={(e) => setDstIps(e.target.value)}
       />
 
-      <label>{T('pf_rot_min')}</label>
-      <input
-        placeholder="5"
-        value={rotateMinutes}
-        onChange={(e) => setRotateMinutes(e.target.value)}
+      <RotateFields
+        rotate={rotate}
+        minutes={rotateMinutes}
+        onRotate={setRotate}
+        onMinutes={setRotateMinutes}
       />
-
       <div className="msg">{message}</div>
     </Modal>
   )

@@ -6927,7 +6927,9 @@ def api_portfw(d):
     body = {"listen_port": _pf_field("listen_port", d["listen_port"]),
             "dst_port": _pf_field("dst_port", d["dst_port"]),
             "dst_ips": _pf_field("dst_ips", d["dst_ips"]),
-            "interval_min": _pf_field("interval_min", d.get("interval_min", 5))}
+            "rotate": bool(d.get("rotate"))}
+    if body["rotate"]:
+        body["interval_min"] = _pf_field("interval_min", d.get("interval_min"))
     if d.get("iface"):
         body["iface"] = _pf_field("iface", d["iface"])
     if d.get("listen_ip"):
@@ -7023,13 +7025,15 @@ def api_portfw_edit(d):
     if not n:
         raise ValueError("نود پیدا نشد")
     body = {"name": _pf_name(d["name"])}
-    for k in ("listen_port", "dst_port", "dst_ips", "interval_min", "iface", "listen_ip"):
+    for k in ("listen_port", "dst_port", "dst_ips", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
             body[k] = _pf_field(k, d[k])
     if d.get("listen_ip") == "":
         body["listen_ip"] = ""
     if "rotate" in d:
         body["rotate"] = bool(d["rotate"])
+    if body.get("rotate", True) and d.get("interval_min") not in (None, ""):
+        body["interval_min"] = _pf_field("interval_min", d["interval_min"])
     return _pf_push(n, "portfw-edit", body)
 
 
