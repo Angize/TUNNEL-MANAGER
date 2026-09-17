@@ -3,15 +3,15 @@ import { getLS, setLS } from './storage.js'
 const KEY = 'tnl_dark'
 
 export function isDark() {
-  return document.body.classList.contains('dark')
+  return document.documentElement.classList.contains('dark')
 }
 
 export function applyStoredTheme() {
-  if (getLS(KEY)) document.body.classList.add('dark')
+  if (getLS(KEY)) document.documentElement.classList.add('dark')
 }
 
 export function toggleTheme() {
-  const dark = document.body.classList.toggle('dark')
+  const dark = document.documentElement.classList.toggle('dark')
   setLS(KEY, dark ? '1' : '')
   return dark
 }
