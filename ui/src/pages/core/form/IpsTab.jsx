@@ -45,6 +45,11 @@ function Side({ form, side, ips, stored, patch }) {
         value={seedIp(ips, form[ipKey], stored)}
         onChange={(v) => patch({ [ipKey]: v })}
       />
+      {form.rot.on && !ips.length ? (
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+          {T('rot_ips_unknown')}
+        </div>
+      ) : null}
     </div>
   )
 }

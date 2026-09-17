@@ -5,6 +5,7 @@ import {
   fecDatagram,
   protoVisOn,
   rawPortOn,
+  rotIsDirect,
   rotMulti,
   sprotOn,
   wkCarrier,
@@ -50,7 +51,8 @@ export default function normalise(form, cfg, aIps, bIps) {
     if (at('port') === '') set('port', '80')
   } else if (at('port') === '80') set('port', '')
 
-  if (form.rot.on && !rotMulti(view, enums, aIps, bIps)) {
+  const ipsKnown = aIps.length > 0 && bIps.length > 0
+  if (form.rot.on && !(rotIsDirect(view, enums) && (!ipsKnown || rotMulti(view, enums, aIps, bIps)))) {
     patch.rot = { ...form.rot, on: false }
   }
 

@@ -43,19 +43,24 @@ function poolCollect(form, body) {
   return ''
 }
 
+function rotPicked(ips, selected) {
+  if (!ips.length) return Object.keys(selected).filter((ip) => selected[ip])
+  return ips.filter((ip) => selected[ip])
+}
+
 export function rotCollect(form, aIps, bIps) {
   if (!form.rot.on) return null
-  const pick = (ips, selected) => ips.filter((ip) => selected[ip])
-  const a = pick(aIps, form.rot.aSel)
-  const b = pick(bIps, form.rot.bSel)
+  const a = rotPicked(aIps, form.rot.aSel)
+  const b = rotPicked(bIps, form.rot.bSel)
   if (a.length < 2 && b.length < 2) return null
   return { a_ip_pool: a, b_ip_pool: b, rotate_secs: form.rot.secs }
 }
 
 export function rotValidate(form, aIps, bIps) {
   if (!form.rot.on) return ''
-  const count = (ips, selected) => ips.filter((ip) => selected[ip]).length
-  if (count(aIps, form.rot.aSel) < 2 && count(bIps, form.rot.bSel) < 2) return T('rot_min2')
+  if (rotPicked(aIps, form.rot.aSel).length < 2 && rotPicked(bIps, form.rot.bSel).length < 2) {
+    return T('rot_min2')
+  }
   return ''
 }
 
