@@ -19,7 +19,7 @@ export default function ReadinessBar({ readiness, onNavigate }) {
       <Icon name="warn" />
       <div className="rdtx">
         <b>{T('rdy_title')}</b>
-        <span>{missing.join(' · ') + ' — ' + T('rdy_why')}</span>
+        <span>{missing.join(' · ') + ' — ' + T(readiness.core ? 'rdy_why_agent' : 'rdy_why')}</span>
       </div>
       <button type="button" className="ghost" onClick={() => onNavigate('settings')}>
         {T('rdy_go')}
