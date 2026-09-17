@@ -9,7 +9,7 @@ import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import AgentPage from '../agent/AgentPage.jsx'
-import { collectTuning, listViolation, secondsToMinutes, stepViolation } from './tuning.js'
+import { collectTuning, listViolation, rangeViolation, secondsToMinutes, stepViolation } from './tuning.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
@@ -98,6 +98,7 @@ export default function SettingsPage() {
   const defaults = useMemo(() => config.settings_defaults || {}, [config])
   const tuningDefaults = useMemo(() => config.tuning_defaults || {}, [config])
   const tuningSteps = useMemo(() => config.tuning_steps || {}, [config])
+  const tuningRanges = useMemo(() => config.tuning_ranges || {}, [config])
   const probeSamples = num(config.probe_samples) || 20
   const [agentGen, setAgentGen] = useState(0)
 
@@ -187,7 +188,7 @@ export default function SettingsPage() {
 
   const save = async () => {
     const tuning = collectTuning(form)
-    const bad = listViolation(form) || stepViolation(tuning, tuningSteps)
+    const bad = listViolation(form) || rangeViolation(form, tuningRanges) || stepViolation(tuning, tuningSteps)
     if (bad) {
       alertBox(bad)
       return

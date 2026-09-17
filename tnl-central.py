@@ -256,26 +256,29 @@ def _validate_tuning(raw, base=None):
             try:
                 v = int(raw[k])
             except (TypeError, ValueError):
-                continue
+                raise ValueError("«%s» باید عددِ صحیح باشد" % _TUNING_NUM_LABELS.get(k, k))
             step, label = _TUNING_STEPS.get(k, (0, ""))
             if step and v % step:
                 raise ValueError("«%s» باید مضربی از %d باشد — %d پذیرفته نیست" % (label, step, v))
-            out[k] = max(lo, min(hi, v))
+            if not lo <= v <= hi:
+                raise ValueError("«%s» باید بینِ %d تا %d باشد — %d پذیرفته نیست"
+                                 % (_TUNING_NUM_LABELS.get(k, k), lo, hi, v))
+            out[k] = v
     for k, (lo, hi) in _TUNING_LIST_RANGES.items():
-        if k not in raw or not isinstance(raw[k], (list, tuple)):
+        if k not in raw:
             continue
-        steps = []
-        for x in raw[k]:
-            try:
-                iv = int(x)
-            except (TypeError, ValueError):
-                continue
+        try:
+            steps = [int(x) for x in raw[k]] if isinstance(raw[k], (list, tuple)) else []
+        except (TypeError, ValueError):
+            steps = []
+        if not steps:
+            raise ValueError("«%s» باید یک یا چند عددِ صحیح بینِ %d تا %d ثانیه باشد"
+                             % (_TUNING_LIST_LABELS[k], lo, hi))
+        for iv in steps:
             if not lo <= iv <= hi:
                 raise ValueError("«%s» باید بینِ %d تا %d ثانیه باشد — %d پذیرفته نیست"
                                  % (_TUNING_LIST_LABELS[k], lo, hi, iv))
-            steps.append(iv)
-        if steps:
-            out[k] = steps
+        out[k] = steps
     return out
 
 
@@ -7635,6 +7638,7 @@ def ui_config():
     return {
         "tuning_defaults": _TUNING_DEFAULTS,
         "tuning_steps": _TUNING_STEPS,
+        "tuning_ranges": {**_TUNING_RANGES, **_TUNING_LIST_RANGES},
         "probe_samples": _PROBE_SAMPLES,
         "ev_types": [list(x) for x in EV_TYPES],
         "ev_groups": [list(x) for x in EV_GROUPS],

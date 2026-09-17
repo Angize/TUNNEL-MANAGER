@@ -1,4 +1,4 @@
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
 
 function latinDigits(text) {
@@ -27,6 +27,29 @@ export function parseMinuteList(text) {
 
 export function parseSecondList(text) {
   return numberList(text)
+}
+
+function fieldNumber(text) {
+  const s = latinDigits(text).trim()
+  return /^\d+$/.test(s) ? parseInt(s, 10) : NaN
+}
+
+export function rangeViolation(form, ranges) {
+  const minutes = ([lo, hi]) => [Math.ceil(lo / 60), Math.floor(hi / 60)]
+  const checks = [
+    [[fieldNumber(form.probeMin)], ranges.probe_min_pct, 'set_t_probemin'],
+    [numberList(form.revive), ranges.ladder_revive, 'set_t_revive'],
+    [numberList(form.suspect), minutes(ranges.suspect_backoff), 'set_t_suspect'],
+    [[fieldNumber(form.deadRetest)], minutes(ranges.dead_retest_secs), 'set_t_deadretest'],
+    [[fieldNumber(form.sockBuf)], ranges.sock_buf_mb, 'set_t_sockbuf'],
+  ]
+  for (const [values, [lo, hi], labelKey] of checks) {
+    for (const v of values) {
+      if (isNaN(v)) return TF('set_num_bad', { f: T(labelKey) })
+      if (v < lo || v > hi) return TF('set_range_bad', { f: T(labelKey), lo, hi, v })
+    }
+  }
+  return ''
 }
 
 export function listViolation(form) {
