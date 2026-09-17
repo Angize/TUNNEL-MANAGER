@@ -5,7 +5,7 @@ const SummaryContext = createContext({
   evSeq: 0,
   logCount: 0,
   subnetFree: null,
-  markLogsSeen: () => {},
+  loaded: false,
 })
 
 export function SummaryProvider({ value, children }) {
