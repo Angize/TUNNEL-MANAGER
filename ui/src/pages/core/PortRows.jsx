@@ -7,8 +7,8 @@ function RotatingSourceRows({ link, every }) {
   const live = link.rot_live || {}
   const client = num(live.cli)
   const server = num(live.srv)
-  const lo = num(live.lo) || RAW_ROT_LO
-  const hi = num(live.hi) || RAW_ROT_HI
+  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
+  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
   const mode = every ? T('port_src_rot') : T('port_src_rand')
   const clock = every ? T('port_src_rot_every').replace('{n}', every) : T('port_src_rot_fail')
   const drawn = num(live.drawn)
@@ -53,7 +53,7 @@ export default function PortRows({ link }) {
   if (transport === 'raw') {
     if (link.raw_profile !== 'udp' && link.raw_profile !== 'tcp') return null
     const live = link.rot_live || {}
-    const dports = num(live.dports)
+    const dports = num(live.dports) || num(link.raw_dports)
     const liveDport = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
     const rotateEvery = num(link.raw_sport_rotate)
 
