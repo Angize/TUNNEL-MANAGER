@@ -2197,7 +2197,7 @@ def api_summary(d):
     except Exception:
         stored_ver = None
 
-    on = pf = mu = mt = du = dt = 0
+    on = mu = mt = du = dt = 0
     heat, crit, alerts, outdated = [], [], [], 0
     worst = {"disk": None, "ram": None, "cpu": None}
     for n in nodes:
@@ -2212,7 +2212,6 @@ def api_summary(d):
                 alerts.append({"level": "warn", "kind": "node",                                "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — هوستش را عوض کن"})
             continue
         on += 1
-        pf += _sint(p.get("portfw"))
         if stored_ver and p.get("version") and _sint(p.get("version")) < _sint(stored_ver):
             outdated += 1
         s = p.get("stats") if isinstance(p.get("stats"), dict) else {}
@@ -2298,7 +2297,7 @@ def api_summary(d):
     return {"nodes_online": on, "nodes_total": len(nodes),
             "proxies": len(load_proxies()),
             "links": len(links) - n_core, "core": n_core, "link_total": len(links),
-            "portfw": pf,
+            "portfw": sum(len(_pf_node_configs(n["id"])[0]) for n in nodes),
             "health_score": score,
             "central": central_stats(),
             "heat": heat, "worst": worst,
@@ -6884,16 +6883,24 @@ def _pf_sorted(seq, key_of):
     return [x for _, x in sorted(enumerate(seq), key=lambda p: (rank.get(key_of(p[1]), big), p[0]))]
 
 
+_pf_last = {}
+_pf_lock = threading.Lock()
+
+
+def _pf_node_configs(nid):
+    r = _cached_list(nid)
+    if r.get("configs") is None:
+        with _pf_lock:
+            return _pf_last.get(nid, []), None
+    cfgs = [c for c in r["configs"] if c.get("type") == "portfw"]
+    with _pf_lock:
+        _pf_last[nid] = cfgs
+    return cfgs, r.get("health") or {}
+
+
 def _pf_natural_keys():
-    keys = []
-    for n in load_nodes():
-        r = _cached_list(n["id"])
-        if r.get("configs") is None:
-            continue
-        for c in r["configs"]:
-            if c.get("type") == "portfw" and c.get("name"):
-                keys.append(_pf_key(n["id"], c.get("name")))
-    return keys
+    return [_pf_key(n["id"], c.get("name")) for n in load_nodes()
+            for c in _pf_node_configs(n["id"])[0] if c.get("name")]
 
 
 def _reorder_portfw(a, targets):
@@ -6912,17 +6919,17 @@ def _reorder_portfw(a, targets):
 def api_portfw_list(d):
     q = _list_query(d)
     all_pf = []
-    for n in load_nodes():
-        r = _cached_list(n["id"])
-        if r.get("configs") is None:
-            continue
-        h = r.get("health") or {}
+    nodes = load_nodes()
+    ids = {n["id"] for n in nodes}
+    with _pf_lock:
+        for nid in [k for k in _pf_last if k not in ids]:
+            _pf_last.pop(nid, None)
+    for n in nodes:
+        cfgs, h = _pf_node_configs(n["id"])
         node_ips = _flat_ips(_cached_ping(n["id"]))
         node_ip = node_ips[0] if len(node_ips) == 1 else ""
         tf = _tf_read(n["id"])
-        for c in r["configs"]:
-            if c.get("type") != "portfw":
-                continue
+        for c in cfgs:
             if q and q not in n["name"].lower() and q not in str(c.get("name", "")).lower():
                 continue
             t = tf.get("pf:" + str(c.get("name") or ""))
@@ -6932,7 +6939,8 @@ def api_portfw_list(d):
                            "iface": c.get("iface"), "listen_port": c.get("listen_port"),
                            "listen_ip": c.get("listen_ip") or "", "node_ip": node_ip,
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
-                           "switch_interval": c.get("switch_interval", 0), "health": h.get(c.get("name")),
+                           "switch_interval": c.get("switch_interval", 0),
+                           "health": h.get(c.get("name")) if h is not None else None, "offline": h is None,
                            **bw})
     all_pf = _pf_sorted(all_pf, lambda it: _pf_key(it["node_id"], it["name"]))
     return {"portfw": all_pf, "total": len(all_pf)}
