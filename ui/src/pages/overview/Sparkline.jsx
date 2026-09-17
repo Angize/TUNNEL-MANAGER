@@ -28,7 +28,6 @@ export default function Sparkline({ rx, tx }) {
   const max = Math.max(...rx, ...tx, 1)
   const rxPath = linePath(rx, max)
   const txPath = linePath(tx, max)
-  const lastX = (PAD + (rx.length - 1) * ((WIDTH - 2 * PAD) / Math.max(1, rx.length - 1))).toFixed(1)
   const okColor = cssVar('--ok')
   const accColor = cssVar('--acc')
 
@@ -41,7 +40,7 @@ export default function Sparkline({ rx, tx }) {
         </linearGradient>
       </defs>
       <path
-        d={`${rxPath} L${lastX},${HEIGHT - PAD} L${PAD},${HEIGHT - PAD} Z`}
+        d={`${rxPath} L${WIDTH - PAD},${HEIGHT - PAD} L${PAD},${HEIGHT - PAD} Z`}
         fill={`url(#${gradientId})`}
       />
       <path
