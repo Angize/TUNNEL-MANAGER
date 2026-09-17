@@ -9,6 +9,7 @@ import { getLS, setLS } from './lib/storage.js'
 import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
 import { num } from './lib/num.js'
 import { runPageRefresh, setUiInterval } from './lib/poll.js'
+import { stopReorder } from './lib/reorder.js'
 import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
@@ -70,6 +71,8 @@ function Shell() {
     setReadiness(r)
     if (boot && !r.ok && !navigated.current) setPage('settings')
   }, [])
+
+  useEffect(() => stopReorder, [page, linkKind])
 
   useEffect(() => {
     applyStoredTheme()

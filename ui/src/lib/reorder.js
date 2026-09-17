@@ -21,11 +21,19 @@ export function draggingId() {
   return state.draggingId
 }
 
-export function toggleReorder() {
-  state.mode = !state.mode
-  document.body.classList.toggle('reord-on', state.mode)
-  if (state.mode) closeAllCards()
+function setMode(on) {
+  state.mode = on
+  document.body.classList.toggle('reord-on', on)
+  if (on) closeAllCards()
   emit()
+}
+
+export function toggleReorder() {
+  setMode(!state.mode)
+}
+
+export function stopReorder() {
+  if (state.mode) setMode(false)
 }
 
 export function setDragging(id) {

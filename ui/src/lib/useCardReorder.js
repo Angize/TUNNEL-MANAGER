@@ -224,6 +224,11 @@ export default function useCardReorder(kind, ids, onSaved) {
       document.removeEventListener('pointercancel', end, true)
       document.removeEventListener('lostpointercapture', lost, true)
       document.removeEventListener('touchmove', block)
+      const d = drag.current
+      if (!d) return
+      drag.current = null
+      if (d.raf) cancelAnimationFrame(d.raf)
+      setDragging('')
     }
   }, [kind, apply, autoScroll, persist])
 
