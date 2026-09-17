@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import { Check, Cross } from '../../components/Marks.jsx'
@@ -66,10 +66,11 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   const health = item.health || {}
   const serverActive = health.active || ''
   const [override, setOverride] = useState(null)
-
-  useEffect(() => {
-    setOverride((cur) => (cur === null ? cur : null))
-  }, [item])
+  const [seenActive, setSeenActive] = useState(serverActive)
+  if (seenActive !== serverActive) {
+    setSeenActive(serverActive)
+    setOverride(null)
+  }
 
   const rotates = item.switch_interval > 0
   const multiTarget = (item.dst_ips || []).length > 1
