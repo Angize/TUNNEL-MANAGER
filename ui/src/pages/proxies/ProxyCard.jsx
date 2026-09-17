@@ -88,7 +88,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
   }
 
   const remove = async () => {
-    if (!(await confirmBox(T('px_del_confirm')))) return
+    if (!(await confirmBox(T('px_del_confirm'), T('confirm_del')))) return
     const r = await apiPost('proxy-del', { id: proxy.id })
     if (r.ok && r.d.ok) {
       toast(T('px_deleted'), 'ok')

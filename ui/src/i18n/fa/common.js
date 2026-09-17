@@ -29,6 +29,7 @@ export default {
   add: 'افزودن',
   close: 'بستن',
   confirm_del: 'تأیید و حذف',
+  reset_yes: 'صفر کن',
   yes_all: 'بله، همه',
   got_it: 'باشه',
 

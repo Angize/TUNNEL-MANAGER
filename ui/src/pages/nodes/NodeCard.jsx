@@ -87,7 +87,7 @@ export default function NodeCard({
   }
 
   const resetTraffic = async () => {
-    if (!(await confirmBox(T('nreset_confirm')))) return
+    if (!(await confirmBox(T('nreset_confirm'), T('reset_yes')))) return
     const r = await apiPost('traffic-reset', { node: node.id })
     if (r.ok && r.d.ok) {
       toast(T('t_reset_done'), 'ok')

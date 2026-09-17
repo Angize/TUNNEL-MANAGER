@@ -94,7 +94,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   }
 
   const resetTraffic = async () => {
-    if (!(await confirmBox(T('pf_reset_confirm')))) return
+    if (!(await confirmBox(T('pf_reset_confirm'), T('reset_yes')))) return
     const r = await apiPost('traffic-reset', { node: item.node_id, name: item.name })
     if (r.ok && r.d.ok) {
       toast(T('t_reset_done'), 'ok')
@@ -105,7 +105,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   }
 
   const remove = async () => {
-    if (!(await confirmBox(T('pf_del_confirm')))) return
+    if (!(await confirmBox(T('pf_del_confirm'), T('confirm_del')))) return
     const r = await apiPost('portfw-del', { node: item.node_id, name: item.name })
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
     onChanged()
