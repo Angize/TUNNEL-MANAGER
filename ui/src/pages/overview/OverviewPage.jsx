@@ -12,6 +12,7 @@ import { apiGet } from '../../lib/api.js'
 import { scoreColor, usageColor } from '../../lib/health.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 const SPARK_POINTS = 26
 
@@ -23,10 +24,10 @@ function Chip({ kind, label, value, ltr }) {
   )
 }
 
-function WorstRow({ label, entry }) {
+function WorstRow({ label, entry, crit }) {
   if (!entry) return null
   const pct = num(entry.pct)
-  const color = usageColor(pct)
+  const color = usageColor(pct, crit)
   return (
     <div className="wrow">
       <span className="wk">{label}</span>
@@ -42,6 +43,7 @@ function WorstRow({ label, entry }) {
 }
 
 export default function OverviewPage({ onNavigate }) {
+  const crit = num(useUiConfig().usage_crit_pct)
   const rxHistory = useRef([])
   const txHistory = useRef([])
 
@@ -157,9 +159,9 @@ export default function OverviewPage({ onNavigate }) {
       <div className="card">
         {worst.disk || worst.ram || worst.cpu ? (
           <>
-            <WorstRow label={T('disk')} entry={worst.disk} />
-            <WorstRow label={T('ram')} entry={worst.ram} />
-            <WorstRow label="CPU" entry={worst.cpu} />
+            <WorstRow label={T('disk')} entry={worst.disk} crit={crit} />
+            <WorstRow label={T('ram')} entry={worst.ram} crit={crit} />
+            <WorstRow label="CPU" entry={worst.cpu} crit={crit} />
           </>
         ) : (
           <div
@@ -215,7 +217,7 @@ export default function OverviewPage({ onNavigate }) {
       </div>
       <div className="ostat2">
         <div className="card">
-          <div className="big" style={{ color: 'var(--ok)' }}>
+          <div className="big" style={{ color: scoreColor(num(summary.uptime_avg)) }}>
             {num(summary.uptime_avg) + T('pct')}
           </div>
           <div className="muted" style={{ fontSize: 11.5 }}>
