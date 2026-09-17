@@ -1,10 +1,21 @@
-.toast {
+.toasts {
   position: fixed;
   left: 50%;
   bottom: 26px;
-  transform: translate(-50%, 20px);
+  transform: translateX(-50%);
   z-index: 60;
-  max-width: 88%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 88vw;
+  pointer-events: none;
+}
+
+.toast {
+  transform: translateY(20px);
+  max-width: 100%;
   padding: 12px 18px;
   border-radius: 16px;
   font-size: 13px;
@@ -24,7 +35,7 @@
 
 .toast.show {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: none;
 }
 
 .toast.err {
@@ -36,7 +47,7 @@
 }
 
 @media (max-width: 840px) {
-  .toast {
+  .toasts {
     bottom: 92px;
   }
 }
