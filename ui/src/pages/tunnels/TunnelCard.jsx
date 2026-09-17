@@ -198,12 +198,15 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   }
 
   const remove = async () => {
-    const offline = link.a_online === false || link.b_online === false
-    const confirmed = offline
+    const force =
+      link.a_online === false ||
+      link.b_online === false ||
+      (!!act && act.state === 'fail' && act.offer === 'force')
+    const confirmed = force
       ? await confirmBox(T('del_force_ask'), T('del_force_yes'))
       : await confirmBox(T('del_tun_confirm'))
     if (!confirmed) return
-    const r = await apiPost('delete-link', offline ? { id: link.id, force: true } : { id: link.id })
+    const r = await apiPost('delete-link', force ? { id: link.id, force: true } : { id: link.id })
     if (!(r.ok && r.d.act)) {
       toast(postError(r), 'err')
       return
