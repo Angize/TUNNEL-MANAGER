@@ -229,7 +229,7 @@ function Shell() {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (!((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K'))) return
+      if (!((e.ctrlKey || e.metaKey) && (e.code === 'KeyK' || e.key.toLowerCase() === 'k'))) return
       if (palette) {
         e.preventDefault()
         setPalette(false)
