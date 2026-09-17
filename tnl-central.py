@@ -2381,6 +2381,13 @@ def _refresh_bg(nids):
     threading.Thread(target=_refresh_cache, args=(list(nids),), daemon=True).start()
 
 
+def _node_token(value):
+    token = str(value or "").strip()
+    if token and len(token) < 16:
+        raise ValueError("توکن کوتاه است — حداقل ۱۶ کاراکتر بگذار")
+    return token
+
+
 def api_node_add(d):
     _require(d, ["name", "host", "port", "token"])
     name = str(d["name"]).strip()
@@ -2392,11 +2399,9 @@ def api_node_add(d):
     port = _int_or(d["port"], "پورت نامعتبر است")
     if not 1 <= port <= 65535:
         raise ValueError("پورت نامعتبر است")
-    token = str(d["token"]).strip()
+    token = _node_token(d["token"])
     if not token:
         raise ValueError("توکن لازم است")
-    if len(token) < 16:
-        raise ValueError("توکن کوتاه است — حداقل ۱۶ کاراکتر بگذار")
     with _reg_lock:
         pon, pid = valid_proxy_ref(d)
         node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
@@ -2784,7 +2789,7 @@ def api_node_edit(d):
     port = _int_or(d["port"], "پورت نامعتبر است")
     if not 1 <= port <= 65535:
         raise ValueError("پورت نامعتبر است")
-    token = str(d.get("token") or "").strip()
+    token = _node_token(d.get("token"))
     with _reg_lock:
         pon, pid = valid_proxy_ref(d)
         nodes = load_nodes()
