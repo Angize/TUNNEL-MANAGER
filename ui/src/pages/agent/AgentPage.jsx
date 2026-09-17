@@ -661,7 +661,7 @@ export default function AgentPage({ headless }) {
         </div>
       </div>
 
-      <div className="card opc" style={{ marginTop: 14 }}>
+      <div className="card opc sc-conn" style={{ marginTop: 14 }}>
         <div className="ophd">
           <span className="sgt">
             <Icon name="shield" />
