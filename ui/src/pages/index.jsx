@@ -1,4 +1,3 @@
-import Pending from './Pending.jsx'
 import OverviewPage from './overview/OverviewPage.jsx'
 import ProxiesPage from './proxies/ProxiesPage.jsx'
 import LogsPage from './logs/LogsPage.jsx'
@@ -8,12 +7,12 @@ import SettingsPage from './settings/SettingsPage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
-  overview: { component: OverviewPage },
-  nodes: { component: NodesPage },
-  proxies: { component: ProxiesPage },
-  links: { component: LinksPage },
-  logs: { component: LogsPage },
-  settings: { component: SettingsPage },
+  overview: OverviewPage,
+  nodes: NodesPage,
+  proxies: ProxiesPage,
+  links: LinksPage,
+  logs: LogsPage,
+  settings: SettingsPage,
 }
 
 export function hasPage(id) {
@@ -21,13 +20,5 @@ export function hasPage(id) {
 }
 
 export function pageComponent(id) {
-  const entry = PAGES[id]
-  if (!entry) return null
-  if (entry.component) return entry.component
-  if (!entry.pending) {
-    entry.pending = function PendingPage() {
-      return <Pending icon={entry.icon} titleKey={entry.titleKey} subKey={entry.subKey} />
-    }
-  }
-  return entry.pending
+  return hasPage(id) ? PAGES[id] : null
 }

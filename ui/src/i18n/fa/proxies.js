@@ -18,7 +18,6 @@ export default {
   px_type: 'نوعِ پروکسی',
   px_up: 'وصل شد',
   px_google: 'گوگل',
-  px_reach: 'گوگل از این پروکسی: ',
   px_used: 'در حالِ استفاده',
   px_used_nodes: '{n} نود',
   px_used_tunnels: '{n} تونل',
