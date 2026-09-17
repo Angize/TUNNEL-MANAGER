@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -29,6 +29,9 @@ export default function CorePage({ embedded, active = true }) {
   const [tagOverrides, setTagOverrides] = useState({})
   const [edges, setEdges] = useState({})
   const [editing, setEditing] = useState(null)
+  const mounted = useRef(true)
+  const polledIds = useRef(new Set())
+  const edgeFlight = useRef(new Set())
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -44,28 +47,30 @@ export default function CorePage({ embedded, active = true }) {
   }, [buildCount, reload])
 
   useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  useEffect(() => {
     const pooled = (list || []).filter((l) => l.transport === 'ws' && l.ws_pool && l.enabled !== false)
     const polled = new Set(pooled.map((l) => l.id))
+    polledIds.current = polled
     setEdges((prev) =>
       Object.keys(prev).every((id) => polled.has(id))
         ? prev
         : Object.fromEntries(Object.entries(prev).filter(([id]) => polled.has(id)))
     )
-    if (!pooled.length) return undefined
-    let alive = true
-    const tick = async () => {
-      await Promise.all(
-        pooled.map(async (link) => {
-          const r = await apiPost('edge-status', { id: link.id })
-          if (!alive || !(r.ok && r.d.ok)) return
-          const active = r.d.pool ? String(r.d.active || '') : ''
-          setEdges((prev) => (prev[link.id] === active ? prev : { ...prev, [link.id]: active }))
-        })
-      )
-    }
-    tick()
-    return () => {
-      alive = false
+    for (const link of pooled) {
+      if (edgeFlight.current.has(link.id)) continue
+      edgeFlight.current.add(link.id)
+      apiPost('edge-status', { id: link.id }).then((r) => {
+        edgeFlight.current.delete(link.id)
+        if (!mounted.current || !polledIds.current.has(link.id) || !(r.ok && r.d.ok)) return
+        const active = r.d.pool ? String(r.d.active || '') : ''
+        setEdges((prev) => (prev[link.id] === active ? prev : { ...prev, [link.id]: active }))
+      })
     }
   }, [list])
 
