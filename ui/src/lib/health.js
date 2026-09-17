@@ -1,20 +1,18 @@
-export const WARN_PCT = 60
-export const CRIT_PCT = 85
+const WARN_PCT = 60
+const LEVEL_COLOR = { ok: '--ok', warn: '--gold', crit: '--bad' }
 
 export function cssVar(name) {
   return getComputedStyle(document.body).getPropertyValue(name).trim() || '#888'
 }
 
-export function gaugeLevel(pct) {
-  if (pct >= 88) return 'crit'
-  if (pct >= 70) return 'warn'
+export function usageLevel(pct, crit) {
+  if (pct >= crit) return 'crit'
+  if (pct >= WARN_PCT) return 'warn'
   return 'ok'
 }
 
-export function usageColor(pct) {
-  if (pct > CRIT_PCT) return cssVar('--bad')
-  if (pct > WARN_PCT) return cssVar('--gold')
-  return cssVar('--ok')
+export function usageColor(pct, crit) {
+  return cssVar(LEVEL_COLOR[usageLevel(pct, crit)])
 }
 
 export function scoreColor(score) {

@@ -3,6 +3,7 @@ import { T } from '../../i18n/fa.js'
 import { usageColor } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
 import { pressable } from '../../lib/keys.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 const TIP_MS = 2400
 const OFFLINE_HEIGHT = 10
@@ -10,6 +11,7 @@ const BASE_HEIGHT = 12
 const HEIGHT_PER_PCT = 0.54
 
 export default function NodeHeat({ heat }) {
+  const crit = num(useUiConfig().usage_crit_pct)
   const [tip, setTip] = useState(null)
   const timer = useRef(0)
 
@@ -30,7 +32,7 @@ export default function NodeHeat({ heat }) {
           name: h.name,
           info: pct + T('pct'),
           height: BASE_HEIGHT + pct * HEIGHT_PER_PCT,
-          background: usageColor(pct),
+          background: usageColor(pct, crit),
         }
       : {
           name: h.name,

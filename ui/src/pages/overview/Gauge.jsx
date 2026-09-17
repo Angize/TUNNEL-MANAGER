@@ -1,6 +1,7 @@
 import { T } from '../../i18n/fa.js'
-import { gaugeLevel } from '../../lib/health.js'
+import { usageLevel } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 const SIZE = 84
 const RADIUS = 33
@@ -9,6 +10,7 @@ const STROKE = 8
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
 export default function Gauge({ label, pct, sub }) {
+  const crit = num(useUiConfig().usage_crit_pct)
   const value = Math.max(0, Math.min(100, Math.round(num(pct))))
   const offset = CIRCUMFERENCE * (1 - value / 100)
 
@@ -25,7 +27,7 @@ export default function Gauge({ label, pct, sub }) {
             strokeWidth={STROKE}
           />
           <circle
-            className={'gfill ' + gaugeLevel(value)}
+            className={'gfill ' + usageLevel(value, crit)}
             cx={CENTER}
             cy={CENTER}
             r={RADIUS}

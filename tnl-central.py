@@ -7616,6 +7616,7 @@ def ui_config():
         "settings_defaults": {k: v for k, v in settings_defaults().items() if k != "tuning"},
         "split_ttl_max": SPLIT_TTL_MAX,
         "workers_max": CORE_MAX_WORKERS,
+        "usage_crit_pct": UP_CRIT,
         "enums": {
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
