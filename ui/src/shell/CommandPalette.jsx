@@ -22,7 +22,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
     apiGet('node-names')
       .then((r) => alive && setNodes(r.nodes))
       .catch(() => {})
-    apiGet('fleet?limit=100')
+    apiGet('fleet')
       .then((r) => alive && setLinks(r.links))
       .catch(() => {})
     if (input.current) input.current.focus()
@@ -43,8 +43,20 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
     () => [
       { i: 'dash', label: T('nav_overview'), act: () => goto('overview') },
       { i: 'server', label: T('nav_nodes'), act: () => goto('nodes') },
-      { i: 'link', label: T('nav_tunnels'), act: () => goto('tunnels') },
-      { i: 'globe', label: T('nav_portfw'), act: () => goto('portfw') },
+      { i: 'globe', label: T('nav_proxies'), act: () => goto('proxies') },
+      { i: 'link', label: T('nav_links') + ' · ' + T('nav_core'), act: () => goto('core') },
+      { i: 'link', label: T('nav_links') + ' · ' + T('nav_tunnels'), act: () => goto('tunnels') },
+      { i: 'link', label: T('nav_links') + ' · ' + T('nav_portfw'), act: () => goto('portfw') },
+      { i: 'list', label: T('nav_logs'), act: () => goto('logs') },
+      { i: 'cog', label: T('nav_settings'), act: () => goto('settings') },
+      {
+        i: 'plus',
+        label: T('pal_add_core'),
+        act: () => {
+          goto('core')
+          setTimeout(() => runCommand('core:create'), CREATE_DELAY)
+        },
+      },
       {
         i: 'plus',
         label: T('pal_add_tun'),
@@ -53,7 +65,15 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
           setTimeout(() => runCommand('tunnels:create'), CREATE_DELAY)
         },
       },
-      { i: 'redo', label: T('pal_agent'), act: () => goto('agent') },
+      { i: 'redo', label: T('pal_agent'), act: () => goto('settings') },
+      {
+        i: 'activity',
+        label: T('pal_checkall_core'),
+        act: () => {
+          goto('core')
+          setTimeout(() => runCommand('core:checkall'), CHECK_DELAY)
+        },
+      },
       {
         i: 'activity',
         label: T('pal_checkall'),
