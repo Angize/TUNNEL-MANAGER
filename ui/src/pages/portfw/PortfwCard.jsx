@@ -56,6 +56,14 @@ function HealthBadge({ offline, health }) {
       </span>
     )
   }
+  if (health.reachable == null) {
+    return (
+      <span className="badge warn" title={T('pf_dest_unk_t')}>
+        {T('pf_rule')}
+        <Check /> · {T('pf_dest_unk')}
+      </span>
+    )
+  }
   return (
     <span className="badge bad">
       {T('pf_rule')}

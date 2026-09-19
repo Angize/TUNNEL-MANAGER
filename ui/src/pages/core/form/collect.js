@@ -39,7 +39,9 @@ function poolCollect(form, body) {
   body.ws_pool = true
   body.ws_tls = true
   body.ws_edge_ips = pool.ip
-  body.ws_edge_snis = pool.sni
+  body.ws_edge_snis = pool.sni.map((host) =>
+    pool.sniPaths && pool.sniPaths[host] ? { host, path: pool.sniPaths[host] } : host
+  )
   body.ws_rotate_secs = pool.rotate
   return ''
 }

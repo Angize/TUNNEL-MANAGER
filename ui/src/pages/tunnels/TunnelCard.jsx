@@ -121,8 +121,8 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       lines: {
         head: allOk ? T('conn_ok') : T('conn_bad'),
         ok: allOk,
-        a: (link.a_name || 'A') + ': ' + sideText(d.a_online, d.a_health),
-        b: (link.b_name || 'B') + ': ' + sideText(d.b_online, d.b_health),
+        a: (link.a_name || 'A') + ': ' + sideText(d.a_online, d.a_health, translateError(d.a_error)),
+        b: (link.b_name || 'B') + ': ' + sideText(d.b_online, d.b_health, translateError(d.b_error)),
       },
     })
   }

@@ -9,6 +9,7 @@ export default {
   logs_more: '{n} موردِ قدیمی‌ترِ دیگر — برای دیدنشان بزن',
 
   logc_all: 'همه',
+  logc_empty: 'در این دسته هنوز رویدادی نیست',
   logc_err: 'فقط خطاها',
 
   logf_btn: 'فیلترها',
