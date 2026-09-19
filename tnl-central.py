@@ -164,31 +164,37 @@ def _sflt(v):
         return 0.0
 
 
+class RegistryError(Exception):
+    pass
+
+
+def read_json(path, kind, optional=False):
+    name = os.path.basename(path)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        if optional:
+            return kind()
+        raise RegistryError("فایلِ «%s» روی دیسکِ پنل نیست" % name)
+    except (OSError, ValueError) as e:
+        raise RegistryError("فایلِ «%s» خوانده نشد — تا درست نشود پنل رویِ آن چیزی نمی‌نویسد: %s"
+                            % (name, str(e)[:120]))
+    if not isinstance(data, kind):
+        raise RegistryError("فایلِ «%s» شکلِ درستی ندارد" % name)
+    return data
+
+
+def read_store(path, kind):
+    return read_json(path, kind, True)
+
+
 def load_conf():
-    with open(WEB_CONF) as f:
-        return json.load(f)
-
-
-def save_json(path, obj):
-    os.makedirs(CENTRAL_DIR, exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(obj, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-
-
-def save_text(path, txt):
-    os.makedirs(CENTRAL_DIR, exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        f.write(txt)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, path)
+    return read_json(WEB_CONF, dict)
 
 
 def save_bytes(path, data, mode=0o644):
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(path) or CENTRAL_DIR, exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(data)
@@ -196,6 +202,10 @@ def save_bytes(path, data, mode=0o644):
         os.fsync(f.fileno())
     os.chmod(tmp, mode)
     os.replace(tmp, path)
+
+
+def save_json(path, obj):
+    save_bytes(path, json.dumps(obj, indent=2).encode(), 0o600)
 
 
 _TUNING_DEFAULTS = {
@@ -330,13 +340,7 @@ DELIVERY_MODES = ("push", "github", "panel")
 
 def load_settings():
     d = settings_defaults()
-    try:
-        with open(SETTINGS_FILE) as f:
-            stored = json.load(f)
-        if isinstance(stored, dict):
-            d.update(stored)
-    except Exception:
-        pass
+    d.update(read_store(SETTINGS_FILE, dict))
     return d
 
 
@@ -468,6 +472,11 @@ def link_drift(lid):
         return lid in _drift
 
 
+def secret_eq(a, b):
+    return hmac.compare_digest(str(a).encode("utf-8", "surrogatepass"),
+                               str(b).encode("utf-8", "surrogatepass"))
+
+
 def hash_password(password, salt=None):
     salt = salt or secrets.token_hex(16)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), PBKDF2_ITERS)
@@ -479,7 +488,7 @@ def verify_password(conf, password):
         _, got = hash_password(password, conf.get("salt", ""))
     except Exception:
         return False
-    return hmac.compare_digest(got, conf.get("hash", ""))
+    return secret_eq(got, conf.get("hash", ""))
 
 
 _sess_lock = threading.Lock()
@@ -518,7 +527,7 @@ def check_token(conf, token):
         return None
     body = f"{user}|{exp}|{epoch}"
     good = hmac.new(bytes.fromhex(conf["secret"]), body.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(good, sig):
+    if not secret_eq(good, sig):
         return None
     try:
         if int(exp) < int(time.time()) or int(epoch) != sess_epoch(conf):
@@ -623,16 +632,20 @@ def fail_count(ip):
         return rec[0] if rec else 0
 
 
-def note_blocked(ip):
+def _gate(store, key, gap, cap):
     now = time.time()
+    if now - store.get(key, 0.0) < gap:
+        return False
+    store.pop(key, None)
+    store[key] = now
+    while len(store) > cap:
+        del store[next(iter(store))]
+    return True
+
+
+def note_blocked(ip):
     with _fails_lock:
-        if now - _blk_logged.get(ip, 0) < FAIL_WINDOW:
-            return False
-        _blk_logged.pop(ip, None)
-        _blk_logged[ip] = now
-        while len(_blk_logged) > FAIL_MAX_KEYS:
-            del _blk_logged[next(iter(_blk_logged))]
-        return True
+        return _gate(_blk_logged, ip, FAIL_WINDOW, FAIL_MAX_KEYS)
 
 
 def log_internal(where):
@@ -640,20 +653,25 @@ def log_internal(where):
     sys.stderr.flush()
 
 
+WARN_GAP = 60
+WARN_MAX_KEYS = 512
+_warn_last = {}
+_warn_lock = threading.Lock()
+
+
+def log_warn(key, msg):
+    with _warn_lock:
+        if not _gate(_warn_last, key, WARN_GAP, WARN_MAX_KEYS):
+            return
+    print("tnl-central: %s: %s" % (key, msg), file=sys.stderr, flush=True)
+
+
 def load_nodes():
-    try:
-        with open(NODES_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return []
+    return read_store(NODES_FILE, list)
 
 
 def load_links():
-    try:
-        with open(LINKS_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return []
+    return read_store(LINKS_FILE, list)
 
 
 def get_node(nid):
@@ -661,11 +679,7 @@ def get_node(nid):
 
 
 def load_proxies():
-    try:
-        with open(PROXIES_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return []
+    return read_store(PROXIES_FILE, list)
 
 
 def get_proxy(pid):
@@ -680,12 +694,7 @@ def node_proxy(node):
 
 
 def _pending_load():
-    try:
-        with open(PENDING_FILE) as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return read_store(PENDING_FILE, dict)
 
 
 def _pending_add(node_id, name):
@@ -706,7 +715,11 @@ def _pending_add(node_id, name):
 
 def _pending_remove(node_id, name):
     with _pending_lock:
-        d = _pending_load()
+        try:
+            d = _pending_load()
+        except RegistryError as e:
+            log_warn("pending", str(e))
+            return
         lst = [x for x in (d.get(node_id) or []) if x != name]
         if lst:
             d[node_id] = lst
@@ -1307,6 +1320,8 @@ def poller_loop():
                         continue
                     inflight.add("px:" + p["id"])
                 ex.submit(_run_px, p)
+        except RegistryError as e:
+            log_warn("poll", str(e))
         except Exception:
             pass
         try:
@@ -1785,6 +1800,8 @@ def traffic_persist_loop():
         time.sleep(60)
         try:
             _persist_stats()
+        except RegistryError as e:
+            log_warn("persist", str(e))
         except Exception:
             pass
 
@@ -2320,6 +2337,10 @@ def api_summary(d):
                     "rtt": lrtt, "loss": lloss}
             if worst_tun is None or (cand["loss"], cand["rtt"]) > (worst_tun["loss"], worst_tun["rtt"]):
                 worst_tun = cand
+    for who, nm in _stray_snapshot():
+        alerts.append({"level": "warn", "kind": "stray", "tab": "nodes",
+                       "msg": "تونلِ «%s» روی نودِ «%s» هست ولی در پنل ثبت نیست"
+                              % (nm, who)})
     if outdated:
         alerts.append({"level": "warn", "kind": "agent", "msg": f"{outdated} نود ایجنتِ قدیمی دارد"})
 
@@ -2663,7 +2684,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
 
         _install_step(jid, "agent", "run")
         try:
-            src, ameta = _staged_agent()
+            raw, ameta = _staged_agent()
         except OSError:
             return fail("agent", "ایجنتی روی پنل آماده نیست",
                         "در «تنظیمات» ایجنت را از گیت‌هاب بگیر یا فایلش را بارگذاری کن، بعد دوباره امتحان کن.")
@@ -2674,7 +2695,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             stdin, how = None, "از گیت‌هاب"
         else:
             recv, stdin, how = (f"set -e; umask 077; base64 -d > /tmp/tnl-node.py; echo TNL_DL_OK; {verify}",
-                                base64.b64encode(src.encode()).decode(), "از پنل")
+                                base64.b64encode(raw).decode(), "از پنل")
         rc, out, err = _ssh_run(cfg, recv, 120, stdin_text=stdin)
         if "TNL_DL_OK" not in out:
             return fail("agent", "دریافتِ ایجنت روی نود ناموفق (curl/wget؟ دسترسیِ اینترنت؟)", (err or out).strip())
@@ -3000,7 +3021,8 @@ def api_node_traffic(d):
 
 
 def _store_agent_src(src, msgs, extra_meta=None):
-    if len(src.encode()) > 262144:
+    raw = src.encode()
+    if len(raw) > 262144:
         raise ValueError(msgs["too_big"])
     try:
         compile(src, "tnl-node.py", "exec")
@@ -3011,12 +3033,12 @@ def _store_agent_src(src, msgs, extra_meta=None):
     m = re.search(r'^AGENT_VERSION\s*=\s*(\d+)', src, re.M)
     if not m:
         raise ValueError(msgs["no_ver"])
-    ver, sha = int(m.group(1)), hashlib.sha256(src.encode()).hexdigest()
-    meta = {"version": ver, "sha256": sha, "size": len(src.encode()), "uploaded_ts": int(time.time())}
+    ver, sha = int(m.group(1)), hashlib.sha256(raw).hexdigest()
+    meta = {"version": ver, "sha256": sha, "size": len(raw), "uploaded_ts": int(time.time())}
     if extra_meta:
         meta.update(extra_meta)
     with _agent_lock:
-        save_text(AGENT_FILE, src)
+        save_bytes(AGENT_FILE, raw)
         save_json(AGENT_META, meta)
     return {"ok": True, "version": ver, "sha256": sha[:12]}
 
@@ -3060,11 +3082,10 @@ def api_agent_info(d):
 
 def _staged_agent():
     with _agent_lock:
-        with open(AGENT_FILE) as f:
-            src = f.read()
-        with open(AGENT_META) as f:
-            meta = json.load(f)
-    return src, meta
+        with open(AGENT_FILE, "rb") as f:
+            raw = f.read()
+        meta = read_json(AGENT_META, dict)
+    return raw, meta
 
 
 def _delivery_mode(kind):
@@ -3152,7 +3173,7 @@ def _dl_ticket_node(q):
     msg = _dl_ticket_msg(q).encode()
     for n in load_nodes():
         tok = str(n.get("token") or "")
-        if not tok or not hmac.compare_digest(hashlib.sha256(tok.encode()).hexdigest(), fp):
+        if not tok or not secret_eq(hashlib.sha256(tok.encode()).hexdigest(), fp):
             continue
         return n if hmac.compare_digest(hmac.new(tok.encode(), msg, hashlib.sha256).digest(), got) else None
     return None
@@ -3175,12 +3196,12 @@ def _agent_delivery_check(meta, mode):
                          "یا حالتِ تحویلِ ایجنت را عوض کن")
 
 
-def _agent_update_body(node, src, meta, sig):
+def _agent_update_body(node, raw, meta, sig):
     mode = _delivery_mode("agent")
     _agent_delivery_check(meta, mode)
     body = {"sha256": meta["sha256"], "sig": sig}
     if mode == "push":
-        return {"code": src, **body}
+        return {"code": raw.decode(), **body}
     if mode == "github":
         return {"url": NODE_RAW_URL, **body}
     url = _panel_dl_url(node, "ag")
@@ -3227,8 +3248,8 @@ def _readiness():
     if _delivery_mode("core") == "github":
         missing = []
     else:
-        missing = [a for a in CORE_ARCHES
-                   if not os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-" + a))]
+        ver = (info or {}).get("version") or ""
+        missing = [a for a in CORE_ARCHES if not (ver and os.path.isfile(_stage_path(ver, a)))]
     core = bool(info) and not missing
     return {"agent": agent, "core": core, "core_missing": missing,
             "core_version": (info or {}).get("version", ""), "ok": agent and core}
@@ -3252,7 +3273,7 @@ def _gate_ready(need_agent):
 
 def _dl_artifact(kind, arch):
     if kind == "ag":
-        return _staged_agent()[0].encode()
+        return _staged_agent()[0]
     if kind == "co":
         b = _staged_bytes(arch)
         return b[0] if b else None
@@ -3606,12 +3627,12 @@ def api_update_agent(d):
             if not have:
                 raise
     try:
-        src, meta = _staged_agent()
+        raw, meta = _staged_agent()
     except OSError:
         raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
     _agent_delivery_check(meta, mode)
     sig = _sign_sha(meta["sha256"])
-    enc = _body_cache(lambda n: _agent_update_body(n, src, meta, sig))
+    enc = _body_cache(lambda n: _agent_update_body(n, raw, meta, sig))
     plan = [("check", "ping", lambda _n, _c=None: {}, 15,
              lambda r, _w=meta["sha256"]: str(r.get("sha256") or "") == _w),
             ("deliver", "update", enc, 60, None)]
@@ -3965,6 +3986,10 @@ def _fetch_release(version, arch, on_progress=None, should_abort=None):
     return raw, sha
 
 
+def _stage_path(version, arch):
+    return os.path.join(CORE_STAGE_DIR, "tnl-core-%s-%s" % (re.sub(r"[^A-Za-z0-9._-]", "_", str(version)), arch))
+
+
 def _staged_holds(version, need_bytes):
     info = _staged_info()
     if not info:
@@ -3982,7 +4007,7 @@ def _staged_holds(version, need_bytes):
         return True
     if info.get("meta_only"):
         return False
-    return all(os.path.isfile(os.path.join(CORE_STAGE_DIR, "tnl-core-%s" % a)) for a in arches)
+    return all(os.path.isfile(_stage_path(info.get("version"), a)) for a in arches)
 
 
 def _staged_info():
@@ -4015,11 +4040,12 @@ def _stage_core(version, on_progress=None, should_abort=None):
                 if arch == "amd64":
                     raise
                 continue
-            save_bytes(os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}"), raw)
+            save_bytes(_stage_path(rel, arch), raw)
             got.append(arch)
             shas[arch] = sha
             sizes[arch] = len(raw)
         save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": shas, "size": sizes, "ts": int(time.time())})
+        _stage_purge(rel)
     return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
 
 
@@ -4032,6 +4058,19 @@ def _stage_core_meta(version):
     return {"version": rel, "arches": got, "missing": []}
 
 
+def _stage_purge(version):
+    keep = {os.path.basename(_stage_path(version, a)) for a in CORE_ARCHES}
+    try:
+        stale = [nm for nm in os.listdir(CORE_STAGE_DIR) if nm not in keep]
+    except OSError:
+        return
+    for nm in stale:
+        try:
+            os.remove(os.path.join(CORE_STAGE_DIR, nm))
+        except OSError:
+            pass
+
+
 def _staged_bytes(arch):
     if arch not in CORE_ARCHES:
         raise ValueError("معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است")
@@ -4039,17 +4078,22 @@ def _staged_bytes(arch):
     if not info:
         return None
     ver = info["version"]
-    p = os.path.join(CORE_STAGE_DIR, f"tnl-core-{arch}")
-    if not os.path.isfile(p):
-        try:
-            raw, sha = _fetch_release(ver, arch)
-        except Exception:
-            return None
-        save_bytes(p, raw)
+    want = str((info.get("sha") or {}).get(arch) or "")
+    p = _stage_path(ver, arch)
+    try:
+        with open(p, "rb") as f:
+            raw = f.read()
+    except OSError:
+        raw = b""
+    sha = hashlib.sha256(raw).hexdigest()
+    if raw and (not want or sha == want):
         return raw, sha, ver
-    with open(p, "rb") as f:
-        raw = f.read()
-    return raw, hashlib.sha256(raw).hexdigest(), ver
+    try:
+        raw, sha = _fetch_release(ver, arch)
+    except Exception:
+        return None
+    save_bytes(p, raw)
+    return raw, sha, ver
 
 
 def _node_arch(node):
@@ -5229,17 +5273,18 @@ def _create_tunnel_impl(d, h):
     act_step(h, "ساخت روی نودِ «%s»" % A["name"], 1, CREATE_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
-        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}")
+        tail = _drop_tunnel_from([A], name)
+        raise ValueError(f"نودِ «{A['name']}»: {ra.get('error') or ra.get('msg')}" + tail)
     try:
         act_step(h, "ساخت روی نودِ «%s»" % B["name"], 2, CREATE_STEPS, more=False)
     except ActCancelled:
-        node_call(A, "delete", "POST", {"name": name})
+        _drop_tunnel_from([A], name)
         raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
-        rr = node_call(A, "delete", "POST", {"name": name})
-        warn = "" if rr.get("ok") else f" — هشدار: '{name}' روی {A['name']} پاک نشد، دستی تمیزش کن"
-        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')} (تغییرات روی {A['name']} برگردانده شد){warn}")
+        tail = _drop_tunnel_from(_node_set(A, B), name)
+        raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')}"
+                         + (tail or " (تغییراتِ نیم‌کاره روی دو نود برچیده شد)"))
     act_step(h, "ثبتِ تونل", 3, CREATE_STEPS, stop=False)
     try:
         with _reg_lock:
@@ -5252,11 +5297,9 @@ def _create_tunnel_impl(d, h):
         _pending_remove(A["id"], name)
         _pending_remove(B["id"], name)
     except Exception as e:
-        da = node_call(A, "delete", "POST", {"name": name})
-        db = node_call(B, "delete", "POST", {"name": name})
-        stuck = "، ".join(N["name"] for N, r in ((A, da), (B, db)) if not r.get("ok"))
-        warn = f" — هشدار: '{name}' روی {stuck} پاک نشد، دستی تمیزش کن" if stuck else ""
-        raise ValueError(f"ذخیرهٔ رکوردِ لینک شکست خورد؛ تونل‌ها برچیده شدند{warn} ({str(e)[:80]})")
+        tail = _drop_tunnel_from(_node_set(A, B), name)
+        raise ValueError("ذخیرهٔ رکوردِ لینک شکست خورد"
+                         + (tail or " (تغییراتِ نیم‌کاره روی دو نود برچیده شد)") + " (%s)" % str(e)[:80])
     _refresh_cache([A["id"], B["id"]])
     return {"ok": True, "name": name}
 
@@ -5562,6 +5605,41 @@ def _node_set(*nodes):
     return out
 
 
+def _drop_tunnel(node, name):
+    if node_call(node, "delete", "POST", {"name": name}).get("ok"):
+        _pending_remove(node["id"], name)
+        return "done"
+    try:
+        return "queued" if _pending_add(node["id"], name) else "lost"
+    except RegistryError as e:
+        log_warn("pending", str(e))
+        return "lost"
+
+
+def _drop_tunnel_from(nodes, name):
+    queued, lost = [], []
+    for N in nodes:
+        st = _drop_tunnel(N, name)
+        if st == "queued":
+            queued.append(N.get("name") or N["id"])
+        elif st == "lost":
+            lost.append(N.get("name") or N["id"])
+    return _drop_tail(name, queued, lost)
+
+
+def _drop_tail(name, queued, lost):
+    out = ""
+    if queued:
+        out += ("، «%s» روی «%s» پاک نشد و در صفِ پاک‌سازی رفت "
+                "— به‌محضِ جواب‌دادنِ نود خودکار برداشته می‌شود"
+                % (name, "»، «".join(queued)))
+    if lost:
+        out += ("، هشدار: «%s» روی «%s» پاک نشد و در صفِ پاک‌سازی هم ثبت نشد "
+                "— دستی تمیزش کن"
+                % (name, "»، «".join(lost)))
+    return out
+
+
 def _guard_arrival_free(was_a, was_b, A, B, tid, names):
     stay = {n["id"] for n in (was_a, was_b) if n}
     for N in _node_set(A, B):
@@ -5580,9 +5658,7 @@ def _guard_arrival_free(was_a, was_b, A, B, tid, names):
 
 def _undo_apply(was_a, was_b, A, B, name, renamed):
     stay = {n["id"] for n in (was_a, was_b) if n}
-    for N in _node_set(A, B):
-        if renamed or N["id"] not in stay:
-            node_call(N, "delete", "POST", {"name": name})
+    return _drop_tunnel_from([N for N in _node_set(A, B) if renamed or N["id"] not in stay], name)
 
 
 def _edit_link_impl(d, h):
@@ -5683,8 +5759,9 @@ def _edit_link_impl(d, h):
         if name_changed or type_changed or moved or ttype == "core":
             act_step(h, "برچیدنِ پیکربندیِ قبلی", 1, EDIT_STEPS)
             touched = True
-            for N in _node_set(was_a, was_b, A, B):
-                node_call(N, "delete", "POST", {"name": old_name})
+            gone = _drop_tunnel_from(_node_set(was_a, was_b, A, B), old_name)
+            if gone:
+                raise ValueError("پیکربندیِ قبلیِ این تونل برچیده نشد، پس جابه‌جایی انجام نشد" + gone)
         act_step(h, "اعمال روی نودِ «%s»" % A["name"], 2, EDIT_STEPS)
         touched = True
         ra = _node_tunnel(A, a_body)
@@ -5696,10 +5773,10 @@ def _edit_link_impl(d, h):
             raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')}")
     except Exception as e:
         if touched:
-            _undo_apply(was_a, was_b, A, B, new_name, name_changed)
+            undone = _undo_apply(was_a, was_b, A, B, new_name, name_changed)
             stuck = _restore_link(was_a, was_b, L)
             if isinstance(e, ValueError):
-                raise ValueError(str(e) + _restore_tail(stuck)) from None
+                raise ValueError(str(e) + undone + _restore_tail(stuck)) from None
         raise
     act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
     with _reg_lock:
@@ -6000,10 +6077,63 @@ RECONCILE_RETRY = 60
 _reconcile_last = {}
 
 
+def _stray_rows(nodes, links):
+    want = {}
+    for L in links:
+        for k in ("a_node", "b_node"):
+            want.setdefault(L.get(k), set()).add(str(L.get("name") or ""))
+    pend = _pending_load()
+    out = []
+    for n in nodes:
+        cfgs = _cached_list(n["id"]).get("configs")
+        if cfgs is None:
+            continue
+        known = want.get(n["id"], set()) | set(pend.get(n["id"]) or [])
+        for c in cfgs:
+            nm = str(c.get("name") or "")
+            if nm and c.get("type") != "portfw" and nm not in known:
+                out.append((n, nm))
+    return out
+
+
+_stray_lock = threading.Lock()
+_stray_seen = {}
+_stray_live = []
+_STRAY_BODY = ("این پیکربندی از یک ساخت یا جابه‌جاییِ نیمه‌کاره مانده و پنل هیچ رکوردی برایش ندارد؛ "
+               "تا وقتی هست، شناسه‌اش روی آن نود اشغال است. اگر لازمش نداری، از همان نود پاکش کن.")
+
+
+def _stray_scan(nodes, links):
+    fresh, live, told = {}, [], []
+    with _stray_lock:
+        for n, nm in _stray_rows(nodes, links):
+            key = (n["id"], nm)
+            if key not in _stray_seen:
+                fresh[key] = False
+                continue
+            fresh[key] = True
+            live.append((n.get("name") or n["id"], nm))
+            if not _stray_seen[key]:
+                told.append(live[-1])
+        _stray_seen.clear()
+        _stray_seen.update(fresh)
+        _stray_live[:] = live
+    for who, nm in told:
+        log_event("warn", "link-stray",
+                  "نودِ «%s»: تونلِ «%s» روی نود هست ولی در پنل ثبت نیست"
+                  % (who, nm), _STRAY_BODY)
+
+
+def _stray_snapshot():
+    with _stray_lock:
+        return list(_stray_live)
+
+
 def _reconcile_once():
     mode = get_settings().get("reconcile_mode", "alert")
     now = time.time()
     links = load_links()
+    _stray_scan(load_nodes(), links)
     valid_ids = {L["id"] for L in links}
     for k in [k for k in _reconcile_last if k not in valid_ids]:
         _reconcile_last.pop(k, None)
@@ -6049,6 +6179,8 @@ def reconcile_loop():
         time.sleep(gap)
         try:
             _reconcile_once()
+        except RegistryError as e:
+            log_warn("reconcile", str(e))
         except Exception:
             pass
 
@@ -6390,6 +6522,7 @@ EV_TYPES = (
     ("link-up", "tunnel", "تونل وصل شد"),
     ("link-down", "tunnel", "تونل قطع شد"),
     ("link-reconnect", "tunnel", "تونل خودش دوباره وصل شد"),
+    ("link-stray", "tunnel", "تونلی روی نود که در پنل ثبت نیست"),
     ("node-up", "node", "نود آنلاین شد"),
     ("node-down", "node", "نود آفلاین شد"),
     ("node-moved", "node", "نشانیِ نود جابه‌جا شد"),
@@ -7447,31 +7580,38 @@ def _checkin_claimant(d):
     fp = str(d.get("fp") or "")
     sig = str(d.get("sig") or "")
     if len(fp) != 64 or not sig:
-        return None
+        return None, "unauthorized"
     signed = {k: v for k, v in d.items() if k != "sig"}
     msg = json.dumps(signed, sort_keys=True, separators=(",", ":")).encode()
     try:
         got = base64.b64decode(sig, validate=True)
     except Exception:
-        return None
+        return None, "unauthorized"
     for node in load_nodes():
         tok = str(node.get("token") or "")
-        if not tok or not hmac.compare_digest(hashlib.sha256(tok.encode()).hexdigest(), fp):
+        if not tok or not secret_eq(hashlib.sha256(tok.encode()).hexdigest(), fp):
             continue
         if not hmac.compare_digest(hmac.new(tok.encode(), msg, hashlib.sha256).digest(), got):
-            return None
+            return None, "unauthorized"
         try:
             ctr = int(d.get("ctr") or 0)
         except (TypeError, ValueError):
-            return None
-        return node if checkin_ctr_accept(node["id"], ctr) else None
-    return None
+            return None, "unauthorized"
+        if not checkin_ctr_accept(node["id"], ctr):
+            return None, "stale"
+        return node, ""
+    return None, "unauthorized"
 
 
 def api_checkin_impl(source_ip, d):
-    n = _checkin_claimant(d or {})
+    n, why = _checkin_claimant(d or {})
     if not n:
-        return {"ok": False, "error": "درخواستِ نود امضا ندارد یا نود ناشناخته است"}
+        if why == "stale":
+            return {"ok": False, "stale": True,
+                    "error": "شمارندهٔ این درخواست از درخواستِ قبلیِ همین نود عقب‌تر است "
+                             "— یا تکرارِ یک پیامِ قدیمی است یا ساعتِ نود عقب رفته"}
+        return {"ok": False, "unauthorized": True,
+                "error": "درخواستِ نود امضا ندارد یا نود ناشناخته است"}
     tok = str(n.get("token", ""))
     with _reg_lock:
         n = next((x for x in load_nodes() if x["id"] == n["id"]), None)
@@ -7505,7 +7645,7 @@ def api_checkin_impl(source_ip, d):
     _moved_clear(n_snap["id"])
     with _reg_lock:
         nodes = load_nodes()
-        n = next((x for x in nodes if hmac.compare_digest(str(x.get("token", "")), tok)), None)
+        n = next((x for x in nodes if secret_eq(x.get("token", ""), tok)), None)
         if not n:
             return {"ok": False, "error": "نودِ ناشناخته"}
         n["host"], n["port"] = want_host, want_port
@@ -7972,7 +8112,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             conf = self._conf()
             time.sleep(0.3)
-            user_ok = hmac.compare_digest(str(d.get("user", "")), str(conf.get("user") or ""))
+            user_ok = secret_eq(d.get("user", ""), conf.get("user") or "")
             pass_ok = verify_password(conf, str(d.get("pass", "")))
         finally:
             _login_gate.release()
@@ -8038,13 +8178,19 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send(400, {"error": str(e)})
             return
+        except RegistryError as e:
+            log_warn("checkin", str(e))
+            self._send(500, {"error": str(e)})
+            return
         except Exception:
             log_internal("checkin")
             self._send(500, {"error": "خطای داخلی"})
             return
-        if not res.get("ok"):
+        if res.get("unauthorized"):
             note_fail(ip)
-        self._send(200 if res.get("ok") else 401, res)
+            self._send(401, res)
+            return
+        self._send(200 if res.get("ok") else 409, res)
 
     def _fail(self, code, en, drain=False):
         fa, status, msg = API_MSG[code]
@@ -8066,7 +8212,7 @@ class Handler(BaseHTTPRequestHandler):
             note_fail(ip)
             return "api_disabled"
         stored = str(s.get("api_token_hash") or "")
-        if stored and hmac.compare_digest(api_token_hash(auth[7:].strip()), stored):
+        if stored and secret_eq(api_token_hash(auth[7:].strip()), stored):
             return None
         note_fail(ip)
         return "bad_token"
@@ -8115,6 +8261,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(e)})
             if via_token:
                 self._api_log("warn", "api-error", "درخواستِ API «%s» با خطا برگشت: %s" % (cmd, e), cmd, method, 400)
+        except RegistryError as e:
+            log_warn("api %s" % cmd, str(e))
+            self._send(500, {"error": str(e)})
+            if via_token:
+                self._api_log("bad", "api-error", "درخواستِ API «%s» به خطایِ دادهٔ پنل خورد." % cmd, cmd, method, 500)
         except Exception:
             log_internal("api %s" % cmd)
             self._fail("internal", en)
@@ -8315,7 +8466,7 @@ def do_install():
     install_deps()
 
     step(3, total, "port and login")
-    conf = load_conf() if os.path.isfile(WEB_CONF) else {}
+    conf = cli_conf()
     have = conf.get("port", 8080)
     conf["port"] = _port_or(input("Panel port [%s]: " % have), have)
     set_password(conf)
@@ -8417,9 +8568,21 @@ MENU = [
 ]
 
 
+def cli_conf(loud=True):
+    if not os.path.isfile(WEB_CONF):
+        return {}
+    try:
+        return load_conf()
+    except RegistryError as e:
+        if loud:
+            print("%s %s" % (WARN, e))
+            print("    the panel settings below are replaced by what you type now.")
+        return {}
+
+
 def status():
     exists = os.path.isfile(SERVICE_FILE)
-    conf = load_conf() if os.path.isfile(WEB_CONF) else {}
+    conf = cli_conf(False)
     if service_active():
         state = green("active")
     elif exists:
@@ -8433,7 +8596,11 @@ def status():
     print("  %s  %s" % (dim("panel  "), cyan("http://%s:%s/" % (central_ip(), conf.get("port", "-")))))
     print("  %s  %s" % (dim("user   "), conf.get("user", "-")))
     print("  %s  %s" % (dim("web ui "), ui))
-    print("  %s  %d nodes %s %d links" % (dim("fleet  "), len(load_nodes()), dim("/"), len(load_links())))
+    try:
+        fleet = "%d nodes %s %d links" % (len(load_nodes()), dim("/"), len(load_links()))
+    except RegistryError as e:
+        fleet = red(str(e))
+    print("  %s  %s" % (dim("fleet  "), fleet))
 
 
 def refresh_ui():
@@ -8542,11 +8709,16 @@ def serve():
     if not os.path.isfile(WEB_CONF):
         print("Not configured. Run the setup menu:  sudo python3 tnl-central.py")
         sys.exit(1)
-    conf = load_conf()
     global _CENTRAL_PORT, _CENTRAL_TLS
+    try:
+        conf = load_conf()
+        _seed_settings()
+    except RegistryError as e:
+        print("tnl-central did not start - %s" % e)
+        print("fix or remove that file, then run the setup menu:  sudo python3 tnl-central.py")
+        sys.exit(1)
     _CENTRAL_PORT = int(conf.get("port", 8080))
     _CENTRAL_TLS = bool(conf.get("tls"))
-    _seed_settings()
     try:
         _signing_keys()
     except Exception as e:
