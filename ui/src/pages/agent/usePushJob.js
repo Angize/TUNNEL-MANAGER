@@ -8,13 +8,16 @@ import { T } from '../../i18n/fa.js'
 
 const POLL_MS = 400
 const SETTLE_MS = 4500
+const RECOVER_MS = 5000
 const JOB_ALL = '*'
 
 export default function usePushJob({ onSettled }) {
   const [state, setState] = useState(null)
   const [seeded, setSeeded] = useState({})
   const job = useRef(null)
-  const gen = useRef(0)
+  const settle = useRef(0)
+  const recover = useRef(0)
+  const adoptRef = useRef(null)
   const alive = useRef(true)
   const onSettledRef = useRef(onSettled)
 
@@ -24,6 +27,8 @@ export default function usePushJob({ onSettled }) {
     alive.current = true
     return () => {
       alive.current = false
+      window.clearTimeout(settle.current)
+      window.clearInterval(recover.current)
     }
   }, [])
 
@@ -33,9 +38,7 @@ export default function usePushJob({ onSettled }) {
   }, [state])
 
   const poll = useCallback(async () => {
-    const mine = gen.current
     let failures = 0
-    let finished = false
     try {
       for (;;) {
         let r = null
@@ -49,29 +52,31 @@ export default function usePushJob({ onSettled }) {
           failures += 1
           if (failures >= MAX_POLL_FAILURES) {
             toast(T('ag_p_lost'), 'err')
+            window.clearInterval(recover.current)
+            recover.current = window.setInterval(() => {
+              if (!alive.current || job.current) {
+                window.clearInterval(recover.current)
+                return
+              }
+              if (adoptRef.current) adoptRef.current()
+            }, RECOVER_MS)
             return
           }
         } else {
           failures = 0
           setState(r)
-          if (r.done) {
-            finished = true
-            break
-          }
+          if (r.done) break
         }
         await new Promise((done) => setTimeout(done, POLL_MS))
       }
     } finally {
       job.current = null
-      if (alive.current && !finished) {
-        setState(null)
-        setSeeded({})
-      }
     }
-    setTimeout(() => {
-      if (!alive.current) return
+    if (!alive.current) return
+    window.clearTimeout(settle.current)
+    settle.current = window.setTimeout(() => {
+      if (!alive.current || job.current) return
       onSettledRef.current()
-      if (gen.current !== mine) return
       setState(null)
       setSeeded({})
     }, SETTLE_MS)
@@ -87,14 +92,16 @@ export default function usePushJob({ onSettled }) {
     }
     if (r.done) return
     job.current = JOB_ALL
-    gen.current += 1
+    window.clearTimeout(settle.current)
     setState(r)
     poll()
   }, [poll])
 
+  adoptRef.current = adopt
+
   const start = useCallback(
     async (command, body, ids) => {
-      gen.current += 1
+      window.clearTimeout(settle.current)
       setState((prev) => (prev && prev.done ? null : prev))
       setSeeded(Object.fromEntries((ids || []).map((id) => [id, true])))
       const res = await apiPost(command, body)

@@ -29,9 +29,9 @@ export function linkSideState(link, side) {
   return sideState(link[side + '_online'], link[side + '_health'])
 }
 
-export function sideText(online, health) {
+export function sideText(online, health, err) {
   if (!online) return T('t_side_off')
-  if (!health) return T('t_side_notun')
+  if (!health) return err ? T('t_side_err') + ' ' + err : T('t_side_notun')
   if (health.up == null) return T('checking')
   if (!health.up) return T('t_side_ifdown')
   if (health.alive === true) {

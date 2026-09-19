@@ -131,14 +131,12 @@ export default function LogsPage() {
     return c
   }, [found, evGroups])
 
-  const activeFilter = filter !== 'all' && !(counts[filter] > 0) ? 'all' : filter
-
   const visible = useMemo(
     () =>
       found.filter((e) =>
-        activeFilter === 'all' ? true : activeFilter === 'err' ? e.level === 'bad' : e.cat === activeFilter
+        filter === 'all' ? true : filter === 'err' ? e.level === 'bad' : e.cat === filter
       ),
-    [found, activeFilter]
+    [found, filter]
   )
 
   const clearLogs = async () => {
@@ -157,7 +155,7 @@ export default function LogsPage() {
   const chipOrder = [['all', T('logc_all')]]
     .concat(evGroups.map(([key, label]) => [key, label]))
     .concat([['err', T('logc_err')]])
-    .filter(([key]) => key === 'all' || counts[key] > 0)
+    .filter(([key]) => key === 'all' || key === filter || counts[key] > 0)
 
   const shown = visible.slice(0, show)
   const remaining = visible.length - shown.length
@@ -211,7 +209,7 @@ export default function LogsPage() {
             {chipOrder.map(([key, label]) => (
               <div
                 key={key}
-                className={'fchip' + (activeFilter === key ? ' on' : '')}
+                className={'fchip' + (filter === key ? ' on' : '')}
                 role="button"
                 tabIndex={0}
                 onClick={() => setFilter(key)}
@@ -244,7 +242,9 @@ export default function LogsPage() {
                 })}
               </div>
             ) : (
-              <div className="card muted">{T('logs_no_match')}</div>
+              <div className="card muted">
+                {T(query.trim() || filter === 'all' ? 'logs_no_match' : 'logc_empty')}
+              </div>
             )}
             {remaining > 0 ? (
               <div

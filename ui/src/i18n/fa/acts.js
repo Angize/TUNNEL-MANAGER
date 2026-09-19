@@ -1,4 +1,5 @@
 export default {
+  act_lost: 'پنل این کار را گم کرد — فهرست را تازه کن و ببین انجام شده یا نه',
   a_pending: 'در حالِ ساخت',
   a_pending_fail: 'ساخت ناموفق بود',
   a_pending_cancel: 'ساخت لغو شد',

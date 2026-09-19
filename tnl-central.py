@@ -957,9 +957,13 @@ def _sign_sha(sha_hex):
 def _ensure_update_key(node):
     try:
         _, pub = _signing_keys()
-        node_call(node, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
-    except Exception:
-        pass
+    except Exception as e:
+        return "کلیدِ امضایِ پنل ساخته نشد (openssl?): %s" % str(e)[:80]
+    r = node_call(node, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
+    if r.get("ok"):
+        return ""
+    return ("نودِ «%s» کلیدِ امضایِ پنل را نپذیرفت؛ بدونِ آن هر پوشی رد می‌شود: %s"
+            % (node.get("name", "?"), r.get("error") or r.get("msg") or "?"))
 
 
 _ctr_lock = threading.Lock()
@@ -2257,6 +2261,7 @@ def api_next_port(d):
 
 
 def api_summary(d):
+    _ev_total, _ev_newest, _ev_unread = _ev_badge(_sint((d or {}).get("seen")))
     nodes = load_nodes()
     links = load_links()
     try:
@@ -2384,7 +2389,7 @@ def api_summary(d):
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
-            "ev_seq": _ev_seq_get(), "log_count": _ev_count_get(),
+            "ev_seq": _ev_newest, "log_count": _ev_total, "log_unread": _ev_unread,
             "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2),
             "suspect_backoff": _tun.get("suspect_backoff", _TUNING_DEFAULTS["suspect_backoff"]),
             "dead_retest_secs": _tun.get("dead_retest_secs", _TUNING_DEFAULTS["dead_retest_secs"])}
@@ -3236,23 +3241,22 @@ def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
 
 
 def _readiness():
-    if _delivery_mode("agent") == "github":
+    try:
+        _staged_agent()
         agent = True
-    else:
-        try:
-            _staged_agent()
-            agent = True
-        except Exception:
-            agent = False
+    except Exception:
+        agent = False
     info = _staged_info()
+    blob = _core_blob_info()
     if _delivery_mode("core") == "github":
         missing = []
     else:
         ver = (info or {}).get("version") or ""
         missing = [a for a in CORE_ARCHES if not (ver and os.path.isfile(_stage_path(ver, a)))]
-    core = bool(info) and not missing
-    return {"agent": agent, "core": core, "core_missing": missing,
-            "core_version": (info or {}).get("version", ""), "ok": agent and core}
+    core = (bool(info) and not missing) or bool(blob)
+    return {"agent": agent, "core": core, "core_missing": [] if core else missing,
+            "core_version": (info or {}).get("version", "") or ("custom" if blob else ""),
+            "ok": agent and core}
 
 
 def api_readiness(d):
@@ -3303,6 +3307,7 @@ _push_batch = set()
 _push_final = None
 PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
 PUSH_CAP = 256
+PUSH_KEEP = 3600
 PUSH_TRACK_MIN = 256 * 1024
 _dl_watch = {}
 _dl_watch_lock = threading.Lock()
@@ -3320,8 +3325,10 @@ def _push_job_new(kind, nodes):
     jid = secrets.token_hex(6)
     now = int(time.time())
     with _push_lock:
-        for k in [k for k, v in _push_jobs.items() if now - v.get("ts", now) > 3600]:
+        for k in [k for k, v in _push_jobs.items()
+                  if v["done"] and now - v.get("ts", now) > PUSH_KEEP]:
             _push_jobs.pop(k, None)
+            _push_batch.discard(k)
         busy = _busy_nodes(kind)
         nodes = [x for x in nodes if x["id"] not in busy]
         if not nodes:
@@ -3364,9 +3371,13 @@ def _push_merge_locked(jids):
         cancel = cancel and bool(j.get("cancel"))
         paused = paused and bool(j.get("paused"))
         for nid in j["order"]:
-            if nid not in nodes:
+            row = dict(j["nodes"][nid])
+            cur = nodes.get(nid)
+            if cur is None:
                 order.append(nid)
-                nodes[nid] = dict(j["nodes"][nid])
+                nodes[nid] = row
+            elif cur["state"] not in PUSH_BUSY_STATES and row["state"] in PUSH_BUSY_STATES:
+                nodes[nid] = row
     return {"ok": True, "job": PUSH_ALL, "kind": kinds.pop() if len(kinds) == 1 else "mixed",
             "done": all(_push_jobs[jid]["done"] for jid in jids),
             "cancel": cancel, "paused": paused, "order": order, "nodes": nodes}
@@ -3380,9 +3391,10 @@ def _push_seal_locked():
 def _push_merged():
     with _push_lock:
         live = _push_live()
-        if live:
-            return _push_merge_locked(live)
-        return dict(_push_final) if _push_final else None
+        if not live:
+            return dict(_push_final) if _push_final else None
+        jids = [k for k in _push_batch if k in _push_jobs] or live
+        return _push_merge_locked(sorted(jids, key=lambda k: _push_jobs[k].get("ts", 0)))
 
 
 def _push_set(jid, nid, **kw):
@@ -3446,7 +3458,10 @@ def _push_one(jid, nid, plan):
                     time.sleep(0.2)
             _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0), remote=False)
             if not keyed:
-                _ensure_update_key(fresh)
+                why = _ensure_update_key(fresh)
+                if why:
+                    _push_set(jid, nid, state="err", step=code, err=why[:300], pct=0)
+                    return
                 keyed = True
             try:
                 body = build(fresh, _BuildCtx(jid, nid, at, i))
@@ -4126,7 +4141,9 @@ def _push_staged(node):
         body = _core_install_body(node, b64, sha, ver, sig, arch)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
-    _ensure_update_key(node)
+    why = _ensure_update_key(node)
+    if why:
+        return {"ok": False, "error": why}
     r = node_call(node, "core-put", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
     if not r.get("ok") or r.get("code") == "same":
         return r
@@ -4149,7 +4166,8 @@ def _node_tunnel(node, body):
     if not r.get("ok") and "core not installed" in err:
         pr = _push_staged(node)
         if not pr.get("ok"):
-            r["error"] = f"هسته روی نودِ «{node.get('name', '?')}» نصب نیست و پنل هم چیزی برای پوش ندارد — اول یک نسخه دانلود کن"
+            r["error"] = ("هسته روی نودِ «%s» نصب نیست و رساندنِ آن هم نشد: %s"
+                          % (node.get("name", "?"), pr.get("error") or pr.get("msg") or "?"))
             return r
         r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
     return r
@@ -5846,15 +5864,15 @@ def api_check_link(d):
             return {"online": False, "health": None}
         r = node_call(n, "check", "POST", {"name": L["name"]}, timeout=30)
         if r.get("ok"):
-            return {"online": True, "health": r.get("health")}
+            return {"online": True, "health": r.get("health"), "error": ""}
         if r.get("offline"):
-            return {"online": False, "health": None}
-        return {"online": True, "health": None}
+            return {"online": False, "health": None, "error": ""}
+        return {"online": True, "health": None, "error": str(r.get("error") or r.get("msg") or "")}
 
     a, b = parallel_map(chk, [L["a_node"], L["b_node"]])
-    ah, bh = a["health"], b["health"]
     return {"ok": True, "name": L["name"], "a_online": a["online"], "b_online": b["online"],
-            "a_health": ah, "b_health": bh}
+            "a_health": a["health"], "b_health": b["health"],
+            "a_error": a["error"], "b_error": b["error"]}
 
 
 def api_restart_link(d):
@@ -6795,10 +6813,20 @@ def _ev_seq_get():
     return _ev_seq_total
 
 
-def _ev_count_get():
+def _ev_badge(seen):
     hidden = _ev_hidden()
+    total = newest = unread = 0
     with _events_lock:
-        return len(_ev_shown(_ev_all(), hidden))
+        for e in _ev_all():
+            if e.get("kind") in hidden:
+                continue
+            total += 1
+            s = _sint(e.get("seq"))
+            if s > newest:
+                newest = s
+            if s > seen:
+                unread += 1
+    return total, newest, unread
 
 
 def _ev_cat(t):
@@ -6832,13 +6860,14 @@ def ev_sweep():
 
 def log_event(level, kind, fa, dfa="", ts=None):
     global _ev_seq_total, _ev_dirty
-    shown = kind not in _ev_hidden()
     now = int(time.time())
     at = min(int(ts), now) if ts else now
     with _events_lock:
         lst = _ev_all()
         pos = next((i for i, x in enumerate(lst) if _sint(x.get("ts")) <= at), len(lst))
-        lst.insert(pos, {"ts": at, "level": level, "kind": kind, "fa": fa, "dfa": dfa})
+        _ev_seq_total = _ev_seq_get() + 1
+        lst.insert(pos, {"ts": at, "seq": _ev_seq_total, "level": level, "kind": kind,
+                         "fa": fa, "dfa": dfa})
         if kind == "api-ok":
             seen = 0
             for i in range(len(lst) - 1, -1, -1):
@@ -6851,8 +6880,6 @@ def log_event(level, kind, fa, dfa="", ts=None):
                 if lst[i]["kind"] == "api-ok":
                     del lst[i]
                     seen -= 1
-        if shown:
-            _ev_seq_total = _ev_seq_get() + 1
         _ev_dirty = True
 
 
@@ -7224,6 +7251,13 @@ def api_portfw_del(d):
     if not n:
         raise ValueError("نود پیدا نشد")
     name = _pf_name(d["name"])
+    cfgs, health = _pf_node_configs(n["id"])
+    if health is None and not cfgs:
+        raise ValueError("وضعیتِ نودِ «%s» هنوز خوانده نشده — چند لحظه بعد دوباره بزن"
+                         % (n.get("name") or n["id"]))
+    if name not in [str(c.get("name") or "") for c in cfgs]:
+        raise ValueError("روی نودِ «%s» پورت‌فورواردی به نامِ «%s» ثبت نیست "
+                         "— برای اینکه تونلی به همین نام پاک نشود متوقف شد" % (n.get("name") or n["id"], name))
     r = node_call(n, "delete", "POST", {"name": name})
     if r.get("ok"):
         _tf_forget(n["id"], ["pf:" + name])

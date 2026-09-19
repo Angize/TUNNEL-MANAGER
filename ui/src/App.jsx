@@ -118,9 +118,10 @@ function Shell() {
     let ticking = false
 
     const fetchSummary = async () => {
+      const raw = getLS(SEEN_KEY)
       let s
       try {
-        s = await apiGet('summary')
+        s = await apiGet('summary' + (raw === '' ? '' : '?seen=' + encodeURIComponent(num(raw))))
       } catch {
         return
       }
@@ -146,19 +147,12 @@ function Shell() {
         setUiInterval(interval.current)
       }
 
-      const raw = getLS(SEEN_KEY)
-      let seen
-      if (raw === '') {
-        seen = seq
+      if (raw === '' || pageRef.current === 'logs') {
         setLS(SEEN_KEY, String(seq))
-      } else {
-        seen = num(raw)
+        setUnread(0)
+        return
       }
-      if (pageRef.current === 'logs') {
-        seen = seq
-        setLS(SEEN_KEY, String(seq))
-      }
-      setUnread(Math.max(0, seq - seen))
+      setUnread(num(s.log_unread))
     }
 
     const tick = async () => {

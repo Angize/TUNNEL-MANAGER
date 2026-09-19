@@ -4,6 +4,7 @@ import { postError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
 import { actSeen } from '../lib/acts.js'
 import { num } from '../lib/num.js'
+import { T } from '../i18n/fa.js'
 
 const ActsContext = createContext(null)
 
@@ -99,7 +100,7 @@ export function ActsProvider({ children }) {
       if (r) {
         setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
         const act = r.acts[key]
-        if (!act) return { ok: true }
+        if (!act) return { err: T('act_lost') }
         if (act.state === 'fail') return { err: act.err }
         if (act.state === 'cancel') return { cancelled: true }
         if (act.state === 'done' || num(act.si) >= 1) return { ok: true }
