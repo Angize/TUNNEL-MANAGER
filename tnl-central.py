@@ -868,17 +868,21 @@ def wire(endpoint):
         raise ValueError("مسیرِ ناشناخته روی نود: %r" % endpoint)
 
 
-def _proxy_socket(proxy, dh, dp, timeout):
+def proxy_parts(proxy):
     pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
-    scheme = (pu.scheme or "socks5").lower()
-    if not pu.hostname or not pu.port:
-        raise OSError("نشانیِ پروکسی نامعتبر است")
     uq = lambda v: urllib.parse.unquote(v) if v else v
-    user, pw = uq(pu.username), uq(pu.password)
+    return ((pu.scheme or "socks5").lower(), pu.hostname, pu.port,
+            uq(pu.username) or "", uq(pu.password) or "")
+
+
+def _proxy_socket(proxy, dh, dp, timeout):
+    scheme, host, port, user, pw = proxy_parts(proxy)
+    if not host or not port:
+        raise OSError("نشانیِ پروکسی نامعتبر است")
     if scheme.startswith("socks"):
-        return _socks5_socket(pu.hostname, pu.port, user, pw, dh, dp, timeout)
+        return _socks5_socket(host, port, user, pw, dh, dp, timeout)
     if scheme in ("http", "https", "connect"):
-        return _http_connect_socket(pu.hostname, pu.port, user, pw, dh, dp, timeout)
+        return _http_connect_socket(host, port, user, pw, dh, dp, timeout)
     raise OSError(f"نوعِ پروکسیِ «{scheme}» پشتیبانی نمی‌شود")
 
 
@@ -1638,7 +1642,9 @@ def _tf_ingest(nid, net, up, now):
                 if s["miss"] > TF_IF_PRUNE_MISSES:
                     stale.append(key)
         for key in stale:
-            e["if"].pop(key, None)
+            s = e["if"].pop(key, None)
+            if s and len(e["seed"]) < TF_IF_MAX:
+                e["seed"][key] = [int(s["crx"]), int(s["ctx"])]
         e["prev_ts"] = now
         e["prev_up"] = up
 
@@ -1672,7 +1678,13 @@ def _tf_reset(nid, keys):
 def _tf_read(nid):
     with _tf_lock:
         e = _tf.get(nid)
-        return {k: dict(v) for k, v in e["if"].items()} if e else {}
+        if not e:
+            return {}
+        out = {k: {"prx": 0, "ptx": 0, "rx_bps": 0.0, "tx_bps": 0.0,
+                   "crx": int(v[0]), "ctx": int(v[1]), "miss": 0}
+               for k, v in e["seed"].items() if isinstance(v, list) and len(v) == 2}
+        out.update({k: dict(v) for k, v in e["if"].items()})
+        return out
 
 
 def _tf_node_view(nid):
@@ -1885,9 +1897,12 @@ def free_tunnel_port(A, B, exclude_id=None):
 
 def _subnet_fits(ttype, sub):
     try:
-        return ipaddress.ip_network(sub, strict=False).version == (6 if ttype == "sit" else 4)
+        net = ipaddress.ip_network(sub, strict=False)
     except Exception:
         return False
+    if net.version != (6 if ttype == "sit" else 4):
+        return False
+    return net.prefixlen <= (126 if net.version == 6 else 30)
 
 
 def carry_subnet(ttype, tid, stored, base=None):
@@ -1957,19 +1972,38 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
         body["peer_src_ips"] = list(peer_pool)
 
 
+ROT_WARN_GAP = 3600
+_rot_warned = {}
+_note_lock = threading.Lock()
+
+
+def _rotation_note(name, why):
+    if not why:
+        return
+    with _note_lock:
+        if not _gate(_rot_warned, str(name), ROT_WARN_GAP, WARN_MAX_KEYS):
+            return
+    log_event("warn", "pool-degraded", "تونلِ «%s»: چرخشِ آی‌پی اعمال نشد" % name, why)
+
+
+def _live_pool(pool, live):
+    got = [x for x in (pool or []) if x]
+    return [x for x in got if x in live] if live else got
+
+
 def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
     if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
-        return
-    ap, bp = list(src.get("a_ip_pool") or []), list(src.get("b_ip_pool") or [])
-    if a_ips is not None:
-        ap = [x for x in ap if x in a_ips]
-    if b_ips is not None:
-        bp = [x for x in bp if x in b_ips]
+        return ""
+    ap = _live_pool(src.get("a_ip_pool"), a_ips)
+    bp = _live_pool(src.get("b_ip_pool"), b_ips)
     if len(ap) < 2 and len(bp) < 2:
-        return
+        return ("چرخشِ آی‌پی روشن است ولی از استخرِ ذخیره‌شده (%d و %d آدرس) "
+                "روی نودها فقط %d و %d آدرس مانده — برای چرخش دستِ‌کم دو آدرس روی یک طرف لازم است"
+                % (len(src.get("a_ip_pool") or []), len(src.get("b_ip_pool") or []), len(ap), len(bp)))
     rs = int(src.get("rotate_secs") or 0)
     _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
+    return ""
 
 
 def _core_workers_bodies(src, a_body, b_body):
@@ -2007,13 +2041,19 @@ HTTP_SHAPE = {"http_up_workers": (1, 16, 8), "http_up_batch_kb": (8, 512, 512),
 HTTP_SHAPE_GRPC = ("http_streams",)
 
 
+def _ech_why(fetched):
+    if fetched is None:
+        return "نه dig نه هیچ DoH‌ی جواب نداد — یعنی DNS یا پروکسیِ خودِ پنل قطع است، نه اینکه رکورد پاک شده باشد"
+    return "رکوردِ HTTPS جواب داد ولی ech= نداشت"
+
+
 def _ech_or_stored(host, fetched, stored):
     if fetched:
         return fetched
     if stored:
         log_event("warn", "ech-stale",
                   "کلیدِ ECH برای «%s» تازه خوانده نشد" % host,
-                  "رکوردِ HTTPS/ech= در دسترس نبود؛ کلیدِ ذخیره‌شده به کار رفت. اگر کلاودفلر"
+                  _ech_why(fetched) + "؛ کلیدِ ذخیره‌شده به کار رفت. اگر کلاودفلر"
                   " کلید را چرخانده باشد این تونل تا خواندنِ بعدی بالا نمی‌آید.")
         return stored
     log_event("warn", "ech-stale",
@@ -2633,10 +2673,7 @@ def _ensure_proxy_relay():
         if _proxy_relay_path and os.path.exists(_proxy_relay_path):
             return _proxy_relay_path
         p = os.path.join(CENTRAL_DIR, "proxy_relay.py")
-        tmp = p + ".tmp"
-        with open(tmp, "w") as f:
-            f.write(_PROXY_RELAY_SRC)
-        os.replace(tmp, p)
+        save_bytes(p, _PROXY_RELAY_SRC.encode(), 0o600)
         _proxy_relay_path = p
         return p
 
@@ -2647,12 +2684,12 @@ def _ssh_argv(cfg, remote_cmd):
     env = dict(os.environ)
     proxy = (cfg.get("proxy") or "").strip()
     if proxy:
-        pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
-        env["TNL_PXY_SCHEME"] = (pu.scheme or "socks5").lower()
-        env["TNL_PXY_HOST"] = pu.hostname or ""
-        env["TNL_PXY_PORT"] = str(pu.port or "")
-        env["TNL_PXY_USER"] = pu.username or ""
-        env["TNL_PXY_PASS"] = pu.password or ""
+        scheme, phost, pport, puser, ppass = proxy_parts(proxy)
+        env["TNL_PXY_SCHEME"] = scheme
+        env["TNL_PXY_HOST"] = phost or ""
+        env["TNL_PXY_PORT"] = str(pport or "")
+        env["TNL_PXY_USER"] = puser
+        env["TNL_PXY_PASS"] = ppass
         opts += ["-o", f"ProxyCommand={sys.executable} {_ensure_proxy_relay()} %h %p"]
     target = f"{cfg['user']}@{cfg['host']}"
     if cfg.get("keyfile"):
@@ -2793,8 +2830,8 @@ def api_node_install(d):
                "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
         if key:
             fd, kp = tempfile.mkstemp(prefix="tnlkey_")
-            with os.fdopen(fd, "w") as f:
-                f.write(key if key.endswith("\n") else key + "\n")
+            with os.fdopen(fd, "wb") as f:
+                f.write((key if key.endswith(chr(10)) else key + chr(10)).encode())
             os.chmod(kp, 0o600)
             cfg["keyfile"], cfg["password"] = kp, ""
         now = int(time.time())
@@ -2959,6 +2996,9 @@ def api_node_adopt_ip(d):
         t = next((x for x in nodes if x["id"] == n["id"]), None)
         if not t:
             raise ValueError("نود پیدا نشد")
+        if _host_taken(nodes, new, exclude_id=n["id"]):
+            raise ValueError("نودِ دیگری از قبل روی «%s» ثبت است — دو نود با یک نشانی "
+                             "بعداً قابلِ ویرایش نیستند؛ اول آن یکی را درست کن" % new)
         t["host"], t["port"] = new, newp
         save_json(NODES_FILE, nodes)
     _moved_clear(n["id"])
@@ -4335,8 +4375,8 @@ def api_fleet(d):
             dact = str(pd.get("dst") or "").split(":")[0]
             sact = str(pd.get("src") or "").split(":")[0]
             a_act, b_act = (dact, sact) if srvA else (sact, dact)
-            rec["a_ip_rot"] = len([x for x in (L.get("a_ip_pool") or []) if x]) >= 2
-            rec["b_ip_rot"] = len([x for x in (L.get("b_ip_pool") or []) if x]) >= 2
+            rec["a_ip_rot"] = len(_live_pool(L.get("a_ip_pool"), a_ips)) >= 2
+            rec["b_ip_rot"] = len(_live_pool(L.get("b_ip_pool"), b_ips)) >= 2
             if a_act:
                 rec["a_ip_active"] = a_act
             if b_act:
@@ -4597,11 +4637,12 @@ def _fetch_ech(host, proxy=""):
 
     def via_dig():
         try:
-            out = subprocess.run(["dig", "+short", "HTTPS", host],
-                                 capture_output=True, timeout=6).stdout.decode("utf-8", "replace")
-            return _ech_from_text(out)
+            p = subprocess.run(["dig", "+short", "HTTPS", host], capture_output=True, timeout=6)
         except Exception:
-            return ""
+            return False, ""
+        if p.returncode != 0:
+            return False, ""
+        return True, _ech_from_text(p.stdout.decode("utf-8", "replace"))
 
     def via_doh(base):
         try:
@@ -4609,24 +4650,22 @@ def _fetch_ech(host, proxy=""):
                                          headers={"accept": "application/dns-json", "user-agent": "tnl-central"})
             with urllib.request.urlopen(req, timeout=5) as r:
                 data = json.loads(r.read().decode("utf-8", "replace"))
-            return _ech_from_doh_answers(data)
         except Exception:
-            pass
-        return ""
+            return False, ""
+        return True, _ech_from_doh_answers(data)
 
     def via_doh_proxy(dhost, dpath):
         sock = None
         try:
-            pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
-            scheme = (pu.scheme or "socks5").lower()
-            if not pu.hostname or not pu.port:
-                return ""
+            scheme, phost, pport, puser, ppass = proxy_parts(proxy)
+            if not phost or not pport:
+                return False, ""
             if scheme.startswith("socks"):
-                sock = _socks5_socket(pu.hostname, pu.port, pu.username, pu.password, dhost, 443, 7)
+                sock = _socks5_socket(phost, pport, puser, ppass, dhost, 443, 7)
             elif scheme in ("http", "https", "connect"):
-                sock = _http_connect_socket(pu.hostname, pu.port, pu.username, pu.password, dhost, 443, 7)
+                sock = _http_connect_socket(phost, pport, puser, ppass, dhost, 443, 7)
             else:
-                return ""
+                return False, ""
             tls = ssl.create_default_context().wrap_socket(sock, server_hostname=dhost)
             sock = None
             conn = http.client.HTTPConnection(dhost, 443, timeout=7)
@@ -4635,16 +4674,15 @@ def _fetch_ech(host, proxy=""):
                          headers={"accept": "application/dns-json", "user-agent": "tnl-central"})
             data = json.loads(conn.getresponse().read().decode("utf-8", "replace"))
             conn.close()
-            return _ech_from_doh_answers(data)
+            return True, _ech_from_doh_answers(data)
         except Exception:
-            pass
+            return False, ""
         finally:
             if sock is not None:
                 try:
                     sock.close()
                 except Exception:
                     pass
-        return ""
 
     doh = ["https://cloudflare-dns.com/dns-query", "https://1.1.1.1/dns-query",
            "https://dns.google/resolve", "https://8.8.8.8/resolve"]
@@ -4653,6 +4691,7 @@ def _fetch_ech(host, proxy=""):
                  lambda: via_doh_proxy("dns.google", "/resolve")]
     else:
         tasks = [via_dig] + [(lambda b=b: via_doh(b)) for b in doh]
+    answered = False
     for attempt in range(3):
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks))
         futs = [ex.submit(t) for t in tasks]
@@ -4660,9 +4699,10 @@ def _fetch_ech(host, proxy=""):
         try:
             for f in concurrent.futures.as_completed(futs, timeout=8):
                 try:
-                    v = f.result()
+                    ok, v = f.result()
                 except Exception:
-                    v = ""
+                    ok, v = False, ""
+                answered = answered or ok
                 if v:
                     found = v
                     break
@@ -4673,7 +4713,7 @@ def _fetch_ech(host, proxy=""):
             return found
         if attempt < 2:
             time.sleep(0.8)
-    return ""
+    return "" if answered else None
 
 
 def _fetch_ech_map(hosts, proxy=""):
@@ -4686,9 +4726,9 @@ def _fetch_ech_map(hosts, proxy=""):
         futs = {ex.submit(_fetch_ech, h, proxy): h for h in uniq}
         for f in concurrent.futures.as_completed(futs):
             try:
-                out[futs[f]] = f.result() or ""
+                out[futs[f]] = f.result()
             except Exception:
-                out[futs[f]] = ""
+                out[futs[f]] = None
     return out
 
 
@@ -4831,7 +4871,7 @@ def _ws_fields(d, transport, cur=None):
             raise ValueError("ECH به wss نیاز دارد — اول wss (TLS به CDN) را روشن کن")
         cfg = _fetch_ech(host, _ech_proxy_fields(d, cur, out))
         if not cfg:
-            raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد)" % host)
+            raise ValueError("کلیدِ ECH برای «%s» به دست نیامد — %s" % (host, _ech_why(cfg)))
         out["ech"] = True
         out["ws_ech"] = cfg
     cdn = _cdn_carrier(d, cur)
@@ -4921,7 +4961,8 @@ def _ws_pool_fields(d, cur=None):
     for h, hp in clean_snis:
         ec = ech_map.get(h, "") if ech_on else ""
         if ech_on and not ec:
-            raise ValueError("کلیدِ ECH برای «%s» پیدا نشد — روی کلودفلر ECH فعال است؟ (رکوردِ HTTPS باید ech= داشته باشد). استخر با ECH روشن ساخته نمی‌شود." % h)
+            raise ValueError("کلیدِ ECH برای «%s» به دست نیامد — %s. "
+                             "استخر با ECH روشن ساخته نمی‌شود." % (h, _ech_why(ec)))
         if hp and not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", hp):
             raise ValueError("مسیرِ WebSocket برای «%s» نامعتبر است (باید با / شروع شود)" % h)
         snis.append({"host": h, "ech": ec, "path": hp or path})
@@ -4948,6 +4989,35 @@ def _create_family(d, ttype):
     return _cdn_carrier(d, None) if transport == "ws" else transport
 
 
+TID_HOLD = 1800
+_tid_lock = threading.Lock()
+_tid_busy = {}
+
+
+def _tid_held():
+    now = time.monotonic()
+    with _tid_lock:
+        for k in [k for k, v in _tid_busy.items() if v[1] <= now]:
+            _tid_busy.pop(k, None)
+        return set(_tid_busy)
+
+
+def _tid_reserve(tid, owner):
+    now = time.monotonic()
+    with _tid_lock:
+        cur = _tid_busy.get(tid)
+        if cur and cur[1] > now:
+            return False
+        _tid_busy[tid] = (owner, now + TID_HOLD)
+        return True
+
+
+def _tid_free(owner):
+    with _tid_lock:
+        for k in [k for k, v in _tid_busy.items() if v[0] == owner]:
+            _tid_busy.pop(k, None)
+
+
 def api_create_tunnel(d):
     d = d or {}
     A, B = get_node(d.get("a_node")), get_node(d.get("b_node"))
@@ -4958,6 +5028,7 @@ def api_create_tunnel(d):
             with _PairLock(d.get("a_node"), d.get("b_node")):
                 return _create_tunnel_impl(d, h)
         finally:
+            _tid_free(h["key"])
             _release_proxies(h["key"])
 
     return act_start("new:" + secrets.token_hex(4), build,
@@ -5234,6 +5305,7 @@ def _create_tunnel_impl(d, h):
                 used.add(int(c.get("id")))
             except Exception:
                 pass
+    used |= _tid_held()
     _cap = (TID_MAX if ttype == "sit" or str(d.get("subnet") or "").strip()
             else subnet_cap(d.get("subnet_base")))
     explicit = _int_or(d.get("id") or 0, f"شناسهٔ تونل خارج از محدوده است ({TID_MIN} تا {_cap})")
@@ -5245,6 +5317,9 @@ def _create_tunnel_impl(d, h):
     if not tid:
         raise ValueError(f"شناسهٔ آزادی در این بازه نمانده است ({_cap} تونل می‌گیرد)؛ "
                          f"بازهٔ بزرگ‌تری انتخاب کن یا سابنت را دستی بده")
+    if not _tid_reserve(tid, h["key"]):
+        raise ValueError(f"شناسهٔ {tid} همین الان دارد روی جفتِ دیگری ساخته می‌شود — "
+                         f"چند لحظه بعد دوباره بزن")
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
@@ -5284,7 +5359,7 @@ def _create_tunnel_impl(d, h):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
-        _core_rotation_bodies(extra, a_body, b_body)
+        _rotation_note(name, _core_rotation_bodies(extra, a_body, b_body))
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -5414,6 +5489,9 @@ def api_reorder(d):
     return {"ok": True}
 
 
+RESTORE_RETRY_GAP = 3
+
+
 def _restore_link(A, B, L, extra=None):
     tid = int(L["tunnel_id"])
     if extra is None:
@@ -5428,22 +5506,33 @@ def _restore_link(A, B, L, extra=None):
     if ttype == "core":
         a_body["role"] = _core_role(L, A["id"]) if A else ""
         b_body["role"] = _core_role(L, B["id"]) if B else ""
-        _core_rotation_bodies(L, a_body, b_body,
-                              _flat_ips(_cached_ping(A["id"])) if A else None,
-                              _flat_ips(_cached_ping(B["id"])) if B else None)
+        _rotation_note(L.get("name"), _core_rotation_bodies(
+            L, a_body, b_body,
+            _flat_ips(_cached_ping(A["id"])) if A else None,
+            _flat_ips(_cached_ping(B["id"])) if B else None))
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
-    stuck = []
-    for N, body in ((A, a_body), (B, b_body)):
+    def put_back(pair):
+        N, body = pair
         if not N:
-            continue
-        try:
-            ok = bool(node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT).get("ok"))
-        except Exception:
-            ok = False
-        if not ok:
-            stuck.append(N["name"])
+            return ""
+        for attempt in (0, 1):
+            try:
+                r = node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
+            except Exception:
+                r = {"offline": True}
+            if r.get("ok"):
+                return ""
+            if attempt == 0 and r.get("offline"):
+                time.sleep(RESTORE_RETRY_GAP)
+            else:
+                break
+        return N["name"]
+
+    stuck = [x for x in parallel_map(put_back, ((A, a_body), (B, b_body))) if x]
+    if stuck:
+        _set_drift(L["id"], True)
     return stuck
 
 
@@ -5768,7 +5857,7 @@ def _edit_link_impl(d, h):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
-        _core_rotation_bodies(extra, a_body, b_body)
+        _rotation_note(new_name, _core_rotation_bodies(extra, a_body, b_body))
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -5981,7 +6070,7 @@ def _rebuild_link_impl(d, h):
               "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
     if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-        _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips)
+        _rotation_note(name, _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips))
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -6002,7 +6091,8 @@ def _rebuild_link_impl(d, h):
         if isinstance(e, ValueError):
             raise ValueError(str(e) + _restore_tail(stuck)) from None
         raise
-    if a_ip != L["a_ip"] or b_ip != L["b_ip"]:
+    moved = a_ip != L["a_ip"] or b_ip != L["b_ip"]
+    if moved and bool(d.get("pin", True)):
         with _reg_lock:
             links = load_links()
             for x in links:
@@ -6010,7 +6100,8 @@ def _rebuild_link_impl(d, h):
                     x.update({"a_ip": a_ip, "b_ip": b_ip})
                     break
             save_json(LINKS_FILE, links)
-    _set_drift(L["id"], False)
+        moved = False
+    _set_drift(L["id"], moved)
     _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True, "name": name}
 
@@ -6327,7 +6418,7 @@ def _ech_keys_blank(L, kind, hosts):
 
 def _ech_safe_rebuild(lid):
     try:
-        return _rebuild_now(lid)
+        return _rebuild_now(lid, pin=get_settings().get("reconcile_mode") == "auto")
     except ValueError:
         return False
 
@@ -6353,10 +6444,31 @@ def _ech_refresh_once():
             log_internal("ech refresh %s" % L.get("name"))
 
 
+_ech_unknown_warned = {}
+
+
+def _ech_unknown_note(lid, nm, hosts):
+    with _note_lock:
+        if not _gate(_ech_unknown_warned, str(lid), ROT_WARN_GAP, WARN_MAX_KEYS):
+            return
+    log_event("warn", "ech-stale", "تونلِ «%s»: کلیدِ ECH بررسی نشد" % nm,
+              chr(10).join(["دامنه‌ها: " + "، ".join(hosts), _ech_why(None),
+                            "تا وقتی معلوم نشود، پنل نه کلید را دور می‌ریزد نه تونل را بازمی‌سازد"]))
+
+
+def _ech_flush(lid, notes):
+    if not notes:
+        return None
+    ok = _ech_safe_rebuild(lid)
+    for kind, title, level, ok_body, bad_body in notes:
+        log_event(level if ok else "bad", kind, title, ok_body if ok else bad_body)
+    return ok
+
+
 def _ech_refresh_link(L, kind, hosts, mins_label):
     lid, nm = L.get("id"), L.get("name")
     ech_map = _fetch_ech_map(hosts, _ech_px(L))
-    updates, gone = {}, []
+    updates, gone, unknown = {}, [], []
     for h in hosts:
         nk = ech_map.get(h, "")
         key = (lid, h)
@@ -6364,63 +6476,62 @@ def _ech_refresh_link(L, kind, hosts, mins_label):
             with _ech_empty_lock:
                 _ech_empty.pop(key, None)
             updates[h] = nk
+        elif nk is None:
+            unknown.append(h)
         else:
             with _ech_empty_lock:
                 _ech_empty[key] = _ech_empty.get(key, 0) + 1
                 if _ech_empty[key] >= _ECH_EMPTY_CYCLES:
                     gone.append(h)
+    if unknown:
+        _ech_unknown_note(lid, nm, unknown)
+    notes = []
     removed = bool(hosts) and len(gone) == len(hosts)
     blank_before = _ech_keys_blank(L, kind, set(hosts))
     if removed:
         if _ech_write(lid, kind, {}, degrade=True)[0]:
-            if _ech_safe_rebuild(lid):
-                log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH",
-                          f"کلید از DNS ناپدید شد؛ تونل فعلاً بدون ECH بازسازی شد. تنظیمِ ECH همچنان روشن است و "
-                          f"پنل هر {mins_label} دقیقه دوباره امتحان می‌کند — به‌محضِ برگشتنِ رکورد خودش برمی‌گردد")
-            else:
-                log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH", "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است")
+            notes.append(("ech-gone", "تونلِ «%s»: حذفِ رکوردِ ECH" % nm, "warn",
+                          "کلید از DNS ناپدید شد؛ تونل فعلاً بدون ECH بازسازی شد. تنظیمِ ECH همچنان روشن است و "
+                          "پنل هر %s دقیقه دوباره امتحان می‌کند — به‌محضِ برگشتنِ رکورد خودش برمی‌گردد" % mins_label,
+                          "تنزل به wss ساده شد ولی بازسازی شکست خورد — تونل هنوز قطع است"))
+        _ech_flush(lid, notes)
         return
     if gone and _ech_blank(lid, gone):
         names = "، ".join(gone)
-        if _ech_safe_rebuild(lid):
-            log_event("warn", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
-                      f"رکوردِ ECH {names} از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
-                      f"بقیهٔ استخر دست‌نخورده ماند. پنل هر {mins_label} دقیقه دوباره امتحان می‌کند")
-        else:
-            log_event("bad", "ech-gone", f"تونلِ «{nm}»: حذفِ رکوردِ ECH روی بخشی از استخر",
-                      f"کلیدِ کهنهٔ {names} پاک شد ولی بازسازی شکست خورد — رفتن روی آن دامنه‌ها هنوز می‌میرد")
+        notes.append(("ech-gone", "تونلِ «%s»: حذفِ رکوردِ ECH روی بخشی از استخر" % nm, "warn",
+                      "رکوردِ ECH %s از DNS ناپدید شده؛ همان دامنه‌ها بدون ECH بازسازی شدند و "
+                      "بقیهٔ استخر دست‌نخورده ماند. پنل هر %s دقیقه دوباره امتحان می‌کند" % (names, mins_label),
+                      "کلیدِ کهنهٔ %s پاک شد ولی بازسازی شکست خورد — رفتن روی آن دامنه‌ها هنوز می‌میرد" % names))
     changed, chmap = _ech_write(lid, kind, updates, degrade=False)
     if changed and chmap and blank_before:
-        if _ech_safe_rebuild(lid):
-            log_event("ok", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
-                      "رکوردِ ECH دوباره منتشر شد؛ تونل با کلیدِ تازه بازسازی شد")
-        else:
-            log_event("bad", "ech-back", f"تونلِ «{nm}»: بازگشتِ ECH",
-                      "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است")
+        notes.append(("ech-back", "تونلِ «%s»: بازگشتِ ECH" % nm, "ok",
+                      "رکوردِ ECH دوباره منتشر شد؛ تونل با کلیدِ تازه بازسازی شد",
+                      "رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است"))
     if changed and chmap:
         tried, pushed = _ech_live_push(lid, chmap)
-        dfa = "\n".join("دامنه: %s\nکلیدِ ECH: %s" % (h, k) for h, k in chmap.items())
+        dfa = chr(10).join("دامنه: %s" % h + chr(10) + "کلیدِ ECH: %s" % k for h, k in chmap.items())
         if pushed:
-            dfa += "\nنودِ مقصد: %s" % pushed
-            log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد و بی‌بازسازی به هسته رسید (هر %s دقیقه)" % (nm, mins_label), dfa)
+            log_event("ok", "ech-refresh",
+                      "کلیدِ ECH تونلِ «%s» تازه شد و بی‌بازسازی به هسته رسید (هر %s دقیقه)" % (nm, mins_label),
+                      dfa + chr(10) + "نودِ مقصد: %s" % pushed)
         elif tried:
-            if _ech_safe_rebuild(lid):
-                log_event("warn", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی بی‌بازسازی به هسته نرسید" % nm, dfa + "\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد")
-            else:
-                log_event("bad", "ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی به هسته نرسید" % nm, dfa + "\nنه رساندنِ بی‌بازسازی جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد")
+            notes.append(("ech-refresh", "کلیدِ ECH تونلِ «%s» تازه شد ولی بی‌بازسازی به هسته نرسید" % nm, "warn",
+                          dfa + chr(10) + "نود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد",
+                          dfa + chr(10) + "نه رساندنِ بی‌بازسازی جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد"))
         else:
-            log_event("ok", "ech-refresh", "کلیدِ ECH تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, mins_label), dfa)
-    reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
-    if kind == "pool" and (down or stalled):
-        if lid not in _ech_down_rebuilt or changed:
-            _ech_down_rebuilt.add(lid)
-            why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
-            if _ech_safe_rebuild(lid):
-                log_event("ok", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ با کلیدِ تازه بازسازی شد")
-            else:
-                log_event("bad", "ech-rotate", f"تونلِ «{nm}»: چرخشِ کلیدِ ECH", f"{why_fa}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است")
-                _ech_down_rebuilt.discard(lid)
-    else:
+            log_event("ok", "ech-refresh",
+                      "کلیدِ ECH تونلِ «%s» با تایمرِ زمان‌بندی‌شده تازه شد (هر %s دقیقه)" % (nm, mins_label), dfa)
+    _reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
+    mark = kind == "pool" and (down or stalled) and (lid not in _ech_down_rebuilt or changed)
+    if mark:
+        why_fa = "قطع بود" if down else "همهٔ لبه‌هایش سرِ ECH می‌سوختند"
+        notes.append(("ech-rotate", "تونلِ «%s»: چرخشِ کلیدِ ECH" % nm, "ok",
+                      "%s؛ با کلیدِ تازه بازسازی شد" % why_fa,
+                      "%s؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است" % why_fa))
+    ok = _ech_flush(lid, notes)
+    if mark and ok:
+        _ech_down_rebuilt.add(lid)
+    elif not (kind == "pool" and (down or stalled)):
         _ech_down_rebuilt.discard(lid)
 
 
@@ -7682,6 +7793,9 @@ def api_checkin_impl(source_ip, d):
         n = next((x for x in nodes if secret_eq(x.get("token", ""), tok)), None)
         if not n:
             return {"ok": False, "error": "نودِ ناشناخته"}
+        if _host_taken(nodes, want_host, exclude_id=n["id"]):
+            return {"ok": False, "clash": True, "host": host, "port": port,
+                    "error": "نودِ دیگری از قبل روی این نشانی ثبت است؛ نشانی عوض نشد"}
         n["host"], n["port"] = want_host, want_port
         host, port, nid = want_host, want_port, n["id"]
         save_json(NODES_FILE, nodes)
@@ -7767,8 +7881,8 @@ def act_link(d, fn):
     return act_start(key, fn, target=name)
 
 
-def _rebuild_now(lid):
-    d = {"id": lid}
+def _rebuild_now(lid, pin=True):
+    d = {"id": lid, "pin": pin}
     h = _act_open(*_link_act_key(d))
     _act_run(h, _rebuild_job(d))
     return h["state"] == "done"
