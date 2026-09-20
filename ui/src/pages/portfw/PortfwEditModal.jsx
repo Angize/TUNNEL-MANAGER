@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
-import Select from '../../components/Select.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
-import { ipItems, nodeIps } from '../../lib/nodes.js'
+import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
+import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 
 export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
@@ -17,9 +17,6 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const rotatedBefore = item.switch_interval > 0
 
   const [listenIp, setListenIp] = useState(item.listen_ip || '')
-  const listenItems = [{ v: '', label: T('pf_lip_all') }].concat(
-    ipItems(item.listen_ip && !ips.includes(item.listen_ip) ? ips.concat([item.listen_ip]) : ips)
-  )
   const [listenPort, setListenPort] = useState(String(item.listen_port))
   const [dstPort, setDstPort] = useState(String(item.dst_port))
   const [dstIps, setDstIps] = useState((item.dst_ips || []).join(', '))
@@ -76,18 +73,13 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       onClose={onClose}
     >
       {hasIpChoice ? (
-        <>
-          <label className="first">{T('pf_lip')}</label>
-          <Select
-            items={listenItems}
-            value={listenIp}
-            placeholder={T('ip')}
-            onChange={setListenIp}
-          />
-          <div className="muted" style={{ fontSize: 11, margin: '-3px 2px 12px' }}>
-            {T(listenIp ? 'pf_lip_note' : 'pf_lip_all_note')}
-          </div>
-        </>
+        <ListenIpField
+          ips={ips}
+          value={listenIp}
+          extra={item.listen_ip}
+          first
+          onChange={setListenIp}
+        />
       ) : null}
 
       <div className="grid2">

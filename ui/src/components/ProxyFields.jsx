@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import Select from './Select.jsx'
 import { T } from '../i18n/fa.js'
 import { checkable } from '../lib/keys.js'
@@ -5,6 +6,10 @@ import { checkable } from '../lib/keys.js'
 export default function ProxyFields({ proxies, value, onChange, labelKey, subKey }) {
   const items = (proxies || []).map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
   const selected = value.id || (items.length ? items[0].v : '')
+
+  useEffect(() => {
+    if (value.on && !value.id && selected) onChange({ on: true, id: selected })
+  }, [value.on, value.id, selected, onChange])
 
   return (
     <>

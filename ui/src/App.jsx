@@ -24,6 +24,7 @@ const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
 const BOOT_INTERVAL = 6000
 const MIN_INTERVAL = 300
+const READY_RECHECK = 60000
 const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
 const LINK_KIND_KEY = 'tnl_link_kind'
@@ -55,6 +56,7 @@ function Shell() {
   const pageRef = useRef(page)
   const readinessRef = useRef(null)
   const readinessSeq = useRef(0)
+  const readinessAt = useRef(0)
   const navigated = useRef(false)
 
   pageRef.current = page
@@ -62,6 +64,7 @@ function Shell() {
   const loadReadiness = useCallback(async (boot) => {
     const mine = ++readinessSeq.current
     let r
+    readinessAt.current = Date.now()
     try {
       r = await apiGet('readiness')
     } catch {
@@ -165,7 +168,12 @@ function Shell() {
       try {
         await fetchSummary()
         if (!alive) return
-        if (!readinessRef.current || !readinessRef.current.ok) await loadReadiness(!readinessRef.current)
+        if (
+          !readinessRef.current ||
+          !readinessRef.current.ok ||
+          Date.now() - readinessAt.current >= READY_RECHECK
+        )
+          await loadReadiness(!readinessRef.current)
         if (!alive) return
         await actsRefresh()
         if (!alive) return

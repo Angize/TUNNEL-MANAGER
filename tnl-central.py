@@ -763,6 +763,25 @@ def _pending_gc(valid):
                 pass
 
 
+_hold_lock = threading.Lock()
+_held_names = {}
+
+
+def _name_hold(owner, nids, name):
+    with _hold_lock:
+        _held_names[owner] = ({x for x in nids if x}, name)
+
+
+def _name_free(owner):
+    with _hold_lock:
+        _held_names.pop(owner, None)
+
+
+def _name_busy(nid, name):
+    with _hold_lock:
+        return any(name == nm and nid in ids for ids, nm in _held_names.values())
+
+
 _EV_END_MISSING = {"srv": "نودِ سرورِ این تونل پیدا نشد",
                    "cli": "نودِ کلاینتِ این تونل پیدا نشد"}
 
@@ -1181,6 +1200,18 @@ UPTIME_BUCKET = 60
 UPTIME_KEEP = 1440
 _tomb = {}
 _tomb_lock = threading.Lock()
+_addr_gen = {}
+_addr_gen_lock = threading.Lock()
+
+
+def _addr_bump(nid):
+    with _addr_gen_lock:
+        _addr_gen[nid] = _addr_gen.get(nid, 0) + 1
+
+
+def _addr_at(nid):
+    with _addr_gen_lock:
+        return _addr_gen.get(nid, 0)
 
 
 def _cache_get(nid):
@@ -1202,6 +1233,8 @@ def _pending_drain(n):
         return
     live = {L["name"] for L in load_links() if L.get("a_node") == nid or L.get("b_node") == nid}
     for nm in names:
+        if _name_busy(nid, nm):
+            continue
         if nm in live:
             _pending_remove(nid, nm)
             continue
@@ -1212,11 +1245,14 @@ def _pending_drain(n):
 
 
 def _poll_node(n):
+    gen = _addr_at(n["id"])
     _t0 = time.perf_counter()
     ping = node_call(n, "ping", "GET", timeout=6)
     if ping.get("ok"):
         ping = {**ping, "rtt_ms": int((time.perf_counter() - _t0) * 1000)}
     t_ping = time.time()
+    if gen != _addr_at(n["id"]):
+        return
     if not _tombed(n["id"], t_ping):
         if ping.get("ok"):
             s = ping.get("stats") or {}
@@ -1226,7 +1262,7 @@ def _poll_node(n):
         _uh_sample(n["id"], bool(ping.get("ok")), t_ping)
     lst = node_call(n, "list", "GET", timeout=12)
     now = time.time()
-    if _tombed(n["id"], now):
+    if _tombed(n["id"], now) or gen != _addr_at(n["id"]):
         return
     with _pc_lock:
         _pc[n["id"]] = {"ping": ping, "list": lst}
@@ -1265,7 +1301,7 @@ def _ensure_cached(nodes):
     threading.Thread(target=_warm, daemon=True).start()
 
 
-NODE_STATE = ("_pc", "_tf", "_uh", "_moved")
+NODE_STATE = ("_pc", "_tf", "_uh", "_moved", "_addr_gen")
 
 
 def _prune_node_state(valid):
@@ -2880,6 +2916,7 @@ def api_node_edit(d):
             raise ValueError(f"نودِ دیگری با آی‌پیِ «{host}» وجود دارد")
         n["name"], n["host"], n["port"] = name, host, port
         n["proxy_on"], n["proxy_id"] = pon, pid
+        _addr_bump(d["id"])
         if token:
             n["token"] = token
         save_json(NODES_FILE, nodes)
@@ -2933,7 +2970,8 @@ def api_node_del(d):
         links = load_links()
         mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
         mine_ids = {L["id"] for L in mine}
-    _park_failed = []
+    _park_failed, _dropped = [], []
+
     def _del_peer_half(L):
         peer_id = L["b_node"] if L["a_node"] == nid else L["a_node"]
         pn = get_node(peer_id)
@@ -2941,11 +2979,17 @@ def api_node_del(d):
             return
         with _PairLock(peer_id, peer_id):
             rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)
-        if not rr.get("ok") and not _pending_add(peer_id, L["name"]):
-            _park_failed.append(L["id"])
+        if rr.get("ok"):
+            _dropped.append(L["name"])
+        elif not _pending_add(peer_id, L["name"]):
+            _park_failed.append("«%s» روی نودِ «%s»" % (L["name"], pn["name"]))
     parallel_map(_del_peer_half, mine, workers=32)
     if _park_failed:
-        raise ValueError("صفِ حذفِ معلق نوشته نشد؛ برای پرهیز از تونلِ یتیم چیزی حذف نشد — دوباره تلاش کن.")
+        raise ValueError("نودِ «%s» %s و نیمهٔ %d تونل از نودِ روبه‌رو برداشته شد، "
+                         "ولی صفِ حذفِ معلق برای %s نوشته نشد — برای همین رکوردِ نود و تونل‌ها دست‌نخورده ماند "
+                         "تا تونلِ یتیم نماند. جای دیسکِ پنل را باز کن و دوباره بزن."
+                         % (n["name"], "پاک شد" if node_ok else "پاک نشد (قطع بود)",
+                            len(_dropped), "، ".join(_park_failed)))
     with _reg_lock:
         save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
     out = {"ok": True, "node_wiped": node_ok}
@@ -3000,6 +3044,7 @@ def api_node_adopt_ip(d):
             raise ValueError("نودِ دیگری از قبل روی «%s» ثبت است — دو نود با یک نشانی "
                              "بعداً قابلِ ویرایش نیستند؛ اول آن یکی را درست کن" % new)
         t["host"], t["port"] = new, newp
+        _addr_bump(n["id"])
         save_json(NODES_FILE, nodes)
     _moved_clear(n["id"])
     _refresh_cache([n["id"]])
@@ -5029,6 +5074,7 @@ def api_create_tunnel(d):
                 return _create_tunnel_impl(d, h)
         finally:
             _tid_free(h["key"])
+            _name_free(h["key"])
             _release_proxies(h["key"])
 
     return act_start("new:" + secrets.token_hex(4), build,
@@ -5325,6 +5371,7 @@ def _create_tunnel_impl(d, h):
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
     name = tunnel_name(ttype, tid)
+    _name_hold(h["key"], (A["id"], B["id"]), name)
     _guard_subnet_overlap(A, B, subnet)
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}
@@ -5398,7 +5445,13 @@ def _create_tunnel_impl(d, h):
 
 
 def api_delete_link(d):
-    return act_link(d, lambda h: _delete_link_impl(d, h))
+    def run(h):
+        try:
+            return _delete_link_impl(d, h)
+        finally:
+            _name_free(h["key"])
+
+    return act_link(d, run)
 
 
 DELETE_STEPS = 3
@@ -5414,6 +5467,7 @@ def _delete_link_impl(d, h):
         L = next((x for x in load_links() if x["id"] == d["id"]), None)
         if not L:
             return {"ok": True}
+        _name_hold(h["key"], (L["a_node"], L["b_node"]), L["name"])
         force = bool(d.get("force"))
         ends = [(L["a_node"], L["a_name"]), (L["b_node"], L["b_name"])]
         if not force:
@@ -6280,12 +6334,16 @@ def _reconcile_once():
 
 
 def reconcile_loop():
+    last = time.monotonic()
     while True:
+        time.sleep(1.0)
         try:
             gap = max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP))
         except Exception:
             gap = RECONCILE_GAP
-        time.sleep(gap)
+        if time.monotonic() - last < gap:
+            continue
+        last = time.monotonic()
         try:
             _reconcile_once()
         except RegistryError as e:
@@ -7663,9 +7721,9 @@ def api_settings(d):
 def api_settings_set(d):
     with _reg_lock, _settings_lock:
         obj = validate_settings(d or {})
+        save_json(SETTINGS_FILE, obj)
         _settings.clear()
         _settings.update(obj)
-        save_json(SETTINGS_FILE, obj)
     return {"ok": True, "settings": settings_public(obj)}
 
 
@@ -7678,9 +7736,9 @@ def api_token_new(d):
     with _settings_lock:
         obj = get_settings()
         obj["api_token_hash"] = api_token_hash(token)
+        save_json(SETTINGS_FILE, obj)
         _settings.clear()
         _settings.update(obj)
-        save_json(SETTINGS_FILE, obj)
     return {"ok": True, "token": token}
 
 
@@ -7798,6 +7856,7 @@ def api_checkin_impl(source_ip, d):
                     "error": "نودِ دیگری از قبل روی این نشانی ثبت است؛ نشانی عوض نشد"}
         n["host"], n["port"] = want_host, want_port
         host, port, nid = want_host, want_port, n["id"]
+        _addr_bump(nid)
         save_json(NODES_FILE, nodes)
     _refresh_cache([nid])
     return {"ok": True, "host": host, "port": port}
@@ -8489,10 +8548,13 @@ def set_password(conf):
             break
         print("  empty or mismatch, try again.")
     salt, h = hash_password(p1)
-    conf["salt"], conf["hash"] = salt, h
-    conf["secret"] = secrets.token_hex(32)
-    conf.setdefault("port", 8080)
-    save_json(WEB_CONF, conf)
+    stored = cli_conf(False)
+    stored.update({"user": conf["user"], "salt": salt, "hash": h,
+                   "secret": secrets.token_hex(32),
+                   "port": conf.get("port", stored.get("port", 8080))})
+    save_json(WEB_CONF, stored)
+    conf.clear()
+    conf.update(stored)
 
 
 def write_service():
@@ -8572,11 +8634,14 @@ def install_ui():
         return "same"
     if not os.path.isdir(os.path.join(src, "assets")):
         return "missing"
-    staged = UI_DIR + ".new"
+    staged, prev = UI_DIR + ".new", UI_DIR + ".old"
     shutil.rmtree(staged, ignore_errors=True)
+    shutil.rmtree(prev, ignore_errors=True)
     shutil.copytree(src, staged)
-    shutil.rmtree(UI_DIR, ignore_errors=True)
+    if os.path.isdir(UI_DIR):
+        os.rename(UI_DIR, prev)
     os.replace(staged, UI_DIR)
+    shutil.rmtree(prev, ignore_errors=True)
     return "copied"
 
 
@@ -8660,16 +8725,23 @@ def change_port():
     if not os.path.isfile(WEB_CONF):
         print("Not configured yet - run Install first.")
         return
-    conf = load_conf()
-    have = conf.get("port", 8080)
+    have = load_conf().get("port", 8080)
     p = input(f"New panel port [{have}]: ").strip()
     if not p:
         return
-    conf["port"] = _port_or(p, have)
+    port = _port_or(p, 0)
+    if not port:
+        print(f"[!] {p} is not a port between 1 and 65535 - nothing changed.")
+        return
+    conf = load_conf()
+    conf["port"] = port
     save_json(WEB_CONF, conf)
     if os.path.isfile(SERVICE_FILE):
         svc("restart")
-    print(f"[✔] port set to {conf['port']} — open http://{central_ip()}:{conf['port']}/")
+        if not service_settled():
+            print(f"[!] port saved as {port} but {SERVICE} did not come up - journalctl -u {SERVICE}")
+            return
+    print(f"[✔] port set to {port} — open http://{central_ip()}:{port}/")
 
 
 def change_password():
@@ -8679,6 +8751,9 @@ def change_password():
     set_password(load_conf())
     if os.path.isfile(SERVICE_FILE):
         svc("restart")
+        if not service_settled():
+            print(f"[!] password saved but {SERVICE} did not come up - journalctl -u {SERVICE}")
+            return
     print("[✔] password updated.")
 
 

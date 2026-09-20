@@ -1,6 +1,7 @@
 import Icon from '../../components/Icon.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { cssVar } from '../../lib/health.js'
+import { setPageQuery } from '../../lib/pageQuery.js'
 
 const PAGE_FOR_KIND = {
   node: 'nodes',
@@ -44,6 +45,10 @@ export default function AlertList({ alerts, total, onNavigate }) {
     <div className="card">
       {alerts.map((alert, i) => {
         const page = alert.tab || PAGE_FOR_KIND[alert.kind] || 'nodes'
+        const jump = () => {
+          setPageQuery(page, '')
+          onNavigate(page)
+        }
         const color = alert.level === 'bad' ? cssVar('--bad') : cssVar('--gold')
         return (
           <div className="oalert" key={alert.kind + ':' + alert.msg + ':' + i}>
@@ -53,11 +58,11 @@ export default function AlertList({ alerts, total, onNavigate }) {
               className="go"
               role="button"
               tabIndex={0}
-              onClick={() => onNavigate(page)}
+              onClick={jump}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
-                  onNavigate(page)
+                  jump()
                 }
               }}
             >

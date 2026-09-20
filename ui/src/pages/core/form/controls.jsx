@@ -66,7 +66,7 @@ export function TglBox({ on, title, note, locked, hidden, gap, onClick }) {
       className={'tglbox' + (locked ? ' dis' : '')}
       style={gap ? { marginTop: gap } : undefined}
     >
-      <div className={'tglsw' + (on ? ' on' : '')} {...checkable('switch', on, onClick)} />
+      <div className={'tglsw' + (on ? ' on' : '')} {...checkable('switch', on, onClick, locked)} />
       <div className="tt">
         <b>{title}</b>
         <small>{note}</small>

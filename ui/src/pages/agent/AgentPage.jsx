@@ -114,12 +114,14 @@ export default function AgentPage({ headless }) {
   }, [])
 
   const loadNodes = useCallback(async () => {
+    const asked = queryRef.current
     let r
     try {
-      r = await apiGet('nodes?q=' + encodeURIComponent(queryRef.current))
+      r = await apiGet('nodes?q=' + encodeURIComponent(asked))
     } catch {
       return
     }
+    if (asked !== queryRef.current) return
     setNodes(r.nodes)
   }, [])
 

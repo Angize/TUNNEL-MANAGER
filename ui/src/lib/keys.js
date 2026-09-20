@@ -16,7 +16,8 @@ export function pressable(onPress, onMenu) {
   return { role: 'button', tabIndex: 0, onClick: onPress, onKeyDown: activator(onPress, onMenu) }
 }
 
-export function checkable(role, on, onToggle) {
+export function checkable(role, on, onToggle, locked) {
+  if (locked) return { role, 'aria-checked': on ? 'true' : 'false', 'aria-disabled': 'true' }
   return {
     role,
     'aria-checked': on ? 'true' : 'false',

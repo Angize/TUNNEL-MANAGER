@@ -59,6 +59,17 @@ export default function TunnelsPage({ embedded, active = true }) {
     []
   )
 
+  useEffect(() => {
+    setTagOverrides((prev) => {
+      const next = {}
+      for (const [id, tag] of Object.entries(prev)) {
+        const got = (list || []).find((x) => x.id === id)
+        if (!got || num(got.tag) !== tag) next[id] = tag
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next
+    })
+  }, [list])
+
   useEffect(() => registerCommand('tunnels:create', () => setCreating(true)), [])
 
   const afterAction = useCallback(async () => {

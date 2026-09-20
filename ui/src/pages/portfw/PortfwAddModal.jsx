@@ -7,8 +7,9 @@ import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { PORT_MAX, rangeLabel } from '../../lib/form.js'
-import { ipItems, nodeIps } from '../../lib/nodes.js'
+import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
+import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
@@ -25,7 +26,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
 
   const ips = nodeIps(nodes, nodeId)
   const hasIpChoice = ips.length > 1
-  const effectiveListenIp = hasIpChoice ? listenIp || ips[0] : ''
+  const effectiveListenIp = hasIpChoice ? listenIp : ''
 
   const selectNode = (id) => {
     setNodeId(id)
@@ -79,15 +80,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
       />
 
       {hasIpChoice ? (
-        <>
-          <label>{T('pf_lip_full')}</label>
-          <Select
-            items={ipItems(ips)}
-            value={effectiveListenIp}
-            placeholder={T('ip')}
-            onChange={setListenIp}
-          />
-        </>
+        <ListenIpField ips={ips} value={listenIp} onChange={setListenIp} />
       ) : null}
 
       <div className="grid2">
