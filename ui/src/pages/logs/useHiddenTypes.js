@@ -25,7 +25,17 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
   evTypesRef.current = evTypes
   onSavedRef.current = onSaved
 
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const saveRef = useRef(null)
+
+  useEffect(
+    () => () => {
+      if (!timer.current) return
+      clearTimeout(timer.current)
+      timer.current = 0
+      saveRef.current()
+    },
+    []
+  )
 
   const publish = useCallback((map) => {
     current.current = map
@@ -58,6 +68,8 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
     saving.current = false
     onSavedRef.current()
   }, [orderedList, publish])
+
+  saveRef.current = saveNow
 
   const scheduleSave = useCallback(() => {
     dirty.current = true

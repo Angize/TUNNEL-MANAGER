@@ -258,8 +258,13 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     }
 
     if (form.range === 'custom') {
-      const subnet = form.subnet
-      if (subnet) body.subnet = subnet
+      const subnet = (form.subnet || '').trim()
+      if (!subnet) {
+        setMessage('')
+        await alertBox(T('snr_custom_need'))
+        return
+      }
+      body.subnet = subnet
     } else if (link) {
       const fitError = subnetFitError('core', link.tunnel_id, form.range)
       if (fitError) {
