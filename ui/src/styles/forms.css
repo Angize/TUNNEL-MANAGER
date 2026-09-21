@@ -65,15 +65,6 @@ select:focus {
   to { transform: rotate(360deg) }
 }
 
-.primary.acc2 {
-  background: linear-gradient(135deg, var(--acc2), var(--acc2-deep));
-  box-shadow: 0 12px 24px -12px color-mix(in srgb, var(--acc2) 80%, transparent);
-}
-
-.primary.acc2:hover {
-  box-shadow: 0 16px 30px -12px color-mix(in srgb, var(--acc2) 85%, transparent);
-}
-
 .primary:active {
   transform: scale(.98);
 }

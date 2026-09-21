@@ -645,11 +645,11 @@ button.act.info:hover {
 }
 
 .act.flip {
-  color: var(--acc2);
+  color: var(--acc);
 }
 
 .act.flip:hover {
-  background: color-mix(in srgb, var(--acc2) 12%, transparent);
+  background: var(--accw);
 }
 
 .act.reset {
