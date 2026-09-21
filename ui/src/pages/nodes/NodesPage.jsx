@@ -48,7 +48,7 @@ function StaleBanner({ count }) {
   )
 }
 
-export default function NodesPage() {
+export default function NodesPage({ embedded, active = true }) {
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('nodes')
   const [overrides, setOverrides] = useState({})
@@ -67,7 +67,7 @@ export default function NodesPage() {
     return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1, epoch }
   }, [query])
 
-  const [data, reload] = usePolledData(load, query)
+  const [data, reload] = usePolledData(load, query, active)
 
   const onToggle = useCallback(async (node) => {
     const disabled = node.disabled !== true
@@ -104,7 +104,7 @@ export default function NodesPage() {
 
   return (
     <>
-      <PageHead icon="server" titleKey="nav_nodes" subKey="nodes_sub" />
+      {embedded ? null : <PageHead icon="server" titleKey="nav_nodes" subKey="nodes_sub" />}
       <StaleBanner count={staleCount} />
       <button className="primary" onClick={() => setAdding(true)} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />

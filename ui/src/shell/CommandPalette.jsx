@@ -41,7 +41,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
     () => [
       { i: 'dash', label: T('nav_overview'), act: () => goto('overview') },
       { i: 'server', label: T('nav_nodes'), act: () => goto('nodes') },
-      { i: 'globe', label: T('nav_proxies'), act: () => goto('proxies') },
+      { i: 'globe', label: T('nav_fleet') + ' · ' + T('nav_proxies'), act: () => goto('proxies') },
       { i: 'link', label: T('nav_links') + ' · ' + T('nav_core'), act: () => goto('core') },
       { i: 'link', label: T('nav_links') + ' · ' + T('nav_tunnels'), act: () => goto('tunnels') },
       { i: 'link', label: T('nav_links') + ' · ' + T('nav_portfw'), act: () => goto('portfw') },

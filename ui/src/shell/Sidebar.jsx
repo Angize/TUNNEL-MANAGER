@@ -7,8 +7,7 @@ import { pressable } from '../lib/keys.js'
 
 const ITEMS = [
   { id: 'overview', icon: 'dash' },
-  { id: 'nodes', icon: 'server', count: 'nodes_total' },
-  { id: 'proxies', icon: 'globe', count: 'proxies' },
+  { id: 'fleet', icon: 'server', count: 'nodes_total' },
   { id: 'links', icon: 'link', count: ['links', 'core', 'portfw'] },
   { id: 'logs', icon: 'list', count: 'log_count' },
   { id: 'settings', icon: 'cog' },
