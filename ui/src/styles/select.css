@@ -71,10 +71,33 @@
   font-weight: 800;
 }
 
+.mslist {
+  border: 1px solid var(--bord);
+  border-radius: 14px;
+  background: var(--field);
+}
+
+.mslist .msrow {
+  padding: 8px 11px;
+  font-size: 12.5px;
+  gap: 9px;
+}
+
+.mslist .mscheck {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+}
+
 .msrow.sel .mscheck {
   background: var(--acc);
   border-color: var(--acc);
   color: #fff;
+}
+
+.msrow.part .mscheck {
+  background: color-mix(in srgb, var(--acc) 45%, transparent);
+  border-color: var(--acc);
 }
 
 .modal.sssheet {

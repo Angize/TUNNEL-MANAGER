@@ -36,7 +36,7 @@ export default function LogFiltersPanel({ evTypes, evGroups, hidden, onToggleTyp
           const rows = evTypes.filter(([, g]) => g === group)
           const shown = rows.filter(([key]) => !hidden[key]).length
           return (
-            <div className="lgfg" key={group}>
+            <div className="lgfg mslist" key={group}>
               <Row
                 bold
                 label={groupLabel}

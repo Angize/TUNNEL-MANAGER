@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import ProxyNodes from './ProxyNodes.jsx'
 import { T } from '../../i18n/fa.js'
-import { apiPost } from '../../lib/api.js'
+import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
@@ -16,6 +17,28 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
   const [port, setPort] = useState(proxy ? String(proxy.port) : '')
   const [user, setUser] = useState(proxy ? proxy.user : '')
   const [pass, setPass] = useState('')
+  const [nodes, setNodes] = useState(null)
+  const [initial, setInitial] = useState(() => new Set())
+  const [picked, setPicked] = useState(() => new Set())
+
+  useEffect(() => {
+    if (!proxy) return undefined
+    let alive = true
+    apiGet('nodes')
+      .then((r) => {
+        if (!alive) return
+        const on = new Set(r.nodes.filter((n) => n.proxy_on && n.proxy_id === proxy.id).map((n) => n.id))
+        setNodes(r.nodes)
+        setInitial(on)
+        setPicked(on)
+      })
+      .catch(() => {
+        if (alive) setNodes(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [proxy])
 
   const save = async () => {
     const body = {
@@ -27,6 +50,10 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
       pass,
     }
     if (proxy) body.id = proxy.id
+    if (proxy && Array.isArray(nodes)) {
+      body.nodes_on = [...picked].filter((id) => !initial.has(id))
+      body.nodes_off = [...initial].filter((id) => !picked.has(id))
+    }
     const r = await apiPost(proxy ? 'proxy-edit' : 'proxy-add', body)
     if (r.ok && r.d.ok) {
       onClose()
@@ -119,6 +146,16 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
       <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.9, marginTop: 6 }}>
         {T('px_hint')}
       </div>
+
+      {proxy ? (
+        <>
+          <label>{T('px_nodes')}</label>
+          <ProxyNodes proxyId={proxy.id} nodes={nodes} picked={picked} onPick={setPicked} />
+          <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.9, marginTop: 6 }}>
+            {T('px_nodes_hint')}
+          </div>
+        </>
+      ) : null}
     </Modal>
   )
 }

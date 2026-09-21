@@ -7659,9 +7659,36 @@ def api_proxy_add(d):
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
+def _node_ids(d, key):
+    v = d.get(key, [])
+    if not isinstance(v, list):
+        raise ValueError("فهرستِ نودهای این پروکسی نامعتبر است")
+    return {str(x) for x in v}
+
+
+def _assign_proxy(pid, add, drop):
+    nodes = load_nodes()
+    moved = []
+    for n in nodes:
+        has = bool(n.get("proxy_on")) and str(n.get("proxy_id") or "") == pid
+        if n["id"] in add and not has:
+            n["proxy_on"], n["proxy_id"] = True, pid
+        elif n["id"] in drop and has:
+            n["proxy_on"], n["proxy_id"] = False, ""
+        else:
+            continue
+        _addr_bump(n["id"])
+        moved.append(n["id"])
+    if moved:
+        save_json(NODES_FILE, nodes)
+    return moved
+
+
 def api_proxy_edit(d):
     _require(d, ["id"])
     scheme, host, port, user, pw = _proxy_fields(d)
+    add, drop = _node_ids(d, "nodes_on"), _node_ids(d, "nodes_off")
+    moved = []
     with _reg_lock:
         ps = load_proxies()
         p = next((x for x in ps if x["id"] == d["id"]), None)
@@ -7674,6 +7701,10 @@ def api_proxy_edit(d):
         elif not user:
             p["pass"] = ""
         save_json(PROXIES_FILE, ps)
+        if add or drop:
+            moved = _assign_proxy(p["id"], add, drop)
+    if moved:
+        _refresh_bg(moved)
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
