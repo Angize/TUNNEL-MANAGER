@@ -3,8 +3,7 @@ import { T } from '../i18n/fa.js'
 
 const ITEMS = [
   { id: 'overview', icon: 'dash' },
-  { id: 'nodes', icon: 'server' },
-  { id: 'proxies', icon: 'globe' },
+  { id: 'fleet', icon: 'server' },
   { id: 'links', icon: 'link' },
   { id: 'logs', icon: 'list' },
   { id: 'settings', icon: 'cog' },

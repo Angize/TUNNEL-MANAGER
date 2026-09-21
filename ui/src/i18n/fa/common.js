@@ -3,6 +3,7 @@ export default {
   brand_sub: 'کنترل فلیت',
 
   nav_overview: 'نمای کلی',
+  nav_fleet: 'نودها',
   nav_nodes: 'نودها',
   nav_proxies: 'پروکسی‌ها',
   nav_links: 'تونل‌ها',

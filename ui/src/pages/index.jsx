@@ -1,18 +1,31 @@
 import OverviewPage from './overview/OverviewPage.jsx'
-import ProxiesPage from './proxies/ProxiesPage.jsx'
+import FleetPage, { FLEET_KINDS } from './fleet/FleetPage.jsx'
+import LinksPage, { LINK_KINDS } from './links/LinksPage.jsx'
 import LogsPage from './logs/LogsPage.jsx'
-import NodesPage from './nodes/NodesPage.jsx'
-import LinksPage from './links/LinksPage.jsx'
 import SettingsPage from './settings/SettingsPage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
   overview: OverviewPage,
-  nodes: NodesPage,
-  proxies: ProxiesPage,
+  fleet: FleetPage,
   links: LinksPage,
   logs: LogsPage,
   settings: SettingsPage,
+}
+
+const HUBS = {
+  fleet: { kinds: FLEET_KINDS.map((k) => k.id), first: 'nodes' },
+  links: { kinds: LINK_KINDS.map((k) => k.id), first: 'core' },
+}
+
+export const HUB_IDS = Object.keys(HUBS)
+
+export function hubOf(id) {
+  return HUB_IDS.find((hub) => HUBS[hub].kinds.includes(id)) || null
+}
+
+export function hubFirst(hub) {
+  return HUBS[hub].first
 }
 
 export function hasPage(id) {

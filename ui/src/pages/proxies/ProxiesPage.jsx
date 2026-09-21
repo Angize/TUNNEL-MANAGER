@@ -18,7 +18,7 @@ const ADD_BUTTON_STYLE = {
   gap: 6,
 }
 
-export default function ProxiesPage() {
+export default function ProxiesPage({ embedded, active = true }) {
   const { counts } = useSummary()
   const [editing, setEditing] = useState(undefined)
   const [edits, setEdits] = useState({})
@@ -29,7 +29,7 @@ export default function ProxiesPage() {
     return r.proxies
   }, [])
 
-  const [list, reload] = usePolledData(load)
+  const [list, reload] = usePolledData(load, null, active)
 
   const saved = (id) => {
     if (id) setEdits((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }))
@@ -38,7 +38,7 @@ export default function ProxiesPage() {
 
   return (
     <>
-      <PageHead icon="globe" titleKey="nav_proxies" subKey="px_sub" />
+      {embedded ? null : <PageHead icon="globe" titleKey="nav_proxies" subKey="px_sub" />}
       <button className="primary" onClick={() => setEditing(null)} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('px_add')}

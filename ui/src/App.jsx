@@ -17,8 +17,7 @@ import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
 import { T } from './i18n/fa.js'
-import { hasPage, pageComponent } from './pages/index.jsx'
-import { isLinkKind } from './lib/linkKinds.js'
+import { HUB_IDS, hasPage, hubFirst, hubOf, pageComponent } from './pages/index.jsx'
 
 const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
@@ -27,24 +26,31 @@ const MIN_INTERVAL = 300
 const READY_RECHECK = 60000
 const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
-const LINK_KIND_KEY = 'tnl_link_kind'
+const KIND_KEY = 'tnl_kind_'
 
 function firstPage() {
   const saved = getLS(PAGE_KEY)
-  if (isLinkKind(saved)) return 'links'
-  return hasPage(saved) ? saved : 'overview'
+  return hubOf(saved) || (hasPage(saved) ? saved : 'overview')
 }
 
-function firstLinkKind() {
+function firstKinds() {
   const saved = getLS(PAGE_KEY)
-  if (isLinkKind(saved)) return saved
-  const kind = getLS(LINK_KIND_KEY)
-  return isLinkKind(kind) ? kind : 'core'
+  const out = {}
+  for (const hub of HUB_IDS) {
+    const kind = hubOf(saved) === hub ? saved : getLS(KIND_KEY + hub)
+    out[hub] = hubOf(kind) === hub ? kind : hubFirst(hub)
+  }
+  return out
+}
+
+function withKind(prev, kind) {
+  const hub = hubOf(kind)
+  return hub && prev[hub] !== kind ? { ...prev, [hub]: kind } : prev
 }
 
 function Shell() {
   const [page, setPage] = useState(firstPage)
-  const [linkKind, setLinkKind] = useState(firstLinkKind)
+  const [kinds, setKinds] = useState(firstKinds)
   const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0, loaded: false })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
@@ -76,7 +82,7 @@ function Shell() {
     if (boot && !r.ok && !navigated.current) setPage('settings')
   }, [])
 
-  useEffect(() => stopReorder, [page, linkKind])
+  useEffect(() => stopReorder, [page, kinds])
 
   useEffect(() => {
     applyStoredTheme()
@@ -112,8 +118,8 @@ function Shell() {
   }, [page])
 
   useEffect(() => {
-    setLS(LINK_KIND_KEY, linkKind)
-  }, [linkKind])
+    for (const hub of HUB_IDS) setLS(KIND_KEY + hub, kinds[hub])
+  }, [kinds])
 
   useEffect(() => {
     let alive = true
@@ -206,13 +212,16 @@ function Shell() {
     if (!(await mayLeave(id))) return
     if (before) before()
     navigated.current = true
-    if (isLinkKind(id)) {
-      setLinkKind(id)
-      setPage('links')
+    const hub = hubOf(id)
+    if (hub) {
+      setKinds((prev) => withKind(prev, id))
+      setPage(hub)
       return
     }
     setPage(id)
   }, [])
+
+  const onKind = useCallback((kind) => setKinds((prev) => withKind(prev, kind)), [])
 
   const onToggleTheme = useCallback(() => {
     setDark(toggleTheme())
@@ -267,7 +276,7 @@ function Shell() {
             {uiConfig ? (
               <UiConfigProvider value={uiConfig}>
                 <SummaryProvider value={summaryValue}>
-                  <Page onNavigate={navigate} kind={linkKind} onKind={setLinkKind} />
+                  <Page onNavigate={navigate} kind={kinds[page]} onKind={onKind} />
                 </SummaryProvider>
               </UiConfigProvider>
             ) : (
