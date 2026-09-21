@@ -58,22 +58,7 @@
 }
 
 .lgfg {
-  border: 1px solid var(--bord);
-  border-radius: 14px;
   overflow: hidden;
-  background: var(--field);
-}
-
-.lgfg .msrow {
-  padding: 8px 11px;
-  font-size: 12.5px;
-  gap: 9px;
-}
-
-.lgfg .mscheck {
-  width: 17px;
-  height: 17px;
-  border-radius: 5px;
 }
 
 .lgfgh {
@@ -85,11 +70,6 @@
   margin-right: auto;
   font-size: 11px;
   direction: ltr;
-}
-
-.lgfgh.part .mscheck {
-  background: color-mix(in srgb, var(--acc) 45%, transparent);
-  border-color: var(--acc);
 }
 
 .logchips {
