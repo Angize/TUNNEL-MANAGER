@@ -66,8 +66,8 @@
 }
 
 .sc-conn {
-  --sc: var(--acc2);
-  --scbg: var(--acc2w);
+  --sc: var(--acc);
+  --scbg: var(--accw);
 }
 
 .sc-pool {

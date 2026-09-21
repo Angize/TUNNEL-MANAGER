@@ -13,14 +13,10 @@
   }
 }
 
-.sc-panel {
+.sc-panel,
+.sc-perf {
   --sc: var(--acc);
   --scbg: var(--accw);
-}
-
-.sc-perf {
-  --sc: var(--acc2);
-  --scbg: var(--acc2w);
 }
 
 .opc {

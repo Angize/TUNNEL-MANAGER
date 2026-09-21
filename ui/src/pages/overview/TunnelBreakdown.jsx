@@ -4,7 +4,7 @@ import { num } from '../../lib/num.js'
 
 const TYPE_COLORS = [
   ['core', '#6366f1'],
-  ['vxlan', 'var(--acc)'],
+  ['vxlan', '#0ea5e9'],
   ['gre', 'var(--ok)'],
   ['sit', '#a855f7'],
   ['ipip', '#14b8a6'],

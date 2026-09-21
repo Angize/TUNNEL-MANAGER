@@ -1,15 +1,13 @@
 :root {
   color-scheme: light;
-  --acc: #0b8f8c;
-  --acc-deep: #0b6f9c;
-  --acc2: #4d6bf0;
-  --acc2-deep: #4d6bf0;
+  --acc: #4d6bf0;
+  --acc-deep: #3a53d0;
   --ok: #0f9d58;
   --bad: #d13b3b;
   --gold: #c27506;
   --page: #e6ebf3;
   --glow1: #d3e0ff;
-  --glow2: #cfeee8;
+  --glow2: #d8e0fb;
   --card: rgba(255, 255, 255, .7);
   --side: rgba(255, 255, 255, .6);
   --modal: rgba(255, 255, 255, .9);
@@ -28,7 +26,6 @@
   --dsh: 0 1px 2px rgba(15, 27, 45, .05), 0 16px 44px -28px rgba(15, 27, 45, .45), inset 0 1px 0 var(--hi);
   --dsh-hi: 0 2px 4px rgba(15, 27, 45, .06), 0 24px 56px -26px rgba(15, 27, 45, .55), inset 0 1px 0 var(--hi);
   --accw: color-mix(in srgb, var(--acc) 12%, transparent);
-  --acc2w: color-mix(in srgb, var(--acc2) 13%, transparent);
   --okw: color-mix(in srgb, var(--ok) 12%, transparent);
   --badw: color-mix(in srgb, var(--bad) 11%, transparent);
   --warnw: color-mix(in srgb, var(--gold) 11%, transparent);
@@ -40,15 +37,14 @@
 
 html.dark {
   color-scheme: dark;
-  --acc: #2fc7bd;
-  --acc-deep: #1a8fa8;
-  --acc2: #8fa3ff;
+  --acc: #8fa3ff;
+  --acc-deep: #4d6bf0;
   --ok: #4ade80;
   --bad: #f87171;
   --gold: #fbbf24;
   --page: #0d1220;
   --glow1: #1c2a5a;
-  --glow2: #0f3a3a;
+  --glow2: #162049;
   --card: rgba(255, 255, 255, .06);
   --side: rgba(255, 255, 255, .05);
   --modal: rgba(22, 31, 46, .92);
@@ -65,7 +61,6 @@ html.dark {
   --dsh: 0 16px 44px -30px rgba(0, 0, 0, .7), inset 0 1px 0 var(--hi);
   --dsh-hi: 0 24px 56px -28px rgba(0, 0, 0, .8), inset 0 1px 0 var(--hi);
   --accw: color-mix(in srgb, var(--acc) 14%, transparent);
-  --acc2w: color-mix(in srgb, var(--acc2) 13%, transparent);
   --okw: color-mix(in srgb, var(--ok) 13%, transparent);
   --badw: color-mix(in srgb, var(--bad) 13%, transparent);
   --warnw: color-mix(in srgb, var(--gold) 12%, transparent);
