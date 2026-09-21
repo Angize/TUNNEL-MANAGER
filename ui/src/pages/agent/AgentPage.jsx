@@ -633,7 +633,7 @@ export default function AgentPage({ headless }) {
           </div>
 
           <div className="oprow">
-            <button className="primary" style={{ background: '#8b5cf6' }} onClick={stageCore}>
+            <button className="primary acc2" onClick={stageCore}>
               <Icon name="redo" />
               {T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')}
             </button>
@@ -656,7 +656,7 @@ export default function AgentPage({ headless }) {
             style={{ display: 'none' }}
             onChange={(e) => uploadCoreBinary(e.target)}
           />
-          <button className="primary opgo" style={{ background: '#8b5cf6' }} onClick={pushCoreAll}>
+          <button className="primary opgo acc2" onClick={pushCoreAll}>
             <Icon name="redo" />
             {T('ag_install_all')}
           </button>

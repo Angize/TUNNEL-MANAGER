@@ -624,16 +624,6 @@ body.reord-on .reordbtn {
   border-color: color-mix(in srgb, #f43f5e 45%, transparent);
 }
 
-.tag.core {
-  color: #8b5cf6;
-  border-color: color-mix(in srgb, #8b5cf6 40%, transparent);
-  background: color-mix(in srgb, #8b5cf6 12%, transparent);
-}
-
-html.dark .tag.core {
-  color: #a78bfa;
-}
-
 .tag.obfs {
   color: var(--ok);
   border-color: color-mix(in srgb, var(--ok) 40%, transparent);

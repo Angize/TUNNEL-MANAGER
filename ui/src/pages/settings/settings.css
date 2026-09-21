@@ -67,7 +67,7 @@
 
 .sc-conn {
   --sc: var(--acc2);
-  --scbg: color-mix(in srgb, var(--acc2) 13%, transparent);
+  --scbg: var(--acc2w);
 }
 
 .sc-pool {
