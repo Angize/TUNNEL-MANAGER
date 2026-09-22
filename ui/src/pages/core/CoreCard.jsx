@@ -114,17 +114,24 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   const dragging = useDragging(link.id)
   const [pickingRebuild, setPickingRebuild] = useState(false)
   const enabled = link.enabled !== false
+  const [toggling, setToggling] = useState(false)
+  const togglingRef = useRef(false)
   const [first, second] = sideOrder(link)
 
   const activeIp = (side) => link[side + '_ip_active'] || link[side + '_ip']
 
   const toggle = async (e) => {
     e.stopPropagation()
+    if (togglingRef.current) return
+    togglingRef.current = true
+    setToggling(true)
     const next = link.enabled === false
     const r = await apiPost('link-toggle', { id: link.id, enabled: next })
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
     else toast(next ? T('turned_on') : T('turned_off'), 'ok')
-    onReload()
+    await onReload()
+    togglingRef.current = false
+    setToggling(false)
   }
 
   const check = async () => {
@@ -276,7 +283,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
         >
           <Grip />
           <div
-            className={'tsw' + (enabled ? ' on' : '')}
+            className={'tsw' + (enabled ? ' on' : '') + (toggling ? ' busy' : '')}
+            aria-busy={toggling}
             title={T('tip_toggle')}
             {...checkable('switch', enabled, toggle)}
           />

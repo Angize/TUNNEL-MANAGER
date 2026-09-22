@@ -135,6 +135,17 @@
   right: 19px;
 }
 
+.tsw.busy {
+  cursor: progress;
+}
+
+.tsw.busy::after {
+  box-sizing: border-box;
+  border: 2.5px solid color-mix(in srgb, var(--acc) 22%, #fff);
+  border-top-color: var(--acc);
+  animation: isp .75s linear infinite;
+}
+
 @media (max-width: 840px) {
   .tsw::before,
   .mvwarn::before {
