@@ -73,8 +73,9 @@ export function formatEventTime(ts) {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
     })
   } catch {
-    return d.toISOString().slice(0, 16).replace('T', ' ')
+    return d.toISOString().slice(0, 19).replace('T', ' ')
   }
 }
