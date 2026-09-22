@@ -84,7 +84,7 @@
 .pxgrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 4px;
+  gap: 6px;
   max-height: 132px;
   overflow-y: auto;
   padding: 6px;
@@ -102,6 +102,8 @@
   padding: 5px 6px;
   border-radius: 7px;
   background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
