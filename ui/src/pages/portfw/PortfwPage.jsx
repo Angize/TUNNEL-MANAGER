@@ -83,7 +83,7 @@ export default function PortfwPage({ embedded, active = true }) {
 
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
-      <div className="cardgrid">
+      <div>
         {list === null ? (
           <CardSkeletons kind="portfw" count={counts.portfw} />
         ) : ordered.length ? (

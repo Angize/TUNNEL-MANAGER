@@ -311,23 +311,6 @@ button.act.danger:hover {
   background: var(--badw);
 }
 
-@media (min-width: 900px) {
-  .cardgrid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    align-items: start;
-  }
-
-  .cardgrid > .card {
-    margin-bottom: 0;
-  }
-
-  .cardgrid > .card.muted {
-    grid-column: 1/-1;
-  }
-}
-
 .dot {
   display: inline-block;
   width: 8px;

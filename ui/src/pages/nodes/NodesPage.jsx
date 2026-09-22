@@ -118,7 +118,7 @@ export default function NodesPage({ embedded, active = true }) {
 
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
-      <div className="cardgrid">
+      <div>
         {data === null ? (
           <CardSkeletons kind="node" count={counts.nodes_total} />
         ) : (
