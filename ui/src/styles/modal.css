@@ -108,8 +108,9 @@
 
 .msticky .mx {
   margin-inline-start: auto;
-  border: 1px solid var(--bord);
-  background: var(--field);
+  border: 1px solid var(--edge);
+  background: var(--card);
+  box-shadow: var(--dsh);
   color: var(--sub);
   width: 30px;
   height: 30px;
@@ -235,6 +236,7 @@
   flex: 1;
   border: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--tx);
   font-size: 15px;
   font-family: inherit;

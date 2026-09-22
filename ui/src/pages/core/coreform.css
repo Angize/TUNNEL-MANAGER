@@ -12,9 +12,10 @@
   gap: 7px;
   height: 42px;
   border-radius: 12px;
-  background: var(--field);
+  background: var(--card);
   color: var(--sub);
-  border: 1px solid transparent;
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
   font-weight: 700;
   font-size: 13.5px;
   cursor: pointer;
@@ -42,10 +43,11 @@
 }
 
 .rpool {
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   border-radius: 11px;
   overflow: hidden;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
 }
 
 .rrow {
@@ -105,10 +107,11 @@
 }
 
 .pacc {
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   border-radius: 12px;
   overflow: hidden;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
   margin-top: 12px;
 }
 
@@ -372,6 +375,7 @@
 .peerlive .rpool {
   border: none;
   background: transparent;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   gap: 6px;

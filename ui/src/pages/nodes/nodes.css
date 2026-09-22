@@ -645,8 +645,9 @@
   display: block;
   width: 100%;
   text-align: start;
-  border: 1px solid var(--bord);
-  background: var(--field);
+  border: 1px solid var(--edge);
+  background: var(--card);
+  box-shadow: var(--dsh);
   border-radius: 13px;
   padding: 13px 14px;
   margin-bottom: 11px;
