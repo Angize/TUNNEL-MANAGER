@@ -290,7 +290,7 @@ export default function NodeDetailsModal({ node, onClose }) {
               <div className="muted" style={{ fontSize: 11.5, padding: '6px 2px' }}>
                 {ipsError || (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                    <span className="bspin ink" style={{ width: 13, height: 13, borderWidth: 2, margin: 0 }} />
+                    <span className="bspin ink sm" />
                     {T('loading')}
                   </span>
                 )}

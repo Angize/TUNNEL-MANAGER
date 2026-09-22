@@ -11,7 +11,7 @@ export default function ActBtn({ cls, title, icon, busy, locked, style, onClick 
       aria-busy={!!busy}
       onClick={onClick}
     >
-      {busy ? <span className="bspin ink" /> : <Icon name={icon} />}
+      {busy ? <span className="bspin ink sm" /> : <Icon name={icon} />}
     </button>
   )
 }

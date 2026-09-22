@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import PendingCard from '../../components/PendingCard.jsx'
@@ -22,7 +21,7 @@ import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import './core.css'
 
-export default function CorePage({ embedded, active = true }) {
+export default function CorePage({ active }) {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('core')
@@ -103,7 +102,6 @@ export default function CorePage({ embedded, active = true }) {
 
   return (
     <>
-      {embedded ? null : <PageHead icon="cpu" titleKey="core_title" subKey="core_sub" />}
 
       <div className="tbtnrow">
         <button className="primary" onClick={() => setEditing({})}>

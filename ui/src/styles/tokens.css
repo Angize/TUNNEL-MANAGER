@@ -30,7 +30,6 @@
   --badw: color-mix(in srgb, var(--bad) 11%, transparent);
   --warnw: color-mix(in srgb, var(--gold) 11%, transparent);
   --goldw: color-mix(in srgb, var(--gold) 14%, transparent);
-  --sh-sm: 0 1px 2px rgba(15, 27, 45, .06);
   --sk-base: rgba(15, 27, 45, .07);
   --sk-hi: rgba(255, 255, 255, .8);
 }
@@ -65,7 +64,6 @@ html.dark {
   --badw: color-mix(in srgb, var(--bad) 13%, transparent);
   --warnw: color-mix(in srgb, var(--gold) 12%, transparent);
   --goldw: color-mix(in srgb, var(--gold) 15%, transparent);
-  --sh-sm: 0 1px 2px rgba(0, 0, 0, .3);
   --sk-base: rgba(255, 255, 255, .06);
   --sk-hi: rgba(255, 255, 255, .14);
 }

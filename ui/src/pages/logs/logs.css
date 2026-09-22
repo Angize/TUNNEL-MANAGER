@@ -57,10 +57,6 @@
   align-items: start;
 }
 
-.lgfg {
-  overflow: hidden;
-}
-
 .lgfgh {
   background: var(--ctl);
   font-size: 13px;

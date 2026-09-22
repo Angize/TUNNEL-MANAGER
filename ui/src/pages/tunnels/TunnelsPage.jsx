@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import PendingCard from '../../components/PendingCard.jsx'
@@ -26,7 +25,7 @@ function ctagClass(family) {
   return family
 }
 
-export default function TunnelsPage({ embedded, active = true }) {
+export default function TunnelsPage({ active }) {
   const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('tunnels')
@@ -88,7 +87,6 @@ export default function TunnelsPage({ embedded, active = true }) {
 
   return (
     <>
-      {embedded ? null : <PageHead icon="link" titleKey="tun_title" subKey="tun_sub" />}
 
       <div className="tbtnrow">
         <button className="primary" onClick={() => setCreating(true)}>

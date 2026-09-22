@@ -1,23 +1,26 @@
 import { useCallback, useRef, useState } from 'react'
 
-export default function useBusy() {
-  const [busy, setBusy] = useState(false)
+export function useActionBusy() {
+  const [busy, setBusy] = useState('')
   const running = useRef(false)
 
-  const guard = useCallback(
-    (fn) => async () => {
-      if (running.current) return
-      running.current = true
-      setBusy(true)
-      try {
-        await fn()
-      } finally {
-        running.current = false
-        setBusy(false)
-      }
-    },
-    []
-  )
+  const withBusy = useCallback(async (key, fn) => {
+    if (running.current) return undefined
+    running.current = true
+    setBusy(key)
+    try {
+      return await fn()
+    } finally {
+      running.current = false
+      setBusy('')
+    }
+  }, [])
 
-  return [busy, guard]
+  return [busy, withBusy]
+}
+
+export default function useBusy() {
+  const [busy, withBusy] = useActionBusy()
+  const guard = useCallback((fn) => () => withBusy('run', fn), [withBusy])
+  return [!!busy, guard]
 }

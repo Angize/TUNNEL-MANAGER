@@ -199,7 +199,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
             }}
             inert={i !== index}
           >
-            <k.Page embedded active={i === index} onNavigate={onNavigate} />
+            <k.Page active={i === index} onNavigate={onNavigate} />
           </section>
         ))}
       </div>

@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import { CardSkeletons } from '../../components/Skeleton.jsx'
@@ -23,7 +22,7 @@ const ADD_BUTTON_STYLE = {
   gap: 6,
 }
 
-export default function PortfwPage({ embedded, active = true }) {
+export default function PortfwPage({ active }) {
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('portfw')
   const [nodes, setNodes] = useState([])
@@ -70,7 +69,6 @@ export default function PortfwPage({ embedded, active = true }) {
 
   return (
     <>
-      {embedded ? null : <PageHead icon="fwd" titleKey="nav_portfw" subKey="pf_sub" />}
       <button className="primary" onClick={openAdd} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('pf_add')}
