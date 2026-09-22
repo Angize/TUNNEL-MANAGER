@@ -23,7 +23,7 @@ const SEEN_KEY = 'tnl_logs_seen'
 
 function LogSkeleton() {
   return (
-    <div className="card loglist">
+    <div className="loglist">
       {Array.from({ length: 5 }, (_, i) => (
         <div className="lev" key={i}>
           <span className="lev-bar sk" />
@@ -228,7 +228,7 @@ export default function LogsPage() {
 
           <div>
             {shown.length ? (
-              <div className="card loglist">
+              <div className="loglist">
                 {shown.map((event) => {
                   const key = keys.get(event)
                   return (
