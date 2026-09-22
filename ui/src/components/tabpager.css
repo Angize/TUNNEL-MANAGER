@@ -17,8 +17,8 @@
   left: 0;
   width: 0;
   border-radius: 11px;
-  background: var(--pill);
-  box-shadow: 0 6px 16px -10px rgba(15, 27, 45, .45);
+  background: var(--accw);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 40%, var(--edge));
   pointer-events: none;
 }
 
@@ -56,7 +56,7 @@
 }
 
 .lseg button.on {
-  color: var(--tx);
+  color: var(--acc);
 }
 
 .lseg button.on i {
