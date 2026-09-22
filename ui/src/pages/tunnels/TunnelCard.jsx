@@ -11,7 +11,7 @@ import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
-import useActionBusy from '../../lib/useActionBusy.js'
+import { useActionBusy } from '../../lib/useBusy.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
@@ -94,21 +94,17 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   const [pickingRebuild, setPickingRebuild] = useState(false)
   const enabled = link.enabled !== false
   const [busyAct, withBusy] = useActionBusy()
-  const [toggling, setToggling] = useState(false)
-  const togglingRef = useRef(false)
+  const [toggleBusy, withToggle] = useActionBusy()
 
-  const toggle = async (e) => {
+  const toggle = (e) => {
     e.stopPropagation()
-    if (togglingRef.current) return
-    togglingRef.current = true
-    setToggling(true)
-    const next = link.enabled === false
-    const r = await apiPost('link-toggle', { id: link.id, enabled: next })
-    if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
-    else toast(next ? T('turned_on') : T('turned_off'), 'ok')
-    await onReload()
-    togglingRef.current = false
-    setToggling(false)
+    withToggle('toggle', async () => {
+      const next = link.enabled === false
+      const r = await apiPost('link-toggle', { id: link.id, enabled: next })
+      if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
+      else toast(next ? T('turned_on') : T('turned_off'), 'ok')
+      await onReload()
+    })
   }
 
   const check = async () => {
@@ -261,8 +257,8 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
         >
           <Grip />
           <div
-            className={'tsw' + (enabled ? ' on' : '') + (toggling ? ' busy' : '')}
-            aria-busy={toggling}
+            className={'tsw' + (enabled ? ' on' : '') + (toggleBusy ? ' busy' : '')}
+            aria-busy={!!toggleBusy}
             title={T('tip_toggle')}
             {...checkable('switch', enabled, toggle)}
           />
@@ -352,7 +348,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
               <ActBtn cls="ok" icon="activity" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />
               <ActBtn cls="info" icon="gauge" title={T('tip_speed')} busy={busyAct === 'speed'} locked={!!busyAct} onClick={speed} />
               <ActBtn
-                cls="flip"
+                cls="info"
                 icon="swap"
                 title={T('tip_flip') + (link.view_name || '—')}
                 busy={busyAct === 'flip'}

@@ -73,6 +73,7 @@
 }
 
 .mslist {
+  overflow: hidden;
   border: 1px solid var(--edge);
   border-radius: 14px;
   background: var(--card);

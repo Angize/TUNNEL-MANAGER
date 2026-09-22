@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import { CardSkeletons } from '../../components/Skeleton.jsx'
 import ProxyCard from './ProxyCard.jsx'
@@ -18,7 +17,7 @@ const ADD_BUTTON_STYLE = {
   gap: 6,
 }
 
-export default function ProxiesPage({ embedded, active = true }) {
+export default function ProxiesPage({ active }) {
   const { counts } = useSummary()
   const [editing, setEditing] = useState(undefined)
   const [edits, setEdits] = useState({})
@@ -38,7 +37,6 @@ export default function ProxiesPage({ embedded, active = true }) {
 
   return (
     <>
-      {embedded ? null : <PageHead icon="globe" titleKey="nav_proxies" subKey="px_sub" />}
       <button className="primary" onClick={() => setEditing(null)} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('px_add')}

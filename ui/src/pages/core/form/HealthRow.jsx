@@ -115,7 +115,7 @@ export function ActionButton({ title, tone, spinning, disabled, icon, onClick })
       style={disabled ? { opacity: spinning ? 1 : 0.45, pointerEvents: 'none' } : undefined}
       onClick={onClick}
     >
-      {spinning ? <span className="bspin" /> : <Icon name={icon} />}
+      {spinning ? <span className="bspin ink sm" /> : <Icon name={icon} />}
     </button>
   )
 }

@@ -50,7 +50,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
         onClick={() => wipe(offline)}
       >
         <div className="do-t">
-          {busy ? <span className="bspin ink" /> : <Icon name="warn" />}
+          {busy ? <span className="bspin ink sm" /> : <Icon name="warn" />}
           {offline ? T('del_wipe_force_yes') : T('del_wipe_t')}
         </div>
         <div className="do-s">{offline ? T('del_wipe_force_s') : T('del_wipe_s')}</div>

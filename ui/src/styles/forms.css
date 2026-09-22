@@ -67,6 +67,13 @@ select:focus {
   border-top-color: currentColor;
 }
 
+.bspin.sm {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
 @keyframes isp {
   to { transform: rotate(360deg) }
 }

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
-import useActionBusy from '../../lib/useActionBusy.js'
+import { useActionBusy } from '../../lib/useBusy.js'
 import { Check } from '../../components/Marks.jsx'
 import UptimeBar from './UptimeBar.jsx'
 import { coreVersionName } from '../agent/versions.js'
@@ -43,7 +43,6 @@ function NodeTraffic({ traffic }) {
 export default function NodeCard({
   node,
   windowHours,
-  toggling,
   onToggle,
   onChanged,
   onEdit,
@@ -62,12 +61,13 @@ export default function NodeCard({
   const enabled = node.disabled !== true
   const dot = node.online ? 'on' : node.pending ? '' : 'off'
 
+  const [busyAct, withBusy] = useActionBusy()
+  const [toggleBusy, withToggle] = useActionBusy()
+
   const toggle = (e) => {
     e.stopPropagation()
-    onToggle(node)
+    withToggle('toggle', () => onToggle(node))
   }
-
-  const [busyAct, withBusy] = useActionBusy()
 
   const test = async () => {
     const r = await withBusy('test', () => {
@@ -109,8 +109,8 @@ export default function NodeCard({
   const head = (
     <>
       <div
-        className={'tsw' + (enabled ? ' on' : '') + (toggling ? ' busy' : '')}
-        aria-busy={!!toggling}
+        className={'tsw' + (enabled ? ' on' : '') + (toggleBusy ? ' busy' : '')}
+        aria-busy={!!toggleBusy}
         title={T('nd_toggle')}
         {...checkable('switch', enabled, toggle)}
       />

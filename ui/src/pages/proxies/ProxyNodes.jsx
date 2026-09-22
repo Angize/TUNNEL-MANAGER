@@ -31,7 +31,7 @@ export default function ProxyNodes({ proxyId, nodes, picked, onPick }) {
     onPick((prev) => (prev.size === nodes.length ? new Set() : new Set(nodes.map((n) => n.id))))
 
   return (
-    <div className="mslist pxnodes">
+    <div className="mslist">
       <div
         className={'msrow pxall' + (all ? ' sel' : some ? ' part' : '')}
         {...checkable('checkbox', all, toggleAll)}
