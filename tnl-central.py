@@ -1244,8 +1244,28 @@ def _pending_drain(n):
             _tf_forget(nid, [nm])
 
 
+def _tun_ok(h):
+    if isinstance(h, dict) and h.get("up") is None:
+        return None
+    return bool(isinstance(h, dict) and h.get("up") and not h.get("dead"))
+
+
+def _mark(prev, val, at):
+    return prev if prev and prev[0] == val else (val, at)
+
+
+def _marks(prev, ping, lst, ping_at, list_at):
+    seen = lst.get("configs") is not None
+    tun = prev.get("tun") or {}
+    return {"node": _mark(prev.get("node"), bool(ping.get("ok")), ping_at),
+            "seen": _mark(prev.get("seen"), seen, list_at),
+            "tun": {nm: _mark(tun.get(nm), _tun_ok(h), list_at)
+                    for nm, h in ((lst.get("health") or {}) if seen else {}).items()}}
+
+
 def _poll_node(n):
     gen = _addr_at(n["id"])
+    ping_at = time.time()
     _t0 = time.perf_counter()
     ping = node_call(n, "ping", "GET", timeout=6)
     if ping.get("ok"):
@@ -1260,12 +1280,14 @@ def _poll_node(n):
         else:
             _tf_zero_rates(n["id"])
         _uh_sample(n["id"], bool(ping.get("ok")), t_ping)
+    list_at = time.time()
     lst = node_call(n, "list", "GET", timeout=12)
     now = time.time()
     if _tombed(n["id"], now) or gen != _addr_at(n["id"]):
         return
     with _pc_lock:
-        _pc[n["id"]] = {"ping": ping, "list": lst}
+        prev = (_pc.get(n["id"]) or {}).get("marks") or {}
+        _pc[n["id"]] = {"ping": ping, "list": lst, "marks": _marks(prev, ping, lst, ping_at, list_at)}
     if ping.get("ok"):
         _pending_drain(n)
 
@@ -2391,7 +2413,7 @@ def api_summary(d):
             continue
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
-        state = _link_up(L)
+        state = _link_mark(L)[0]
         if state is None:
             continue
         tab = "core" if L.get("type") == "core" else "tunnels"
@@ -7053,17 +7075,21 @@ def log_event(level, kind, fa, dfa="", ts=None):
         _ev_dirty = True
 
 
-def _node_online(nid):
-    return bool(_cached_ping(nid).get("ok"))
-
-
-def _link_up(L):
-    seen = [h for h, answered in (_link_side_health(L, k) for k in ("a_node", "b_node")) if answered]
-    if not seen or any(isinstance(h, dict) and h.get("up") is None for h in seen):
-        return None
-    if not all(isinstance(h, dict) and h.get("up") for h in seen):
-        return False
-    return not any(h.get("dead") for h in seen)
+def _link_mark(L):
+    seen, blind = [], []
+    for k in ("a_node", "b_node"):
+        m = (_cache_get(L[k]) or {}).get("marks")
+        if not m:
+            continue
+        if not m["seen"][0]:
+            blind.append(m["seen"][1])
+            continue
+        seen.append(m["tun"].get(L["name"]) or (False, m["seen"][1]))
+    if not seen or any(ok is None for ok, _ in seen):
+        return None, None
+    if all(ok for ok, _ in seen):
+        return True, max([at for _, at in seen] + blind)
+    return False, min(at for ok, at in seen if not ok)
 
 
 def _link_blind(L):
@@ -7081,6 +7107,15 @@ def _link_down_reason(L, nmap):
     return "قابلِ دسترسی نیست (کریر/سرِ مقابل)"
 
 
+def _ev_flip(store, key, state, since):
+    prev = store.get(key)
+    if prev and prev[0] == state:
+        return None
+    at = max(since, prev[1]) if prev else since
+    store[key] = (state, at)
+    return at if prev else None
+
+
 def _events_once():
     nodes = load_nodes()
     links = load_links()
@@ -7091,18 +7126,18 @@ def _events_once():
     for n in nodes:
         nid = n["id"]
         seen.add(nid)
-        if not _cache_get(nid):
+        e = _cache_get(nid)
+        if not e:
             continue
-        online = _node_online(nid)
-        prev = _ev_state["nodes"].get(nid)
-        _ev_state["nodes"][nid] = online
-        if first or prev is None or prev == online:
+        online, since = e["marks"]["node"]
+        at = _ev_flip(_ev_state["nodes"], nid, online, since)
+        if first or at is None:
             continue
         nm = n.get("name", "")
         if online:
-            log_event("ok", "node-up", f"نودِ «{nm}»: آنلاین شد")
+            log_event("ok", "node-up", f"نودِ «{nm}»: آنلاین شد", ts=at)
         else:
-            log_event("bad", "node-down", f"نودِ «{nm}»: آفلاین شد")
+            log_event("bad", "node-down", f"نودِ «{nm}»: آفلاین شد", ts=at)
     for nid in [k for k in _ev_state["nodes"] if k not in seen]:
         _ev_state["nodes"].pop(nid, None)
 
@@ -7114,22 +7149,21 @@ def _events_once():
             _ev_state["links"].pop(lid, None)
             _ev_state["links_coarse_down"].discard(lid)
             continue
-        up = _link_up(L)
+        up, since = _link_mark(L)
         if up is None:
             continue
-        prev = _ev_state["links"].get(lid)
-        _ev_state["links"][lid] = up
-        if first or prev is None or prev == up:
+        at = _ev_flip(_ev_state["links"], lid, up, since)
+        if first or at is None:
             continue
         nm = L.get("name", "")
         precise_core = L.get("type") == "core" and (
             bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)
         if up:
             if not precise_core or lid in _ev_state["links_coarse_down"]:
-                log_event("ok", "link-up", f"تونلِ «{nm}»: وصل شد")
+                log_event("ok", "link-up", f"تونلِ «{nm}»: وصل شد", ts=at)
             _ev_state["links_coarse_down"].discard(lid)
         elif not precise_core or _link_blind(L):
-            log_event("bad", "link-down", f"تونلِ «{nm}»: قطع شد", _link_down_reason(L, nmap))
+            log_event("bad", "link-down", f"تونلِ «{nm}»: قطع شد", _link_down_reason(L, nmap), ts=at)
             if precise_core:
                 _ev_state["links_coarse_down"].add(lid)
     for lid in [k for k in _ev_state["links"] if k not in seen]:
