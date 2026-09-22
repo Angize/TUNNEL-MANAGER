@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
+import ActBtn from '../../components/ActBtn.jsx'
+import useActionBusy from '../../lib/useActionBusy.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
@@ -69,9 +71,12 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
     (proxy.pending ? T('pending_check') : proxy.online ? T('online') : T('offline')) +
     (status.error ? ' — ' + translateError(status.error) : '')
 
+  const [busyAct, withBusy] = useActionBusy()
+
   const test = async () => {
     setMsg({ cls: '', text: T('px_testing') })
-    const r = await apiPost('proxy-test', { id: proxy.id })
+    const r = await withBusy('test', () => apiPost('proxy-test', { id: proxy.id }))
+    if (!r) return
     const d = r.d
     if (r.ok && d.ok) {
       setMsg({
@@ -89,7 +94,8 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
 
   const remove = async () => {
     if (!(await confirmBox(T('px_del_confirm'), T('confirm_del')))) return
-    const r = await apiPost('proxy-del', { id: proxy.id })
+    const r = await withBusy('del', () => apiPost('proxy-del', { id: proxy.id }))
+    if (!r) return
     if (r.ok && r.d.ok) {
       toast(T('px_deleted'), 'ok')
       onChanged()
@@ -125,15 +131,9 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
         </div>
       ) : null}
       <div className="nact iconly">
-        <button className="act ok" title={T('px_test')} onClick={test}>
-          <Icon name="bolt" />
-        </button>
-        <button className="act warn" title={T('tip_edit')} onClick={() => onEdit(proxy)}>
-          <Icon name="pen" />
-        </button>
-        <button className="act danger" title={T('tip_delete')} onClick={remove}>
-          <Icon name="trash" />
-        </button>
+        <ActBtn cls="ok" icon="bolt" title={T('px_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
+        <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(proxy)} />
+        <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
       </div>
       <div className={msg ? 'msg ' + msg.cls : 'msg'}>
         {msg ? (

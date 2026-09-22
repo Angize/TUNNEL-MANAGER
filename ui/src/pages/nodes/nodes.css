@@ -695,6 +695,13 @@
   font-size: 14px;
 }
 
+.delopt .do-t .bspin {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
 .delopt .do-t .ic {
   width: 17px;
   height: 17px;

@@ -273,6 +273,19 @@ button.act {
   transition: transform .18s cubic-bezier(.2, .8, .2, 1), background .18s, box-shadow .18s;
 }
 
+button.act .bspin {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+  border-width: 2px;
+}
+
+button.act:disabled {
+  opacity: .55;
+  cursor: progress;
+  transform: none;
+}
+
 button.act:hover {
   transform: translateY(-2px);
   box-shadow: var(--dsh-hi);

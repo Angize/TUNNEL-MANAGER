@@ -10,7 +10,9 @@ import { linkSideState, sideText } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
 import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
+import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
+import useActionBusy from '../../lib/useActionBusy.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
@@ -114,6 +116,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   const dragging = useDragging(link.id)
   const [pickingRebuild, setPickingRebuild] = useState(false)
   const enabled = link.enabled !== false
+  const [busyAct, withBusy] = useActionBusy()
   const [toggling, setToggling] = useState(false)
   const togglingRef = useRef(false)
   const [first, second] = sideOrder(link)
@@ -136,7 +139,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
 
   const check = async () => {
     setMessage({ cls: '', text: T('checking_conn') })
-    const r = await apiPost('check-link', { id: link.id })
+    const r = await withBusy('ping', () => apiPost('check-link', { id: link.id }))
+    if (!r) return
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })
       return
@@ -168,7 +172,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
 
   const speed = async () => {
     setMessage({ cls: '', text: T('speed_run') })
-    const r = await apiPost('link-speed', { id: link.id })
+    const r = await withBusy('speed', () => apiPost('link-speed', { id: link.id }))
+    if (!r) return
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })
       return
@@ -190,7 +195,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
   }
 
   const flip = async () => {
-    const r = await apiPost('link-view', { id: link.id })
+    const r = await withBusy('flip', () => apiPost('link-view', { id: link.id }))
+    if (!r) return
     if (!(r.ok && r.d.ok)) {
       toast(postError(r), 'err')
       return
@@ -207,7 +213,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
 
   const resetTraffic = async () => {
     if (!(await confirmBox(T('reset_confirm'), T('reset_yes')))) return
-    const r = await apiPost('traffic-reset', { id: link.id })
+    const r = await withBusy('reset', () => apiPost('traffic-reset', { id: link.id }))
+    if (!r) return
     if (r.ok && r.d.ok) {
       toast(T('t_reset_done'), 'ok')
       onReload()
@@ -218,7 +225,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
 
   const restart = async () => {
     if (!(await confirmBox(T('restart_confirm'), T('restart_yes')))) return
-    const r = await apiPost('restart-link', { id: link.id })
+    const r = await withBusy('restart', () => apiPost('restart-link', { id: link.id }))
+    if (!r) return
     if (!(r.ok && r.d.act)) {
       toast(postError(r, 'restart_failed'), 'err')
       return
@@ -233,7 +241,8 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
       return
     }
     if (!(await confirmBox(T('rebuild_confirm'), T('tip_rebuild')))) return
-    const r = await apiPost('rebuild-link', { id: link.id })
+    const r = await withBusy('rebuild', () => apiPost('rebuild-link', { id: link.id }))
+    if (!r) return
     if (!(r.ok && r.d.act)) {
       toast(postError(r, 'rebuild_failed'), 'err')
       return
@@ -251,7 +260,10 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
       ? await confirmBox(T('del_force_ask'), T('del_force_yes'))
       : await confirmBox(T('del_tun_confirm'), T('confirm_del'))
     if (!confirmed) return
-    const r = await apiPost('delete-link', force ? { id: link.id, force: true } : { id: link.id })
+    const r = await withBusy('del', () =>
+      apiPost('delete-link', force ? { id: link.id, force: true } : { id: link.id })
+    )
+    if (!r) return
     if (!(r.ok && r.d.act)) {
       toast(postError(r), 'err')
       return
@@ -381,38 +393,21 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
             <ActionRow act={act} />
 
             <div className="nact iconly">
-              <button className="act ok" title={T('tip_ping')} onClick={check}>
-                <Icon name="activity" />
-              </button>
-              <button className="act info" title={T('tip_speed')} onClick={speed}>
-                <Icon name="gauge" />
-              </button>
-              <button
-                className="act flip"
+              <ActBtn cls="ok" icon="activity" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />
+              <ActBtn cls="info" icon="gauge" title={T('tip_speed')} busy={busyAct === 'speed'} locked={!!busyAct} onClick={speed} />
+              <ActBtn
+                cls="flip"
+                icon="swap"
                 title={T('tip_flip') + (link.view_name || '—')}
+                busy={busyAct === 'flip'}
+                locked={!!busyAct}
                 onClick={flip}
-              >
-                <Icon name="swap" />
-              </button>
-              <button className="act reset" title={T('tip_reset')} onClick={resetTraffic}>
-                <Icon name="reset" />
-              </button>
-              <button
-                className="act warn"
-                title={T('tip_edit')}
-                onClick={() => onEdit(link)}
-              >
-                <Icon name="pen" />
-              </button>
-              <button className="act" title={T('tip_rebuild')} onClick={rebuild}>
-                <Icon name="redo" />
-              </button>
-              <button className="act info" title={T('tip_restart')} onClick={restart}>
-                <Icon name="restart" />
-              </button>
-              <button className="act danger" title={T('tip_delete')} onClick={remove}>
-                <Icon name="trash" />
-              </button>
+              />
+              <ActBtn cls="reset" icon="reset" title={T('tip_reset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
+              <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(link)} />
+              <ActBtn icon="redo" title={T('tip_rebuild')} busy={busyAct === 'rebuild'} locked={!!busyAct} onClick={rebuild} />
+              <ActBtn cls="info" icon="restart" title={T('tip_restart')} busy={busyAct === 'restart'} locked={!!busyAct} onClick={restart} />
+              <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
             </div>
 
             <div className={message ? 'msg ' + message.cls : 'msg'}>
