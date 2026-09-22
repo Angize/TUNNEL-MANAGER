@@ -1289,8 +1289,11 @@ def _poll_node(n):
         else:
             _tf_zero_rates(n["id"])
         _uh_sample(n["id"], bool(ping.get("ok")), t_ping)
-    list_at = time.time()
-    lst = node_call(n, "list", "GET", timeout=12)
+    if ping.get("offline"):
+        list_at, lst = ping_at, ping
+    else:
+        list_at = time.time()
+        lst = node_call(n, "list", "GET", timeout=12)
     now = time.time()
     if _tombed(n["id"], now) or gen != _addr_at(n["id"]):
         return
