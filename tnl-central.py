@@ -1188,6 +1188,9 @@ def parallel_map(fn, items, workers=32):
 
 POLL_WORKERS = 64
 POLL_GAP = 2
+NODE_DOWN_PINGS = 3
+NODE_GROUP_SECS = 10
+NODE_HOLD_SECS = 30
 _pc = {}
 _pc_lock = threading.Lock()
 _tf = {}
@@ -1255,9 +1258,15 @@ def _mark(prev, val, at):
 
 
 def _marks(prev, ping, lst, ping_at, list_at):
+    ok = bool(ping.get("ok"))
     seen = lst.get("configs") is not None
     tun = prev.get("tun") or {}
-    return {"node": _mark(prev.get("node"), bool(ping.get("ok")), ping_at),
+    node = _mark(prev.get("node"), ok, ping_at)
+    fails = 0 if ok else prev.get("fails", 0) + 1
+    conf = prev.get("conf")
+    if ok or fails >= NODE_DOWN_PINGS:
+        conf = _mark(conf, ok, node[1])
+    return {"node": node, "fails": fails, "conf": conf,
             "seen": _mark(prev.get("seen"), seen, list_at),
             "tun": {nm: _mark(tun.get(nm), _tun_ok(h), list_at)
                     for nm, h in ((lst.get("health") or {}) if seen else {}).items()}}
@@ -6768,7 +6777,8 @@ _events_lock = threading.Lock()
 _ev_seq_total = None
 _ev_list = None
 _ev_dirty = False
-_ev_state = {"init": False, "nodes": {}, "links": {}, "evseq": {}, "rotip": {}, "links_coarse_down": set()}
+_ev_state = {"init": False, "nodes": {}, "held": [], "links": {}, "evseq": {}, "rotip": {},
+             "links_coarse_down": set()}
 
 
 def _ev_ip(detail):
@@ -7107,13 +7117,103 @@ def _link_down_reason(L, nmap):
     return "قابلِ دسترسی نیست (کریر/سرِ مقابل)"
 
 
-def _ev_flip(store, key, state, since):
+def _ev_flip(store, key, state, since, first):
     prev = store.get(key)
     if prev and prev[0] == state:
-        return None
+        return None, prev
     at = max(since, prev[1]) if prev else since
-    store[key] = (state, at)
-    return at if prev else None
+    store[key] = (state, at, bool(prev) and not first)
+    return (at if prev and not first else None), prev
+
+
+def _fa_span(secs):
+    s = max(1, int(round(secs)))
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    parts = [f"{v} {u}" for v, u in ((d, "روز"), (h, "ساعت"), (m, "دقیقه"), (s, "ثانیه")) if v]
+    return " و ".join(parts[:2])
+
+
+def _ev_clusters(items, key):
+    out = []
+    for it in sorted(items, key=lambda h: h[key]):
+        if out and it[key] - out[-1][0][key] <= NODE_GROUP_SECS:
+            out[-1].append(it)
+        else:
+            out.append([it])
+    return out
+
+
+def _node_path_rows(nodes, members, t0):
+    st = _ev_state["nodes"]
+    rows = []
+    for key, behind in (("مستقیم", False), ("پشتِ پروکسی", True)):
+        others = [n["id"] for n in nodes if n["id"] not in members and n["id"] in st
+                  and bool(n.get("proxy_on")) == behind
+                  and not (st[n["id"]][0] is False and (st[n["id"]][1] < t0 or not st[n["id"]][2]))]
+        if others:
+            up = sum(1 for nid in others if st[nid][0])
+            rows.append(f"{key}: {up} از {len(others)} آنلاین ماندند")
+    return rows
+
+
+def _node_events(nodes, first):
+    st, held = _ev_state["nodes"], _ev_state["held"]
+    marks = {}
+    for n in nodes:
+        m = (_cache_get(n["id"]) or {}).get("marks")
+        if not m or not m["conf"]:
+            continue
+        marks[n["id"]] = m
+        online, since = m["conf"]
+        at, prev = _ev_flip(st, n["id"], online, since, first)
+        if at is not None:
+            held.append({"nid": n["id"], "up": online, "at": at, "held": time.time(),
+                         "down": prev[1] if online and prev[2] else None})
+    names = {n["id"]: n.get("name", "") for n in nodes}
+    for nid in [k for k in st if k not in names]:
+        st.pop(nid, None)
+    held[:] = [h for h in held if h["nid"] in names]
+
+    now = time.time()
+    pending = [m["node"][1] for m in marks.values() if not m["node"][0] and m["conf"][0]]
+    for grp in _ev_clusters([h for h in held if not h["up"]], "at"):
+        t0 = grp[0]["at"]
+        if (now - min(h["held"] for h in grp) < NODE_HOLD_SECS
+                and any(abs(p - t0) <= NODE_GROUP_SECS for p in pending)):
+            continue
+        members = {h["nid"] for h in grp}
+        if len(grp) == 1:
+            log_event("bad", "node-down", f"نودِ «{names[grp[0]['nid']]}»: آفلاین شد", ts=t0)
+        else:
+            rows = _node_path_rows(nodes, members, t0)
+            rows.append("نودها: " + "، ".join(sorted(names[nid] for nid in members)))
+            log_event("bad", "node-down", f"{len(grp)} نود با هم آفلاین شدند", "\n".join(rows), ts=t0)
+        held[:] = [h for h in held if h not in grp]
+
+    downs = {h["nid"] for h in held if not h["up"]}
+    ups = [h for h in held if h["up"]]
+    for grp in _ev_clusters([h for h in ups if h["down"] is not None], "down") + [
+            [h] for h in ups if h["down"] is None]:
+        members = {h["nid"] for h in grp}
+        if members & downs:
+            continue
+        d0 = grp[0]["down"]
+        waiting = d0 is not None and any(
+            s[0] is False and s[2] and abs(s[1] - d0) <= NODE_GROUP_SECS
+            for nid, s in st.items() if nid not in members)
+        if waiting and now - min(h["held"] for h in grp) < NODE_HOLD_SECS:
+            continue
+        last = max(h["at"] for h in grp)
+        if len(grp) == 1:
+            nm = names[grp[0]["nid"]]
+            tail = f" — {_fa_span(last - d0)} قطع بود" if d0 is not None else ""
+            log_event("ok", "node-up", f"نودِ «{nm}»: آنلاین شد{tail}", ts=last)
+        else:
+            log_event("ok", "node-up", f"{len(grp)} نود دوباره آنلاین شدند — {_fa_span(last - d0)} قطع بودند",
+                      "نودها: " + "، ".join(sorted(names[nid] for nid in members)), ts=last)
+        held[:] = [h for h in held if h not in grp]
 
 
 def _events_once():
@@ -7121,25 +7221,7 @@ def _events_once():
     links = load_links()
     nmap = {n["id"]: n.get("name", "") for n in nodes}
     first = not _ev_state["init"]
-
-    seen = set()
-    for n in nodes:
-        nid = n["id"]
-        seen.add(nid)
-        e = _cache_get(nid)
-        if not e:
-            continue
-        online, since = e["marks"]["node"]
-        at = _ev_flip(_ev_state["nodes"], nid, online, since)
-        if first or at is None:
-            continue
-        nm = n.get("name", "")
-        if online:
-            log_event("ok", "node-up", f"نودِ «{nm}»: آنلاین شد", ts=at)
-        else:
-            log_event("bad", "node-down", f"نودِ «{nm}»: آفلاین شد", ts=at)
-    for nid in [k for k in _ev_state["nodes"] if k not in seen]:
-        _ev_state["nodes"].pop(nid, None)
+    _node_events(nodes, first)
 
     seen = set()
     for L in links:
@@ -7152,8 +7234,8 @@ def _events_once():
         up, since = _link_mark(L)
         if up is None:
             continue
-        at = _ev_flip(_ev_state["links"], lid, up, since)
-        if first or at is None:
+        at, _ = _ev_flip(_ev_state["links"], lid, up, since, first)
+        if at is None:
             continue
         nm = L.get("name", "")
         precise_core = L.get("type") == "core" and (
