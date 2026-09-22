@@ -263,8 +263,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 11px;
   padding: 9px 10px;
   min-width: 0;
@@ -438,8 +439,9 @@
 .seg {
   display: flex;
   align-items: center;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
   border-radius: 14px;
   padding: 4px;
   gap: 4px;
@@ -465,9 +467,9 @@
 }
 
 .seg button.on {
-  background: var(--pill);
+  background: var(--accw);
   color: var(--acc);
-  box-shadow: 0 6px 16px -10px rgba(15, 27, 45, .4);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 30%, transparent);
 }
 
 .seg button .ic {
@@ -495,9 +497,10 @@
 }
 
 .authbox {
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   border-radius: 13px;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
   padding: 11px;
   margin-top: 16px;
   margin-bottom: 12px;
@@ -506,7 +509,7 @@
 .authbox .fld2 {
   width: 100%;
   padding: 11px 12px;
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   border-radius: 11px;
   background: var(--card);
   color: var(--tx);

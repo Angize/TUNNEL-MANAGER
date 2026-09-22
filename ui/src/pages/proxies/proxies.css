@@ -92,9 +92,10 @@
   max-height: 132px;
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   border-radius: 12px;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--bord) transparent;

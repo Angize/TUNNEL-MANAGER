@@ -56,8 +56,9 @@
 }
 
 .tnnode {
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 14px;
   padding: 10px 12px;
   min-width: 0;
@@ -65,16 +66,16 @@
 }
 
 .tnnode.st-ok {
-  box-shadow: inset 3px 0 0 var(--ok);
+  box-shadow: var(--dsh), inset 3px 0 0 var(--ok);
 }
 
 .tnnode.st-bad {
   background: var(--badw);
-  box-shadow: inset 3px 0 0 var(--bad);
+  box-shadow: var(--dsh), inset 3px 0 0 var(--bad);
 }
 
 .tnnode.st-na {
-  box-shadow: inset 3px 0 0 var(--sub);
+  box-shadow: var(--dsh), inset 3px 0 0 var(--sub);
 }
 
 .tninfo > .tnnode:last-child.st-ok {
@@ -280,8 +281,9 @@
   width: 100%;
   border-radius: 12px;
   padding: 9px;
-  border: 1px solid var(--bord);
-  background: var(--field);
+  border: 1px solid var(--edge);
+  background: var(--card);
+  box-shadow: var(--dsh);
   color: var(--sub);
   font: inherit;
   font-size: 12px;

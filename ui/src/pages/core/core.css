@@ -150,8 +150,9 @@
 
 .cedge {
   margin-top: 10px;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 11px;
   padding: 8px 12px;
 }

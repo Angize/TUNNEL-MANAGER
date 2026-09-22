@@ -187,8 +187,9 @@
 }
 
 .gauge {
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 14px;
   padding: 12px 4px 10px;
   text-align: center;
@@ -317,8 +318,9 @@
 .tst .tb {
   flex: 1;
   text-align: center;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 12px;
   padding: 11px 4px;
 }
@@ -370,8 +372,9 @@
 .onote {
   font-size: 11.5px;
   color: var(--sub);
-  background: var(--field);
-  border: 1px dashed var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px dashed var(--edge);
   border-radius: 11px;
   padding: 9px 11px;
   margin-top: 11px;
@@ -382,8 +385,9 @@
 }
 
 .tf-chart {
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 13px;
   padding: 10px 12px 6px;
   margin-bottom: 11px;
@@ -416,8 +420,9 @@
 }
 
 .ttile {
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
   border-radius: 11px;
   padding: 9px 11px;
 }

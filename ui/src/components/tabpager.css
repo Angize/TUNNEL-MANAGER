@@ -5,8 +5,9 @@
   padding: 4px;
   margin: 6px 0 8px;
   border-radius: 15px;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
 }
 
 .lthumb {
