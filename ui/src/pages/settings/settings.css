@@ -113,8 +113,9 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1.5px solid var(--bord);
-  background: var(--field);
+  border: 1.5px solid var(--edge);
+  background: var(--card);
+  box-shadow: var(--dsh);
   color: var(--sub);
   font-size: 11px;
   line-height: 1;
@@ -192,8 +193,9 @@
   overflow-wrap: anywhere;
   padding: 8px 10px;
   border-radius: 10px;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  border: 1px solid var(--edge);
 }
 
 .srtonce {
@@ -232,7 +234,8 @@
   overflow: hidden;
   opacity: 0;
   transition: max-height .28s ease, opacity .2s, margin .2s;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
   border-radius: 11px;
   padding: 0 12px;
 }

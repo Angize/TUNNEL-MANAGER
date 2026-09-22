@@ -261,9 +261,9 @@ button.act {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: var(--field);
-  border: 1px solid var(--bord);
-  box-shadow: var(--sh-sm);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
   color: var(--tx);
   border-radius: 13px;
   padding: 8px 12px;
@@ -275,7 +275,7 @@ button.act {
 
 button.act:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px -12px rgba(15, 27, 45, .5);
+  box-shadow: var(--dsh-hi);
 }
 
 button.act:active {
@@ -461,9 +461,10 @@ body.reord-on .reordbtn {
   align-items: center;
   gap: 9px;
   padding: 10px 11px;
-  border: 1.5px solid var(--bord);
+  border: 1.5px solid var(--edge);
   border-radius: 11px;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
   margin-bottom: 7px;
   cursor: pointer;
   transition: .15s;
