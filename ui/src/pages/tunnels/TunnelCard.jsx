@@ -112,8 +112,10 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   }
 
   const check = async () => {
-    setMessage({ cls: '', text: T('checking_conn') })
-    const r = await withBusy('ping', () => apiPost('check-link', { id: link.id }))
+    const r = await withBusy('ping', () => {
+      setMessage({ cls: '', text: T('checking_conn') })
+      return apiPost('check-link', { id: link.id })
+    })
     if (!r) return
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })
@@ -145,8 +147,10 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   }, [registerCheck])
 
   const speed = async () => {
-    setMessage({ cls: '', text: T('speed_run') })
-    const r = await withBusy('speed', () => apiPost('link-speed', { id: link.id }))
+    const r = await withBusy('speed', () => {
+      setMessage({ cls: '', text: T('speed_run') })
+      return apiPost('link-speed', { id: link.id })
+    })
     if (!r) return
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })

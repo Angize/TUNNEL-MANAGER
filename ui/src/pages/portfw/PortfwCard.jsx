@@ -94,10 +94,10 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   const [busyAct, withBusy] = useActionBusy()
 
   const rotateNow = async () => {
-    setOverride('…')
-    const r = await withBusy('rotate', () =>
-      apiPost('portfw-next', { node: item.node_id, name: item.name })
-    )
+    const r = await withBusy('rotate', () => {
+      setOverride('…')
+      return apiPost('portfw-next', { node: item.node_id, name: item.name })
+    })
     if (!r) return
     if (r.ok && r.d.ok) {
       setOverride(r.d.active)

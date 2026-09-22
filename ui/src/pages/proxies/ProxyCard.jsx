@@ -74,8 +74,10 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
   const [busyAct, withBusy] = useActionBusy()
 
   const test = async () => {
-    setMsg({ cls: '', text: T('px_testing') })
-    const r = await withBusy('test', () => apiPost('proxy-test', { id: proxy.id }))
+    const r = await withBusy('test', () => {
+      setMsg({ cls: '', text: T('px_testing') })
+      return apiPost('proxy-test', { id: proxy.id })
+    })
     if (!r) return
     const d = r.d
     if (r.ok && d.ok) {

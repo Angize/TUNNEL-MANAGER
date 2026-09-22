@@ -70,8 +70,10 @@ export default function NodeCard({
   const [busyAct, withBusy] = useActionBusy()
 
   const test = async () => {
-    setMessage({ cls: '', text: T('test_testing') })
-    const r = await withBusy('test', () => apiPost('node-test', { id: node.id }))
+    const r = await withBusy('test', () => {
+      setMessage({ cls: '', text: T('test_testing') })
+      return apiPost('node-test', { id: node.id })
+    })
     if (!r) return
     if (!r.ok) {
       setMessage(null)
