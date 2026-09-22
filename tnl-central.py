@@ -7135,6 +7135,10 @@ def _fa_span(secs):
     return " و ".join(parts[:2])
 
 
+def _name_key(name):
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", name)]
+
+
 def _ev_clusters(items, key):
     out = []
     for it in sorted(items, key=lambda h: h[key]):
@@ -7188,7 +7192,7 @@ def _node_events(nodes, first):
             log_event("bad", "node-down", f"نودِ «{names[grp[0]['nid']]}»: آفلاین شد", ts=t0)
         else:
             rows = _node_path_rows(nodes, members, t0)
-            rows.append("نودها: " + "، ".join(sorted(names[nid] for nid in members)))
+            rows.append("نودها: " + "، ".join(sorted((names[nid] for nid in members), key=_name_key)))
             log_event("bad", "node-down", f"{len(grp)} نود با هم آفلاین شدند", "\n".join(rows), ts=t0)
         held[:] = [h for h in held if h not in grp]
 
@@ -7212,7 +7216,7 @@ def _node_events(nodes, first):
             log_event("ok", "node-up", f"نودِ «{nm}»: آنلاین شد{tail}", ts=last)
         else:
             log_event("ok", "node-up", f"{len(grp)} نود دوباره آنلاین شدند — {_fa_span(last - d0)} قطع بودند",
-                      "نودها: " + "، ".join(sorted(names[nid] for nid in members)), ts=last)
+                      "نودها: " + "، ".join(sorted((names[nid] for nid in members), key=_name_key)), ts=last)
         held[:] = [h for h in held if h not in grp]
 
 
