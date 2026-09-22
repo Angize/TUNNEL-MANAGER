@@ -383,9 +383,10 @@ body.dock-on .tabbar {
   display: flex;
   align-items: center;
   padding: 11px 13px;
-  border: 1px solid var(--bord);
+  border: 1px solid var(--edge);
   border-radius: 12px;
-  background: var(--field);
+  background: var(--card);
+  box-shadow: var(--dsh);
   color: var(--tx);
   font-family: inherit;
   font-weight: 800;
