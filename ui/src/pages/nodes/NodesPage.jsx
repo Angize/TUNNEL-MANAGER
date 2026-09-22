@@ -59,6 +59,8 @@ export default function NodesPage({ embedded, active = true }) {
   const [deleting, setDeleting] = useState(null)
   const [moved, setMoved] = useState(null)
   const settled = useRef(0)
+  const [toggling, setToggling] = useState({})
+  const togglingRef = useRef(new Set())
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -70,18 +72,20 @@ export default function NodesPage({ embedded, active = true }) {
   const [data, reload] = usePolledData(load, query, active)
 
   const onToggle = useCallback(async (node) => {
+    if (togglingRef.current.has(node.id)) return
+    togglingRef.current.add(node.id)
+    setToggling((prev) => ({ ...prev, [node.id]: true }))
     const disabled = node.disabled !== true
-    const token = {}
-    setOverrides((prev) => ({ ...prev, [node.id]: { disabled, epoch: Infinity, token } }))
     const r = await apiPost('node-toggle', { id: node.id, disabled })
     const ok = r.ok && r.d.ok
-    const epoch = ++settled.current
-    setOverrides((prev) => {
-      const cur = prev[node.id]
-      if (!cur || cur.token !== token) return prev
+    if (ok) {
+      const epoch = ++settled.current
+      setOverrides((prev) => ({ ...prev, [node.id]: { disabled, epoch } }))
+    }
+    togglingRef.current.delete(node.id)
+    setToggling((prev) => {
       const next = { ...prev }
-      if (ok) next[node.id] = { ...cur, epoch }
-      else delete next[node.id]
+      delete next[node.id]
       return next
     })
     if (!ok) {
@@ -129,6 +133,7 @@ export default function NodesPage({ embedded, active = true }) {
                   key={node.id}
                   node={node}
                   windowHours={data.windowHours}
+                  toggling={!!toggling[node.id]}
                   onToggle={onToggle}
                   onChanged={reload}
                   onEdit={setEditing}

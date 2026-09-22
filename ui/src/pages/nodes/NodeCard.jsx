@@ -41,6 +41,7 @@ function NodeTraffic({ traffic }) {
 export default function NodeCard({
   node,
   windowHours,
+  toggling,
   onToggle,
   onChanged,
   onEdit,
@@ -100,7 +101,8 @@ export default function NodeCard({
   const head = (
     <>
       <div
-        className={'tsw' + (enabled ? ' on' : '')}
+        className={'tsw' + (enabled ? ' on' : '') + (toggling ? ' busy' : '')}
+        aria-busy={!!toggling}
         title={T('nd_toggle')}
         {...checkable('switch', enabled, toggle)}
       />
