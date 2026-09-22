@@ -78,6 +78,7 @@ button:disabled { opacity: .75; transform: none; cursor: wait; }
 <script>
 (function () {
   var box = document.getElementById('box'), btn = document.getElementById('btn'), err = document.getElementById('e')
+  var label = btn.textContent
   box.addEventListener('submit', async function (ev) {
     ev.preventDefault()
     err.textContent = ''
@@ -97,7 +98,7 @@ button:disabled { opacity: .75; transform: none; cursor: wait; }
       err.textContent = 'ارتباط با پنل برقرار نشد'
     }
     btn.disabled = false
-    btn.textContent = 'ورود'
+    btn.textContent = label
     box.classList.add('err')
   })
 })()

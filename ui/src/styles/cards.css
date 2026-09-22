@@ -280,12 +280,6 @@ button.act .bspin {
   border-width: 2px;
 }
 
-button.act:disabled {
-  opacity: .55;
-  cursor: progress;
-  transform: none;
-}
-
 button.act:hover {
   transform: translateY(-2px);
   box-shadow: var(--dsh-hi);
@@ -655,4 +649,13 @@ button.act.info:hover {
 
 .act.reset:hover {
   background: var(--ctl);
+}
+
+button.act:disabled,
+button.act:disabled:hover {
+  opacity: .55;
+  cursor: progress;
+  transform: none;
+  background: var(--card);
+  box-shadow: var(--dsh);
 }
