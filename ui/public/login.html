@@ -58,7 +58,9 @@ button {
 }
 button:hover { transform: translateY(-2px); box-shadow: 0 16px 30px -12px var(--acc); }
 button:active { transform: scale(.98); }
-button:disabled { opacity: .6; transform: none; cursor: wait; }
+button:disabled { opacity: .75; transform: none; cursor: wait; }
+.spin { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255, 255, 255, .4); border-top-color: #fff; border-radius: 50%; animation: lsp .8s linear infinite; vertical-align: -3px; }
+@keyframes lsp { to { transform: rotate(360deg) } }
 .e { color: var(--bad); font-size: 12.5px; margin-top: 14px; min-height: 18px; text-align: center; }
 .box.err { animation: shake .4s cubic-bezier(.36, .07, .19, .97); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -81,6 +83,7 @@ button:disabled { opacity: .6; transform: none; cursor: wait; }
     err.textContent = ''
     box.classList.remove('err')
     btn.disabled = true
+    btn.innerHTML = '<span class="spin"></span>'
     try {
       var r = await fetch('/api/login', {
         method: 'POST',
@@ -94,6 +97,7 @@ button:disabled { opacity: .6; transform: none; cursor: wait; }
       err.textContent = 'ارتباط با پنل برقرار نشد'
     }
     btn.disabled = false
+    btn.textContent = 'ورود'
     box.classList.add('err')
   })
 })()

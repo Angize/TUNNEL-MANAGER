@@ -288,7 +288,12 @@ export default function NodeDetailsModal({ node, onClose }) {
           <div className="ndips">
             {ips === null ? (
               <div className="muted" style={{ fontSize: 11.5, padding: '6px 2px' }}>
-                {ipsError || '…'}
+                {ipsError || (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    <span className="bspin ink" style={{ width: 13, height: 13, borderWidth: 2, margin: 0 }} />
+                    {T('loading')}
+                  </span>
+                )}
               </div>
             ) : ips.length ? (
               ips.map((entry) => (

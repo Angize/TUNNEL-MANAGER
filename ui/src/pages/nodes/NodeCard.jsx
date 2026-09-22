@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
+import ActBtn from '../../components/ActBtn.jsx'
+import useActionBusy from '../../lib/useActionBusy.js'
 import { Check } from '../../components/Marks.jsx'
 import UptimeBar from './UptimeBar.jsx'
 import { coreVersionName } from '../agent/versions.js'
@@ -65,9 +67,12 @@ export default function NodeCard({
     onToggle(node)
   }
 
+  const [busyAct, withBusy] = useActionBusy()
+
   const test = async () => {
     setMessage({ cls: '', text: T('test_testing') })
-    const r = await apiPost('node-test', { id: node.id })
+    const r = await withBusy('test', () => apiPost('node-test', { id: node.id }))
+    if (!r) return
     if (!r.ok) {
       setMessage(null)
       alertBox(readError(r))
@@ -89,7 +94,8 @@ export default function NodeCard({
 
   const resetTraffic = async () => {
     if (!(await confirmBox(T('nreset_confirm'), T('reset_yes')))) return
-    const r = await apiPost('traffic-reset', { node: node.id })
+    const r = await withBusy('reset', () => apiPost('traffic-reset', { node: node.id }))
+    if (!r) return
     if (r.ok && r.d.ok) {
       toast(T('t_reset_done'), 'ok')
       onChanged()
@@ -195,26 +201,14 @@ export default function NodeCard({
       <UptimeBar node={node} windowHours={windowHours} />
 
       <div className="nact iconly">
-        <button className="act ok" title={T('tip_test')} onClick={test}>
-          <Icon name="bolt" />
-        </button>
+        <ActBtn cls="ok" icon="bolt" title={T('tip_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
         {node.online ? (
-          <button className="act" title={T('tip_tune')} onClick={() => onTune(node)}>
-            <Icon name="gauge" />
-          </button>
+          <ActBtn icon="gauge" title={T('tip_tune')} locked={!!busyAct} onClick={() => onTune(node)} />
         ) : null}
-        <button className="act reset" title={T('tip_nreset')} onClick={resetTraffic}>
-          <Icon name="reset" />
-        </button>
-        <button className="act info" title={T('tip_details')} onClick={() => onDetails(node)}>
-          <Icon name="info" />
-        </button>
-        <button className="act warn" title={T('tip_edit')} onClick={() => onEdit(node)}>
-          <Icon name="pen" />
-        </button>
-        <button className="act danger" title={T('tip_delete')} onClick={() => onDelete(node)}>
-          <Icon name="trash" />
-        </button>
+        <ActBtn cls="reset" icon="reset" title={T('tip_nreset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
+        <ActBtn cls="info" icon="info" title={T('tip_details')} locked={!!busyAct} onClick={() => onDetails(node)} />
+        <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(node)} />
+        <ActBtn cls="danger" icon="trash" title={T('tip_delete')} locked={!!busyAct} onClick={() => onDelete(node)} />
       </div>
 
       <div className={message ? 'msg ' + message.cls : 'msg'}>

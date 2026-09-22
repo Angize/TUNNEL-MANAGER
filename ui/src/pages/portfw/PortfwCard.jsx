@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
+import ActBtn from '../../components/ActBtn.jsx'
+import useActionBusy from '../../lib/useActionBusy.js'
 import { Check, Cross } from '../../components/Marks.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
@@ -89,9 +91,14 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
   const listenIp = item.listen_ip || item.node_ip || ''
   const activeTarget = override != null ? override : serverActive
 
+  const [busyAct, withBusy] = useActionBusy()
+
   const rotateNow = async () => {
     setOverride('…')
-    const r = await apiPost('portfw-next', { node: item.node_id, name: item.name })
+    const r = await withBusy('rotate', () =>
+      apiPost('portfw-next', { node: item.node_id, name: item.name })
+    )
+    if (!r) return
     if (r.ok && r.d.ok) {
       setOverride(r.d.active)
       toast(T('pf_rotate_done') + r.d.active, 'ok')
@@ -103,7 +110,10 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
 
   const resetTraffic = async () => {
     if (!(await confirmBox(T('pf_reset_confirm'), T('reset_yes')))) return
-    const r = await apiPost('traffic-reset', { node: item.node_id, name: item.name })
+    const r = await withBusy('reset', () =>
+      apiPost('traffic-reset', { node: item.node_id, name: item.name })
+    )
+    if (!r) return
     if (r.ok && r.d.ok) {
       toast(T('t_reset_done'), 'ok')
       onChanged()
@@ -114,7 +124,10 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
 
   const remove = async () => {
     if (!(await confirmBox(T('pf_del_confirm'), T('confirm_del')))) return
-    const r = await apiPost('portfw-del', { node: item.node_id, name: item.name })
+    const r = await withBusy('del', () =>
+      apiPost('portfw-del', { node: item.node_id, name: item.name })
+    )
+    if (!r) return
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
     onChanged()
   }
@@ -204,25 +217,19 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
       </div>
 
       <div className="nact iconly">
-        <button className="act reset" title={T('tip_reset')} onClick={resetTraffic}>
-          <Icon name="reset" />
-        </button>
+        <ActBtn cls="reset" icon="reset" title={T('tip_reset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
         {multiTarget && serverActive ? (
-          <button
-            className="act"
+          <ActBtn
+            icon="redo"
             title={T('pf_rotate_now')}
             style={ROTATE_BTN_STYLE}
+            busy={busyAct === 'rotate'}
+            locked={!!busyAct}
             onClick={rotateNow}
-          >
-            <Icon name="redo" />
-          </button>
+          />
         ) : null}
-        <button className="act warn" title={T('tip_edit')} onClick={() => onEdit(item)}>
-          <Icon name="pen" />
-        </button>
-        <button className="act danger" title={T('tip_delete')} onClick={remove}>
-          <Icon name="trash" />
-        </button>
+        <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(item)} />
+        <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
       </div>
     </AccordionCard>
   )

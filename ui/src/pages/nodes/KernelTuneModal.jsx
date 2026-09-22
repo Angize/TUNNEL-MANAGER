@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import ModalLoading from '../../components/ModalLoading.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
@@ -43,7 +44,9 @@ export default function KernelTuneModal({ node, onClose }) {
     }
   }, [node.id])
 
-  if (!status) return null
+  if (!status) {
+    return <ModalLoading icon="gauge" title={T('kt_title')} subtitle={T('kt_sub')} onClose={onClose} />
+  }
 
   const active = !!status.active
   const bbr = !!status.bbr_available
@@ -67,11 +70,11 @@ export default function KernelTuneModal({ node, onClose }) {
     <>
       {active ? (
         <button className="primary" disabled={busy} onClick={() => run('revert')}>
-          {T('kt_disable')}
+          {busy ? <span className="bspin" /> : T('kt_disable')}
         </button>
       ) : (
         <button className="primary" disabled={busy} onClick={() => run('apply')}>
-          {T('kt_enable')}
+          {busy ? <span className="bspin" /> : T('kt_enable')}
         </button>
       )}
       <button className="ghost" onClick={onClose}>

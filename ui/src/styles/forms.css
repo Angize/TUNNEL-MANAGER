@@ -62,6 +62,11 @@ select:focus {
   animation: isp .9s linear infinite;
 }
 
+.bspin.ink {
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+}
+
 @keyframes isp {
   to { transform: rotate(360deg) }
 }

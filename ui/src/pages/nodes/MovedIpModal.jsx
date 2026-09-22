@@ -45,8 +45,8 @@ export default function MovedIpModal({ node, onClose, onAdopted }) {
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={adopt}>
-        <Icon name="check" />
-        {T('mv_set')}
+        {busy ? <span className="bspin" /> : <Icon name="check" />}
+        {busy ? null : T('mv_set')}
       </button>
       <button className="ghost" onClick={onClose}>
         {T('close')}
