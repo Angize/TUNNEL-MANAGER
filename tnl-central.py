@@ -2391,14 +2391,15 @@ def api_summary(d):
             continue
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
-        if (isinstance(ah, dict) and ah.get("up") is None) or (isinstance(bh, dict) and bh.get("up") is None):
+        state = _link_up(L)
+        if state is None:
             continue
         tab = "core" if L.get("type") == "core" else "tunnels"
         if link_drift(L["id"]):
             drift_n += 1
             alerts.append({"level": "warn", "kind": "drift", "tab": tab, "id": L["id"], "msg": f"تونلِ «{L.get('name')}» نیازمندِ بازسازی است"})
             continue
-        if not _link_up(L):
+        if not state:
             down += 1
             alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "msg": f"تونلِ «{L.get('name')}» قطع است"})
             continue
@@ -7057,29 +7058,26 @@ def _node_online(nid):
 
 
 def _link_up(L):
-    ah, _a = _link_side_health(L, "a_node")
-    bh, _b = _link_side_health(L, "b_node")
-    if not (isinstance(ah, dict) and ah.get("up") and isinstance(bh, dict) and bh.get("up")):
+    seen = [h for h, answered in (_link_side_health(L, k) for k in ("a_node", "b_node")) if answered]
+    if not seen or any(isinstance(h, dict) and h.get("up") is None for h in seen):
+        return None
+    if not all(isinstance(h, dict) and h.get("up") for h in seen):
         return False
-    return not (ah.get("dead") or bh.get("dead"))
+    return not any(h.get("dead") for h in seen)
+
+
+def _link_blind(L):
+    return [k for k in ("a_node", "b_node") if not _link_side_health(L, k)[1]]
 
 
 def _link_down_reason(L, nmap):
-    for key in ("a_node", "b_node"):
-        nid = L.get(key)
-        if _cache_get(nid) and not _node_online(nid):
-            nm = nmap.get(nid, nid)
-            return f"نودِ «{nm}» آفلاین است"
+    blind = _link_blind(L)
+    if blind:
+        seen = "b_node" if blind[0] == "a_node" else "a_node"
+        return (f"فقط سرِ «{nmap.get(L.get(seen), '')}» دیده می‌شود و تونل را قطع می‌بیند؛ "
+                f"سرِ «{nmap.get(L.get(blind[0]), '')}» از پنل در دسترس نیست")
     if link_drift(L["id"]):
         return "IP عوض شده — نیازمندِ بازسازی"
-    if L.get("type") == "core" and L.get("ws_pool"):
-        try:
-            r = api_edge_status({"id": L["id"]})
-            h = (r or {}).get("health") or []
-            if r and r.get("pool") and h and not any(e.get("state") == "healthy" for e in h):
-                return "همهٔ لبه‌های استخر بلاک/سوخته‌اند"
-        except Exception:
-            pass
     return "قابلِ دسترسی نیست (کریر/سرِ مقابل)"
 
 
@@ -7116,15 +7114,9 @@ def _events_once():
             _ev_state["links"].pop(lid, None)
             _ev_state["links_coarse_down"].discard(lid)
             continue
-        a_probed = _cache_get(L.get("a_node")) is not None
-        b_probed = _cache_get(L.get("b_node")) is not None
-        if not (a_probed and b_probed):
+        up = _link_up(L)
+        if up is None:
             continue
-        _ah, _ = _link_side_health(L, "a_node")
-        _bh, _ = _link_side_health(L, "b_node")
-        if (isinstance(_ah, dict) and _ah.get("up") is None) or (isinstance(_bh, dict) and _bh.get("up") is None):
-            continue
-        up = bool(_link_up(L))
         prev = _ev_state["links"].get(lid)
         _ev_state["links"][lid] = up
         if first or prev is None or prev == up:
@@ -7133,21 +7125,13 @@ def _events_once():
         precise_core = L.get("type") == "core" and (
             bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)
         if up:
-            if precise_core and lid not in _ev_state["links_coarse_down"]:
-                pass
-            else:
+            if not precise_core or lid in _ev_state["links_coarse_down"]:
                 log_event("ok", "link-up", f"تونلِ «{nm}»: وصل شد")
             _ev_state["links_coarse_down"].discard(lid)
-        else:
-            a_off = _cache_get(L.get("a_node")) and not _node_online(L.get("a_node"))
-            b_off = _cache_get(L.get("b_node")) and not _node_online(L.get("b_node"))
-            if precise_core and not (a_off or b_off):
-                pass
-            else:
-                rf = _link_down_reason(L, nmap)
-                log_event("bad", "link-down", f"تونلِ «{nm}»: قطع شد", rf)
-                if precise_core:
-                    _ev_state["links_coarse_down"].add(lid)
+        elif not precise_core or _link_blind(L):
+            log_event("bad", "link-down", f"تونلِ «{nm}»: قطع شد", _link_down_reason(L, nmap))
+            if precise_core:
+                _ev_state["links_coarse_down"].add(lid)
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
         _ev_state["links_coarse_down"].discard(lid)
