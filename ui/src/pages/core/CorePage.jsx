@@ -123,7 +123,7 @@ export default function CorePage({ embedded, active = true }) {
 
       <Toolbar value={query} placeholder={T('core_search')} reorder onSearch={setQuery} />
 
-      <div className="cardgrid">
+      <div>
         {list === null ? (
           <CardSkeletons kind="tunnel" count={counts.core} />
         ) : links.length || pending.length ? (

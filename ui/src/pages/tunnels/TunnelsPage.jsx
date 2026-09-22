@@ -108,7 +108,7 @@ export default function TunnelsPage({ embedded, active = true }) {
 
       <Toolbar value={query} placeholder={T('tun_search')} reorder onSearch={setQuery} />
 
-      <div className="cardgrid">
+      <div>
         {list === null ? (
           <CardSkeletons kind="tunnel" count={counts.links} />
         ) : links.length || pending.length ? (
