@@ -83,15 +83,10 @@
   min-width: 0;
   padding-block: 2px;
   padding-inline: 12px 0;
-  border-bottom: 1px solid var(--edge);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 18px;
-}
-
-.cgrid .cgc.end {
-  border-bottom: 0;
 }
 
 .cgrid .cgc b {

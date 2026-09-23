@@ -231,9 +231,9 @@ function pairs(cells) {
   return rows
 }
 
-function Cell({ c, end }) {
+function Cell({ c }) {
   return (
-    <div className={'cgc' + (end ? ' end' : '')}>
+    <div className="cgc">
       {c && c.label ? c.label + ': ' : null}
       {c ? c.value : null}
     </div>
@@ -256,22 +256,19 @@ export default function CoreMeta({ link, activeEdge }) {
   return (
     <>
       <div className="enmeta cgrid">
-        {rows.map(([client, server], i) => {
-          const end = i === rows.length - 1
-          return (
-            <Fragment key={i}>
-              <Cell c={client} end={end} />
-              {i ? (
-                <i />
-              ) : (
-                <span className="tnarrow earrow">
-                  <Icon name="arrows" />
-                </span>
-              )}
-              <Cell c={server} end={end} />
-            </Fragment>
-          )
-        })}
+        {rows.map(([client, server], i) => (
+          <Fragment key={i}>
+            <Cell c={client} />
+            {i ? (
+              <i />
+            ) : (
+              <span className="tnarrow earrow">
+                <Icon name="arrows" />
+              </span>
+            )}
+            <Cell c={server} />
+          </Fragment>
+        ))}
       </div>
       <ConntrackWarning link={link} />
       <EdgeBlock link={link} activeEdge={activeEdge} />
