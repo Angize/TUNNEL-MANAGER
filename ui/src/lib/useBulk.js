@@ -143,7 +143,7 @@ export default function useBulk({ list, checkRefs, onDone }) {
       .replace('{k}', String(k))
     if (bad && action.key !== 'ping') msg += T('bulk_bad').replace('{n}', String(bad))
     if (skipped) msg += T('bulk_skip').replace('{n}', String(skipped))
-    if (firstErr) msg += '\n' + firstErr
+    if (firstErr) msg += ' — ' + firstErr
     toast(msg, bad ? 'err' : 'ok')
     await onDone()
   }
