@@ -121,11 +121,7 @@ export default function TunnelsPage({ active }) {
                 registerCheck={(fn) => {
                   checkRefs.current[link.id] = fn
                 }}
-                sel={
-                  bulk.selecting
-                    ? { picked: bulk.picked.has(link.id), status: bulk.status[link.id], pick: bulk.pick }
-                    : null
-                }
+                sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}
             {pending.map((act) => (

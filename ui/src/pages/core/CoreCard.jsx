@@ -10,7 +10,7 @@ import { linkSideState, sideText } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
 import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
-import { BulkChip, SelBox } from '../../components/Bulk.jsx'
+import { SelBox } from '../../components/Bulk.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { useActionBusy } from '../../lib/useBusy.js'
@@ -317,17 +317,13 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
                   {T('st_off')}
                 </span>
               )}
-              {sel && sel.status ? (
-                <BulkChip status={sel.status} />
-              ) : (
-                <span className="hpeers" dir="ltr">
-                  <HeaderDot link={link} side={first} />
-                  <span className="pn">{link[first + '_name']}</span>
-                  <Icon name="arrows" />
-                  <span className="pn">{link[second + '_name']}</span>
-                  <HeaderDot link={link} side={second} />
-                </span>
-              )}
+              <span className="hpeers" dir="ltr">
+                <HeaderDot link={link} side={first} />
+                <span className="pn">{link[first + '_name']}</span>
+                <Icon name="arrows" />
+                <span className="pn">{link[second + '_name']}</span>
+                <HeaderDot link={link} side={second} />
+              </span>
             </div>
           </div>
           {sel ? null : <Chevron />}

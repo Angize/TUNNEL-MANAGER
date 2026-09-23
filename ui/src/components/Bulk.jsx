@@ -6,6 +6,24 @@ import { T } from '../i18n/fa.js'
 import './bulk.css'
 
 export function BulkButton({ bulk }) {
+  if (bulk.run) {
+    const { key, i, k } = bulk.run
+    const action = BULK_ACTIONS.find((a) => a.key === key)
+    return (
+      <div className="bulkrun">
+        <Icon name={action.icon} />
+        <span className="tx">{T('bulk_p_' + key) + ' ' + i + ' ' + T('bulk_of') + ' ' + k}</span>
+        <span className="bar">
+          <i style={{ width: Math.round((100 * i) / Math.max(k, 1)) + '%' }} />
+        </span>
+        {key === 'ping' ? null : (
+          <button type="button" className="stop" onClick={bulk.stop}>
+            {T('bulk_stop')}
+          </button>
+        )}
+      </div>
+    )
+  }
   return (
     <button
       className={'chkall bulkbtn' + (bulk.selecting ? ' on' : '')}
@@ -25,59 +43,34 @@ export function SelBox({ on }) {
   )
 }
 
-export function BulkChip({ status }) {
-  if (!status) return null
-  return (
-    <span className={'pst ' + status.st} title={status.err || undefined}>
-      {T('bulk_st_' + status.st)}
-    </span>
-  )
-}
+function Bar({ bulk }) {
+  const k = bulk.picked.size
 
-function Progress({ bulk }) {
-  const { key, i, k } = bulk.run
-  const action = BULK_ACTIONS.find((a) => a.key === key)
-  return (
-    <div className="bulkbar prog">
-      <Icon name={action.icon} />
-      <span className="tx">
-        {T('bulk_p_' + key) + ' ' + i + ' ' + T('bulk_of') + ' ' + k}
-      </span>
-      <span className="bar">
-        <i style={{ width: Math.round((100 * i) / Math.max(k, 1)) + '%' }} />
-      </span>
-      {key === 'ping' ? null : (
-        <button type="button" className="stop" onClick={bulk.stop}>
-          {T('bulk_stop')}
-        </button>
-      )}
-    </div>
+  useEffect(() => {
+    document.body.classList.add('bulksel')
+    return () => document.body.classList.remove('bulksel')
+  }, [])
+
+  return createPortal(
+    <div className="bulkbar">
+      <button type="button" className="x" title={T('bulk_exit')} onClick={bulk.exit}>
+        <Icon name="x" />
+      </button>
+      <span className="cnt">{k + ' ' + T('bulk_of') + ' ' + bulk.count}</span>
+      <button type="button" className="all" onClick={bulk.pickAll}>
+        {bulk.allPicked ? T('bulk_none') : T('bulk_all')}
+      </button>
+      <button type="button" className="go" disabled={!k} onClick={bulk.openSheet}>
+        <Icon name="grid" />
+        {T('bulk_go')}
+      </button>
+    </div>,
+    document.body
   )
 }
 
 export function BulkBar({ bulk, active }) {
-  if (!bulk.selecting || !active) return null
-  const k = bulk.picked.size
-  return createPortal(
-    bulk.run ? (
-      <Progress bulk={bulk} />
-    ) : (
-      <div className="bulkbar">
-        <button type="button" className="x" title={T('bulk_exit')} onClick={bulk.exit}>
-          <Icon name="x" />
-        </button>
-        <span className="cnt">{k + ' ' + T('bulk_of') + ' ' + bulk.count}</span>
-        <button type="button" className="all" onClick={bulk.pickAll}>
-          {bulk.allPicked ? T('bulk_none') : T('bulk_all')}
-        </button>
-        <button type="button" className="go" disabled={!k} onClick={bulk.openSheet}>
-          <Icon name="grid" />
-          {T('bulk_go')}
-        </button>
-      </div>
-    ),
-    document.body
-  )
+  return bulk.selecting && active ? <Bar bulk={bulk} /> : null
 }
 
 export function BulkSheet({ bulk, links, core }) {
