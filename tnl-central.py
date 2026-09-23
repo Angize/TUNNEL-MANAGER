@@ -5006,6 +5006,8 @@ def _ws_pool_fields(d, cur=None):
             res.append(v)
         return res
 
+    old_path = str(cur.get("ws_path") or "").strip()
+
     def _hosts(key):
         seen, res = set(), []
         for x in _list(key):
@@ -5013,6 +5015,8 @@ def _ws_pool_fields(d, cur=None):
             if isinstance(x, dict):
                 hp = str(x.get("path") or "").strip()
                 x = x.get("host", "")
+            if hp == old_path:
+                hp = ""
             x = str(x).strip().lower()
             if not x or x in seen:
                 continue
