@@ -1,0 +1,324 @@
+.tbtnrow > button.bulkbtn {
+  color: var(--acc);
+}
+
+.tbtnrow > button.bulkbtn.on {
+  background: var(--accw);
+  border-color: color-mix(in srgb, var(--acc) 35%, transparent);
+}
+
+.selck {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 2px solid color-mix(in srgb, var(--sub) 55%, transparent);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.selck .ic {
+  width: 14px;
+  height: 14px;
+  color: #fff;
+  opacity: 0;
+}
+
+.selck.on {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+.selck.on .ic {
+  opacity: 1;
+}
+
+.card.sel {
+  box-shadow: var(--dsh), inset 0 0 0 1.5px var(--acc);
+  background: color-mix(in srgb, var(--acc) 6%, var(--card));
+}
+
+.pst {
+  margin-inline-start: auto;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.pst.done,
+.pst.ok {
+  color: var(--ok);
+  background: var(--okw);
+}
+
+.pst.run {
+  color: var(--acc);
+  background: var(--accw);
+}
+
+.pst.wait,
+.pst.skip,
+.pst.off {
+  color: var(--sub);
+  background: var(--field);
+}
+
+.pst.fail,
+.pst.bad {
+  color: var(--bad);
+  background: var(--badw);
+}
+
+.bulkbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 20px;
+  width: min(560px, calc(100% - 24px));
+  z-index: 44;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 7px 7px 10px;
+  border-radius: 16px;
+  background: var(--modal);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh-hi);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+}
+
+.bulkbar button {
+  font-family: inherit;
+  cursor: pointer;
+  border: 0;
+}
+
+.bulkbar .x {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--edge);
+  background: transparent;
+  color: var(--sub);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.bulkbar .x .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.bulkbar .cnt {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--tx);
+  white-space: nowrap;
+}
+
+.bulkbar .all {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--acc);
+  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--accw);
+}
+
+.bulkbar .go {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--acc);
+  color: #fff;
+  font-weight: 800;
+  font-size: 12.5px;
+  padding: 9px 13px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.bulkbar .go .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.bulkbar .go:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.bulkbar.prog {
+  padding: 9px 12px;
+  gap: 10px;
+}
+
+.bulkbar.prog > .ic {
+  width: 16px;
+  height: 16px;
+  color: var(--acc);
+  flex: 0 0 auto;
+}
+
+.bulkbar.prog .tx {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--tx);
+  white-space: nowrap;
+}
+
+.bulkbar.prog .bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 6px;
+  background: var(--field);
+  overflow: hidden;
+}
+
+.bulkbar.prog .bar i {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+  border-radius: 6px;
+}
+
+.bulkbar.prog .stop {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--bad);
+  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--badw);
+}
+
+.bulkpad {
+  height: 64px;
+}
+
+.bsheetov {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: var(--veil);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.bsheet {
+  width: min(560px, 100%);
+  background: var(--modal);
+  border: 1px solid var(--edge);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, .18), inset 0 1px 0 var(--hi);
+}
+
+.bsheet .hdl {
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--edge);
+  margin: 0 auto 9px;
+}
+
+.bsheet .bst {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--tx);
+}
+
+.bsheet .bss {
+  font-size: 11px;
+  color: var(--sub);
+  margin: 2px 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.btile {
+  --c: var(--tx);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 8px 2px 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tx);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  cursor: pointer;
+}
+
+.btile .chip {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  color: var(--c);
+}
+
+.btile .chip .ic {
+  width: 16px;
+  height: 16px;
+}
+
+.btile.t-ok {
+  --c: var(--ok);
+}
+
+.btile.t-acc {
+  --c: var(--acc);
+}
+
+.btile.t-gold {
+  --c: var(--gold);
+}
+
+.btile.t-bad {
+  --c: var(--bad);
+}
+
+.bsheet .bcancel {
+  margin-top: 10px;
+  width: 100%;
+  padding: 9px;
+  border-radius: 12px;
+  border: 1px solid var(--edge);
+  background: var(--card);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--tx);
+  cursor: pointer;
+}
+
+@media (max-width: 840px) {
+  .bulkbar {
+    bottom: 84px;
+  }
+}

@@ -18,10 +18,13 @@ const EMPTY = {
   cancel: async () => {},
   refresh: async () => {},
   waitAccepted: async () => ({ ok: true }),
+  waitDone: async () => ({ ok: true }),
 }
 
 const ACCEPT_TIMEOUT_MS = 45000
 const ACCEPT_POLL_MS = 280
+const DONE_TIMEOUT_MS = 600000
+const DONE_POLL_MS = 900
 
 function runningBuilds(acts) {
   let n = 0
@@ -110,6 +113,27 @@ export function ActsProvider({ children }) {
     return { ok: true }
   }, [])
 
+  const waitDone = useCallback(async (key) => {
+    const end = Date.now() + DONE_TIMEOUT_MS
+    while (Date.now() < end) {
+      await new Promise((done) => setTimeout(done, DONE_POLL_MS))
+      let r = null
+      try {
+        r = await apiGet('acts')
+      } catch {
+        r = null
+      }
+      if (!r) continue
+      setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
+      const act = r.acts[key]
+      if (!act) return { err: T('act_lost') }
+      if (act.state === 'done') return { ok: true }
+      if (act.state === 'fail') return { err: act.err }
+      if (act.state === 'cancel') return { err: T('bulk_cancelled') }
+    }
+    return { err: T('bulk_timeout') }
+  }, [])
+
   const value = useMemo(
     () => ({
       acts: state.acts,
@@ -121,9 +145,10 @@ export function ActsProvider({ children }) {
       cancel,
       refresh,
       waitAccepted,
+      waitDone,
       dismissTick,
     }),
-    [state, actFor, pendingFor, dismiss, cancel, refresh, waitAccepted, dismissTick]
+    [state, actFor, pendingFor, dismiss, cancel, refresh, waitAccepted, waitDone, dismissTick]
   )
 
   return <ActsContext.Provider value={value}>{children}</ActsContext.Provider>

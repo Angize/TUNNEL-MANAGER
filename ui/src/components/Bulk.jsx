@@ -1,0 +1,126 @@
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import Icon from './Icon.jsx'
+import { BULK_ACTIONS, bulkNames } from '../lib/useBulk.js'
+import { T } from '../i18n/fa.js'
+import './bulk.css'
+
+export function BulkButton({ bulk }) {
+  return (
+    <button
+      className={'chkall bulkbtn' + (bulk.selecting ? ' on' : '')}
+      onClick={bulk.selecting ? bulk.exit : bulk.start}
+    >
+      <Icon name={bulk.selecting ? 'check' : 'grid'} />
+      {bulk.selecting ? T('bulk_selecting') : T('bulk_btn')}
+    </button>
+  )
+}
+
+export function SelBox({ on }) {
+  return (
+    <span className={'selck' + (on ? ' on' : '')} role="checkbox" aria-checked={on ? 'true' : 'false'}>
+      <Icon name="check" />
+    </span>
+  )
+}
+
+export function BulkChip({ status }) {
+  if (!status) return null
+  return (
+    <span className={'pst ' + status.st} title={status.err || undefined}>
+      {T('bulk_st_' + status.st)}
+    </span>
+  )
+}
+
+function Progress({ bulk }) {
+  const { key, i, k } = bulk.run
+  const action = BULK_ACTIONS.find((a) => a.key === key)
+  return (
+    <div className="bulkbar prog">
+      <Icon name={action.icon} />
+      <span className="tx">
+        {T('bulk_p_' + key) + ' ' + i + ' ' + T('bulk_of') + ' ' + k}
+      </span>
+      <span className="bar">
+        <i style={{ width: Math.round((100 * i) / Math.max(k, 1)) + '%' }} />
+      </span>
+      {key === 'ping' ? null : (
+        <button type="button" className="stop" onClick={bulk.stop}>
+          {T('bulk_stop')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+export function BulkBar({ bulk, active }) {
+  if (!bulk.selecting || !active) return null
+  const k = bulk.picked.size
+  return createPortal(
+    bulk.run ? (
+      <Progress bulk={bulk} />
+    ) : (
+      <div className="bulkbar">
+        <button type="button" className="x" title={T('bulk_exit')} onClick={bulk.exit}>
+          <Icon name="x" />
+        </button>
+        <span className="cnt">{k + ' ' + T('bulk_of') + ' ' + bulk.count}</span>
+        <button type="button" className="all" onClick={bulk.pickAll}>
+          {bulk.allPicked ? T('bulk_none') : T('bulk_all')}
+        </button>
+        <button type="button" className="go" disabled={!k} onClick={bulk.openSheet}>
+          <Icon name="grid" />
+          {T('bulk_go')}
+        </button>
+      </div>
+    ),
+    document.body
+  )
+}
+
+export function BulkSheet({ bulk, links, core }) {
+  const close = bulk.closeSheet
+  useEffect(() => {
+    if (!bulk.sheet) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') close()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [bulk.sheet, close])
+
+  if (!bulk.sheet) return null
+  const chosen = (links || []).filter((l) => bulk.picked.has(l.id))
+  const actions = BULK_ACTIONS.filter((a) => core || !a.coreOnly)
+
+  return createPortal(
+    <div
+      className="bsheetov"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close()
+      }}
+    >
+      <div className="bsheet">
+        <div className="hdl" />
+        <div className="bst">{T('bulk_title').replace('{k}', String(chosen.length))}</div>
+        <div className="bss">{bulkNames(chosen)}</div>
+        <div className="btiles">
+          {actions.map((a) => (
+            <button key={a.key} type="button" className={'btile t-' + a.tone} onClick={() => bulk.perform(a)}>
+              <span className="chip">
+                <Icon name={a.icon} />
+              </span>
+              {T('bulk_t_' + a.key)}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="bcancel" onClick={close}>
+          {T('cancel')}
+        </button>
+      </div>
+    </div>,
+    document.body
+  )
+}
