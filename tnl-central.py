@@ -8022,11 +8022,10 @@ def _act_run(h, fn):
     try:
         res = fn(h)
         res = res if isinstance(res, dict) else {}
-        bad = (res.get("msg") or res.get("error") or "") if res.get("ok") is False else ""
         with _act_lock:
-            if bad:
-                h.update(state="fail", step="", err=str(bad)[:300], offer=str(res.get("offer") or ""),
-                         ended=int(time.time()))
+            if res.get("ok") is False:
+                h.update(state="fail", step="", err=str(res.get("msg") or res.get("error") or "ناموفق")[:300],
+                         offer=str(res.get("offer") or ""), ended=int(time.time()))
             else:
                 h.update(state="done", step="", pct=100, si=h["sn"], can=False,
                          note=str(res.get("msg") or "")[:300], ended=int(time.time()))
@@ -8035,7 +8034,7 @@ def _act_run(h, fn):
             h.update(state="cancel", step="", ended=int(time.time()))
     except Exception as e:
         with _act_lock:
-            h.update(state="fail", step="", err=str(e)[:300], ended=int(time.time()))
+            h.update(state="fail", step="", err=(str(e) or "ناموفق")[:300], ended=int(time.time()))
 
 
 def act_start(key, fn, target="", page="", ttype=""):
