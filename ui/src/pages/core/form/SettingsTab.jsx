@@ -94,8 +94,12 @@ export default function SettingsTab({
         </div>
       ) : null}
 
-      <PortTriesSection form={form} enums={cfg.enums} patch={patch} />
-      <BandSection form={form} enums={cfg.enums} patch={patch} />
+      {form.Tr === 'raw' ? null : (
+        <>
+          <PortTriesSection form={form} enums={cfg.enums} patch={patch} />
+          <BandSection form={form} enums={cfg.enums} patch={patch} />
+        </>
+      )}
       <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       <WsSection
         form={form}
