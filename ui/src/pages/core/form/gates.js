@@ -2,9 +2,13 @@ export function rawPorted(form, enums) {
   return form.Tr === 'raw' && ((enums && enums.raw_ported) || []).includes(form.RawProfile)
 }
 
+export function wsPoolOn(form) {
+  return form.Tr === 'ws' && !!(form.pool && form.pool.pool)
+}
+
 export function portTriesOn(form, enums) {
   if (form.Tr === 'raw') return rawPorted(form, enums) && !!form.SportRandom
-  if (form.Tr === 'ws' && form.pool && form.pool.pool && !form.pool.portRoll) return false
+  if (wsPoolOn(form) && !form.pool.portRoll) return false
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 

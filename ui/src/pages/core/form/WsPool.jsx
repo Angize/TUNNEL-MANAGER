@@ -13,7 +13,6 @@ import {
   isBurned,
 } from './HealthRow.jsx'
 import useSecondTick from './useSecondTick.js'
-import { TglBox } from './controls.jsx'
 import { poolRotateItems } from './presets.js'
 import { poolValid } from './validate.js'
 import { alertBox } from '../../../lib/dialog.js'
@@ -195,13 +194,6 @@ export default function WsPool({ form, enums, tuning, lid, live, patch }) {
         value={pool.rotate}
         placeholder={T('rot_int_lbl')}
         onChange={(v) => setPool({ rotate: +v })}
-      />
-      <TglBox
-        on={!!pool.portRoll}
-        title={T('pool_roll_t')}
-        note={T('pool_roll_d')}
-        gap={12}
-        onClick={() => setPool({ portRoll: !pool.portRoll })}
       />
     </div>
   )
