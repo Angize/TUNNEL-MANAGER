@@ -15,6 +15,8 @@ import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import { registerCommand } from '../../lib/pageCommand.js'
 import useCheckAll from '../../lib/useCheckAll.js'
+import useBulk from '../../lib/useBulk.js'
+import { BulkBar, BulkButton, BulkSheet } from '../../components/Bulk.jsx'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import { useActs } from '../../state/ActsContext.jsx'
@@ -40,7 +42,7 @@ export default function TunnelsPage({ active }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
-  const { checking, checkAll, checkRefs } = useCheckAll('tunnels:checkall', list)
+  const { checkRefs } = useCheckAll('tunnels:checkall', list)
 
   useEffect(() => {
     reload()
@@ -84,6 +86,12 @@ export default function TunnelsPage({ active }) {
   const order = useCardReorder('tunnels', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+  const bulk = useBulk({ list: list === null ? null : ordered, checkRefs, onDone: afterAction })
+  const bulkExit = bulk.exit
+
+  useEffect(() => {
+    if (!active) bulkExit()
+  }, [active, bulkExit])
 
   return (
     <>
@@ -93,15 +101,7 @@ export default function TunnelsPage({ active }) {
           <Icon name="plus" />
           {T('add_tunnel')}
         </button>
-        <button
-          className="chkall"
-          disabled={checking}
-          style={checking ? { opacity: 0.6 } : undefined}
-          onClick={checkAll}
-        >
-          <Icon name="activity" />
-          {T('check_all')}
-        </button>
+        <BulkButton bulk={bulk} />
       </div>
 
       <Toolbar value={query} placeholder={T('tun_search')} reorder onSearch={setQuery} />
@@ -121,11 +121,17 @@ export default function TunnelsPage({ active }) {
                 registerCheck={(fn) => {
                   checkRefs.current[link.id] = fn
                 }}
+                sel={
+                  bulk.selecting
+                    ? { picked: bulk.picked.has(link.id), status: bulk.status[link.id], pick: bulk.pick }
+                    : null
+                }
               />
             ))}
             {pending.map((act) => (
               <PendingCard key={'pend_' + act.key} act={act} tagClass={ctagClass} />
             ))}
+            {bulk.selecting ? <div className="bulkpad" /> : null}
           </>
         ) : (
           <div className="card muted">{query ? T('no_results') : T('tun_empty')}</div>
@@ -138,6 +144,8 @@ export default function TunnelsPage({ active }) {
       {editing ? (
         <TunnelEditModal link={editing} onClose={() => setEditing(null)} onSaved={afterAction} />
       ) : null}
+      <BulkBar bulk={bulk} active={active} />
+      <BulkSheet bulk={bulk} links={ordered} />
     </>
   )
 }

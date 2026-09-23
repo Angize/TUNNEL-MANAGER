@@ -9,6 +9,7 @@ import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState, sideText } from './sideHealth.js'
 import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
+import { BulkChip, SelBox } from '../../components/Bulk.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { useActionBusy } from '../../lib/useBusy.js'
@@ -77,7 +78,7 @@ function SideBox({ link, side }) {
   )
 }
 
-export default function TunnelCard({ link, onEdit, onReload, onTag, registerCheck }) {
+export default function TunnelCard({ link, onEdit, onReload, onTag, registerCheck, sel }) {
   const { actFor } = useActs()
   const [open, setOpen] = useState(() => isCardOpen(link.id))
   const [message, setMessage] = useState(null)
@@ -112,14 +113,14 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       setMessage({ cls: '', text: T('checking_conn') })
       return apiPost('check-link', { id: link.id })
     })
-    if (!r) return
+    if (!r) return 'bad'
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })
-      return
+      return 'bad'
     }
     if (link.enabled === false) {
       setMessage({ cls: '', text: T('conn_off') })
-      return
+      return 'off'
     }
     const d = r.d
     const aUp = d.a_online && d.a_health && d.a_health.up
@@ -134,6 +135,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
         b: (link.b_name || 'B') + ': ' + sideText(d.b_online, d.b_health, translateError(d.b_error)),
       },
     })
+    return allOk ? 'ok' : 'bad'
   }
 
   checkRef.current = check
@@ -243,6 +245,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
           (open ? ' open' : '') +
           (act && act.state === 'run' ? ' acting' : '') +
           (dragging ? ' rdrag' : '') +
+          (sel && sel.picked ? ' sel' : '') +
           tagClass(link)
         }
         id={'c_' + link.id}
@@ -252,16 +255,21 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       >
         <div
           className="chead"
-          {...hold}
-          {...pressable(() => toggleCard(link.id), () => setPicking(true))}
+          {...(sel
+            ? pressable(() => sel.pick(link.id))
+            : { ...hold, ...pressable(() => toggleCard(link.id), () => setPicking(true)) })}
         >
           <Grip />
-          <div
-            className={'tsw' + (enabled ? ' on' : '') + (toggleBusy ? ' busy' : '')}
-            aria-busy={!!toggleBusy}
-            title={T('tip_toggle')}
-            {...checkable('switch', enabled, toggle)}
-          />
+          {sel ? (
+            <SelBox on={sel.picked} />
+          ) : (
+            <div
+              className={'tsw' + (enabled ? ' on' : '') + (toggleBusy ? ' busy' : '')}
+              aria-busy={!!toggleBusy}
+              title={T('tip_toggle')}
+              {...checkable('switch', enabled, toggle)}
+            />
+          )}
           <div className="hmain">
             <div className="hrow1">
               <span className="hname">{link.name}</span>
@@ -271,16 +279,20 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
                   {T('st_off')}
                 </span>
               )}
-              <span className="hpeers" dir="ltr">
-                <SideDot link={link} side="a" />
-                <span className="pn">{link.a_name}</span>
-                <Icon name="arrows" />
-                <span className="pn">{link.b_name}</span>
-                <SideDot link={link} side="b" />
-              </span>
+              {sel && sel.status ? (
+                <BulkChip status={sel.status} />
+              ) : (
+                <span className="hpeers" dir="ltr">
+                  <SideDot link={link} side="a" />
+                  <span className="pn">{link.a_name}</span>
+                  <Icon name="arrows" />
+                  <span className="pn">{link.b_name}</span>
+                  <SideDot link={link} side="b" />
+                </span>
+              )}
             </div>
           </div>
-          <Chevron />
+          {sel ? null : <Chevron />}
         </div>
 
         <div className="cbody" inert={!open}>

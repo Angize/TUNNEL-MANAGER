@@ -176,6 +176,7 @@ const PATHS = {
     </>
   ),
   check: <path d="M20 6 9 17l-5-5" />,
+  x: <path d="M18 6 6 18M6 6l12 12" />,
   sun: (
     <>
       <circle cx="12" cy="12" r="4" />

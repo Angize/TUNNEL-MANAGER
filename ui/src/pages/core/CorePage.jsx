@@ -11,6 +11,8 @@ import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { registerCommand } from '../../lib/pageCommand.js'
 import useCheckAll from '../../lib/useCheckAll.js'
+import useBulk from '../../lib/useBulk.js'
+import { BulkBar, BulkButton, BulkSheet } from '../../components/Bulk.jsx'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
@@ -39,7 +41,7 @@ export default function CorePage({ active }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
-  const { checking, checkAll, checkRefs } = useCheckAll('core:checkall', list)
+  const { checkRefs } = useCheckAll('core:checkall', list)
 
   useEffect(() => {
     reload()
@@ -99,6 +101,12 @@ export default function CorePage({ active }) {
   const order = useCardReorder('core', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+  const bulk = useBulk({ list: list === null ? null : ordered, checkRefs, onDone: afterAction })
+  const bulkExit = bulk.exit
+
+  useEffect(() => {
+    if (!active) bulkExit()
+  }, [active, bulkExit])
 
   return (
     <>
@@ -108,15 +116,7 @@ export default function CorePage({ active }) {
           <Icon name="plus" />
           {T('core_add')}
         </button>
-        <button
-          className="chkall"
-          disabled={checking}
-          style={checking ? { opacity: 0.6 } : undefined}
-          onClick={checkAll}
-        >
-          <Icon name="activity" />
-          {T('check_all')}
-        </button>
+        <BulkButton bulk={bulk} />
       </div>
 
       <Toolbar value={query} placeholder={T('core_search')} reorder onSearch={setQuery} />
@@ -137,11 +137,17 @@ export default function CorePage({ active }) {
                 registerCheck={(fn) => {
                   checkRefs.current[link.id] = fn
                 }}
+                sel={
+                  bulk.selecting
+                    ? { picked: bulk.picked.has(link.id), status: bulk.status[link.id], pick: bulk.pick }
+                    : null
+                }
               />
             ))}
             {pending.map((act) => (
               <PendingCard key={'pend_' + act.key} act={act} tagClass={tagClassForFamily} />
             ))}
+            {bulk.selecting ? <div className="bulkpad" /> : null}
           </>
         ) : (
           <div className="card muted">{query ? T('no_results') : T('core_empty')}</div>
@@ -155,6 +161,8 @@ export default function CorePage({ active }) {
           onDone={afterAction}
         />
       ) : null}
+      <BulkBar bulk={bulk} active={active} />
+      <BulkSheet bulk={bulk} links={ordered} core />
     </>
   )
 }
