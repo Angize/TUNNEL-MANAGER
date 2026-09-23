@@ -1,5 +1,7 @@
 import { Seg2, SegOpt, TglBox, WarnCap } from './controls.jsx'
-import { rawPortOn, sprotLive, sprotOn } from './gates.js'
+import { ctbOn, rawPortOn, sprotLive, sprotOn } from './gates.js'
+import PortTriesSection from './PortTriesSection.jsx'
+import BandSection from './BandSection.jsx'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
 import { intOf, sprotErr } from './validate.js'
 import { PORT_MAX, rangeLabel } from '../../../lib/form.js'
@@ -132,9 +134,15 @@ function SportRotation({ form, patch }) {
   )
 }
 
-export default function PortSection({ form, patch }) {
+export default function PortSection({ form, enums, patch }) {
   if (!rawPortOn(form)) return null
   const current = parseInt(form.rawPort, 10)
+  const draws = (
+    <>
+      <PortTriesSection form={form} enums={enums} patch={patch} />
+      <BandSection form={form} enums={enums} patch={patch} />
+    </>
+  )
 
   return (
     <div style={{ marginTop: 11 }}>
@@ -160,7 +168,17 @@ export default function PortSection({ form, patch }) {
         onChange={(e) => patch({ rawPort: e.target.value })}
       />
       <SourcePort form={form} patch={patch} />
+      {form.SportRandom ? draws : null}
       <SportRotation form={form} patch={patch} />
+      {form.SportRandom ? null : draws}
+      {ctbOn(form, enums) ? (
+        <TglBox
+          on={!!form.Ctb}
+          title={T('ctb_t')}
+          note={T('ctb_d')}
+          onClick={() => patch({ Ctb: !form.Ctb })}
+        />
+      ) : null}
     </div>
   )
 }

@@ -10,7 +10,7 @@ import WsSection from './WsSection.jsx'
 import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
-import { coverOk, ctbOn } from './gates.js'
+import { coverOk } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { PORT_MAX, rangeLabel } from '../../../lib/form.js'
 import { subnetForBase, subnetRangeItems } from '../../../lib/subnet.js'
@@ -90,20 +90,16 @@ export default function SettingsTab({
             ))}
           </Tiles>
           <ProtoSection form={form} enums={cfg.enums} patch={patch} />
-          <PortSection form={form} patch={patch} />
+          <PortSection form={form} enums={cfg.enums} patch={patch} />
         </div>
       ) : null}
 
-      <PortTriesSection form={form} enums={cfg.enums} patch={patch} />
-      <BandSection form={form} enums={cfg.enums} patch={patch} />
-      {ctbOn(form, cfg.enums) ? (
-        <TglBox
-          on={!!form.Ctb}
-          title={T('ctb_t')}
-          note={T('ctb_d')}
-          onClick={() => patch({ Ctb: !form.Ctb })}
-        />
-      ) : null}
+      {form.Tr === 'raw' ? null : (
+        <>
+          <PortTriesSection form={form} enums={cfg.enums} patch={patch} />
+          <BandSection form={form} enums={cfg.enums} patch={patch} />
+        </>
+      )}
       <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       <WsSection
         form={form}
