@@ -2043,17 +2043,7 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
 
 
 ROT_WARN_GAP = 3600
-_rot_warned = {}
 _note_lock = threading.Lock()
-
-
-def _rotation_note(name, why):
-    if not why:
-        return
-    with _note_lock:
-        if not _gate(_rot_warned, str(name), ROT_WARN_GAP, WARN_MAX_KEYS):
-            return
-    log_event("warn", "cfg-clamped", "تونلِ «%s»: چرخشِ آی‌پی اعمال نشد" % name, why)
 
 
 def _live_pool(pool, live):
@@ -2063,17 +2053,14 @@ def _live_pool(pool, live):
 
 def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
     if not src.get("ip_rotate") or src.get("transport") not in DIRECT_TRANSPORTS:
-        return ""
+        return
     ap = _live_pool(src.get("a_ip_pool"), a_ips)
     bp = _live_pool(src.get("b_ip_pool"), b_ips)
     if len(ap) < 2 and len(bp) < 2:
-        return ("چرخشِ آی‌پی روشن است ولی از استخرِ ذخیره‌شده (%d و %d آدرس) "
-                "روی نودها فقط %d و %d آدرس مانده — برای چرخش دستِ‌کم دو آدرس روی یک طرف لازم است"
-                % (len(src.get("a_ip_pool") or []), len(src.get("b_ip_pool") or []), len(ap), len(bp)))
+        return
     rs = int(src.get("rotate_secs") or 0)
     _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
-    return ""
 
 
 def _core_workers_bodies(src, a_body, b_body):
@@ -5448,7 +5435,7 @@ def _create_tunnel_impl(d, h):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
-        _rotation_note(name, _core_rotation_bodies(extra, a_body, b_body))
+        _core_rotation_bodies(extra, a_body, b_body)
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -5602,10 +5589,10 @@ def _restore_link(A, B, L, extra=None):
     if ttype == "core":
         a_body["role"] = _core_role(L, A["id"]) if A else ""
         b_body["role"] = _core_role(L, B["id"]) if B else ""
-        _rotation_note(L.get("name"), _core_rotation_bodies(
+        _core_rotation_bodies(
             L, a_body, b_body,
             _flat_ips(_cached_ping(A["id"])) if A else None,
-            _flat_ips(_cached_ping(B["id"])) if B else None))
+            _flat_ips(_cached_ping(B["id"])) if B else None)
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -5953,7 +5940,7 @@ def _edit_link_impl(d, h):
     if ttype == "core":
         a_body["role"] = "server" if server_side == "a" else "client"
         b_body["role"] = "server" if server_side == "b" else "client"
-        _rotation_note(new_name, _core_rotation_bodies(extra, a_body, b_body))
+        _core_rotation_bodies(extra, a_body, b_body)
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -6166,7 +6153,7 @@ def _rebuild_link_impl(d, h):
               "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
     if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-        _rotation_note(name, _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips))
+        _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips)
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
