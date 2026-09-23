@@ -23,6 +23,17 @@ function dotted(n) {
   return ((n >>> 24) & 255) + '.' + ((n >>> 16) & 255) + '.' + ((n >>> 8) & 255) + '.' + (n & 255)
 }
 
+export function hostAddress(subnet, host) {
+  const [base, bits] = String(subnet || '').split('/')
+  const octets = base.split('.')
+  const prefix = bits === undefined ? 24 : num(bits)
+  if (octets.length !== 4 || octets.some((o) => !/^\d{1,3}$/.test(o) || +o > 255)) return ''
+  if (!(prefix >= 0 && prefix <= 32)) return ''
+  const addr = octets.reduce((n, o) => n * 256 + +o, 0)
+  const size = 2 ** (32 - prefix)
+  return dotted(addr - (addr % size) + host) + '/' + prefix
+}
+
 export function subnetCap(base) {
   const entry = BASE_NETS[base] || BASE_NETS['192.168']
   return (1 << (24 - entry[1])) - 1
