@@ -385,10 +385,10 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
                     <span className="muted">{message.speed.how}</span>
                   </div>
                   <div className="chl">
-                    {T('speed_down')}: {'⁦' + message.speed.down + '⁩'}
+                    {T('speed_down')}: {'\u2066' + message.speed.down + '\u2069'}
                   </div>
                   <div className="chl">
-                    {T('speed_up')}: {'⁦' + message.speed.up + '⁩'}
+                    {T('speed_up')}: {'\u2066' + message.speed.up + '\u2069'}
                   </div>
                   <div className="wrap muted" style={{ marginTop: 6 }}>
                     <RichText text={T('speed_note')} />

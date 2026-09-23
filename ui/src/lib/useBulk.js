@@ -19,7 +19,7 @@ export const BULK_ACTIONS = [
 ]
 
 export function bulkNames(links) {
-  const shown = links.slice(0, NAMES_SHOWN).map((l) => '⁨' + l.name + '⁩').join('، ')
+  const shown = links.slice(0, NAMES_SHOWN).map((l) => '\u2068' + l.name + '\u2069').join('، ')
   const rest = links.length - NAMES_SHOWN
   return rest > 0 ? shown + T('bulk_more').replace('{n}', String(rest)) : shown
 }
@@ -143,7 +143,7 @@ export default function useBulk({ list, checkRefs, onDone }) {
       .replace('{k}', String(k))
     if (bad && action.key !== 'ping') msg += T('bulk_bad').replace('{n}', String(bad))
     if (skipped) msg += T('bulk_skip').replace('{n}', String(skipped))
-    if (firstErr) msg += '\n' + firstErr
+    if (firstErr) msg += ' — ' + firstErr
     toast(msg, bad ? 'err' : 'ok')
     await onDone()
   }
