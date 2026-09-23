@@ -26,7 +26,7 @@ export function BulkButton({ bulk }) {
   }
   return (
     <button
-      className={'chkall bulkbtn' + (bulk.selecting ? ' on' : '')}
+      className={'bulkbtn' + (bulk.selecting ? ' on' : '')}
       onClick={bulk.selecting ? bulk.exit : bulk.start}
     >
       <Icon name={bulk.selecting ? 'check' : 'grid'} />
