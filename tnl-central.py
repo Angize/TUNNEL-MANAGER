@@ -2053,7 +2053,7 @@ def _rotation_note(name, why):
     with _note_lock:
         if not _gate(_rot_warned, str(name), ROT_WARN_GAP, WARN_MAX_KEYS):
             return
-    log_event("warn", "pool-degraded", "تونلِ «%s»: چرخشِ آی‌پی اعمال نشد" % name, why)
+    log_event("warn", "cfg-clamped", "تونلِ «%s»: چرخشِ آی‌پی اعمال نشد" % name, why)
 
 
 def _live_pool(pool, live):
@@ -6762,8 +6762,6 @@ EV_TYPES = (
     ("ladder-revive", "rot", "ازسرگیریِ نردبان"),
     ("burn", "rot", "سوختنِ آدرس"),
     ("heal", "rot", "برگشتِ آدرس به فهرستِ سالم"),
-    ("pool-degraded", "rot", "توقفِ چرخش — فقط یکی مانده"),
-    ("pool-resumed", "rot", "ازسرگیریِ چرخشِ استخر"),
     ("ech-heal", "ech", "ترمیمِ خودکارِ کلیدِ ECH در هسته"),
     ("ech-gone", "ech", "حذفِ رکوردِ ECH از DNS"),
     ("ech-back", "ech", "بازگشتِ رکوردِ ECH"),
@@ -6913,17 +6911,6 @@ def _ev_core_text(kind, code, detail, nm):
             what = _HEAL_AXIS.get(str(detail or "").split(":", 1)[0], "آی‌پی")
             return ("ok", "heal", f"تونلِ «{nm}»: بازگشتِ {what}",
                     f"{key}\nپروبِ نود دید ترافیک واقعاً از این مسیر رد می‌شود")
-    if kind == "pool":
-        what = _HEAL_AXIS.get(axis, "آی‌پی")
-        left = key if sep and axis in _HEAL_AXIS else ""
-        if code == "degraded":
-            return ("warn", "pool-degraded",
-                    f"تونلِ «{nm}»: توقفِ چرخشِ {what} — فقط یکی در دسترس مانده",
-                    (f"در دسترس: {left}\n" if left else "")
-                    + "بقیه سوخته‌اند و نوبتِ آزمایشِ دوباره‌شان نرسیده؛ تا آن موقع روی همان یک می‌ماند")
-        return ("ok", "pool-resumed", f"تونلِ «{nm}»: ازسرگیریِ چرخشِ {what}",
-                (f"در دسترس: {left}\n" if left else "")
-                + "دوباره بیش از یک مورد در دسترسِ چرخش است")
     if kind == "ech":
         host, _, k = key.partition(" ")
         dfa = ("دامنه: %s\n" % host if host else "") + ("کلیدِ تازهٔ ECH: %s" % k if k else "")
