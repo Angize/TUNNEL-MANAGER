@@ -113,7 +113,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       setMessage({ cls: '', text: T('checking_conn') })
       return apiPost('check-link', { id: link.id })
     })
-    if (!r) return 'bad'
+    if (!r) return undefined
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })
       return 'bad'

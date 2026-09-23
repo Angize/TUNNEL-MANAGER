@@ -2,6 +2,10 @@
   color: var(--acc);
 }
 
+.tbtnrow > button.bulkbtn:hover {
+  background: var(--card);
+}
+
 .tbtnrow > button.bulkbtn.on {
   background: var(--accw);
   border-color: color-mix(in srgb, var(--acc) 35%, transparent);
