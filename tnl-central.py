@@ -2001,7 +2001,7 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "http_up_workers", "http_up_batch_kb", "http_streams", "http_up_rate",
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_id", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_snis",
-                    "ws_rotate_secs", "gso",
+                    "ws_rotate_secs", "ws_port_roll", "gso",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
@@ -2221,6 +2221,8 @@ def _tunnel_extra(src):
         e["ws_edge_snis"] = psnis
         _rs = src.get("ws_rotate_secs")
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
+        if src.get("ws_port_roll"):
+            e["ws_port_roll"] = True
     if src.get("gso"):
         e["gso"] = True
     return _node_extra(_carried(e, _shape_of({}, src)))
@@ -5054,6 +5056,7 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_ips": clean_ips,
         "ws_edge_snis": snis,
         "ws_rotate_secs": _rotate_secs(_ws_rotate_default(d, cur), 28800, "فاصلهٔ چرخشِ لبه"),
+        "ws_port_roll": bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll")),
         "ws_path": path,
     }
     res.update(_cdn_shape_fields(d, cur, res["cdn_carrier"]))
@@ -5130,7 +5133,7 @@ _SHAPE_RAW_PORTED = ("raw_port", "raw_sport", "raw_sport_random", "raw_sport_rot
 _SHAPE_TCP_ONLY = ("cover", "cover_sni")
 _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
                   "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_snis",
-                  "ws_rotate_secs", "sni_split", "split_pos", "sni_mode", "split_ttl",
+                  "ws_rotate_secs", "ws_port_roll", "sni_split", "split_pos", "sni_mode", "split_ttl",
                   "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
 _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity", "a_workers", "b_workers")
 _SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
@@ -5316,7 +5319,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
     except (TypeError, ValueError):
         _ptries = 0
-    if _ptries and not _shape_consumes("port_tries", *shape):
+    if _ptries and (not _shape_consumes("port_tries", *shape) or (ce.get("ws_pool") and not ce.get("ws_port_roll"))):
         _ptries = 0
     if _ptries:
         if not 1 <= _ptries <= PORT_TRIES_MAX:
