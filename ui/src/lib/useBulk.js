@@ -19,7 +19,7 @@ export const BULK_ACTIONS = [
 ]
 
 export function bulkNames(links) {
-  const shown = links.slice(0, NAMES_SHOWN).map((l) => '⁨' + l.name + '⁩').join('، ')
+  const shown = links.slice(0, NAMES_SHOWN).map((l) => '\u2068' + l.name + '\u2069').join('، ')
   const rest = links.length - NAMES_SHOWN
   return rest > 0 ? shown + T('bulk_more').replace('{n}', String(rest)) : shown
 }
