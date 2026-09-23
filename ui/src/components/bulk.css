@@ -2,6 +2,10 @@
   color: var(--acc);
 }
 
+.tbtnrow > button.bulkbtn:hover {
+  background: var(--card);
+}
+
 .tbtnrow > button.bulkbtn.on {
   background: var(--accw);
   border-color: color-mix(in srgb, var(--acc) 35%, transparent);
@@ -36,40 +40,6 @@
 .card.sel {
   box-shadow: var(--dsh), inset 0 0 0 1.5px var(--acc);
   background: color-mix(in srgb, var(--acc) 6%, var(--card));
-}
-
-.pst {
-  margin-inline-start: auto;
-  font-size: 10.5px;
-  font-weight: 800;
-  padding: 3px 8px;
-  border-radius: 8px;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.pst.done,
-.pst.ok {
-  color: var(--ok);
-  background: var(--okw);
-}
-
-.pst.run {
-  color: var(--acc);
-  background: var(--accw);
-}
-
-.pst.wait,
-.pst.skip,
-.pst.off {
-  color: var(--sub);
-  background: var(--field);
-}
-
-.pst.fail,
-.pst.bad {
-  color: var(--bad);
-  background: var(--badw);
 }
 
 .bulkbar {
@@ -155,48 +125,64 @@
   cursor: default;
 }
 
-.bulkbar.prog {
-  padding: 9px 12px;
+.bulkrun {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
   gap: 10px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
 }
 
-.bulkbar.prog > .ic {
+.bulkrun > .ic {
   width: 16px;
   height: 16px;
   color: var(--acc);
   flex: 0 0 auto;
 }
 
-.bulkbar.prog .tx {
+.bulkrun .tx {
   font-size: 12.5px;
   font-weight: 800;
   color: var(--tx);
   white-space: nowrap;
 }
 
-.bulkbar.prog .bar {
+.bulkrun .bar {
   flex: 1;
+  min-width: 24px;
   height: 6px;
   border-radius: 6px;
   background: var(--field);
   overflow: hidden;
 }
 
-.bulkbar.prog .bar i {
+.bulkrun .bar i {
   display: block;
   height: 100%;
   background: var(--acc);
   border-radius: 6px;
 }
 
-.bulkbar.prog .stop {
+.tbtnrow .bulkrun .stop {
+  flex: 0 0 auto;
+  font: inherit;
   font-size: 11.5px;
   font-weight: 800;
   color: var(--bad);
   white-space: nowrap;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border-radius: 9px;
+  border: 0;
   background: var(--badw);
+  box-shadow: none;
+  cursor: pointer;
 }
 
 .bulkpad {
@@ -317,8 +303,16 @@
   cursor: pointer;
 }
 
+.bulksel .toasts {
+  bottom: 80px;
+}
+
 @media (max-width: 840px) {
   .bulkbar {
     bottom: 84px;
+  }
+
+  .bulksel .toasts {
+    bottom: 144px;
   }
 }

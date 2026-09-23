@@ -19,7 +19,7 @@ export const BULK_ACTIONS = [
 ]
 
 export function bulkNames(links) {
-  const shown = links.slice(0, NAMES_SHOWN).map((l) => '\u2068' + l.name + '\u2069').join('، ')
+  const shown = links.slice(0, NAMES_SHOWN).map((l) => '⁨' + l.name + '⁩').join('، ')
   const rest = links.length - NAMES_SHOWN
   return rest > 0 ? shown + T('bulk_more').replace('{n}', String(rest)) : shown
 }
@@ -28,7 +28,6 @@ export default function useBulk({ list, checkRefs, onDone }) {
   const { waitDone } = useActs()
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
-  const [status, setStatus] = useState({})
   const [run, setRun] = useState(null)
   const [sheet, setSheet] = useState(false)
   const stopRef = useRef(false)
@@ -36,32 +35,31 @@ export default function useBulk({ list, checkRefs, onDone }) {
   const listRef = useRef(list)
 
   listRef.current = list
+  const ids = (list || []).map((l) => l.id)
+  const idsKey = ids.join(' ')
 
   useEffect(() => {
-    const live = new Set((list || []).map((l) => l.id))
+    const live = new Set(idsKey ? idsKey.split(' ') : [])
     setPicked((prev) => {
       const next = new Set([...prev].filter((id) => live.has(id)))
       return next.size === prev.size ? prev : next
     })
-  }, [list])
+  }, [idsKey])
 
   const start = useCallback(() => {
+    if (runRef.current) return
     closeAllCards()
-    setStatus({})
     setPicked(new Set())
     setSelecting(true)
   }, [])
 
   const exit = useCallback(() => {
-    if (runRef.current) return
     setSelecting(false)
     setSheet(false)
     setPicked(new Set())
-    setStatus({})
   }, [])
 
   const pick = useCallback((id) => {
-    if (runRef.current) return
     setPicked((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -70,11 +68,9 @@ export default function useBulk({ list, checkRefs, onDone }) {
     })
   }, [])
 
-  const ids = (list || []).map((l) => l.id)
   const allPicked = ids.length > 0 && ids.every((id) => picked.has(id))
 
   const pickAll = useCallback(() => {
-    if (runRef.current) return
     const every = (listRef.current || []).map((l) => l.id)
     setPicked((prev) => (every.length && every.every((id) => prev.has(id)) ? new Set() : new Set(every)))
   }, [])
@@ -86,7 +82,7 @@ export default function useBulk({ list, checkRefs, onDone }) {
     if (action.act) {
       if (!(r.ok && r.d.act)) return postError(r)
       const w = await waitDone(r.d.act)
-      return w.ok ? '' : w.err || T('bulk_st_fail')
+      return w.ok ? '' : w.err
     }
     return r.ok && r.d.ok ? '' : postError(r)
   }
@@ -101,45 +97,38 @@ export default function useBulk({ list, checkRefs, onDone }) {
       if (!(await confirmBox(ask, T('bulk_yes_' + action.key)))) return
     }
 
+    exit()
     runRef.current = true
     stopRef.current = false
-    const mark = (id, st, err) => setStatus((prev) => ({ ...prev, [id]: { st, err } }))
-    setStatus(Object.fromEntries(links.map((l) => [l.id, { st: 'wait' }])))
     let ok = 0
     let bad = 0
     let skipped = 0
+    let firstErr = ''
 
     try {
       if (action.key === 'ping') {
         setRun({ key: action.key, i: 0, k })
         await Promise.all(
           links.map(async (link) => {
-            mark(link.id, 'run')
             const check = checkRefs.current[link.id]
             const res = check ? await check() : 'bad'
             if (res === 'ok') ok++
-            else if (res !== 'off') bad++
-            mark(link.id, res === 'ok' || res === 'off' ? res : 'bad')
+            else if (res === 'bad') bad++
             setRun((r) => r && { ...r, i: r.i + 1 })
           })
         )
       } else {
         for (let i = 0; i < k; i++) {
-          const link = links[i]
           if (stopRef.current) {
-            skipped++
-            mark(link.id, 'skip')
-            continue
+            skipped = k - i
+            break
           }
           setRun({ key: action.key, i: i + 1, k })
-          mark(link.id, 'run')
-          const err = await runOne(action, link)
-          if (err) {
+          const err = await runOne(action, links[i])
+          if (!err) ok++
+          else {
             bad++
-            mark(link.id, 'fail', err)
-          } else {
-            ok++
-            mark(link.id, 'done')
+            if (!firstErr) firstErr = links[i].name + ': ' + err
           }
         }
       }
@@ -154,6 +143,7 @@ export default function useBulk({ list, checkRefs, onDone }) {
       .replace('{k}', String(k))
     if (bad && action.key !== 'ping') msg += T('bulk_bad').replace('{n}', String(bad))
     if (skipped) msg += T('bulk_skip').replace('{n}', String(skipped))
+    if (firstErr) msg += '\n' + firstErr
     toast(msg, bad ? 'err' : 'ok')
     await onDone()
   }
@@ -165,7 +155,6 @@ export default function useBulk({ list, checkRefs, onDone }) {
   return {
     selecting,
     picked,
-    status,
     run,
     sheet,
     allPicked,

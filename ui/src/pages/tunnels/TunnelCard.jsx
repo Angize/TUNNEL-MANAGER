@@ -9,7 +9,7 @@ import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState, sideText } from './sideHealth.js'
 import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
-import { BulkChip, SelBox } from '../../components/Bulk.jsx'
+import { SelBox } from '../../components/Bulk.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { useActionBusy } from '../../lib/useBusy.js'
@@ -113,7 +113,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       setMessage({ cls: '', text: T('checking_conn') })
       return apiPost('check-link', { id: link.id })
     })
-    if (!r) return 'bad'
+    if (!r) return undefined
     if (!(r.ok && r.d.ok)) {
       setMessage({ cls: 'err', text: postError(r) })
       return 'bad'
@@ -279,17 +279,13 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
                   {T('st_off')}
                 </span>
               )}
-              {sel && sel.status ? (
-                <BulkChip status={sel.status} />
-              ) : (
-                <span className="hpeers" dir="ltr">
-                  <SideDot link={link} side="a" />
-                  <span className="pn">{link.a_name}</span>
-                  <Icon name="arrows" />
-                  <span className="pn">{link.b_name}</span>
-                  <SideDot link={link} side="b" />
-                </span>
-              )}
+              <span className="hpeers" dir="ltr">
+                <SideDot link={link} side="a" />
+                <span className="pn">{link.a_name}</span>
+                <Icon name="arrows" />
+                <span className="pn">{link.b_name}</span>
+                <SideDot link={link} side="b" />
+              </span>
             </div>
           </div>
           {sel ? null : <Chevron />}
