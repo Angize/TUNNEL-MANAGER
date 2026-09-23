@@ -37,6 +37,8 @@ export default {
   bulk_bad: '، {n} خطا',
   bulk_skip: '، {n} لغو شد',
   bulk_cancelled: 'لغو شد',
+  bulk_busy: 'کارت مشغولِ کارِ دیگری بود',
+  bulk_drift: 'آی‌پیِ نود عوض شده — جدا بازسازی کن',
   bulk_timeout: 'بیش از حد طول کشید',
   checkall_done: 'بررسیِ همهٔ تونل‌ها تمام شد',
   no_tunnel_check: 'تونلی برای بررسی نیست',

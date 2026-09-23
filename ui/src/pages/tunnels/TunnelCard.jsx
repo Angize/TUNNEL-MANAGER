@@ -6,7 +6,7 @@ import TagPicker from '../../components/TagPicker.jsx'
 import TunnelMeta from './TunnelMeta.jsx'
 import RichText from '../../components/RichText.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
-import { linkSideState, sideText } from './sideHealth.js'
+import { linkSideState } from './sideHealth.js'
 import RebuildPicker from '../../components/RebuildPicker.jsx'
 import Grip from '../../components/Grip.jsx'
 import { SelBox } from '../../components/Bulk.jsx'
@@ -23,6 +23,7 @@ import { tagClass, tagStyle } from '../../lib/cardTags.js'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../../lib/openCards.js'
 import useLongPress from '../../lib/useLongPress.js'
 import { useActs } from '../../state/ActsContext.jsx'
+import useCardActions from '../../lib/useCardActions.js'
 import { checkable, pressable } from '../../lib/keys.js'
 
 const VIEW_MSG_MS = 4000
@@ -78,7 +79,7 @@ function SideBox({ link, side }) {
   )
 }
 
-export default function TunnelCard({ link, onEdit, onReload, onTag, registerCheck, sel }) {
+export default function TunnelCard({ link, onEdit, onReload, onTag, registerActions, sel }) {
   const { actFor } = useActs()
   const [open, setOpen] = useState(() => isCardOpen(link.id))
   const [message, setMessage] = useState(null)
@@ -87,7 +88,6 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
 
   useEffect(() => subscribeOpenCards(() => setOpen(isCardOpen(link.id))), [link.id])
   useEffect(() => () => clearTimeout(messageTimer.current), [])
-  const checkRef = useRef(null)
 
   const hold = useLongPress(() => setPicking(true))
   const act = actFor(link.id)
@@ -97,52 +97,15 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
   const [busyAct, withBusy] = useActionBusy()
   const [toggleBusy, withToggle] = useActionBusy()
 
-  const toggle = (e) => {
-    e.stopPropagation()
-    withToggle('toggle', async () => {
-      const next = link.enabled === false
-      const r = await apiPost('link-toggle', { id: link.id, enabled: next })
-      if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
-      else toast(next ? T('turned_on') : T('turned_off'), 'ok')
-      await onReload()
-    })
-  }
-
-  const check = async () => {
-    const r = await withBusy('ping', () => {
-      setMessage({ cls: '', text: T('checking_conn') })
-      return apiPost('check-link', { id: link.id })
-    })
-    if (!r) return undefined
-    if (!(r.ok && r.d.ok)) {
-      setMessage({ cls: 'err', text: postError(r) })
-      return 'bad'
-    }
-    if (link.enabled === false) {
-      setMessage({ cls: '', text: T('conn_off') })
-      return 'off'
-    }
-    const d = r.d
-    const aUp = d.a_online && d.a_health && d.a_health.up
-    const bUp = d.b_online && d.b_health && d.b_health.up
-    const allOk = aUp && bUp && d.a_health.alive === true && d.b_health.alive === true
-    setMessage({
-      cls: allOk ? 'ok' : 'err',
-      lines: {
-        head: allOk ? T('conn_ok') : T('conn_bad'),
-        ok: allOk,
-        a: (link.a_name || 'A') + ': ' + sideText(d.a_online, d.a_health, translateError(d.a_error)),
-        b: (link.b_name || 'B') + ': ' + sideText(d.b_online, d.b_health, translateError(d.b_error)),
-      },
-    })
-    return allOk ? 'ok' : 'bad'
-  }
-
-  checkRef.current = check
-
-  useEffect(() => {
-    if (registerCheck) registerCheck(() => checkRef.current())
-  }, [registerCheck])
+  const { check, toggle, resetTraffic, rebuild } = useCardActions({
+    link,
+    onReload,
+    setMessage,
+    withBusy,
+    withToggle,
+    pickRebuild: () => setPickingRebuild(true),
+    register: registerActions,
+  })
 
   const speed = async () => {
     const r = await withBusy('speed', () => {
@@ -184,34 +147,6 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerChec
       () => setMessage((cur) => (cur && cur.swap ? null : cur)),
       VIEW_MSG_MS
     )
-    onReload()
-  }
-
-  const resetTraffic = async () => {
-    if (!(await confirmBox(T('reset_confirm'), T('reset_yes')))) return
-    const r = await withBusy('reset', () => apiPost('traffic-reset', { id: link.id }))
-    if (!r) return
-    if (r.ok && r.d.ok) {
-      toast(T('t_reset_done'), 'ok')
-      onReload()
-      return
-    }
-    toast(postError(r), 'err')
-  }
-
-  const rebuild = async () => {
-    if (link.drift) {
-      setPickingRebuild(true)
-      return
-    }
-    if (!(await confirmBox(T('rebuild_confirm'), T('tip_rebuild')))) return
-    const r = await withBusy('rebuild', () => apiPost('rebuild-link', { id: link.id }))
-    if (!r) return
-    if (!(r.ok && r.d.act)) {
-      toast(postError(r, 'rebuild_failed'), 'err')
-      return
-    }
-    setMessage(null)
     onReload()
   }
 

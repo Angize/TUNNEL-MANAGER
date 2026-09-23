@@ -41,7 +41,7 @@ export default function CorePage({ active }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
-  const { checkRefs } = useCheckAll('core:checkall', list)
+  const actRefs = useCheckAll('core:checkall', list)
 
   useEffect(() => {
     reload()
@@ -101,7 +101,7 @@ export default function CorePage({ active }) {
   const order = useCardReorder('core', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
-  const bulk = useBulk({ list: list === null ? null : ordered, checkRefs, onDone: afterAction })
+  const bulk = useBulk({ list: list === null ? null : ordered, actRefs, onDone: afterAction })
   const bulkExit = bulk.exit
 
   useEffect(() => {
@@ -134,8 +134,8 @@ export default function CorePage({ active }) {
                 onEdit={setEditing}
                 onReload={afterAction}
                 onTag={setTag}
-                registerCheck={(fn) => {
-                  checkRefs.current[link.id] = fn
+                registerActions={(fn) => {
+                  actRefs.current[link.id] = fn
                 }}
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
