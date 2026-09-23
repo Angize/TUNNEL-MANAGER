@@ -14,7 +14,6 @@ import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import { registerCommand } from '../../lib/pageCommand.js'
-import useCheckAll from '../../lib/useCheckAll.js'
 import useBulk from '../../lib/useBulk.js'
 import { BulkBar, BulkButton, BulkSheet } from '../../components/Bulk.jsx'
 import useCardReorder from '../../lib/useCardReorder.js'
@@ -42,7 +41,6 @@ export default function TunnelsPage({ active }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
-  const actRefs = useCheckAll('tunnels:checkall', list)
 
   useEffect(() => {
     reload()
@@ -86,7 +84,7 @@ export default function TunnelsPage({ active }) {
   const order = useCardReorder('tunnels', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
-  const bulk = useBulk({ list: list === null ? null : ordered, actRefs, onDone: afterAction })
+  const bulk = useBulk({ list: list === null ? null : ordered, command: 'tunnels:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
 
   useEffect(() => {
@@ -118,9 +116,7 @@ export default function TunnelsPage({ active }) {
                 onEdit={setEditing}
                 onReload={afterAction}
                 onTag={setTag}
-                registerActions={(fn) => {
-                  actRefs.current[link.id] = fn
-                }}
+                registerActions={(fn) => bulk.register(link.id, fn)}
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}

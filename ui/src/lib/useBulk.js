@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { confirmBox } from './dialog.js'
 import { toast } from './toast.js'
 import { closeAllCards } from './openCards.js'
+import { registerCommand } from './pageCommand.js'
 import { useActs } from '../state/ActsContext.jsx'
 import { T } from '../i18n/fa.js'
 
@@ -16,13 +17,15 @@ export const BULK_ACTIONS = [
   { key: 'on', icon: 'bolt', tone: 'ok', enabled: true },
 ]
 
+const PING = BULK_ACTIONS.find((a) => a.key === 'ping')
+
 export function bulkNames(links) {
   const shown = links.slice(0, NAMES_SHOWN).map((l) => '\u2068' + l.name + '\u2069').join('، ')
   const rest = links.length - NAMES_SHOWN
   return rest > 0 ? shown + T('bulk_more').replace('{n}', String(rest)) : shown
 }
 
-export default function useBulk({ list, actRefs, onDone }) {
+export default function useBulk({ list, command, onDone }) {
   const { waitDone } = useActs()
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
@@ -31,10 +34,14 @@ export default function useBulk({ list, actRefs, onDone }) {
   const stopRef = useRef(false)
   const runRef = useRef(false)
   const listRef = useRef(list)
+  const actRefs = useRef({})
+  const wanted = useRef(false)
+  const pingAll = useRef(null)
 
   listRef.current = list
   const ids = (list || []).map((l) => l.id)
   const idsKey = ids.join(' ')
+  const ready = list !== null
 
   useEffect(() => {
     const live = new Set(idsKey ? idsKey.split(' ') : [])
@@ -66,6 +73,10 @@ export default function useBulk({ list, actRefs, onDone }) {
     })
   }, [])
 
+  const register = useCallback((id, fn) => {
+    actRefs.current[id] = fn
+  }, [])
+
   const allPicked = ids.length > 0 && ids.every((id) => picked.has(id))
 
   const pickAll = useCallback(() => {
@@ -74,8 +85,8 @@ export default function useBulk({ list, actRefs, onDone }) {
   }, [])
 
   const cardAction = (link, name, arg) => {
-    const run = actRefs.current[link.id]
-    return run ? run(name, arg) : Promise.resolve(undefined)
+    const fn = actRefs.current[link.id]
+    return fn ? fn(name, arg) : Promise.resolve(undefined)
   }
 
   const runOne = async (action, link) => {
@@ -89,17 +100,8 @@ export default function useBulk({ list, actRefs, onDone }) {
     return w.ok ? '' : w.err
   }
 
-  const perform = async (action) => {
-    setSheet(false)
-    const links = (listRef.current || []).filter((l) => picked.has(l.id))
+  const execute = async (action, links) => {
     const k = links.length
-    if (!k || runRef.current) return
-    if (action.key !== 'ping') {
-      const ask = T('bulk_q_' + action.key).replace('{k}', String(k)) + '\n' + bulkNames(links)
-      if (!(await confirmBox(ask, T('bulk_yes_' + action.key)))) return
-    }
-
-    exit()
     runRef.current = true
     stopRef.current = false
     let ok = 0
@@ -149,6 +151,43 @@ export default function useBulk({ list, actRefs, onDone }) {
     await onDone()
   }
 
+  const perform = async (action) => {
+    setSheet(false)
+    const links = (listRef.current || []).filter((l) => picked.has(l.id))
+    const k = links.length
+    if (!k || runRef.current) return
+    if (action.key !== 'ping') {
+      const ask = T('bulk_q_' + action.key).replace('{k}', String(k)) + '\n' + bulkNames(links)
+      if (!(await confirmBox(ask, T('bulk_yes_' + action.key)))) return
+    }
+    exit()
+    await execute(action, links)
+  }
+
+  pingAll.current = () => {
+    const links = listRef.current || []
+    if (!links.length) {
+      toast(T('no_tunnel_check'), 'err')
+      return
+    }
+    if (!runRef.current) execute(PING, links)
+  }
+
+  useEffect(
+    () =>
+      registerCommand(command, () => {
+        if (listRef.current === null) wanted.current = true
+        else pingAll.current()
+      }),
+    [command]
+  )
+
+  useEffect(() => {
+    if (!wanted.current || !ready) return
+    wanted.current = false
+    pingAll.current()
+  }, [ready])
+
   const stop = useCallback(() => {
     stopRef.current = true
   }, [])
@@ -164,6 +203,7 @@ export default function useBulk({ list, actRefs, onDone }) {
     exit,
     pick,
     pickAll,
+    register,
     stop,
     perform,
     openSheet: () => setSheet(true),

@@ -10,7 +10,6 @@ import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost, NET_TIMEOUT } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { registerCommand } from '../../lib/pageCommand.js'
-import useCheckAll from '../../lib/useCheckAll.js'
 import useBulk from '../../lib/useBulk.js'
 import { BulkBar, BulkButton, BulkSheet } from '../../components/Bulk.jsx'
 import { toast } from '../../lib/toast.js'
@@ -41,7 +40,6 @@ export default function CorePage({ active }) {
   }, [query])
 
   const [list, reload] = usePolledData(load, query, active)
-  const actRefs = useCheckAll('core:checkall', list)
 
   useEffect(() => {
     reload()
@@ -101,7 +99,7 @@ export default function CorePage({ active }) {
   const order = useCardReorder('core', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
-  const bulk = useBulk({ list: list === null ? null : ordered, actRefs, onDone: afterAction })
+  const bulk = useBulk({ list: list === null ? null : ordered, command: 'core:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
 
   useEffect(() => {
@@ -134,9 +132,7 @@ export default function CorePage({ active }) {
                 onEdit={setEditing}
                 onReload={afterAction}
                 onTag={setTag}
-                registerActions={(fn) => {
-                  actRefs.current[link.id] = fn
-                }}
+                registerActions={(fn) => bulk.register(link.id, fn)}
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}
