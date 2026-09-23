@@ -140,20 +140,20 @@ function sidePorts(link, rungTransports) {
   if (transport === 'raw') {
     if (!rawPorted(link)) return []
     const live = link.rot_live || {}
-    const incoming = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
+    const dst = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
     if (!rawRotating(link)) {
       const client = num(link.sport_live) || num(link.raw_sport) || RAW_SPORT_FIXED
-      return [[portCell(T('port_src'), client), portCell(T('port_in'), incoming)]]
+      return [[portCell(T('port_src'), client), portCell(T('port_dst'), dst)]]
     }
     return [
-      [portCell(T('port_src'), live.cli), portCell(T('port_in'), incoming)],
-      [portCell(T('port_in'), live.cli), portCell(T('port_src'), live.srv)],
+      [portCell(T('port_src'), live.cli), portCell(T('port_dst'), dst)],
+      [portCell(T('port_dst'), live.cli), portCell(T('port_src'), live.srv)],
     ]
   }
   const client = rungTransports.includes(transport) ? num(link.sport_live) : 0
   const server = num(link.port)
   if (!client && !server) return []
-  return [[portCell(T('port_src'), client), portCell(T('port_in'), server)]]
+  return [[portCell(T('port_src'), client), portCell(T('port_dst'), server)]]
 }
 
 function capCells(link) {
@@ -180,7 +180,7 @@ function rawCells(link) {
   const live = link.rot_live || {}
   const cells = []
   const dports = num(live.dports) || num(link.raw_dports)
-  if (dports > 1) cells.push(cell(T('rot_in'), <b>{T('n_ports').replace('{n}', String(dports))}</b>))
+  if (dports > 1) cells.push(cell(T('rot_dst'), <b>{T('n_ports').replace('{n}', String(dports))}</b>))
   if (!rawRotating(link)) return cells
 
   const every = num(link.raw_sport_rotate)

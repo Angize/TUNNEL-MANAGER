@@ -14,9 +14,9 @@ export default {
 
   tun_ip: 'تونل',
   port_src: 'پورتِ مبدأ',
-  port_in: 'پورتِ ورودی',
+  port_dst: 'پورتِ مقصد',
   rot_src: 'چرخشِ مبدأ',
-  rot_in: 'چرخشِ ورودی',
+  rot_dst: 'چرخشِ مقصد',
   rot_edge: 'چرخشِ لبه',
   rot_band: 'بازه',
   rot_drawn: 'چرخیده',
