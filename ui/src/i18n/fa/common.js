@@ -13,6 +13,8 @@ export default {
   nav_logs: 'لاگ',
   nav_settings: 'تنظیمات',
   nav_logout: 'خروج',
+  logout_q: 'از پنل خارج شوی؟',
+  logout_yes: 'تأیید و خروج',
   theme_to_light: 'تمِ روشن',
   theme_to_dark: 'تمِ تیره',
   tun_title: 'تونل‌های سیستمی',
