@@ -114,7 +114,7 @@ function mono(value) {
 }
 
 function portCell(label, port) {
-  return num(port) ? cell(label, mono(num(port))) : null
+  return cell(label, mono(num(port) || '—'))
 }
 
 function TunnelIp({ subnet, host }) {
