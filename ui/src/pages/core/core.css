@@ -67,43 +67,77 @@
   height: 13px;
 }
 
-.enmeta .emcol > div.feat {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-wrap: wrap;
-  white-space: normal;
-  overflow: visible;
-}
-
 .enmeta .emcol > div.tagrow {
   overflow: visible;
   white-space: nowrap;
 }
 
-.enmeta .feat .nofeat {
-  opacity: .55;
+.enmeta.cgrid {
+  row-gap: 0;
+  align-items: stretch;
+  margin-top: 4px;
+  font-size: 10.5px;
 }
 
-.enmeta .emcol > div.enc-line {
+.cgrid .cgc {
+  min-width: 0;
+  padding-block: 2px;
+  padding-inline: 12px 0;
+  border-bottom: 1px solid var(--edge);
   white-space: nowrap;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 18px;
 }
 
-.enmeta .enc-line .encval {
+.cgrid .cgc.end {
+  border-bottom: 0;
+}
+
+.cgrid .cgc b {
+  color: var(--tx);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cgrid .cgc .mono {
+  font-size: 10.5px;
+}
+
+.cgrid .cgc .tag,
+.cgrid .cgc .ctag {
+  font-size: 9.5px;
+  line-height: 15px;
+  padding-block: 0;
+  vertical-align: middle;
+}
+
+.cgrid .cgc .tag {
+  unicode-bidi: isolate;
+}
+
+.cgrid .cgc .tag + .tag {
+  margin-inline-start: 4px;
+}
+
+.cgrid .encval {
   color: var(--ok);
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   direction: ltr;
 }
 
-.enmeta .emwarn {
-  display: block;
-  grid-column: 1/-1;
-  text-align: center;
-  margin-top: 2px;
+.cgrid .nofeat {
+  opacity: .55;
 }
 
-.enmeta .emwarn .ic {
+.warncap.emwarn {
+  display: block;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.warncap.emwarn .ic {
   display: inline-block;
   vertical-align: -3px;
   margin-top: 0;

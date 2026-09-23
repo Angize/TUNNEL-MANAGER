@@ -1,9 +1,29 @@
+import { Fragment } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
-import PortRows from './PortRows.jsx'
-import { CT_WARN_PCT, carrierFamily, carrierLabel, carrierProfile, edgeHost } from './carrier.js'
+import {
+  CT_WARN_PCT,
+  RAW_DPORT_DEFAULT,
+  RAW_ROT_HI,
+  RAW_ROT_LO,
+  RAW_SPORT_FIXED,
+  carrierFamily,
+  carrierLabel,
+  carrierProfile,
+  edgeHost,
+} from './carrier.js'
+import { poolRotateItems } from './form/presets.js'
+import { hostAddress } from '../../lib/subnet.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { T } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
+
+const SERVER_HOST = 1
+const CLIENT_HOST = 2
+const CAPS_PER_CELL = 2
+const SHORT_CAP = 4
+const POOL_ROTATE_DEFAULT = 600
+const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
 function capabilities(link) {
   const tags = []
@@ -28,11 +48,7 @@ function ConntrackWarning({ link }) {
   const pct = num(ct.pct)
   if (!pct || pct < CT_WARN_PCT) return null
 
-  const parts = T('ctb_warn')
-    .replace('{p}', String(pct))
-    .replace('{c}', String(num(ct.count)))
-    .replace('{m}', String(num(ct.max)))
-    .split('{n}')
+  const parts = T('ctb_warn').replace('{p}', String(pct)).split('{n}')
 
   return (
     <div className="warncap no emwarn">
@@ -89,62 +105,175 @@ function EdgeBlock({ link, activeEdge }) {
   )
 }
 
-export default function CoreMeta({ link, activeEdge }) {
-  const family = carrierFamily(link)
+function cell(label, value) {
+  return { label, value }
+}
+
+function mono(value) {
+  return <b className="mono">{value}</b>
+}
+
+function portCell(label, port) {
+  return num(port) ? cell(label, mono(num(port))) : null
+}
+
+function TunnelIp({ subnet, host }) {
+  const [ip, prefix] = hostAddress(subnet, host).split('/')
+  return (
+    <span className="iso">
+      <CopyValue text={ip} />
+      {prefix ? mono('/' + prefix) : null}
+    </span>
+  )
+}
+
+function rawPorted(link) {
+  return link.transport === 'raw' && (link.raw_profile === 'udp' || link.raw_profile === 'tcp')
+}
+
+function rawRotating(link) {
+  return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
+}
+
+function sidePorts(link, rungTransports) {
+  const transport = link.transport || 'udp'
+  if (transport === 'raw') {
+    if (!rawPorted(link)) return null
+    const live = link.rot_live || {}
+    const client = rawRotating(link)
+      ? num(live.cli)
+      : num(link.sport_live) || num(link.raw_sport) || RAW_SPORT_FIXED
+    const server = num(live.srv) || num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
+    return [portCell(T('port_src'), client), portCell(T('port_in'), server)]
+  }
+  const client = rungTransports.includes(transport) ? num(link.sport_live) : 0
+  const server = num(link.port)
+  if (!client && !server) return null
+  return [portCell(T('port_src'), client), portCell(T('port_in'), server)]
+}
+
+function capCells(link) {
+  const tags = capabilities(link)
+  if (!tags.length) return [cell(T('caps'), <span className="nofeat">—</span>)]
+  const short = (tag) => !!tag && tag.length <= SHORT_CAP
+  const first = short(tags[0]) && short(tags[1]) ? CAPS_PER_CELL : 1
+  const chunks = [tags.slice(0, first)]
+  for (let i = first; i < tags.length; i += CAPS_PER_CELL) chunks.push(tags.slice(i, i + CAPS_PER_CELL))
+  return chunks.map((chunk, i) =>
+    cell(
+      i ? '' : T('caps'),
+      chunk.map((tag) => (
+        <span key={tag} className="tag obfs">
+          {tag}
+        </span>
+      ))
+    )
+  )
+}
+
+function rawCells(link) {
+  if (!rawPorted(link)) return []
+  const live = link.rot_live || {}
+  const cells = []
+  const dports = num(live.dports) || num(link.raw_dports)
+  if (dports > 1) cells.push(cell(T('rot_in'), <b>{T('n_ports').replace('{n}', String(dports))}</b>))
+  if (!rawRotating(link)) return cells
+
+  const every = num(link.raw_sport_rotate)
+  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
+  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
+  const drawn = num(live.drawn)
+  cells.push(cell(T('rot_src'), <b>{every ? T('rot_every').replace('{n}', String(every)) : T('rot_on_fail')}</b>))
+  cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
+  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T('n_ports').replace('{n}', compact.format(drawn))}</b>))
+  return cells
+}
+
+function edgeRotation(link) {
+  const secs = link.ws_rotate_secs != null ? num(link.ws_rotate_secs) : POOL_ROTATE_DEFAULT
+  if (!secs) return T('rot_on_fail')
+  const item = poolRotateItems().find((x) => x.v === secs)
+  return item ? item.label : secs + 's'
+}
+
+function sharedCells(link) {
   const profile = carrierProfile(link)
-  const caps = capabilities(link)
-  const cipher = link.cipher && link.cipher !== 'none'
+  const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
+  const iface = cell(T('iface'), mono(link.name))
+  const caps = capCells(link)
+  const cells = [
+    cell(
+      T('ttype'),
+      <span className={'ctag c-' + carrierFamily(link)}>
+        {carrierLabel(link) + (profile ? ' · ' + profile : '')}
+      </span>
+    ),
+    cell(
+      T('enc_short'),
+      cipher ? (
+        <span className="encval" title={cipher}>
+          {cipher.replace('-poly1305', '')}
+        </span>
+      ) : (
+        <b>{T('no_cipher')}</b>
+      )
+    ),
+    ...(caps.length > 1 ? [...caps, iface] : [iface, ...caps]),
+    ...rawCells(link),
+  ]
+  if (link.transport === 'ws' && link.ws_pool) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
+  return cells
+}
+
+function pairs(cells) {
+  const rows = []
+  for (let i = 0; i < cells.length; i += 2) rows.push([cells[i + 1] || null, cells[i]])
+  return rows
+}
+
+function Cell({ c, end }) {
+  return (
+    <div className={'cgc' + (end ? ' end' : '')}>
+      {c && c.label ? c.label + ': ' : null}
+      {c ? c.value : null}
+    </div>
+  )
+}
+
+export default function CoreMeta({ link, activeEdge }) {
+  const { enums } = useUiConfig()
+  const rungTransports = (enums && enums.tr_rung) || []
+  const ports = sidePorts(link, rungTransports)
+  const rows = [
+    [
+      cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
+      cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
+    ],
+    ...(ports ? [ports] : []),
+    ...pairs(sharedCells(link)),
+  ]
 
   return (
     <>
-      <div className="enmeta">
-        <div className="emcol">
-          <div>
-            {T('subnet')}: <CopyValue text={link.subnet} />
-          </div>
-          <PortRows link={link} />
-          <div>
-            {T('iface')}: <b className="mono">{link.name}</b>
-          </div>
-        </div>
-        <span className="tnarrow earrow">
-          <Icon name="arrows" />
-        </span>
-        <div className="emcol">
-          <div className="tagrow">
-            {T('ttype')}: <span className={'ctag c-' + family}>{carrierLabel(link)}</span>
-          </div>
-          {profile ? (
-            <div>
-              {T('profile')}: <b className="mono">{profile}</b>
-            </div>
-          ) : null}
-          <div className="feat">
-            {T('caps')}:{' '}
-            {caps.length ? (
-              caps.map((tag, i) => (
-                <span key={tag + i}>
-                  {i ? ' ' : null}
-                  <span className="tag obfs">{tag}</span>
+      <div className="enmeta cgrid">
+        {rows.map(([client, server], i) => {
+          const end = i === rows.length - 1
+          return (
+            <Fragment key={i}>
+              <Cell c={client} end={end} />
+              {i ? (
+                <i />
+              ) : (
+                <span className="tnarrow earrow">
+                  <Icon name="arrows" />
                 </span>
-              ))
-            ) : (
-              <span className="nofeat">—</span>
-            )}
-          </div>
-          <div className="enc-line">
-            {T('enc')}:{' '}
-            {cipher ? (
-              <span className="encval">
-                {link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher}
-              </span>
-            ) : (
-              <b>{T('no_cipher')}</b>
-            )}
-          </div>
-        </div>
-        <ConntrackWarning link={link} />
+              )}
+              <Cell c={server} end={end} />
+            </Fragment>
+          )
+        })}
       </div>
+      <ConntrackWarning link={link} />
       <EdgeBlock link={link} activeEdge={activeEdge} />
     </>
   )
