@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiPost } from './api.js'
-import { postError } from './errors.js'
 import { confirmBox } from './dialog.js'
 import { toast } from './toast.js'
 import { closeAllCards } from './openCards.js'
@@ -11,11 +9,11 @@ const NAMES_SHOWN = 3
 
 export const BULK_ACTIONS = [
   { key: 'ping', icon: 'activity', tone: 'ok' },
-  { key: 'restart', icon: 'restart', tone: 'acc', coreOnly: true, endpoint: 'restart-link', act: true },
-  { key: 'rebuild', icon: 'redo', tone: 'tx', endpoint: 'rebuild-link', act: true },
-  { key: 'reset', icon: 'reset', tone: 'gold', endpoint: 'traffic-reset' },
-  { key: 'off', icon: 'plugoff', tone: 'bad', endpoint: 'link-toggle', enabled: false },
-  { key: 'on', icon: 'bolt', tone: 'ok', endpoint: 'link-toggle', enabled: true },
+  { key: 'restart', icon: 'restart', tone: 'acc', coreOnly: true },
+  { key: 'rebuild', icon: 'redo', tone: 'tx' },
+  { key: 'reset', icon: 'reset', tone: 'gold' },
+  { key: 'off', icon: 'plugoff', tone: 'bad', enabled: false },
+  { key: 'on', icon: 'bolt', tone: 'ok', enabled: true },
 ]
 
 export function bulkNames(links) {
@@ -24,7 +22,7 @@ export function bulkNames(links) {
   return rest > 0 ? shown + T('bulk_more').replace('{n}', String(rest)) : shown
 }
 
-export default function useBulk({ list, checkRefs, onDone }) {
+export default function useBulk({ list, actRefs, onDone }) {
   const { waitDone } = useActs()
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
@@ -75,16 +73,20 @@ export default function useBulk({ list, checkRefs, onDone }) {
     setPicked((prev) => (every.length && every.every((id) => prev.has(id)) ? new Set() : new Set(every)))
   }, [])
 
+  const cardAction = (link, name, arg) => {
+    const run = actRefs.current[link.id]
+    return run ? run(name, arg) : Promise.resolve(undefined)
+  }
+
   const runOne = async (action, link) => {
-    if (action.endpoint === 'link-toggle' && (link.enabled !== false) === action.enabled) return ''
-    const body = action.endpoint === 'link-toggle' ? { id: link.id, enabled: action.enabled } : { id: link.id }
-    const r = await apiPost(action.endpoint, body)
-    if (action.act) {
-      if (!(r.ok && r.d.act)) return postError(r)
-      const w = await waitDone(r.d.act)
-      return w.ok ? '' : w.err
-    }
-    return r.ok && r.d.ok ? '' : postError(r)
+    const toggle = action.enabled !== undefined
+    if (toggle && (link.enabled !== false) === action.enabled) return ''
+    const res = await cardAction(link, toggle ? 'toggle' : action.key, action.enabled)
+    if (res === undefined) return T('bulk_busy')
+    if (typeof res === 'string') return res
+    if (res.err) return res.err
+    const w = await waitDone(res.act)
+    return w.ok ? '' : w.err
   }
 
   const perform = async (action) => {
@@ -110,8 +112,7 @@ export default function useBulk({ list, checkRefs, onDone }) {
         setRun({ key: action.key, i: 0, k })
         await Promise.all(
           links.map(async (link) => {
-            const check = checkRefs.current[link.id]
-            const res = check ? await check() : 'bad'
+            const res = await cardAction(link, 'ping')
             if (res === 'ok') ok++
             else if (res === 'bad') bad++
             setRun((r) => r && { ...r, i: r.i + 1 })
