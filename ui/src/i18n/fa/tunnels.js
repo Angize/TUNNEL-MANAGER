@@ -36,7 +36,6 @@ export default {
   bulk_ping_done: '{a}: {ok} از {k} وصل',
   bulk_bad: '، {n} خطا',
   bulk_skip: '، {n} لغو شد',
-  bulk_cancelled: 'لغو شد',
   bulk_busy: 'کارت مشغولِ کارِ دیگری بود',
   bulk_drift: 'آی‌پیِ نود عوض شده — جدا بازسازی کن',
   bulk_timeout: 'بیش از حد طول کشید',
