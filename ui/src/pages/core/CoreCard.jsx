@@ -365,7 +365,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
                 <span>{T('tun_off_note')}</span>
               </div>
             ) : (
-              <div className="ltraf">
+              <div className="ltraf flat">
                 {link.rx_total != null || link.rx_bps != null ? (
                   <>
                     <span className="din iso">↓ {fmtRate(link.rx_bps)}</span>

@@ -81,7 +81,7 @@
 
 .cgrid .cgc {
   min-width: 0;
-  padding-block: 2px;
+  padding-block: 1px;
   padding-inline: 12px 0;
   white-space: nowrap;
   overflow: hidden;
@@ -122,8 +122,10 @@
   direction: ltr;
 }
 
-.cgrid .nofeat {
-  opacity: .55;
+.ltraf.flat {
+  margin-top: 6px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .warncap.emwarn {

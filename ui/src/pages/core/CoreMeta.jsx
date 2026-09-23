@@ -154,7 +154,7 @@ function sidePorts(link, rungTransports) {
 
 function capCells(link) {
   const tags = capabilities(link)
-  if (!tags.length) return [cell(T('caps'), <span className="nofeat">—</span>)]
+  if (!tags.length) return []
   const short = (tag) => !!tag && tag.length <= SHORT_CAP
   const first = short(tags[0]) && short(tags[1]) ? CAPS_PER_CELL : 1
   const chunks = [tags.slice(0, first)]
@@ -199,8 +199,6 @@ function edgeRotation(link) {
 function sharedCells(link) {
   const profile = carrierProfile(link)
   const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
-  const iface = cell(T('iface'), mono(link.name))
-  const caps = capCells(link)
   const cells = [
     cell(
       T('ttype'),
@@ -218,7 +216,7 @@ function sharedCells(link) {
         <b>{T('no_cipher')}</b>
       )
     ),
-    ...(caps.length > 1 ? [...caps, iface] : [iface, ...caps]),
+    ...capCells(link),
     ...rawCells(link),
   ]
   if (link.transport === 'ws' && link.ws_pool) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
