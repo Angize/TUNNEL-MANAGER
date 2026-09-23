@@ -1269,7 +1269,7 @@ def _marks(prev, ping, lst, ping_at, list_at):
     return {"node": node, "fails": fails, "conf": conf,
             "seen": _mark(prev.get("seen"), seen, list_at),
             "tun": {nm: _mark(tun.get(nm), _tun_ok(h), list_at)
-                    for nm, h in ((lst.get("health") or {}) if seen else {}).items()}}
+                    for nm, h in (lst.get("health") or {}).items()} if seen else tun}
 
 
 def _poll_node(n):
