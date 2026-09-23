@@ -43,6 +43,7 @@ function poolCollect(form, body) {
     pool.sniPaths && pool.sniPaths[host] ? { host, path: pool.sniPaths[host] } : host
   )
   body.ws_rotate_secs = pool.rotate
+  body.ws_port_roll = !!pool.portRoll
   return ''
 }
 

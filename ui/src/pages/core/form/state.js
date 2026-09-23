@@ -147,6 +147,7 @@ export function editForm(cfg, link) {
     pool: {
       pool: !!link.ws_pool,
       rotate: link.ws_rotate_secs != null ? link.ws_rotate_secs : 600,
+      portRoll: !!link.ws_port_roll,
       ip: (link.ws_edge_ips || []).slice(),
       sni: (link.ws_edge_snis || []).map((s) => (s && s.host) || '').filter(Boolean),
       sniPaths: Object.fromEntries(

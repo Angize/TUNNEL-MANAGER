@@ -4,6 +4,7 @@ export function rawPorted(form, enums) {
 
 export function portTriesOn(form, enums) {
   if (form.Tr === 'raw') return rawPorted(form, enums) && !!form.SportRandom
+  if (form.Tr === 'ws' && form.pool && form.pool.pool && !form.pool.portRoll) return false
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 
