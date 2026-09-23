@@ -10,7 +10,7 @@ import WsSection from './WsSection.jsx'
 import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
-import { coverOk } from './gates.js'
+import { coverOk, wsPoolOn } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { PORT_MAX, rangeLabel } from '../../../lib/form.js'
 import { subnetForBase, subnetRangeItems } from '../../../lib/subnet.js'
@@ -96,6 +96,15 @@ export default function SettingsTab({
 
       {form.Tr === 'raw' ? null : (
         <>
+          {wsPoolOn(form) ? (
+            <TglBox
+              on={!!form.pool.portRoll}
+              title={T('pool_roll_t')}
+              note={T('pool_roll_d')}
+              gap={11}
+              onClick={() => patch({ pool: { ...form.pool, portRoll: !form.pool.portRoll } })}
+            />
+          ) : null}
           <PortTriesSection form={form} enums={cfg.enums} patch={patch} />
           <BandSection form={form} enums={cfg.enums} patch={patch} />
         </>
