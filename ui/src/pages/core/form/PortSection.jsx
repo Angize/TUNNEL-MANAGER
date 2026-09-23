@@ -1,5 +1,5 @@
 import { Seg2, SegOpt, TglBox, WarnCap } from './controls.jsx'
-import { ctbOn, rawPortOn, sprotLive, sprotOn } from './gates.js'
+import { ctbOn, rawPortOn, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
@@ -83,7 +83,6 @@ function SourcePort({ form, patch }) {
 }
 
 function SportRotation({ form, patch }) {
-  if (!sprotOn(form)) return null
   const live = sprotLive(form)
 
   const toggle = () => {

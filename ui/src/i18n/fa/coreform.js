@@ -173,8 +173,7 @@ export default {
   cover_sni_lbl: 'سایتِ پوشش (SNI) — الزامی',
   cover_sni_ph: 'مثلاً یک سایتِ HTTPS واقعی و محبوب',
   cover_need_sni: 'برای پوششِ TLS باید دامنهٔ نمایشی (SNI) را وارد کنی',
-  cover_sni_note1: 'باید سایتِ HTTPSِ واقعی، فیلترنشده و محبوب باشد',
-  cover_sni_note2: 'باید سایتِ HTTPSِ واقعی، فیلترنشده و محبوب باشد',
+  cover_sni_note: 'باید سایتِ HTTPSِ واقعی، فیلترنشده و محبوب باشد',
 
   wstls_t: 'wss (TLS به CDN)',
   wstls_d: 'اتصال به CDN رمز و شبیهِ سایتِ عادی',

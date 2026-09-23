@@ -145,7 +145,7 @@ export default function SettingsTab({
             onChange={(e) => patch({ coverSni: e.target.value })}
           />
           <div className="muted" style={{ fontSize: 11, marginTop: 5, lineHeight: 1.7 }}>
-            <RichText text={T(link ? 'cover_sni_note2' : 'cover_sni_note1')} />
+            <RichText text={T('cover_sni_note')} />
           </div>
         </div>
       ) : null}

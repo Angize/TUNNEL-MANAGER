@@ -7,7 +7,6 @@ import {
   rawPortOn,
   rotIsDirect,
   rotMulti,
-  sprotOn,
   wkCarrier,
   wssMandatory,
 } from './gates.js'
@@ -34,7 +33,7 @@ export default function normalise(form, cfg, aIps, bIps) {
   }
   if (!desyncOk(view)) set('Desync', false)
   if (parseInt(at('dsTtl'), 10) > DS_TTL_CAP) set('dsTtl', String(DS_TTL_CAP))
-  if (!sprotOn(view)) set('Sprot', false)
+  if (!rawPortOn(view)) set('Sprot', false)
   if (!ctbOn({ ...view, Sprot: at('Sprot') }, enums)) set('Ctb', false)
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
   if (wssMandatory(view, form.pool)) set('WsTls', true)
