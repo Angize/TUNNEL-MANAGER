@@ -2042,10 +2042,6 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
         body["peer_src_ips"] = list(peer_pool)
 
 
-ROT_WARN_GAP = 3600
-_note_lock = threading.Lock()
-
-
 def _live_pool(pool, live):
     got = [x for x in (pool or []) if x]
     return [x for x in got if x in live] if live else got
@@ -6531,12 +6527,14 @@ def _ech_refresh_once():
             log_internal("ech refresh %s" % L.get("name"))
 
 
+ECH_NOTE_GAP = 3600
+_ech_note_lock = threading.Lock()
 _ech_unknown_warned = {}
 
 
 def _ech_unknown_note(lid, nm, hosts):
-    with _note_lock:
-        if not _gate(_ech_unknown_warned, str(lid), ROT_WARN_GAP, WARN_MAX_KEYS):
+    with _ech_note_lock:
+        if not _gate(_ech_unknown_warned, str(lid), ECH_NOTE_GAP, WARN_MAX_KEYS):
             return
     log_event("warn", "ech-stale", "تونلِ «%s»: کلیدِ ECH بررسی نشد" % nm,
               chr(10).join(["دامنه‌ها: " + "، ".join(hosts), _ech_why(None),

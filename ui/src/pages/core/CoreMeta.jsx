@@ -22,7 +22,6 @@ const SERVER_HOST = 1
 const CLIENT_HOST = 2
 const CAPS_PER_CELL = 2
 const SHORT_CAP = 4
-const POOL_ROTATE_DEFAULT = 600
 const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
 function capabilities(link) {
@@ -40,9 +39,7 @@ function capabilities(link) {
 }
 
 function ConntrackWarning({ link }) {
-  if (link.transport !== 'raw' || link.conntrack_bypass) return null
-  if (link.raw_profile !== 'udp' && link.raw_profile !== 'tcp') return null
-  if (!num(link.raw_sport_rotate) && !link.raw_sport_random) return null
+  if (!rawPorted(link) || !rawRotating(link) || link.conntrack_bypass) return null
 
   const ct = link.ct || {}
   const pct = num(ct.pct)
@@ -194,7 +191,7 @@ function rawCells(link) {
 }
 
 function edgeRotation(link) {
-  const secs = link.ws_rotate_secs != null ? num(link.ws_rotate_secs) : POOL_ROTATE_DEFAULT
+  const secs = num(link.ws_rotate_secs)
   if (!secs) return T('rot_on_fail')
   const item = poolRotateItems().find((x) => x.v === secs)
   return item ? item.label : secs + 's'
