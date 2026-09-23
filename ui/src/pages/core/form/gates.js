@@ -21,12 +21,8 @@ export function ctbOn(form, enums) {
   return rawPorted(form, enums)
 }
 
-export function sprotOn(form) {
-  return form.Tr === 'raw' && (form.RawProfile === 'udp' || form.RawProfile === 'tcp')
-}
-
 export function sprotLive(form) {
-  return sprotOn(form) && !!form.Sprot
+  return rawPortOn(form) && !!form.Sprot
 }
 
 export function rawPortOn(form) {
