@@ -138,18 +138,22 @@ function rawRotating(link) {
 function sidePorts(link, rungTransports) {
   const transport = link.transport || 'udp'
   if (transport === 'raw') {
-    if (!rawPorted(link)) return null
+    if (!rawPorted(link)) return []
     const live = link.rot_live || {}
-    const client = rawRotating(link)
-      ? num(live.cli)
-      : num(link.sport_live) || num(link.raw_sport) || RAW_SPORT_FIXED
-    const server = num(live.srv) || num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
-    return [portCell(T('port_src'), client), portCell(T('port_in'), server)]
+    const incoming = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
+    if (!rawRotating(link)) {
+      const client = num(link.sport_live) || num(link.raw_sport) || RAW_SPORT_FIXED
+      return [[portCell(T('port_src'), client), portCell(T('port_in'), incoming)]]
+    }
+    return [
+      [portCell(T('port_src'), live.cli), portCell(T('port_in'), incoming)],
+      [portCell(T('port_in'), live.cli), portCell(T('port_src'), live.srv)],
+    ]
   }
   const client = rungTransports.includes(transport) ? num(link.sport_live) : 0
   const server = num(link.port)
-  if (!client && !server) return null
-  return [portCell(T('port_src'), client), portCell(T('port_in'), server)]
+  if (!client && !server) return []
+  return [[portCell(T('port_src'), client), portCell(T('port_in'), server)]]
 }
 
 function capCells(link) {
@@ -241,13 +245,12 @@ function Cell({ c }) {
 export default function CoreMeta({ link, activeEdge }) {
   const { enums } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
-  const ports = sidePorts(link, rungTransports)
   const rows = [
     [
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
     ],
-    ...(ports ? [ports] : []),
+    ...sidePorts(link, rungTransports),
     ...pairs(sharedCells(link)),
   ]
 
