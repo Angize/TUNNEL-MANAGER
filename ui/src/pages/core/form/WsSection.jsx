@@ -74,10 +74,6 @@ export default function WsSection({ form, cfg, tuning, lid, live, patch }) {
           />
         ))}
       </Tiles>
-      <WarnCap
-        text={form.Cdn === 'grpc' ? T('grpc_zone_warn') : ''}
-        style={{ marginTop: 8 }}
-      />
       <CdnShape form={form} enums={cfg.enums} patch={patch} />
       <TglBox
         on={form.pool.pool}

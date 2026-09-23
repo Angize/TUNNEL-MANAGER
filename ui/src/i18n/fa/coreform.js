@@ -109,7 +109,6 @@ export default {
   wsp_ws_m: 'وب‌سوکت',
   wsp_grpc_m: 'استریمِ دوطرفه',
   wsp_http_m: 'GET + POST',
-  grpc_zone_warn: 'gRPC باید روی زونِ CDN روشن باشد',
   cdn_shape_lbl: 'شکلِ حاملِ http',
   cdn_upw_lbl: 'کارگرِ آپلود',
   cdn_upkb_lbl: 'اندازهٔ هر آپلود (KB)',
