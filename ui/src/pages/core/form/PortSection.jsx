@@ -1,5 +1,5 @@
 import { Seg2, SegOpt, TglBox, WarnCap } from './controls.jsx'
-import { ctbOn, rawPortOn, sprotLive, sprotOn } from './gates.js'
+import { rawPortOn, sprotLive, sprotOn } from './gates.js'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
 import { intOf, sprotErr } from './validate.js'
 import { PORT_MAX, rangeLabel } from '../../../lib/form.js'
@@ -132,7 +132,7 @@ function SportRotation({ form, patch }) {
   )
 }
 
-export default function PortSection({ form, enums, patch }) {
+export default function PortSection({ form, patch }) {
   if (!rawPortOn(form)) return null
   const current = parseInt(form.rawPort, 10)
 
@@ -161,16 +161,6 @@ export default function PortSection({ form, enums, patch }) {
       />
       <SourcePort form={form} patch={patch} />
       <SportRotation form={form} patch={patch} />
-      {ctbOn(form, enums) ? (
-        <div>
-          <TglBox
-            on={!!form.Ctb}
-            title={T('ctb_t')}
-            note={T('ctb_d')}
-            onClick={() => patch({ Ctb: !form.Ctb })}
-          />
-        </div>
-      ) : null}
     </div>
   )
 }
