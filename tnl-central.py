@@ -237,6 +237,13 @@ def _en_fail(v):
     return out
 
 
+def _en_reply(res):
+    out = _en_out(res)
+    if not isinstance(out, dict):
+        return out
+    return {"code": 200, **{k: x for k, x in out.items() if k != "code"}}
+
+
 def _copy(v):
     if isinstance(v, dict):
         return {k: _copy(x) for k, x in v.items()}
@@ -9835,7 +9842,7 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
         try:
             res = _dispatch(cmd, d)
-            self._send(200, _en_out(res) if via_token else res)
+            self._send(200, _en_reply(res) if via_token else res)
         except ValueError as e:
             self._send(400, _err_en(e, 400) if via_token else {"error": str(e)})
             if via_token:

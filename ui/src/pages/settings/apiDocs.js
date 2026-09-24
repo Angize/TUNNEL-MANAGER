@@ -15,7 +15,7 @@ export const TEXT = {
   guide: [
     'Every request needs the header <b>Authorization: Bearer TOKEN</b>. Create the token above and turn external API access on.',
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
-    'Every answer is JSON and all of its text is English. Every error carries the HTTP status in <b>code</b>, a stable error name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. A failure answered with HTTP 200 and ok: false has code 200. Under each route are all the errors that route can return.',
+    'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every error also carries a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. A failure answered with HTTP 200 and ok: false has code 200 too. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (the status it would have had if it failed at once: 400, 500, or 200 for an ok: false result), error and message.',
     'Four routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore.',
   ],

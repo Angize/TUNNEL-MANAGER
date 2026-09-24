@@ -3,6 +3,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "nodes_online": 2,
    "nodes_total": 2,
    "proxies": 0,
@@ -102,6 +103,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "nodes": [
     {
      "id": "9eec8c5207",
@@ -267,6 +269,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "nodes": [
     {
      "id": "9eec8c5207",
@@ -309,6 +312,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "port": 20667,
    "lo": 20000,
@@ -319,6 +323,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "reconcile_mode": "alert",
    "reconcile_interval": 15,
    "poll_interval": 2,
@@ -352,6 +357,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "agent": true,
    "core": true,
    "core_missing": [],
@@ -363,6 +369,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "tuning_defaults": {
     "suspect_backoff": [
      600,
@@ -543,6 +550,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "proxies": [
     {
      "id": "31df7202f9",
@@ -570,6 +578,7 @@
    "q": ""
   },
   "ok": {
+   "code": 200,
    "links": [
     {
      "id": "b486ffa35c33",
@@ -715,6 +724,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "events": [
     {
@@ -745,6 +755,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "acts": {
     "new:95903124": {
@@ -844,6 +855,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "portfw": [
     {
      "node": "N1",
@@ -879,6 +891,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "version": "v1.0.0",
    "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
    "size": 133551,
@@ -890,6 +903,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "versions": [
     {
      "id": "v2.136.0",
@@ -929,6 +943,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "bc76d492889e",
    "version": "v2.136.0",
@@ -946,6 +961,7 @@
   "req": null,
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "*",
    "kind": "agent",
@@ -991,6 +1007,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "a3f6789afd46"
   }
@@ -1001,6 +1018,7 @@
    "job": "a3f6789afd46"
   },
   "ok": {
+   "code": 200,
    "steps": [
     {
      "key": "ssh",
@@ -1032,6 +1050,7 @@
    "id": "9eec8c5207"
   },
   "ok": {
+   "code": 200,
    "online": true,
    "stats": {
     "cpus": 2,
@@ -1066,6 +1085,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "info": {
     "ok": true,
@@ -1118,6 +1138,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "online": true,
    "ips": [
     {
@@ -1143,6 +1164,7 @@
    "id": "9eec8c5207"
   },
   "ok": {
+   "code": 200,
    "online": true,
    "node": {
     "rx_bps": 5434.072703690676,
@@ -1161,6 +1183,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "active": false,
    "cc": "bbr",
@@ -1177,6 +1200,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "9f84d9d4d66e"
   }
@@ -1190,6 +1214,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "b784ff33e836"
   }
@@ -1210,6 +1235,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "act": "new:7cfcbcc8"
   }
@@ -1220,6 +1246,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "name": "core1",
    "a_online": true,
@@ -1250,6 +1277,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "from": "N2",
    "to": "N1",
@@ -1266,6 +1294,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "view_side": "b"
   }
@@ -1276,6 +1305,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "id": "b486ffa35c33",
    "name": "core1",
    "a": {
@@ -1356,6 +1386,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "tag": 2
   }
@@ -1370,6 +1401,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1390,6 +1422,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "act": "link:b486ffa35c33"
   }
@@ -1401,6 +1434,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "enabled": false
   }
@@ -1411,6 +1445,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "act": "link:b486ffa35c33"
   }
@@ -1421,6 +1456,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "act": "link:b486ffa35c33"
   }
@@ -1431,6 +1467,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "pool": true,
    "active": "",
@@ -1485,6 +1522,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "pool": true,
    "now": 1790276541,
@@ -1542,6 +1580,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1553,6 +1592,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1564,6 +1604,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1575,6 +1616,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1584,6 +1626,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1596,6 +1639,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "name": "portfw3"
   }
@@ -1608,6 +1652,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "name": "portfw3"
   }
@@ -1619,6 +1664,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "active": "10.77.3.2"
   }
@@ -1632,6 +1678,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "proxy": {
     "id": "31df7202f9",
@@ -1661,6 +1708,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "proxy": {
     "id": "31df7202f9",
@@ -1686,6 +1734,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "ms": 0,
    "error": "",
@@ -1699,6 +1748,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1711,6 +1761,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "checking": true
   }
@@ -1722,6 +1773,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "disabled": true
   }
@@ -1732,6 +1784,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "host": "10.77.4.2",
    "port": 8099
@@ -1746,6 +1799,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "id": "e72eb01adf",
    "checking": true
@@ -1758,6 +1812,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "node_wiped": false
   }
@@ -1766,6 +1821,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "count": 13,
    "latest": "v2.136.0",
@@ -1780,6 +1836,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "meta_only": false,
    "done": false,
@@ -1790,6 +1847,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "done": true
   }
@@ -1798,6 +1856,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "version": "v1.0.0",
    "sha256": "d781be7fc3b6"
@@ -1809,6 +1868,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "version": "v1.0.0",
    "sha256": "d781be7fc3b6"
@@ -1821,6 +1881,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "sha256": "c30a802e90ab",
    "size": 9834680,
@@ -1831,6 +1892,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1840,6 +1902,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "act": "new:7d19b919"
   }
@@ -1848,6 +1911,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "*"
   }
@@ -1856,6 +1920,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "job": "*",
    "paused": true
@@ -1868,6 +1933,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
@@ -1877,6 +1943,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "act": "link:30edc9475d23"
   }
@@ -1887,6 +1954,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "settings": {
     "reconcile_mode": "alert",
@@ -1923,6 +1991,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "token": "********"
   }
@@ -1931,6 +2000,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "data": "H4sIABN1tWoC/+2beXQb133v7wwALhBFSqRkbZZ1",
    "nodes": 2,
@@ -1945,6 +2015,7 @@
   },
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true,
    "made": 1790276883,
    "same_key": true,
@@ -1974,6 +2045,7 @@
   "req": {},
   "q": null,
   "ok": {
+   "code": 200,
    "ok": true
   }
  },
