@@ -289,17 +289,86 @@ button.apcc.on {
   color: var(--sub);
 }
 
-.apjs {
+.apterm {
   margin: 6px 0 0;
-  padding: 9px 11px;
+  border: 1px solid #1f2733;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f141b;
+  box-shadow: 0 6px 18px rgba(8, 12, 20, .22);
+}
+
+.aptermh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #1a212b;
+  border-bottom: 1px solid #26303d;
+}
+
+.aptermh i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.aptermh i:nth-child(2) {
+  background: #febc2e;
+}
+
+.aptermh i:nth-child(3) {
+  background: #28c840;
+}
+
+.aptermh span {
+  margin-inline-start: 8px;
+  font: 600 11px ui-monospace, Consolas, monospace;
+  color: #8b98a8;
+}
+
+.apjs {
+  margin: 0;
+  padding: 10px 12px;
   max-height: 340px;
   overflow: auto;
-  border: 1px solid var(--bord);
-  border-radius: 10px;
-  background: var(--field);
+  color: #d6deeb;
   font-family: ui-monospace, Consolas, Vazirmatn, monospace;
   font-size: 11.5px;
   line-height: 1.65;
   text-align: left;
   white-space: pre-wrap;
+  scrollbar-color: #334155 transparent;
+}
+
+.apjs .tk {
+  color: #82aaff;
+}
+
+.apjs .ts,
+.apjs .tu {
+  color: #c3e88d;
+}
+
+.apjs .tn {
+  color: #f78c6c;
+}
+
+.apjs .tb {
+  color: #c792ea;
+}
+
+.apjs .tc {
+  color: #ffcb6b;
+  font-weight: 700;
+}
+
+.apjs .tf {
+  color: #89ddff;
+}
+
+.apjs .tp {
+  color: #28c840;
+  font-weight: 700;
 }
