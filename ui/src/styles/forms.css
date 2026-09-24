@@ -82,6 +82,21 @@ select:focus {
   transform: scale(.98);
 }
 
+.primary.glass {
+  background: color-mix(in srgb, var(--acc) 12%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--acc) 32%, transparent);
+  color: var(--acc);
+  box-shadow: var(--dsh);
+}
+
+.primary.glass:hover {
+  box-shadow: var(--dsh-hi);
+}
+
+.primary.glass .ic {
+  color: var(--acc);
+}
+
 .ghost {
   margin-top: 18px;
   margin-inline-start: 8px;

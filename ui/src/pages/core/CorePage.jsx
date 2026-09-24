@@ -110,7 +110,7 @@ export default function CorePage({ active }) {
     <>
 
       <div className="tbtnrow">
-        <button className="primary" onClick={() => setEditing({})}>
+        <button className="primary glass" onClick={() => setEditing({})}>
           <Icon name="plus" />
           {T('core_add')}
         </button>

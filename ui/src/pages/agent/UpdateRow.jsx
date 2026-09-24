@@ -13,7 +13,7 @@ export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, go
           <b>{title}</b>
           <small>{sub}</small>
         </div>
-        <button type="button" className="primary upgo" disabled={goDisabled} onClick={onGo}>
+        <button type="button" className="primary glass upgo" disabled={goDisabled} onClick={onGo}>
           <Icon name={goIcon} />
           {goLabel}
         </button>

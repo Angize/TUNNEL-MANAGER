@@ -95,7 +95,7 @@ export default function TunnelsPage({ active }) {
     <>
 
       <div className="tbtnrow">
-        <button className="primary" onClick={() => setCreating(true)}>
+        <button className="primary glass" onClick={() => setCreating(true)}>
           <Icon name="plus" />
           {T('add_tunnel')}
         </button>

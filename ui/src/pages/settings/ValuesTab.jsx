@@ -127,14 +127,14 @@ export default function ValuesTab({ active }) {
         </SettingsGroup>
       </div>
 
-      <p className="stnote">{T('set_apply_note')}</p>
-      {active && f.dirty ? <SaveDock count={f.dirty} busy={f.busy} onRevert={f.revert} onSave={f.save} /> : null}
-      <div className="stdefaults">
-        <button className="ghost" onClick={f.reset} disabled={f.busy}>
+      <div className="stfoot">
+        <p className="stnote">{T('set_apply_note')}</p>
+        <button className="ghost tone tone-renew" onClick={f.reset} disabled={f.busy}>
           <Icon name="reset" />
           {T('set_reset_all')}
         </button>
       </div>
+      {active && f.dirty ? <SaveDock count={f.dirty} busy={f.busy} onRevert={f.revert} onSave={f.save} /> : null}
 
       {picking ? (
         <ModePicker

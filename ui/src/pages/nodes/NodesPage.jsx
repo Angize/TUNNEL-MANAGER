@@ -94,7 +94,7 @@ export default function NodesPage({ active }) {
   return (
     <>
       <StaleBanner count={staleCount} />
-      <button className="primary" onClick={() => setAdding(true)} style={ADD_BUTTON_STYLE}>
+      <button className="primary glass" onClick={() => setAdding(true)} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('add_node')}
       </button>
