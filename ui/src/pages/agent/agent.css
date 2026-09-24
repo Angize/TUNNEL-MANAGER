@@ -343,28 +343,25 @@
 .nxv {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
-  direction: ltr;
-  justify-content: flex-end;
 }
 
 .nxv .vp {
+  flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 25px;
-  padding: 0 8px;
+  justify-content: center;
+  height: 26px;
+  padding: 0 4px;
   border-radius: 8px;
   background: var(--field);
   border: 1px solid var(--bord);
   font-size: 11px;
   font-weight: 700;
   font-family: ui-monospace, Consolas, monospace;
-}
-
-.nxv .vp .ic {
-  width: 12px;
-  height: 12px;
+  direction: ltr;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .nxv .vp.ok {
@@ -391,14 +388,19 @@
 
 .nxa {
   display: flex;
-  gap: 7px;
+  gap: 6px;
   margin-top: auto;
 }
 
 .nxa .ib {
-  width: 34px;
-  height: 34px;
+  flex: 1;
+  width: auto;
+  height: 36px;
+  gap: 6px;
   border-radius: 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .nx .agres {
