@@ -11,20 +11,20 @@
    "core": 1,
    "link_total": 2,
    "portfw": 1,
-   "health_score": 90,
+   "health_score": 100,
    "central": {
     "cpus": 2,
-    "cpu_pct": 16,
+    "cpu_pct": 0,
     "mem_total_mb": 3814,
-    "mem_used_mb": 946,
-    "ram_pct": 25,
+    "mem_used_mb": 933,
+    "ram_pct": 24,
     "disk_total_mb": 38113,
-    "disk_used_mb": 11854,
+    "disk_used_mb": 11857,
     "disk_pct": 32,
     "load": [
-     "0.66",
-     "0.37",
-     "… و 1 مورد دیگر"
+     "0.56",
+     "0.20",
+     "… 1 more"
     ]
    },
    "heat": [
@@ -50,23 +50,15 @@
     },
     "cpu": {
      "name": "N1",
-     "pct": 6
+     "pct": 5
     }
    },
    "crit": 0,
-   "alerts": [
-    {
-     "level": "bad",
-     "kind": "link",
-     "tab": "tunnels",
-     "id": "62fd68268372",
-     "msg": "تونلِ «native2» قطع است"
-    }
-   ],
-   "alert_count": 1,
-   "link_up": 1,
+   "alerts": [],
+   "alert_count": 0,
+   "link_up": 2,
    "link_noping": 0,
-   "link_down": 1,
+   "link_down": 0,
    "link_drift": 0,
    "link_off": 0,
    "link_types": {
@@ -85,24 +77,24 @@
    "uptime_avg": 97.4,
    "uptime_down_nodes": 2,
    "uptime_window": 1,
-   "mem_used_mb": 1752,
+   "mem_used_mb": 1746,
    "mem_total_mb": 7628,
-   "disk_used_mb": 23708,
+   "disk_used_mb": 23714,
    "disk_total_mb": 76226,
-   "fleet_rx_bps": 46379.84538293,
-   "fleet_tx_bps": 57922.99580242674,
-   "fleet_rx_total": 1784886961,
-   "fleet_tx_total": 1758673452,
-   "ev_seq": "1790271554790-0",
-   "log_count": 30,
-   "log_unread": 30,
-   "boot": "a4821e1415411ed4",
+   "fleet_rx_bps": 43035.66666952956,
+   "fleet_tx_bps": 54359.58434997393,
+   "fleet_rx_total": 1455604134,
+   "fleet_tx_total": 1429457075,
+   "ev_seq": "1790276452322-0",
+   "log_count": 34,
+   "log_unread": 34,
+   "boot": "88de97600f27815b",
    "ui_interval": 2,
    "poll_interval": 2,
    "suspect_backoff": [
     600,
     1800,
-    "… و 1 مورد دیگر"
+    "… 1 more"
    ],
    "dead_retest_secs": 21600
   }
@@ -114,7 +106,7 @@
   "ok": {
    "nodes": [
     {
-     "id": "631185b264",
+     "id": "9eec8c5207",
      "name": "N1",
      "host": "10.77.3.2",
      "port": 8099,
@@ -128,14 +120,14 @@
      "uptime": [
       null,
       null,
-      "… و 58 مورد دیگر"
+      "… 58 more"
      ],
-     "uptime_pct": 99.14,
+     "uptime_pct": 99.48,
      "traffic": {
-      "rx_bps": 21614.46866032508,
-      "tx_bps": 26369.811340854336,
-      "rx_total": 983331028,
-      "tx_total": 789106539
+      "rx_bps": 30734.996287610174,
+      "tx_bps": 34182.13704771076,
+      "rx_total": 735743891,
+      "tx_total": 708857950
      },
      "online": true,
      "info": {
@@ -147,46 +139,51 @@
       "hostname": "adN1",
       "ips": {
        "host0": [
-        "10.77.3.2"
+        "10.77.3.2",
+        "10.77.3.3"
        ]
       },
       "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
-      "tunnels": 1,
+      "tunnels": 2,
       "portfw": 0,
       "core_ver": "v2.136.0",
       "core_sha": "c30a802e90ab",
       "arch": "amd64",
       "stats": {
        "cpus": 2,
-       "uptime": 2819594,
+       "uptime": 2824650,
        "load": [
-        "0.08",
-        "0.24",
-        "… و 1 مورد دیگر"
+        "0.02",
+        "0.13",
+        "… 1 more"
        ],
        "mem_total_mb": 3814,
-       "mem_used_mb": 893,
+       "mem_used_mb": 882,
        "os": "Ubuntu 26.04 LTS",
        "disk_total_mb": 38113,
-       "disk_used_mb": 11867,
+       "disk_used_mb": 11870,
        "disk_pct": 32.5,
-       "cpu_pct": 11.0,
+       "cpu_pct": 6.8,
        "net": {
         "core1": [
-         90240,
-         91488
+         200288,
+         201536
+        ],
+        "core2": [
+         141440,
+         142288
         ],
         "_node": [
-         983528266,
-         789124561
+         1735351291,
+         1517053562
         ]
        }
       },
-      "rtt_ms": 26
+      "rtt_ms": 12
      }
     },
     {
-     "id": "14e63baf13",
+     "id": "b44a462ab2",
      "name": "N2",
      "host": "10.77.4.2",
      "port": 8099,
@@ -200,14 +197,14 @@
      "uptime": [
       null,
       null,
-      "… و 58 مورد دیگر"
+      "… 58 more"
      ],
-     "uptime_pct": 99.14,
+     "uptime_pct": 54.1,
      "traffic": {
-      "rx_bps": 22404.5232387008,
-      "tx_bps": 25525.551351554644,
-      "rx_total": 802099227,
-      "tx_total": 970235784
+      "rx_bps": 28620.26538723314,
+      "tx_bps": 36791.186855248874,
+      "rx_total": 721576043,
+      "tx_total": 722565382
      },
      "online": true,
      "info": {
@@ -219,42 +216,48 @@
       "hostname": "adN2",
       "ips": {
        "host0": [
-        "10.77.4.2"
+        "10.77.4.2",
+        "10.77.4.3",
+        "… 3 more"
        ]
       },
       "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
-      "tunnels": 1,
+      "tunnels": 2,
       "portfw": 0,
       "core_ver": "v2.136.0",
       "core_sha": "c30a802e90ab",
       "arch": "amd64",
       "stats": {
        "cpus": 2,
-       "uptime": 2819594,
+       "uptime": 2824650,
        "load": [
-        "0.08",
-        "0.24",
-        "… و 1 مورد دیگر"
+        "0.02",
+        "0.13",
+        "… 1 more"
        ],
        "mem_total_mb": 3814,
-       "mem_used_mb": 893,
+       "mem_used_mb": 882,
        "os": "Ubuntu 26.04 LTS",
        "disk_total_mb": 38113,
-       "disk_used_mb": 11867,
+       "disk_used_mb": 11870,
        "disk_pct": 32.5,
-       "cpu_pct": 11.3,
+       "cpu_pct": 6.8,
        "net": {
         "core1": [
-         90240,
-         90288
+         200288,
+         200336
+        ],
+        "core2": [
+         141040,
+         141488
         ],
         "_node": [
-         802296267,
-         970253674
+         1539320755,
+         1711029312
         ]
        }
       },
-      "rtt_ms": 24
+      "rtt_ms": 17
      }
     }
    ],
@@ -269,7 +272,7 @@
   "ok": {
    "nodes": [
     {
-     "id": "631185b264",
+     "id": "9eec8c5207",
      "name": "N1",
      "host": "10.77.3.2",
      "hidden": false,
@@ -278,13 +281,14 @@
      "info": {
       "ips": {
        "host0": [
-        "10.77.3.2"
+        "10.77.3.2",
+        "10.77.3.3"
        ]
       }
      }
     },
     {
-     "id": "14e63baf13",
+     "id": "b44a462ab2",
      "name": "N2",
      "host": "10.77.4.2",
      "hidden": false,
@@ -293,7 +297,9 @@
      "info": {
       "ips": {
        "host0": [
-        "10.77.4.2"
+        "10.77.4.2",
+        "10.77.4.3",
+        "… 2 more"
        ]
       }
      }
@@ -308,7 +314,7 @@
   "q": null,
   "ok": {
    "ok": true,
-   "port": 24309,
+   "port": 20667,
    "lo": 20000,
    "hi": 29999
   }
@@ -334,14 +340,14 @@
     "suspect_backoff": [
      600,
      1800,
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     "dead_retest_secs": 21600,
     "probe_min_pct": 15,
     "ladder_revive": [
      45,
      180,
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     "sock_buf_mb": 4
    }
@@ -368,21 +374,21 @@
     "suspect_backoff": [
      600,
      1800,
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     "dead_retest_secs": 21600,
     "probe_min_pct": 15,
     "ladder_revive": [
      45,
      180,
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     "sock_buf_mb": 4
    },
    "tuning_steps": {
     "probe_min_pct": [
      5,
-     "حداقلِ بسته‌های برگشتی"
+     "minimum returned packets"
     ]
    },
    "tuning_ranges": {
@@ -412,25 +418,25 @@
     [
      "link-up",
      "tunnel",
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     [
      "link-down",
      "tunnel",
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
-    "… و 26 مورد دیگر"
+    "… 26 more"
    ],
    "ev_groups": [
     [
      "tunnel",
-     "تونل"
+     "tunnel"
     ],
     [
      "node",
-     "نود"
+     "node"
     ],
-    "… و 5 مورد دیگر"
+    "… 5 more"
    ],
    "settings_defaults": {
     "reconcile_mode": "alert",
@@ -454,35 +460,35 @@
     [
      "nodes",
      "GET",
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     [
      "node-names",
      "GET",
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
-    "… و 70 مورد دیگر"
+    "… 70 more"
    ],
    "enums": {
     "ciphers": [
      "auto",
      "aes-256-gcm",
-     "… و 4 مورد دیگر"
+     "… 4 more"
     ],
     "tr_all": [
      "udp",
      "tcp",
-     "… و 2 مورد دیگر"
+     "… 2 more"
     ],
     "tr_direct": [
      "udp",
      "tcp",
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     "tr_rung": [
      "udp",
      "tcp",
-     "… و 1 مورد دیگر"
+     "… 1 more"
     ],
     "raw_ported": [
      "udp",
@@ -529,12 +535,12 @@
      "tls": [
       443,
       2053,
-      "… و 4 مورد دیگر"
+      "… 4 more"
      ],
      "plain": [
       80,
       8080,
-      "… و 5 مورد دیگر"
+      "… 5 more"
      ]
     }
    }
@@ -547,7 +553,7 @@
   "ok": {
    "proxies": [
     {
-     "id": "a98b925422",
+     "id": "31df7202f9",
      "name": "px1",
      "scheme": "socks5",
      "host": "10.77.2.2",
@@ -575,15 +581,15 @@
   "ok": {
    "links": [
     {
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "name": "core1",
      "type": "core",
      "subnet": "10.0.1.0/24",
      "tunnel_id": 1,
-     "a_node": "631185b264",
+     "a_node": "9eec8c5207",
      "a_name": "N1",
      "a_ip": "10.77.3.2",
-     "b_node": "14e63baf13",
+     "b_node": "b44a462ab2",
      "b_name": "N2",
      "b_ip": "10.77.4.2",
      "port": 20002,
@@ -607,7 +613,7 @@
       "up": true,
       "alive": true,
       "dead": false,
-      "rtt_ms": 0.7,
+      "rtt_ms": 1.3,
       "loss_pct": 0.0,
       "crossed": true
      },
@@ -618,33 +624,33 @@
      "b_ips": [
       "10.77.4.2",
       "10.77.4.3",
-      "… و 2 مورد دیگر"
+      "… 3 more"
      ],
      "view_name": "N2",
      "drift": false,
      "rb": null,
-     "rx_bps": 7959.4767886768805,
-     "tx_bps": 7959.4767886768805,
-     "rx_total": 333488,
-     "tx_total": 333088,
+     "rx_bps": 8004.197414448996,
+     "tx_bps": 8004.197414448996,
+     "rx_total": 402336,
+     "tx_total": 402336,
      "ct": {
-      "count": 2,
+      "count": 4,
       "max": 65536,
       "pct": 0,
       "node": "N1"
      },
-     "sport_live": 33830
+     "sport_live": 39013
     },
     {
-     "id": "9cf26b23567e",
+     "id": "d4b2673f2be9",
      "name": "core2",
      "type": "core",
      "subnet": "10.0.2.0/24",
      "tunnel_id": 2,
-     "a_node": "631185b264",
+     "a_node": "9eec8c5207",
      "a_name": "N1",
      "a_ip": "10.77.3.2",
-     "b_node": "14e63baf13",
+     "b_node": "b44a462ab2",
      "b_name": "N2",
      "b_ip": "10.77.4.2",
      "port": 20020,
@@ -667,7 +673,7 @@
       "up": true,
       "alive": true,
       "dead": false,
-      "rtt_ms": 1.0,
+      "rtt_ms": 0.4,
       "loss_pct": 0.0,
       "crossed": true
      },
@@ -675,7 +681,7 @@
       "up": true,
       "alive": true,
       "dead": false,
-      "rtt_ms": 1.0,
+      "rtt_ms": 1.3,
       "loss_pct": 0.0,
       "crossed": true
      },
@@ -686,31 +692,32 @@
      "b_ips": [
       "10.77.4.2",
       "10.77.4.3",
-      "… و 2 مورد دیگر"
+      "… 3 more"
      ],
      "view_side": "a",
      "view_name": "N1",
      "drift": false,
      "rb": null,
      "tag": 0,
-     "rx_bps": 4760.02166670489,
-     "tx_bps": 3173.3477778032598,
-     "rx_total": 596736,
-     "tx_total": 597136,
+     "rx_bps": 4811.412798388282,
+     "tx_bps": 3207.6085322588547,
+     "rx_total": 343488,
+     "tx_total": 343136,
      "ct": {
-      "count": 2,
+      "count": 4,
       "max": 65536,
       "pct": 0,
       "node": "N1"
      },
-     "sport_live": 15062,
+     "sport_live": 12328,
      "a_ip_rot": true,
      "b_ip_rot": true,
-     "a_ip_active": "10.77.3.3",
+     "a_ip_active": "10.77.3.2",
      "b_ip_active": "10.77.4.2"
-    }
+    },
+    "… 1 more"
    ],
-   "total": 2
+   "total": 3
   }
  },
  "events": {
@@ -721,24 +728,24 @@
    "ok": true,
    "events": [
     {
-     "ts": 1790271554,
-     "id": "1790271554779-0",
+     "ts": 1790276452,
+     "id": "1790276452309-0",
      "level": "warn",
      "kind": "api-error",
-     "fa": "درخواستِ API «core-upload» با خطا برگشت: فایل خیلی کوچک است — این باینریِ هسته نیست",
-     "dfa": "از: 127.0.0.1\nمسیر: POST /api/core-upload\nنتیجه: 400\nنشانه: Python-urllib/3.14",
-     "cat": "api"
+     "cat": "api",
+     "text": "API request 'core-upload' returned an error: the file is too small — this is not a core binary",
+     "detail": "from: 127.0.0.1\nroute: POST /api/core-upload\nresult: 400\nuser agent: Python-urllib/3.14"
     },
     {
-     "ts": 1790271554,
-     "id": "1790271554588-0",
+     "ts": 1790276452,
+     "id": "1790276452079-0",
      "level": "warn",
      "kind": "api-error",
-     "fa": "درخواستِ API «agent-upload» با خطا برگشت: این فایل ایجنتِ نود نیست",
-     "dfa": "از: 127.0.0.1\nمسیر: POST /api/agent-upload\nنتیجه: 400\nنشانه: Python-urllib/3.14",
-     "cat": "api"
+     "cat": "api",
+     "text": "API request 'agent-upload' returned an error: this file is not the node agent",
+     "detail": "from: 127.0.0.1\nroute: POST /api/agent-upload\nresult: 400\nuser agent: Python-urllib/3.14"
     },
-    "… و 25 مورد دیگر"
+    "… 29 more"
    ],
    "hidden": [],
    "hidden_out": 0
@@ -751,8 +758,59 @@
   "ok": {
    "ok": true,
    "acts": {
-    "new:248d4add": {
-     "key": "new:248d4add",
+    "new:95903124": {
+     "key": "new:95903124",
+     "target": "? ↔ ?",
+     "page": "tunnels",
+     "ttype": "",
+     "state": "fail",
+     "step": "",
+     "si": 0,
+     "sn": 4,
+     "pct": 0,
+     "err": "field 'b_node' is missing",
+     "note": "",
+     "offer": "",
+     "can": true,
+     "started": 1790276355,
+     "ended": 1790276355
+    },
+    "new:17ff0101": {
+     "key": "new:17ff0101",
+     "target": "N1 ↔ N1",
+     "page": "core",
+     "ttype": "udp",
+     "state": "fail",
+     "step": "",
+     "si": 0,
+     "sn": 4,
+     "pct": 0,
+     "err": "the two ends of a tunnel must be two different nodes",
+     "note": "",
+     "offer": "",
+     "can": true,
+     "started": 1790276399,
+     "ended": 1790276399
+    },
+    "new:7d19b919": {
+     "key": "new:7d19b919",
+     "target": "N1 ↔ N2",
+     "page": "core",
+     "ttype": "tcp",
+     "state": "cancel",
+     "step": "",
+     "si": 0,
+     "sn": 4,
+     "pct": 0,
+     "err": "",
+     "note": "",
+     "offer": "",
+     "can": true,
+     "started": 1790276519,
+     "ended": 1790276519
+    },
+    "new:7cdda481": {
+     "key": "new:7cdda481",
      "target": "N1 ↔ N2",
      "page": "core",
      "ttype": "udp",
@@ -765,11 +823,11 @@
      "note": "",
      "offer": "",
      "can": false,
-     "started": 1790272005,
-     "ended": 1790272005
+     "started": 1790276522,
+     "ended": 1790276523
     },
-    "new:9d136974": {
-     "key": "new:9d136974",
+    "new:ed44f562": {
+     "key": "new:ed44f562",
      "target": "N1 ↔ N2",
      "page": "core",
      "ttype": "ws",
@@ -778,15 +836,15 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "err": "wss (TLS به CDN) روشن است، پس پورتِ لبه باید یکی از پورت‌های HTTPS باشد: 443، 2053، 2083، 2087، 2096، 8443 — پورتِ 80 قبول نیست. (یا wss را خاموش کن و پورتِ HTT…",
+     "err": "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: 443, 2053, 2083, 2087, 2096, 8443 — port 80 is not accepted. (Or turn wss off and u…",
      "note": "",
      "offer": "",
      "can": true,
-     "started": 1790272007,
-     "ended": 1790272007
+     "started": 1790276524,
+     "ended": 1790276524
     }
    },
-   "now": 1790272009
+   "now": 1790276526
   }
  },
  "portfw-list": {
@@ -797,12 +855,12 @@
    "portfw": [
     {
      "node": "N1",
-     "node_id": "631185b264",
+     "node_id": "9eec8c5207",
      "name": "portfw2",
      "iface": "host0",
      "listen_port": "15100",
      "listen_ip": "",
-     "node_ip": "10.77.3.2",
+     "node_ip": "",
      "dst_port": "22",
      "dst_ips": [
       "10.77.4.2",
@@ -833,8 +891,7 @@
    "version": "v1.0.0",
    "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
    "size": 133551,
-   "uploaded_ts": 1790271333,
-   "source": "git",
+   "uploaded_ts": 1790271554,
    "delivery": "push"
   }
  },
@@ -846,7 +903,7 @@
    "versions": [
     {
      "id": "v2.136.0",
-     "label": "v2.136.0 (تازه‌ترین)",
+     "label": "v2.136.0 (latest)",
      "prerelease": false,
      "latest": true
     },
@@ -855,7 +912,7 @@
      "label": "v2.135.0",
      "prerelease": false
     },
-    "… و 11 مورد دیگر"
+    "… 11 more"
    ],
    "staged": {
     "version": "v2.136.0",
@@ -871,7 +928,7 @@
      "amd64": 9834680,
      "arm64": 9240760
     },
-    "ts": 1790271551
+    "ts": 1790276449
    },
    "delivery": "push",
    "ready": true,
@@ -884,7 +941,7 @@
   "q": null,
   "ok": {
    "ok": true,
-   "job": "0fedc40b0286",
+   "job": "bc76d492889e",
    "version": "v2.136.0",
    "done": true,
    "cancel": false,
@@ -909,23 +966,12 @@
    "cancel": true,
    "paused": false,
    "order": [
-    "631185b264",
-    "14e63baf13"
+    "9eec8c5207",
+    "b44a462ab2"
    ],
    "nodes": {
-    "631185b264": {
+    "9eec8c5207": {
      "name": "N1",
-     "state": "skip",
-     "pct": 0,
-     "step": "check",
-     "si": 1,
-     "sn": 2,
-     "remote": true,
-     "err": "",
-     "detail": "درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
-    },
-    "14e63baf13": {
-     "name": "N2",
      "state": "same",
      "pct": 100,
      "step": "check",
@@ -934,6 +980,17 @@
      "remote": true,
      "err": "",
      "detail": ""
+    },
+    "b44a462ab2": {
+     "name": "N2",
+     "state": "skip",
+     "pct": 0,
+     "step": "check",
+     "si": 1,
+     "sn": 2,
+     "remote": true,
+     "err": "",
+     "detail": "the whole request had reached the node — it may have done this step"
     }
    }
   }
@@ -948,7 +1005,8 @@
     },
     "q": null,
     "resp": {
-     "error": "رمزِ SSH یا کلیدِ خصوصی لازم است"
+     "error": "ssh_auth_missing",
+     "message": "an SSH password or a private key is required"
     }
    }
   ],
@@ -961,7 +1019,7 @@
   "q": null,
   "ok": {
    "ok": true,
-   "job": "ea90d20ef99d"
+   "job": "a3f6789afd46"
   }
  },
  "install-status": {
@@ -973,37 +1031,38 @@
      "job": "nope"
     },
     "resp": {
-     "error": "این کار دیگر در جریان نیست"
+     "error": "job_not_running",
+     "message": "this job is no longer running"
     }
    }
   ],
   "req": null,
   "q": {
-   "job": "ea90d20ef99d"
+   "job": "a3f6789afd46"
   },
   "ok": {
    "steps": [
     {
      "key": "ssh",
-     "label": "اتصالِ SSH",
+     "label": "SSH connection",
      "state": "ok",
-     "detail": "root@10.77.3.2:22 — وصل شد",
+     "detail": "root@10.77.3.2:22 — connected",
      "log": ""
     },
     {
      "key": "agent",
-     "label": "رساندنِ ایجنت به نود",
+     "label": "delivering the agent to the node",
      "state": "ok",
-     "detail": "tnl-node.py v1.0.0 از پنل رسید",
+     "detail": "tnl-node.py v1.0.0 arrived from the panel",
      "log": ""
     },
-    "… و 2 مورد دیگر"
+    "… 2 more"
    ],
    "done": true,
    "ok": true,
-   "banner": "«N1» نصب و وصل شد",
-   "node_id": "631185b264",
-   "ts": 1790271480,
+   "banner": "'N1' is installed and connected",
+   "node_id": "9eec8c5207",
+   "ts": 1790276377,
    "success": true
   }
  },
@@ -1016,35 +1075,36 @@
      "id": "nope"
     },
     "resp": {
-     "error": "پیدا نشد"
+     "error": "node_not_found",
+     "message": "node not found"
     }
    }
   ],
   "req": null,
   "q": {
-   "id": "631185b264"
+   "id": "9eec8c5207"
   },
   "ok": {
    "online": true,
    "stats": {
     "cpus": 2,
-    "uptime": 2819407,
+    "uptime": 2824304,
     "load": [
-     "0.25",
-     "0.22",
-     "… و 1 مورد دیگر"
+     "0.13",
+     "0.03",
+     "… 1 more"
     ],
     "mem_total_mb": 3814,
-    "mem_used_mb": 872,
+    "mem_used_mb": 880,
     "os": "Ubuntu 26.04 LTS",
     "disk_total_mb": 38113,
-    "disk_used_mb": 11854,
+    "disk_used_mb": 11857,
     "disk_pct": 32.5,
-    "cpu_pct": 3.9,
+    "cpu_pct": 3.8,
     "net": {
      "_node": [
-      13400707,
-      39461
+      1012745891,
+      808215808
      ]
     }
    },
@@ -1060,12 +1120,13 @@
     "req": {},
     "q": null,
     "resp": {
-     "error": "فیلدِ «id» فرستاده نشد"
+     "error": "missing_field",
+     "message": "field 'id' is missing"
     }
    }
   ],
   "req": {
-   "id": "631185b264"
+   "id": "9eec8c5207"
   },
   "q": null,
   "ok": {
@@ -1079,7 +1140,8 @@
     "hostname": "adN1",
     "ips": {
      "host0": [
-      "10.77.3.2"
+      "10.77.3.2",
+      "10.77.3.3"
      ]
     },
     "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
@@ -1090,27 +1152,27 @@
     "arch": "amd64",
     "stats": {
      "cpus": 2,
-     "uptime": 2819407,
+     "uptime": 2824304,
      "load": [
-      "0.25",
-      "0.22",
-      "… و 1 مورد دیگر"
+      "0.13",
+      "0.03",
+      "… 1 more"
      ],
      "mem_total_mb": 3814,
-     "mem_used_mb": 872,
+     "mem_used_mb": 880,
      "os": "Ubuntu 26.04 LTS",
      "disk_total_mb": 38113,
-     "disk_used_mb": 11854,
+     "disk_used_mb": 11857,
      "disk_pct": 32.5,
-     "cpu_pct": 66.7,
+     "cpu_pct": 50.0,
      "net": {
       "_node": [
-       13401387,
-       40690
+       1012746571,
+       808217056
       ]
      }
     },
-    "rtt_ms": 8
+    "rtt_ms": 9
    }
   }
  },
@@ -1123,12 +1185,13 @@
     },
     "q": null,
     "resp": {
-     "error": "پیدا نشد"
+     "error": "node_not_found",
+     "message": "node not found"
     }
    }
   ],
   "req": {
-   "id": "631185b264"
+   "id": "9eec8c5207"
   },
   "q": null,
   "ok": {
@@ -1137,6 +1200,13 @@
     {
      "ip": "10.77.3.2",
      "host": true,
+     "peers": [],
+     "pf": [],
+     "free": true
+    },
+    {
+     "ip": "10.77.3.3",
+     "host": false,
      "peers": [],
      "pf": [],
      "free": true
@@ -1153,21 +1223,22 @@
      "id": "nope"
     },
     "resp": {
-     "error": "پیدا نشد"
+     "error": "node_not_found",
+     "message": "node not found"
     }
    }
   ],
   "req": null,
   "q": {
-   "id": "631185b264"
+   "id": "9eec8c5207"
   },
   "ok": {
    "online": true,
    "node": {
-    "rx_bps": 5423.033238964484,
-    "tx_bps": 7847.448098736841,
-    "rx_total": 13202109,
-    "tx_total": 19472
+    "rx_bps": 5434.072703690676,
+    "tx_bps": 7939.340045759833,
+    "rx_total": 13137131,
+    "tx_total": 18210
    },
    "tunnels": [],
    "portfw": []
@@ -1178,17 +1249,18 @@
    {
     "status": 400,
     "req": {
-     "id": "631185b264",
+     "id": "9eec8c5207",
      "action": "boom"
     },
     "q": null,
     "resp": {
-     "error": "عملیاتِ نامعتبر"
+     "error": "bad_action",
+     "message": "invalid action"
     }
    }
   ],
   "req": {
-   "id": "631185b264",
+   "id": "9eec8c5207",
    "action": "status"
   },
   "q": null,
@@ -1209,20 +1281,21 @@
     },
     "q": null,
     "resp": {
-     "error": "نودی انتخاب نشده"
+     "error": "no_nodes",
+     "message": "no node selected"
     }
    }
   ],
   "req": {
    "ids": [
-    "631185b264",
-    "14e63baf13"
+    "9eec8c5207",
+    "b44a462ab2"
    ]
   },
   "q": null,
   "ok": {
    "ok": true,
-   "job": "85c437c3bb13"
+   "job": "9f84d9d4d66e"
   }
  },
  "update-agent": {
@@ -1236,27 +1309,28 @@
     },
     "q": null,
     "resp": {
-     "error": "نودی انتخاب نشده"
+     "error": "no_nodes",
+     "message": "no node selected"
     }
    }
   ],
   "req": {
    "ids": [
-    "631185b264",
-    "14e63baf13"
+    "9eec8c5207",
+    "b44a462ab2"
    ]
   },
   "q": null,
   "ok": {
    "ok": true,
-   "job": "352afd0530f5"
+   "job": "b784ff33e836"
   }
  },
  "create-tunnel": {
   "errs": [],
   "req": {
-   "a_node": "631185b264",
-   "b_node": "14e63baf13",
+   "a_node": "9eec8c5207",
+   "b_node": "b44a462ab2",
    "type": "core",
    "server_side": "a",
    "cipher": "auto",
@@ -1270,7 +1344,7 @@
   "q": null,
   "ok": {
    "ok": true,
-   "act": "new:43af911d"
+   "act": "new:7cfcbcc8"
   }
  },
  "check-link": {
@@ -1282,12 +1356,13 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
@@ -1299,7 +1374,7 @@
     "up": true,
     "alive": true,
     "dead": false,
-    "rtt_ms": 2.4,
+    "rtt_ms": 0.9,
     "loss_pct": 0.0,
     "crossed": true
    },
@@ -1307,7 +1382,7 @@
     "up": true,
     "alive": true,
     "dead": false,
-    "rtt_ms": 2.8,
+    "rtt_ms": 1.4,
     "loss_pct": 0.0,
     "crossed": true
    },
@@ -1324,12 +1399,13 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
@@ -1339,8 +1415,8 @@
    "secs": 8,
    "up_streams": 8,
    "down_streams": 8,
-   "up_mbit": 882.5,
-   "down_mbit": 710.0
+   "up_mbit": 654.8,
+   "down_mbit": 639.9
   }
  },
  "link-view": {
@@ -1352,12 +1428,13 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
@@ -1374,23 +1451,24 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
-   "id": "6dc4463b131e",
+   "id": "b486ffa35c33",
    "name": "core1",
    "a": {
-    "node_id": "631185b264",
+    "node_id": "9eec8c5207",
     "node": "N1",
     "online": true,
     "drifted": false,
-    "multi": false,
+    "multi": true,
     "ips": [
      {
       "ip": "10.77.3.2",
@@ -1409,15 +1487,22 @@
       ],
       "pf": [],
       "free": false
+     },
+     {
+      "ip": "10.77.3.3",
+      "host": false,
+      "peers": [],
+      "pf": [],
+      "free": true
      }
     ]
    },
    "b": {
-    "node_id": "14e63baf13",
+    "node_id": "b44a462ab2",
     "node": "N2",
     "online": true,
     "drifted": false,
-    "multi": false,
+    "multi": true,
     "ips": [
      {
       "ip": "10.77.4.2",
@@ -1436,7 +1521,15 @@
       ],
       "pf": [],
       "free": false
-     }
+     },
+     {
+      "ip": "10.77.4.3",
+      "host": false,
+      "peers": [],
+      "pf": [],
+      "free": true
+     },
+     "… 2 more"
     ]
    }
   }
@@ -1446,17 +1539,18 @@
    {
     "status": 400,
     "req": {
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "tag": 99
     },
     "q": null,
     "resp": {
-     "error": "رنگِ نشانه‌گذاری نامعتبر است"
+     "error": "bad_tag",
+     "message": "invalid tag colour"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e",
+   "id": "b486ffa35c33",
    "tag": 2
   },
   "q": null,
@@ -1471,22 +1565,23 @@
     "status": 400,
     "req": {
      "kind": "core",
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "targets": [
       "nope"
      ]
     },
     "q": null,
     "resp": {
-     "error": "مورد پیدا نشد"
+     "error": "item_not_found",
+     "message": "item not found"
     }
    }
   ],
   "req": {
    "kind": "tunnels",
-   "id": "62fd68268372",
+   "id": "30edc9475d23",
    "targets": [
-    "62fd68268372"
+    "30edc9475d23"
    ]
   },
   "q": null,
@@ -1504,13 +1599,14 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "a_node": "631185b264",
-   "b_node": "14e63baf13",
+   "a_node": "9eec8c5207",
+   "b_node": "b44a462ab2",
    "type": "core",
    "server_side": "a",
    "cipher": "auto",
@@ -1520,12 +1616,12 @@
    "gso": false,
    "subnet_base": "10",
    "port": "20002",
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "act": "link:6dc4463b131e"
+   "act": "link:b486ffa35c33"
   }
  },
  "link-toggle": {
@@ -1537,12 +1633,13 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e",
+   "id": "b486ffa35c33",
    "enabled": false
   },
   "q": null,
@@ -1560,17 +1657,18 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "act": "link:6dc4463b131e"
+   "act": "link:b486ffa35c33"
   }
  },
  "rebuild-link": {
@@ -1582,17 +1680,18 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "act": "link:6dc4463b131e"
+   "act": "link:b486ffa35c33"
   }
  },
  "edge-status": {
@@ -1604,7 +1703,8 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    },
    {
@@ -1614,29 +1714,62 @@
     },
     "q": null,
     "resp": {
-     "error": "فیلدِ «id» فرستاده نشد"
+     "error": "missing_field",
+     "message": "field 'id' is missing"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b811cef97e0d"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "pool": false,
-   "active": "udp · 10.77.3.2:20002",
-   "ready": true,
+   "pool": true,
+   "active": "",
+   "ready": false,
    "pair": {
-    "low": "",
-    "high": "",
-    "low_kind": "dst",
-    "high_kind": "src"
+    "low": "10.77.4.2:443",
+    "high": "lab.example.com",
+    "low_kind": "ip",
+    "high_kind": "sni"
    },
-   "health": [],
-   "events": [],
-   "now": 1790271537,
-   "ts": 1790271537
+   "health": [
+    {
+     "key": "10.77.4.2:443",
+     "kind": "ip",
+     "state": "suspect",
+     "fails": 0,
+     "next_retest_unix": 1790277650
+    },
+    {
+     "key": "10.77.4.3:443",
+     "kind": "ip",
+     "state": "suspect",
+     "fails": 0,
+     "next_retest_unix": 1790277656
+    },
+    "… 1 more"
+   ],
+   "events": [
+    {
+     "seq": 1,
+     "ts": 1790277050,
+     "kind": "burn",
+     "code": "tun-probe",
+     "detail": "ip:10.77.4.2:443"
+    },
+    {
+     "seq": 2,
+     "ts": 1790277050,
+     "kind": "down",
+     "code": "edge-rotate",
+     "detail": "ip:10.77.4.3:443"
+    },
+    "… 3 more"
+   ],
+   "now": 1790277058,
+   "ts": 1790277056
   }
  },
  "peer-status": {
@@ -1648,18 +1781,19 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "9cf26b23567e"
+   "id": "d4b2673f2be9"
   },
   "q": null,
   "ok": {
    "ok": true,
    "pool": true,
-   "now": 1790272024,
+   "now": 1790276541,
    "dst": {
     "active": "10.77.3.2:20020",
     "addrs": [
@@ -1680,7 +1814,7 @@
       "next_retest_unix": 0
      }
     ],
-    "ts": 1790272006
+    "ts": 1790276523
    },
    "src": {
     "active": "10.77.4.2",
@@ -1702,7 +1836,7 @@
       "next_retest_unix": 0
      }
     ],
-    "ts": 1790272006
+    "ts": 1790276523
    }
   }
  },
@@ -1711,13 +1845,14 @@
    {
     "status": 400,
     "req": {
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "key": "1.1.1.1",
      "kind": "ip"
     },
     "q": null,
     "resp": {
-     "error": "این لینک استخرِ لبه ندارد"
+     "error": "no_edge_pool",
+     "message": "this link has no edge pool"
     }
    },
    {
@@ -1729,26 +1864,28 @@
     },
     "q": null,
     "resp": {
-     "error": "فیلدِ «id» فرستاده نشد"
+     "error": "missing_field",
+     "message": "field 'id' is missing"
     }
    },
    {
     "status": 400,
     "req": {
-     "id": "9cf26b23567e",
+     "id": "d4b2673f2be9",
      "kind": "boom",
      "key": "x"
     },
     "q": null,
     "resp": {
-     "error": "kind باید ip / sni / dst / src باشد"
+     "error": "bad_kind",
+     "message": "kind must be ip / sni / dst / src"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e",
-   "key": "1.1.1.1",
-   "kind": "ip"
+   "id": "b811cef97e0d",
+   "kind": "ip",
+   "key": "10.77.4.3:443"
   },
   "q": null,
   "ok": {
@@ -1760,13 +1897,14 @@
    {
     "status": 400,
     "req": {
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "key": "1.1.1.1",
      "kind": "ip"
     },
     "q": null,
     "resp": {
-     "error": "این لینک استخرِ لبه ندارد"
+     "error": "no_edge_pool",
+     "message": "this link has no edge pool"
     }
    },
    {
@@ -1778,14 +1916,15 @@
     },
     "q": null,
     "resp": {
-     "error": "فیلدِ «id» فرستاده نشد"
+     "error": "missing_field",
+     "message": "field 'id' is missing"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e",
-   "key": "1.1.1.1",
-   "kind": "ip"
+   "id": "b811cef97e0d",
+   "kind": "ip",
+   "key": "10.77.4.3:443"
   },
   "q": null,
   "ok": {
@@ -1797,18 +1936,19 @@
    {
     "status": 400,
     "req": {
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "key": "1.1.1.1",
      "kind": "ip"
     },
     "q": null,
     "resp": {
-     "error": "این لینک استخرِ آی‌پی ندارد"
+     "error": "no_ip_pool",
+     "message": "this link has no IP pool"
     }
    }
   ],
   "req": {
-   "id": "9cf26b23567e",
+   "id": "d4b2673f2be9",
    "kind": "dst",
    "key": "10.77.4.3"
   },
@@ -1822,12 +1962,13 @@
    {
     "status": 400,
     "req": {
-     "id": "6dc4463b131e",
+     "id": "b486ffa35c33",
      "key": "1.1.1.1"
     },
     "q": null,
     "resp": {
-     "error": "این لینک استخرِ آی‌پی ندارد"
+     "error": "no_ip_pool",
+     "message": "this link has no IP pool"
     }
    },
    {
@@ -1838,12 +1979,13 @@
     },
     "q": null,
     "resp": {
-     "error": "فیلدِ «id» فرستاده نشد"
+     "error": "missing_field",
+     "message": "field 'id' is missing"
     }
    }
   ],
   "req": {
-   "id": "9cf26b23567e",
+   "id": "d4b2673f2be9",
    "key": "10.77.4.3",
    "side": "dst"
   },
@@ -1861,12 +2003,13 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "6dc4463b131e"
+   "id": "b486ffa35c33"
   },
   "q": null,
   "ok": {
@@ -1878,19 +2021,20 @@
    {
     "status": 400,
     "req": {
-     "node": "631185b264",
+     "node": "9eec8c5207",
      "listen_port": 99999,
      "dst_ips": "x",
      "dst_port": 22
     },
     "q": null,
     "resp": {
-     "error": "پورتِ ورودی باید بینِ ۱ تا ۶۵۵۳۵ باشد"
+     "error": "bad_port",
+     "message": "the listen port must be from 1 to 65535"
     }
    }
   ],
   "req": {
-   "node": "631185b264",
+   "node": "9eec8c5207",
    "listen_port": 15000,
    "dst_ips": "10.77.4.2",
    "dst_port": 22
@@ -1906,17 +2050,18 @@
    {
     "status": 400,
     "req": {
-     "node": "631185b264",
+     "node": "9eec8c5207",
      "name": "nope"
     },
     "q": null,
     "resp": {
-     "error": "not found"
+     "error": "node_failed",
+     "message": "not found"
     }
    }
   ],
   "req": {
-   "node": "631185b264",
+   "node": "9eec8c5207",
    "name": "portfw3",
    "rotate": false
   },
@@ -1931,17 +2076,18 @@
    {
     "status": 400,
     "req": {
-     "node": "631185b264",
+     "node": "9eec8c5207",
      "name": "portfw3"
     },
     "q": null,
     "resp": {
-     "error": "need >=2 destinations to rotate"
+     "error": "node_failed",
+     "message": "need >=2 destinations to rotate"
     }
    }
   ],
   "req": {
-   "node": "631185b264",
+   "node": "9eec8c5207",
    "name": "portfw2"
   },
   "q": null,
@@ -1961,7 +2107,8 @@
     },
     "q": null,
     "resp": {
-     "error": "نوعِ پروکسی باید socks5 یا http باشد"
+     "error": "bad_proxy_scheme",
+     "message": "the proxy type must be socks5 or http"
     }
    }
   ],
@@ -1975,7 +2122,7 @@
   "ok": {
    "ok": true,
    "proxy": {
-    "id": "a98b925422",
+    "id": "31df7202f9",
     "name": "px1",
     "scheme": "socks5",
     "host": "10.77.2.2",
@@ -2004,12 +2151,13 @@
     },
     "q": null,
     "resp": {
-     "error": "پروکسی پیدا نشد"
+     "error": "proxy_not_found",
+     "message": "proxy not found"
     }
    }
   ],
   "req": {
-   "id": "a98b925422",
+   "id": "31df7202f9",
    "scheme": "socks5",
    "host": "10.77.2.2",
    "port": 1081,
@@ -2019,7 +2167,7 @@
   "ok": {
    "ok": true,
    "proxy": {
-    "id": "a98b925422",
+    "id": "31df7202f9",
     "name": "px1",
     "scheme": "socks5",
     "host": "10.77.2.2",
@@ -2041,14 +2189,14 @@
    {
     "status": 200,
     "req": {
-     "id": "a98b925422"
+     "id": "31df7202f9"
     },
     "q": null,
     "resp": {
      "ok": false,
      "ms": null,
      "error": "Connection refused",
-     "ts": 1790271542.0637507
+     "ts": 1790276439.4244142
     }
    },
    {
@@ -2058,20 +2206,21 @@
     },
     "q": null,
     "resp": {
-     "error": "پروکسی پیدا نشد"
+     "error": "proxy_not_found",
+     "message": "proxy not found"
     }
    }
   ],
   "req": {
-   "id": "ffbfba61b0"
+   "id": "61bd36af2a"
   },
   "q": null,
   "ok": {
    "ok": true,
    "ms": 0,
    "error": "",
-   "ts": 1790271888.1337516,
-   "reach": 95
+   "ts": 1790276512.1296766,
+   "reach": 90
   }
  },
  "proxy-del": {
@@ -2083,12 +2232,13 @@
     },
     "q": null,
     "resp": {
-     "error": "پروکسی پیدا نشد"
+     "error": "proxy_not_found",
+     "message": "proxy not found"
     }
    }
   ],
   "req": {
-   "id": "a98b925422"
+   "id": "31df7202f9"
   },
   "q": null,
   "ok": {
@@ -2100,19 +2250,20 @@
    {
     "status": 400,
     "req": {
-     "id": "14e63baf13",
+     "id": "b44a462ab2",
      "name": "bad name!",
      "host": "10.77.4.2",
      "port": 8099
     },
     "q": null,
     "resp": {
-     "error": "نامِ نود نامعتبر است"
+     "error": "bad_node_name",
+     "message": "invalid node name"
     }
    }
   ],
   "req": {
-   "id": "14e63baf13",
+   "id": "b44a462ab2",
    "name": "N2",
    "host": "10.77.4.2",
    "port": 8099
@@ -2132,12 +2283,13 @@
     },
     "q": null,
     "resp": {
-     "error": "نود پیدا نشد"
+     "error": "node_not_found",
+     "message": "node not found"
     }
    }
   ],
   "req": {
-   "id": "14e63baf13",
+   "id": "b44a462ab2",
    "disabled": true
   },
   "q": null,
@@ -2151,11 +2303,12 @@
    {
     "status": 400,
     "req": {
-     "id": "631185b264"
+     "id": "9eec8c5207"
     },
     "q": null,
     "resp": {
-     "error": "آدرسِ تازه‌ای برای این نود ثبت نشده"
+     "error": "no_new_address",
+     "message": "no new address is recorded for this node"
     }
    },
    {
@@ -2165,12 +2318,13 @@
     },
     "q": null,
     "resp": {
-     "error": "نود پیدا نشد"
+     "error": "node_not_found",
+     "message": "node not found"
     }
    }
   ],
   "req": {
-   "id": "14e63baf13"
+   "id": "b44a462ab2"
   },
   "q": null,
   "ok": {
@@ -2191,7 +2345,8 @@
     },
     "q": null,
     "resp": {
-     "error": "نودی با نامِ «N9» از قبل وجود دارد — یک نامِ یکتا انتخاب کن"
+     "error": "node_name_taken",
+     "message": "a node named 'N9' already exists — pick a unique name"
     }
    }
   ],
@@ -2204,7 +2359,7 @@
   "q": null,
   "ok": {
    "ok": true,
-   "id": "167b87e69a",
+   "id": "e72eb01adf",
    "checking": true
   }
  },
@@ -2217,12 +2372,13 @@
     },
     "q": null,
     "resp": {
-     "error": "نود پیدا نشد"
+     "error": "node_not_found",
+     "message": "node not found"
     }
    }
   ],
   "req": {
-   "id": "167b87e69a",
+   "id": "e72eb01adf",
    "force": true
   },
   "q": null,
@@ -2253,7 +2409,8 @@
     },
     "q": null,
     "resp": {
-     "error": "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصبِ هسته روی همهٔ نودها» یا از منوی هر نود نصب کن"
+     "error": "custom_not_stageable",
+     "message": "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)"
     }
    }
   ],
@@ -2265,7 +2422,7 @@
    "ok": true,
    "meta_only": false,
    "done": false,
-   "job": "0fedc40b0286"
+   "job": "bc76d492889e"
   }
  },
  "core-stage-cancel": {
@@ -2296,7 +2453,8 @@
     },
     "q": null,
     "resp": {
-     "error": "این فایل ایجنتِ نود نیست"
+     "error": "not_an_agent",
+     "message": "this file is not the node agent"
     }
    }
   ],
@@ -2319,7 +2477,8 @@
     },
     "q": null,
     "resp": {
-     "error": "فایل خیلی کوچک است — این باینریِ هسته نیست"
+     "error": "core_too_small",
+     "message": "the file is too small — this is not a core binary"
     }
    }
   ],
@@ -2342,7 +2501,8 @@
     "req": {},
     "q": null,
     "resp": {
-     "error": "هیچ باینریِ سفارشی‌ای بارگذاری نشده"
+     "error": "no_custom_core",
+     "message": "no custom core binary is uploaded"
     }
    }
   ],
@@ -2361,17 +2521,18 @@
     },
     "q": null,
     "resp": {
-     "error": "این کار دیگر در جریان نیست"
+     "error": "job_not_running",
+     "message": "this job is no longer running"
     }
    }
   ],
   "req": {
-   "act": "new:b6f184d0"
+   "act": "new:7d19b919"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "act": "new:b6f184d0"
+   "act": "new:7d19b919"
   }
  },
  "push-cancel": {
@@ -2381,7 +2542,8 @@
     "req": {},
     "q": null,
     "resp": {
-     "error": "این کار دیگر در جریان نیست"
+     "error": "job_not_running",
+     "message": "this job is no longer running"
     }
    }
   ],
@@ -2399,7 +2561,8 @@
     "req": {},
     "q": null,
     "resp": {
-     "error": "این کار دیگر در جریان نیست"
+     "error": "job_not_running",
+     "message": "this job is no longer running"
     }
    }
   ],
@@ -2416,17 +2579,18 @@
    {
     "status": 400,
     "req": {
-     "node": "631185b264",
+     "node": "9eec8c5207",
      "name": "nope"
     },
     "q": null,
     "resp": {
-     "error": "روی نودِ «N1» پورت‌فورواردی به نامِ «nope» ثبت نیست — برای اینکه تونلی به همین نام پاک نشود متوقف شد"
+     "error": "portfw_not_found",
+     "message": "node 'N1' has no port forward named 'nope' — stopped so a tunnel with the same name is not deleted"
     }
    }
   ],
   "req": {
-   "node": "631185b264",
+   "node": "9eec8c5207",
    "name": "portfw3"
   },
   "q": null,
@@ -2444,42 +2608,22 @@
     },
     "q": null,
     "resp": {
-     "error": "تونل پیدا نشد"
+     "error": "tunnel_not_found",
+     "message": "tunnel not found"
     }
    }
   ],
   "req": {
-   "id": "62fd68268372"
+   "id": "30edc9475d23"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "act": "link:62fd68268372"
+   "act": "link:30edc9475d23"
   }
  },
  "settings-set": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "reconcile_interval": "abc"
-    },
-    "q": null,
-    "resp": {
-     "error": "بازهٔ بررسیِ ترمیم باید عدد باشد (ثانیه)"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "reconcile_mode": "zzz"
-    },
-    "q": null,
-    "resp": {
-     "error": "حالت باید auto یا alert باشد"
-    }
-   }
-  ],
+  "errs": [],
   "req": {
    "reconcile_interval": 15
   },
@@ -2503,14 +2647,14 @@
      "suspect_backoff": [
       600,
       1800,
-      "… و 1 مورد دیگر"
+      "… 1 more"
      ],
      "dead_retest_secs": 21600,
      "probe_min_pct": 15,
      "ladder_revive": [
       45,
       180,
-      "… و 1 مورد دیگر"
+      "… 1 more"
      ],
      "sock_buf_mb": 4
     }
@@ -2532,7 +2676,7 @@
   "q": null,
   "ok": {
    "ok": true,
-   "data": "H4sIAJtmtWoC/+1ae3Qb1Zm/I8mxIzt2noQUQq5l",
+   "data": "H4sIABN1tWoC/+2beXQb133v7wwALhBFSqRkbZZ1",
    "nodes": 2,
    "core": 2,
    "system": 0,
@@ -2540,58 +2684,29 @@
   }
  },
  "backup-restore": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "data": "<base64>"
-    },
-    "q": null,
-    "resp": {
-     "error": "فایلِ بکاپ base64 نامعتبر است"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "data": "<base64>"
-    },
-    "q": null,
-    "resp": {
-     "error": "این فایل بکاپِ پنل نیست یا خراب است"
-    }
-   },
-   {
-    "status": 400,
-    "req": {},
-    "q": null,
-    "resp": {
-     "error": "فیلدِ «data» فرستاده نشد"
-    }
-   }
-  ],
+  "errs": [],
   "req": {
    "data": "<base64>"
   },
   "q": null,
   "ok": {
    "ok": true,
-   "made": 1790273179,
+   "made": 1790276883,
    "same_key": true,
-   "boot": "7c34e14971aa4950",
+   "boot": "88de97600f27815b",
    "now": {
     "nodes": 2,
     "core": 2,
     "system": 0,
     "proxies": 0,
-    "events": 48
+    "events": 45
    },
    "after": {
     "nodes": 2,
     "core": 2,
     "system": 0,
     "proxies": 0,
-    "events": 48
+    "events": 45
    },
    "portfw": 0,
    "settings": {
@@ -2661,7 +2776,8 @@
   "500": {
    "status": 500,
    "resp": {
-    "error": "ذخیره‌سازِ پنل (ردیس) در دسترس نیست — معلوم نیست این تغییر ذخیره شد یا نه؛ وقتی برگشت، فهرست را دوباره ببین"
+    "error": "store_unknown",
+    "message": "the panel's store (Redis) is unavailable — it is unknown whether this change was saved; when it is back, check the list again"
    }
   },
   "500i": {
@@ -2674,7 +2790,8 @@
   "503": {
    "status": 503,
    "resp": {
-    "error": "پنل شلوغ است — چند لحظه بعد دوباره"
+    "error": "busy",
+    "message": "the panel is busy — try again in a moment"
    }
   },
   "429": {
@@ -2687,12 +2804,12 @@
  },
  "_acts": {
   "run": {
-   "key": "new:43af911d",
+   "key": "new:7cfcbcc8",
    "target": "N1 ↔ N2",
    "page": "core",
    "ttype": "udp",
    "state": "run",
-   "step": "خواندنِ وضعیتِ دو نود",
+   "step": "reading both nodes",
    "si": 0,
    "sn": 4,
    "pct": 0,
@@ -2700,11 +2817,11 @@
    "note": "",
    "offer": "",
    "can": true,
-   "started": 1790271498,
+   "started": 1790276395,
    "ended": 0
   },
   "done": {
-   "key": "new:43af911d",
+   "key": "new:7cfcbcc8",
    "target": "N1 ↔ N2",
    "page": "core",
    "ttype": "udp",
@@ -2717,11 +2834,11 @@
    "note": "",
    "offer": "",
    "can": false,
-   "started": 1790271498,
-   "ended": 1790271498
+   "started": 1790276395,
+   "ended": 1790276395
   },
   "fail": {
-   "key": "new:aa3d9717",
+   "key": "new:17ff0101",
    "target": "N1 ↔ N1",
    "page": "core",
    "ttype": "udp",
@@ -2730,12 +2847,12 @@
    "si": 0,
    "sn": 4,
    "pct": 0,
-   "err": "دو سرِ تونل باید دو نودِ متفاوت باشند",
+   "err": "the two ends of a tunnel must be two different nodes",
    "note": "",
    "offer": "",
    "can": true,
-   "started": 1790271502,
-   "ended": 1790271502
+   "started": 1790276399,
+   "ended": 1790276399
   }
  }
 }

@@ -15,7 +15,7 @@ export function eventLevel(event) {
 }
 
 export function eventKey(event) {
-  const s = (event.ts || 0) + '|' + (event.fa || '') + '|' + (event.dfa || '')
+  const s = (event.ts || 0) + '|' + (event.text || '') + '|' + (event.detail || '')
   let h = 0
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
   return 'k' + (h >>> 0)
@@ -47,7 +47,7 @@ export function sentence(title, notes) {
 }
 
 export function layoutEvent(event) {
-  const { rows, notes } = splitDetail(event.dfa || '')
+  const { rows, notes } = splitDetail(event.detail || '')
   const lead = []
   const rest = []
   const repeated = new Set(rows.map((row) => row.k)).size < rows.length
@@ -62,7 +62,7 @@ export function layoutEvent(event) {
       rest.push(row)
     }
   }
-  return { text: sentence(event.fa || '', notes), lead, rest, isPair: (k) => !!PAIR_KEYS[k] }
+  return { text: sentence(event.text || '', notes), lead, rest, isPair: (k) => !!PAIR_KEYS[k] }
 }
 
 export function formatEventTime(ts) {
