@@ -9812,6 +9812,10 @@ class Handler(BaseHTTPRequestHandler):
         self._auth_log(level, kind, title, [tx("مسیر: {0} /api/{1}", "route: {0} /api/{1}", method, cmd),
                                             tx("نتیجه: {0}", "result: {0}", status)])
 
+    def _api_failed(self, cmd, method, why, status):
+        self._api_log("warn", "api-error", tx("درخواستِ API «{0}» با خطا برگشت: {1}",
+                                              "API request '{0}' returned an error: {1}", cmd, why), cmd, method, status)
+
     def _refuse(self, code, cmd, method, en, drain=False):
         self._fail(code, en, drain)
         if en and code in API_REFUSED:
@@ -9847,12 +9851,14 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
         try:
             res = _dispatch(cmd, d)
-            self._send(*(_en_reply(res) if via_token else (200, res)))
+            status, body = _en_reply(res) if via_token else (200, res)
+            self._send(status, body)
+            if status != 200:
+                self._api_failed(cmd, method, res["error"], status)
         except ValueError as e:
             self._send(400, _err_en(e, 400) if via_token else {"error": str(e)})
             if via_token:
-                self._api_log("warn", "api-error", tx("درخواستِ API «{0}» با خطا برگشت: {1}",
-                                                      "API request '{0}' returned an error: {1}", cmd, _why(e)), cmd, method, 400)
+                self._api_failed(cmd, method, _why(e), 400)
         except RegistryError as e:
             log_warn("api %s" % cmd, str(e))
             self._send(500, _err_en(e, 500) if via_token else {"error": str(e)})

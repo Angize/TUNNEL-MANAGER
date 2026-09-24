@@ -51,7 +51,7 @@ function answers(cmd, method, token, act) {
 }
 
 function tone(code) {
-  if (code === 'acts') return 'acts'
+  if (code === 'acts') return ''
   if (code < 300) return 'c2'
   if (code < 500) return 'c4'
   return 'c5'
