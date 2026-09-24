@@ -228,8 +228,9 @@ button.apcc.on {
 }
 
 .aprmh code {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
+  -webkit-text-stroke: .4px currentColor;
   unicode-bidi: isolate;
 }
 
