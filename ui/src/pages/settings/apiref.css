@@ -1,0 +1,329 @@
+.apref h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.apguide {
+  padding: 10px 14px 14px;
+  border-bottom: 1px solid var(--bord);
+  font-size: 12.5px;
+  line-height: 1.95;
+}
+
+.apguide p {
+  margin: 6px 0;
+  color: var(--sub);
+}
+
+.apguide p b {
+  color: var(--tx);
+  font-weight: 700;
+}
+
+.apbase {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-weight: 800;
+}
+
+.apctab {
+  display: grid;
+  gap: 5px;
+}
+
+.apcrow {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--sub);
+}
+
+.apcrow .apcc {
+  flex: none;
+  min-width: 46px;
+  text-align: center;
+}
+
+.apcc {
+  direction: ltr;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accw);
+  color: var(--acc);
+}
+
+.apcc.c2 {
+  background: var(--okw);
+  color: var(--ok);
+}
+
+.apcc.c4 {
+  background: var(--goldw);
+  color: var(--gold);
+}
+
+.apcc.c5 {
+  background: var(--badw);
+  color: var(--bad);
+}
+
+button.apcc {
+  cursor: pointer;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+button.apcc small {
+  margin-inline-start: 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+button.apcc.on {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.aplist {
+  padding: 12px 14px 14px;
+}
+
+.aplist .search {
+  width: 100%;
+}
+
+.apgrp {
+  margin-top: 14px;
+}
+
+.apgh {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 2px;
+  font-size: 12.5px;
+}
+
+.apgh b {
+  font-weight: 800;
+}
+
+.apgh i {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 0 7px;
+  border-radius: 20px;
+  background: var(--field);
+  color: var(--sub);
+}
+
+.apep {
+  margin-top: 6px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  background: var(--glass);
+  overflow: hidden;
+}
+
+.apep.open {
+  border-color: var(--edge);
+}
+
+.apsum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.apm {
+  flex: none;
+  min-width: 46px;
+  text-align: center;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 3px 6px;
+  border-radius: 7px;
+  color: var(--page);
+  background: var(--acc);
+}
+
+.apm.post {
+  background: var(--ok);
+}
+
+.appath {
+  font-size: 12.5px;
+  font-weight: 700;
+  unicode-bidi: isolate;
+}
+
+.apt {
+  order: 5;
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--sub);
+}
+
+.apdeny {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 8px;
+  border-radius: 20px;
+  background: var(--goldw);
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.apsum > .ic {
+  margin-inline-start: auto;
+  width: 14px;
+  height: 14px;
+  color: var(--sub);
+  transition: transform .2s;
+}
+
+.apep.open .apsum > .ic {
+  transform: rotate(180deg);
+}
+
+@media (min-width: 700px) {
+  .apt {
+    order: 0;
+    flex: 1;
+    flex-basis: auto;
+    min-width: 0;
+  }
+
+  .apsum > .ic {
+    margin-inline-start: 0;
+  }
+}
+
+.apbody {
+  padding: 2px 12px 12px;
+  border-top: 1px dashed var(--bord);
+}
+
+.apdesc {
+  margin: 10px 0 4px;
+  font-size: 12.5px;
+  line-height: 1.9;
+}
+
+.apwarn {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.8;
+  background: var(--warnw);
+  color: var(--gold);
+}
+
+.aprms {
+  display: grid;
+  gap: 5px;
+}
+
+.aprm {
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: var(--field);
+}
+
+.aprmh {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.aprmh code {
+  font-size: 12px;
+  font-weight: 800;
+  unicode-bidi: isolate;
+}
+
+.aptype {
+  font-size: 10.5px;
+  color: var(--sub);
+}
+
+.apreq {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 0 7px;
+  border-radius: 20px;
+  background: var(--badw);
+  color: var(--bad);
+}
+
+.aprmd {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--sub);
+}
+
+.apnone {
+  font-size: 12px;
+  color: var(--sub);
+  margin-top: 10px;
+}
+
+.apcopy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--sub);
+  cursor: pointer;
+}
+
+.apcopy:hover {
+  color: var(--tx);
+}
+
+.apcodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.apcnote {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--sub);
+}
+
+.apjs {
+  margin: 6px 0 0;
+  padding: 9px 11px;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--bord);
+  border-radius: 10px;
+  background: var(--field);
+  font-family: ui-monospace, Consolas, Vazirmatn, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  text-align: left;
+  white-space: pre-wrap;
+}

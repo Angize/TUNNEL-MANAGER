@@ -3598,7 +3598,7 @@ def api_node_test(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("پیدا نشد")
+        raise ValueError("نود پیدا نشد")
     t0 = time.perf_counter()
     p = node_call(n, "ping", "GET")
     if p.get("ok"):
@@ -3641,7 +3641,7 @@ def api_node_kernel_tune(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("پیدا نشد")
+        raise ValueError("نود پیدا نشد")
     action = str(d.get("action") or "status")
     if action not in ("apply", "revert", "status"):
         raise ValueError("عملیاتِ نامعتبر")
@@ -3656,7 +3656,7 @@ def api_node_stats(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("پیدا نشد")
+        raise ValueError("نود پیدا نشد")
     p = node_call(n, "ping", "GET", timeout=8)
     if not p.get("ok"):
         return {"online": False, "error": p.get("error", "unreachable")}
@@ -3668,7 +3668,7 @@ def api_node_traffic(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("پیدا نشد")
+        raise ValueError("نود پیدا نشد")
     online = bool(_cached_ping(n["id"]).get("ok"))
     ifs = _tf_read(n["id"])
     node = ifs.get("_node", {})
@@ -6238,7 +6238,9 @@ def api_edge_status(d):
     d = d or {}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core":
+    if not L:
+        raise ValueError("تونل پیدا نشد")
+    if L.get("type") != "core":
         return {"ok": True, "pool": False, "active": "", "health": [], "events": []}
     return _edge_status_of(L, _client_node(L), _EV_END_MISSING["cli"])
 
@@ -6351,7 +6353,9 @@ def api_peer_status(d):
     empty = {"active": "", "addrs": [], "health": [], "ts": 0}
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ip_rotate"):
+    if not L:
+        raise ValueError("تونل پیدا نشد")
+    if L.get("type") != "core" or not L.get("ip_rotate"):
         return {"ok": True, "pool": False, "now": int(time.time()), "dst": dict(empty), "src": dict(empty)}
     node = _client_node(L)
     if not node:
@@ -8257,7 +8261,7 @@ def api_node_ips(d):
     _require(d, ["id"])
     n = get_node(d["id"])
     if not n:
-        raise ValueError("پیدا نشد")
+        raise ValueError("نود پیدا نشد")
     return {"online": bool(_cached_ping(n["id"]).get("ok")), "ips": _node_ip_tags(n["id"])}
 
 
@@ -8940,6 +8944,7 @@ def ui_config():
         "split_ttl_max": SPLIT_TTL_MAX,
         "workers_max": CORE_MAX_WORKERS,
         "usage_crit_pct": UP_CRIT,
+        "api": [[cmd, "POST" if cmd in MUTATIONS else "GET", cmd not in TOKEN_DENY] for cmd in API],
         "enums": {
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),

@@ -1,0 +1,2741 @@
+{
+ "summary": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "nodes_online": 2,
+   "nodes_total": 2,
+   "proxies": 0,
+   "links": 1,
+   "core": 1,
+   "link_total": 2,
+   "portfw": 1,
+   "health_score": 90,
+   "central": {
+    "cpus": 2,
+    "cpu_pct": 16,
+    "mem_total_mb": 3814,
+    "mem_used_mb": 946,
+    "ram_pct": 25,
+    "disk_total_mb": 38113,
+    "disk_used_mb": 11854,
+    "disk_pct": 32,
+    "load": [
+     "0.66",
+     "0.37",
+     "… و 1 مورد دیگر"
+    ]
+   },
+   "heat": [
+    {
+     "name": "N1",
+     "pct": 32,
+     "online": true
+    },
+    {
+     "name": "N2",
+     "pct": 32,
+     "online": true
+    }
+   ],
+   "worst": {
+    "disk": {
+     "name": "N1",
+     "pct": 32
+    },
+    "ram": {
+     "name": "N1",
+     "pct": 23
+    },
+    "cpu": {
+     "name": "N1",
+     "pct": 6
+    }
+   },
+   "crit": 0,
+   "alerts": [
+    {
+     "level": "bad",
+     "kind": "link",
+     "tab": "tunnels",
+     "id": "62fd68268372",
+     "msg": "تونلِ «native2» قطع است"
+    }
+   ],
+   "alert_count": 1,
+   "link_up": 1,
+   "link_noping": 0,
+   "link_down": 1,
+   "link_drift": 0,
+   "link_off": 0,
+   "link_types": {
+    "vxlan": 0,
+    "gre": 1,
+    "sit": 0,
+    "core": 1
+   },
+   "worst_tunnel": null,
+   "subnet_free": {
+    "192.168": 253,
+    "172.16": 4093,
+    "10": 65533
+   },
+   "fleet_avg_ping": 1,
+   "uptime_avg": 97.4,
+   "uptime_down_nodes": 2,
+   "uptime_window": 1,
+   "mem_used_mb": 1752,
+   "mem_total_mb": 7628,
+   "disk_used_mb": 23708,
+   "disk_total_mb": 76226,
+   "fleet_rx_bps": 46379.84538293,
+   "fleet_tx_bps": 57922.99580242674,
+   "fleet_rx_total": 1784886961,
+   "fleet_tx_total": 1758673452,
+   "ev_seq": "1790271554790-0",
+   "log_count": 30,
+   "log_unread": 30,
+   "boot": "a4821e1415411ed4",
+   "ui_interval": 2,
+   "poll_interval": 2,
+   "suspect_backoff": [
+    600,
+    1800,
+    "… و 1 مورد دیگر"
+   ],
+   "dead_retest_secs": 21600
+  }
+ },
+ "nodes": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "nodes": [
+    {
+     "id": "631185b264",
+     "name": "N1",
+     "host": "10.77.3.2",
+     "port": 8099,
+     "proxy_on": false,
+     "proxy_id": "",
+     "proxy_name": "",
+     "disabled": false,
+     "pending_del": 0,
+     "moved_to": "",
+     "central_want": "http://10.77.2.2:8080",
+     "uptime": [
+      null,
+      null,
+      "… و 58 مورد دیگر"
+     ],
+     "uptime_pct": 99.14,
+     "traffic": {
+      "rx_bps": 21614.46866032508,
+      "tx_bps": 26369.811340854336,
+      "rx_total": 983331028,
+      "tx_total": 789106539
+     },
+     "online": true,
+     "info": {
+      "ok": true,
+      "agent": "tnl-node",
+      "version": "v1.0.0",
+      "ready": true,
+      "central": "http://10.77.2.2:8080",
+      "hostname": "adN1",
+      "ips": {
+       "host0": [
+        "10.77.3.2"
+       ]
+      },
+      "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+      "tunnels": 1,
+      "portfw": 0,
+      "core_ver": "v2.136.0",
+      "core_sha": "c30a802e90ab",
+      "arch": "amd64",
+      "stats": {
+       "cpus": 2,
+       "uptime": 2819594,
+       "load": [
+        "0.08",
+        "0.24",
+        "… و 1 مورد دیگر"
+       ],
+       "mem_total_mb": 3814,
+       "mem_used_mb": 893,
+       "os": "Ubuntu 26.04 LTS",
+       "disk_total_mb": 38113,
+       "disk_used_mb": 11867,
+       "disk_pct": 32.5,
+       "cpu_pct": 11.0,
+       "net": {
+        "core1": [
+         90240,
+         91488
+        ],
+        "_node": [
+         983528266,
+         789124561
+        ]
+       }
+      },
+      "rtt_ms": 26
+     }
+    },
+    {
+     "id": "14e63baf13",
+     "name": "N2",
+     "host": "10.77.4.2",
+     "port": 8099,
+     "proxy_on": false,
+     "proxy_id": "",
+     "proxy_name": "",
+     "disabled": false,
+     "pending_del": 0,
+     "moved_to": "",
+     "central_want": "http://10.77.2.2:8080",
+     "uptime": [
+      null,
+      null,
+      "… و 58 مورد دیگر"
+     ],
+     "uptime_pct": 99.14,
+     "traffic": {
+      "rx_bps": 22404.5232387008,
+      "tx_bps": 25525.551351554644,
+      "rx_total": 802099227,
+      "tx_total": 970235784
+     },
+     "online": true,
+     "info": {
+      "ok": true,
+      "agent": "tnl-node",
+      "version": "v1.0.0",
+      "ready": true,
+      "central": "http://10.77.2.2:8080",
+      "hostname": "adN2",
+      "ips": {
+       "host0": [
+        "10.77.4.2"
+       ]
+      },
+      "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+      "tunnels": 1,
+      "portfw": 0,
+      "core_ver": "v2.136.0",
+      "core_sha": "c30a802e90ab",
+      "arch": "amd64",
+      "stats": {
+       "cpus": 2,
+       "uptime": 2819594,
+       "load": [
+        "0.08",
+        "0.24",
+        "… و 1 مورد دیگر"
+       ],
+       "mem_total_mb": 3814,
+       "mem_used_mb": 893,
+       "os": "Ubuntu 26.04 LTS",
+       "disk_total_mb": 38113,
+       "disk_used_mb": 11867,
+       "disk_pct": 32.5,
+       "cpu_pct": 11.3,
+       "net": {
+        "core1": [
+         90240,
+         90288
+        ],
+        "_node": [
+         802296267,
+         970253674
+        ]
+       }
+      },
+      "rtt_ms": 24
+     }
+    }
+   ],
+   "total": 2,
+   "uptime_window": 1
+  }
+ },
+ "node-names": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "nodes": [
+    {
+     "id": "631185b264",
+     "name": "N1",
+     "host": "10.77.3.2",
+     "hidden": false,
+     "online": true,
+     "cpus": 2,
+     "info": {
+      "ips": {
+       "host0": [
+        "10.77.3.2"
+       ]
+      }
+     }
+    },
+    {
+     "id": "14e63baf13",
+     "name": "N2",
+     "host": "10.77.4.2",
+     "hidden": false,
+     "online": true,
+     "cpus": 2,
+     "info": {
+      "ips": {
+       "host0": [
+        "10.77.4.2"
+       ]
+      }
+     }
+    }
+   ],
+   "total": 2
+  }
+ },
+ "next-port": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "ok": true,
+   "port": 24309,
+   "lo": 20000,
+   "hi": 29999
+  }
+ },
+ "settings": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "reconcile_mode": "alert",
+   "reconcile_interval": 15,
+   "poll_interval": 2,
+   "ui_interval": 2,
+   "uptime_window": 1,
+   "ech_refresh_mins": 15,
+   "agent_delivery": "push",
+   "core_delivery": "push",
+   "dl_proxy_on": false,
+   "dl_proxy_id": "",
+   "log_hidden": [],
+   "api_external": true,
+   "tuning": {
+    "suspect_backoff": [
+     600,
+     1800,
+     "… و 1 مورد دیگر"
+    ],
+    "dead_retest_secs": 21600,
+    "probe_min_pct": 15,
+    "ladder_revive": [
+     45,
+     180,
+     "… و 1 مورد دیگر"
+    ],
+    "sock_buf_mb": 4
+   }
+  }
+ },
+ "readiness": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "agent": true,
+   "core": true,
+   "core_missing": [],
+   "core_version": "v2.136.0",
+   "ok": true
+  }
+ },
+ "ui-config": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "tuning_defaults": {
+    "suspect_backoff": [
+     600,
+     1800,
+     "… و 1 مورد دیگر"
+    ],
+    "dead_retest_secs": 21600,
+    "probe_min_pct": 15,
+    "ladder_revive": [
+     45,
+     180,
+     "… و 1 مورد دیگر"
+    ],
+    "sock_buf_mb": 4
+   },
+   "tuning_steps": {
+    "probe_min_pct": [
+     5,
+     "حداقلِ بسته‌های برگشتی"
+    ]
+   },
+   "tuning_ranges": {
+    "dead_retest_secs": [
+     5,
+     86400
+    ],
+    "probe_min_pct": [
+     5,
+     100
+    ],
+    "sock_buf_mb": [
+     0,
+     64
+    ],
+    "suspect_backoff": [
+     1,
+     86400
+    ],
+    "ladder_revive": [
+     10,
+     3600
+    ]
+   },
+   "probe_samples": 20,
+   "ev_types": [
+    [
+     "link-up",
+     "tunnel",
+     "… و 1 مورد دیگر"
+    ],
+    [
+     "link-down",
+     "tunnel",
+     "… و 1 مورد دیگر"
+    ],
+    "… و 26 مورد دیگر"
+   ],
+   "ev_groups": [
+    [
+     "tunnel",
+     "تونل"
+    ],
+    [
+     "node",
+     "نود"
+    ],
+    "… و 5 مورد دیگر"
+   ],
+   "settings_defaults": {
+    "reconcile_mode": "alert",
+    "reconcile_interval": 15,
+    "poll_interval": 2,
+    "ui_interval": 2,
+    "uptime_window": 1,
+    "ech_refresh_mins": 15,
+    "agent_delivery": "push",
+    "core_delivery": "push",
+    "dl_proxy_on": false,
+    "dl_proxy_id": "",
+    "log_hidden": [],
+    "api_external": false,
+    "api_token_hash": ""
+   },
+   "split_ttl_max": 8,
+   "workers_max": 8,
+   "usage_crit_pct": 85,
+   "api": [
+    [
+     "nodes",
+     "GET",
+     "… و 1 مورد دیگر"
+    ],
+    [
+     "node-names",
+     "GET",
+     "… و 1 مورد دیگر"
+    ],
+    "… و 70 مورد دیگر"
+   ],
+   "enums": {
+    "ciphers": [
+     "auto",
+     "aes-256-gcm",
+     "… و 4 مورد دیگر"
+    ],
+    "tr_all": [
+     "udp",
+     "tcp",
+     "… و 2 مورد دیگر"
+    ],
+    "tr_direct": [
+     "udp",
+     "tcp",
+     "… و 1 مورد دیگر"
+    ],
+    "tr_rung": [
+     "udp",
+     "tcp",
+     "… و 1 مورد دیگر"
+    ],
+    "raw_ported": [
+     "udp",
+     "tcp"
+    ],
+    "http_shape": {
+     "http_up_workers": {
+      "lo": 1,
+      "hi": 16,
+      "d": 8
+     },
+     "http_up_batch_kb": {
+      "lo": 8,
+      "hi": 512,
+      "d": 512
+     },
+     "http_up_rate": {
+      "lo": 0,
+      "hi": 1000,
+      "d": 0
+     },
+     "http_streams": {
+      "lo": 1,
+      "hi": 16,
+      "d": 1
+     }
+    },
+    "http_shape_grpc": [
+     "http_streams"
+    ],
+    "raw_protos": {
+     "ipip": 4,
+     "gre": 47,
+     "icmp": 1,
+     "udp": 17,
+     "tcp": 6,
+     "esp": 50,
+     "ah": 51,
+     "etherip": 97,
+     "ipcomp": 108,
+     "l2tpv3": 115
+    },
+    "edge_ports": {
+     "tls": [
+      443,
+      2053,
+      "… و 4 مورد دیگر"
+     ],
+     "plain": [
+      80,
+      8080,
+      "… و 5 مورد دیگر"
+     ]
+    }
+   }
+  }
+ },
+ "proxies": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "proxies": [
+    {
+     "id": "a98b925422",
+     "name": "px1",
+     "scheme": "socks5",
+     "host": "10.77.2.2",
+     "port": 1080,
+     "user": "",
+     "has_pass": false,
+     "addr": "socks5://10.77.2.2:1080",
+     "nodes": [],
+     "tunnels": [],
+     "panel": false,
+     "online": false,
+     "pending": true,
+     "status": {}
+    }
+   ]
+  }
+ },
+ "fleet": {
+  "errs": [],
+  "req": null,
+  "q": {
+   "kind": "core",
+   "q": ""
+  },
+  "ok": {
+   "links": [
+    {
+     "id": "6dc4463b131e",
+     "name": "core1",
+     "type": "core",
+     "subnet": "10.0.1.0/24",
+     "tunnel_id": 1,
+     "a_node": "631185b264",
+     "a_name": "N1",
+     "a_ip": "10.77.3.2",
+     "b_node": "14e63baf13",
+     "b_name": "N2",
+     "b_ip": "10.77.4.2",
+     "port": 20002,
+     "cipher": "auto",
+     "transport": "udp",
+     "server_side": "a",
+     "view_side": "b",
+     "tag": 2,
+     "enabled": true,
+     "a_online": true,
+     "b_online": true,
+     "a_health": {
+      "up": true,
+      "alive": true,
+      "dead": false,
+      "rtt_ms": 0.5,
+      "loss_pct": 0.0,
+      "crossed": true
+     },
+     "b_health": {
+      "up": true,
+      "alive": true,
+      "dead": false,
+      "rtt_ms": 0.7,
+      "loss_pct": 0.0,
+      "crossed": true
+     },
+     "a_ips": [
+      "10.77.3.2",
+      "10.77.3.3"
+     ],
+     "b_ips": [
+      "10.77.4.2",
+      "10.77.4.3",
+      "… و 2 مورد دیگر"
+     ],
+     "view_name": "N2",
+     "drift": false,
+     "rb": null,
+     "rx_bps": 7959.4767886768805,
+     "tx_bps": 7959.4767886768805,
+     "rx_total": 333488,
+     "tx_total": 333088,
+     "ct": {
+      "count": 2,
+      "max": 65536,
+      "pct": 0,
+      "node": "N1"
+     },
+     "sport_live": 33830
+    },
+    {
+     "id": "9cf26b23567e",
+     "name": "core2",
+     "type": "core",
+     "subnet": "10.0.2.0/24",
+     "tunnel_id": 2,
+     "a_node": "631185b264",
+     "a_name": "N1",
+     "a_ip": "10.77.3.2",
+     "b_node": "14e63baf13",
+     "b_name": "N2",
+     "b_ip": "10.77.4.2",
+     "port": 20020,
+     "cipher": "auto",
+     "transport": "udp",
+     "ip_rotate": true,
+     "a_ip_pool": [
+      "10.77.3.2",
+      "10.77.3.3"
+     ],
+     "b_ip_pool": [
+      "10.77.4.2",
+      "10.77.4.3"
+     ],
+     "rotate_secs": 600,
+     "server_side": "a",
+     "a_online": true,
+     "b_online": true,
+     "a_health": {
+      "up": true,
+      "alive": true,
+      "dead": false,
+      "rtt_ms": 1.0,
+      "loss_pct": 0.0,
+      "crossed": true
+     },
+     "b_health": {
+      "up": true,
+      "alive": true,
+      "dead": false,
+      "rtt_ms": 1.0,
+      "loss_pct": 0.0,
+      "crossed": true
+     },
+     "a_ips": [
+      "10.77.3.2",
+      "10.77.3.3"
+     ],
+     "b_ips": [
+      "10.77.4.2",
+      "10.77.4.3",
+      "… و 2 مورد دیگر"
+     ],
+     "view_side": "a",
+     "view_name": "N1",
+     "drift": false,
+     "rb": null,
+     "tag": 0,
+     "rx_bps": 4760.02166670489,
+     "tx_bps": 3173.3477778032598,
+     "rx_total": 596736,
+     "tx_total": 597136,
+     "ct": {
+      "count": 2,
+      "max": 65536,
+      "pct": 0,
+      "node": "N1"
+     },
+     "sport_live": 15062,
+     "a_ip_rot": true,
+     "b_ip_rot": true,
+     "a_ip_active": "10.77.3.3",
+     "b_ip_active": "10.77.4.2"
+    }
+   ],
+   "total": 2
+  }
+ },
+ "events": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "ok": true,
+   "events": [
+    {
+     "ts": 1790271554,
+     "id": "1790271554779-0",
+     "level": "warn",
+     "kind": "api-error",
+     "fa": "درخواستِ API «core-upload» با خطا برگشت: فایل خیلی کوچک است — این باینریِ هسته نیست",
+     "dfa": "از: 127.0.0.1\nمسیر: POST /api/core-upload\nنتیجه: 400\nنشانه: Python-urllib/3.14",
+     "cat": "api"
+    },
+    {
+     "ts": 1790271554,
+     "id": "1790271554588-0",
+     "level": "warn",
+     "kind": "api-error",
+     "fa": "درخواستِ API «agent-upload» با خطا برگشت: این فایل ایجنتِ نود نیست",
+     "dfa": "از: 127.0.0.1\nمسیر: POST /api/agent-upload\nنتیجه: 400\nنشانه: Python-urllib/3.14",
+     "cat": "api"
+    },
+    "… و 25 مورد دیگر"
+   ],
+   "hidden": [],
+   "hidden_out": 0
+  }
+ },
+ "acts": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "ok": true,
+   "acts": {
+    "new:248d4add": {
+     "key": "new:248d4add",
+     "target": "N1 ↔ N2",
+     "page": "core",
+     "ttype": "udp",
+     "state": "done",
+     "step": "",
+     "si": 4,
+     "sn": 4,
+     "pct": 100,
+     "err": "",
+     "note": "",
+     "offer": "",
+     "can": false,
+     "started": 1790272005,
+     "ended": 1790272005
+    },
+    "new:9d136974": {
+     "key": "new:9d136974",
+     "target": "N1 ↔ N2",
+     "page": "core",
+     "ttype": "ws",
+     "state": "fail",
+     "step": "",
+     "si": 0,
+     "sn": 4,
+     "pct": 0,
+     "err": "wss (TLS به CDN) روشن است، پس پورتِ لبه باید یکی از پورت‌های HTTPS باشد: 443، 2053، 2083، 2087، 2096، 8443 — پورتِ 80 قبول نیست. (یا wss را خاموش کن و پورتِ HTT…",
+     "note": "",
+     "offer": "",
+     "can": true,
+     "started": 1790272007,
+     "ended": 1790272007
+    }
+   },
+   "now": 1790272009
+  }
+ },
+ "portfw-list": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "portfw": [
+    {
+     "node": "N1",
+     "node_id": "631185b264",
+     "name": "portfw2",
+     "iface": "host0",
+     "listen_port": "15100",
+     "listen_ip": "",
+     "node_ip": "10.77.3.2",
+     "dst_port": "22",
+     "dst_ips": [
+      "10.77.4.2",
+      "10.77.3.2"
+     ],
+     "switch_interval": 300,
+     "health": {
+      "active": "10.77.4.2",
+      "rule": true,
+      "reachable": true,
+      "up": true
+     },
+     "offline": false,
+     "rx_bps": 0.0,
+     "tx_bps": 0.0,
+     "rx_total": 0,
+     "tx_total": 0
+    }
+   ],
+   "total": 1
+  }
+ },
+ "agent-info": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "version": "v1.0.0",
+   "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+   "size": 133551,
+   "uploaded_ts": 1790271333,
+   "source": "git",
+   "delivery": "push"
+  }
+ },
+ "core-versions": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "versions": [
+    {
+     "id": "v2.136.0",
+     "label": "v2.136.0 (تازه‌ترین)",
+     "prerelease": false,
+     "latest": true
+    },
+    {
+     "id": "v2.135.0",
+     "label": "v2.135.0",
+     "prerelease": false
+    },
+    "… و 11 مورد دیگر"
+   ],
+   "staged": {
+    "version": "v2.136.0",
+    "arches": [
+     "amd64",
+     "arm64"
+    ],
+    "sha": {
+     "amd64": "c30a802e90abcadf60e3dfe41de8c22ff03a11243aed141717d180a828b7f06b",
+     "arm64": "197ecf558620f41af494dc82a6eda01298aff8bb3c3e5caae14c81b807467b98"
+    },
+    "size": {
+     "amd64": 9834680,
+     "arm64": 9240760
+    },
+    "ts": 1790271551
+   },
+   "delivery": "push",
+   "ready": true,
+   "missing": []
+  }
+ },
+ "core-stage-status": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "0fedc40b0286",
+   "version": "v2.136.0",
+   "done": true,
+   "cancel": false,
+   "err": "",
+   "arches": [
+    "amd64",
+    "arm64"
+   ],
+   "missing": [],
+   "pct": 100
+  }
+ },
+ "push-status": {
+  "errs": [],
+  "req": null,
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "*",
+   "kind": "agent",
+   "done": true,
+   "cancel": true,
+   "paused": false,
+   "order": [
+    "631185b264",
+    "14e63baf13"
+   ],
+   "nodes": {
+    "631185b264": {
+     "name": "N1",
+     "state": "skip",
+     "pct": 0,
+     "step": "check",
+     "si": 1,
+     "sn": 2,
+     "remote": true,
+     "err": "",
+     "detail": "درخواست کامل به نود رسیده بود — ممکن است همین مرحله را انجام داده باشد"
+    },
+    "14e63baf13": {
+     "name": "N2",
+     "state": "same",
+     "pct": 100,
+     "step": "check",
+     "si": 1,
+     "sn": 2,
+     "remote": true,
+     "err": "",
+     "detail": ""
+    }
+   }
+  }
+ },
+ "node-install": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "name": "N3",
+     "ssh_host": "10.77.9.9"
+    },
+    "q": null,
+    "resp": {
+     "error": "رمزِ SSH یا کلیدِ خصوصی لازم است"
+    }
+   }
+  ],
+  "req": {
+   "name": "N1",
+   "ssh_host": "10.77.3.2",
+   "ssh_user": "root",
+   "ssh_pass": "********"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "ea90d20ef99d"
+  }
+ },
+ "install-status": {
+  "errs": [
+   {
+    "status": 400,
+    "req": null,
+    "q": {
+     "job": "nope"
+    },
+    "resp": {
+     "error": "این کار دیگر در جریان نیست"
+    }
+   }
+  ],
+  "req": null,
+  "q": {
+   "job": "ea90d20ef99d"
+  },
+  "ok": {
+   "steps": [
+    {
+     "key": "ssh",
+     "label": "اتصالِ SSH",
+     "state": "ok",
+     "detail": "root@10.77.3.2:22 — وصل شد",
+     "log": ""
+    },
+    {
+     "key": "agent",
+     "label": "رساندنِ ایجنت به نود",
+     "state": "ok",
+     "detail": "tnl-node.py v1.0.0 از پنل رسید",
+     "log": ""
+    },
+    "… و 2 مورد دیگر"
+   ],
+   "done": true,
+   "ok": true,
+   "banner": "«N1» نصب و وصل شد",
+   "node_id": "631185b264",
+   "ts": 1790271480,
+   "success": true
+  }
+ },
+ "node-stats": {
+  "errs": [
+   {
+    "status": 400,
+    "req": null,
+    "q": {
+     "id": "nope"
+    },
+    "resp": {
+     "error": "پیدا نشد"
+    }
+   }
+  ],
+  "req": null,
+  "q": {
+   "id": "631185b264"
+  },
+  "ok": {
+   "online": true,
+   "stats": {
+    "cpus": 2,
+    "uptime": 2819407,
+    "load": [
+     "0.25",
+     "0.22",
+     "… و 1 مورد دیگر"
+    ],
+    "mem_total_mb": 3814,
+    "mem_used_mb": 872,
+    "os": "Ubuntu 26.04 LTS",
+    "disk_total_mb": 38113,
+    "disk_used_mb": 11854,
+    "disk_pct": 32.5,
+    "cpu_pct": 3.9,
+    "net": {
+     "_node": [
+      13400707,
+      39461
+     ]
+    }
+   },
+   "tunnels": 0,
+   "portfw": 0,
+   "hostname": "adN1"
+  }
+ },
+ "node-test": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {},
+    "q": null,
+    "resp": {
+     "error": "فیلدِ «id» فرستاده نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "631185b264"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "info": {
+    "ok": true,
+    "agent": "tnl-node",
+    "version": "v1.0.0",
+    "ready": true,
+    "central": "http://10.77.2.2:8080",
+    "hostname": "adN1",
+    "ips": {
+     "host0": [
+      "10.77.3.2"
+     ]
+    },
+    "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+    "tunnels": 0,
+    "portfw": 0,
+    "core_ver": "v2.136.0",
+    "core_sha": "c30a802e90ab",
+    "arch": "amd64",
+    "stats": {
+     "cpus": 2,
+     "uptime": 2819407,
+     "load": [
+      "0.25",
+      "0.22",
+      "… و 1 مورد دیگر"
+     ],
+     "mem_total_mb": 3814,
+     "mem_used_mb": 872,
+     "os": "Ubuntu 26.04 LTS",
+     "disk_total_mb": 38113,
+     "disk_used_mb": 11854,
+     "disk_pct": 32.5,
+     "cpu_pct": 66.7,
+     "net": {
+      "_node": [
+       13401387,
+       40690
+      ]
+     }
+    },
+    "rtt_ms": 8
+   }
+  }
+ },
+ "node-ips": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "631185b264"
+  },
+  "q": null,
+  "ok": {
+   "online": true,
+   "ips": [
+    {
+     "ip": "10.77.3.2",
+     "host": true,
+     "peers": [],
+     "pf": [],
+     "free": true
+    }
+   ]
+  }
+ },
+ "traffic": {
+  "errs": [
+   {
+    "status": 400,
+    "req": null,
+    "q": {
+     "id": "nope"
+    },
+    "resp": {
+     "error": "پیدا نشد"
+    }
+   }
+  ],
+  "req": null,
+  "q": {
+   "id": "631185b264"
+  },
+  "ok": {
+   "online": true,
+   "node": {
+    "rx_bps": 5423.033238964484,
+    "tx_bps": 7847.448098736841,
+    "rx_total": 13202109,
+    "tx_total": 19472
+   },
+   "tunnels": [],
+   "portfw": []
+  }
+ },
+ "node-kernel-tune": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "631185b264",
+     "action": "boom"
+    },
+    "q": null,
+    "resp": {
+     "error": "عملیاتِ نامعتبر"
+    }
+   }
+  ],
+  "req": {
+   "id": "631185b264",
+   "action": "status"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "active": false,
+   "cc": "bbr",
+   "qdisc": "",
+   "bbr_available": true
+  }
+ },
+ "update-core": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "ids": []
+    },
+    "q": null,
+    "resp": {
+     "error": "نودی انتخاب نشده"
+    }
+   }
+  ],
+  "req": {
+   "ids": [
+    "631185b264",
+    "14e63baf13"
+   ]
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "85c437c3bb13"
+  }
+ },
+ "update-agent": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "ids": [
+      "nope"
+     ]
+    },
+    "q": null,
+    "resp": {
+     "error": "نودی انتخاب نشده"
+    }
+   }
+  ],
+  "req": {
+   "ids": [
+    "631185b264",
+    "14e63baf13"
+   ]
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "352afd0530f5"
+  }
+ },
+ "create-tunnel": {
+  "errs": [],
+  "req": {
+   "a_node": "631185b264",
+   "b_node": "14e63baf13",
+   "type": "core",
+   "server_side": "a",
+   "cipher": "auto",
+   "transport": "udp",
+   "obfs": false,
+   "cover": false,
+   "gso": false,
+   "subnet_base": "10",
+   "port": "20001"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "act": "new:43af911d"
+  }
+ },
+ "check-link": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "name": "core1",
+   "a_online": true,
+   "b_online": true,
+   "a_health": {
+    "up": true,
+    "alive": true,
+    "dead": false,
+    "rtt_ms": 2.4,
+    "loss_pct": 0.0,
+    "crossed": true
+   },
+   "b_health": {
+    "up": true,
+    "alive": true,
+    "dead": false,
+    "rtt_ms": 2.8,
+    "loss_pct": 0.0,
+    "crossed": true
+   },
+   "a_error": "",
+   "b_error": ""
+  }
+ },
+ "link-speed": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "from": "N2",
+   "to": "N1",
+   "secs": 8,
+   "up_streams": 8,
+   "down_streams": 8,
+   "up_mbit": 882.5,
+   "down_mbit": 710.0
+  }
+ },
+ "link-view": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "view_side": "b"
+  }
+ },
+ "link-rebuild-info": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "id": "6dc4463b131e",
+   "name": "core1",
+   "a": {
+    "node_id": "631185b264",
+    "node": "N1",
+    "online": true,
+    "drifted": false,
+    "multi": false,
+    "ips": [
+     {
+      "ip": "10.77.3.2",
+      "host": true,
+      "peers": [
+       {
+        "node": "N2",
+        "type": "core",
+        "name": "core1"
+       },
+       {
+        "node": "N2",
+        "type": "gre",
+        "name": "native2"
+       }
+      ],
+      "pf": [],
+      "free": false
+     }
+    ]
+   },
+   "b": {
+    "node_id": "14e63baf13",
+    "node": "N2",
+    "online": true,
+    "drifted": false,
+    "multi": false,
+    "ips": [
+     {
+      "ip": "10.77.4.2",
+      "host": true,
+      "peers": [
+       {
+        "node": "N1",
+        "type": "core",
+        "name": "core1"
+       },
+       {
+        "node": "N1",
+        "type": "gre",
+        "name": "native2"
+       }
+      ],
+      "pf": [],
+      "free": false
+     }
+    ]
+   }
+  }
+ },
+ "link-tag": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "6dc4463b131e",
+     "tag": 99
+    },
+    "q": null,
+    "resp": {
+     "error": "رنگِ نشانه‌گذاری نامعتبر است"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e",
+   "tag": 2
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "tag": 2
+  }
+ },
+ "reorder": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "kind": "core",
+     "id": "6dc4463b131e",
+     "targets": [
+      "nope"
+     ]
+    },
+    "q": null,
+    "resp": {
+     "error": "مورد پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "kind": "tunnels",
+   "id": "62fd68268372",
+   "targets": [
+    "62fd68268372"
+   ]
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "edit-link": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope",
+     "type": "core"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "a_node": "631185b264",
+   "b_node": "14e63baf13",
+   "type": "core",
+   "server_side": "a",
+   "cipher": "auto",
+   "transport": "udp",
+   "obfs": false,
+   "cover": false,
+   "gso": false,
+   "subnet_base": "10",
+   "port": "20002",
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "act": "link:6dc4463b131e"
+  }
+ },
+ "link-toggle": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e",
+   "enabled": false
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "enabled": false
+  }
+ },
+ "restart-link": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "act": "link:6dc4463b131e"
+  }
+ },
+ "rebuild-link": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "act": "link:6dc4463b131e"
+  }
+ },
+ "edge-status": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": ""
+    },
+    "q": null,
+    "resp": {
+     "error": "فیلدِ «id» فرستاده نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "pool": false,
+   "active": "udp · 10.77.3.2:20002",
+   "ready": true,
+   "pair": {
+    "low": "",
+    "high": "",
+    "low_kind": "dst",
+    "high_kind": "src"
+   },
+   "health": [],
+   "events": [],
+   "now": 1790271537,
+   "ts": 1790271537
+  }
+ },
+ "peer-status": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "9cf26b23567e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "pool": true,
+   "now": 1790272024,
+   "dst": {
+    "active": "10.77.3.2:20020",
+    "addrs": [
+     "10.77.3.2:20020",
+     "10.77.3.3:20020"
+    ],
+    "health": [
+     {
+      "key": "10.77.3.2:20020",
+      "state": "healthy",
+      "fails": 0,
+      "next_retest_unix": 0
+     },
+     {
+      "key": "10.77.3.3:20020",
+      "state": "healthy",
+      "fails": 0,
+      "next_retest_unix": 0
+     }
+    ],
+    "ts": 1790272006
+   },
+   "src": {
+    "active": "10.77.4.2",
+    "addrs": [
+     "10.77.4.2",
+     "10.77.4.3"
+    ],
+    "health": [
+     {
+      "key": "10.77.4.2",
+      "state": "healthy",
+      "fails": 0,
+      "next_retest_unix": 0
+     },
+     {
+      "key": "10.77.4.3",
+      "state": "healthy",
+      "fails": 0,
+      "next_retest_unix": 0
+     }
+    ],
+    "ts": 1790272006
+   }
+  }
+ },
+ "pool-retest-now": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "6dc4463b131e",
+     "key": "1.1.1.1",
+     "kind": "ip"
+    },
+    "q": null,
+    "resp": {
+     "error": "این لینک استخرِ لبه ندارد"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": "",
+     "kind": "ip",
+     "key": "10.77.4.3:80"
+    },
+    "q": null,
+    "resp": {
+     "error": "فیلدِ «id» فرستاده نشد"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": "9cf26b23567e",
+     "kind": "boom",
+     "key": "x"
+    },
+    "q": null,
+    "resp": {
+     "error": "kind باید ip / sni / dst / src باشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e",
+   "key": "1.1.1.1",
+   "kind": "ip"
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "pool-select": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "6dc4463b131e",
+     "key": "1.1.1.1",
+     "kind": "ip"
+    },
+    "q": null,
+    "resp": {
+     "error": "این لینک استخرِ لبه ندارد"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": "",
+     "kind": "ip",
+     "key": "10.77.4.3:80"
+    },
+    "q": null,
+    "resp": {
+     "error": "فیلدِ «id» فرستاده نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e",
+   "key": "1.1.1.1",
+   "kind": "ip"
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "peer-retest-now": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "6dc4463b131e",
+     "key": "1.1.1.1",
+     "kind": "ip"
+    },
+    "q": null,
+    "resp": {
+     "error": "این لینک استخرِ آی‌پی ندارد"
+    }
+   }
+  ],
+  "req": {
+   "id": "9cf26b23567e",
+   "kind": "dst",
+   "key": "10.77.4.3"
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "peer-select": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "6dc4463b131e",
+     "key": "1.1.1.1"
+    },
+    "q": null,
+    "resp": {
+     "error": "این لینک استخرِ آی‌پی ندارد"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": "",
+     "key": "x"
+    },
+    "q": null,
+    "resp": {
+     "error": "فیلدِ «id» فرستاده نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "9cf26b23567e",
+   "key": "10.77.4.3",
+   "side": "dst"
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "traffic-reset": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "6dc4463b131e"
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "portfw": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "node": "631185b264",
+     "listen_port": 99999,
+     "dst_ips": "x",
+     "dst_port": 22
+    },
+    "q": null,
+    "resp": {
+     "error": "پورتِ ورودی باید بینِ ۱ تا ۶۵۵۳۵ باشد"
+    }
+   }
+  ],
+  "req": {
+   "node": "631185b264",
+   "listen_port": 15000,
+   "dst_ips": "10.77.4.2",
+   "dst_port": 22
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "name": "portfw3"
+  }
+ },
+ "portfw-edit": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "node": "631185b264",
+     "name": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "not found"
+    }
+   }
+  ],
+  "req": {
+   "node": "631185b264",
+   "name": "portfw3",
+   "rotate": false
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "name": "portfw3"
+  }
+ },
+ "portfw-next": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "node": "631185b264",
+     "name": "portfw3"
+    },
+    "q": null,
+    "resp": {
+     "error": "need >=2 destinations to rotate"
+    }
+   }
+  ],
+  "req": {
+   "node": "631185b264",
+   "name": "portfw2"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "active": "10.77.3.2"
+  }
+ },
+ "proxy-add": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "scheme": "ftp",
+     "host": "x",
+     "port": 1
+    },
+    "q": null,
+    "resp": {
+     "error": "نوعِ پروکسی باید socks5 یا http باشد"
+    }
+   }
+  ],
+  "req": {
+   "scheme": "socks5",
+   "host": "10.77.2.2",
+   "port": 1080,
+   "name": "px1"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "proxy": {
+    "id": "a98b925422",
+    "name": "px1",
+    "scheme": "socks5",
+    "host": "10.77.2.2",
+    "port": 1080,
+    "user": "",
+    "has_pass": false,
+    "addr": "socks5://10.77.2.2:1080",
+    "nodes": [],
+    "tunnels": [],
+    "panel": false,
+    "online": false,
+    "pending": true,
+    "status": {}
+   }
+  }
+ },
+ "proxy-edit": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope",
+     "scheme": "socks5",
+     "host": "x",
+     "port": 1
+    },
+    "q": null,
+    "resp": {
+     "error": "پروکسی پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "a98b925422",
+   "scheme": "socks5",
+   "host": "10.77.2.2",
+   "port": 1081,
+   "name": "px1"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "proxy": {
+    "id": "a98b925422",
+    "name": "px1",
+    "scheme": "socks5",
+    "host": "10.77.2.2",
+    "port": 1081,
+    "user": "",
+    "has_pass": false,
+    "addr": "socks5://10.77.2.2:1081",
+    "nodes": [],
+    "tunnels": [],
+    "panel": false,
+    "online": false,
+    "pending": true,
+    "status": {}
+   }
+  }
+ },
+ "proxy-test": {
+  "errs": [
+   {
+    "status": 200,
+    "req": {
+     "id": "a98b925422"
+    },
+    "q": null,
+    "resp": {
+     "ok": false,
+     "ms": null,
+     "error": "Connection refused",
+     "ts": 1790271542.0637507
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "پروکسی پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "ffbfba61b0"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "ms": 0,
+   "error": "",
+   "ts": 1790271888.1337516,
+   "reach": 95
+  }
+ },
+ "proxy-del": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "پروکسی پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "a98b925422"
+  },
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "node-edit": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "14e63baf13",
+     "name": "bad name!",
+     "host": "10.77.4.2",
+     "port": 8099
+    },
+    "q": null,
+    "resp": {
+     "error": "نامِ نود نامعتبر است"
+    }
+   }
+  ],
+  "req": {
+   "id": "14e63baf13",
+   "name": "N2",
+   "host": "10.77.4.2",
+   "port": 8099
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "checking": true
+  }
+ },
+ "node-toggle": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "نود پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "14e63baf13",
+   "disabled": true
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "disabled": true
+  }
+ },
+ "node-adopt-ip": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "631185b264"
+    },
+    "q": null,
+    "resp": {
+     "error": "آدرسِ تازه‌ای برای این نود ثبت نشده"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "نود پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "14e63baf13"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "host": "10.77.4.2",
+   "port": 8099
+  }
+ },
+ "node-add": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "name": "N9",
+     "host": "10.77.9.8",
+     "port": 8099,
+     "token": "********"
+    },
+    "q": null,
+    "resp": {
+     "error": "نودی با نامِ «N9» از قبل وجود دارد — یک نامِ یکتا انتخاب کن"
+    }
+   }
+  ],
+  "req": {
+   "name": "N9",
+   "host": "10.77.9.9",
+   "port": 8099,
+   "token": "********"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "id": "167b87e69a",
+   "checking": true
+  }
+ },
+ "node-del": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "نود پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "167b87e69a",
+   "force": true
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "node_wiped": false
+  }
+ },
+ "core-check": {
+  "errs": [],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "count": 13,
+   "latest": "v2.136.0",
+   "newer": true,
+   "first_check": true,
+   "staged": "v2.136.0"
+  }
+ },
+ "core-stage": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "version": "custom"
+    },
+    "q": null,
+    "resp": {
+     "error": "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصبِ هسته روی همهٔ نودها» یا از منوی هر نود نصب کن"
+    }
+   }
+  ],
+  "req": {
+   "version": "latest"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "meta_only": false,
+   "done": false,
+   "job": "0fedc40b0286"
+  }
+ },
+ "core-stage-cancel": {
+  "errs": [],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "done": true
+  }
+ },
+ "agent-fetch-git": {
+  "errs": [],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "version": "v1.0.0",
+   "sha256": "d781be7fc3b6"
+  }
+ },
+ "agent-upload": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "code": "<tnl-node.py>"
+    },
+    "q": null,
+    "resp": {
+     "error": "این فایل ایجنتِ نود نیست"
+    }
+   }
+  ],
+  "req": {
+   "code": "<tnl-node.py>"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "version": "v1.0.0",
+   "sha256": "d781be7fc3b6"
+  }
+ },
+ "core-upload": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "data": "<base64>"
+    },
+    "q": null,
+    "resp": {
+     "error": "فایل خیلی کوچک است — این باینریِ هسته نیست"
+    }
+   }
+  ],
+  "req": {
+   "data": "<base64>",
+   "name": "tnl-core"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "sha256": "c30a802e90ab",
+   "size": 9834680,
+   "name": "tnl-core"
+  }
+ },
+ "core-delete-blob": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {},
+    "q": null,
+    "resp": {
+     "error": "هیچ باینریِ سفارشی‌ای بارگذاری نشده"
+    }
+   }
+  ],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "act-cancel": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "act": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "این کار دیگر در جریان نیست"
+    }
+   }
+  ],
+  "req": {
+   "act": "new:b6f184d0"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "act": "new:b6f184d0"
+  }
+ },
+ "push-cancel": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {},
+    "q": null,
+    "resp": {
+     "error": "این کار دیگر در جریان نیست"
+    }
+   }
+  ],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "*"
+  }
+ },
+ "push-pause": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {},
+    "q": null,
+    "resp": {
+     "error": "این کار دیگر در جریان نیست"
+    }
+   }
+  ],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "job": "*",
+   "paused": true
+  }
+ },
+ "portfw-del": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "node": "631185b264",
+     "name": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "روی نودِ «N1» پورت‌فورواردی به نامِ «nope» ثبت نیست — برای اینکه تونلی به همین نام پاک نشود متوقف شد"
+    }
+   }
+  ],
+  "req": {
+   "node": "631185b264",
+   "name": "portfw3"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "msg": ""
+  }
+ },
+ "delete-link": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "id": "nope"
+    },
+    "q": null,
+    "resp": {
+     "error": "تونل پیدا نشد"
+    }
+   }
+  ],
+  "req": {
+   "id": "62fd68268372"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "act": "link:62fd68268372"
+  }
+ },
+ "settings-set": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "reconcile_interval": "abc"
+    },
+    "q": null,
+    "resp": {
+     "error": "بازهٔ بررسیِ ترمیم باید عدد باشد (ثانیه)"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "reconcile_mode": "zzz"
+    },
+    "q": null,
+    "resp": {
+     "error": "حالت باید auto یا alert باشد"
+    }
+   }
+  ],
+  "req": {
+   "reconcile_interval": 15
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "settings": {
+    "reconcile_mode": "alert",
+    "reconcile_interval": 15,
+    "poll_interval": 2,
+    "ui_interval": 2,
+    "uptime_window": 1,
+    "ech_refresh_mins": 15,
+    "agent_delivery": "push",
+    "core_delivery": "push",
+    "dl_proxy_on": false,
+    "dl_proxy_id": "",
+    "log_hidden": [],
+    "api_external": true,
+    "tuning": {
+     "suspect_backoff": [
+      600,
+      1800,
+      "… و 1 مورد دیگر"
+     ],
+     "dead_retest_secs": 21600,
+     "probe_min_pct": 15,
+     "ladder_revive": [
+      45,
+      180,
+      "… و 1 مورد دیگر"
+     ],
+     "sock_buf_mb": 4
+    }
+   }
+  }
+ },
+ "api-token-new": {
+  "errs": [],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "token": "********"
+  }
+ },
+ "backup": {
+  "errs": [],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true,
+   "data": "H4sIAJtmtWoC/+1ae3Qb1Zm/I8mxIzt2noQUQq5l",
+   "nodes": 2,
+   "core": 2,
+   "system": 0,
+   "proxies": 0
+  }
+ },
+ "backup-restore": {
+  "errs": [
+   {
+    "status": 400,
+    "req": {
+     "data": "<base64>"
+    },
+    "q": null,
+    "resp": {
+     "error": "فایلِ بکاپ base64 نامعتبر است"
+    }
+   },
+   {
+    "status": 400,
+    "req": {
+     "data": "<base64>"
+    },
+    "q": null,
+    "resp": {
+     "error": "این فایل بکاپِ پنل نیست یا خراب است"
+    }
+   },
+   {
+    "status": 400,
+    "req": {},
+    "q": null,
+    "resp": {
+     "error": "فیلدِ «data» فرستاده نشد"
+    }
+   }
+  ],
+  "req": {
+   "data": "<base64>"
+  },
+  "q": null,
+  "ok": {
+   "ok": true,
+   "made": 1790273179,
+   "same_key": true,
+   "boot": "7c34e14971aa4950",
+   "now": {
+    "nodes": 2,
+    "core": 2,
+    "system": 0,
+    "proxies": 0,
+    "events": 48
+   },
+   "after": {
+    "nodes": 2,
+    "core": 2,
+    "system": 0,
+    "proxies": 0,
+    "events": 48
+   },
+   "portfw": 0,
+   "settings": {
+    "changed": [],
+    "total": 18
+   }
+  }
+ },
+ "events-clear": {
+  "errs": [],
+  "req": {},
+  "q": null,
+  "ok": {
+   "ok": true
+  }
+ },
+ "_generic": {
+  "401": {
+   "status": 401,
+   "resp": {
+    "error": "unauthorized",
+    "message": "unauthorized"
+   }
+  },
+  "401b": {
+   "status": 401,
+   "resp": {
+    "error": "bad_token",
+    "message": "invalid API token"
+   }
+  },
+  "403": {
+   "status": 403,
+   "resp": {
+    "error": "api_disabled",
+    "message": "API is not available"
+   }
+  },
+  "403d": {
+   "status": 403,
+   "resp": {
+    "error": "token_denied",
+    "message": "this endpoint is not available with an API token"
+   }
+  },
+  "404": {
+   "status": 404,
+   "resp": {
+    "error": "unknown_route",
+    "message": "unknown API route"
+   }
+  },
+  "405": {
+   "status": 405,
+   "resp": {
+    "error": "post_only",
+    "message": "this endpoint requires POST"
+   }
+  },
+  "413": {
+   "status": 413,
+   "resp": {
+    "error": "too_large",
+    "message": "request body too large; a core binary is at most 15 MB, a backup 32 MB"
+   }
+  },
+  "500": {
+   "status": 500,
+   "resp": {
+    "error": "ذخیره‌سازِ پنل (ردیس) در دسترس نیست — معلوم نیست این تغییر ذخیره شد یا نه؛ وقتی برگشت، فهرست را دوباره ببین"
+   }
+  },
+  "500i": {
+   "status": 500,
+   "resp": {
+    "error": "internal",
+    "message": "internal error"
+   }
+  },
+  "503": {
+   "status": 503,
+   "resp": {
+    "error": "پنل شلوغ است — چند لحظه بعد دوباره"
+   }
+  },
+  "429": {
+   "status": 429,
+   "resp": {
+    "error": "locked",
+    "message": "too many failed attempts from this address; try again in a few minutes"
+   }
+  }
+ },
+ "_acts": {
+  "run": {
+   "key": "new:43af911d",
+   "target": "N1 ↔ N2",
+   "page": "core",
+   "ttype": "udp",
+   "state": "run",
+   "step": "خواندنِ وضعیتِ دو نود",
+   "si": 0,
+   "sn": 4,
+   "pct": 0,
+   "err": "",
+   "note": "",
+   "offer": "",
+   "can": true,
+   "started": 1790271498,
+   "ended": 0
+  },
+  "done": {
+   "key": "new:43af911d",
+   "target": "N1 ↔ N2",
+   "page": "core",
+   "ttype": "udp",
+   "state": "done",
+   "step": "",
+   "si": 4,
+   "sn": 4,
+   "pct": 100,
+   "err": "",
+   "note": "",
+   "offer": "",
+   "can": false,
+   "started": 1790271498,
+   "ended": 1790271498
+  },
+  "fail": {
+   "key": "new:aa3d9717",
+   "target": "N1 ↔ N1",
+   "page": "core",
+   "ttype": "udp",
+   "state": "fail",
+   "step": "",
+   "si": 0,
+   "sn": 4,
+   "pct": 0,
+   "err": "دو سرِ تونل باید دو نودِ متفاوت باشند",
+   "note": "",
+   "offer": "",
+   "can": true,
+   "started": 1790271502,
+   "ended": 1790271502
+  }
+ }
+}
