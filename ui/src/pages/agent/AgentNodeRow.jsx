@@ -3,10 +3,9 @@ import PushBar, { pushTone } from './PushBar.jsx'
 import { coreVersionName, versionIsNewer } from './versions.js'
 import { T } from '../../i18n/fa.js'
 
-function VersionPill({ icon, tone, version, title }) {
+function VersionPill({ tone, version, title }) {
   return (
     <span className={'vp ' + tone} title={title}>
-      <Icon name={icon} />
       {version}
     </span>
   )
@@ -92,13 +91,11 @@ export default function AgentNodeRow({
 
       <div className="nxv">
         <VersionPill
-          icon="server"
           tone={agent.tone}
           version={info.version || '—'}
           title={agent.title}
         />
         <VersionPill
-          icon="cpu"
           tone={core.tone}
           version={installed ? coreVersionName(String(info.core_ver || '?')) : '—'}
           title={core.title}
@@ -117,6 +114,7 @@ export default function AgentNodeRow({
           onClick={() => onPushAgent(node.id)}
         >
           <Icon name="server" />
+          <span>{T('ag_lbl_agent')}</span>
         </button>
         <button
           className={'ib' + (core.highlight ? ' up' : '')}
@@ -125,6 +123,7 @@ export default function AgentNodeRow({
           onClick={() => onPushCore(node.id)}
         >
           <Icon name="cpu" />
+          <span>{T('ag_lbl_core')}</span>
         </button>
       </div>
     </div>

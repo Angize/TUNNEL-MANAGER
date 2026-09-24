@@ -155,12 +155,12 @@ export function AgentRowsSkeleton({ count }) {
         </span>
       </div>
       <div className="nxv">
-        <Box w={62} h={25} r={8} />
-        <Box w={62} h={25} r={8} />
+        <Box h={26} r={8} style={{ flex: 1 }} />
+        <Box h={26} r={8} style={{ flex: 1 }} />
       </div>
       <div className="nxa">
-        <Box w={34} h={34} r={10} />
-        <Box w={34} h={34} r={10} />
+        <Box h={36} r={10} style={{ flex: 1 }} />
+        <Box h={36} r={10} style={{ flex: 1 }} />
       </div>
     </div>
   ))
