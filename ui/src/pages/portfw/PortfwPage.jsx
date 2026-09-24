@@ -51,7 +51,7 @@ export default function PortfwPage({ active }) {
   const openAdd = async () => {
     const all = await loadNodes()
     if (!all) return
-    if (!all.some((n) => n.online)) {
+    if (!all.some((n) => n.online && !n.hidden)) {
       toast(T('pf_no_online'), 'err')
       return
     }
@@ -100,7 +100,7 @@ export default function PortfwPage({ active }) {
 
       {adding ? (
         <PortfwAddModal
-          nodes={nodes.filter((n) => n.online)}
+          nodes={nodes.filter((n) => n.online && !n.hidden)}
           onClose={() => setAdding(false)}
           onCreated={reload}
         />

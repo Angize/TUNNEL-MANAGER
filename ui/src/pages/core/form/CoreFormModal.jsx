@@ -69,7 +69,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         return
       }
       if (!alive) return
-      if (!link && reply.nodes.filter((n) => n.online).length < 2) {
+      if (!link && reply.nodes.filter((n) => n.online && !n.hidden).length < 2) {
         toast(T('node_min2'), 'err')
         closeRef.current()
         return
@@ -94,7 +94,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       setForm(editForm(cfg, link))
       return
     }
-    const online = nodes.filter((n) => n.online)
+    const online = nodes.filter((n) => n.online && !n.hidden)
     const next = createForm(cfg)
     next.aNode = online[0].id
     next.bNode = online[1].id
@@ -105,7 +105,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     if (!nodes) return []
     if (link) return nodeItemsForEdit(nodes, link)
     return nodes
-      .filter((n) => n.online)
+      .filter((n) => n.online && !n.hidden)
       .map((n) => ({ v: n.id, label: n.name, sub: n.host }))
   }, [nodes, link])
 

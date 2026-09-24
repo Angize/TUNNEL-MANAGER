@@ -158,7 +158,7 @@ export function nodeItemsForEdit(nodes, link) {
   const out = []
   const seen = {}
   for (const node of nodes || []) {
-    if (!node.online) continue
+    if (!node.online || node.hidden) continue
     seen[node.id] = true
     out.push({ v: node.id, label: node.name, sub: node.host })
   }

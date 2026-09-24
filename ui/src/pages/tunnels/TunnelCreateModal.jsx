@@ -106,7 +106,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
     apiGet('node-names')
       .then((r) => {
         if (!alive) return
-        const online = r.nodes.filter((n) => n.online)
+        const online = r.nodes.filter((n) => n.online && !n.hidden)
         if (online.length < 2) {
           toast(T('node_min2'), 'err')
           closeRef.current()
