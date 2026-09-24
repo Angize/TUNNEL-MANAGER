@@ -309,10 +309,29 @@ export function OverviewSkeleton() {
   )
 }
 
-export function SettingsSkeleton({ groups = SETTINGS_GROUPS }) {
+export function ApiCardSkeleton() {
+  return (
+    <div className="card opc">
+      <div className="ophd">
+        <Box w={30} h={30} r={9} />
+        <span className="hd2">
+          <Sk as="b" w={150} />
+          <Sk as="small" w={130} />
+        </span>
+        <Box w={44} h={25} r={14} />
+      </div>
+      <div className="oprow">
+        <Box h="var(--sc-h)" r={10} style={{ flex: 1 }} />
+        <Box w={110} h="var(--sc-h)" r={10} />
+      </div>
+    </div>
+  )
+}
+
+export function SettingsSkeleton() {
   return (
     <div className="card sg">
-      {groups.map(([tone, rows]) => (
+      {SETTINGS_GROUPS.map(([tone, rows]) => (
         <section className={'sgsec ' + tone} key={tone}>
           <div className="sghd">
             <Box w={30} h={30} r={9} />

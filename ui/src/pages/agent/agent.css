@@ -41,10 +41,6 @@
   font-weight: 800;
 }
 
-.opc .ophd .grow {
-  flex: 1;
-}
-
 .opc .ophd .hd2 {
   display: flex;
   flex-direction: column;
@@ -195,7 +191,7 @@
   transition: transform .2s;
 }
 
-.uprow > .upx.open .ic {
+.uprow > .upx[aria-expanded='true'] .ic {
   transform: rotate(180deg);
 }
 
@@ -216,8 +212,7 @@
   border: 1px solid var(--edge);
 }
 
-.upmore .oprow > .ghost,
-.upmore .oprow > .corcheck {
+.upmore .oprow > .ghost {
   font-size: 12px;
 }
 
@@ -342,17 +337,18 @@
 
 .nxv {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .nxv .vp {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 0;
+  min-width: max-content;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 26px;
-  padding: 0 4px;
+  padding: 0 6px;
   border-radius: 8px;
   background: var(--field);
   border: 1px solid var(--bord);
@@ -361,7 +357,6 @@
   font-family: ui-monospace, Consolas, monospace;
   direction: ltr;
   white-space: nowrap;
-  overflow: hidden;
 }
 
 .nxv .vp.ok {

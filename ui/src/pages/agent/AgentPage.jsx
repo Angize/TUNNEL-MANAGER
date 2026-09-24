@@ -39,29 +39,27 @@ function Facts({ items }) {
 
 function Message({ value, onCancel }) {
   return (
-    <div className={value ? 'msg ' + value.cls : 'msg'}>
-      {value ? (
-        value.progress != null ? (
-          <>
-            <div className="pushbar">
-              <i style={{ width: value.progress + '%' }} />
-            </div>
-            <div className="plbl">
-              <span>{T('cor_downloading')}</span>
-              <b>{value.progress}%</b>
-            </div>
-            <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={onCancel}>
-              <Icon name="xc" />
-              {T('cor_dl_cancel')}
-            </button>
-          </>
-        ) : (
-          <>
-            {value.text}
-            {value.check ? <Check /> : null}
-          </>
-        )
-      ) : null}
+    <div className={'msg ' + value.cls}>
+      {value.progress != null ? (
+        <>
+          <div className="pushbar">
+            <i style={{ width: value.progress + '%' }} />
+          </div>
+          <div className="plbl">
+            <span>{T('cor_downloading')}</span>
+            <b>{value.progress}%</b>
+          </div>
+          <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={onCancel}>
+            <Icon name="xc" />
+            {T('cor_dl_cancel')}
+          </button>
+        </>
+      ) : (
+        <>
+          {value.text}
+          {value.check ? <Check /> : null}
+        </>
+      )}
     </div>
   )
 }
@@ -465,7 +463,7 @@ export default function AgentPage({ headless }) {
   }
 
   const agentReady = agentMeta && !agentMeta.none
-  const hasCustom = !coreUnknown && versions.some((v) => v.custom)
+  const custom = coreUnknown ? null : versions.find((v) => v.custom) || null
   const stagedArch = (staged && staged.arches && staged.arches[0]) || 'amd64'
   const stagedSha = (staged && staged.sha && staged.sha[stagedArch]) || ''
   const stagedSize = (staged && staged.size && staged.size[stagedArch]) || 0
@@ -479,6 +477,7 @@ export default function AgentPage({ headless }) {
           { text: Math.round(num(agentMeta.size) / 1024) + ' ' + T('unit_kb') },
         ]
       : [{ text: T('ag_no_agent_loaded') }]
+  const coreName = staged ? staged.version : custom ? T('cor_custom') : ''
   const coreFacts = coreUnknown
     ? [{ text: T('loading') }]
     : staged
@@ -487,7 +486,12 @@ export default function AgentPage({ headless }) {
           (staged.arches || []).length ? { text: staged.arches.join(' · ') } : null,
           stagedSha ? { text: String(stagedSha).slice(0, 12), mono: true } : null,
         ].filter(Boolean)
-      : [{ text: T('ag_no_core_staged') }]
+      : custom
+        ? [
+            custom.size ? { text: (custom.size / 1048576).toFixed(1) + ' ' + T('unit_mb_full') } : null,
+            custom.sha256 ? { text: custom.sha256, mono: true } : null,
+          ].filter(Boolean)
+        : [{ text: T('ag_no_core_staged') }]
 
   return (
     <>
@@ -529,9 +533,9 @@ export default function AgentPage({ headless }) {
           sub={
             coreUnknown ? (
               T('loading')
-            ) : staged ? (
+            ) : coreName ? (
               <>
-                <bdi className="mono">{staged.version}</bdi>
+                <bdi className={staged ? 'mono' : undefined}>{coreName}</bdi>
                 {coreReady.ready ? null : <span className="stw">{' · ' + T('ag_not_ready')}</span>}
               </>
             ) : (
@@ -541,11 +545,11 @@ export default function AgentPage({ headless }) {
           state={
             coreUnknown
               ? null
-              : !staged
-                ? { cls: 'na', text: T('ag_empty') }
-                : coreReady.ready
-                  ? { cls: 'ok', text: T('ag_ready') }
-                  : { cls: 'warn', text: T('ag_not_ready') }
+              : coreReady.ready
+                ? { cls: 'ok', text: T('ag_ready') }
+                : coreName
+                  ? { cls: 'warn', text: T('ag_not_ready') }
+                  : { cls: 'na', text: T('ag_empty') }
           }
           goIcon="redo"
           goLabel={T('ag_install_all')}
@@ -589,7 +593,7 @@ export default function AgentPage({ headless }) {
               <Icon name="upload" />
               {T('ag_binary')}
             </button>
-            {hasCustom ? (
+            {custom ? (
               <button className="ghost tone tone-del opdel" title={T('cor_del_blob')} onClick={deleteCoreBlob}>
                 <Icon name="trash" />
               </button>

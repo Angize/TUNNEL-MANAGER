@@ -26,7 +26,7 @@ export function BulkButton({ bulk }) {
   }
   return (
     <button
-      className={'bulkbtn' + (bulk.selecting ? ' on' : '')}
+      className={'ghost tone bulkbtn' + (bulk.selecting ? ' on' : '')}
       onClick={bulk.selecting ? bulk.exit : bulk.start}
     >
       <Icon name={bulk.selecting ? 'check' : 'grid'} />
@@ -60,7 +60,7 @@ function Bar({ bulk }) {
       <button type="button" className="all" onClick={bulk.pickAll}>
         {bulk.allPicked ? T('bulk_none') : T('bulk_all')}
       </button>
-      <button type="button" className="go" disabled={!k} onClick={bulk.openSheet}>
+      <button type="button" className="ghost tone go" disabled={!k} onClick={bulk.openSheet}>
         <Icon name="grid" />
         {T('bulk_go')}
       </button>
