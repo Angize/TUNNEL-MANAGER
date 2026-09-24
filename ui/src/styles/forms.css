@@ -126,6 +126,10 @@ select:focus {
   --c: var(--violet);
 }
 
+.ghost.tone-renew {
+  --c: var(--gold);
+}
+
 .ghost.tone-del {
   --c: var(--bad);
 }

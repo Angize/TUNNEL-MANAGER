@@ -164,49 +164,43 @@
   border-radius: 10px;
 }
 
-.srtgl {
+.apcard .aptok {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--sc-h);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  min-height: var(--sc-h);
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--edge);
+  font-size: 11.5px;
+  color: var(--sub);
 }
 
-.srctl > .srtoken {
-  height: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.apcard .aptok .ic {
+  width: 14px;
+  height: 14px;
 }
 
-.srtoken .cpv {
+.apcard .cpv.aptok {
   display: block;
+  padding: 8px 10px;
+  border-style: solid;
+  background: var(--card);
+  box-shadow: var(--dsh);
+  color: var(--tx);
   font-size: 11px;
   direction: ltr;
   text-align: left;
   overflow-wrap: anywhere;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: var(--card);
-  box-shadow: var(--dsh);
-  border: 1px solid var(--edge);
 }
 
-.srtonce {
+.apcard .aponce {
+  margin: 0 2px;
   font-size: 10.5px;
   color: var(--gold);
   line-height: 1.5;
-}
-
-.srtoken .ghost {
-  margin: 0;
-  height: var(--sc-h);
-  padding: 0 12px;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 12.5px;
 }
 
 .srctl .msbtn {
