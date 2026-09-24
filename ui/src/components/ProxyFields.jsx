@@ -3,7 +3,7 @@ import Select from './Select.jsx'
 import { T } from '../i18n/fa.js'
 import { checkable } from '../lib/keys.js'
 
-export default function ProxyFields({ proxies, value, onChange, labelKey, subKey }) {
+export default function ProxyFields({ proxies, value, onChange }) {
   const items = (proxies || []).map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
   const selected = value.id || (items.length ? items[0].v : '')
 
@@ -19,8 +19,8 @@ export default function ProxyFields({ proxies, value, onChange, labelKey, subKey
           {...checkable('switch', value.on, () => onChange({ on: !value.on, id: selected }))}
         />
         <div className="tt">
-          <b>{T(labelKey || 'nd_proxy_on')}</b>
-          <small>{T(subKey || 'nd_proxy_all')}</small>
+          <b>{T('nd_proxy_on')}</b>
+          <small>{T('nd_proxy_all')}</small>
         </div>
       </div>
       {value.on ? (

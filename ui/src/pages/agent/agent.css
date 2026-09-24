@@ -60,6 +60,22 @@
   flex: 1;
 }
 
+.opc .ophd .hd2 {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.opc .ophd .hd2 small {
+  font-size: 10.5px;
+  color: var(--sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .opmeta {
   display: flex;
   flex-wrap: wrap;
@@ -122,12 +138,21 @@
   border-color: color-mix(in srgb, var(--bad) 32%, transparent);
 }
 
-.oprow > #cor_ver_box {
+.oprow > .opsel {
   flex: 1;
   min-width: 0;
 }
 
-.oprow > #cor_ver_box .msbtn {
+.oprow > .opsel.off {
+  opacity: .45;
+}
+
+.oprow > .opsave {
+  flex: 0 0 auto;
+  padding: 0 18px;
+}
+
+.oprow > .opsel .msbtn {
   height: var(--sc-h);
   border-radius: 10px;
   padding: 0 12px;

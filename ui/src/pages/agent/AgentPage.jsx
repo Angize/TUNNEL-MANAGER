@@ -3,10 +3,10 @@ import PageHead from '../../components/PageHead.jsx'
 import { AgentRowsSkeleton } from '../../components/Skeleton.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
-import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import Select from '../../components/Select.jsx'
 import { Check } from '../../components/Marks.jsx'
 import AgentNodeRow from './AgentNodeRow.jsx'
+import DownloadProxyCard from './DownloadProxyCard.jsx'
 import DeliverySegment from './DeliverySegment.jsx'
 import PushFab from './PushFab.jsx'
 import usePushJob from './usePushJob.js'
@@ -66,13 +66,9 @@ export default function AgentPage({ headless }) {
   const [delivery, setDelivery] = useState({ agent: 'push', core: 'push' })
   const [nodes, setNodes] = useState(null)
   const [query, setQuery] = useState('')
-  const [proxies, setProxies] = useState([])
-  const [dlProxy, setDlProxy] = useState(null)
-  const [dlError, setDlError] = useState('')
   const [agentMsg, setAgentMsg] = useState(null)
   const [gitMsg, setGitMsg] = useState(null)
   const [coreMsg, setCoreMsg] = useState(null)
-  const [proxyMsg, setProxyMsg] = useState(null)
   const [gitBusy, setGitBusy] = useState(false)
   const agentFile = useRef(null)
   const coreFile = useRef(null)
@@ -160,21 +156,6 @@ export default function AgentPage({ headless }) {
   useEffect(() => {
     loadNodes()
   }, [query, loadNodes])
-
-  const loadDlProxy = useCallback(async () => {
-    setDlError('')
-    try {
-      const [px, s] = await Promise.all([apiGet('proxies'), apiGet('settings')])
-      setProxies(px.proxies)
-      setDlProxy({ on: !!s.dl_proxy_on, id: String(s.dl_proxy_id || '') })
-    } catch (e) {
-      setDlError(readError(e))
-    }
-  }, [])
-
-  useEffect(() => {
-    loadDlProxy()
-  }, [loadDlProxy])
 
   const changeDelivery = async (kind, value) => {
     if (delivery[kind] === value) return
@@ -472,25 +453,6 @@ export default function AgentPage({ headless }) {
     await push.start('update-core', { ids, version: wanted }, ids)
   }
 
-  const saveDownloadProxy = async () => {
-    if (!proxies.length) {
-      setProxyMsg(null)
-      alertBox(T('dlpx_none'))
-      return
-    }
-    const body = proxyBody(dlProxy)
-    const r = await apiPost('settings-set', {
-      dl_proxy_on: body.proxy_on,
-      dl_proxy_id: body.proxy_id,
-    })
-    if (r.ok && r.d.ok) {
-      setProxyMsg({ cls: 'ok', text: T('set_saved') })
-      return
-    }
-    setProxyMsg(null)
-    alertBox(postError(r))
-  }
-
   const agentReady = agentMeta && !agentMeta.none
   const hasCustom = !coreUnknown && versions.some((v) => v.custom)
   const stagedArch = (staged && staged.arches && staged.arches[0]) || 'amd64'
@@ -612,7 +574,7 @@ export default function AgentPage({ headless }) {
           ) : null}
 
           <div className="oprow">
-            <div id="cor_ver_box">
+            <div className="opsel">
               {!coreUnknown && versions.length ? (
                 <Select
                   items={versions.map((v) => ({ v: v.id, label: v.label || v.id }))}
@@ -663,47 +625,7 @@ export default function AgentPage({ headless }) {
         </div>
       </div>
 
-      <div className="card opc sc-conn" style={{ marginTop: 14 }}>
-        <div className="ophd">
-          <span className="sgt">
-            <Icon name="shield" />
-          </span>
-          <b>{T('dlpx_title')}</b>
-        </div>
-        <Meta>
-          <span className="muted">{T('dlpx_sub')}</span>
-        </Meta>
-        {dlProxy ? (
-          proxies.length ? (
-            <ProxyFields
-              proxies={proxies}
-              value={dlProxy}
-              onChange={setDlProxy}
-              labelKey="dlpx_on"
-              subKey="dlpx_via"
-            />
-          ) : (
-            <div className="muted" style={{ fontSize: 12 }}>
-              {T('dlpx_none')}
-            </div>
-          )
-        ) : dlError ? (
-          <div className="msg loadfail">
-            <span>{T('dlpx_load_fail') + ' ' + dlError}</span>
-            <button type="button" className="ghost" onClick={loadDlProxy}>
-              <Icon name="redo" />
-              {T('retry')}
-            </button>
-          </div>
-        ) : null}
-        <Message value={proxyMsg} />
-        {dlProxy ? (
-          <button className="primary opgo" onClick={saveDownloadProxy}>
-            <Icon name="redo" />
-            {T('save')}
-          </button>
-        ) : null}
-      </div>
+      <DownloadProxyCard />
 
       <div className="sec" style={{ marginTop: 16 }}>
         <Icon name="server" color="var(--acc)" />
