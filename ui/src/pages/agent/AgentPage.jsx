@@ -499,6 +499,7 @@ export default function AgentPage({ headless }) {
           title={T('ag_word_agent')}
           sub={agentUnknown ? T('loading') : agentReady ? <bdi className="mono">{agentMeta.version}</bdi> : T('ag_empty')}
           state={agentUnknown ? null : agentReady ? { cls: 'ok', text: T('ag_ready') } : { cls: 'na', text: T('ag_empty') }}
+          goIcon="redo"
           goLabel={T('ag_push_all')}
           onGo={() => pushAgent('all')}
           open={open.agent}
@@ -546,6 +547,7 @@ export default function AgentPage({ headless }) {
                   ? { cls: 'ok', text: T('ag_ready') }
                   : { cls: 'warn', text: T('ag_not_ready') }
           }
+          goIcon="redo"
           goLabel={T('ag_install_all')}
           onGo={pushCoreAll}
           open={open.core}

@@ -1,7 +1,7 @@
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 
-export default function UpdateRow({ icon, title, sub, state, goLabel, onGo, open, onToggle, children }) {
+export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, goDisabled, onGo, open, onToggle, children }) {
   return (
     <>
       <div className="ophd uprow">
@@ -13,8 +13,8 @@ export default function UpdateRow({ icon, title, sub, state, goLabel, onGo, open
           <b>{title}</b>
           <small>{sub}</small>
         </div>
-        <button type="button" className="primary upgo" onClick={onGo}>
-          <Icon name="redo" />
+        <button type="button" className="primary upgo" disabled={goDisabled} onClick={onGo}>
+          <Icon name={goIcon} />
           {goLabel}
         </button>
         <button
