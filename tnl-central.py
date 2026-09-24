@@ -2274,12 +2274,10 @@ def api_node_names(d):
     q = _list_query(d)
     out = []
     for n in load_nodes():
-        if n.get("disabled"):
-            continue
         if q and not _q_match(q, (n["name"].lower(), n["host"].lower())):
             continue
         p = _cached_ping(n["id"])
-        out.append({"id": n["id"], "name": n["name"], "host": n["host"],
+        out.append({"id": n["id"], "name": n["name"], "host": n["host"], "hidden": bool(n.get("disabled")),
                     "online": bool(p.get("ok")), "cpus": (p.get("stats") or {}).get("cpus"),
                     "info": {"ips": p.get("ips") or {}}})
     return {"nodes": out, "total": len(out)}
