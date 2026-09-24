@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 
 const SummaryContext = createContext({
   counts: {},
-  evSeq: 0,
+  evSeq: '0-0',
   logCount: 0,
   subnetFree: null,
   loaded: false,
