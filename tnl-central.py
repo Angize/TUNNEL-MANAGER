@@ -2564,11 +2564,13 @@ def api_node_add(d):
 
 _NODE_REL = "https://github.com/Angize/TUNNEL-MANAGER-NODE/releases"
 _NODE_REL_LATEST = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-NODE/releases/latest"
-_AGENT_VER_RE = re.compile(r'^AGENT_VERSION = "([^"\r\n]{1,40})"\r?$', re.M)
+_AGENT_VER_RE = re.compile(r'^AGENT_VERSION = "(dev|v\d+\.\d+\.\d+)"\r?$', re.M)
 
 
 def _agent_release_url(version):
     return f"{_NODE_REL}/download/{version}/tnl-node.py"
+
+
 _INSTALL_STEPS = [("ssh", "اتصالِ SSH"), ("agent", "رساندنِ ایجنت به نود"),
                   ("install", "نصب و راه‌اندازیِ سرویس"), ("register", "ثبت و اتصال در پنل")]
 _INSTALL_LABELS = dict(_INSTALL_STEPS)
@@ -3147,7 +3149,7 @@ def api_node_traffic(d):
             "tunnels": tunnels, "portfw": portfw}
 
 
-def _store_agent_src(src, msgs, extra_meta=None):
+def _store_agent_src(src, msgs, extra_meta=None, want_ver=None):
     raw = src.encode()
     if len(raw) > 262144:
         raise ValueError(msgs["too_big"])
@@ -3158,7 +3160,7 @@ def _store_agent_src(src, msgs, extra_meta=None):
     if '"agent": "tnl-node"' not in src:
         raise ValueError(msgs["not_agent"])
     m = _AGENT_VER_RE.search(src)
-    if not m:
+    if not m or (want_ver and m.group(1) != want_ver):
         raise ValueError(msgs["no_ver"])
     ver, sha = m.group(1), hashlib.sha256(raw).hexdigest()
     meta = {"version": ver, "sha256": sha, "size": len(raw), "uploaded_ts": int(time.time())}
@@ -3179,35 +3181,34 @@ def api_agent_upload(d):
         "too_big": "فایل بیش از حد بزرگ است",
         "bad_py": "کد پایتون نامعتبر: ",
         "not_agent": "این فایل ایجنتِ نود نیست",
-        "no_ver": "خطِ AGENT_VERSION در این فایل نیست",
+        "no_ver": "خطِ AGENT_VERSION (dev یا vX.Y.Z) در این فایل نیست",
     })
 
 
 def api_agent_fetch_git(d):
+    tag = ""
     try:
         tag = str(json.loads(_gh_get(_NODE_REL_LATEST, 30, {"Accept": "application/vnd.github+json"}))
                   .get("tag_name") or "")
-        raw = _gh_get(_agent_release_url(tag), 30) if tag else b""
-        want = _gh_get(_agent_release_url(tag) + ".sha256", 30).decode().split()[0].lower() if tag else ""
+        url = _agent_release_url(tag)
+        want = _sha_file(url + ".sha256")
+        raw = _gh_get(url, 30)
     except Exception as e:
+        if isinstance(e, urllib.error.HTTPError) and e.code == 404:
+            raise ValueError(f"ریلیزِ {tag} فایلِ ایجنت را ندارد" if tag else "ایجنت هنوز هیچ ریلیزی روی گیت‌هاب ندارد")
         raise ValueError("دریافت از گیت‌هاب ناموفق: " + _gh_why(e))
-    if not tag:
-        raise ValueError("ایجنت هنوز هیچ ریلیزی روی گیت‌هاب ندارد")
     if hashlib.sha256(raw).hexdigest() != want:
         raise ValueError(f"فایلِ ریلیزِ {tag} با چک‌سامِ خودش نمی‌خواند")
     try:
         src = raw.decode()
     except UnicodeDecodeError:
         raise ValueError(f"فایلِ ریلیزِ {tag} متنِ UTF-8 نیست")
-    m = _AGENT_VER_RE.search(src)
-    if not m or m.group(1) != tag:
-        raise ValueError(f"نسخهٔ داخلِ فایلِ ریلیز با تگِ {tag} یکی نیست")
     return _store_agent_src(src, {
         "too_big": "فایلِ دریافتی بیش از حد بزرگ است",
         "bad_py": "کدِ دریافتی نامعتبر: ",
         "not_agent": "فایلِ دریافتی ایجنتِ نود نیست",
-        "no_ver": "خطِ AGENT_VERSION در فایلِ دریافتی نیست",
-    }, {"source": "git"})
+        "no_ver": f"نسخهٔ داخلِ فایلِ ریلیز با تگِ {tag} یکی نیست",
+    }, {"source": "git"}, want_ver=tag)
 
 
 def api_agent_info(d):
@@ -4129,12 +4130,15 @@ def _release_asset_url(version, arch):
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
 
 
-def _release_sha(version, arch, should_abort=None):
-    sha = _dl(_release_asset_url(version, arch) + ".sha256", 30,
-              should_abort=should_abort).decode().split()[0].strip().lower()
+def _sha_file(url, should_abort=None):
+    sha = (_dl(url, 30, should_abort=should_abort).decode("ascii", "replace").split() or [""])[0].lower()
     if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
         raise RuntimeError("چک‌سامِ فایل در انتشارِ گیت‌هاب نیست")
     return sha
+
+
+def _release_sha(version, arch, should_abort=None):
+    return _sha_file(_release_asset_url(version, arch) + ".sha256", should_abort)
 
 
 def _fetch_release(version, arch, on_progress=None, should_abort=None):
