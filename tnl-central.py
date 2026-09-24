@@ -2046,6 +2046,11 @@ def _apply_core_rotation(body, is_client, own_pool, peer_pool, rotate_secs):
         body["peer_src_ips"] = list(peer_pool)
 
 
+def _pool_with(ip, pool, live):
+    got = [x for x in (str(p).strip() for p in (pool or [])) if x in live]
+    return got if ip in got else [ip] + got
+
+
 def _live_pool(pool, live):
     got = [x for x in (pool or []) if x]
     return [x for x in got if x in live] if live else got
@@ -4564,6 +4569,24 @@ def _core_bind_keys(bindings):
     return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
 
 
+def _own_ports(L, A, B):
+    return frozenset(_core_bind_keys(_port_bindings(
+        L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), int(L["tunnel_id"]), A, B,
+        L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool"))))
+
+
+def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, own=frozenset()):
+    binds = _port_bindings(ttype, src.get("port"), src.get("transport"), server_side, tid, A, B, a_ip, b_ip,
+                           src.get("a_ip_pool"), src.get("b_ip_pool"))
+    lid = L.get("id") if L else None
+    if ttype == "core":
+        clash = _core_l4_conflict(binds, exclude_id=lid)
+        if clash:
+            raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{clash.get('name')}» است. پورتِ دیگری بگذار "
+                             "یا حاملِ دیگری انتخاب کن — روی یک آی‌پی، حاملِ متفاوت یا پورتِ متفاوت مجاز است.")
+    _guard_port_conflicts(binds, exclude=own | _shared_ports(ttype, lid))
+
+
 
 
 def _core_l4_conflict(new_binds, exclude_id=None):
@@ -5333,12 +5356,8 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         ce["gso"] = True
     if "ip_rotate" in d:
         if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
-            ap = [s for s in (str(ip).strip() for ip in (d.get("a_ip_pool") or [])) if s in a_ips]
-            bp = [s for s in (str(ip).strip() for ip in (d.get("b_ip_pool") or [])) if s in b_ips]
-            if a_ip not in ap:
-                ap = [a_ip] + ap
-            if b_ip not in bp:
-                bp = [b_ip] + bp
+            ap = _pool_with(a_ip, d.get("a_ip_pool"), a_ips)
+            bp = _pool_with(b_ip, d.get("b_ip_pool"), b_ips)
             if len(ap) >= 2 or len(bp) >= 2:
                 ce["ip_rotate"] = True
                 ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
@@ -5377,11 +5396,7 @@ def _create_tunnel_impl(d, h):
         raise ValueError(f"آی‌پیِ «{want_b}» روی نودِ «{B['name']}» نیست")
     a_ip = want_a or (a_ips[0] if a_ips else None)
     b_ip = want_b or (b_ips[0] if b_ips else None)
-    if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
-        raise ValueError("آی‌پیِ نودها خوانده نشد")
-    if a_ip == b_ip:
-        raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
-    _guard_dup_pair(A, B, a_ip, b_ip, ttype)
+    _guard_ends(A, B, a_ip, b_ip, ttype)
     la = node_call(A, "list", "GET", timeout=30)
     lb = node_call(B, "list", "GET", timeout=30)
     if la.get("configs") is None or lb.get("configs") is None:
@@ -5435,11 +5450,7 @@ def _create_tunnel_impl(d, h):
         extra.update(ce)
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
-    if ttype == "core":
-        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")))
-        if _clash:
-            raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن — روی یک آی‌پی، حاملِ متفاوت یا پورتِ متفاوت مجاز است.")
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_shared_ports(ttype))
+    _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, server_side, True), **node_extra}
@@ -5894,11 +5905,7 @@ def _edit_link_impl(d, h):
             (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
     b_ip = (want_b if want_b in b_ips else
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
-    if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
-        raise ValueError("آی‌پیِ نودها خوانده نشد")
-    if a_ip == b_ip:
-        raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
-    _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
+    _guard_ends(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
     _cs = str(d.get("subnet") or "").strip()
     if _cs and "/" not in _cs:
         raise ValueError("سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24")
@@ -5936,13 +5943,7 @@ def _edit_link_impl(d, h):
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
     if not moved and ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "name": old_name, "msg": "چیزی برای تغییر نبود"}
-    _own = frozenset((N["id"], ip or "", p, pr) for N, ip, p, pr in
-                     _port_bindings(L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), tid, was_a or A, was_b or B, L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")))
-    if ttype == "core":
-        _clash = _core_l4_conflict(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude_id=L.get("id"))
-        if _clash:
-            raise ValueError(f"همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{_clash.get('name')}» است. پورتِ دیگری بگذار یا حاملِ دیگری انتخاب کن.")
-    _guard_port_conflicts(_port_bindings(ttype, extra.get("port"), extra.get("transport"), server_side, tid, A, B, a_ip, b_ip, extra.get("a_ip_pool"), extra.get("b_ip_pool")), exclude=_own | _shared_ports(ttype, L["id"]))
+    _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip, L, _own_ports(L, was_a or A, was_b or B))
     if moved:
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
     node_extra = _node_extra(extra)
@@ -6150,14 +6151,12 @@ def _rebuild_link_impl(d, h):
             (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
     b_ip = (want_b if want_b in b_ips else
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
-    if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
-        raise ValueError("آی‌پیِ نودها خوانده نشد")
-    if ttype in IPIP_FAMILY:
-        new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
-        for x in load_links():
-            if (x.get("id") != L["id"] and x.get("type") in IPIP_FAMILY
-                    and frozenset([(x.get("a_node"), x.get("a_ip")), (x.get("b_node"), x.get("b_ip"))]) == new_pair):
-                raise ValueError(f"بازسازی ممکن نیست: تونلِ «{x.get('name')}» از قبل روی همین جفت آی‌پیِ نود هست؛ ipip و fou با هم روی یک جفت نمی‌شوند.")
+    _guard_ends(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
+    src = L
+    if ttype == "core" and L.get("ip_rotate"):
+        src = dict(L, a_ip_pool=_pool_with(a_ip, L.get("a_ip_pool"), a_ips),
+                   b_ip_pool=_pool_with(b_ip, L.get("b_ip_pool"), b_ips))
+    _guard_server_ports(ttype, src, L.get("server_side"), tid, A, B, a_ip, b_ip, L, _own_ports(L, A, B))
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
@@ -6166,7 +6165,7 @@ def _rebuild_link_impl(d, h):
               "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
     if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-        _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips)
+        _core_rotation_bodies(src, a_body, b_body, a_ips, b_ips)
         _core_workers_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -6193,7 +6192,8 @@ def _rebuild_link_impl(d, h):
             links = load_links()
             for x in links:
                 if x["id"] == L["id"]:
-                    x.update({"a_ip": a_ip, "b_ip": b_ip})
+                    x.update({"a_ip": a_ip, "b_ip": b_ip,
+                              **{k: src[k] for k in ("a_ip_pool", "b_ip_pool") if src is not L}})
                     break
             save_json(LINKS_FILE, links)
         moved = False
@@ -7593,7 +7593,11 @@ def _guard_subnet_overlap(A, B, subnet, exclude_id=None):
                              f"هم‌پوشانی دارد؛ بازهٔ دیگری انتخاب کن")
 
 
-def _guard_dup_pair(A, B, a_ip, b_ip, ttype, exclude_id=None):
+def _guard_ends(A, B, a_ip, b_ip, ttype, exclude_id=None):
+    if not is_ipv4(a_ip or "") or not is_ipv4(b_ip or ""):
+        raise ValueError("آی‌پیِ نودها خوانده نشد")
+    if a_ip == b_ip:
+        raise ValueError("آی‌پیِ دو سرِ تونل یکی است؛ برای هر طرف یک آی‌پیِ متفاوت انتخاب کن")
     new_pair = frozenset([(A["id"], a_ip), (B["id"], b_ip)])
     for L in load_links():
         if exclude_id is not None and L.get("id") == exclude_id:
