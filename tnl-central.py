@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import http.client
 import importlib.util
+import io
 import ipaddress
 import ssl
 import json
@@ -19,6 +20,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -26,6 +28,7 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,6 +74,7 @@ _drift = {}
 _drift_lock = threading.Lock()
 _CENTRAL_PORT = 0
 _CENTRAL_TLS = False
+_BOOT_ID = secrets.token_hex(8)
 _CENTRAL_HOST = {"ip": "", "ts": 0.0}
 _central_host_lock = threading.Lock()
 CENTRAL_HOST_TTL = 300
@@ -257,20 +261,24 @@ _R = None
 _R_lock = threading.Lock()
 
 
+def _redis_client(db=0, decode=True):
+    try:
+        import redis
+        from redis.backoff import NoBackoff
+        from redis.retry import Retry
+    except ImportError:
+        raise StoreError("کتابخانهٔ پایتونِ ردیس (python3-redis) نصب نیست — نصب را دوباره اجرا کن: "
+                         "sudo python3 tnl-central.py --install") from None
+    return redis.Redis(unix_socket_path=REDIS_SOCK, db=db, decode_responses=decode, socket_timeout=REDIS_TIMEOUT,
+                       socket_connect_timeout=3, retry=Retry(NoBackoff(), 0))
+
+
 def _redis():
     global _R
     if _R is None:
         with _R_lock:
             if _R is None:
-                try:
-                    import redis
-                    from redis.backoff import NoBackoff
-                    from redis.retry import Retry
-                except ImportError:
-                    raise StoreError("کتابخانهٔ پایتونِ ردیس (python3-redis) نصب نیست — نصب را دوباره اجرا کن: "
-                                     "sudo python3 tnl-central.py --install") from None
-                _R = redis.Redis(unix_socket_path=REDIS_SOCK, decode_responses=True, socket_timeout=REDIS_TIMEOUT,
-                                 socket_connect_timeout=3, retry=Retry(NoBackoff(), 0))
+                _R = _redis_client()
     return _R
 
 
@@ -353,8 +361,7 @@ def _json_field(key, field, raw, kind):
     except (TypeError, ValueError):
         v = _BAD
     if v is _BAD or (kind is not None and not isinstance(v, kind)):
-        raise RegistryError("دادهٔ «%s%s» در ردیس خراب است — پنل تا درست نشود بالا نمی‌آید"
-                            % (key, " / " + field if field else ""))
+        raise RegistryError("دادهٔ «%s%s» در ردیس خراب است" % (key, " / " + field if field else ""))
     return v
 
 
@@ -362,7 +369,7 @@ def _coll_parse(c, order, raw):
     ids = [m for m, _s in order]
     if set(ids) != set(raw) or len(ids) != len(raw):
         odd = sorted(set(raw) ^ set(ids))[:4]
-        raise RegistryError("ترتیب و رکوردهای «%s» (%s) در ردیس با هم نمی‌خوانند: %s — پنل تا درست نشود بالا نمی‌آید"
+        raise RegistryError("ترتیب و رکوردهای «%s» (%s) در ردیس با هم نمی‌خوانند: %s"
                             % (c.label, c.hkey, "، ".join(odd)))
     rows = []
     for rid in ids:
@@ -402,9 +409,7 @@ def _store_publish(data):
             rows, score = v
             _COLLS[g].snap = _Snap([_freeze(x) for x in rows], score)
         elif g == "settings":
-            d = settings_defaults()
-            d.update(v)
-            _M.settings = _freeze(d)
+            _M.settings = _freeze(settings_full(v))
         elif g == "pending":
             _M.pending = {k: tuple(str(x) for x in names) for k, names in v.items() if names}
         elif g == "moved":
@@ -582,9 +587,7 @@ class _TxWork:
         for g, (ids, by, sc) in self.colls.items():
             _COLLS[g].snap = _Snap([by[i] for i in ids], sc)
         if self.settings is not None:
-            d = settings_defaults()
-            d.update(self.settings)
-            _M.settings = _freeze(d)
+            _M.settings = _freeze(settings_full(self.settings))
         if self.pending is not None:
             _M.pending = self.pending
         if self.moved is not None:
@@ -830,6 +833,12 @@ def settings_defaults():
         "api_token_hash": "",
         "tuning": dict(_TUNING_DEFAULTS),
     }
+
+
+def settings_full(raw):
+    d = settings_defaults()
+    d.update(raw)
+    return d
 
 
 DELIVERY_MODES = ("push", "github", "panel")
@@ -3035,7 +3044,7 @@ def api_summary(d):
             "mem_used_mb": mu, "mem_total_mb": mt, "disk_used_mb": du, "disk_total_mb": dt,
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
-            "ev_seq": _ev_newest, "log_count": _ev_total, "log_unread": _ev_unread,
+            "ev_seq": _ev_newest, "log_count": _ev_total, "log_unread": _ev_unread, "boot": _BOOT_ID,
             "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2),
             "suspect_backoff": _tun.get("suspect_backoff", _TUNING_DEFAULTS["suspect_backoff"]),
             "dead_retest_secs": _tun.get("dead_retest_secs", _TUNING_DEFAULTS["dead_retest_secs"])}
@@ -7307,6 +7316,7 @@ EV_TYPES = (
     ("ech-rebuild", "ech", "بازسازیِ سریعِ ECH"),
     ("ech-saved", "ech", "ذخیرهٔ کلیدِ خودترمیمِ هسته"),
     ("cfg-clamped", "cfg", "تنظیمی که کامل اعمال نشد"),
+    ("backup", "cfg", "بکاپ یا بازگردانیِ دادهٔ پنل"),
     ("auth-in", "auth", "ورودِ موفق به پنل"),
     ("auth-out", "auth", "خروج از پنل"),
     ("auth-fail", "auth", "تلاشِ ناموفقِ ورود"),
@@ -8509,6 +8519,210 @@ def api_token_new(d):
     return {"ok": True, "token": token}
 
 
+BACKUP_MAX_MB = 32
+BACKUP_MAX = BACKUP_MAX_MB * 1024 * 1024
+BACKUP_KEYS = "redis/"
+BACKUP_SIGN = "sign_key.pem"
+_BACKUP_SNAP = ("local out = {} "
+                "for _, k in ipairs(redis.call('keys', 'tnl:*')) do "
+                "out[#out + 1] = k "
+                "out[#out + 1] = redis.call('dump', k) "
+                "end "
+                "return out")
+_restore_lock = threading.Lock()
+_BACKUP_SAID = "{nodes} نود، {core} تونلِ هسته، {system} تونلِ سیستمی، {proxies} پروکسی"
+
+
+def _backup_view(nodes, links, proxies):
+    core = sum(1 for L in links if L.get("type") == "core")
+    return {"nodes": len(nodes), "core": core, "system": len(links) - core, "proxies": len(proxies)}
+
+
+def _ev_count(r):
+    return len(_ev_prune([{"ts": _sint(f.get("ts"))} for _eid, f in r.xrange(K_EVENTS, "-", "+")]))
+
+
+def _settings_flat(s):
+    out = {k: v for k, v in s.items() if k != "tuning"}
+    tun = dict(_TUNING_DEFAULTS)
+    tun.update(s.get("tuning") or {})
+    out.update(("tuning." + k, v) for k, v in tun.items())
+    return out
+
+
+def _settings_diff(cur, raw, px_now, px_after):
+    a, b = _settings_flat(cur), _settings_flat(settings_full(raw))
+    names = ({x["id"]: x["name"] for x in px_now}, {x["id"]: x["name"] for x in px_after})
+    keys = sorted(set(a) | set(b))
+    changed = []
+    for k in keys:
+        if a.get(k) == b.get(k):
+            continue
+        if k == "api_token_hash":
+            changed.append({"key": k, "secret": True})
+        elif k == "dl_proxy_id":
+            changed.append({"key": k, "old": names[0].get(a.get(k), a.get(k)), "new": names[1].get(b.get(k), b.get(k))})
+        else:
+            changed.append({"key": k, "old": a.get(k), "new": b.get(k)})
+    return {"changed": changed, "total": len(keys)}
+
+
+def api_backup(d):
+    raw = _redis_client(decode=False)
+    try:
+        with _reg_lock:
+            flat = raw.eval(_BACKUP_SNAP, 0)
+            c = _backup_view(load_nodes(), load_links(), load_proxies())
+    except Exception as e:
+        raise StoreError(_store_msg(e)) from None
+    finally:
+        raw.close()
+    with open(_signing_keys()[0], "rb") as f:
+        members = [(BACKUP_SIGN, f.read())]
+    members += [(BACKUP_KEYS + k.decode(), v) for k, v in zip(flat[0::2], flat[1::2])]
+    now = int(time.time())
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, data in members:
+            ti = tarfile.TarInfo(name)
+            ti.size, ti.mtime, ti.mode = len(data), now, 0o600
+            tar.addfile(ti, io.BytesIO(data))
+    log_event("ok", "backup", "از دادهٔ پنل بکاپ گرفته شد — " + _BACKUP_SAID.format(**c))
+    return {"ok": True, "data": base64.b64encode(buf.getvalue()).decode(), **c}
+
+
+def _backup_open(blob):
+    keys, sign, made, total = {}, None, 0, 0
+    try:
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+            for ti in tar:
+                total += ti.size
+                if not ti.isfile() or total > BACKUP_MAX * 4:
+                    raise ValueError
+                if ti.name != BACKUP_SIGN and not ti.name.startswith(BACKUP_KEYS + "tnl:"):
+                    raise ValueError
+                data = tar.extractfile(ti).read()
+                made = max(made, int(ti.mtime))
+                if ti.name == BACKUP_SIGN:
+                    sign = data
+                else:
+                    keys[ti.name[len(BACKUP_KEYS):]] = data
+    except (tarfile.TarError, OSError, EOFError, zlib.error, ValueError):
+        sign = None
+    if sign is None:
+        raise ValueError("این فایل بکاپِ پنل نیست یا خراب است")
+    return keys, sign, made
+
+
+def _pem_pub(pem):
+    r = subprocess.run(["openssl", "rsa", "-pubout"], input=pem, capture_output=True)
+    if r.returncode != 0:
+        raise ValueError("کلیدِ امضای داخلِ بکاپ خراب است")
+    return r.stdout.decode()
+
+
+def _backup_stage(keys):
+    raw, dec = _redis_client(db=1, decode=False), _redis_client(db=1)
+    try:
+        p = raw.pipeline(transaction=True)
+        p.flushdb()
+        for k, v in keys.items():
+            p.restore(k, 0, v)
+        p.execute()
+        data = _store_read(dec, _GROUPS)
+        data["events"] = _ev_count(dec)
+    except RegistryError as e:
+        raise ValueError("دادهٔ داخلِ بکاپ خراب است — %s" % e) from None
+    except Exception as e:
+        rx = sys.modules.get("redis.exceptions")
+        if rx is not None and isinstance(e, rx.ResponseError):
+            raise ValueError("ردیس دادهٔ این بکاپ را نپذیرفت — فایل خراب است یا با ردیسِ جدیدتری ساخته شده") from None
+        raise StoreError(_store_msg(e)) from None
+    finally:
+        raw.close()
+        dec.close()
+    return data
+
+
+def _backup_unstage():
+    raw = _redis_client(db=1)
+    try:
+        raw.flushdb()
+    except Exception as e:
+        log_warn("backup", "staged restore data left in redis db 1: %s" % _store_msg(e))
+    finally:
+        raw.close()
+
+
+def _backup_swap():
+    for lk in (_reg_lock, _pending_lock, _moved_lock):
+        lk.acquire()
+    raw = _redis_client(db=1)
+    try:
+        p = raw.pipeline(transaction=True)
+        p.swapdb(0, 1)
+        p.flushdb()
+        p.execute()
+    except Exception as e:
+        raise StoreError("بازگردانی کامل نشد (%s) — پنل دوباره راه می‌افتد؛ بعد از بالا آمدن، فهرست‌ها را ببین"
+                         % _store_why(e)) from None
+    finally:
+        raw.close()
+        threading.Thread(target=_restart_self, daemon=True).start()
+
+
+def _restart_self():
+    time.sleep(0.5)
+    until = time.time() + 3
+    while _ev_out and time.time() < until:
+        time.sleep(0.1)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except OSError:
+        os._exit(1)
+
+
+def api_backup_restore(d):
+    _require(d, ["data"])
+    try:
+        blob = base64.b64decode(d["data"], validate=True)
+    except (ValueError, TypeError):
+        raise ValueError("فایلِ بکاپ base64 نامعتبر است")
+    if len(blob) > BACKUP_MAX:
+        raise ValueError("فایلِ بکاپ بیش از حد بزرگ است — حداکثر %d مگابایت" % BACKUP_MAX_MB)
+    keys, sign, made = _backup_open(blob)
+    pub = _pem_pub(sign)
+    if not _restore_lock.acquire(blocking=False):
+        raise ValueError("یک بازگردانیِ دیگر در جریان است")
+    swapping = False
+    try:
+        got = _backup_stage(keys)
+        nodes = load_nodes()
+        after = dict(_backup_view(got["nodes"][0], got["links"][0], got["proxies"][0]), events=got["events"])
+        out = {"ok": True, "made": made, "same_key": pub == _signing_keys()[1], "boot": _BOOT_ID,
+               "now": dict(_backup_view(nodes, load_links(), load_proxies()), events=_ev_count(_redis())),
+               "after": after,
+               "portfw": sum(len(_pf_node_configs(n["id"])[0]) for n in nodes),
+               "settings": _settings_diff(get_settings(), got["settings"], load_proxies(), got["proxies"][0])}
+        if not d.get("apply"):
+            return out
+        try:
+            save_bytes(_signing_keys()[0], sign, 0o600)
+        except OSError:
+            raise ValueError("کلیدِ امضای بکاپ روی دیسک نوشته نشد — چیزی عوض نشد") from None
+        swapping = True
+        _backup_swap()
+        log_event("warn", "backup", "دادهٔ پنل از فایلِ بکاپ بازگردانی شد — " + _BACKUP_SAID.format(**after)
+                  + "؛ پنل دوباره راه‌اندازی شد")
+        return dict(out, restarting=True)
+    finally:
+        if not swapping:
+            _backup_unstage()
+            _restore_lock.release()
+
+
 CHECKIN_CTR_PERSIST_MS = 60000
 
 _checkin_ctr = {}
@@ -8807,6 +9021,7 @@ API = {
     "core-upload": api_core_upload, "core-delete-blob": api_core_delete_blob, "core-stage": api_core_stage, "core-stage-status": api_core_stage_status,
     "core-stage-cancel": api_core_stage_cancel, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder, "link-tag": api_link_tag,
+    "backup": api_backup, "backup-restore": api_backup_restore,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
@@ -8817,8 +9032,8 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "core-delete-blob", "core-stage-cancel",
              "update-agent", "update-core",
              "reorder", "link-tag",
-             "act-cancel", "api-token-new"}
-TOKEN_DENY = {"settings-set", "api-token-new"}
+             "act-cancel", "api-token-new", "backup", "backup-restore"}
+TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),
@@ -8829,8 +9044,10 @@ API_MSG = {
     "post_only": ("این درخواست باید POST باشد", 405, "this endpoint requires POST"),
     "bad_request": ("درخواستِ نامعتبر", 403, "invalid request"),
     "internal": ("خطای داخلی", 500, "internal error"),
-    "too_large": ("درخواست بیش از حد بزرگ است — فایلِ هسته حداکثر %d مگابایت است" % CORE_UPLOAD_MB, 413,
-                  "request body too large; a core binary is at most %d MB" % CORE_UPLOAD_MB),
+    "too_large": ("درخواست بیش از حد بزرگ است — فایلِ هسته حداکثر %d و فایلِ بکاپ حداکثر %d مگابایت است"
+                  % (CORE_UPLOAD_MB, BACKUP_MAX_MB), 413,
+                  "request body too large; a core binary is at most %d MB, a backup %d MB"
+                  % (CORE_UPLOAD_MB, BACKUP_MAX_MB)),
 }
 API_REFUSED = {
     "api_disabled": "درخواستِ API «%s» رد شد — دسترسیِ بیرونی به API خاموش است.",
@@ -9210,7 +9427,7 @@ class Handler(BaseHTTPRequestHandler):
             if not via_token and self.headers.get("X-Requested-With") != "tnl-central":
                 self._refuse("bad_request", cmd, method, en, drain=True)
                 return
-        cap = CORE_UPLOAD_MAX * 4 // 3 + self.BODY_CAP if cmd == "core-upload" else self.BODY_CAP
+        cap = {"core-upload": CORE_UPLOAD_MAX, "backup-restore": BACKUP_MAX}.get(cmd, 0) * 4 // 3 + self.BODY_CAP
         if method == "POST" and self._content_length() > cap:
             self._refuse("too_large", cmd, method, en, drain=True)
             return
@@ -9327,7 +9544,7 @@ aof-use-rdb-preamble yes
 no-appendfsync-on-rewrite no
 save ""
 maxmemory-policy noeviction
-databases 1
+databases 2
 protected-mode yes
 daemonize no
 supervised systemd
@@ -9775,6 +9992,7 @@ def serve():
     except Exception as e:
         print("tnl-central did not start - %s" % _store_msg(e))
         sys.exit(1)
+    _backup_unstage()
     _CENTRAL_PORT = int(conf.get("port", 8080))
     _CENTRAL_TLS = bool(conf.get("tls"))
     try:

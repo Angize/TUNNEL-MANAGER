@@ -463,3 +463,121 @@ body.dock-on .tabbar {
 .setfield .val {
   color: var(--gold);
 }
+
+.srctl > .ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+.bkcmp {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 96px;
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+}
+
+.bkcmp > span {
+  padding: 7px 12px;
+  border-top: 1px solid var(--bord);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.bkcmp > span:nth-child(3n + 1) {
+  text-align: start;
+}
+
+.bkcmp > span:nth-child(-n + 3) {
+  border-top: 0;
+  background: var(--field);
+  color: var(--sub);
+  font-size: 11.5px;
+}
+
+.bkcmp .bkch {
+  color: var(--gold);
+  font-weight: 800;
+}
+
+.bknote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 12px;
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.bknote .ic {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+}
+
+.bksec {
+  margin: 4px 2px 8px;
+  color: var(--sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.bkset {
+  border: 1px solid var(--bord);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.bkrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+
+.bkrow + .bkrow {
+  border-top: 1px solid var(--bord);
+}
+
+.bkval {
+  color: var(--gold);
+  font-weight: 700;
+  text-align: end;
+  white-space: pre-wrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bkwarn {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--warnw);
+  color: var(--gold);
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-line;
+}
+
+.bkwarn code {
+  display: block;
+  margin-top: 4px;
+  direction: ltr;
+  text-align: left;
+  font-family: ui-monospace, Consolas, monospace;
+  user-select: all;
+}
+
+.mfoot .primary.bkgo {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bad) 92%, #fff), var(--bad));
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
+}

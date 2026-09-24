@@ -8,6 +8,7 @@ import SettingRow from './SettingRow.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
+import BackupGroup from './BackupGroup.jsx'
 import AgentPage from '../agent/AgentPage.jsx'
 import { collectTuning, listViolation, rangeViolation, secondsToMinutes, stepViolation } from './tuning.js'
 import { T, TF } from '../../i18n/fa.js'
@@ -375,6 +376,8 @@ export default function SettingsPage() {
             </div>
           </SettingRow>
         </SettingsGroup>
+
+        <BackupGroup />
       </div>
     </SettingsFrame>
   )
