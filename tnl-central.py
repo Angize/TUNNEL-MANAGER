@@ -2365,9 +2365,9 @@ def api_summary(d):
     links = load_links()
     try:
         with open(AGENT_META) as f:
-            stored_ver = json.load(f).get("version")
+            staged_sha = json.load(f).get("sha256")
     except Exception:
-        stored_ver = None
+        staged_sha = None
 
     on = mu = mt = du = dt = 0
     heat, crit, alerts, outdated = [], [], [], 0
@@ -2384,7 +2384,7 @@ def api_summary(d):
                 alerts.append({"level": "warn", "kind": "node", "msg": f"نودِ «{nm}» از {mv} جواب می‌دهد — نشانی‌اش را عوض کن"})
             continue
         on += 1
-        if stored_ver and p.get("version") and _sint(p.get("version")) < _sint(stored_ver):
+        if staged_sha and p.get("sha256") and p.get("sha256") != staged_sha:
             outdated += 1
         s = p.get("stats") if isinstance(p.get("stats"), dict) else {}
         mu += _sint(s.get("mem_used_mb")); mt += _sint(s.get("mem_total_mb"))
@@ -2447,7 +2447,7 @@ def api_summary(d):
                        "msg": "تونلِ «%s» روی نودِ «%s» هست ولی در پنل ثبت نیست"
                               % (nm, who)})
     if outdated:
-        alerts.append({"level": "warn", "kind": "agent", "msg": f"{outdated} نود ایجنتِ قدیمی دارد"})
+        alerts.append({"level": "warn", "kind": "agent", "msg": f"ایجنتِ {outdated} نود با ایجنتِ پنل یکی نیست"})
 
     _sset = get_settings()
     _tun = _sset.get("tuning") if isinstance(_sset.get("tuning"), dict) else {}
@@ -2803,7 +2803,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             return fail("agent", "دریافتِ ایجنت روی نود ناموفق (curl/wget؟ دسترسیِ اینترنت؟)", (err or out).strip())
         if rc != 0 or "TNL_RECV_OK" not in out:
             return fail("agent", "فایلِ رسیده با ایجنتِ آمادهٔ پنل یکی نیست", (err or out).strip())
-        _install_step(jid, "agent", "ok", f"tnl-node.py نسخهٔ {ameta['version']} {how} رسید")
+        _install_step(jid, "agent", "ok", f"tnl-node.py {ameta['sha256'][:12]} {how} رسید")
 
         _install_step(jid, "install", "run", "نصبِ وابستگی‌ها ممکن است چند دقیقه طول بکشد…")
         sudo = "" if cfg["user"] == "root" else "sudo -n "
@@ -3144,17 +3144,14 @@ def _store_agent_src(src, msgs, extra_meta=None):
         raise ValueError(msgs["bad_py"] + str(e))
     if '"agent": "tnl-node"' not in src:
         raise ValueError(msgs["not_agent"])
-    m = re.search(r'^AGENT_VERSION\s*=\s*(\d+)', src, re.M)
-    if not m:
-        raise ValueError(msgs["no_ver"])
-    ver, sha = int(m.group(1)), hashlib.sha256(raw).hexdigest()
-    meta = {"version": ver, "sha256": sha, "size": len(raw), "uploaded_ts": int(time.time())}
+    sha = hashlib.sha256(raw).hexdigest()
+    meta = {"sha256": sha, "size": len(raw), "uploaded_ts": int(time.time())}
     if extra_meta:
         meta.update(extra_meta)
     with _agent_lock:
         save_bytes(AGENT_FILE, raw)
         save_json(AGENT_META, meta)
-    return {"ok": True, "version": ver, "sha256": sha[:12]}
+    return {"ok": True, "sha256": sha[:12]}
 
 
 def api_agent_upload(d):
@@ -3166,7 +3163,6 @@ def api_agent_upload(d):
         "too_big": "فایل بیش از حد بزرگ است",
         "bad_py": "کد پایتون نامعتبر: ",
         "not_agent": "این فایل ایجنتِ نود نیست",
-        "no_ver": "نسخهٔ ایجنت در کد پیدا نشد",
     })
 
 
@@ -3181,7 +3177,6 @@ def api_agent_fetch_git(d):
         "too_big": "فایلِ دریافتی بیش از حد بزرگ است",
         "bad_py": "کدِ دریافتی نامعتبر: ",
         "not_agent": "فایلِ دریافتی ایجنتِ نود نیست",
-        "no_ver": "نسخهٔ ایجنت در کدِ دریافتی پیدا نشد",
     }, {"source": "git"})
 
 
@@ -8831,7 +8826,7 @@ def do_install():
         print("    stage it later from the panel: %s" % dim("هستهٔ داده / دریافت از گیت‌هاب"))
     try:
         meta = api_agent_fetch_git({})
-        print("%s node agent v%s staged" % (OK, meta["version"]))
+        print("%s node agent %s staged" % (OK, meta["sha256"]))
     except Exception as e:
         print("%s could not pre-download the node agent (%s)" % (WARN, e))
         print("    stage it later from the panel: %s" % dim("تنظیمات / بروزرسانیِ ایجنت"))

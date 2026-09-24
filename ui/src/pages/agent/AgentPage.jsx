@@ -203,7 +203,7 @@ export default function AgentPage({ headless }) {
     setGitMsg({
       cls: 'ok',
       check: true,
-      text: T('ag_fetched_pre') + r.d.version + ' · ' + r.d.sha256 + T('ag_fetched_post'),
+      text: T('ag_fetched_pre') + r.d.sha256 + T('ag_fetched_post'),
     })
     await refreshAll()
   }
@@ -222,7 +222,7 @@ export default function AgentPage({ headless }) {
       setAgentMsg({ cls: '', text: T('ag_checking_saving') })
       const r = await apiPost('agent-upload', { code })
       if (r.ok && r.d.ok) {
-        setAgentMsg({ cls: 'ok', text: T('ag_saved_pre') + r.d.version + ' · ' + r.d.sha256 })
+        setAgentMsg({ cls: 'ok', text: T('ag_saved_pre') + r.d.sha256 })
         await refreshAll()
         return
       }
@@ -522,8 +522,6 @@ export default function AgentPage({ headless }) {
             {agentReady ? (
               <>
                 <span>{T('ag_word_agent')}</span>
-                <span className="mono">v{num(agentMeta.version)}</span>
-                <span className="sep" />
                 <span className="mono">{String(agentMeta.sha256 || '').slice(0, 12)}</span>
                 <span className="sep" />
                 <span>
