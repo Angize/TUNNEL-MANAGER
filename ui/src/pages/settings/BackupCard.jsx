@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import RestoreConfirm from './RestoreConfirm.jsx'
+import UpdateRow from '../agent/UpdateRow.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
@@ -61,6 +62,7 @@ async function waitForReturn(boot) {
 export default function BackupCard() {
   const [busy, setBusy] = useState('')
   const [check, setCheck] = useState(null)
+  const [open, setOpen] = useState(false)
   const picker = useRef(null)
 
   const download = async () => {
@@ -114,32 +116,32 @@ export default function BackupCard() {
   }
 
   return (
-    <div className="card opc sc-panel bkcard">
-      <div className="ophd">
-        <span className="sgt">
-          <Icon name="shield" />
-        </span>
-        <b>{T('bk_card')}</b>
-      </div>
-      <div className="opmeta">
-        <span>{T('bk_meta')}</span>
-      </div>
-      <div className="oprow">
-        <button type="button" className="primary" disabled={!!busy} onClick={download}>
-          <Icon name="download" />
-          {busy === 'get' ? T('set_bk_getting') : T('set_bk_get_btn')}
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          disabled={!!busy}
-          onClick={() => picker.current && picker.current.click()}
-        >
-          <Icon name="upload" />
-          {busy === 'put' ? T('set_bk_reading') : T('set_bk_put')}
-        </button>
-      </div>
-      <p className="bkhint">{T('bk_hint')}</p>
+    <div className="card opc sc-panel upc bkcard">
+      <UpdateRow
+        icon="shield"
+        title={T('bk_card')}
+        sub={T('bk_sub_short')}
+        goIcon="download"
+        goLabel={busy === 'get' ? T('set_bk_getting') : T('set_bk_get_btn')}
+        goDisabled={!!busy}
+        onGo={download}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+      >
+        <div className="upmeta">{T('bk_meta')}</div>
+        <div className="oprow">
+          <button
+            type="button"
+            className="ghost"
+            disabled={!!busy}
+            onClick={() => picker.current && picker.current.click()}
+          >
+            <Icon name="upload" />
+            {busy === 'put' ? T('set_bk_reading') : T('set_bk_put')}
+          </button>
+        </div>
+        <p className="bkhint">{T('bk_hint')}</p>
+      </UpdateRow>
       <input
         ref={picker}
         type="file"
