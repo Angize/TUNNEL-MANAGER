@@ -209,18 +209,32 @@ def _code(e):
     return "invalid_request" if isinstance(e, ValueError) else "internal"
 
 
-def _err_en(e):
-    return {"code": _code(e), "error": _why(e).en}
+def _err_en(e, status):
+    return {"code": status, "error": _code(e), "message": _why(e).en}
 
 
 def _en_out(v):
     if isinstance(v, Tx):
         return v.en
     if isinstance(v, dict):
+        if isinstance(v.get("code"), str) and v["code"] and "error" in v:
+            return _en_fail(v)
         return {k: _en_out(x) for k, x in v.items()}
     if isinstance(v, (list, tuple)):
         return [_en_out(x) for x in v]
     return v
+
+
+def _en_fail(v):
+    out = {}
+    for k, x in v.items():
+        if k == "code":
+            out["code"] = v.get("http", 200)
+        elif k == "error":
+            out["error"], out["message"] = v["code"], _en_out(x)
+        elif k != "http":
+            out[k] = _en_out(x)
+    return out
 
 
 def _copy(v):
@@ -5103,9 +5117,9 @@ def _stage_job_view():
     with _stage_job_lock:
         j = dict(_stage_job)
     pct = int(100 * j["sent"] / j["total"]) if j["total"] else 0
-    return {"ok": True, "job": j["id"], "version": j["version"], "done": j["done"],
-            "cancel": j["cancel"], "code": j["code"], "error": j["error"], "arches": j["arches"], "missing": j["missing"],
-            "pct": max(0, min(100, pct))}
+    return {"ok": True, "job": j["id"], "version": j["version"], "done": j["done"], "cancel": j["cancel"],
+            **({"code": j["code"], "error": j["error"]} if j["code"] else {}),
+            "arches": j["arches"], "missing": j["missing"], "pct": max(0, min(100, pct))}
 
 
 def _stage_run(version):
@@ -9243,7 +9257,7 @@ def _act_open(key, target="", page="", ttype=""):
             raise Bad("job_running", "همین کار روی این مورد در جریان است — تا تمام‌شدنش صبر کن",
                       "this job is already running on this item — wait until it finishes")
         h = {"key": key, "target": target, "page": page, "ttype": ttype,
-             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "code": "", "error": "", "note": "", "offer": "",
+             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "note": "", "offer": "",
              "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
         _acts[key] = h
     return h
@@ -9255,7 +9269,7 @@ def _act_run(h, fn):
         res = res if isinstance(res, dict) else {}
         with _act_lock:
             if res.get("ok") is False:
-                h.update(state="fail", step="", code=str(res.get("code") or "failed"),
+                h.update(state="fail", step="", code=str(res.get("code") or "failed"), http=200,
                          error=tx_cut(res.get("msg") or res.get("error") or _FAILED, 300),
                          offer=str(res.get("offer") or ""), ended=int(time.time()))
             else:
@@ -9266,8 +9280,8 @@ def _act_run(h, fn):
             h.update(state="cancel", step="", ended=int(time.time()))
     except Exception as e:
         with _act_lock:
-            h.update(state="fail", step="", code=_code(e), error=tx_cut(_why(e) if str(e) else _FAILED, 300),
-                     ended=int(time.time()))
+            h.update(state="fail", step="", code=_code(e), http=400 if isinstance(e, ValueError) else 500,
+                     error=tx_cut(_why(e) if str(e) else _FAILED, 300), ended=int(time.time()))
 
 
 def act_start(key, fn, target="", page="", ttype=""):
@@ -9760,7 +9774,7 @@ class Handler(BaseHTTPRequestHandler):
         fa, status, msg = API_MSG[code]
         if drain and self.command == "POST":
             self._drain(self._content_length())
-        self._send(status, {"code": code, "error": msg} if en else {"error": fa})
+        self._send(status, {"code": status, "error": code, "message": msg} if en else {"error": fa})
 
     def _bearer_check(self):
         auth = self.headers.get("Authorization", "")
@@ -9823,13 +9837,13 @@ class Handler(BaseHTTPRequestHandler):
             res = _dispatch(cmd, d)
             self._send(200, _en_out(res) if via_token else res)
         except ValueError as e:
-            self._send(400, _err_en(e) if via_token else {"error": str(e)})
+            self._send(400, _err_en(e, 400) if via_token else {"error": str(e)})
             if via_token:
                 self._api_log("warn", "api-error", tx("درخواستِ API «{0}» با خطا برگشت: {1}",
                                                       "API request '{0}' returned an error: {1}", cmd, _why(e)), cmd, method, 400)
         except RegistryError as e:
             log_warn("api %s" % cmd, str(e))
-            self._send(500, _err_en(e) if via_token else {"error": str(e)})
+            self._send(500, _err_en(e, 500) if via_token else {"error": str(e)})
             if via_token:
                 self._api_log("bad", "api-error", tx("درخواستِ API «{0}» به خطایِ دادهٔ پنل خورد.",
                                                      "API request '{0}' hit a panel data error.", cmd), cmd, method, 500)
@@ -10322,7 +10336,7 @@ def menu():
 def nl_prompt():
     return "\n" + bold("choice: ")
 
-_BUSY_BODY = json.dumps({"code": "busy", "error": "the panel is busy — try again in a moment"}).encode()
+_BUSY_BODY = json.dumps({"code": 503, "error": "busy", "message": "the panel is busy — try again in a moment"}).encode()
 _BUSY_RESP = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
               b"Content-Length: " + str(len(_BUSY_BODY)).encode() +
               b"\r\nConnection: close\r\n\r\n" + _BUSY_BODY)

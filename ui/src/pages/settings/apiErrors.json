@@ -2,10 +2,12 @@
  "act-cancel": {
   "bad": [
    [
+    400,
     "job_not_running",
     "this job is no longer running"
    ],
    [
+    400,
     "job_past_cancel",
     "this job is past the point where it can be stopped — wait until it finishes"
    ]
@@ -15,38 +17,47 @@
  "agent-fetch-git": {
   "bad": [
    [
+    400,
     "agent_bad_python",
     "the downloaded code is invalid: …"
    ],
    [
+    400,
     "agent_not_utf8",
     "the release file of … is not UTF-8 text"
    ],
    [
+    400,
     "agent_release_missing",
     "release … has no agent file"
    ],
    [
+    400,
     "agent_release_missing",
     "the agent has no release on GitHub yet"
    ],
    [
+    400,
     "agent_too_big",
     "the downloaded file is too large"
    ],
    [
+    400,
     "agent_version_missing",
     "the version inside the release file differs from tag …"
    ],
    [
+    400,
     "checksum_mismatch",
     "the release file of … does not match its checksum"
    ],
    [
+    400,
     "github_failed",
     "download from GitHub failed: …"
    ],
    [
+    400,
     "not_an_agent",
     "the downloaded file is not the node agent"
    ]
@@ -56,26 +67,32 @@
  "agent-upload": {
   "bad": [
    [
+    400,
     "agent_bad_python",
     "invalid Python code: …"
    ],
    [
+    400,
     "agent_too_big",
     "the file is too large"
    ],
    [
+    400,
     "agent_version_missing",
     "the file has no AGENT_VERSION line (dev or vX.Y.Z)"
    ],
    [
+    400,
     "empty_code",
     "the code is empty"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "not_an_agent",
     "this file is not the node agent"
    ]
@@ -86,38 +103,47 @@
  "backup-restore": {
   "bad": [
    [
+    400,
     "backup_key_write",
     "the backup's signing key could not be written to disk — nothing changed"
    ],
    [
+    400,
     "backup_too_big",
     "the backup file is too large — at most … MB"
    ],
    [
+    400,
     "bad_backup",
     "Redis refused this backup's data — the file is damaged or was made by a newer Redis"
    ],
    [
+    400,
     "bad_backup",
     "the data inside the backup is damaged — …"
    ],
    [
+    400,
     "bad_backup",
     "the signing key inside the backup is damaged"
    ],
    [
+    400,
     "bad_backup",
     "this file is not a panel backup or it is damaged"
    ],
    [
+    400,
     "bad_base64",
     "the backup file is not valid base64"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "restore_running",
     "another restore is running"
    ]
@@ -126,10 +152,12 @@
  "check-link": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -138,6 +166,7 @@
  "core-check": {
   "soft": [
    [
+    200,
     "github_failed",
     "download from GitHub failed: …"
    ]
@@ -146,6 +175,7 @@
  "core-delete-blob": {
   "bad": [
    [
+    400,
     "no_custom_core",
     "no custom core binary is uploaded"
    ]
@@ -154,14 +184,17 @@
  "core-stage": {
   "bad": [
    [
+    400,
     "bad_core_version",
     "invalid core version — only letters, digits and ._+- are allowed"
    ],
    [
+    400,
     "custom_not_stageable",
     "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)"
    ],
    [
+    400,
     "download_running",
     "a download is already running — wait or cancel it"
    ]
@@ -172,22 +205,27 @@
  "core-upload": {
   "bad": [
    [
+    400,
     "bad_base64",
     "the file is not valid base64"
    ],
    [
+    400,
     "core_too_big",
     "the file is too large — at most … MB"
    ],
    [
+    400,
     "core_too_small",
     "the file is too small — this is not a core binary"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "not_elf",
     "this is not a Linux ELF binary"
    ]
@@ -197,448 +235,557 @@
  "create-tunnel": {
   "bad": [
    [
+    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
    ]
   ],
   "act": [
    [
+    400,
     "bad_arch",
     "invalid architecture — only amd64 or arm64"
    ],
    [
+    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
    ],
    [
+    400,
     "bad_cipher",
     "invalid cipher"
    ],
    [
+    400,
     "bad_cover_sni",
     "invalid cover domain (SNI)"
    ],
    [
+    400,
     "bad_edge_ip",
     "invalid CDN edge address (edge_ip)"
    ],
    [
+    400,
     "bad_edge_ip",
     "invalid edge IP (must be IPv4:port; no domain — the pool dials the IP directly): …"
    ],
    [
+    400,
     "bad_edge_port",
     "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: … — port … is not accepted. (Or turn wss off and use an HTTP port.)"
    ],
    [
+    400,
     "bad_edge_port",
     "wss is off, so the edge port must be one of the HTTP ports: … — port … is not accepted. (Or turn wss on and use 443.)"
    ],
    [
+    400,
     "bad_fake_count",
     "the decoy count must be from 1 to 64"
    ],
    [
+    400,
     "bad_fake_mode",
     "invalid decoy mode"
    ],
    [
+    400,
     "bad_fake_mode",
     "mode 'both' needs at least 2 decoys (one decoy cannot be low-TTL and bad-checksum at once)"
    ],
    [
+    400,
     "bad_fake_ttl",
     "the decoy TTL must be from 1 to 255"
    ],
    [
+    400,
     "bad_fec",
     "FEC data is at most 64 — above that a rebuilt frame falls outside the receiver's anti-replay window and is dropped (FEC bandwidth is spent and repairs nothing)"
    ],
    [
+    400,
     "bad_fec",
     "invalid FEC values (data and parity each ≥1, sum ≤255)"
    ],
    [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
    [
+    400,
     "bad_port",
     "port must be a number from 1 to 65535"
    ],
    [
+    400,
     "bad_port_tries",
     "port_tries must be from 1 to …"
    ],
    [
+    400,
     "bad_raw_dports",
     "raw_dports must be from 1 to …"
    ],
    [
+    400,
     "bad_raw_port",
     "the carrier port must be from 1 to 65535"
    ],
    [
+    400,
     "bad_raw_profile",
     "invalid raw profile"
    ],
    [
+    400,
     "bad_raw_proto",
     "the IP protocol number must be from 1 to 255"
    ],
    [
+    400,
     "bad_raw_sport",
     "the source port must be from 1 to 65535"
    ],
    [
+    400,
     "bad_sni",
     "invalid domain (SNI) (must be a valid domain): …"
    ],
    [
+    400,
     "bad_sni_mode",
     "invalid SNI mode (split / disorder / fake)"
    ],
    [
+    400,
     "bad_split_pos",
     "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)"
    ],
    [
+    400,
     "bad_split_ttl",
     "split_ttl must be from 0 to … (0 = default); above that the head segment reaches the server and disorder has no effect"
    ],
    [
+    400,
     "bad_sport_band",
     "the source port band must be at least … ports wide; narrower is a fixed port with extra steps"
    ],
    [
+    400,
     "bad_sport_band",
     "the source port band must be two ports from … to 65535, low before high — below … ports are privileged and no carrier has a reason to claim them"
    ],
    [
+    400,
     "bad_sport_rotate",
     "raw_sport_rotate must be from 1 to … (a fresh port every few packets; under the middlebox per-tuple cap)"
    ],
    [
+    400,
     "bad_subnet",
     "subnet '…' cannot be read — this tunnel needs an … network, for example …"
    ],
    [
+    400,
     "bad_transport",
     "invalid carrier"
    ],
    [
+    400,
     "bad_type",
     "invalid tunnel type"
    ],
    [
+    400,
     "bad_workers",
     "invalid number of parallel queues"
    ],
    [
+    400,
     "bad_workers",
     "the number of parallel queues must be from 1 to …"
    ],
    [
+    400,
     "bad_ws_host",
     "invalid WebSocket domain (ws_host)"
    ],
    [
+    400,
     "bad_ws_path",
     "invalid WebSocket path (ws_path) (must start with /)"
    ],
    [
+    400,
     "bad_ws_path",
     "invalid WebSocket path for '…' (must start with /)"
    ],
    [
+    400,
     "bad_ws_path",
     "invalid path"
    ],
    [
+    400,
     "conntrack_not_allowed",
     "conntrack_bypass only makes sense for the udp and tcp profiles; '…' does not open a new flow per packet"
    ],
    [
+    400,
     "cover_needs_cipher",
     "the TLS cover needs encryption (do not set the cipher to none)"
    ],
    [
+    400,
     "cover_needs_sni",
     "the TLS cover needs a cover domain (SNI)"
    ],
    [
+    400,
     "dports_need_rotate",
     "raw_dports has no effect without raw_sport_rotate — with a fixed source every packet still lands in the same middlebox bucket. Turn rotation on first"
    ],
    [
+    400,
     "ech_key_missing",
     "no ECH key was found for '…' — …"
    ],
    [
+    400,
     "ech_key_missing",
     "no ECH key was found for '…' — …. The pool is not built with ECH on."
    ],
    [
+    400,
     "ech_needs_wss",
     "ECH needs wss — turn wss (TLS to the CDN) on first"
    ],
    [
+    400,
     "ech_proxy_missing",
     "no ECH proxy picked — create one under proxies and pick it"
    ],
    [
+    400,
     "grpc_needs_wss",
     "the grpc carrier needs wss (for HTTP/2 to the edge) — turn wss on first"
    ],
    [
-    "internal",
-    "internal error"
-   ],
-   [
+    400,
     "ip_not_on_node",
     "IP '…' is not on node '…'"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_free_id",
     "no free id is left in this range (it takes … tunnels); pick a larger range or give the subnet by hand"
    ],
    [
+    400,
     "no_free_port",
     "no free port is left from … to …"
    ],
    [
+    400,
     "node_failed",
     "node '…': …"
    ],
    [
+    400,
     "node_ips_unread",
     "the nodes' IPs could not be read"
    ],
    [
+    400,
     "node_list_failed",
     "a node's tunnel list could not be read (busy or down) — stopped to avoid an id clash"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "node_offline",
     "node '…' is offline"
    ],
    [
+    400,
     "not_ready",
     "this needs something that is not ready on the panel yet: … — get it in settings and try again"
    ],
    [
+    400,
     "obfs_needs_cipher",
     "obfuscation needs encryption (do not set the cipher to none)"
    ],
    [
+    400,
     "out_of_range",
     "'…' must be from … to …"
    ],
    [
+    400,
     "pool_needs_ip",
     "the pool needs at least one edge IP"
    ],
    [
+    400,
     "pool_needs_sni",
     "the pool needs at least one domain (SNI)"
    ],
    [
+    400,
     "pool_no_axis",
     "the edge pool must rotate on at least one axis — 2 edge IPs or 2 domains"
    ],
    [
+    400,
     "pool_too_big",
     "the pool is too large (at most 64)"
    ],
    [
+    400,
     "port_busy",
     "port …/… on node '…'… is in use…; pick another port"
    ],
    [
+    400,
     "proxy_not_found",
     "the chosen proxy was just deleted — pick another proxy and try again"
    ],
    [
+    400,
     "raw_needs_cipher",
     "the raw carrier needs encryption (do not set the cipher to none)"
    ],
    [
+    400,
     "raw_port_not_allowed",
     "raw_port is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "raw_proto_taken",
     "protocol … belongs to the '…' profile. This carrier builds no header, so the packet leaves with protocol … but has encrypted data where the … header should be — middleboxes see it as malformed and drop it. Pick the '…' profile, which builds the header too."
    ],
    [
+    400,
     "raw_sport_not_allowed",
     "raw_sport is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "raw_sport_not_allowed",
     "raw_sport_random is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "raw_sport_not_allowed",
     "raw_sport_rotate is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "rotate_range",
     "'…' must be from 0 to … seconds"
    ],
    [
+    400,
     "rotate_too_short",
     "'…' is either 0 (only on failure) or at least … seconds — below that the probe has no time to judge and the core does not come up"
    ],
    [
+    400,
     "same_ip",
     "both ends of the tunnel have the same IP; pick a different IP for each side"
    ],
    [
+    400,
     "same_node",
     "the two ends of a tunnel must be two different nodes"
    ],
    [
+    400,
     "save_failed",
     "saving the link record failed… (…)"
    ],
    [
+    400,
     "save_unknown",
     "the tunnel was built on both nodes but … — so it was not torn down. If it is missing from the list later, it shows on the node as an unregistered tunnel and you can delete it"
    ],
    [
+    400,
     "server_port_taken",
     "this server IP and port already belong to tunnel '…'. Use another port or another carrier — one IP allows a different carrier or a different port."
    ],
    [
+    400,
     "split_needs_pos",
     "with ECH on, the domain in the ClientHello is encrypted, so no automatic split point is found and nothing is split — set split_pos by hand or turn SNI splitting off"
    ],
    [
+    400,
     "split_needs_wss",
     "SNI splitting needs wss — turn wss (TLS to the CDN) on first"
    ],
    [
+    400,
     "sport_conflict",
     "raw_sport_rotate keeps changing the port, so it does not combine with a fixed or random source port"
    ],
    [
+    400,
     "sport_conflict",
     "the source port is either fixed or random — not both"
    ],
    [
-    "store_error",
-    "…"
-   ],
-   [
-    "store_unavailable",
-    "the panel's store (Redis) is unavailable …"
-   ],
-   [
-    "store_unknown",
-    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
-   ],
-   [
+    400,
     "subnet_needs_prefix",
     "the subnet needs a prefix — for example 192.168.9.0/24"
    ],
    [
+    400,
     "subnet_on_iface",
     "node '…' already has … on interface '…', which overlaps subnet '…'. Linux allows it, but that range gets two routes and traffic can leave through that interface while the tunnel shows green. Pick another range or remove that address from '…'."
    ],
    [
+    400,
     "subnet_overlap",
     "subnet '…' overlaps tunnel '…'… on a shared node; pick another range"
    ],
    [
+    400,
     "tunnel_exists",
     "a … tunnel with these IPs already exists between these two nodes"
    ],
    [
+    400,
     "tunnel_exists",
     "tunnel '…' already uses this pair of node IPs; ipip and fou cannot share one pair."
    ],
    [
+    400,
     "tunnel_id_busy",
     "id … is being built on another pair right now — try again in a moment"
    ],
    [
+    400,
     "tunnel_id_range",
     "the tunnel id is out of range (… to …)"
    ],
    [
+    400,
     "tunnel_id_range",
     "tunnel id … does not fit in the range '…/…' (this range takes … tunnels); pick a larger range"
    ],
    [
+    400,
     "tunnel_id_taken",
     "id … is already used on this fleet"
    ],
    [
+    400,
     "workers_not_allowed",
     "parallel queues are only for the raw or udp carrier without FEC; elsewhere the core keeps one queue"
    ],
    [
+    400,
     "wss_needs_edge",
     "wss means TLS ends at the CDN edge, but the edge IP is empty — the client dials the server directly and the server core never ends TLS, so the tunnel never comes up. Set the edge IP or turn wss off"
    ],
    [
+    400,
     "wss_needs_host",
     "wss (TLS to the CDN) needs a domain (ws_host)"
+   ],
+   [
+    500,
+    "internal",
+    "internal error"
+   ],
+   [
+    500,
+    "store_error",
+    "…"
+   ],
+   [
+    500,
+    "store_unavailable",
+    "the panel's store (Redis) is unavailable …"
+   ],
+   [
+    500,
+    "store_unknown",
+    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
    ]
   ]
  },
  "delete-link": {
   "act": [
    [
+    200,
     "delete_failed",
     "… — the link was kept; delete again when the node is reachable, or use force"
    ],
    [
-    "internal",
-    "internal error"
-   ],
-   [
-    "missing_field",
-    "field '…' is missing"
-   ],
-   [
+    200,
     "node_offline",
     "node '…' is unreachable — the link was left untouched; delete again when the node is back, or use force"
    ],
    [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ],
+   [
+    500,
+    "internal",
+    "internal error"
+   ],
+   [
+    500,
     "store_error",
     "…"
    ],
    [
+    500,
     "store_unavailable",
     "the panel's store (Redis) is unavailable …"
    ],
    [
+    500,
     "store_unknown",
     "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
-   ],
-   [
-    "tunnel_not_found",
-    "tunnel not found"
    ]
   ]
  },
  "edge-status": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -647,384 +794,479 @@
  "edit-link": {
   "act": [
    [
+    400,
     "bad_arch",
     "invalid architecture — only amd64 or arm64"
    ],
    [
+    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
    ],
    [
+    400,
     "bad_cipher",
     "invalid cipher"
    ],
    [
+    400,
     "bad_cover_sni",
     "invalid cover domain (SNI)"
    ],
    [
+    400,
     "bad_edge_ip",
     "invalid CDN edge address (edge_ip)"
    ],
    [
+    400,
     "bad_edge_ip",
     "invalid edge IP (must be IPv4:port; no domain — the pool dials the IP directly): …"
    ],
    [
+    400,
     "bad_edge_port",
     "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: … — port … is not accepted. (Or turn wss off and use an HTTP port.)"
    ],
    [
+    400,
     "bad_edge_port",
     "wss is off, so the edge port must be one of the HTTP ports: … — port … is not accepted. (Or turn wss on and use 443.)"
    ],
    [
+    400,
     "bad_fake_count",
     "the decoy count must be from 1 to 64"
    ],
    [
+    400,
     "bad_fake_mode",
     "invalid decoy mode"
    ],
    [
+    400,
     "bad_fake_mode",
     "mode 'both' needs at least 2 decoys (one decoy cannot be low-TTL and bad-checksum at once)"
    ],
    [
+    400,
     "bad_fake_ttl",
     "the decoy TTL must be from 1 to 255"
    ],
    [
+    400,
     "bad_fec",
     "FEC data is at most 64 — above that a rebuilt frame falls outside the receiver's anti-replay window and is dropped (FEC bandwidth is spent and repairs nothing)"
    ],
    [
+    400,
     "bad_fec",
     "invalid FEC values (data and parity each ≥1, sum ≤255)"
    ],
    [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
    [
+    400,
     "bad_port",
     "port must be a number from 1 to 65535"
    ],
    [
+    400,
     "bad_port_tries",
     "port_tries must be from 1 to …"
    ],
    [
+    400,
     "bad_raw_dports",
     "raw_dports must be from 1 to …"
    ],
    [
+    400,
     "bad_raw_port",
     "the carrier port must be from 1 to 65535"
    ],
    [
+    400,
     "bad_raw_profile",
     "invalid raw profile"
    ],
    [
+    400,
     "bad_raw_proto",
     "the IP protocol number must be from 1 to 255"
    ],
    [
+    400,
     "bad_raw_sport",
     "the source port must be from 1 to 65535"
    ],
    [
+    400,
     "bad_sni",
     "invalid domain (SNI) (must be a valid domain): …"
    ],
    [
+    400,
     "bad_sni_mode",
     "invalid SNI mode (split / disorder / fake)"
    ],
    [
+    400,
     "bad_split_pos",
     "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)"
    ],
    [
+    400,
     "bad_split_ttl",
     "split_ttl must be from 0 to … (0 = default); above that the head segment reaches the server and disorder has no effect"
    ],
    [
+    400,
     "bad_sport_band",
     "the source port band must be at least … ports wide; narrower is a fixed port with extra steps"
    ],
    [
+    400,
     "bad_sport_band",
     "the source port band must be two ports from … to 65535, low before high — below … ports are privileged and no carrier has a reason to claim them"
    ],
    [
+    400,
     "bad_sport_rotate",
     "raw_sport_rotate must be from 1 to … (a fresh port every few packets; under the middlebox per-tuple cap)"
    ],
    [
+    400,
     "bad_subnet",
     "subnet '…' cannot be read — this tunnel needs an … network, for example …"
    ],
    [
+    400,
     "bad_transport",
     "invalid carrier"
    ],
    [
+    400,
     "bad_type",
     "invalid tunnel type"
    ],
    [
+    400,
     "bad_workers",
     "invalid number of parallel queues"
    ],
    [
+    400,
     "bad_workers",
     "the number of parallel queues must be from 1 to …"
    ],
    [
+    400,
     "bad_ws_host",
     "invalid WebSocket domain (ws_host)"
    ],
    [
+    400,
     "bad_ws_path",
     "invalid WebSocket path (ws_path) (must start with /)"
    ],
    [
+    400,
     "bad_ws_path",
     "invalid WebSocket path for '…' (must start with /)"
    ],
    [
+    400,
     "bad_ws_path",
     "invalid path"
    ],
    [
+    400,
     "conntrack_not_allowed",
     "conntrack_bypass only makes sense for the udp and tcp profiles; '…' does not open a new flow per packet"
    ],
    [
+    400,
     "cover_needs_cipher",
     "the TLS cover needs encryption (do not set the cipher to none)"
    ],
    [
+    400,
     "cover_needs_sni",
     "the TLS cover needs a cover domain (SNI)"
    ],
    [
+    400,
     "dports_need_rotate",
     "raw_dports has no effect without raw_sport_rotate — with a fixed source every packet still lands in the same middlebox bucket. Turn rotation on first"
    ],
    [
+    400,
     "ech_key_missing",
     "no ECH key was found for '…' — …"
    ],
    [
+    400,
     "ech_key_missing",
     "no ECH key was found for '…' — …. The pool is not built with ECH on."
    ],
    [
+    400,
     "ech_needs_wss",
     "ECH needs wss — turn wss (TLS to the CDN) on first"
    ],
    [
+    400,
     "ech_proxy_missing",
     "no ECH proxy picked — create one under proxies and pick it"
    ],
    [
+    400,
     "ech_proxy_missing",
     "this tunnel's ECH proxy no longer exists — create one and pick it when editing the tunnel"
    ],
    [
+    400,
     "grpc_needs_wss",
     "the grpc carrier needs wss (for HTTP/2 to the edge) — turn wss on first"
    ],
    [
-    "internal",
-    "internal error"
-   ],
-   [
+    400,
     "ip_not_on_node",
     "IP '…' is not on node '…'"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_free_port",
     "no free port is left from … to …"
    ],
    [
+    400,
     "node_failed",
     "node '…': …"
    ],
    [
+    400,
     "node_ips_unread",
     "the nodes' IPs could not be read"
    ],
    [
+    400,
     "node_list_failed",
     "the tunnel list of node '…' could not be read (busy or down) — stopped so no other tunnel on it gets deleted"
    ],
    [
+    400,
     "node_not_found",
     "this tunnel's node is not registered in the panel — pick one of the existing nodes"
    ],
    [
+    400,
     "node_offline",
     "node '…' is offline"
    ],
    [
+    400,
     "obfs_needs_cipher",
     "obfuscation needs encryption (do not set the cipher to none)"
    ],
    [
+    400,
     "old_setup_stuck",
     "the old setup of this tunnel was not removed, so the move did not happen…"
    ],
    [
+    400,
     "out_of_range",
     "'…' must be from … to …"
    ],
    [
+    400,
     "pool_needs_ip",
     "the pool needs at least one edge IP"
    ],
    [
+    400,
     "pool_needs_sni",
     "the pool needs at least one domain (SNI)"
    ],
    [
+    400,
     "pool_no_axis",
     "the edge pool must rotate on at least one axis — 2 edge IPs or 2 domains"
    ],
    [
+    400,
     "pool_too_big",
     "the pool is too large (at most 64)"
    ],
    [
+    400,
     "port_busy",
     "port …/… on node '…'… is in use…; pick another port"
    ],
    [
+    400,
     "proxy_not_found",
     "the chosen proxy was just deleted — pick another proxy and try again"
    ],
    [
+    400,
     "raw_needs_cipher",
     "the raw carrier needs encryption (do not set the cipher to none)"
    ],
    [
+    400,
     "raw_port_not_allowed",
     "raw_port is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "raw_proto_taken",
     "protocol … belongs to the '…' profile. This carrier builds no header, so the packet leaves with protocol … but has encrypted data where the … header should be — middleboxes see it as malformed and drop it. Pick the '…' profile, which builds the header too."
    ],
    [
+    400,
     "raw_sport_not_allowed",
     "raw_sport is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "raw_sport_not_allowed",
     "raw_sport_random is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "raw_sport_not_allowed",
     "raw_sport_rotate is only for the udp and tcp profiles; '…' fakes no port"
    ],
    [
+    400,
     "rotate_range",
     "'…' must be from 0 to … seconds"
    ],
    [
+    400,
     "rotate_too_short",
     "'…' is either 0 (only on failure) or at least … seconds — below that the probe has no time to judge and the core does not come up"
    ],
    [
+    400,
     "same_ip",
     "both ends of the tunnel have the same IP; pick a different IP for each side"
    ],
    [
+    400,
     "same_node",
     "the two ends of a tunnel must be two different nodes"
    ],
    [
+    400,
     "server_port_taken",
     "this server IP and port already belong to tunnel '…'. Use another port or another carrier — one IP allows a different carrier or a different port."
    ],
    [
+    400,
     "split_needs_pos",
     "with ECH on, the domain in the ClientHello is encrypted, so no automatic split point is found and nothing is split — set split_pos by hand or turn SNI splitting off"
    ],
    [
+    400,
     "split_needs_wss",
     "SNI splitting needs wss — turn wss (TLS to the CDN) on first"
    ],
    [
+    400,
     "sport_conflict",
     "raw_sport_rotate keeps changing the port, so it does not combine with a fixed or random source port"
    ],
    [
+    400,
     "sport_conflict",
     "the source port is either fixed or random — not both"
    ],
    [
-    "store_error",
-    "…"
-   ],
-   [
-    "store_unavailable",
-    "the panel's store (Redis) is unavailable …"
-   ],
-   [
-    "store_unknown",
-    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
-   ],
-   [
+    400,
     "subnet_needs_prefix",
     "the subnet needs a prefix — for example 192.168.9.0/24"
    ],
    [
+    400,
     "subnet_on_iface",
     "node '…' already has … on interface '…', which overlaps subnet '…'. Linux allows it, but that range gets two routes and traffic can leave through that interface while the tunnel shows green. Pick another range or remove that address from '…'."
    ],
    [
+    400,
     "subnet_overlap",
     "subnet '…' overlaps tunnel '…'… on a shared node; pick another range"
    ],
    [
+    400,
     "tunnel_exists",
     "a … tunnel with these IPs already exists between these two nodes"
    ],
    [
+    400,
     "tunnel_exists",
     "tunnel '…' already uses this pair of node IPs; ipip and fou cannot share one pair."
    ],
    [
+    400,
     "tunnel_id_range",
     "tunnel id … does not fit in the range '…/…' (this range takes … tunnels); pick a larger range"
    ],
    [
+    400,
     "tunnel_id_taken",
     "node '…' already has a tunnel with this id (…). If it belongs to this tunnel and is left from an earlier move, delete it from that node first; otherwise the ids clash"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ],
    [
+    400,
     "workers_not_allowed",
     "parallel queues are only for the raw or udp carrier without FEC; elsewhere the core keeps one queue"
    ],
    [
+    400,
     "wss_needs_edge",
     "wss means TLS ends at the CDN edge, but the edge IP is empty — the client dials the server directly and the server core never ends TLS, so the tunnel never comes up. Set the edge IP or turn wss off"
    ],
    [
+    400,
     "wss_needs_host",
     "wss (TLS to the CDN) needs a domain (ws_host)"
+   ],
+   [
+    500,
+    "internal",
+    "internal error"
+   ],
+   [
+    500,
+    "store_error",
+    "…"
+   ],
+   [
+    500,
+    "store_unavailable",
+    "the panel's store (Redis) is unavailable …"
+   ],
+   [
+    500,
+    "store_unknown",
+    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
    ]
   ]
  },
@@ -1034,10 +1276,12 @@
  "install-status": {
   "bad": [
    [
+    400,
     "job_not_running",
     "this job is no longer running"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ]
@@ -1046,10 +1290,12 @@
  "link-rebuild-info": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -1058,26 +1304,32 @@
  "link-speed": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "speedtest_failed",
     "node '…' did not run the test: …"
    ],
    [
+    400,
     "speedtest_failed",
     "node '…' did not start the test receiver: …"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ],
    [
+    400,
     "tunnel_off",
     "this tunnel is off — turn it on first"
    ]
@@ -1086,14 +1338,17 @@
  "link-tag": {
   "bad": [
    [
+    400,
     "bad_tag",
     "invalid tag colour"
    ],
    [
+    400,
     "item_not_found",
     "item not found"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ]
@@ -1102,22 +1357,27 @@
  "link-toggle": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "one of this tunnel's nodes is no longer registered"
    ],
    [
+    400,
     "node_offline",
     "node '…' is unreachable — the tunnel changed on neither end"
    ],
    [
+    400,
     "toggle_failed",
     "…: …"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -1126,10 +1386,12 @@
  "link-view": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -1138,6 +1400,7 @@
  "next-port": {
   "bad": [
    [
+    400,
     "no_free_port",
     "no free port is left from … to …"
    ]
@@ -1146,38 +1409,47 @@
  "node-add": {
   "bad": [
    [
+    400,
     "bad_node_host",
     "invalid node IP or host"
    ],
    [
+    400,
     "bad_node_name",
     "invalid node name"
    ],
    [
+    400,
     "bad_port",
     "invalid port"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_host_taken",
     "a node with IP '…' already exists"
    ],
    [
+    400,
     "node_name_taken",
     "a node named '…' already exists — pick a unique name"
    ],
    [
+    400,
     "proxy_missing",
     "no proxy picked — create one under proxies and pick it"
    ],
    [
+    400,
     "token_missing",
     "a token is required"
    ],
    [
+    400,
     "token_short",
     "the token is too short — use at least 16 characters"
    ]
@@ -1186,26 +1458,32 @@
  "node-adopt-ip": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "new_address_silent",
     "address …:… does not answer right now — nothing changed"
    ],
    [
+    400,
     "no_new_address",
     "no new address is recorded for this node"
    ],
    [
+    400,
     "node_host_taken",
     "another node is already registered on '…' — two nodes with one address cannot be edited later; fix that one first"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "node_proxy_down",
     "this node's proxy is down, so no address gets through it — fix the proxy first"
    ]
@@ -1214,18 +1492,22 @@
  "node-del": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "node_wipe_failed",
     "the cleanup on the node did not finish: … — if the node is down, wait until it shows red, then use force"
    ],
    [
+    400,
     "pending_write_failed",
     "node '…' … and half of … tunnels were removed from the peer node, but the pending-delete queue for … was not written — so the node and tunnel records were left as they are, to leave no orphan tunnel. Free disk space on the panel and try again."
    ]
@@ -1234,38 +1516,47 @@
  "node-edit": {
   "bad": [
    [
+    400,
     "bad_node_host",
     "invalid node IP or host"
    ],
    [
+    400,
     "bad_node_name",
     "invalid node name"
    ],
    [
+    400,
     "bad_port",
     "invalid port"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_host_taken",
     "another node has IP '…'"
    ],
    [
+    400,
     "node_name_taken",
     "another node is named '…' — the name must be unique"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "proxy_missing",
     "no proxy picked — create one under proxies and pick it"
    ],
    [
+    400,
     "token_short",
     "the token is too short — use at least 16 characters"
    ]
@@ -1274,50 +1565,62 @@
  "node-install": {
   "bad": [
    [
+    400,
     "bad_agent_port",
     "invalid agent port"
    ],
    [
+    400,
     "bad_node_host",
     "invalid node IP or host"
    ],
    [
+    400,
     "bad_node_name",
     "invalid node name"
    ],
    [
+    400,
     "bad_ssh_port",
     "invalid SSH port"
    ],
    [
+    400,
     "bad_ssh_user",
     "invalid SSH user"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_host_taken",
     "a node with IP '…' already exists"
    ],
    [
+    400,
     "node_name_taken",
     "a node named '…' already exists — pick a unique name"
    ],
    [
+    400,
     "not_ready",
     "this needs something that is not ready on the panel yet: … — get it in settings and try again"
    ],
    [
+    400,
     "proxy_missing",
     "no proxy picked — create one under proxies and pick it"
    ],
    [
+    400,
     "proxy_not_found",
     "the chosen proxy was just deleted — pick another proxy and try again"
    ],
    [
+    400,
     "ssh_auth_missing",
     "an SSH password or a private key is required"
    ]
@@ -1326,10 +1629,12 @@
  "node-ips": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -1338,24 +1643,29 @@
  "node-kernel-tune": {
   "bad": [
    [
+    400,
     "bad_action",
     "invalid action"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1365,10 +1675,12 @@
  "node-stats": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -1377,20 +1689,24 @@
  "node-test": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1399,10 +1715,12 @@
  "node-toggle": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -1412,28 +1730,34 @@
  "peer-retest-now": {
   "bad": [
    [
+    400,
     "bad_kind",
     "kind must be … or …"
    ],
    [
+    400,
     "client_node_not_found",
     "the client node was not found"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_ip_pool",
     "this link has no IP pool"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1442,24 +1766,29 @@
  "peer-select": {
   "bad": [
    [
+    400,
     "client_node_not_found",
     "the client node was not found"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_ip_pool",
     "this link has no IP pool"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1468,10 +1797,12 @@
  "peer-status": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -1480,28 +1811,34 @@
  "pool-retest-now": {
   "bad": [
    [
+    400,
     "bad_kind",
     "kind must be … or …"
    ],
    [
+    400,
     "client_node_not_found",
     "the client node was not found"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_edge_pool",
     "this link has no edge pool"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1510,28 +1847,34 @@
  "pool-select": {
   "bad": [
    [
+    400,
     "bad_kind",
     "kind must be … or …"
    ],
    [
+    400,
     "client_node_not_found",
     "the client node was not found"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_edge_pool",
     "this link has no edge pool"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1540,34 +1883,42 @@
  "portfw": {
   "bad": [
    [
+    400,
     "bad_dst_ips",
     "the destination IP list must have at least one IPv4 address"
    ],
    [
+    400,
     "bad_iface",
     "invalid network interface name"
    ],
    [
+    400,
     "bad_interval",
     "the rotation interval must be from 1 to 1440 minutes"
    ],
    [
+    400,
     "bad_listen_ip",
     "invalid listen IP"
    ],
    [
+    400,
     "bad_port",
     "… must be from 1 to 65535"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_failed",
     "…"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -1576,32 +1927,39 @@
  "portfw-del": {
   "bad": [
    [
+    400,
     "bad_portfw_name",
     "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "node_not_read",
     "the state of node '…' is not read yet — try again in a moment"
    ],
    [
+    400,
     "portfw_not_found",
     "node '…' has no port forward named '…' — stopped so a tunnel with the same name is not deleted"
    ]
   ],
   "soft": [
    [
+    200,
     "node_failed",
     "…"
    ],
    [
+    200,
     "node_offline",
     "…"
    ]
@@ -1610,38 +1968,47 @@
  "portfw-edit": {
   "bad": [
    [
+    400,
     "bad_dst_ips",
     "the destination IP list must have at least one IPv4 address"
    ],
    [
+    400,
     "bad_iface",
     "invalid network interface name"
    ],
    [
+    400,
     "bad_interval",
     "the rotation interval must be from 1 to 1440 minutes"
    ],
    [
+    400,
     "bad_listen_ip",
     "invalid listen IP"
    ],
    [
+    400,
     "bad_port",
     "… must be from 1 to 65535"
    ],
    [
+    400,
     "bad_portfw_name",
     "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_failed",
     "…"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -1651,18 +2018,22 @@
  "portfw-next": {
   "bad": [
    [
+    400,
     "bad_portfw_name",
     "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_failed",
     "…"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -1672,22 +2043,27 @@
  "proxy-add": {
   "bad": [
    [
+    400,
     "bad_proxy_host",
     "invalid proxy IP or host"
    ],
    [
+    400,
     "bad_proxy_name",
     "a proxy name is required (at most 40 characters)"
    ],
    [
+    400,
     "bad_proxy_port",
     "invalid proxy port (1 to 65535)"
    ],
    [
+    400,
     "bad_proxy_scheme",
     "the proxy type must be socks5 or http"
    ],
    [
+    400,
     "proxy_name_taken",
     "another proxy has this name"
    ]
@@ -1696,18 +2072,22 @@
  "proxy-del": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "proxy_busy",
     "a node install or a tunnel build/edit running right now uses this proxy — delete again after it finishes"
    ],
    [
+    400,
     "proxy_in_use",
     "this proxy is still in use: … — detach them from this proxy first"
    ],
    [
+    400,
     "proxy_not_found",
     "proxy not found"
    ]
@@ -1716,34 +2096,42 @@
  "proxy-edit": {
   "bad": [
    [
+    400,
     "bad_ids",
     "this proxy's node list is invalid"
    ],
    [
+    400,
     "bad_proxy_host",
     "invalid proxy IP or host"
    ],
    [
+    400,
     "bad_proxy_name",
     "a proxy name is required (at most 40 characters)"
    ],
    [
+    400,
     "bad_proxy_port",
     "invalid proxy port (1 to 65535)"
    ],
    [
+    400,
     "bad_proxy_scheme",
     "the proxy type must be socks5 or http"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "proxy_name_taken",
     "another proxy has this name"
    ],
    [
+    400,
     "proxy_not_found",
     "proxy not found"
    ]
@@ -1752,24 +2140,29 @@
  "proxy-test": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "proxy_not_found",
     "proxy not found"
    ]
   ],
   "soft": [
    [
+    200,
     "proxy_no_reach",
     "could not reach Google through the proxy — …"
    ],
    [
+    200,
     "proxy_no_relay",
     "the proxy does not relay — …"
    ],
    [
+    200,
     "proxy_unreachable",
     "…"
    ]
@@ -1778,6 +2171,7 @@
  "push-cancel": {
   "bad": [
    [
+    400,
     "job_not_running",
     "this job is no longer running"
    ]
@@ -1786,6 +2180,7 @@
  "push-pause": {
   "bad": [
    [
+    400,
     "job_not_running",
     "this job is no longer running"
    ]
@@ -1794,6 +2189,7 @@
  "push-status": {
   "bad": [
    [
+    400,
     "job_not_running",
     "this job is no longer running"
    ]
@@ -1803,106 +2199,131 @@
  "rebuild-link": {
   "act": [
    [
+    400,
     "bad_arch",
     "invalid architecture — only amd64 or arm64"
    ],
    [
+    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
    ],
    [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
    [
+    400,
     "ech_proxy_missing",
     "this tunnel's ECH proxy no longer exists — create one and pick it when editing the tunnel"
    ],
    [
-    "internal",
-    "internal error"
-   ],
-   [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_failed",
     "node '…': …"
    ],
    [
+    400,
     "node_ips_unread",
     "the nodes' IPs could not be read"
    ],
    [
+    400,
     "node_not_found",
     "one of this tunnel's nodes is no longer registered"
    ],
    [
+    400,
     "node_offline",
     "node '…' is offline"
    ],
    [
+    400,
     "out_of_range",
     "'…' must be from … to …"
    ],
    [
+    400,
     "port_busy",
     "port …/… on node '…'… is in use…; pick another port"
    ],
    [
+    400,
     "same_ip",
     "both ends of the tunnel have the same IP; pick a different IP for each side"
    ],
    [
+    400,
     "server_port_taken",
     "this server IP and port already belong to tunnel '…'. Use another port or another carrier — one IP allows a different carrier or a different port."
    ],
    [
-    "store_error",
-    "…"
-   ],
-   [
-    "store_unavailable",
-    "the panel's store (Redis) is unavailable …"
-   ],
-   [
-    "store_unknown",
-    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
-   ],
-   [
+    400,
     "subnet_on_iface",
     "node '…' already has … on interface '…', which overlaps subnet '…'. Linux allows it, but that range gets two routes and traffic can leave through that interface while the tunnel shows green. Pick another range or remove that address from '…'."
    ],
    [
+    400,
     "tunnel_exists",
     "a … tunnel with these IPs already exists between these two nodes"
    ],
    [
+    400,
     "tunnel_exists",
     "tunnel '…' already uses this pair of node IPs; ipip and fou cannot share one pair."
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
+   ],
+   [
+    500,
+    "internal",
+    "internal error"
+   ],
+   [
+    500,
+    "store_error",
+    "…"
+   ],
+   [
+    500,
+    "store_unavailable",
+    "the panel's store (Redis) is unavailable …"
+   ],
+   [
+    500,
+    "store_unknown",
+    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
    ]
   ]
  },
  "reorder": {
   "bad": [
    [
+    400,
     "bad_kind",
     "invalid kind"
    ],
    [
+    400,
     "bad_order",
     "the order list is invalid (at most … items)"
    ],
    [
+    400,
     "item_not_found",
     "item not found"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ]
@@ -1911,40 +2332,49 @@
  "restart-link": {
   "act": [
    [
-    "internal",
-    "internal error"
-   ],
-   [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "one of this tunnel's nodes is no longer registered"
    ],
    [
+    400,
     "not_core",
     "only a core tunnel has a process to restart"
    ],
    [
+    400,
     "restart_failed",
     "…"
    ],
    [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ],
+   [
+    500,
+    "internal",
+    "internal error"
+   ],
+   [
+    500,
     "store_error",
     "…"
    ],
    [
+    500,
     "store_unavailable",
     "the panel's store (Redis) is unavailable …"
    ],
    [
+    500,
     "store_unknown",
     "the panel's store (Redis) is unavailable — it is unknown whether this change was saved …"
-   ],
-   [
-    "tunnel_not_found",
-    "tunnel not found"
    ]
   ]
  },
@@ -1952,70 +2382,87 @@
  "settings-set": {
   "bad": [
    [
+    400,
     "bad_delivery",
     "the delivery mode must be push, github or panel"
    ],
    [
+    400,
     "bad_log_filter",
     "the log filter must be an array"
    ],
    [
+    400,
     "bad_number",
     "the ECH key refresh interval must be a number (minutes)"
    ],
    [
+    400,
     "bad_number",
     "the fleet poll interval must be a number (seconds)"
    ],
    [
+    400,
     "bad_number",
     "the repair check interval must be a number (seconds)"
    ],
    [
+    400,
     "bad_number",
     "the screen refresh interval must be a number (seconds)"
    ],
    [
+    400,
     "bad_number",
     "the uptime chart window is invalid"
    ],
    [
+    400,
     "bad_reconcile_mode",
     "the mode must be auto or alert"
    ],
    [
+    400,
     "proxy_missing",
     "pick a proxy from the list"
    ],
    [
+    400,
     "proxy_not_found",
     "proxy not found — it may have been deleted"
    ],
    [
+    400,
     "tuning_empty",
     "'…' must not be empty — enter a number from … to …"
    ],
    [
+    400,
     "tuning_list",
     "'…' must be one or more whole numbers from … to … seconds"
    ],
    [
+    400,
     "tuning_not_int",
     "'…' must be a whole number"
    ],
    [
+    400,
     "tuning_range",
     "'…' must be from … to … seconds — … is not accepted"
    ],
    [
+    400,
     "tuning_range",
     "'…' must be from … to … — … is not accepted"
    ],
    [
+    400,
     "tuning_step",
     "'…' must be a multiple of … — … is not accepted"
    ],
    [
+    400,
     "unknown_event_type",
     "unknown event type: …"
    ]
@@ -2025,10 +2472,12 @@
  "traffic": {
   "bad": [
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ]
@@ -2037,18 +2486,22 @@
  "traffic-reset": {
   "bad": [
    [
+    400,
     "bad_portfw_name",
     "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
    ],
    [
+    400,
     "missing_target",
     "no tunnel or node id was sent"
    ],
    [
+    400,
     "node_not_found",
     "node not found"
    ],
    [
+    400,
     "tunnel_not_found",
     "tunnel not found"
    ]
@@ -2058,66 +2511,82 @@
  "update-agent": {
   "bad": [
    [
+    400,
     "agent_bad_python",
     "the downloaded code is invalid: …"
    ],
    [
+    400,
     "agent_not_on_github",
     "this agent was uploaded from a file and is not on GitHub — fetch it from GitHub or change the agent delivery mode"
    ],
    [
+    400,
     "agent_not_utf8",
     "the release file of … is not UTF-8 text"
    ],
    [
+    400,
     "agent_release_missing",
     "release … has no agent file"
    ],
    [
+    400,
     "agent_release_missing",
     "the agent has no release on GitHub yet"
    ],
    [
+    400,
     "agent_too_big",
     "the downloaded file is too large"
    ],
    [
+    400,
     "agent_version_missing",
     "the version inside the release file differs from tag …"
    ],
    [
+    400,
     "bad_ids",
     "the id list is invalid"
    ],
    [
+    400,
     "checksum_mismatch",
     "the release file of … does not match its checksum"
    ],
    [
+    400,
     "github_failed",
     "download from GitHub failed: …"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_agent",
     "load an agent first"
    ],
    [
+    400,
     "no_nodes",
     "no node selected"
    ],
    [
+    400,
     "no_panel_origin",
     "…"
    ],
    [
+    400,
     "not_an_agent",
     "the downloaded file is not the node agent"
    ],
    [
+    400,
     "update_running",
     "this update is already running on this node — wait until it finishes"
    ]
@@ -2126,58 +2595,72 @@
  "update-core": {
   "bad": [
    [
+    400,
     "bad_arch",
     "invalid architecture — only amd64 or arm64"
    ],
    [
+    400,
     "bad_core_version",
     "invalid core version — only letters, digits and ._+- are allowed"
    ],
    [
+    400,
     "bad_ids",
     "the id list is invalid"
    ],
    [
+    400,
     "core_fetch_failed",
     "…"
    ],
    [
+    400,
     "core_not_on_github",
     "this binary was uploaded to the panel and is not on GitHub — set the core delivery mode to push or panel"
    ],
    [
+    400,
     "missing_field",
     "field '…' is missing"
    ],
    [
+    400,
     "no_core",
     "no core is ready on the panel — download a version first"
    ],
    [
+    400,
     "no_core",
     "no core is ready on the panel — pick a version first"
    ],
    [
+    400,
     "no_custom_core",
     "no custom core binary is uploaded"
    ],
    [
+    400,
     "no_nodes",
     "no node selected"
    ],
    [
+    400,
     "no_panel_origin",
     "…"
    ],
    [
+    400,
     "no_version",
     "no version is picked — pick a version first"
    ],
    [
+    400,
     "node_arch_unknown",
     "the node's architecture is unknown — the node must answer once so the right binary is sent"
    ],
    [
+    400,
     "update_running",
     "this update is already running on this node — wait until it finishes"
    ]

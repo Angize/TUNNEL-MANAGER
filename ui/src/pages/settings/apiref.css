@@ -89,7 +89,7 @@ button.apcc small {
 }
 
 button.apcc.on {
-  box-shadow: inset 0 0 0 1.5px currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 .aplist {

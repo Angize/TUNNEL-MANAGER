@@ -32,7 +32,7 @@ function abortAfter(ms) {
 async function readBody(r) {
   try {
     const d = await r.json()
-    return d.code === 'busy' ? { ...d, error: T('err_panel_busy') } : d
+    return d.error === 'busy' ? { ...d, error: T('err_panel_busy') } : d
   } catch {
     return {}
   }
