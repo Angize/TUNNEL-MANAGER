@@ -5,6 +5,9 @@
   --ok: #0f9d58;
   --bad: #d13b3b;
   --gold: #c27506;
+  --teal: #0d9488;
+  --violet: #7c3aed;
+  --slate: #64748b;
   --page: #e6ebf3;
   --glow1: #d3e0ff;
   --glow2: #d8e0fb;
@@ -41,6 +44,9 @@ html.dark {
   --ok: #4ade80;
   --bad: #f87171;
   --gold: #fbbf24;
+  --teal: #2dd4bf;
+  --violet: #a78bfa;
+  --slate: #94a3b8;
   --page: #0d1220;
   --glow1: #1c2a5a;
   --glow2: #162049;

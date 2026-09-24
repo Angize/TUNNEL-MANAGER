@@ -132,7 +132,7 @@ export default function BackupCard() {
         <div className="oprow">
           <button
             type="button"
-            className="ghost"
+            className="ghost tone tone-put"
             disabled={!!busy}
             onClick={() => picker.current && picker.current.click()}
           >

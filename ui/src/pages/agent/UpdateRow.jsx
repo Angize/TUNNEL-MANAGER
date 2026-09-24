@@ -19,7 +19,7 @@ export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, go
         </button>
         <button
           type="button"
-          className={'ghost upx' + (open ? ' open' : '')}
+          className={'ghost tone tone-more upx' + (open ? ' open' : '')}
           aria-expanded={open}
           aria-label={T('ag_more')}
           title={T('ag_more')}
