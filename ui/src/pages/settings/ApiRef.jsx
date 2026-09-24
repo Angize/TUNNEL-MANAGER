@@ -4,12 +4,13 @@ import CopyValue, { copyText } from '../../components/CopyValue.jsx'
 import RichText from '../../components/RichText.jsx'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { pressable } from '../../lib/keys.js'
-import { T, TF } from '../../i18n/fa.js'
-import { DOCS, GROUPS, SAMPLES } from './apiDocs.js'
+import { DOCS, GROUPS, SAMPLES, TEXT } from './apiDocs.js'
+import ERRS from './apiErrors.json'
 import './apiref.css'
 
 const G = SAMPLES._generic
 const CODES = [200, 400, 401, 403, 404, 405, 413, 429, 500, 503]
+const PLACED = new Set(GROUPS.flatMap(([, , cmds]) => cmds))
 
 function quote(s) {
   return "'" + s.replace(/'/g, "'\\''") + "'"
@@ -30,24 +31,24 @@ function curlOf(base, cmd, method, sample) {
 
 function answers(cmd, method, token, act) {
   const s = SAMPLES[cmd] || {}
-  const errs = s.errs || []
+  const e = ERRS[cmd] || {}
   const out = []
-  const add = (key, code, note, bodies, sub) => {
-    if (bodies.length) out.push({ key, code, note, bodies, sub })
+  const add = (key, code, note, bodies, rows, sub) => {
+    if (bodies.length || rows.length) out.push({ key, code, note, bodies, rows, sub })
   }
-  add('ok', 200, T('api_c_200'), s.ok ? [s.ok] : [])
-  if (act) add('act', 'acts', T('api_c_act'), [SAMPLES._acts.done, SAMPLES._acts.fail])
-  add('soft', 200, T('api_c_soft'), errs.filter((e) => e.status === 200).map((e) => e.resp), 'ok:false')
-  add('400', 400, T('api_c_400'), errs.filter((e) => e.status === 400).map((e) => e.resp))
-  add('401', 401, T('api_c_401'), [G['401'].resp, G['401b'].resp])
-  add('403', 403, T('api_c_403'), token ? [G['403'].resp] : [G['403d'].resp, G['403'].resp])
+  add('ok', 200, TEXT.c[200], s.ok ? [s.ok] : [], [])
+  if (act) add('act', 'acts', TEXT.c.act, [SAMPLES._acts.done, SAMPLES._acts.fail], e.act || [])
+  add('soft', 200, TEXT.c.soft, [], e.soft || [], 'ok:false')
+  add('400', 400, TEXT.c[400], [], e.bad || [])
+  add('401', 401, TEXT.c[401], [], G['401'])
+  add('403', 403, TEXT.c[403], [], token ? G['403'] : [...G['403d'], ...G['403']])
   if (method === 'POST') {
-    add('405', 405, T('api_c_405'), [G['405'].resp])
-    add('413', 413, T('api_c_413'), [G['413'].resp])
+    add('405', 405, TEXT.c[405], [], G['405'])
+    add('413', 413, TEXT.c[413], [], G['413'])
   }
-  add('429', 429, T('api_c_429'), [G['429'].resp])
-  add('500', 500, T('api_c_500'), [G['500'].resp, G['500i'].resp])
-  add('503', 503, T('api_c_503'), [G['503'].resp])
+  add('429', 429, TEXT.c[429], [], G['429'])
+  add('500', 500, TEXT.c[500], [], G['500'])
+  add('503', 503, TEXT.c[503], [], G['503'])
   return out
 }
 
@@ -62,6 +63,14 @@ function Json({ value }) {
   return <pre className="apjs mono">{JSON.stringify(value, null, 2)}</pre>
 }
 
+function row([code, error]) {
+  return '{"code": ' + JSON.stringify(code) + ', "error": ' + JSON.stringify(error) + '}'
+}
+
+function Rows({ rows }) {
+  return <pre className="apjs mono">{rows.map(row).join('\n')}</pre>
+}
+
 function Body({ cmd, method, token, base }) {
   const doc = DOCS[cmd] || {}
   const sample = SAMPLES[cmd] || {}
@@ -74,9 +83,9 @@ function Body({ cmd, method, token, base }) {
   return (
     <div className="apbody">
       {doc.d ? <p className="apdesc">{doc.d}</p> : null}
-      {token ? null : <p className="apwarn">{T('api_deny_d')}</p>}
+      {token ? null : <p className="apwarn">{TEXT.denyD}</p>}
 
-      <h5>{method === 'GET' ? T('api_p_query') : T('api_p_body')}</h5>
+      <h5>{method === 'GET' ? TEXT.pQuery : TEXT.pBody}</h5>
       {params.length ? (
         <div className="aprms">
           {params.map(([name, req, type, text]) => (
@@ -84,21 +93,21 @@ function Body({ cmd, method, token, base }) {
               <div className="aprmh">
                 <code className="mono">{name}</code>
                 <span className="aptype mono">{type}</span>
-                {req ? <span className="apreq">{T('api_req')}</span> : null}
+                {req ? <span className="apreq">{TEXT.req}</span> : null}
               </div>
               <div className="aprmd">{text}</div>
             </div>
           ))}
         </div>
       ) : (
-        <p className="apnone">{T('api_p_none')}</p>
+        <p className="apnone">{TEXT.pNone}</p>
       )}
 
       {curl ? (
         <>
           <h5>
-            {T('api_example')}
-            <button type="button" className="apcopy" title={T('tip_copy')} onClick={(e) => copyText(curl, e)}>
+            {TEXT.example}
+            <button type="button" className="apcopy" title={TEXT.copy} onClick={(e) => copyText(curl, e)}>
               <Icon name="copy" />
             </button>
           </h5>
@@ -106,12 +115,12 @@ function Body({ cmd, method, token, base }) {
         </>
       ) : method === 'POST' && sample.req ? (
         <>
-          <h5>{T('api_example_body')}</h5>
+          <h5>{TEXT.exampleBody}</h5>
           <Json value={sample.req} />
         </>
       ) : null}
 
-      <h5>{T('api_answers')}</h5>
+      <h5>{TEXT.answers}</h5>
       <div className="apcodes">
         {list.map((a) => (
           <button
@@ -130,6 +139,12 @@ function Body({ cmd, method, token, base }) {
       {cur.bodies.map((b, i) => (
         <Json key={i} value={b} />
       ))}
+      {cur.rows.length ? (
+        <>
+          <p className="apcnote">{cur.bodies.length ? TEXT.rowsAct : TEXT.rowsAll}</p>
+          <Rows rows={cur.rows} />
+        </>
+      ) : null}
     </div>
   )
 }
@@ -142,7 +157,7 @@ function Row({ cmd, method, token, open, onToggle, base }) {
         <span className={'apm ' + method.toLowerCase()}>{method}</span>
         <code className="appath mono">/api/{cmd}</code>
         <span className="apt">{doc.t || ''}</span>
-        {token ? null : <span className="apdeny">{T('api_deny')}</span>}
+        {token ? null : <span className="apdeny">{TEXT.deny}</span>}
         <Icon name="chev" />
       </div>
       {open ? <Body cmd={cmd} method={method} token={token} base={base} /> : null}
@@ -162,10 +177,9 @@ export default function ApiRef() {
   const [open, setOpen] = useState(() => new Set())
   const base = window.location.origin + '/api/'
   const meta = new Map(api.map(([cmd, method, token]) => [cmd, { method, token }]))
-  const placed = new Set(GROUPS.flatMap(([, , cmds]) => cmds))
-  const rest = api.map(([cmd]) => cmd).filter((cmd) => !placed.has(cmd))
+  const rest = api.map(([cmd]) => cmd).filter((cmd) => !PLACED.has(cmd))
   const q = query.trim().toLowerCase()
-  const groups = [...GROUPS, ['other', T('api_other'), rest]]
+  const groups = [...GROUPS, ['other', TEXT.other, rest]]
     .map(([id, title, cmds]) => [id, title, cmds.filter((c) => meta.has(c) && matches(c, q))])
     .filter(([, , cmds]) => cmds.length)
 
@@ -178,31 +192,31 @@ export default function ApiRef() {
     })
 
   return (
-    <div className="card sg sc-panel apref">
+    <div className="card sg sc-panel apref" dir="ltr">
       <div className="sghd">
         <span className="sgt">
           <Icon name="list" />
         </span>
-        <b>{T('api_ref')}</b>
-        <span className="schip">{TF('api_ref_n', { n: api.length })}</span>
+        <b>{TEXT.ref}</b>
+        <span className="schip">{TEXT.refN.replace('{n}', api.length)}</span>
       </div>
 
       <div className="apguide">
         <div className="apbase">
-          <span>{T('api_base')}</span>
+          <span>{TEXT.base}</span>
           <CopyValue text={base} />
         </div>
-        {['api_g_auth', 'api_g_req', 'api_g_res', 'api_g_act', 'api_g_deny'].map((k) => (
-          <p key={k}>
-            <RichText text={T(k)} />
+        {TEXT.guide.map((text) => (
+          <p key={text}>
+            <RichText text={text} />
           </p>
         ))}
-        <h5>{T('api_codes')}</h5>
+        <h5>{TEXT.codes}</h5>
         <div className="apctab">
           {CODES.map((c) => (
             <div key={c} className="apcrow">
               <span className={'apcc ' + tone(c)}>{c}</span>
-              <span>{T('api_c_' + c)}</span>
+              <span>{TEXT.c[c]}</span>
             </div>
           ))}
         </div>
@@ -211,7 +225,7 @@ export default function ApiRef() {
       <div className="aplist">
         <input
           className="search"
-          placeholder={T('api_search')}
+          placeholder={TEXT.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -236,7 +250,7 @@ export default function ApiRef() {
             </div>
           ))
         ) : (
-          <p className="apnone">{T('api_empty')}</p>
+          <p className="apnone">{TEXT.empty}</p>
         )}
       </div>
     </div>

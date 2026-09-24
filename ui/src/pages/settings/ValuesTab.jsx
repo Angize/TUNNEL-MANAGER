@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
 import SettingRow from './SettingRow.jsx'
+import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
@@ -43,26 +44,17 @@ function TextField({ value, onChange }) {
   )
 }
 
-function Section({ icon, titleKey, chipKey, tone, children }) {
-  return (
-    <section className={'sgsec ' + tone}>
-      <div className="sghd">
-        <span className="sgt">
-          <Icon name={icon} />
-        </span>
-        <b>{T(titleKey)}</b>
-        <span className="schip">{T(chipKey)}</span>
-      </div>
-      <div className="sgb">{children}</div>
-    </section>
-  )
-}
-
 export default function ValuesTab({ active }) {
   const f = useSettingsForm()
   const [picking, setPicking] = useState(false)
 
-  if (!f.form) return <FormGate />
+  if (!f.form) {
+    return (
+      <div className="stpage">
+        <FormGate />
+      </div>
+    )
+  }
 
   const { form, set, mode, setMode, probeSamples } = f
   const probeHint = T('set_pm_hint')
@@ -72,7 +64,7 @@ export default function ValuesTab({ active }) {
   return (
     <div className="stpage">
       <div className="card sg">
-        <Section icon="cog" titleKey="set_g1" chipKey="set_g1c" tone="sc-panel">
+        <SettingsGroup section icon="cog" titleKey="set_g1" chipKey="set_g1c" tone="sc-panel">
           <SettingRow label={T('set_on_ipchange')} helpKey="set_on_ipchange_d" exampleKey="set_x_ipchange">
             <button type="button" className="setfield" onClick={() => setPicking(true)}>
               <span className="val">{modeLabel(mode)}</span>
@@ -105,9 +97,9 @@ export default function ValuesTab({ active }) {
               onChange={set('window')}
             />
           </SettingRow>
-        </Section>
+        </SettingsGroup>
 
-        <Section icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
+        <SettingsGroup section icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
           <SettingRow label={T('set_t_probemin')} helpKey="set_t_probemin_d" exampleKey="set_x_probemin">
             <NumberField value={form.probeMin} onChange={set('probeMin')} min={5} max={100} step={5} />
           </SettingRow>
@@ -116,9 +108,9 @@ export default function ValuesTab({ active }) {
           <SettingRow label={T('set_t_revive')} helpKey="set_t_revive_d" exampleKey="set_x_revive">
             <TextField value={form.revive} onChange={set('revive')} />
           </SettingRow>
-        </Section>
+        </SettingsGroup>
 
-        <Section icon="redo" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
+        <SettingsGroup section icon="redo" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
           <SettingRow label={T('set_t_suspect')} helpKey="set_t_suspect_d" exampleKey="set_x_suspect">
             <TextField value={form.suspect} onChange={set('suspect')} />
           </SettingRow>
@@ -126,13 +118,13 @@ export default function ValuesTab({ active }) {
           <SettingRow label={T('set_t_deadretest')} helpKey="set_t_deadretest_d" exampleKey="set_x_deadretest">
             <NumberField value={form.deadRetest} onChange={set('deadRetest')} min={1} max={1440} step={1} />
           </SettingRow>
-        </Section>
+        </SettingsGroup>
 
-        <Section icon="bolt" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
+        <SettingsGroup section icon="bolt" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
           <SettingRow label={T('set_t_sockbuf')} helpKey="set_t_sockbuf_d" exampleKey="set_x_sockbuf">
             <NumberField value={form.sockBuf} onChange={set('sockBuf')} min={0} max={64} step={1} />
           </SettingRow>
-        </Section>
+        </SettingsGroup>
       </div>
 
       <p className="stnote">{T('set_apply_note')}</p>

@@ -104,7 +104,7 @@ export function ActsProvider({ children }) {
         setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
         const act = r.acts[key]
         if (!act) return { err: T('act_lost') }
-        if (act.state === 'fail') return { err: act.err }
+        if (act.state === 'fail') return { err: act.error }
         if (act.state === 'cancel') return { cancelled: true }
         if (act.state === 'done' || num(act.si) >= 1) return { ok: true }
       }
@@ -128,7 +128,7 @@ export function ActsProvider({ children }) {
       const act = r.acts[key]
       if (!act) return { err: T('act_lost') }
       if (act.state === 'done') return { ok: true }
-      if (act.state === 'fail') return { err: act.err }
+      if (act.state === 'fail') return { err: act.error }
       if (act.state === 'cancel') return { err: T('a_st_cancel') }
     }
     return { err: T('bulk_timeout') }

@@ -1,6 +1,5 @@
 {
  "summary": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -100,7 +99,6 @@
   }
  },
  "nodes": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -266,7 +264,6 @@
   }
  },
  "node-names": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -309,7 +306,6 @@
   }
  },
  "next-port": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -320,7 +316,6 @@
   }
  },
  "settings": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -354,7 +349,6 @@
   }
  },
  "readiness": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -366,7 +360,6 @@
   }
  },
  "ui-config": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -547,7 +540,6 @@
   }
  },
  "proxies": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -572,7 +564,6 @@
   }
  },
  "fleet": {
-  "errs": [],
   "req": null,
   "q": {
    "kind": "core",
@@ -721,7 +712,6 @@
   }
  },
  "events": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -752,7 +742,6 @@
   }
  },
  "acts": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -768,7 +757,8 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "err": "field 'b_node' is missing",
+     "code": "missing_field",
+     "error": "field 'b_node' is missing",
      "note": "",
      "offer": "",
      "can": true,
@@ -785,7 +775,8 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "err": "the two ends of a tunnel must be two different nodes",
+     "code": "same_node",
+     "error": "the two ends of a tunnel must be two different nodes",
      "note": "",
      "offer": "",
      "can": true,
@@ -802,7 +793,8 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "err": "",
+     "code": "",
+     "error": "",
      "note": "",
      "offer": "",
      "can": true,
@@ -819,7 +811,8 @@
      "si": 4,
      "sn": 4,
      "pct": 100,
-     "err": "",
+     "code": "",
+     "error": "",
      "note": "",
      "offer": "",
      "can": false,
@@ -836,7 +829,8 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "err": "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: 443, 2053, 2083, 2087, 2096, 8443 — port 80 is not accepted. (Or turn wss off and u…",
+     "code": "bad_edge_port",
+     "error": "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: 443, 2053, 2083, 2087, 2096, 8443 — port 80 is not accepted. (Or turn wss off and u…",
      "note": "",
      "offer": "",
      "can": true,
@@ -848,7 +842,6 @@
   }
  },
  "portfw-list": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -884,7 +877,6 @@
   }
  },
  "agent-info": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -896,7 +888,6 @@
   }
  },
  "core-versions": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -936,7 +927,6 @@
   }
  },
  "core-stage-status": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -945,7 +935,8 @@
    "version": "v2.136.0",
    "done": true,
    "cancel": false,
-   "err": "",
+   "code": "",
+   "error": "",
    "arches": [
     "amd64",
     "arm64"
@@ -955,7 +946,6 @@
   }
  },
  "push-status": {
-  "errs": [],
   "req": null,
   "q": null,
   "ok": {
@@ -996,20 +986,6 @@
   }
  },
  "node-install": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "name": "N3",
-     "ssh_host": "10.77.9.9"
-    },
-    "q": null,
-    "resp": {
-     "error": "ssh_auth_missing",
-     "message": "an SSH password or a private key is required"
-    }
-   }
-  ],
   "req": {
    "name": "N1",
    "ssh_host": "10.77.3.2",
@@ -1023,19 +999,6 @@
   }
  },
  "install-status": {
-  "errs": [
-   {
-    "status": 400,
-    "req": null,
-    "q": {
-     "job": "nope"
-    },
-    "resp": {
-     "error": "job_not_running",
-     "message": "this job is no longer running"
-    }
-   }
-  ],
   "req": null,
   "q": {
    "job": "a3f6789afd46"
@@ -1067,19 +1030,6 @@
   }
  },
  "node-stats": {
-  "errs": [
-   {
-    "status": 400,
-    "req": null,
-    "q": {
-     "id": "nope"
-    },
-    "resp": {
-     "error": "node_not_found",
-     "message": "node not found"
-    }
-   }
-  ],
   "req": null,
   "q": {
    "id": "9eec8c5207"
@@ -1114,17 +1064,6 @@
   }
  },
  "node-test": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {},
-    "q": null,
-    "resp": {
-     "error": "missing_field",
-     "message": "field 'id' is missing"
-    }
-   }
-  ],
   "req": {
    "id": "9eec8c5207"
   },
@@ -1177,19 +1116,6 @@
   }
  },
  "node-ips": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_not_found",
-     "message": "node not found"
-    }
-   }
-  ],
   "req": {
    "id": "9eec8c5207"
   },
@@ -1215,19 +1141,6 @@
   }
  },
  "traffic": {
-  "errs": [
-   {
-    "status": 400,
-    "req": null,
-    "q": {
-     "id": "nope"
-    },
-    "resp": {
-     "error": "node_not_found",
-     "message": "node not found"
-    }
-   }
-  ],
   "req": null,
   "q": {
    "id": "9eec8c5207"
@@ -1245,20 +1158,6 @@
   }
  },
  "node-kernel-tune": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "9eec8c5207",
-     "action": "boom"
-    },
-    "q": null,
-    "resp": {
-     "error": "bad_action",
-     "message": "invalid action"
-    }
-   }
-  ],
   "req": {
    "id": "9eec8c5207",
    "action": "status"
@@ -1273,19 +1172,6 @@
   }
  },
  "update-core": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "ids": []
-    },
-    "q": null,
-    "resp": {
-     "error": "no_nodes",
-     "message": "no node selected"
-    }
-   }
-  ],
   "req": {
    "ids": [
     "9eec8c5207",
@@ -1299,21 +1185,6 @@
   }
  },
  "update-agent": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "ids": [
-      "nope"
-     ]
-    },
-    "q": null,
-    "resp": {
-     "error": "no_nodes",
-     "message": "no node selected"
-    }
-   }
-  ],
   "req": {
    "ids": [
     "9eec8c5207",
@@ -1327,7 +1198,6 @@
   }
  },
  "create-tunnel": {
-  "errs": [],
   "req": {
    "a_node": "9eec8c5207",
    "b_node": "b44a462ab2",
@@ -1348,19 +1218,6 @@
   }
  },
  "check-link": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -1391,19 +1248,6 @@
   }
  },
  "link-speed": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -1420,19 +1264,6 @@
   }
  },
  "link-view": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -1443,19 +1274,6 @@
   }
  },
  "link-rebuild-info": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -1535,20 +1353,6 @@
   }
  },
  "link-tag": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "b486ffa35c33",
-     "tag": 99
-    },
-    "q": null,
-    "resp": {
-     "error": "bad_tag",
-     "message": "invalid tag colour"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33",
    "tag": 2
@@ -1560,23 +1364,6 @@
   }
  },
  "reorder": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "kind": "core",
-     "id": "b486ffa35c33",
-     "targets": [
-      "nope"
-     ]
-    },
-    "q": null,
-    "resp": {
-     "error": "item_not_found",
-     "message": "item not found"
-    }
-   }
-  ],
   "req": {
    "kind": "tunnels",
    "id": "30edc9475d23",
@@ -1590,20 +1377,6 @@
   }
  },
  "edit-link": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope",
-     "type": "core"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "a_node": "9eec8c5207",
    "b_node": "b44a462ab2",
@@ -1625,19 +1398,6 @@
   }
  },
  "link-toggle": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33",
    "enabled": false
@@ -1649,19 +1409,6 @@
   }
  },
  "restart-link": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -1672,19 +1419,6 @@
   }
  },
  "rebuild-link": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -1695,30 +1429,6 @@
   }
  },
  "edge-status": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": ""
-    },
-    "q": null,
-    "resp": {
-     "error": "missing_field",
-     "message": "field 'id' is missing"
-    }
-   }
-  ],
   "req": {
    "id": "b811cef97e0d"
   },
@@ -1773,19 +1483,6 @@
   }
  },
  "peer-status": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "d4b2673f2be9"
   },
@@ -1841,47 +1538,6 @@
   }
  },
  "pool-retest-now": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "b486ffa35c33",
-     "key": "1.1.1.1",
-     "kind": "ip"
-    },
-    "q": null,
-    "resp": {
-     "error": "no_edge_pool",
-     "message": "this link has no edge pool"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": "",
-     "kind": "ip",
-     "key": "10.77.4.3:80"
-    },
-    "q": null,
-    "resp": {
-     "error": "missing_field",
-     "message": "field 'id' is missing"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": "d4b2673f2be9",
-     "kind": "boom",
-     "key": "x"
-    },
-    "q": null,
-    "resp": {
-     "error": "bad_kind",
-     "message": "kind must be ip / sni / dst / src"
-    }
-   }
-  ],
   "req": {
    "id": "b811cef97e0d",
    "kind": "ip",
@@ -1893,34 +1549,6 @@
   }
  },
  "pool-select": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "b486ffa35c33",
-     "key": "1.1.1.1",
-     "kind": "ip"
-    },
-    "q": null,
-    "resp": {
-     "error": "no_edge_pool",
-     "message": "this link has no edge pool"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": "",
-     "kind": "ip",
-     "key": "10.77.4.3:80"
-    },
-    "q": null,
-    "resp": {
-     "error": "missing_field",
-     "message": "field 'id' is missing"
-    }
-   }
-  ],
   "req": {
    "id": "b811cef97e0d",
    "kind": "ip",
@@ -1932,21 +1560,6 @@
   }
  },
  "peer-retest-now": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "b486ffa35c33",
-     "key": "1.1.1.1",
-     "kind": "ip"
-    },
-    "q": null,
-    "resp": {
-     "error": "no_ip_pool",
-     "message": "this link has no IP pool"
-    }
-   }
-  ],
   "req": {
    "id": "d4b2673f2be9",
    "kind": "dst",
@@ -1958,32 +1571,6 @@
   }
  },
  "peer-select": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "b486ffa35c33",
-     "key": "1.1.1.1"
-    },
-    "q": null,
-    "resp": {
-     "error": "no_ip_pool",
-     "message": "this link has no IP pool"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": "",
-     "key": "x"
-    },
-    "q": null,
-    "resp": {
-     "error": "missing_field",
-     "message": "field 'id' is missing"
-    }
-   }
-  ],
   "req": {
    "id": "d4b2673f2be9",
    "key": "10.77.4.3",
@@ -1995,19 +1582,6 @@
   }
  },
  "traffic-reset": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "b486ffa35c33"
   },
@@ -2017,22 +1591,6 @@
   }
  },
  "portfw": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "node": "9eec8c5207",
-     "listen_port": 99999,
-     "dst_ips": "x",
-     "dst_port": 22
-    },
-    "q": null,
-    "resp": {
-     "error": "bad_port",
-     "message": "the listen port must be from 1 to 65535"
-    }
-   }
-  ],
   "req": {
    "node": "9eec8c5207",
    "listen_port": 15000,
@@ -2046,20 +1604,6 @@
   }
  },
  "portfw-edit": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "node": "9eec8c5207",
-     "name": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_failed",
-     "message": "not found"
-    }
-   }
-  ],
   "req": {
    "node": "9eec8c5207",
    "name": "portfw3",
@@ -2072,20 +1616,6 @@
   }
  },
  "portfw-next": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "node": "9eec8c5207",
-     "name": "portfw3"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_failed",
-     "message": "need >=2 destinations to rotate"
-    }
-   }
-  ],
   "req": {
    "node": "9eec8c5207",
    "name": "portfw2"
@@ -2097,21 +1627,6 @@
   }
  },
  "proxy-add": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "scheme": "ftp",
-     "host": "x",
-     "port": 1
-    },
-    "q": null,
-    "resp": {
-     "error": "bad_proxy_scheme",
-     "message": "the proxy type must be socks5 or http"
-    }
-   }
-  ],
   "req": {
    "scheme": "socks5",
    "host": "10.77.2.2",
@@ -2140,22 +1655,6 @@
   }
  },
  "proxy-edit": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope",
-     "scheme": "socks5",
-     "host": "x",
-     "port": 1
-    },
-    "q": null,
-    "resp": {
-     "error": "proxy_not_found",
-     "message": "proxy not found"
-    }
-   }
-  ],
   "req": {
    "id": "31df7202f9",
    "scheme": "socks5",
@@ -2185,32 +1684,6 @@
   }
  },
  "proxy-test": {
-  "errs": [
-   {
-    "status": 200,
-    "req": {
-     "id": "31df7202f9"
-    },
-    "q": null,
-    "resp": {
-     "ok": false,
-     "ms": null,
-     "error": "Connection refused",
-     "ts": 1790276439.4244142
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "proxy_not_found",
-     "message": "proxy not found"
-    }
-   }
-  ],
   "req": {
    "id": "61bd36af2a"
   },
@@ -2224,19 +1697,6 @@
   }
  },
  "proxy-del": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "proxy_not_found",
-     "message": "proxy not found"
-    }
-   }
-  ],
   "req": {
    "id": "31df7202f9"
   },
@@ -2246,22 +1706,6 @@
   }
  },
  "node-edit": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "b44a462ab2",
-     "name": "bad name!",
-     "host": "10.77.4.2",
-     "port": 8099
-    },
-    "q": null,
-    "resp": {
-     "error": "bad_node_name",
-     "message": "invalid node name"
-    }
-   }
-  ],
   "req": {
    "id": "b44a462ab2",
    "name": "N2",
@@ -2275,19 +1719,6 @@
   }
  },
  "node-toggle": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_not_found",
-     "message": "node not found"
-    }
-   }
-  ],
   "req": {
    "id": "b44a462ab2",
    "disabled": true
@@ -2299,30 +1730,6 @@
   }
  },
  "node-adopt-ip": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "9eec8c5207"
-    },
-    "q": null,
-    "resp": {
-     "error": "no_new_address",
-     "message": "no new address is recorded for this node"
-    }
-   },
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_not_found",
-     "message": "node not found"
-    }
-   }
-  ],
   "req": {
    "id": "b44a462ab2"
   },
@@ -2334,22 +1741,6 @@
   }
  },
  "node-add": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "name": "N9",
-     "host": "10.77.9.8",
-     "port": 8099,
-     "token": "********"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_name_taken",
-     "message": "a node named 'N9' already exists — pick a unique name"
-    }
-   }
-  ],
   "req": {
    "name": "N9",
    "host": "10.77.9.9",
@@ -2364,19 +1755,6 @@
   }
  },
  "node-del": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "node_not_found",
-     "message": "node not found"
-    }
-   }
-  ],
   "req": {
    "id": "e72eb01adf",
    "force": true
@@ -2388,7 +1766,6 @@
   }
  },
  "core-check": {
-  "errs": [],
   "req": {},
   "q": null,
   "ok": {
@@ -2401,19 +1778,6 @@
   }
  },
  "core-stage": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "version": "custom"
-    },
-    "q": null,
-    "resp": {
-     "error": "custom_not_stageable",
-     "message": "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)"
-    }
-   }
-  ],
   "req": {
    "version": "latest"
   },
@@ -2426,7 +1790,6 @@
   }
  },
  "core-stage-cancel": {
-  "errs": [],
   "req": {},
   "q": null,
   "ok": {
@@ -2435,7 +1798,6 @@
   }
  },
  "agent-fetch-git": {
-  "errs": [],
   "req": {},
   "q": null,
   "ok": {
@@ -2445,19 +1807,6 @@
   }
  },
  "agent-upload": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "code": "<tnl-node.py>"
-    },
-    "q": null,
-    "resp": {
-     "error": "not_an_agent",
-     "message": "this file is not the node agent"
-    }
-   }
-  ],
   "req": {
    "code": "<tnl-node.py>"
   },
@@ -2469,19 +1818,6 @@
   }
  },
  "core-upload": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "data": "<base64>"
-    },
-    "q": null,
-    "resp": {
-     "error": "core_too_small",
-     "message": "the file is too small — this is not a core binary"
-    }
-   }
-  ],
   "req": {
    "data": "<base64>",
    "name": "tnl-core"
@@ -2495,17 +1831,6 @@
   }
  },
  "core-delete-blob": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {},
-    "q": null,
-    "resp": {
-     "error": "no_custom_core",
-     "message": "no custom core binary is uploaded"
-    }
-   }
-  ],
   "req": {},
   "q": null,
   "ok": {
@@ -2513,19 +1838,6 @@
   }
  },
  "act-cancel": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "act": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "job_not_running",
-     "message": "this job is no longer running"
-    }
-   }
-  ],
   "req": {
    "act": "new:7d19b919"
   },
@@ -2536,17 +1848,6 @@
   }
  },
  "push-cancel": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {},
-    "q": null,
-    "resp": {
-     "error": "job_not_running",
-     "message": "this job is no longer running"
-    }
-   }
-  ],
   "req": {},
   "q": null,
   "ok": {
@@ -2555,17 +1856,6 @@
   }
  },
  "push-pause": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {},
-    "q": null,
-    "resp": {
-     "error": "job_not_running",
-     "message": "this job is no longer running"
-    }
-   }
-  ],
   "req": {},
   "q": null,
   "ok": {
@@ -2575,44 +1865,16 @@
   }
  },
  "portfw-del": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "node": "9eec8c5207",
-     "name": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "portfw_not_found",
-     "message": "node 'N1' has no port forward named 'nope' — stopped so a tunnel with the same name is not deleted"
-    }
-   }
-  ],
   "req": {
    "node": "9eec8c5207",
    "name": "portfw3"
   },
   "q": null,
   "ok": {
-   "ok": true,
-   "msg": ""
+   "ok": true
   }
  },
  "delete-link": {
-  "errs": [
-   {
-    "status": 400,
-    "req": {
-     "id": "nope"
-    },
-    "q": null,
-    "resp": {
-     "error": "tunnel_not_found",
-     "message": "tunnel not found"
-    }
-   }
-  ],
   "req": {
    "id": "30edc9475d23"
   },
@@ -2623,7 +1885,6 @@
   }
  },
  "settings-set": {
-  "errs": [],
   "req": {
    "reconcile_interval": 15
   },
@@ -2662,7 +1923,6 @@
   }
  },
  "api-token-new": {
-  "errs": [],
   "req": {},
   "q": null,
   "ok": {
@@ -2671,7 +1931,6 @@
   }
  },
  "backup": {
-  "errs": [],
   "req": {},
   "q": null,
   "ok": {
@@ -2684,7 +1943,6 @@
   }
  },
  "backup-restore": {
-  "errs": [],
   "req": {
    "data": "<base64>"
   },
@@ -2716,7 +1974,6 @@
   }
  },
  "events-clear": {
-  "errs": [],
   "req": {},
   "q": null,
   "ok": {
@@ -2724,83 +1981,76 @@
   }
  },
  "_generic": {
-  "401": {
-   "status": 401,
-   "resp": {
-    "error": "unauthorized",
-    "message": "unauthorized"
-   }
-  },
-  "401b": {
-   "status": 401,
-   "resp": {
-    "error": "bad_token",
-    "message": "invalid API token"
-   }
-  },
-  "403": {
-   "status": 403,
-   "resp": {
-    "error": "api_disabled",
-    "message": "API is not available"
-   }
-  },
-  "403d": {
-   "status": 403,
-   "resp": {
-    "error": "token_denied",
-    "message": "this endpoint is not available with an API token"
-   }
-  },
-  "404": {
-   "status": 404,
-   "resp": {
-    "error": "unknown_route",
-    "message": "unknown API route"
-   }
-  },
-  "405": {
-   "status": 405,
-   "resp": {
-    "error": "post_only",
-    "message": "this endpoint requires POST"
-   }
-  },
-  "413": {
-   "status": 413,
-   "resp": {
-    "error": "too_large",
-    "message": "request body too large; a core binary is at most 15 MB, a backup 32 MB"
-   }
-  },
-  "500": {
-   "status": 500,
-   "resp": {
-    "error": "store_unknown",
-    "message": "the panel's store (Redis) is unavailable — it is unknown whether this change was saved; when it is back, check the list again"
-   }
-  },
-  "500i": {
-   "status": 500,
-   "resp": {
-    "error": "internal",
-    "message": "internal error"
-   }
-  },
-  "503": {
-   "status": 503,
-   "resp": {
-    "error": "busy",
-    "message": "the panel is busy — try again in a moment"
-   }
-  },
-  "429": {
-   "status": 429,
-   "resp": {
-    "error": "locked",
-    "message": "too many failed attempts from this address; try again in a few minutes"
-   }
-  }
+  "401": [
+   [
+    "unauthorized",
+    "unauthorized"
+   ],
+   [
+    "bad_token",
+    "invalid API token"
+   ]
+  ],
+  "403": [
+   [
+    "api_disabled",
+    "API is not available"
+   ]
+  ],
+  "403d": [
+   [
+    "token_denied",
+    "this endpoint is not available with an API token"
+   ]
+  ],
+  "404": [
+   [
+    "unknown_route",
+    "unknown API route"
+   ]
+  ],
+  "405": [
+   [
+    "post_only",
+    "this endpoint requires POST"
+   ]
+  ],
+  "413": [
+   [
+    "too_large",
+    "request body too large; a core binary is at most 15 MB, a backup 32 MB"
+   ]
+  ],
+  "429": [
+   [
+    "locked",
+    "too many failed attempts from this address; try again in a few minutes"
+   ]
+  ],
+  "500": [
+   [
+    "store_unavailable",
+    "the panel's store (Redis) is unavailable …"
+   ],
+   [
+    "store_unknown",
+    "the panel's store (Redis) is unavailable — it is unknown whether this change was saved; when it is back, check the list again"
+   ],
+   [
+    "store_error",
+    "…"
+   ],
+   [
+    "internal",
+    "internal error"
+   ]
+  ],
+  "503": [
+   [
+    "busy",
+    "the panel is busy — try again in a moment"
+   ]
+  ]
  },
  "_acts": {
   "run": {
@@ -2813,7 +2063,8 @@
    "si": 0,
    "sn": 4,
    "pct": 0,
-   "err": "",
+   "code": "",
+   "error": "",
    "note": "",
    "offer": "",
    "can": true,
@@ -2830,7 +2081,8 @@
    "si": 4,
    "sn": 4,
    "pct": 100,
-   "err": "",
+   "code": "",
+   "error": "",
    "note": "",
    "offer": "",
    "can": false,
@@ -2847,7 +2099,8 @@
    "si": 0,
    "sn": 4,
    "pct": 0,
-   "err": "the two ends of a tunnel must be two different nodes",
+   "code": "same_node",
+   "error": "the two ends of a tunnel must be two different nodes",
    "note": "",
    "offer": "",
    "can": true,

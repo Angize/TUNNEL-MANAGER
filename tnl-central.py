@@ -187,13 +187,30 @@ def _no_job():
     return Bad("job_not_running", "این کار دیگر در جریان نیست", "this job is no longer running")
 
 
+def _ends_gone():
+    return Bad("node_not_found", "یکی از نودهای این تونل دیگر در پنل ثبت نیست", "one of this tunnel's nodes is no longer registered")
+
+
+def _no_custom_core():
+    return Bad("no_custom_core", "هیچ باینریِ سفارشی‌ای بارگذاری نشده", "no custom core binary is uploaded")
+
+
+_FAILED = tx("ناموفق", "failed")
+
+
 def _why(e):
     t = e.args[0] if len(e.args) == 1 else None
     return t if isinstance(t, Tx) else Tx(str(e), str(e))
 
 
 def _code(e):
-    return e.code if isinstance(e, Bad) else "invalid_request"
+    if isinstance(e, (Bad, RegistryError)):
+        return e.code
+    return "invalid_request" if isinstance(e, ValueError) else "internal"
+
+
+def _err_en(e):
+    return {"code": _code(e), "error": _why(e).en}
 
 
 def _en_out(v):
@@ -228,6 +245,13 @@ def _num_or(v, bad):
         return float(str(v).strip())
     except ValueError:
         raise bad from None
+
+
+def _int_in(v, lo, hi, bad):
+    n = _int_or(v, bad)
+    if not lo <= n <= hi:
+        raise bad
+    return n
 
 
 def _bad_tunnel_port():
@@ -826,12 +850,12 @@ _TUNING_LIST_KEYS = ("suspect_backoff", "ladder_revive")
 _TUNING_LIST_RANGES = {"suspect_backoff": (BACKOFF_STEP_MIN, BACKOFF_STEP_MAX),
                        "ladder_revive": (REVIVE_STEP_MIN, REVIVE_STEP_MAX)}
 _PROBE_SAMPLES = 20
-_TUNING_STEPS = {"probe_min_pct": (5, tx("حداقلِ بسته‌های برگشتی", "minimum returned packets"))}
 _TUNING_LIST_LABELS = {"suspect_backoff": tx("زمان‌بندیِ تستِ مجددِ موقت‌سوخته", "retest schedule of a suspect IP"),
                        "ladder_revive": tx("صبر پیش از تلاشِ دوبارهٔ نردبان", "wait before the ladder tries again")}
 _TUNING_NUM_LABELS = {"dead_retest_secs": tx("تستِ مجددِ آی‌پیِ سوخته", "retest of a dead IP"),
                       "probe_min_pct": tx("حداقلِ بسته‌های برگشتی", "minimum returned packets"),
                       "sock_buf_mb": tx("بافرِ سوکت", "socket buffer")}
+_TUNING_STEPS = {"probe_min_pct": (5, _TUNING_NUM_LABELS["probe_min_pct"])}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "probe_min_pct": (5, 100),
@@ -1011,7 +1035,7 @@ def validate_settings(d):
         bad = sorted(picked - set(EV_TYPE_GROUP))
         if bad:
             raise Bad("unknown_event_type", "این نوعِ رویداد را نمی‌شناسم: {0}", "unknown event type: {0}", bad)
-        out["log_hidden"] = [t for t, _g, _fa in EV_TYPES if t in picked]
+        out["log_hidden"] = [t for t, _g, _label in EV_TYPES if t in picked]
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
     return out
@@ -1393,12 +1417,18 @@ def _client_node(L):
     return get_node(_node_id_of(L, "cli"))
 
 
+_PX_CLOSED = tx("پروکسی اتصال را بست", "the proxy closed the connection")
+_PX_WANTS_AUTH = tx("پروکسی یوزر/پسورد می‌خواهد", "the proxy wants a username and password")
+_PX_BAD_AUTH = tx("یوزر/پسوردِ پروکسی پذیرفته نشد", "the proxy rejected the username and password")
+_PX_BAD_METHOD = tx("پروکسی روشِ احرازِ ما را نپذیرفت", "the proxy rejected our authentication method")
+
+
 def _recvn(s, n):
     buf = b""
     while len(buf) < n:
         c = s.recv(n - len(buf))
         if not c:
-            raise OSError(tx("پروکسی اتصال را بست", "the proxy closed the connection"))
+            raise OSError(_PX_CLOSED)
         buf += c
     return buf
 
@@ -1411,13 +1441,13 @@ def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
         _, method = _recvn(s, 2)
         if method == 2:
             if not pu:
-                raise OSError(tx("پروکسی یوزر/پسورد می‌خواهد", "the proxy wants a username and password"))
+                raise OSError(_PX_WANTS_AUTH)
             u, w = pu.encode(), (pw or "").encode()
             s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
             if _recvn(s, 2)[1] != 0:
-                raise OSError(tx("یوزر/پسوردِ پروکسی پذیرفته نشد", "the proxy rejected the username and password"))
+                raise OSError(_PX_BAD_AUTH)
         elif method != 0:
-            raise OSError(tx("پروکسی روشِ احرازِ ما را نپذیرفت", "the proxy rejected our authentication method"))
+            raise OSError(_PX_BAD_METHOD)
         try:
             addr = b"\x01" + socket.inet_aton(dh)
         except OSError:
@@ -1449,7 +1479,7 @@ def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
         while b"\r\n\r\n" not in buf:
             c = s.recv(4096)
             if not c:
-                raise OSError(tx("پروکسی اتصال را بست", "the proxy closed the connection"))
+                raise OSError(_PX_CLOSED)
             buf += c
             if len(buf) > 65536:
                 raise OSError(tx("پاسخِ پروکسی بیش از حد بزرگ است", "the proxy's answer is too large"))
@@ -1510,6 +1540,14 @@ def _net_why(e):
     return str(getattr(e, "strerror", None) or e)
 
 
+_NODE_CUT = tx("نود وسطِ ارسال اتصال را بست", "the node closed the connection during the upload")
+_NODE_UNREADABLE = tx("پاسخِ نود قابلِ خواندن نبود", "the node's answer could not be read")
+
+
+def _node_http(status):
+    return {"ok": False, "error": tx("پاسخِ HTTP {0} از نود", "HTTP {0} answer from the node", status)}
+
+
 def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True):
     dh, dp = node["host"], int(node["port"])
     sock = None
@@ -1535,7 +1573,7 @@ def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True
         try:
             out = json.loads(raw.decode())
         except Exception:
-            return {"ok": False, "error": tx("پاسخِ HTTP {0} از نود", "HTTP {0} answer from the node", status)}
+            return _node_http(status)
         if _retry and _stale_ctr(node, out):
             return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
         return out
@@ -1678,8 +1716,7 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
             if not _resp_verified(node, ctr, r.status, raw, r.headers.get("X-Resp-Sig", "")):
                 return _unsigned_reply()
             out = json.loads(raw.decode())
-            return out if isinstance(out, dict) else {"ok": False, "error": tx("پاسخِ نود قابلِ خواندن نبود",
-                                                                               "the node's answer could not be read")}
+            return out if isinstance(out, dict) else {"ok": False, "error": _NODE_UNREADABLE}
     except urllib.error.HTTPError as e:
         raw = e.read()
         if not _resp_verified(node, ctr, e.code, raw, e.headers.get("X-Resp-Sig", "")):
@@ -1687,9 +1724,9 @@ def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
         try:
             out = json.loads(raw.decode())
         except Exception:
-            return {"ok": False, "error": tx("پاسخِ HTTP {0} از نود", "HTTP {0} answer from the node", e.code)}
+            out = None
         if not isinstance(out, dict):
-            return {"ok": False, "error": tx("پاسخِ HTTP {0} از نود", "HTTP {0} answer from the node", e.code)}
+            return _node_http(e.code)
         if _retry and _stale_ctr(node, out):
             return node_call(node, endpoint, method, body, timeout, _retry=False)
         return out
@@ -1727,11 +1764,11 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             if select.select([sock], [], [], 0)[0]:
                 pre = sock.recv(65536)
                 if not pre:
-                    raise OSError(tx("نود وسطِ ارسال اتصال را بست", "the node closed the connection during the upload"))
+                    raise OSError(_NODE_CUT)
                 break
             n = sock.send(data[sent:sent + chunk])
             if not n:
-                raise OSError(tx("نود وسطِ ارسال اتصال را بست", "the node closed the connection during the upload"))
+                raise OSError(_NODE_CUT)
             sent += n
             if on_progress:
                 on_progress(sent, total)
@@ -1769,7 +1806,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         except Exception:
             return {"ok": False, "error": tx("HTTP {0} از نود", "HTTP {0} from the node", status)}
         if not isinstance(out, dict):
-            return {"ok": False, "error": tx("پاسخِ نود قابلِ خواندن نبود", "the node's answer could not be read")}
+            return {"ok": False, "error": _NODE_UNREADABLE}
         if _retry and _stale_ctr(node, out):
             return node_push(node, endpoint, body, on_progress, timeout, chunk, should_abort,
                              _retry=False)
@@ -2035,16 +2072,16 @@ def _proxy_probe(p, timeout=6):
             while len(head) < 2:
                 c = s.recv(2 - len(head))
                 if not c:
-                    raise OSError(tx("پروکسی اتصال را بست", "the proxy closed the connection"))
+                    raise OSError(_PX_CLOSED)
                 head += c
             if head[0:1] != b"\x05":
                 raise OSError(tx("پاسخِ پروکسی SOCKS5 نیست", "the proxy's answer is not SOCKS5"))
             method = head[1]
             if method == 0xFF:
-                raise OSError(tx("پروکسی روشِ احرازِ ما را نپذیرفت", "the proxy rejected our authentication method"))
+                raise OSError(_PX_BAD_METHOD)
             if method == 2:
                 if not user:
-                    raise OSError(tx("پروکسی یوزر/پسورد می‌خواهد", "the proxy wants a username and password"))
+                    raise OSError(_PX_WANTS_AUTH)
                 u, w = user.encode(), pw.encode()
                 s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
                 ares = b""
@@ -2054,7 +2091,7 @@ def _proxy_probe(p, timeout=6):
                         raise OSError(tx("پروکسی هنگامِ احراز اتصال را بست", "the proxy closed the connection during authentication"))
                     ares += c
                 if ares[1] != 0:
-                    raise OSError(tx("یوزر/پسوردِ پروکسی پذیرفته نشد", "the proxy rejected the username and password"))
+                    raise OSError(_PX_BAD_AUTH)
         else:
             s.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n" % (host, port, host, port)).encode()
                       + ((b"Proxy-Authorization: Basic "
@@ -2074,7 +2111,7 @@ def _proxy_probe(p, timeout=6):
             if code == "407":
                 raise OSError(tx("یوزر/پسوردِ پروکسی پذیرفته نشد (407)", "the proxy rejected the username and password (407)"))
     except Exception as e:
-        return {"ok": False, "ms": None, "error": tx_cut(_net_why(e), 90), "ts": time.time()}
+        return {"ok": False, "ms": None, "code": "proxy_unreachable", "error": tx_cut(_net_why(e), 90), "ts": time.time()}
     finally:
         if s is not None:
             try:
@@ -2150,7 +2187,7 @@ def _proxy_relay(p, timeout=6):
         s = _proxy_socket(proxy_url(p), addr[0], addr[1], timeout)
         _echo_over(s, addr[0], addr[1], timeout)
     except Exception as e:
-        return {"ok": False, "skipped": False, "ts": time.time(),
+        return {"ok": False, "skipped": False, "ts": time.time(), "code": "proxy_no_relay",
                 "error": tx("پروکسی عبور نمی‌دهد — {0}", "the proxy does not relay — {0}", tx_cut(_net_why(e), 60))}
     finally:
         if s is not None:
@@ -2176,7 +2213,7 @@ def _proxy_reach(p, timeout=8):
         if code not in (200, 204):
             raise OSError("HTTP %d" % code)
     except Exception as e:
-        return {"ok": False, "ms": None, "ts": time.time(),
+        return {"ok": False, "ms": None, "ts": time.time(), "code": "proxy_no_reach",
                 "error": tx("از پروکسی به گوگل نرسید — {0}", "could not reach Google through the proxy — {0}",
                             tx_cut(_net_why(e), 60))}
     finally:
@@ -2210,10 +2247,10 @@ def _px_deep(p, st, fresh=False):
         return st
     relay = _px_cached(_px_relay, p, PX_RELAY_GAP, _proxy_relay, fresh)
     if not (relay.get("skipped") or relay.get("ok")):
-        return {**st, "ok": False, "error": relay["error"]}
+        return {**st, "ok": False, "code": relay["code"], "error": relay["error"]}
     reach = _px_cached(_px_reach, p, PX_REACH_GAP, _proxy_reach, fresh)
     if not reach.get("ok"):
-        return {**st, "ok": False, "error": reach["error"]}
+        return {**st, "ok": False, "code": reach["code"], "error": reach["error"]}
     return {**st, "reach": reach["ms"]}
 
 
@@ -3229,17 +3266,35 @@ def _node_token(value):
     return token
 
 
-def api_node_add(d):
-    _require(d, ["name", "host", "port", "token"])
-    name = str(d["name"]).strip()
+def _node_name(v):
+    name = str(v).strip()
     if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
         raise Bad("bad_node_name", "نامِ نود نامعتبر است", "invalid node name")
-    host = str(d["host"]).strip()
+    return name
+
+
+def _node_host(v):
+    host = str(v).strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
         raise Bad("bad_node_host", "آی‌پی یا هاستِ نود نامعتبر است", "invalid node IP or host")
-    port = _int_or(d["port"], Bad("bad_port", "پورت نامعتبر است", "invalid port"))
-    if not 1 <= port <= 65535:
-        raise Bad("bad_port", "پورت نامعتبر است", "invalid port")
+    return host
+
+
+def _node_port(v):
+    return _int_in(v, 1, 65535, Bad("bad_port", "پورت نامعتبر است", "invalid port"))
+
+
+def _node_unique(nodes, name, host):
+    if _name_taken(nodes, name):
+        raise Bad("node_name_taken", "نودی با نامِ «{0}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن",
+                  "a node named '{0}' already exists — pick a unique name", name)
+    if _host_taken(nodes, host):
+        raise Bad("node_host_taken", "نودی با آی‌پیِ «{0}» از قبل وجود دارد", "a node with IP '{0}' already exists", host)
+
+
+def api_node_add(d):
+    _require(d, ["name", "host", "port", "token"])
+    name, host, port = _node_name(d["name"]), _node_host(d["host"]), _node_port(d["port"])
     token = _node_token(d["token"])
     if not token:
         raise Bad("token_missing", "توکن لازم است", "a token is required")
@@ -3247,12 +3302,7 @@ def api_node_add(d):
         pon, pid = valid_proxy_ref(d)
         node = {"id": secrets.token_hex(5), "name": name, "host": host, "port": port, "token": token,
                 "proxy_on": pon, "proxy_id": pid}
-        nodes = load_nodes()
-        if _name_taken(nodes, name):
-            raise Bad("node_name_taken", "نودی با نامِ «{0}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن",
-                      "a node named '{0}' already exists — pick a unique name", name)
-        if _host_taken(nodes, host):
-            raise Bad("node_host_taken", "نودی با آی‌پیِ «{0}» از قبل وجود دارد", "a node with IP '{0}' already exists", host)
+        _node_unique(load_nodes(), name, host)
         with store_tx() as t:
             t.put(_NODES, node)
     threading.Thread(target=_node_first_contact, args=(node,), daemon=True).start()
@@ -3581,27 +3631,14 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
 def api_node_install(d):
     _gate_ready(True)
     _require(d, ["name", "ssh_host"])
-    name = str(d["name"]).strip()
-    if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
-        raise Bad("bad_node_name", "نامِ نود نامعتبر است", "invalid node name")
-    host = str(d["ssh_host"]).strip()
-    if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
-        raise Bad("bad_node_host", "آی‌پی یا هاستِ نود نامعتبر است", "invalid node IP or host")
-    _exist = load_nodes()
-    if _name_taken(_exist, name):
-        raise Bad("node_name_taken", "نودی با نامِ «{0}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن",
-                  "a node named '{0}' already exists — pick a unique name", name)
-    if _host_taken(_exist, host):
-        raise Bad("node_host_taken", "نودی با آی‌پیِ «{0}» از قبل وجود دارد", "a node with IP '{0}' already exists", host)
-    ssh_port = _int_or(d.get("ssh_port") or 22, Bad("bad_ssh_port", "پورتِ SSH نامعتبر است", "invalid SSH port"))
-    if not 1 <= ssh_port <= 65535:
-        raise Bad("bad_ssh_port", "پورتِ SSH نامعتبر است", "invalid SSH port")
+    name, host = _node_name(d["name"]), _node_host(d["ssh_host"])
+    _node_unique(load_nodes(), name, host)
+    ssh_port = _int_in(d.get("ssh_port") or 22, 1, 65535, Bad("bad_ssh_port", "پورتِ SSH نامعتبر است", "invalid SSH port"))
     user = str(d.get("ssh_user") or "root").strip()
     if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", user):
         raise Bad("bad_ssh_user", "کاربرِ SSH نامعتبر است", "invalid SSH user")
-    agent_port = _int_or(d.get("agent_port") or 8099, Bad("bad_agent_port", "پورتِ ایجنت نامعتبر است", "invalid agent port"))
-    if not 1 <= agent_port <= 65535:
-        raise Bad("bad_agent_port", "پورتِ ایجنت نامعتبر است", "invalid agent port")
+    agent_port = _int_in(d.get("agent_port") or 8099, 1, 65535,
+                         Bad("bad_agent_port", "پورتِ ایجنت نامعتبر است", "invalid agent port"))
     pon, pid = valid_proxy_ref(d)
     password = str(d.get("ssh_pass") or "")
     key = str(d.get("ssh_key") or "").strip()
@@ -3643,15 +3680,7 @@ def api_node_install_status(d):
 
 def api_node_edit(d):
     _require(d, ["id", "name", "host", "port"])
-    name = str(d["name"]).strip()
-    if not re.match(r"^[A-Za-z0-9 _.-]{1,40}$", name):
-        raise Bad("bad_node_name", "نامِ نود نامعتبر است", "invalid node name")
-    host = str(d["host"]).strip()
-    if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
-        raise Bad("bad_node_host", "آی‌پی یا هاستِ نود نامعتبر است", "invalid node IP or host")
-    port = _int_or(d["port"], Bad("bad_port", "پورت نامعتبر است", "invalid port"))
-    if not 1 <= port <= 65535:
-        raise Bad("bad_port", "پورت نامعتبر است", "invalid port")
+    name, host, port = _node_name(d["name"]), _node_host(d["host"]), _node_port(d["port"])
     token = _node_token(d.get("token"))
     with _reg_lock:
         pon, pid = valid_proxy_ref(d)
@@ -3767,9 +3796,9 @@ def api_node_test(d):
         raise _no_node()
     t0 = time.perf_counter()
     p = node_call(n, "ping", "GET")
-    if p.get("ok"):
-        p = {**p, "rtt_ms": int((time.perf_counter() - t0) * 1000)}
-    return {"ok": bool(p.get("ok")), "info": p}
+    if not p.get("ok"):
+        return {**_node_soft(p, "unreachable"), "info": p}
+    return {"ok": True, "info": {**p, "rtt_ms": int((time.perf_counter() - t0) * 1000)}}
 
 
 def api_node_adopt_ip(d):
@@ -3817,7 +3846,7 @@ def api_node_kernel_tune(d):
         raise Bad("bad_action", "عملیاتِ نامعتبر", "invalid action")
     p = node_call(n, "kernel-tune", "POST", {"action": action}, timeout=15)
     if not p.get("ok"):
-        return {"ok": False, "error": p.get("error", "unreachable")}
+        return _node_soft(p, "unreachable")
     return {"ok": True, "active": bool(p.get("active")), "cc": str(p.get("cc") or ""),
             "qdisc": str(p.get("qdisc") or ""), "bbr_available": bool(p.get("bbr_available"))}
 
@@ -4527,7 +4556,7 @@ def api_update_core(d):
     if version == "custom":
         blob = _core_blob_bytes()
         if not blob:
-            raise Bad("no_custom_core", "هیچ باینریِ سفارشی‌ای بارگذاری نشده", "no custom core binary is uploaded")
+            raise _no_custom_core()
         _core_delivery_check(_delivery_mode("core"), True)
         raw, sha = blob
         b64 = base64.b64encode(raw).decode()
@@ -4670,7 +4699,7 @@ def api_core_delete_blob(d):
             except FileNotFoundError:
                 pass
     if not gone:
-        raise Bad("no_custom_core", "هیچ باینریِ سفارشی‌ای بارگذاری نشده", "no custom core binary is uploaded")
+        raise _no_custom_core()
     return {"ok": True}
 
 
@@ -4680,7 +4709,8 @@ def api_core_check(d):
     try:
         vers = _fetch_core_versions()
     except Exception as e:
-        return {"ok": False, "error": tx("دریافت از گیت‌هاب ناموفق: {0}", "download from GitHub failed: {0}", _gh_why(e))}
+        return {"ok": False, "code": "github_failed",
+                "error": tx("دریافت از گیت‌هاب ناموفق: {0}", "download from GitHub failed: {0}", _gh_why(e))}
     with _core_versions_lock:
         _core_versions_cache["data"] = vers
         _core_versions_cache["ts"] = time.time()
@@ -4858,9 +4888,13 @@ def _dl(url, timeout, on_progress=None, should_abort=None):
     return _gh_get(url, timeout, on_progress=on_progress, should_abort=should_abort)
 
 
-def _release_asset_url(version, arch):
+def _check_arch(arch):
     if arch not in CORE_ARCHES:
         raise Bad("bad_arch", "معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است", "invalid architecture — only amd64 or arm64")
+
+
+def _release_asset_url(version, arch):
+    _check_arch(arch)
     asset = f"tnl-core-linux-{arch}"
     return (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
@@ -4969,8 +5003,7 @@ def _stage_purge(version):
 
 
 def _staged_bytes(arch):
-    if arch not in CORE_ARCHES:
-        raise Bad("bad_arch", "معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است", "invalid architecture — only amd64 or arm64")
+    _check_arch(arch)
     info = _staged_info()
     if not info:
         return None
@@ -5062,7 +5095,7 @@ def _node_tunnel(node, body):
 
 
 _stage_job = {"id": "", "version": "", "sent": 0, "total": 0, "done": True, "cancel": False,
-              "err": "", "arches": [], "missing": []}
+              "code": "", "error": "", "arches": [], "missing": []}
 _stage_job_lock = threading.Lock()
 
 
@@ -5071,7 +5104,7 @@ def _stage_job_view():
         j = dict(_stage_job)
     pct = int(100 * j["sent"] / j["total"]) if j["total"] else 0
     return {"ok": True, "job": j["id"], "version": j["version"], "done": j["done"],
-            "cancel": j["cancel"], "err": j["err"], "arches": j["arches"], "missing": j["missing"],
+            "cancel": j["cancel"], "code": j["code"], "error": j["error"], "arches": j["arches"], "missing": j["missing"],
             "pct": max(0, min(100, pct))}
 
 
@@ -5091,10 +5124,10 @@ def _stage_run(version):
                               missing=info["missing"], sent=1, total=1)
     except _Cancelled:
         with _stage_job_lock:
-            _stage_job["err"] = tx("لغو شد", "cancelled")
+            _stage_job.update(code="cancelled", error=tx("لغو شد", "cancelled"))
     except Exception as e:
         with _stage_job_lock:
-            _stage_job["err"] = _gh_why(e)
+            _stage_job.update(code="download_failed", error=_gh_why(e))
     finally:
         with _stage_job_lock:
             _stage_job["done"] = True
@@ -5113,7 +5146,7 @@ def api_core_stage(d):
             raise Bad("download_running", "یک دانلود همین حالا در جریان است — صبر کن یا لغوش کن",
                       "a download is already running — wait or cancel it")
         _stage_job.update(id=secrets.token_hex(6), version=version, sent=0, total=0, done=False,
-                          cancel=False, err="", arches=[], missing=[])
+                          cancel=False, code="", error="", arches=[], missing=[])
         jid = _stage_job["id"]
     threading.Thread(target=_stage_run, args=(version,), daemon=True).start()
     return {"ok": True, "meta_only": False, "done": False, "job": jid}
@@ -5413,12 +5446,12 @@ def _fec_fields(d, transport, cur=None):
     if not fec:
         return out
     out["fec"] = True
-    fec_msg = Bad("bad_fec", "مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥1، مجموع ≤255)",
+    fec_bad = Bad("bad_fec", "مقادیرِ FEC نامعتبر است (داده و پریتی هر کدام ≥1، مجموع ≤255)",
                   "invalid FEC values (data and parity each ≥1, sum ≤255)")
-    fd = _int_or(d.get("fec_data") or cur.get("fec_data") or 16, fec_msg)
-    fp = _int_or(d.get("fec_parity") or cur.get("fec_parity") or 4, fec_msg)
+    fd = _int_or(d.get("fec_data") or cur.get("fec_data") or 16, fec_bad)
+    fp = _int_or(d.get("fec_parity") or cur.get("fec_parity") or 4, fec_bad)
     if fd < 1 or fp < 1 or fd + fp > 255:
-        raise fec_msg
+        raise fec_bad
     if fd > 64:
         raise Bad("bad_fec", "دادهٔ FEC حداکثر 64 است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)",
                   "FEC data is at most 64 — above that a rebuilt frame falls outside the receiver's anti-replay window "
@@ -5440,16 +5473,12 @@ def _desync_fields(d, shape, cur=None, is_http=False):
     if not on:
         return out
     out["fake_desync"] = True
-    ttl_bad = Bad("bad_fake_ttl", "TTL طعمه باید بین 1 تا 255 باشد", "the decoy TTL must be from 1 to 255")
-    ttl = _int_or(d.get("fake_ttl") or cur.get("fake_ttl") or 4, ttl_bad)
-    if ttl < 1 or ttl > 255:
-        raise ttl_bad
+    ttl = _int_in(d.get("fake_ttl") or cur.get("fake_ttl") or 4, 1, 255,
+                  Bad("bad_fake_ttl", "TTL طعمه باید بین 1 تا 255 باشد", "the decoy TTL must be from 1 to 255"))
     if _shape_consumes("fake_ttl", *shape):
         out["fake_ttl"] = min(ttl, DESYNC_INJECT_TTL_MAX)
-    cnt_bad = Bad("bad_fake_count", "تعدادِ طعمه باید بین 1 تا 64 باشد", "the decoy count must be from 1 to 64")
-    cnt = _int_or(d.get("fake_count") or cur.get("fake_count") or 2, cnt_bad)
-    if cnt < 1 or cnt > 64:
-        raise cnt_bad
+    cnt = _int_in(d.get("fake_count") or cur.get("fake_count") or 2, 1, 64,
+                  Bad("bad_fake_count", "تعدادِ طعمه باید بین 1 تا 64 باشد", "the decoy count must be from 1 to 64"))
     out["fake_count"] = cnt
     mode = str(d.get("fake_mode") or cur.get("fake_mode") or "ttl").strip().lower()
     if mode not in ("ttl", "badsum", "both"):
@@ -5642,11 +5671,9 @@ def _sni_split_fields(d, cur, ech=False):
     on = d.get("sni_split") if ("sni_split" in d) else cur.get("sni_split")
     if not on:
         return {}
-    split_msg = Bad("bad_split_pos", "split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)",
-                    "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)")
-    sp = _int_or((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0, split_msg)
-    if sp < 0 or sp > 1400:
-        raise split_msg
+    sp = _int_in((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0, 0, 1400,
+                 Bad("bad_split_pos", "split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)",
+                     "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)"))
     if ech and not sp:
         raise Bad("split_needs_pos", "با ECH روشن نامِ دامنه در ClientHello رمز است، پس نقطهٔ برشِ خودکار پیدا نمی‌شود و هیچ چیزی تکه نمی‌شود — یا «نقطهٔ برش» را دستی بگذار یا تقسیمِ SNI را خاموش کن",
                   "with ECH on, the domain in the ClientHello is encrypted, so no automatic split point is found and "
@@ -5660,12 +5687,10 @@ def _sni_split_fields(d, cur, ech=False):
     if mode != "split":
         out["sni_mode"] = mode
     if mode == "disorder":
-        ttl_msg = Bad("bad_split_ttl", "split_ttl باید بین 0 تا {0} باشد (0 = پیش‌فرض)؛ بالاتر از آن سگمنتِ سرْ به سرور می‌رسد و disorder بی‌اثر می‌شود",
-                      "split_ttl must be from 0 to {0} (0 = default); above that the head segment reaches the server "
-                      "and disorder has no effect", SPLIT_TTL_MAX)
-        st = _int_or((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0, ttl_msg)
-        if st < 0 or st > SPLIT_TTL_MAX:
-            raise ttl_msg
+        st = _int_in((d.get("split_ttl") if "split_ttl" in d else cur.get("split_ttl")) or 0, 0, SPLIT_TTL_MAX,
+                     Bad("bad_split_ttl", "split_ttl باید بین 0 تا {0} باشد (0 = پیش‌فرض)؛ بالاتر از آن سگمنتِ سرْ به سرور می‌رسد و disorder بی‌اثر می‌شود",
+                         "split_ttl must be from 0 to {0} (0 = default); above that the head segment reaches the server "
+                         "and disorder has no effect", SPLIT_TTL_MAX))
         if st:
             out["split_ttl"] = st
     return out
@@ -6183,29 +6208,56 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
 
 
 CREATE_STEPS = 4
+_STEP_READ = tx("خواندنِ وضعیتِ دو نود", "reading both nodes")
+
+
+def _step_build(N):
+    return tx("ساخت روی نودِ «{0}»", "building on node '{0}'", N["name"])
+
+
+def _node_failed(N, r, tail=""):
+    return Bad("node_failed", "نودِ «{0}»: {1}{2}", "node '{0}': {1}{2}", N["name"], r.get("error") or r.get("msg"), tail)
+
+
+def _tunnel_type(d):
+    if d["type"] not in TYPES:
+        raise Bad("bad_type", "نوعِ تونل نامعتبر است", "invalid tunnel type")
+    return d["type"]
+
+
+def _distinct_ends(A, B):
+    if A["id"] == B["id"]:
+        raise Bad("same_node", "دو سرِ تونل باید دو نودِ متفاوت باشند", "the two ends of a tunnel must be two different nodes")
+
+
+def _want_ip(d, key, N, ips):
+    want = str(d.get(key) or "").strip()
+    if want and want not in ips:
+        raise Bad("ip_not_on_node", "آی‌پیِ «{0}» روی نودِ «{1}» نیست", "IP '{0}' is not on node '{1}'", want, N["name"])
+    return want
+
+
+def _subnet_prefix(d):
+    s = str(d.get("subnet") or "").strip()
+    if s and "/" not in s:
+        raise Bad("subnet_needs_prefix", "سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24",
+                  "the subnet needs a prefix — for example 192.168.9.0/24")
 
 
 def _create_tunnel_impl(d, h):
-    act_step(h, tx("خواندنِ وضعیتِ دو نود", "reading both nodes"), 0, CREATE_STEPS)
+    act_step(h, _STEP_READ, 0, CREATE_STEPS)
     _require(d, ["a_node", "b_node", "type"])
     A, B = get_node(d["a_node"]), get_node(d["b_node"])
     if not A or not B:
         raise _no_node()
-    if A["id"] == B["id"]:
-        raise Bad("same_node", "دو سرِ تونل باید دو نودِ متفاوت باشند", "the two ends of a tunnel must be two different nodes")
-    ttype = d["type"]
-    if ttype not in TYPES:
-        raise Bad("bad_type", "نوعِ تونل نامعتبر است", "invalid tunnel type")
+    _distinct_ends(A, B)
+    ttype = _tunnel_type(d)
     if ttype == "core":
         _gate_ready(False)
     pa, pb = _ping_both(A, B)
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
-    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()
-    if want_a and want_a not in a_ips:
-        raise Bad("ip_not_on_node", "آی‌پیِ «{0}» روی نودِ «{1}» نیست", "IP '{0}' is not on node '{1}'", want_a, A["name"])
-    if want_b and want_b not in b_ips:
-        raise Bad("ip_not_on_node", "آی‌پیِ «{0}» روی نودِ «{1}» نیست", "IP '{0}' is not on node '{1}'", want_b, B["name"])
+    want_a, want_b = _want_ip(d, "a_ip", A, a_ips), _want_ip(d, "b_ip", B, b_ips)
     a_ip = want_a or (a_ips[0] if a_ips else None)
     b_ip = want_b or (b_ips[0] if b_ips else None)
     _guard_ends(A, B, a_ip, b_ip, ttype)
@@ -6242,10 +6294,7 @@ def _create_tunnel_impl(d, h):
         raise Bad("tunnel_id_busy", "شناسهٔ {0} همین الان دارد روی جفتِ دیگری ساخته می‌شود — "
                   "چند لحظه بعد دوباره بزن",
                   "id {0} is being built on another pair right now — try again in a moment", tid)
-    _cs = str(d.get("subnet") or "").strip()
-    if _cs and "/" not in _cs:
-        raise Bad("subnet_needs_prefix", "سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24",
-                  "the subnet needs a prefix — for example 192.168.9.0/24")
+    _subnet_prefix(d)
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
     name = tunnel_name(ttype, tid)
     _name_hold(h["key"], (A["id"], B["id"]), name)
@@ -6253,14 +6302,10 @@ def _create_tunnel_impl(d, h):
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}
     if _needs_tunnel_port(ttype, d, {}):
-        port = _int_or(d.get("port") or 0, _bad_tunnel_port()) or free_tunnel_port(A, B)
-        if not 1 <= port <= 65535:
-            raise _bad_tunnel_port()
+        port = _int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port()) or free_tunnel_port(A, B)
         extra["port"] = port
     if ttype == "vxlan":
-        port = _int_or(d.get("port") or 4789, _bad_tunnel_port())
-        if not 1 <= port <= 65535:
-            raise _bad_tunnel_port()
+        port = _int_in(d.get("port") or 4789, 1, 65535, _bad_tunnel_port())
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = secrets.token_hex(32)
@@ -6283,21 +6328,20 @@ def _create_tunnel_impl(d, h):
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
-    act_step(h, tx("ساخت روی نودِ «{0}»", "building on node '{0}'", A["name"]), 1, CREATE_STEPS)
+    act_step(h, _step_build(A), 1, CREATE_STEPS)
     ra = _node_tunnel(A, a_body)
     if not ra.get("ok"):
         tail = _drop_tunnel_from([A], name)
-        raise Bad("node_failed", "نودِ «{0}»: {1}{2}", "node '{0}': {1}{2}", A["name"], ra.get("error") or ra.get("msg"), tail)
+        raise _node_failed(A, ra, tail)
     try:
-        act_step(h, tx("ساخت روی نودِ «{0}»", "building on node '{0}'", B["name"]), 2, CREATE_STEPS, more=False)
+        act_step(h, _step_build(B), 2, CREATE_STEPS, more=False)
     except ActCancelled:
         _drop_tunnel_from([A], name)
         raise
     rb = _node_tunnel(B, b_body)
     if not rb.get("ok"):
         tail = _drop_tunnel_from(_node_set(A, B), name)
-        raise Bad("node_failed", "نودِ «{0}»: {1}{2}", "node '{0}': {1}{2}", B["name"], rb.get("error") or rb.get("msg"),
-                  tail or _HALF_UNDONE)
+        raise _node_failed(B, rb, tail or _HALF_UNDONE)
     act_step(h, tx("ثبتِ تونل", "saving the tunnel"), 3, CREATE_STEPS, stop=False)
     rec = {"id": secrets.token_hex(6), "name": name, "type": ttype, "subnet": subnet,
            "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
@@ -6354,33 +6398,35 @@ def _delete_link_impl(d, h):
             off = [nm for nid, nm in ends if not _node_answered(nid)]
             if off:
                 _refresh_cache([L["a_node"], L["b_node"]])
-                return {"ok": False, "offer": "force", "msg": tx(
+                return {"ok": False, "offer": "force", "code": "node_offline", "msg": tx(
                     "نودِ «{0}» در دسترس نیست — لینک دست‌نخورده نگه داشته شد؛ وقتی نود برگشت دوباره حذف کن، یا «حذفِ اجباری» را بزن",
                     "node '{0}' is unreachable — the link was left untouched; delete again when the node is back, or use force",
                     tx_join("»، «", off, "', '"))}
         errs, deferred = [], []
+
+        def defer(nid, nm):
+            if _pending_add(nid, L["name"]):
+                deferred.append(nm)
+            else:
+                errs.append(tx("{0}: صفِ حذفِ معلق نوشته نشد", "{0}: the pending-delete queue was not written", nm))
+
         act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1, DELETE_STEPS, more=False)
         for nid, nm in ends:
             n = get_node(nid)
             if not n:
                 continue
             if force and _known_offline(n):
-                if _pending_add(nid, L["name"]):
-                    deferred.append(nm)
-                else:
-                    errs.append(tx("{0}: صفِ حذفِ معلق نوشته نشد", "{0}: the pending-delete queue was not written", nm))
+                defer(nid, nm)
                 continue
             r = node_call(n, "delete", "POST", {"name": L["name"]})
             if not r.get("ok"):
                 if not force:
                     errs.append(tx("{0}: {1}", "{0}: {1}", nm, r.get("error")))
-                elif _pending_add(nid, L["name"]):
-                    deferred.append(nm)
                 else:
-                    errs.append(tx("{0}: صفِ حذفِ معلق نوشته نشد", "{0}: the pending-delete queue was not written", nm))
+                    defer(nid, nm)
         if errs:
             _refresh_cache([L["a_node"], L["b_node"]])
-            return {"ok": False, "offer": "force", "msg": tx(
+            return {"ok": False, "offer": "force", "code": "delete_failed", "msg": tx(
                 "{0} — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن",
                 "{0} — the link was kept; delete again when the node is reachable, or use force", tx_join("; ", errs))}
         act_step(h, tx("برداشتنِ رکورد", "removing the record"), 2, DELETE_STEPS, stop=False)
@@ -6539,55 +6585,62 @@ def _edge_status_of(L, node, missing):
             "health": health, "events": (r.get("events") or []), "now": node_now, "ts": int(r.get("ts") or 0)}
 
 
-def _retest_now(d, resolve):
-    d = d or {}
+def _node_soft(r, fallback):
+    return {"ok": False, "code": "node_offline" if r.get("offline") else "node_failed",
+            "error": r.get("error") or r.get("msg") or fallback}
+
+
+def _pool_kind(d, kinds):
     _require(d, ["id", "kind", "key"])
-    if d["kind"] not in ("ip", "sni", "dst", "src"):
-        raise Bad("bad_kind", "kind باید ip / sni / dst / src باشد", "kind must be ip / sni / dst / src")
+    if d["kind"] not in kinds:
+        raise Bad("bad_kind", "kind باید {0} یا {1} باشد", "kind must be {0} or {1}", *kinds)
+
+
+def _retest_now(d, resolve, kinds):
+    d = d or {}
+    _pool_kind(d, kinds)
     L, node = resolve(d)
     r = node_call(node, "retest-now", "POST",
                   {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or tx("ناموفق بود", "failed")}
+        return _node_soft(r, tx("ناموفق بود", "failed"))
     return {"ok": True}
 
 
 def api_pool_retest_now(d):
-    return _retest_now(d, _ws_pool_client)
+    return _retest_now(d, _ws_pool_client, ("ip", "sni"))
+
+
+_SELECT_FAILED = tx("انتخاب ناموفق بود", "selecting failed")
 
 
 def api_pool_select(d):
     d = d or {}
-    _require(d, ["id", "kind", "key"])
-    if d["kind"] not in ("ip", "sni"):
-        raise Bad("bad_kind", "kind باید ip یا sni باشد", "kind must be ip or sni")
+    _pool_kind(d, ("ip", "sni"))
     L, node = _ws_pool_client(d)
     r = node_call(node, "pool-select", "POST", {"name": L.get("name"), "kind": d["kind"], "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or tx("انتخاب ناموفق بود", "selecting failed")}
+        return _node_soft(r, _SELECT_FAILED)
     return {"ok": True}
 
 
-def _ws_pool_client(d):
+def _pool_client(d, flag, missing):
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ws_pool"):
-        raise Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool")
+    if not L or L.get("type") != "core" or not L.get(flag):
+        raise missing
     node = _client_node(L)
     if not node:
         raise Bad("client_node_not_found", "نودِ کلاینت پیدا نشد", "the client node was not found")
     return L, node
+
+
+def _ws_pool_client(d):
+    return _pool_client(d, "ws_pool", Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool"))
 
 
 def _peer_pool_client(d):
-    _require(d, ["id"])
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get("ip_rotate"):
-        raise Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool")
-    node = _client_node(L)
-    if not node:
-        raise Bad("client_node_not_found", "نودِ کلاینت پیدا نشد", "the client node was not found")
-    return L, node
+    return _pool_client(d, "ip_rotate", Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
 
 
 _PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")
@@ -6635,7 +6688,7 @@ def api_peer_status(d):
 
 
 def api_peer_retest_now(d):
-    return _retest_now(d, _peer_pool_client)
+    return _retest_now(d, _peer_pool_client, ("dst", "src"))
 
 
 def api_peer_select(d):
@@ -6645,7 +6698,7 @@ def api_peer_select(d):
     L, node = _peer_pool_client(d)
     r = node_call(node, "peer-select", "POST", {"name": L.get("name"), "side": side, "key": str(d["key"])}, timeout=10)
     if not r.get("ok"):
-        return {"ok": False, "error": r.get("error") or r.get("msg") or tx("انتخاب ناموفق بود", "selecting failed")}
+        return _node_soft(r, _SELECT_FAILED)
     return {"ok": True}
 
 
@@ -6731,41 +6784,31 @@ def _undo_apply(was_a, was_b, A, B, name, renamed):
 
 
 def _edit_link_impl(d, h):
-    act_step(h, tx("خواندنِ وضعیتِ دو نود", "reading both nodes"), 0, EDIT_STEPS)
+    act_step(h, _STEP_READ, 0, EDIT_STEPS)
     _require(d, ["id", "type"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
         raise _no_tunnel()
-    ttype = d["type"]
-    if ttype not in TYPES:
-        raise Bad("bad_type", "نوعِ تونل نامعتبر است", "invalid tunnel type")
+    ttype = _tunnel_type(d)
     was_a, was_b = get_node(L["a_node"]), get_node(L["b_node"])
     A = get_node(d["a_node"]) if str(d.get("a_node") or "").strip() else was_a
     B = get_node(d["b_node"]) if str(d.get("b_node") or "").strip() else was_b
     if not A or not B:
         raise Bad("node_not_found", "نودِ این تونل در پنل ثبت نیست — یکی از نودهای موجود را انتخاب کن",
                   "this tunnel's node is not registered in the panel — pick one of the existing nodes")
-    if A["id"] == B["id"]:
-        raise Bad("same_node", "دو سرِ تونل باید دو نودِ متفاوت باشند", "the two ends of a tunnel must be two different nodes")
+    _distinct_ends(A, B)
     moved = A["id"] != L["a_node"] or B["id"] != L["b_node"]
     pa, pb = _ping_both(A, B)
     tid = int(L["tunnel_id"])
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
-    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()
-    if want_a and want_a not in a_ips:
-        raise Bad("ip_not_on_node", "آی‌پیِ «{0}» روی نودِ «{1}» نیست", "IP '{0}' is not on node '{1}'", want_a, A["name"])
-    if want_b and want_b not in b_ips:
-        raise Bad("ip_not_on_node", "آی‌پیِ «{0}» روی نودِ «{1}» نیست", "IP '{0}' is not on node '{1}'", want_b, B["name"])
+    want_a, want_b = _want_ip(d, "a_ip", A, a_ips), _want_ip(d, "b_ip", B, b_ips)
     a_ip = (want_a if want_a in a_ips else
             (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
     b_ip = (want_b if want_b in b_ips else
             (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
     _guard_ends(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
-    _cs = str(d.get("subnet") or "").strip()
-    if _cs and "/" not in _cs:
-        raise Bad("subnet_needs_prefix", "سابنت باید پیشوند داشته باشد — مثلاً 192.168.9.0/24",
-                  "the subnet needs a prefix — for example 192.168.9.0/24")
+    _subnet_prefix(d)
     subnet = (norm_subnet(ttype, tid, d["subnet"]) if str(d.get("subnet") or "").strip()
               else carry_subnet(ttype, tid, L.get("subnet")))
     _guard_subnet_overlap(A, B, subnet, exclude_id=L["id"])
@@ -6779,15 +6822,13 @@ def _edit_link_impl(d, h):
         _asked = "port" in d and not str(d.get("port") or "").strip()
         _moved_carrier = ttype == "core" and str(d.get("transport") or "") != str(L.get("transport") or "")
         _stale = _asked or _moved_carrier or L.get("type") not in ("l2tpv3", "fou", "core")
-        port = _int_or(d.get("port") or 0, _bad_tunnel_port()) or (0 if _stale else L.get("port")) or free_tunnel_port(A, B, exclude_id=L["id"])
-        if not 1 <= port <= 65535:
-            raise _bad_tunnel_port()
+        port = (_int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port()) or (0 if _stale else L.get("port"))
+                or free_tunnel_port(A, B, exclude_id=L["id"]))
         extra["port"] = port
     if ttype == "vxlan":
         _asked = "port" in d and not str(d.get("port") or "").strip()
-        port = _int_or(d.get("port") or 0, _bad_tunnel_port()) or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or 4789
-        if not 1 <= port <= 65535:
-            raise _bad_tunnel_port()
+        port = (_int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port())
+                or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or 4789)
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
@@ -6828,11 +6869,11 @@ def _edit_link_impl(d, h):
         touched = True
         ra = _node_tunnel(A, a_body)
         if not ra.get("ok"):
-            raise Bad("node_failed", "نودِ «{0}»: {1}", "node '{0}': {1}", A["name"], ra.get("error") or ra.get("msg"))
+            raise _node_failed(A, ra)
         act_step(h, tx("اعمال روی نودِ «{0}»", "applying on node '{0}'", B["name"]), 3, EDIT_STEPS, more=False)
         rb = _node_tunnel(B, b_body)
         if not rb.get("ok"):
-            raise Bad("node_failed", "نودِ «{0}»: {1}", "node '{0}': {1}", B["name"], rb.get("error") or rb.get("msg"))
+            raise _node_failed(B, rb)
     except Exception as e:
         if touched:
             undone = _undo_apply(was_a, was_b, A, B, new_name, name_changed)
@@ -6935,7 +6976,7 @@ def _restart_link_impl(d, h):
         raise Bad("not_core", "فقط تونلِ هسته پروسه‌ای دارد که ری‌استارت شود", "only a core tunnel has a process to restart")
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
-        raise Bad("node_not_found", "یکی از نودهای این تونل دیگر در پنل ثبت نیست", "one of this tunnel's nodes is no longer registered")
+        raise _ends_gone()
     ends, errs = [], []
     for i, (side, N) in enumerate((("a", A), ("b", B))):
         act_step(h, tx("ری‌استارتِ هسته روی نودِ «{0}»", "restarting the core on node '{0}'", N["name"]), i, 2,
@@ -6955,12 +6996,11 @@ _rb_last = {}
 RB_KEEP = 900
 
 
-def _rb_note(lid, ok, error=""):
+def _rb_note(lid, ok, error=None):
     with _rb_lock:
         for k in [k for k, v in _rb_last.items() if time.time() - v["ts"] > RB_KEEP]:
             _rb_last.pop(k, None)
-        _rb_last[lid] = {"ok": ok, "error": tx_cut(_why(error), 200) if isinstance(error, BaseException) else str(error)[:200],
-                         "ts": int(time.time())}
+        _rb_last[lid] = {"ok": ok, "error": tx_cut(_why(error), 200) if error is not None else "", "ts": int(time.time())}
 
 
 def rb_last(lid):
@@ -6992,14 +7032,14 @@ REBUILD_STEPS = 4
 
 
 def _rebuild_link_impl(d, h):
-    act_step(h, tx("خواندنِ وضعیتِ دو نود", "reading both nodes"), 0, REBUILD_STEPS)
+    act_step(h, _STEP_READ, 0, REBUILD_STEPS)
     _require(d, ["id"])
     L = next((x for x in load_links() if x["id"] == d["id"]), None)
     if not L:
         raise _no_tunnel()
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
-        raise Bad("node_not_found", "یکی از نودهای این تونل دیگر در پنل ثبت نیست", "one of this tunnel's nodes is no longer registered")
+        raise _ends_gone()
     pa, pb = _ping_both(A, B)
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = _flat_ips(pa)
@@ -7031,14 +7071,14 @@ def _rebuild_link_impl(d, h):
     try:
         node_call(A, "delete", "POST", {"name": name})
         node_call(B, "delete", "POST", {"name": name})
-        act_step(h, tx("ساخت روی نودِ «{0}»", "building on node '{0}'", A["name"]), 2, REBUILD_STEPS)
+        act_step(h, _step_build(A), 2, REBUILD_STEPS)
         ra = _node_tunnel(A, a_body)
         if not ra.get("ok"):
-            raise Bad("node_failed", "نودِ «{0}»: {1}", "node '{0}': {1}", A["name"], ra.get("error") or ra.get("msg"))
-        act_step(h, tx("ساخت روی نودِ «{0}»", "building on node '{0}'", B["name"]), 3, REBUILD_STEPS, more=False)
+            raise _node_failed(A, ra)
+        act_step(h, _step_build(B), 3, REBUILD_STEPS, more=False)
         rb = _node_tunnel(B, b_body)
         if not rb.get("ok"):
-            raise Bad("node_failed", "نودِ «{0}»: {1}", "node '{0}': {1}", B["name"], rb.get("error") or rb.get("msg"))
+            raise _node_failed(B, rb)
     except Exception as e:
         stuck = _restore_link(A, B, L, extra)
         if isinstance(e, ValueError):
@@ -7060,10 +7100,7 @@ CARD_TAGS = 6
 
 def api_link_tag(d):
     _require(d, ["id"])
-    tag_bad = Bad("bad_tag", "رنگِ نشانه‌گذاری نامعتبر است", "invalid tag colour")
-    tag = _int_or(d.get("tag") or 0, tag_bad)
-    if not 0 <= tag <= CARD_TAGS:
-        raise tag_bad
+    tag = _int_in(d.get("tag") or 0, 0, CARD_TAGS, Bad("bad_tag", "رنگِ نشانه‌گذاری نامعتبر است", "invalid tag colour"))
     def paint(x):
         if tag:
             x["tag"] = tag
@@ -7092,7 +7129,7 @@ def api_link_toggle(d):
             raise _no_tunnel()
         ends = [get_node(L["a_node"]), get_node(L["b_node"])]
         if not all(ends):
-            raise Bad("node_not_found", "یکی از نودهای این تونل دیگر در پنل ثبت نیست", "one of this tunnel's nodes is no longer registered")
+            raise _ends_gone()
         off = [N["name"] for N in ends if _known_offline(N)]
         if off:
             raise Bad("node_offline", "نودِ «{0}» در دسترس نیست — تونل روی هیچ سری عوض نشد",
@@ -7104,7 +7141,7 @@ def api_link_toggle(d):
                 r = _link_enable(N, L, enabled)
                 if not r.get("ok"):
                     why = tx("جواب نداد", "did not answer") if r.get("offline") else (
-                        r.get("error") or r.get("msg") or tx("ناموفق", "failed"))
+                        r.get("error") or r.get("msg") or _FAILED)
                     back = [M["name"] for M in done]
                     stuck = [M["name"] for M in done if not _link_enable(M, L, was).get("ok")]
                     if stuck:
@@ -7644,7 +7681,7 @@ EV_TYPES = (
     ("api-error", "api", tx("درخواستِ API با خطا", "API request with an error")),
     ("api-lock", "api", tx("قفلِ نشانی پس از توکنِ غلطِ زیاد", "address locked after many wrong tokens")),
 )
-EV_TYPE_GROUP = {t: g for t, g, _fa in EV_TYPES}
+EV_TYPE_GROUP = {t: g for t, g, _label in EV_TYPES}
 _events_lock = threading.Lock()
 _ev_list = None
 _ev_last = (0, 0)
@@ -7702,12 +7739,12 @@ def _ev_rot(kind, code):
         return None
     ax = _EV_ROT_AXIS.get(code)
     if ax is None:
-        lvl_fa = _EV_ROT_CODE.get(code) if kind == "down" else None
-        return (lvl_fa[0], lvl_fa[1], "", code) if lvl_fa else None
-    axis, fa = ax
+        lvl = _EV_ROT_CODE.get(code) if kind == "down" else None
+        return (lvl[0], lvl[1], "", code) if lvl else None
+    axis, label = ax
     if kind == "rot":
-        return ("ok", tx("{0} — طبقِ زمان‌بندی", "{0} — on schedule", fa), axis, "rot-due")
-    return ("warn", tx("{0} — اجباری: مسیر جواب نداد", "{0} — forced: the path did not answer", fa), axis, "rot-forced")
+        return ("ok", tx("{0} — طبقِ زمان‌بندی", "{0} — on schedule", label), axis, "rot-due")
+    return ("warn", tx("{0} — اجباری: مسیر جواب نداد", "{0} — forced: the path did not answer", label), axis, "rot-forced")
 
 
 _ROT_PARTNER = {"dst": "src", "src": "dst", "ip": "sni", "sni": "ip"}
@@ -7749,13 +7786,17 @@ def _mib(b):
     return tx("{0} بایت", "{0} bytes", n)
 
 
+def _down_title(nm):
+    return tx("تونلِ «{0}»: قطع شد", "tunnel '{0}': down", nm)
+
+
 def _ev_core_text(kind, code, detail, nm):
     raw = str(detail or "")
     axis, sep, rest = raw.partition(":")
     key = rest if sep and axis in ("dst", "src", "ip", "sni") else raw
     if kind == "down":
         rf = _EV_DOWN_CODE.get(code, _LINK_LOST)
-        return ("bad", "link-down", tx("تونلِ «{0}»: قطع شد", "tunnel '{0}': down", nm), rf)
+        return ("bad", "link-down", _down_title(nm), rf)
     if kind == "up":
         rf = _EV_UP_CODE.get(code, tx("تونل وصل شد", "tunnel up"))
         return ("ok", "link-reconnect", tx("تونلِ «{0}»: وصلِ مجدد", "tunnel '{0}': reconnected", nm), rf)
@@ -7833,19 +7874,18 @@ def _ingest_core_events(lid, end, nm, events):
                                          tx(" پس از {0} تلاش", " after {0} tries", tries) if tries else "",
                                          tx("، با پورتِ {0}", ", on port {0}", sport) if sport else ""), ts=ts)
             continue
-        if rot and end == "cli" and rot[2]:
-            axis = rot[2]
-            val = _ev_value(edet) or _ev_ip(edet)
-            rk = lid + ":" + axis
-            prev = _ev_state["rotip"].get(rk)
-            if val:
-                _ev_state["rotip"][rk] = val
-            other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
-            log_event(rot[0], rot[3], tx("تونلِ «{0}»: {1}", "tunnel '{0}': {1}", nm, rot[1]),
-                      _rot_pair(axis, prev, val, other), ts=ts)
-            continue
         if rot:
-            log_event(rot[0], rot[3], tx("تونلِ «{0}»: {1}", "tunnel '{0}': {1}", nm, rot[1]), ts=ts)
+            detail = ""
+            if end == "cli" and rot[2]:
+                axis = rot[2]
+                val = _ev_value(edet) or _ev_ip(edet)
+                rk = lid + ":" + axis
+                prev = _ev_state["rotip"].get(rk)
+                if val:
+                    _ev_state["rotip"][rk] = val
+                other = _ev_state["rotip"].get(lid + ":" + _ROT_PARTNER[axis]) or ""
+                detail = _rot_pair(axis, prev, val, other)
+            log_event(rot[0], rot[3], tx("تونلِ «{0}»: {1}", "tunnel '{0}': {1}", nm, rot[1]), detail, ts=ts)
             continue
         txt = _ev_core_text(ekind, ecode, edet, nm)
         if txt:
@@ -8105,6 +8145,10 @@ def _node_path_rows(nodes, members, t0):
     return rows
 
 
+def _names_row(names, members):
+    return tx("نودها: {0}", "nodes: {0}", sorted((names[nid] for nid in members), key=_name_key))
+
+
 def _node_events(nodes, first):
     st, held = _ev_state["nodes"], _ev_state["held"]
     marks = {}
@@ -8135,7 +8179,7 @@ def _node_events(nodes, first):
             log_event("bad", "node-down", tx("نودِ «{0}»: آفلاین شد", "node '{0}': offline", names[grp[0]["nid"]]), ts=t0)
         else:
             rows = _node_path_rows(nodes, members, t0)
-            rows.append(tx("نودها: {0}", "nodes: {0}", sorted((names[nid] for nid in members), key=_name_key)))
+            rows.append(_names_row(names, members))
             log_event("bad", "node-down", tx("{0} نود با هم آفلاین شدند", "{0} nodes went offline together", len(grp)),
                       tx_join("\n", rows), ts=t0)
         held[:] = [h for h in held if h not in grp]
@@ -8161,7 +8205,7 @@ def _node_events(nodes, first):
         else:
             log_event("ok", "node-up", tx("{0} نود دوباره آنلاین شدند — {1} قطع بودند",
                                           "{0} nodes came back online — they were down for {1}", len(grp), _fa_span(last - d0)),
-                      tx("نودها: {0}", "nodes: {0}", sorted((names[nid] for nid in members), key=_name_key)), ts=last)
+                      _names_row(names, members), ts=last)
         held[:] = [h for h in held if h not in grp]
 
 
@@ -8195,7 +8239,7 @@ def _events_once():
                 log_event("ok", "link-up", tx("تونلِ «{0}»: وصل شد", "tunnel '{0}': up", nm), ts=at)
             _ev_state["links_coarse_down"].discard(lid)
         elif not precise_core or _link_blind(L):
-            log_event("bad", "link-down", tx("تونلِ «{0}»: قطع شد", "tunnel '{0}': down", nm), _link_down_reason(L, nmap), ts=at)
+            log_event("bad", "link-down", _down_title(nm), _link_down_reason(L, nmap), ts=at)
             if precise_core:
                 _ev_state["links_coarse_down"].add(lid)
         else:
@@ -8268,7 +8312,7 @@ def _events_once():
         elif now - at >= CORE_SILENT_SECS:
             del _ev_state["coarse_hold"][lid]
             _ev_state["links_coarse_down"].add(lid)
-            log_event("bad", "link-down", tx("تونلِ «{0}»: قطع شد", "tunnel '{0}': down", L.get("name", "")),
+            log_event("bad", "link-down", _down_title(L.get("name", "")),
                       _link_down_reason(L, nmap, silent=True), ts=at)
     for lid in [k for k in _ev_state["core_down"] if k not in live]:
         del _ev_state["core_down"][lid]
@@ -8347,10 +8391,7 @@ def _pf_name(v):
 def _pf_push(n, endpoint, body, timeout=NODE_OP_TIMEOUT, ret="name"):
     r = node_call(n, endpoint, "POST", body, timeout=timeout)
     if not r.get("ok"):
-        why = r.get("error") or r.get("msg")
-        if why:
-            raise Bad("node_failed", why if isinstance(why, Tx) else Tx(str(why), str(why)))
-        raise Bad("node_failed", "نود کار را انجام نداد", "the node did not do it")
+        raise Bad("node_failed", r.get("error") or r.get("msg") or tx("نود کار را انجام نداد", "the node did not do it"))
     _refresh_cache([n["id"]])
     return {"ok": True, ret: r.get(ret)}
 
@@ -8501,7 +8542,7 @@ def api_portfw_del(d):
     if r.get("ok"):
         _tf_forget(n["id"], ["pf:" + name])
     _refresh_cache([n["id"]])
-    return {"ok": bool(r.get("ok")), "msg": r.get("error", "")}
+    return {"ok": True} if r.get("ok") else _node_soft(r, _FAILED)
 
 
 def _flat_ips(ping):
@@ -8510,10 +8551,9 @@ def _flat_ips(ping):
 
 def _ping_both(A, B):
     pa, pb = node_call(A, "ping", "GET"), node_call(B, "ping", "GET")
-    if not pa.get("ok"):
-        raise Bad("node_offline", "نودِ «{0}» آفلاین است", "node '{0}' is offline", A["name"])
-    if not pb.get("ok"):
-        raise Bad("node_offline", "نودِ «{0}» آفلاین است", "node '{0}' is offline", B["name"])
+    for N, p in ((A, pa), (B, pb)):
+        if not p.get("ok"):
+            raise Bad("node_offline", "نودِ «{0}» آفلاین است", "node '{0}' is offline", N["name"])
     return pa, pb
 
 
@@ -8719,13 +8759,8 @@ def _proxy_fields(d):
     host = str(d.get("host") or "").strip()
     if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
         raise Bad("bad_proxy_host", "آی‌پی یا هاستِ پروکسی نامعتبر است", "invalid proxy IP or host")
-    port_bad = Bad("bad_proxy_port", "پورتِ پروکسی نامعتبر است (1 تا 65535)", "invalid proxy port (1 to 65535)")
-    try:
-        port = int(str(d.get("port") or "").strip())
-    except ValueError:
-        raise port_bad from None
-    if not 1 <= port <= 65535:
-        raise port_bad
+    port = _int_in(d.get("port") or "", 1, 65535,
+                   Bad("bad_proxy_port", "پورتِ پروکسی نامعتبر است (1 تا 65535)", "invalid proxy port (1 to 65535)"))
     user = str(d.get("user") or "").strip()
     pw = d.get("pass")
     pw = None if pw is None else str(pw)
@@ -9208,7 +9243,7 @@ def _act_open(key, target="", page="", ttype=""):
             raise Bad("job_running", "همین کار روی این مورد در جریان است — تا تمام‌شدنش صبر کن",
                       "this job is already running on this item — wait until it finishes")
         h = {"key": key, "target": target, "page": page, "ttype": ttype,
-             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "err": "", "note": "", "offer": "",
+             "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "code": "", "error": "", "note": "", "offer": "",
              "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
         _acts[key] = h
     return h
@@ -9220,7 +9255,8 @@ def _act_run(h, fn):
         res = res if isinstance(res, dict) else {}
         with _act_lock:
             if res.get("ok") is False:
-                h.update(state="fail", step="", err=tx_cut(res.get("msg") or res.get("error") or _FAILED, 300),
+                h.update(state="fail", step="", code=str(res.get("code") or "failed"),
+                         error=tx_cut(res.get("msg") or res.get("error") or _FAILED, 300),
                          offer=str(res.get("offer") or ""), ended=int(time.time()))
             else:
                 h.update(state="done", step="", pct=100, si=h["sn"], can=False,
@@ -9230,10 +9266,8 @@ def _act_run(h, fn):
             h.update(state="cancel", step="", ended=int(time.time()))
     except Exception as e:
         with _act_lock:
-            h.update(state="fail", step="", err=tx_cut(_why(e) if str(e) else _FAILED, 300), ended=int(time.time()))
-
-
-_FAILED = tx("ناموفق", "failed")
+            h.update(state="fail", step="", code=_code(e), error=tx_cut(_why(e) if str(e) else _FAILED, 300),
+                     ended=int(time.time()))
 
 
 def act_start(key, fn, target="", page="", ttype=""):
@@ -9726,7 +9760,7 @@ class Handler(BaseHTTPRequestHandler):
         fa, status, msg = API_MSG[code]
         if drain and self.command == "POST":
             self._drain(self._content_length())
-        self._send(status, {"error": code, "message": msg} if en else {"error": fa})
+        self._send(status, {"code": code, "error": msg} if en else {"error": fa})
 
     def _bearer_check(self):
         auth = self.headers.get("Authorization", "")
@@ -9789,13 +9823,13 @@ class Handler(BaseHTTPRequestHandler):
             res = _dispatch(cmd, d)
             self._send(200, _en_out(res) if via_token else res)
         except ValueError as e:
-            self._send(400, {"error": _code(e), "message": _why(e).en} if via_token else {"error": str(e)})
+            self._send(400, _err_en(e) if via_token else {"error": str(e)})
             if via_token:
                 self._api_log("warn", "api-error", tx("درخواستِ API «{0}» با خطا برگشت: {1}",
                                                       "API request '{0}' returned an error: {1}", cmd, _why(e)), cmd, method, 400)
         except RegistryError as e:
             log_warn("api %s" % cmd, str(e))
-            self._send(500, {"error": e.code, "message": _why(e).en} if via_token else {"error": str(e)})
+            self._send(500, _err_en(e) if via_token else {"error": str(e)})
             if via_token:
                 self._api_log("bad", "api-error", tx("درخواستِ API «{0}» به خطایِ دادهٔ پنل خورد.",
                                                      "API request '{0}' hit a panel data error.", cmd), cmd, method, 500)
@@ -10288,7 +10322,7 @@ def menu():
 def nl_prompt():
     return "\n" + bold("choice: ")
 
-_BUSY_BODY = json.dumps({"error": "busy", "message": "the panel is busy — try again in a moment"}).encode()
+_BUSY_BODY = json.dumps({"code": "busy", "error": "the panel is busy — try again in a moment"}).encode()
 _BUSY_RESP = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
               b"Content-Length: " + str(len(_BUSY_BODY)).encode() +
               b"\r\nConnection: close\r\n\r\n" + _BUSY_BODY)

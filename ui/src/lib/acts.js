@@ -16,7 +16,7 @@ export function actAge(act, now) {
 }
 
 export function actWords(act, now) {
-  if (act.state === 'fail') return translateError(act.err) || T('a_st_fail')
+  if (act.state === 'fail') return translateError(act.error) || T('a_st_fail')
   if (act.state === 'cancel') return T('a_stopped')
   if (act.state === 'done') {
     return act.note ? translateError(act.note) : T('a_took').replace('{t}', actAge(act, now))
