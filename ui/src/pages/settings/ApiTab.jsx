@@ -1,8 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
-import SettingRow from './SettingRow.jsx'
-import SettingsGroup from './SettingsGroup.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
@@ -10,37 +8,43 @@ import { T } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
 
 const ApiRef = lazy(() => import('./ApiRef.jsx'))
-const GATE_GROUPS = [['sc-panel', 2]]
+const GATE_GROUPS = [['sc-panel', 1]]
 
 function ApiGroup({ f }) {
   const { form, set, token } = f
 
   return (
-    <SettingsGroup icon="globe" titleKey="set_g6" chipKey="set_g6c" tone="sc-panel">
-      <SettingRow label={T('set_api_on')} helpKey="set_api_on_d" exampleKey="set_x_api_on">
-        <div className="srtgl">
-          <div
-            className={'tglsw' + (form.apiOn ? ' on' : '')}
-            {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
-          />
+    <div className="card opc sc-panel apcard">
+      <div className="ophd">
+        <span className="sgt">
+          <Icon name="globe" />
+        </span>
+        <div className="hd2">
+          <b>{T('set_api_title')}</b>
+          <small>{T('set_api_card_sub')}</small>
         </div>
-      </SettingRow>
-
-      <SettingRow label={T('set_api_token')} helpKey="set_api_token_d" exampleKey="set_x_api_token">
-        <div className="srtoken">
-          {token ? (
-            <>
-              <CopyValue text={token} />
-              <span className="srtonce">{T('set_api_once')}</span>
-            </>
-          ) : null}
-          <button type="button" className="ghost" onClick={f.newToken}>
-            <Icon name="redo" />
-            {T('set_api_new')}
-          </button>
-        </div>
-      </SettingRow>
-    </SettingsGroup>
+        <div
+          className={'tglsw' + (form.apiOn ? ' on' : '')}
+          aria-label={T('set_api_on')}
+          {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
+        />
+      </div>
+      <div className="oprow">
+        {token ? (
+          <CopyValue text={token} className="aptok" />
+        ) : (
+          <div className="aptok">
+            <Icon name="lock" />
+            {T('set_api_hidden')}
+          </div>
+        )}
+        <button type="button" className="ghost tone tone-renew opfit" onClick={f.newToken}>
+          <Icon name="redo" />
+          {T('set_api_new')}
+        </button>
+      </div>
+      {token ? <div className="aponce">{T('set_api_once')}</div> : null}
+    </div>
   )
 }
 
