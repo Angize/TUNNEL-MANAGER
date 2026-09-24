@@ -332,9 +332,9 @@ export default function AgentPage({ headless }) {
         return
       }
       if (r && r.done) {
-        if (r.err) {
+        if (r.error) {
           setCoreMsg(null)
-          alertBox(translateError(r.err))
+          alertBox(translateError(r.error))
         } else {
           await stageDone(r)
         }

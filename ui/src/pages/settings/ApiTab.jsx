@@ -10,6 +10,7 @@ import { T } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
 
 const ApiRef = lazy(() => import('./ApiRef.jsx'))
+const GATE_GROUPS = [['sc-panel', 2]]
 
 function ApiGroup({ f }) {
   const { form, set, token } = f
@@ -53,7 +54,7 @@ export default function ApiTab({ active }) {
 
   return (
     <div className="stpage">
-      {f.form ? <ApiGroup f={f} /> : <FormGate />}
+      {f.form ? <ApiGroup f={f} /> : <FormGate groups={GATE_GROUPS} />}
 
       {seen ? (
         <Suspense fallback={<div className="card muted">{T('loading')}</div>}>

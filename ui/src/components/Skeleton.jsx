@@ -309,10 +309,10 @@ export function OverviewSkeleton() {
   )
 }
 
-export function SettingsSkeleton() {
+export function SettingsSkeleton({ groups = SETTINGS_GROUPS }) {
   return (
     <div className="card sg">
-      {SETTINGS_GROUPS.map(([tone, rows]) => (
+      {groups.map(([tone, rows]) => (
         <section className={'sgsec ' + tone} key={tone}>
           <div className="sghd">
             <Box w={30} h={30} r={9} />
