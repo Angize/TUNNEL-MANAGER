@@ -116,4 +116,6 @@ export default {
   upe_download_failed: 'نود نتوانست دانلود کند',
   upe_nothing_staged: 'چیزی روی نود آماده نبود',
   upe_unbuildable: 'چیزی برای فرستادن به این نود نبود',
+  upe_update_key: 'نود کلیدِ امضایِ پنل را نپذیرفت',
+  upe_bad_agent: 'نود فایلِ ایجنت را نپذیرفت',
 }

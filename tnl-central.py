@@ -981,12 +981,16 @@ def _ensure_update_key(node):
     try:
         _, pub = _signing_keys()
     except Exception as e:
-        return "کلیدِ امضایِ پنل ساخته نشد (openssl?): %s" % str(e)[:80]
+        return {"ok": False, "code": "panel", "error": "کلیدِ امضایِ پنل ساخته نشد (openssl?): %s" % str(e)[:80]}
     r = node_call(node, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
     if r.get("ok"):
-        return ""
-    return ("نودِ «%s» کلیدِ امضایِ پنل را نپذیرفت؛ بدونِ آن هر پوشی رد می‌شود: %s"
-            % (node.get("name", "?"), r.get("error") or r.get("msg") or "?"))
+        return r
+    nm = node.get("name", "?")
+    if r.get("offline"):
+        return {"ok": False, "code": "offline", "error": "نودِ «%s» جواب نداد" % nm}
+    return {"ok": False, "code": "update_key",
+            "error": "نودِ «%s» کلیدِ امضایِ پنل را نپذیرفت؛ بدونِ آن هر پوشی رد می‌شود: %s"
+                     % (nm, r.get("error") or r.get("msg") or "?")}
 
 
 _ctr_lock = threading.Lock()
@@ -3563,9 +3567,9 @@ def _push_one(jid, nid, plan):
                     time.sleep(0.2)
             _push_set(jid, nid, state="run", step=code, si=i + 1, sn=n, pct=at(i, 0), remote=False)
             if not keyed:
-                why = _ensure_update_key(fresh)
-                if why:
-                    _push_set(jid, nid, state="err", step=code, err=why[:300], pct=0)
+                k = _ensure_update_key(fresh)
+                if not k.get("ok"):
+                    _push_set(jid, nid, state="err", step=code, err=k["code"], detail=k["error"], pct=0)
                     return
                 keyed = True
             try:
@@ -4246,9 +4250,9 @@ def _push_staged(node):
         body = _core_install_body(node, b64, sha, ver, sig, arch)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
-    why = _ensure_update_key(node)
-    if why:
-        return {"ok": False, "error": why}
+    k = _ensure_update_key(node)
+    if not k.get("ok"):
+        return k
     r = node_call(node, "core-put", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
     if not r.get("ok") or r.get("code") == "same":
         return r
