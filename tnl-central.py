@@ -2562,7 +2562,15 @@ def api_node_add(d):
     return {"ok": True, "id": node["id"], "checking": True}
 
 
-NODE_RAW_URL = "https://raw.githubusercontent.com/Angize/TUNNEL-MANAGER-NODE/main/tnl-node.py"
+_NODE_REL = "https://github.com/Angize/TUNNEL-MANAGER-NODE/releases"
+_NODE_REL_LATEST = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-NODE/releases/latest"
+_AGENT_VER_RE = re.compile(r'^AGENT_VERSION = "(dev|v\d+\.\d+\.\d+)"\r?$', re.M)
+
+
+def _agent_release_url(version):
+    return f"{_NODE_REL}/download/{version}/tnl-node.py"
+
+
 _INSTALL_STEPS = [("ssh", "اتصالِ SSH"), ("agent", "رساندنِ ایجنت به نود"),
                   ("install", "نصب و راه‌اندازیِ سرویس"), ("register", "ثبت و اتصال در پنل")]
 _INSTALL_LABELS = dict(_INSTALL_STEPS)
@@ -2798,8 +2806,9 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             return fail("agent", "ایجنتِ پنل برای این حالتِ تحویل آماده نیست", str(e))
         verify = f"echo '{ameta['sha256']}  /tmp/tnl-node.py' | sha256sum -c - >/dev/null; echo TNL_RECV_OK"
         if _delivery_mode("agent") == "github":
-            recv = (f"set -e; umask 077; (curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py"
-                    f" || wget -qO /tmp/tnl-node.py {NODE_RAW_URL}); echo TNL_DL_OK; {verify}")
+            url = _agent_release_url(ameta["version"])
+            recv = (f"set -e; umask 077; (curl -fsSL {url} -o /tmp/tnl-node.py"
+                    f" || wget -qO /tmp/tnl-node.py {url}); echo TNL_DL_OK; {verify}")
             stdin, how = None, "از گیت‌هاب"
         else:
             recv, stdin, how = (f"set -e; umask 077; base64 -d > /tmp/tnl-node.py; echo TNL_DL_OK; {verify}",
@@ -2809,7 +2818,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             return fail("agent", "دریافتِ ایجنت روی نود ناموفق (curl/wget؟ دسترسیِ اینترنت؟)", (err or out).strip())
         if rc != 0 or "TNL_RECV_OK" not in out:
             return fail("agent", "فایلِ رسیده با ایجنتِ آمادهٔ پنل یکی نیست", (err or out).strip())
-        _install_step(jid, "agent", "ok", f"tnl-node.py {ameta['sha256'][:12]} {how} رسید")
+        _install_step(jid, "agent", "ok", f"tnl-node.py {ameta['version']} {how} رسید")
 
         _install_step(jid, "install", "run", "نصبِ وابستگی‌ها ممکن است چند دقیقه طول بکشد…")
         sudo = "" if cfg["user"] == "root" else "sudo -n "
@@ -3140,7 +3149,7 @@ def api_node_traffic(d):
             "tunnels": tunnels, "portfw": portfw}
 
 
-def _store_agent_src(src, msgs, extra_meta=None):
+def _store_agent_src(src, msgs, extra_meta=None, want_ver=None):
     raw = src.encode()
     if len(raw) > 262144:
         raise ValueError(msgs["too_big"])
@@ -3150,14 +3159,17 @@ def _store_agent_src(src, msgs, extra_meta=None):
         raise ValueError(msgs["bad_py"] + str(e))
     if '"agent": "tnl-node"' not in src:
         raise ValueError(msgs["not_agent"])
-    sha = hashlib.sha256(raw).hexdigest()
-    meta = {"sha256": sha, "size": len(raw), "uploaded_ts": int(time.time())}
+    m = _AGENT_VER_RE.search(src)
+    if not m or (want_ver and m.group(1) != want_ver):
+        raise ValueError(msgs["no_ver"])
+    ver, sha = m.group(1), hashlib.sha256(raw).hexdigest()
+    meta = {"version": ver, "sha256": sha, "size": len(raw), "uploaded_ts": int(time.time())}
     if extra_meta:
         meta.update(extra_meta)
     with _agent_lock:
         save_bytes(AGENT_FILE, raw)
         save_json(AGENT_META, meta)
-    return {"ok": True, "sha256": sha[:12]}
+    return {"ok": True, "version": ver, "sha256": sha[:12]}
 
 
 def api_agent_upload(d):
@@ -3169,21 +3181,34 @@ def api_agent_upload(d):
         "too_big": "فایل بیش از حد بزرگ است",
         "bad_py": "کد پایتون نامعتبر: ",
         "not_agent": "این فایل ایجنتِ نود نیست",
+        "no_ver": "خطِ AGENT_VERSION (dev یا vX.Y.Z) در این فایل نیست",
     })
 
 
 def api_agent_fetch_git(d):
+    tag = ""
     try:
-        src = _gh_get(NODE_RAW_URL, 30)[:300000].decode("utf-8", "replace")
+        tag = str(json.loads(_gh_get(_NODE_REL_LATEST, 30, {"Accept": "application/vnd.github+json"}))
+                  .get("tag_name") or "")
+        url = _agent_release_url(tag)
+        want = _sha_file(url + ".sha256")
+        raw = _gh_get(url, 30)
     except Exception as e:
+        if isinstance(e, urllib.error.HTTPError) and e.code == 404:
+            raise ValueError(f"ریلیزِ {tag} فایلِ ایجنت را ندارد" if tag else "ایجنت هنوز هیچ ریلیزی روی گیت‌هاب ندارد")
         raise ValueError("دریافت از گیت‌هاب ناموفق: " + _gh_why(e))
-    if not src.strip():
-        raise ValueError("فایلِ دریافتی خالی است")
+    if hashlib.sha256(raw).hexdigest() != want:
+        raise ValueError(f"فایلِ ریلیزِ {tag} با چک‌سامِ خودش نمی‌خواند")
+    try:
+        src = raw.decode()
+    except UnicodeDecodeError:
+        raise ValueError(f"فایلِ ریلیزِ {tag} متنِ UTF-8 نیست")
     return _store_agent_src(src, {
         "too_big": "فایلِ دریافتی بیش از حد بزرگ است",
         "bad_py": "کدِ دریافتی نامعتبر: ",
         "not_agent": "فایلِ دریافتی ایجنتِ نود نیست",
-    }, {"source": "git"})
+        "no_ver": f"نسخهٔ داخلِ فایلِ ریلیز با تگِ {tag} یکی نیست",
+    }, {"source": "git"}, want_ver=tag)
 
 
 def api_agent_info(d):
@@ -3318,7 +3343,7 @@ def _agent_update_body(node, raw, meta, sig):
     if mode == "push":
         return {"code": raw.decode(), **body}
     if mode == "github":
-        return {"url": NODE_RAW_URL, **body}
+        return {"url": _agent_release_url(meta["version"]), **body}
     url = _panel_dl_url(node, "ag")
     if not url:
         raise ValueError(_NO_ORIGIN)
@@ -4105,9 +4130,8 @@ def _release_asset_url(version, arch):
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
 
 
-def _release_sha(version, arch, should_abort=None):
-    sha = _dl(_release_asset_url(version, arch) + ".sha256", 30,
-              should_abort=should_abort).decode().split()[0].strip().lower()
+def _sha_file(url, should_abort=None):
+    sha = (_dl(url, 30, should_abort=should_abort).decode("ascii", "replace").split() or [""])[0].lower()
     if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
         raise RuntimeError("چک‌سامِ فایل در انتشارِ گیت‌هاب نیست")
     return sha
@@ -4115,7 +4139,7 @@ def _release_sha(version, arch, should_abort=None):
 
 def _fetch_release(version, arch, on_progress=None, should_abort=None):
     base = _release_asset_url(version, arch)
-    sha = _release_sha(version, arch, should_abort=should_abort)
+    sha = _sha_file(base + ".sha256", should_abort)
     raw = _dl(base, 180, on_progress=on_progress, should_abort=should_abort)
     if hashlib.sha256(raw).hexdigest() != sha:
         raise RuntimeError("چک‌سامِ فایلِ دریافت‌شده با انتشارِ گیت‌هاب نمی‌خواند")
@@ -8868,7 +8892,7 @@ def do_install():
         print("    stage it later from the panel: %s" % dim("هستهٔ داده / دریافت از گیت‌هاب"))
     try:
         meta = api_agent_fetch_git({})
-        print("%s node agent %s staged" % (OK, meta["sha256"]))
+        print("%s node agent %s staged" % (OK, meta["version"]))
     except Exception as e:
         print("%s could not pre-download the node agent (%s)" % (WARN, e))
         print("    stage it later from the panel: %s" % dim("تنظیمات / بروزرسانیِ ایجنت"))

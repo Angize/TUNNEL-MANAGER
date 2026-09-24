@@ -174,10 +174,10 @@ export default function NodeCard({
             <Icon name="globe" />
             {T('nd_portfw')} <b>{num(info.portfw)}</b>
           </span>
-          {info.sha256 ? (
+          {info.version ? (
             <span className="nchip">
               <Icon name="server" />
-              {T('nd_agent')} <b className="mono">{String(info.sha256).slice(0, 12)}</b>
+              {T('nd_agent')} <b className="mono">{info.version}</b>
             </span>
           ) : null}
           {info.core_sha && String(info.core_sha).length ? (
