@@ -32,16 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CENTRAL_DIR = "/opt/tnl-central"
 WEB_CONF = os.path.join(CENTRAL_DIR, "web.conf")
-NODES_FILE = os.path.join(CENTRAL_DIR, "nodes.json")
-PROXIES_FILE = os.path.join(CENTRAL_DIR, "proxies.json")
-LINKS_FILE = os.path.join(CENTRAL_DIR, "links.json")
-TRAFFIC_FILE = os.path.join(CENTRAL_DIR, "traffic.json")
-SETTINGS_FILE = os.path.join(CENTRAL_DIR, "settings.json")
-PENDING_FILE = os.path.join(CENTRAL_DIR, "pending_del.json")
-UPTIME_FILE = os.path.join(CENTRAL_DIR, "uptime.json")
 UI_DIR = os.path.join(CENTRAL_DIR, "ui")
-PORTFW_ORDER_FILE = os.path.join(CENTRAL_DIR, "portfw-order.json")
-MOVED_FILE = os.path.join(CENTRAL_DIR, "moved.json")
 AGENT_FILE = os.path.join(CENTRAL_DIR, "agent.py")
 AGENT_META = os.path.join(CENTRAL_DIR, "agent.meta.json")
 CORE_BLOB = os.path.join(CENTRAL_DIR, "core.bin")
@@ -167,14 +158,12 @@ class RegistryError(Exception):
     pass
 
 
-def read_json(path, kind, optional=False):
+def read_json(path, kind):
     name = os.path.basename(path)
     try:
         with open(path) as f:
             data = json.load(f)
     except FileNotFoundError:
-        if optional:
-            return kind()
         raise RegistryError("فایلِ «%s» روی دیسکِ پنل نیست" % name)
     except (OSError, ValueError) as e:
         raise RegistryError("فایلِ «%s» خوانده نشد — تا درست نشود پنل رویِ آن چیزی نمی‌نویسد: %s"
@@ -268,24 +257,20 @@ _R = None
 _R_lock = threading.Lock()
 
 
-def _redis_client(timeout):
-    try:
-        import redis
-        from redis.backoff import NoBackoff
-        from redis.retry import Retry
-    except ImportError:
-        raise StoreError("کتابخانهٔ پایتونِ ردیس (python3-redis) نصب نیست — نصب را دوباره اجرا کن: "
-                         "sudo python3 tnl-central.py --install") from None
-    return redis.Redis(unix_socket_path=REDIS_SOCK, decode_responses=True, socket_timeout=timeout,
-                       socket_connect_timeout=3, retry=Retry(NoBackoff(), 0))
-
-
 def _redis():
     global _R
     if _R is None:
         with _R_lock:
             if _R is None:
-                _R = _redis_client(REDIS_TIMEOUT)
+                try:
+                    import redis
+                    from redis.backoff import NoBackoff
+                    from redis.retry import Retry
+                except ImportError:
+                    raise StoreError("کتابخانهٔ پایتونِ ردیس (python3-redis) نصب نیست — نصب را دوباره اجرا کن: "
+                                     "sudo python3 tnl-central.py --install") from None
+                _R = redis.Redis(unix_socket_path=REDIS_SOCK, decode_responses=True, socket_timeout=REDIS_TIMEOUT,
+                                 socket_connect_timeout=3, retry=Retry(NoBackoff(), 0))
     return _R
 
 
@@ -7290,8 +7275,6 @@ def ech_refresh_loop():
                 pass
 
 
-EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
-EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")
 EVENTS_TTL = 24 * 3600
 K_EVENTS = "tnl:events"
 K_EVENTS_API = "tnl:events:api"
@@ -8526,7 +8509,6 @@ def api_token_new(d):
     return {"ok": True, "token": token}
 
 
-CHECKIN_CTR_FILE = os.path.join(CENTRAL_DIR, "checkin_ctr.json")
 CHECKIN_CTR_PERSIST_MS = 60000
 
 _checkin_ctr = {}
@@ -9398,150 +9380,6 @@ def install_store():
     return True
 
 
-_IMPORT = (("nodes", NODES_FILE, list), ("links", LINKS_FILE, list), ("proxies", PROXIES_FILE, list),
-           ("settings", SETTINGS_FILE, dict), ("pending", PENDING_FILE, dict), ("moved", MOVED_FILE, dict),
-           ("checkin", CHECKIN_CTR_FILE, dict), ("pforder", PORTFW_ORDER_FILE, list),
-           ("traffic", TRAFFIC_FILE, dict), ("uptime", UPTIME_FILE, dict), ("events", EVENTS_FILE, list))
-_IMPORT_ALSO = (EVENTS_SEQ_FILE,)
-_IMPORT_LEFTOVERS = ("jobs.json", "engine.meta.json")
-
-
-def _import_src(base):
-    src = {}
-    for name, path, kind in _IMPORT:
-        src[name] = read_json(os.path.join(base, os.path.basename(path)), kind, True)
-    for name in ("nodes", "links", "proxies"):
-        ids = [x.get("id") if isinstance(x, dict) else None for x in src[name]]
-        if any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
-            raise RegistryError("فایلِ %s.json رکوردِ بی‌شناسه یا شناسهٔ تکراری دارد" % name)
-    src["pending"] = {k: [str(x) for x in v] for k, v in src["pending"].items() if isinstance(v, list) and v}
-    src["moved"] = {k: v for k, v in src["moved"].items() if isinstance(v, dict)}
-    src["checkin"] = {k: _sint(v) for k, v in src["checkin"].items() if _sint(v) > 0}
-    src["pforder"] = [str(x) for x in src["pforder"]]
-    src["uptime"] = {k: [max(0.0, min(1.0, _sflt(x))) for x in v][-UPTIME_KEEP:]
-                     for k, v in src["uptime"].items() if isinstance(v, list) and v}
-    src["traffic"] = {k: {i: [_sint(x[0]), _sint(x[1])] for i, x in v.items() if isinstance(x, list) and len(x) == 2}
-                      for k, v in src["traffic"].items() if isinstance(v, dict)}
-    now = time.time()
-    evs = [e for e in _ev_prune(src["events"], now) if isinstance(e, dict)]
-    evs.sort(key=lambda e: (_sint(e.get("ts")), _sint(e.get("seq"))))
-    api = [e for e in evs if e.get("kind") == "api-ok"][-API_OK_KEEP:]
-    evs = sorted([e for e in evs if e.get("kind") != "api-ok"] + api,
-                 key=lambda e: (_sint(e.get("ts")), _sint(e.get("seq"))))
-    out, last = [], (0, 0)
-    for e in evs:
-        ms = max(_sint(e.get("ts")) * 1000, 1)
-        last = (ms, 0) if ms > last[0] else (last[0], last[1] + 1)
-        f = {"ts": _sint(e.get("ts")), "level": str(e.get("level") or ""), "kind": str(e.get("kind") or ""),
-             "fa": str(e.get("fa") or ""), "dfa": str(e.get("dfa") or "")}
-        out.append((K_EVENTS_API if f["kind"] == "api-ok" else K_EVENTS, "%d-%d" % last, f))
-    src["events"] = out
-    return src
-
-
-def _import_write(r, src):
-    p = r.pipeline(transaction=True)
-    for name in ("nodes", "links", "proxies"):
-        c = _COLLS[name]
-        if src[name]:
-            p.hset(c.hkey, mapping={x["id"]: _enc(x) for x in src[name]})
-            p.zadd(c.okey, {x["id"]: float(i) for i, x in enumerate(src[name])})
-    for key, name in (("tnl:settings", "settings"), ("tnl:pending", "pending"), ("tnl:moved", "moved"),
-                      (K_TRAFFIC, "traffic")):
-        if src[name]:
-            p.hset(key, mapping={k: _enc(v) for k, v in src[name].items()})
-    if src["checkin"]:
-        p.hset(K_CHECKIN, mapping=src["checkin"])
-    if src["pforder"]:
-        p.set(K_PFORDER, _enc(src["pforder"]))
-    for nid, ring in src["uptime"].items():
-        p.rpush(K_UPTIME + nid, *ring)
-    for key, eid, f in src["events"]:
-        p.xadd(key, f, id=eid)
-    p.execute()
-
-
-def _import_read(r):
-    got = _store_read(r, _GROUPS)
-    out = {name: got[name][0] for name in ("nodes", "links", "proxies")}
-    out.update({k: got[k] for k in ("settings", "pending", "moved", "pforder")})
-    out["traffic"], out["checkin"], out["uptime"] = _stats_read(r)
-    out["events"] = sorted([(key, eid, dict(f, ts=_sint(f.get("ts")))) for key in (K_EVENTS, K_EVENTS_API)
-                            for eid, f in r.xrange(key, "-", "+")], key=lambda x: _ev_key(x[1]))
-    return out
-
-
-def _store_keys(r):
-    return list(r.scan_iter("tnl:*", count=1000))
-
-
-def _import_diff(r, want):
-    got = _import_read(r)
-    got["events"] = [list(x) for x in got["events"]]
-    return [k for k in want if want[k] != got.get(k)]
-
-
-def import_json(base=CENTRAL_DIR):
-    src = _import_src(base)
-    want = _thaw({k: v for k, v in src.items() if k != "events"})
-    want["events"] = sorted(([key, eid, f] for key, eid, f in src["events"]), key=lambda x: _ev_key(x[1]))
-    r = _redis()
-    wrote = not _store_keys(r)
-    if wrote:
-        try:
-            _import_write(_redis_client(600), src)
-        except Exception as e:
-            log_warn("import", "%s — checking what landed" % _store_msg(e))
-    bad = _import_diff(r, want)
-    if bad and not wrote:
-        raise RegistryError("ردیس از قبل دادهٔ دیگری دارد (%s) — واردکردن فقط روی ردیسِ خالی انجام می‌شود و به آن دست زده نشد"
-                            % "، ".join(bad))
-    if bad:
-        keys = _store_keys(r)
-        if keys:
-            r.delete(*keys)
-        raise RegistryError("دادهٔ واردشده با فایل‌ها نخواند (%s) — ردیس دوباره خالی شد و فایل‌ها دست‌نخورده ماندند"
-                            % "، ".join(bad))
-    for path in [p for _n, p, _k in _IMPORT] + list(_IMPORT_ALSO):
-        full = os.path.join(base, os.path.basename(path))
-        if os.path.isfile(full):
-            os.replace(full, full + ".imported")
-    _store_resync(set(_GROUPS))
-    return {k: len(v) for k, v in src.items()}
-
-
-def _import_step():
-    if not any(os.path.isfile(p) for _n, p, _k in _IMPORT):
-        print("%s no JSON data to import" % OK)
-        return True
-    was = service_active()
-    if was:
-        svc("stop")
-    try:
-        counts = import_json()
-    except Exception as e:
-        print("%s import failed: %s" % (BAD, _store_msg(e)))
-        if was:
-            svc("start")
-            print("    the previous panel was started again; nothing was changed.")
-        return False
-    print("%s imported %s" % (OK, ", ".join("%d %s" % (n, k) for k, n in counts.items())))
-    left = [f for f in _IMPORT_LEFTOVERS if os.path.isfile(os.path.join(CENTRAL_DIR, f))]
-    if left:
-        print("    not imported (no code reads them): " + ", ".join(left))
-    return True
-
-
-def export_json(out_dir):
-    r = _redis()
-    got = _import_read(r)
-    os.makedirs(out_dir, mode=0o700, exist_ok=True)
-    got["events"] = [dict(f, seq=i + 1) for i, (_key, _eid, f) in enumerate(got["events"])]
-    for name, path, _kind in _IMPORT:
-        save_json(os.path.join(out_dir, os.path.basename(path)), got[name])
-    return {k: len(v) for k, v in got.items()}
-
-
 def write_service():
     with open(SERVICE_FILE, "w") as f:
         f.write(f"""[Unit]
@@ -9639,7 +9477,7 @@ def do_install():
     if not sys.stdin.isatty():
         print("%s install asks for a username and a password, so it needs a terminal." % BAD)
         return False
-    total = 8
+    total = 7
 
     step(1, total, "dependencies")
     install_deps()
@@ -9648,11 +9486,7 @@ def do_install():
     if not install_store():
         return False
 
-    step(3, total, "data import")
-    if not _import_step():
-        return False
-
-    step(4, total, "files")
+    step(3, total, "files")
     os.makedirs(CENTRAL_DIR, exist_ok=True)
     os.chmod(CENTRAL_DIR, 0o700)
     if os.path.realpath(SELF_PATH) != INSTALLED:
@@ -9671,13 +9505,13 @@ def do_install():
         print("    unpack the release tarball and run it from inside that folder.")
         return False
 
-    step(5, total, "port and login")
+    step(4, total, "port and login")
     conf = cli_conf()
     have = conf.get("port", 8080)
     conf["port"] = _port_or(input("Panel port [%s]: " % have), have)
     set_password(conf)
 
-    step(6, total, "signing key")
+    step(5, total, "signing key")
     try:
         _signing_keys()
         print("%s rsa key ready" % OK)
@@ -9686,7 +9520,7 @@ def do_install():
         print("    without it every push to a node is refused, so the install stops here.")
         return False
 
-    step(7, total, "service")
+    step(6, total, "service")
     write_service()
     svc("enable")
     svc("restart")
@@ -9695,7 +9529,7 @@ def do_install():
         return False
     print("%s %s is active" % (OK, SERVICE))
 
-    step(8, total, "core and agent")
+    step(7, total, "core and agent")
     try:
         info = _stage_core("latest")
         print("%s core %s staged (%s)" % (OK, info["version"], ", ".join(info["arches"])))
@@ -9765,19 +9599,6 @@ def uninstall():
     print(f"[✔] services removed (nodes, links and settings kept in {REDIS_DIR}; install again to use them).")
 
 
-def do_export():
-    default = "/root/tnl-backup-" + time.strftime("%Y%m%d-%H%M%S")
-    out = (input(f"Export to [{default}]: ").strip() if sys.stdin.isatty() else "") or default
-    try:
-        counts = export_json(out)
-    except Exception as e:
-        print(f"[!] export failed: {_store_msg(e)}")
-        return False
-    print(f"[✔] exported to {out}: " + ", ".join("%d %s" % (n, k) for k, n in counts.items()))
-    print("    restore on an empty store: copy these files into %s and run --install." % CENTRAL_DIR)
-    return True
-
-
 def do_restart():
     if not os.path.isfile(SERVICE_FILE):
         print("Not installed yet - run Install first.")
@@ -9795,7 +9616,6 @@ MENU = [
     ("4", "Change the port", ""),
     ("5", "Change the password", ""),
     ("6", "Uninstall", "keeps nodes, links and settings"),
-    ("7", "Backup", "exports nodes, links, settings and logs as JSON"),
     ("0", "Exit", ""),
 ]
 
@@ -9881,8 +9701,6 @@ def menu():
                 change_password()
             elif c == "6":
                 uninstall()
-            elif c == "7":
-                do_export()
             elif c == "0":
                 return
             else:
@@ -10014,12 +9832,6 @@ def main():
             print("Run as root (sudo).")
             sys.exit(1)
         if not refresh_ui():
-            sys.exit(1)
-    elif arg == "--export":
-        if os.geteuid() != 0:
-            print("Run as root (sudo).")
-            sys.exit(1)
-        if not do_export():
             sys.exit(1)
     elif arg == "--set-pass":
         if os.geteuid() != 0:
