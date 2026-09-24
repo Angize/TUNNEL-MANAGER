@@ -32,12 +32,11 @@ function answers(cmd, method, token, act) {
   const s = SAMPLES[cmd] || {}
   const e = ERRS[cmd] || {}
   const out = []
-  const add = (key, code, note, bodies, rows, sub) => {
-    if (bodies.length || rows.length) out.push({ key, code, note, bodies, rows, sub })
+  const add = (key, code, note, bodies, rows) => {
+    if (bodies.length || rows.length) out.push({ key, code, note, bodies, rows })
   }
   add('ok', 200, TEXT.c[200], s.ok ? [s.ok] : [], [])
   if (act) add('act', 'acts', TEXT.c.act, [SAMPLES._acts.done, SAMPLES._acts.fail], e.act || [])
-  add('soft', 200, TEXT.c.soft, [], e.soft || [], 'ok:false')
   add('400', 400, TEXT.c[400], [], e.bad || [])
   add('401', 401, TEXT.c[401], [], G['401'])
   add('403', 403, TEXT.c[403], [], token ? G['403'] : [...G['403d'], ...G['403']])
@@ -130,7 +129,6 @@ function Body({ cmd, method, token, base }) {
             onClick={() => setPick(a.key)}
           >
             {a.code}
-            {a.sub ? <small>{a.sub}</small> : null}
           </button>
         ))}
       </div>

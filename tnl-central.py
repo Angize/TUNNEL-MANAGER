@@ -213,12 +213,16 @@ def _err_en(e, status):
     return {"code": status, "error": _code(e), "message": _why(e).en}
 
 
+def _is_fail(v):
+    return isinstance(v, dict) and isinstance(v.get("code"), str) and bool(v["code"]) and "error" in v
+
+
 def _en_out(v):
     if isinstance(v, Tx):
         return v.en
+    if _is_fail(v):
+        return _en_fail(v)
     if isinstance(v, dict):
-        if isinstance(v.get("code"), str) and v["code"] and "error" in v:
-            return _en_fail(v)
         return {k: _en_out(x) for k, x in v.items()}
     if isinstance(v, (list, tuple)):
         return [_en_out(x) for x in v]
@@ -229,7 +233,7 @@ def _en_fail(v):
     out = {}
     for k, x in v.items():
         if k == "code":
-            out["code"] = v.get("http", 200)
+            out["code"] = v.get("http", 400)
         elif k == "error":
             out["error"], out["message"] = v["code"], _en_out(x)
         elif k != "http":
@@ -240,8 +244,9 @@ def _en_fail(v):
 def _en_reply(res):
     out = _en_out(res)
     if not isinstance(out, dict):
-        return out
-    return {"code": 200, **{k: x for k, x in out.items() if k != "code"}}
+        return 200, out
+    status = out["code"] if _is_fail(res) else 200
+    return status, {"code": status, **{k: x for k, x in out.items() if k != "code"}}
 
 
 def _copy(v):
@@ -9276,7 +9281,7 @@ def _act_run(h, fn):
         res = res if isinstance(res, dict) else {}
         with _act_lock:
             if res.get("ok") is False:
-                h.update(state="fail", step="", code=str(res.get("code") or "failed"), http=200,
+                h.update(state="fail", step="", code=str(res.get("code") or "failed"), http=400,
                          error=tx_cut(res.get("msg") or res.get("error") or _FAILED, 300),
                          offer=str(res.get("offer") or ""), ended=int(time.time()))
             else:
@@ -9842,7 +9847,7 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
         try:
             res = _dispatch(cmd, d)
-            self._send(200, _en_reply(res) if via_token else res)
+            self._send(*(_en_reply(res) if via_token else (200, res)))
         except ValueError as e:
             self._send(400, _err_en(e, 400) if via_token else {"error": str(e)})
             if via_token:
