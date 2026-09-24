@@ -508,11 +508,11 @@ export default function AgentPage({ headless }) {
           <Facts items={agentFacts} />
           <DeliverySegment value={delivery.agent} onChange={(v) => changeDelivery('agent', v)} />
           <div className="oprow">
-            <button className="ghost" disabled={gitBusy} onClick={fetchAgentFromGit}>
+            <button className="ghost tone" disabled={gitBusy} onClick={fetchAgentFromGit}>
               <Icon name="download" />
               {T('ag_fetch_git')}
             </button>
-            <button className="ghost opfit" onClick={() => agentFile.current.click()}>
+            <button className="ghost tone tone-put opfit" onClick={() => agentFile.current.click()}>
               <Icon name="upload" />
               {T('ag_file_btn')}
             </button>
@@ -574,23 +574,23 @@ export default function AgentPage({ headless }) {
                 </div>
               )}
             </div>
-            <button type="button" className="ghost corcheck" onClick={checkCore}>
+            <button type="button" className="ghost tone tone-check corcheck" onClick={checkCore}>
               <Icon name="redo" />
               {T('cor_check')}
             </button>
           </div>
           <DeliverySegment value={delivery.core} onChange={(v) => changeDelivery('core', v)} />
           <div className="oprow">
-            <button className="ghost" onClick={stageCore}>
+            <button className="ghost tone" onClick={stageCore}>
               <Icon name="download" />
               {T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')}
             </button>
-            <button className="ghost opfit" onClick={() => coreFile.current.click()}>
+            <button className="ghost tone tone-put opfit" onClick={() => coreFile.current.click()}>
               <Icon name="upload" />
               {T('ag_binary')}
             </button>
             {hasCustom ? (
-              <button className="ghost opdel" title={T('cor_del_blob')} onClick={deleteCoreBlob}>
+              <button className="ghost tone tone-del opdel" title={T('cor_del_blob')} onClick={deleteCoreBlob}>
                 <Icon name="trash" />
               </button>
             ) : null}
