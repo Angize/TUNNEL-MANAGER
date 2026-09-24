@@ -7286,12 +7286,10 @@ def ech_refresh_loop():
 
 EVENTS_TTL = 24 * 3600
 K_EVENTS = "tnl:events"
-K_EVENTS_API = "tnl:events:api"
 EV_BATCH = 500
 
 EV_GROUPS = (("tunnel", "تونل"), ("node", "نود"), ("rot", "چرخش و استخر"),
              ("ech", "ECH"), ("cfg", "تنظیم"), ("auth", "ورود"), ("api", "API"))
-API_OK_KEEP = 500
 EV_TYPES = (
     ("link-up", "tunnel", "تونل وصل شد"),
     ("link-down", "tunnel", "تونل قطع شد"),
@@ -7316,12 +7314,8 @@ EV_TYPES = (
     ("ech-rebuild", "ech", "بازسازیِ سریعِ ECH"),
     ("ech-saved", "ech", "ذخیرهٔ کلیدِ خودترمیمِ هسته"),
     ("cfg-clamped", "cfg", "تنظیمی که کامل اعمال نشد"),
-    ("backup", "cfg", "بکاپ یا بازگردانیِ دادهٔ پنل"),
-    ("auth-in", "auth", "ورودِ موفق به پنل"),
-    ("auth-out", "auth", "خروج از پنل"),
     ("auth-fail", "auth", "تلاشِ ناموفقِ ورود"),
     ("auth-lock", "auth", "قفلِ نشانی پس از تلاشِ زیاد"),
-    ("api-ok", "api", "درخواستِ موفقِ API"),
     ("api-refused", "api", "درخواستِ ردشدهٔ API"),
     ("api-error", "api", "درخواستِ API با خطا"),
     ("api-lock", "api", "قفلِ نشانی پس از توکنِ غلطِ زیاد"),
@@ -7539,17 +7533,14 @@ def _ev_boot():
     global _ev_last
     r = _redis()
     p = r.pipeline(transaction=True)
-    for key in (K_EVENTS, K_EVENTS_API):
-        p.exists(key)
-        p.xrange(key, "-", "+")
-    res = p.execute()
-    last, out = (int(time.time() * 1000), 0), []
-    for key, there, rows in zip((K_EVENTS, K_EVENTS_API), res[0::2], res[1::2]):
-        if there:
-            last = max(last, _ev_key(r.xinfo_stream(key)["last-generated-id"]))
-        for eid, f in rows:
-            out.append({"ts": _sint(f.get("ts")), "id": eid, "level": f.get("level", ""),
-                        "kind": f.get("kind", ""), "fa": f.get("fa", ""), "dfa": f.get("dfa", "")})
+    p.exists(K_EVENTS)
+    p.xrange(K_EVENTS, "-", "+")
+    there, rows = p.execute()
+    last = (int(time.time() * 1000), 0)
+    if there:
+        last = max(last, _ev_key(r.xinfo_stream(K_EVENTS)["last-generated-id"]))
+    out = [{"ts": _sint(f.get("ts")), "id": eid, "level": f.get("level", ""), "kind": f.get("kind", ""),
+            "fa": f.get("fa", ""), "dfa": f.get("dfa", "")} for eid, f in rows]
     _ev_last = last
     out = _ev_prune(out)
     out.sort(key=lambda e: (e["ts"], _ev_key(e["id"])), reverse=True)
@@ -7598,13 +7589,9 @@ def _ev_drain():
         if op[0] == "add":
             e = op[1]
             f = {"ts": e["ts"], "level": e["level"], "kind": e["kind"], "fa": e["fa"], "dfa": e["dfa"]}
-            if e["kind"] == "api-ok":
-                p.xadd(K_EVENTS_API, f, id=e["id"], maxlen=API_OK_KEEP, approximate=False)
-            else:
-                p.xadd(K_EVENTS, f, id=e["id"], minid=cut, approximate=True)
+            p.xadd(K_EVENTS, f, id=e["id"], minid=cut, approximate=True)
         elif op[0] == "clear":
             p.xtrim(K_EVENTS, maxlen=0, approximate=False)
-            p.xtrim(K_EVENTS_API, maxlen=0, approximate=False)
         else:
             p.xtrim(K_EVENTS, minid=cut, approximate=True)
     try:
@@ -7688,18 +7675,6 @@ def log_event(level, kind, fa, dfa="", ts=None):
         e = {"ts": at, "id": _ev_next_id(), "level": level, "kind": kind, "fa": fa, "dfa": dfa}
         pos = next((i for i, x in enumerate(lst) if _sint(x.get("ts")) <= at), len(lst))
         lst.insert(pos, e)
-        if kind == "api-ok":
-            seen = 0
-            for i in range(len(lst) - 1, -1, -1):
-                if lst[i]["kind"] != "api-ok":
-                    continue
-                seen += 1
-            for i in range(len(lst) - 1, -1, -1):
-                if seen <= API_OK_KEEP:
-                    break
-                if lst[i]["kind"] == "api-ok":
-                    del lst[i]
-                    seen -= 1
         if at >= now - EVENTS_TTL:
             _ev_out.append(("add", e))
     _ev_wake.set()
@@ -8530,7 +8505,6 @@ _BACKUP_SNAP = ("local out = {} "
                 "end "
                 "return out")
 _restore_lock = threading.Lock()
-_BACKUP_SAID = "{nodes} نود، {core} تونلِ هسته، {system} تونلِ سیستمی، {proxies} پروکسی"
 
 
 def _backup_view(nodes, links, proxies):
@@ -8587,7 +8561,6 @@ def api_backup(d):
             ti = tarfile.TarInfo(name)
             ti.size, ti.mtime, ti.mode = len(data), now, 0o600
             tar.addfile(ti, io.BytesIO(data))
-    log_event("ok", "backup", "از دادهٔ پنل بکاپ گرفته شد — " + _BACKUP_SAID.format(**c))
     return {"ok": True, "data": base64.b64encode(buf.getvalue()).decode(), **c}
 
 
@@ -8673,9 +8646,6 @@ def _backup_swap():
 
 def _restart_self():
     time.sleep(0.5)
-    until = time.time() + 3
-    while _ev_out and time.time() < until:
-        time.sleep(0.1)
     sys.stdout.flush()
     sys.stderr.flush()
     try:
@@ -8714,8 +8684,6 @@ def api_backup_restore(d):
             raise ValueError("کلیدِ امضای بکاپ روی دیسک نوشته نشد — چیزی عوض نشد") from None
         swapping = True
         _backup_swap()
-        log_event("warn", "backup", "دادهٔ پنل از فایلِ بکاپ بازگردانی شد — " + _BACKUP_SAID.format(**after)
-                  + "؛ پنل دوباره راه‌اندازی شد")
         return dict(out, restarting=True)
     finally:
         if not swapping:
@@ -9234,7 +9202,6 @@ class Handler(BaseHTTPRequestHandler):
             conf = self._conf()
             if self._user():
                 bump_sess_epoch(conf)
-                self._auth_log("ok", "auth-out", "خروج از پنل انجام شد و همهٔ نشست‌های باز باطل شدند.")
             secure = "; Secure" if conf.get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
         elif path.startswith("/api/"):
@@ -9298,7 +9265,6 @@ class Handler(BaseHTTPRequestHandler):
         if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
-            self._auth_log("ok", "auth-in", "ورود موفق به پنل انجام شد.")
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
             note_fail(ip)
@@ -9434,8 +9400,6 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
         try:
             self._send(200, _dispatch(cmd, d))
-            if via_token:
-                self._api_log("ok", "api-ok", "درخواستِ API «%s» انجام شد." % cmd, cmd, method, 200)
         except ValueError as e:
             self._send(400, {"error": str(e)})
             if via_token:
