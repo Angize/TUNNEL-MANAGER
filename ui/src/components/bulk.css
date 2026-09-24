@@ -6,11 +6,6 @@
   transform: scale(.98);
 }
 
-.bulkbtn.on {
-  background: color-mix(in srgb, var(--c) 18%, var(--card));
-  border-color: color-mix(in srgb, var(--c) 42%, transparent);
-}
-
 .selck {
   width: 22px;
   height: 22px;

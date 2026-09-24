@@ -24,6 +24,10 @@ import './agent.css'
 
 const STAGE_POLL_MS = 400
 
+function mbText(bytes) {
+  return (bytes / 1048576).toFixed(1) + ' ' + T('unit_mb_full')
+}
+
 function Facts({ items }) {
   return (
     <div className="upmeta">
@@ -482,13 +486,13 @@ export default function AgentPage({ headless }) {
     ? [{ text: T('loading') }]
     : staged
       ? [
-          stagedSize ? { text: (stagedSize / 1048576).toFixed(1) + ' ' + T('unit_mb_full') } : null,
+          stagedSize ? { text: mbText(stagedSize) } : null,
           (staged.arches || []).length ? { text: staged.arches.join(' · ') } : null,
           stagedSha ? { text: String(stagedSha).slice(0, 12), mono: true } : null,
         ].filter(Boolean)
       : custom
         ? [
-            custom.size ? { text: (custom.size / 1048576).toFixed(1) + ' ' + T('unit_mb_full') } : null,
+            custom.size ? { text: mbText(custom.size) } : null,
             custom.sha256 ? { text: custom.sha256, mono: true } : null,
           ].filter(Boolean)
         : [{ text: T('ag_no_core_staged') }]

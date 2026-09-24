@@ -123,6 +123,11 @@ select:focus {
   color: var(--c);
 }
 
+.ghost.tone.on {
+  background: color-mix(in srgb, var(--c) 18%, var(--card));
+  border-color: color-mix(in srgb, var(--c) 42%, transparent);
+}
+
 .ghost.tone-put {
   --c: var(--teal);
 }

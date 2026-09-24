@@ -64,8 +64,9 @@
 }
 
 .oprow > .primary,
-.oprow > .ghost,
-.oprow > .corcheck {
+.oprow > .ghost {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   height: var(--sc-h);
   border-radius: 10px;
@@ -75,12 +76,6 @@
   justify-content: center;
   gap: 6px;
   padding: 0 13px;
-}
-
-.oprow > .primary,
-.oprow > .ghost {
-  flex: 1;
-  min-width: 0;
 }
 
 .oprow > .corcheck,
