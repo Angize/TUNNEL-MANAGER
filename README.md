@@ -19,10 +19,10 @@ rm -rf /tmp/tnl && mkdir -p /tmp/tnl && tar xzf /tmp/tnl.tgz -C /tmp/tnl
 cd /tmp/tnl && sudo python3 tnl-central.py --install
 ```
 
-نصب‌کننده هشت مرحله را نشان می‌دهد: پیش‌نیازها (`openssl`, `ca-certificates`, `iproute2`,
-`openssh-client`, `sshpass`, `redis-server`, `python3-redis`)، ذخیره‌سازِ ردیس، واردکردنِ
-دادهٔ JSONِ قبلی (اگر باشد)، فایل‌ها، پورت و نام‌کاربری/رمز، کلیدِ امضا، سرویسِ systemd، و
-دانلودِ هستهٔ `latest` و ایجنتِ نود. آخرش نشانیِ پنل را چاپ می‌کند.
+نصب‌کننده هفت مرحله را نشان می‌دهد: پیش‌نیازها (`openssl`, `ca-certificates`, `iproute2`,
+`openssh-client`, `sshpass`, `redis-server`, `python3-redis`)، ذخیره‌سازِ ردیس، فایل‌ها،
+پورت و نام‌کاربری/رمز، کلیدِ امضا، سرویسِ systemd، و دانلودِ هستهٔ `latest` و ایجنتِ نود.
+آخرش نشانیِ پنل را چاپ می‌کند.
 
 اگر وسطِ کار Ctrl+C بزنی، هیچ‌چیز نصفه نمی‌ماند — پیغامِ لغو می‌دهد و برمی‌گردد.
 
@@ -42,11 +42,6 @@ sudo install -m755 tnl-central.py /opt/tnl-central/tnl-central.py
 sudo python3 tnl-central.py --install-ui
 sudo systemctl restart tnl-central
 ```
-
-> **اولین به‌روزرسانی به نسخه‌ای که داده را در ردیس نگه می‌دارد** با این بلوک نمی‌شود:
-> به‌جای سه خطِ آخر `sudo python3 tnl-central.py --install` را بزن. نصب‌کننده ردیس را
-> نصب می‌کند، پنلِ قدیمی را متوقف می‌کند، همهٔ فایل‌های JSON را وارد و با ردیس مقایسه
-> می‌کند و بعد پنلِ تازه را بالا می‌آورد؛ فایل‌های واردشده `*.imported` می‌شوند.
 
 اگر فقط رابطِ کاربری عوض شده، `--install-ui` به‌تنهایی کافی است و ری‌استارت لازم
 نیست — فایل‌ها از روی دیسک سرو می‌شوند. نامِ فایل‌های `ui/assets/` هش‌دار است، پس
@@ -74,7 +69,6 @@ sudo python3 /opt/tnl-central/tnl-central.py
 | **4** | تغییرِ پورت |
 | **5** | تغییرِ رمز |
 | **6** | حذف (نودها، لینک‌ها و تنظیمات در ردیس می‌مانند) |
-| **7** | بکاپ: همهٔ داده به‌صورتِ فایل‌های JSON |
 | **0** | خروج |
 
 گزینهٔ **2** را باید از داخلِ پوشهٔ بازشدهٔ ریلیز اجرا کنی، نه از `/opt/tnl-central`؛
@@ -92,12 +86,6 @@ sudo python3 tnl-central.py --install
 
 ```bash
 sudo python3 tnl-central.py --install-ui
-```
-
-بکاپ (همهٔ داده به‌صورتِ JSON در `/root/tnl-backup-<زمان>`):
-
-```bash
-sudo python3 /opt/tnl-central/tnl-central.py --export
 ```
 
 تغییرِ نام‌کاربری و رمزِ ورود:
@@ -126,8 +114,7 @@ sudo python3 /opt/tnl-central/tnl-central.py
 همهٔ دادهٔ پنل (نودها، تونل‌ها، پروکسی‌ها، تنظیمات، لاگ و آمار) در یک ردیسِ اختصاصی
 (`tnl-redis.service`) است که فقط سوکتِ `/run/tnl-redis/redis.sock` را باز می‌کند و با
 `appendfsync always` هر تغییر را قبل از جواب روی دیسک می‌نویسد؛ پنل بدونِ این تنظیم بالا
-نمی‌آید. بازگرداندنِ بکاپ: روی ردیسِ خالی، فایل‌های بکاپ را در `/opt/tnl-central` بگذار و
-`--install` را بزن.
+نمی‌آید. فایل‌های ردیس در `/var/lib/tnl-redis` هستند.
 
 ---
 
