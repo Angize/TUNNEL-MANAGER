@@ -2076,13 +2076,6 @@
     "this endpoint is not available with an API token"
    ]
   ],
-  "404": [
-   [
-    404,
-    "unknown_route",
-    "unknown API route"
-   ]
-  ],
   "405": [
    [
     405,
