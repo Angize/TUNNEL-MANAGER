@@ -3353,15 +3353,16 @@ def _readiness():
     except Exception:
         agent = False
     info = _staged_info()
-    blob = _core_blob_info()
-    if _delivery_mode("core") == "github":
+    gh = _delivery_mode("core") == "github"
+    if gh:
         missing = []
     else:
         ver = (info or {}).get("version") or ""
         missing = [a for a in CORE_ARCHES if not (ver and os.path.isfile(_stage_path(ver, a)))]
-    core = (bool(info) and not missing) or bool(blob)
+    custom = not gh and bool(_core_blob_info())
+    core = (bool(info) and not missing) or custom
     return {"agent": agent, "core": core, "core_missing": [] if core else missing,
-            "core_version": (info or {}).get("version", "") or ("custom" if blob else ""),
+            "core_version": (info or {}).get("version", "") or ("custom" if custom else ""),
             "ok": agent and core}
 
 
@@ -3388,9 +3389,8 @@ def _dl_artifact(kind, arch):
         b = _staged_bytes(arch)
         return b[0] if b else None
     if kind == "cb":
-        with _core_blob_lock:
-            with open(CORE_BLOB, "rb") as f:
-                return f.read()
+        b = _core_blob_bytes()
+        return b[0] if b else None
     return None
 
 
@@ -3768,14 +3768,12 @@ def api_update_core(d):
     nodes = _update_targets(d)
     version = str((d or {}).get("version") or "").strip()
     if version == "custom":
-        info = _core_blob_info()
-        if not info:
+        blob = _core_blob_bytes()
+        if not blob:
             raise ValueError("هیچ باینریِ سفارشی‌ای بارگذاری نشده")
         _core_delivery_check(_delivery_mode("core"), True)
-        with _core_blob_lock:
-            with open(CORE_BLOB, "rb") as f:
-                raw = f.read()
-        b64, sha = base64.b64encode(raw).decode(), info["sha256"]
+        raw, sha = blob
+        b64 = base64.b64encode(raw).decode()
         sig = _sign_sha(sha)
         put = _body_cache(lambda n: _core_install_body(n, b64, sha, "custom", sig, custom=True))
         plan = [("check", "ping", lambda _n, _c=None: {}, 15, lambda r, _s=sha: _core_current(r, _s)),
@@ -3929,6 +3927,15 @@ def api_core_check(d):
     top = (vers[0].get("id") if vers else "")
     return {"ok": True, "count": len(vers), "latest": top, "newer": bool(top and top != prev_top),
             "first_check": not before, "staged": (_staged_info() or {}).get("version", "")}
+
+
+def _core_blob_bytes():
+    info = _core_blob_info()
+    if not info:
+        return None
+    with _core_blob_lock:
+        with open(CORE_BLOB, "rb") as f:
+            return f.read(), info["sha256"]
 
 
 def _core_blob_info():
@@ -4236,19 +4243,24 @@ def _push_staged(node):
     arch = _node_arch(node)
     if not arch:
         return {"ok": False, "error": "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود"}
+    custom = False
     if _delivery_mode("core") == "github":
         sha, ver, b64 = "", str((_staged_info() or {}).get("version") or ""), ""
         if not ver:
             return {"ok": False, "error": "هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن"}
     else:
         b = _staged_bytes(arch)
-        if not b:
-            return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
-        raw, sha, ver = b
+        if b:
+            raw, sha, ver = b
+        else:
+            blob = _core_blob_bytes()
+            if not blob:
+                return {"ok": False, "error": "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن"}
+            (raw, sha), ver, custom = blob, "custom", True
         b64 = base64.b64encode(raw).decode()
     sig = _sign_sha(sha) if sha else ""
     try:
-        body = _core_install_body(node, b64, sha, ver, sig, arch)
+        body = _core_install_body(node, b64, sha, ver, sig, arch, custom)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     k = _ensure_update_key(node)
@@ -4264,7 +4276,7 @@ def _push_staged(node):
 
 def _push_staged_on_add(node):
     try:
-        if _staged_info():
+        if _readiness()["core"]:
             _push_staged(node)
     except Exception:
         pass
@@ -4277,7 +4289,7 @@ def _node_tunnel(node, body):
         pr = _push_staged(node)
         if not pr.get("ok"):
             r["error"] = ("هسته روی نودِ «%s» نصب نیست و رساندنِ آن هم نشد: %s"
-                          % (node.get("name", "?"), pr.get("error") or pr.get("msg") or "?"))
+                          % (node.get("name", "?"), pr.get("error") or pr.get("code") or pr.get("msg") or "?"))
             return r
         r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
     return r
