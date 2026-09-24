@@ -1191,6 +1191,7 @@ POLL_GAP = 2
 NODE_DOWN_PINGS = 3
 NODE_GROUP_SECS = 10
 NODE_HOLD_SECS = 30
+CORE_SILENT_SECS = 30
 _pc = {}
 _pc_lock = threading.Lock()
 _tf = {}
@@ -6771,7 +6772,7 @@ _ev_seq_total = None
 _ev_list = None
 _ev_dirty = False
 _ev_state = {"init": False, "nodes": {}, "held": [], "links": {}, "evseq": {}, "rotip": {},
-             "links_coarse_down": set()}
+             "links_coarse_down": set(), "coarse_hold": {}, "core_down": {}}
 
 
 def _ev_ip(detail):
@@ -6922,6 +6923,8 @@ def _ingest_core_events(lid, end, nm, events):
             continue
         ts = at[0] or None
         ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
+        if ekind == "down":
+            _ev_state["core_down"][lid] = time.time()
         rot = _ev_rot(ekind, ecode)
         if rot and end == "cli" and ecode == "port-roll":
             kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
@@ -7088,7 +7091,7 @@ def _link_blind(L):
     return [k for k in ("a_node", "b_node") if not _link_side_health(L, k)[1]]
 
 
-def _link_down_reason(L, nmap):
+def _link_down_reason(L, nmap, silent=False):
     blind = _link_blind(L)
     if blind:
         seen = "b_node" if blind[0] == "a_node" else "a_node"
@@ -7096,6 +7099,8 @@ def _link_down_reason(L, nmap):
                 f"سرِ «{nmap.get(L.get(blind[0]), '')}» از پنل در دسترس نیست")
     if link_drift(L["id"]):
         return "IP عوض شده — نیازمندِ بازسازی"
+    if silent:
+        return "هستهٔ تونل از این قطعی هیچ گزارشی نداد — احتمالاً هستهٔ یک سر از کار افتاده"
     return "قابلِ دسترسی نیست (کریر/سرِ مقابل)"
 
 
@@ -7227,6 +7232,7 @@ def _events_once():
         precise_core = L.get("type") == "core" and (
             bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)
         if up:
+            _ev_state["coarse_hold"].pop(lid, None)
             if not precise_core or lid in _ev_state["links_coarse_down"]:
                 log_event("ok", "link-up", f"تونلِ «{nm}»: وصل شد", ts=at)
             _ev_state["links_coarse_down"].discard(lid)
@@ -7234,6 +7240,8 @@ def _events_once():
             log_event("bad", "link-down", f"تونلِ «{nm}»: قطع شد", _link_down_reason(L, nmap), ts=at)
             if precise_core:
                 _ev_state["links_coarse_down"].add(lid)
+        else:
+            _ev_state["coarse_hold"][lid] = at
     for lid in [k for k in _ev_state["links"] if k not in seen]:
         _ev_state["links"].pop(lid, None)
         _ev_state["links_coarse_down"].discard(lid)
@@ -7292,6 +7300,20 @@ def _events_once():
         _ev_state["evseq"].pop(k, None)
     for rk in [k for k in _ev_state["rotip"] if k.rsplit(":", 1)[0] not in seen]:
         _ev_state["rotip"].pop(rk, None)
+
+    live = {L["id"]: L for L in links if L.get("enabled", True)}
+    now = time.time()
+    for lid, at in list(_ev_state["coarse_hold"].items()):
+        L = live.get(lid)
+        if L is None or _ev_state["core_down"].get(lid, 0) >= at - CORE_SILENT_SECS:
+            del _ev_state["coarse_hold"][lid]
+        elif now - at >= CORE_SILENT_SECS:
+            del _ev_state["coarse_hold"][lid]
+            _ev_state["links_coarse_down"].add(lid)
+            log_event("bad", "link-down", f"تونلِ «{L.get('name', '')}»: قطع شد",
+                      _link_down_reason(L, nmap, silent=True), ts=at)
+    for lid in [k for k in _ev_state["core_down"] if k not in live]:
+        del _ev_state["core_down"][lid]
 
     _ev_state["init"] = True
 
