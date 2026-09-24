@@ -4137,13 +4137,9 @@ def _sha_file(url, should_abort=None):
     return sha
 
 
-def _release_sha(version, arch, should_abort=None):
-    return _sha_file(_release_asset_url(version, arch) + ".sha256", should_abort)
-
-
 def _fetch_release(version, arch, on_progress=None, should_abort=None):
     base = _release_asset_url(version, arch)
-    sha = _release_sha(version, arch, should_abort=should_abort)
+    sha = _sha_file(base + ".sha256", should_abort)
     raw = _dl(base, 180, on_progress=on_progress, should_abort=should_abort)
     if hashlib.sha256(raw).hexdigest() != sha:
         raise RuntimeError("چک‌سامِ فایلِ دریافت‌شده با انتشارِ گیت‌هاب نمی‌خواند")
