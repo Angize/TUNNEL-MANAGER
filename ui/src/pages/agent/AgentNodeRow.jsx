@@ -94,7 +94,7 @@ export default function AgentNodeRow({
         <VersionPill
           icon="server"
           tone={agent.tone}
-          version={info.sha256 ? String(info.sha256).slice(0, 12) : '—'}
+          version={info.version || '—'}
           title={agent.title}
         />
         <VersionPill
