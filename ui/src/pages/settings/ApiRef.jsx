@@ -9,7 +9,6 @@ import ERRS from './apiErrors.json'
 import './apiref.css'
 
 const G = SAMPLES._generic
-const CODES = [200, 400, 401, 403, 404, 405, 413, 429, 500, 503]
 const PLACED = new Set(GROUPS.flatMap(([, , cmds]) => cmds))
 
 function quote(s) {
@@ -168,7 +167,7 @@ function Row({ cmd, method, token, open, onToggle, base }) {
 function matches(cmd, q) {
   if (!q) return true
   const doc = DOCS[cmd] || {}
-  return [cmd, doc.t || '', doc.d || ''].some((v) => v.toLowerCase().includes(q))
+  return ['/api/' + cmd, doc.t || '', doc.d || ''].some((v) => v.toLowerCase().includes(q))
 }
 
 export default function ApiRef() {
@@ -178,7 +177,7 @@ export default function ApiRef() {
   const base = window.location.origin + '/api/'
   const meta = new Map(api.map(([cmd, method, token]) => [cmd, { method, token }]))
   const rest = api.map(([cmd]) => cmd).filter((cmd) => !PLACED.has(cmd))
-  const q = query.trim().toLowerCase()
+  const q = query.trim().toLowerCase().replace(/^[a-z]+:\/\/[^/]+/, '').split('?')[0]
   const groups = [...GROUPS, ['other', TEXT.other, rest]]
     .map(([id, title, cmds]) => [id, title, cmds.filter((c) => meta.has(c) && matches(c, q))])
     .filter(([, , cmds]) => cmds.length)
@@ -211,15 +210,6 @@ export default function ApiRef() {
             <RichText text={text} />
           </p>
         ))}
-        <h5>{TEXT.codes}</h5>
-        <div className="apctab">
-          {CODES.map((c) => (
-            <div key={c} className="apcrow">
-              <span className={'apcc ' + tone(c)}>{c}</span>
-              <span>{TEXT.c[c]}</span>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="aplist">

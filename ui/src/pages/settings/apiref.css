@@ -32,24 +32,6 @@
   font-weight: 800;
 }
 
-.apctab {
-  display: grid;
-  gap: 5px;
-}
-
-.apcrow {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  color: var(--sub);
-}
-
-.apcrow .apcc {
-  flex: none;
-  min-width: 46px;
-  text-align: center;
-}
-
 .apcc {
   direction: ltr;
   font-family: ui-monospace, Consolas, monospace;
