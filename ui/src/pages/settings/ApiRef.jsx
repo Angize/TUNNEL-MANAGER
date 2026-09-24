@@ -57,8 +57,54 @@ function tone(code) {
   return 'c5'
 }
 
-function Json({ value }) {
-  return <pre className="apjs mono">{JSON.stringify(value, null, 2)}</pre>
+const JSON_TOKEN = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b/g
+const CURL_TOKEN = /(^curl)|(\s)(-[A-Za-z])(?=\s)|'(https?:\/\/[^']*)'|"([A-Za-z-]+)(: )/g
+
+function paint(text, re, spans) {
+  const out = []
+  let last = 0
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(...spans(m))
+    last = m.index + m[0].length
+  }
+  out.push(text.slice(last))
+  return out
+}
+
+function jsonSpans(text) {
+  return paint(text, JSON_TOKEN, (m) => {
+    if (m[1]) return [<span key={m.index} className={m[2] ? 'tk' : 'ts'}>{m[1]}</span>, m[2] || '']
+    if (m[3]) return [<span key={m.index} className="tn">{m[3]}</span>]
+    return [<span key={m.index} className="tb">{m[4]}</span>]
+  })
+}
+
+function curlSpans(text) {
+  return paint(text, CURL_TOKEN, (m) => {
+    if (m[1]) return [<span key={m.index} className="tc">{m[1]}</span>]
+    if (m[3]) return [m[2], <span key={m.index} className="tf">{m[3]}</span>]
+    if (m[4]) return ["'", <span key={m.index} className="tu">{m[4]}</span>, "'"]
+    return ['"', <span key={m.index} className="tk">{m[5]}</span>, m[6]]
+  })
+}
+
+function Term({ label, children }) {
+  return (
+    <div className="apterm">
+      <div className="aptermh">
+        <i />
+        <i />
+        <i />
+        <span>{label}</span>
+      </div>
+      <pre className="apjs mono">{children}</pre>
+    </div>
+  )
+}
+
+function Json({ value, label }) {
+  return <Term label={label}>{jsonSpans(JSON.stringify(value, null, 2))}</Term>
 }
 
 function row([code, error, message]) {
@@ -66,7 +112,7 @@ function row([code, error, message]) {
 }
 
 function Rows({ rows }) {
-  return <pre className="apjs mono">{rows.map(row).join('\n')}</pre>
+  return <Term label="response.json">{jsonSpans(rows.map(row).join('\n'))}</Term>
 }
 
 function Body({ cmd, method, token, base }) {
@@ -109,12 +155,15 @@ function Body({ cmd, method, token, base }) {
               <Icon name="copy" />
             </button>
           </h5>
-          <pre className="apjs mono">{curl}</pre>
+          <Term label="bash">
+            <span className="tp">$ </span>
+            {curlSpans(curl)}
+          </Term>
         </>
       ) : method === 'POST' && sample.req ? (
         <>
           <h5>{TEXT.exampleBody}</h5>
-          <Json value={sample.req} />
+          <Json value={sample.req} label="request.json" />
         </>
       ) : null}
 
@@ -134,7 +183,7 @@ function Body({ cmd, method, token, base }) {
       </div>
       <p className="apcnote">{cur.note}</p>
       {cur.bodies.map((b, i) => (
-        <Json key={i} value={b} />
+        <Json key={i} value={b} label="response.json" />
       ))}
       {cur.rows.length ? (
         <>
