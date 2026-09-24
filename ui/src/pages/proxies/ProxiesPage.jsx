@@ -37,7 +37,7 @@ export default function ProxiesPage({ active }) {
 
   return (
     <>
-      <button className="primary" onClick={() => setEditing(null)} style={ADD_BUTTON_STYLE}>
+      <button className="primary glass" onClick={() => setEditing(null)} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('px_add')}
       </button>

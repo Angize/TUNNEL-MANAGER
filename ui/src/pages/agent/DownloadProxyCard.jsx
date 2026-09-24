@@ -67,7 +67,7 @@ export default function DownloadProxyCard() {
           <div className={'opsel' + (value.on ? '' : ' off')} inert={!value.on}>
             <Select items={items} value={picked} onChange={(id) => setValue({ on: true, id })} />
           </div>
-          <button type="button" className="primary opsave" onClick={save}>
+          <button type="button" className="primary glass opsave" onClick={save}>
             <Icon name="check" />
             {T('save')}
           </button>

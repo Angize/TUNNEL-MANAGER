@@ -69,7 +69,7 @@ export default function PortfwPage({ active }) {
 
   return (
     <>
-      <button className="primary" onClick={openAdd} style={ADD_BUTTON_STYLE}>
+      <button className="primary glass" onClick={openAdd} style={ADD_BUTTON_STYLE}>
         <Icon name="plus" />
         {T('pf_add')}
       </button>
