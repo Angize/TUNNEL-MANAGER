@@ -174,7 +174,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
             onClick={() => onKind(k.id)}
           >
             {T(k.labelKey)}
-            <i>{num(counts[k.count])}</i>
+            {k.count ? <i>{num(counts[k.count])}</i> : null}
           </button>
         ))}
       </div>

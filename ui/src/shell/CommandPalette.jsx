@@ -57,7 +57,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
         label: T('pal_add_tun'),
         act: () => goto('tunnels', () => runCommand('tunnels:create')),
       },
-      { i: 'redo', label: T('pal_agent'), act: () => goto('settings') },
+      { i: 'redo', label: T('pal_agent'), act: () => goto('set-upkeep') },
       {
         i: 'activity',
         label: T('pal_checkall_core'),

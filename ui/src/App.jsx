@@ -79,7 +79,10 @@ function Shell() {
     if (mine !== readinessSeq.current) return
     readinessRef.current = r
     setReadiness(r)
-    if (boot && !r.ok && !navigated.current) setPage('settings')
+    if (boot && !r.ok && !navigated.current) {
+      setKinds((prev) => withKind(prev, 'set-upkeep'))
+      setPage('settings')
+    }
   }, [])
 
   useEffect(() => stopReorder, [page, kinds])

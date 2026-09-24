@@ -5,6 +5,7 @@ export default {
   err_bad_axis: 'محورِ نامعتبر',
   err_bad_key: 'مقدارِ ورودی نامعتبر است',
   err_busy: 'نود شلوغ است — کمی بعد دوباره بزن',
+  err_panel_busy: 'پنل شلوغ است — چند لحظه بعد دوباره',
   err_cert: 'مشکلِ گواهیِ TLS',
   err_cert_expired: 'گواهیِ TLS این سرور منقضی شده',
   err_cert_unknown: 'گواهیِ TLS این سرور شناخته نشد',

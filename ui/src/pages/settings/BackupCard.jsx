@@ -1,7 +1,5 @@
 import { useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
-import SettingRow from './SettingRow.jsx'
-import SettingsGroup from './SettingsGroup.jsx'
 import RestoreConfirm from './RestoreConfirm.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -60,7 +58,7 @@ async function waitForReturn(boot) {
   return false
 }
 
-export default function BackupGroup() {
+export default function BackupCard() {
   const [busy, setBusy] = useState('')
   const [check, setCheck] = useState(null)
   const picker = useRef(null)
@@ -116,26 +114,21 @@ export default function BackupGroup() {
   }
 
   return (
-    <SettingsGroup icon="shield" titleKey="set_g7" chipKey="set_g7c" tone="sc-panel">
-      <SettingRow label={T('set_bk_get')} helpKey="set_bk_get_d" exampleKey="set_x_bk_get">
-        <button type="button" className="ghost" disabled={!!busy} onClick={download}>
+    <div className="card opc sc-panel bkcard">
+      <div className="ophd">
+        <span className="sgt">
+          <Icon name="shield" />
+        </span>
+        <b>{T('bk_card')}</b>
+      </div>
+      <div className="opmeta">
+        <span>{T('bk_meta')}</span>
+      </div>
+      <div className="oprow">
+        <button type="button" className="primary" disabled={!!busy} onClick={download}>
           <Icon name="download" />
           {busy === 'get' ? T('set_bk_getting') : T('set_bk_get_btn')}
         </button>
-      </SettingRow>
-
-      <SettingRow label={T('set_bk_put')} helpKey="set_bk_put_d" exampleKey="set_x_bk_put">
-        <input
-          ref={picker}
-          type="file"
-          accept=".gz,.tgz,application/gzip"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files && e.target.files[0]
-            e.target.value = ''
-            if (file) inspect(file)
-          }}
-        />
         <button
           type="button"
           className="ghost"
@@ -143,9 +136,21 @@ export default function BackupGroup() {
           onClick={() => picker.current && picker.current.click()}
         >
           <Icon name="upload" />
-          {busy === 'put' ? T('set_bk_reading') : T('set_bk_put_btn')}
+          {busy === 'put' ? T('set_bk_reading') : T('set_bk_put')}
         </button>
-      </SettingRow>
+      </div>
+      <p className="bkhint">{T('bk_hint')}</p>
+      <input
+        ref={picker}
+        type="file"
+        accept=".gz,.tgz,application/gzip"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files && e.target.files[0]
+          e.target.value = ''
+          if (file) inspect(file)
+        }}
+      />
 
       {check ? (
         <RestoreConfirm
@@ -155,6 +160,6 @@ export default function BackupGroup() {
           onClose={() => setCheck(null)}
         />
       ) : null}
-    </SettingsGroup>
+    </div>
   )
 }

@@ -118,7 +118,7 @@ export default function LogsPage() {
     const list = events || []
     const q = query.trim().toLowerCase()
     if (!q) return list
-    return list.filter((e) => ((e.fa || '') + ' ' + (e.dfa || '')).toLowerCase().includes(q))
+    return list.filter((e) => ((e.text || '') + ' ' + (e.detail || '')).toLowerCase().includes(q))
   }, [events, query])
 
   const counts = useMemo(() => {
