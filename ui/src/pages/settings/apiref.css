@@ -42,6 +42,7 @@
   border-radius: 8px;
   background: var(--accw);
   color: var(--acc);
+  cursor: pointer;
 }
 
 .apcc.c2 {
@@ -59,12 +60,7 @@
   color: var(--bad);
 }
 
-button.apcc {
-  cursor: pointer;
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-button.apcc.on {
+.apcc.on {
   box-shadow: inset 0 0 0 1px currentColor;
 }
 

@@ -201,7 +201,20 @@
   ]
  },
  "core-stage-cancel": {},
- "core-stage-status": {},
+ "core-stage-status": {
+  "bad": [
+   [
+    400,
+    "cancelled",
+    "cancelled"
+   ],
+   [
+    400,
+    "download_failed",
+    "…"
+   ]
+  ]
+ },
  "core-upload": {
   "bad": [
    [
@@ -238,6 +251,11 @@
     400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
+   ],
+   [
+    400,
+    "job_running",
+    "this job is already running on this item — wait until it finishes"
    ]
   ],
   "act": [
@@ -734,6 +752,18 @@
   ]
  },
  "delete-link": {
+  "bad": [
+   [
+    400,
+    "job_running",
+    "this job is already running on this item — wait until it finishes"
+   ],
+   [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ]
+  ],
   "act": [
    [
     400,
@@ -792,6 +822,18 @@
   ]
  },
  "edit-link": {
+  "bad": [
+   [
+    400,
+    "job_running",
+    "this job is already running on this item — wait until it finishes"
+   ],
+   [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ]
+  ],
   "act": [
    [
     400,
@@ -2181,6 +2223,18 @@
  },
  "readiness": {},
  "rebuild-link": {
+  "bad": [
+   [
+    400,
+    "job_running",
+    "this job is already running on this item — wait until it finishes"
+   ],
+   [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ]
+  ],
   "act": [
    [
     400,
@@ -2314,6 +2368,18 @@
   ]
  },
  "restart-link": {
+  "bad": [
+   [
+    400,
+    "job_running",
+    "this job is already running on this item — wait until it finishes"
+   ],
+   [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ]
+  ],
   "act": [
    [
     400,
