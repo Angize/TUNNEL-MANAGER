@@ -15,8 +15,8 @@ export const TEXT = {
   guide: [
     'Every request needs the header <b>Authorization: Bearer TOKEN</b>. Create the token above and turn external API access on.',
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
-    'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every error also carries a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. A failure answered with HTTP 200 and ok: false has code 200 too. Under each route are all the errors that route can return.',
-    'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (the status it would have had if it failed at once: 400, 500, or 200 for an ok: false result), error and message.',
+    'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
+    'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
     'Four routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore.',
   ],
   search: 'Search routes…',
@@ -37,7 +37,6 @@ export const TEXT = {
   c: {
     200: 'Success',
     act: 'The job result in /api/acts — one finished and one failed sample',
-    soft: 'Failed, but with HTTP 200 and ok: false',
     400: 'Invalid input or an action that did not happen',
     401: 'No token was sent, or the token is invalid',
     403: 'External API access is off, or this route is not allowed with a token',
@@ -563,7 +562,7 @@ export const DOCS = {
   },
   'proxy-test': {
     t: 'Test a proxy',
-    d: 'Connects from the panel to the proxy right now. A broken proxy also gets HTTP 200, with ok=false, code 200, and the error and message of the failure.',
+    d: 'Connects from the panel to the proxy right now. A broken proxy answers 400 with the error and message of the failure.',
     p: [['id', 1, S, 'proxy id']],
   },
   'proxy-del': {
@@ -596,7 +595,7 @@ export const DOCS = {
   },
   'core-check': {
     t: 'Check for a new core version',
-    d: 'Refreshes the version list from GitHub and tells whether a newer version came out. A GitHub error comes back with HTTP 200 and ok=false.',
+    d: 'Refreshes the version list from GitHub and tells whether a newer version came out. A GitHub error answers 400.',
   },
   'core-stage': {
     t: 'Make a core ready on the panel',
@@ -605,7 +604,7 @@ export const DOCS = {
   },
   'core-stage-status': {
     t: 'Core download progress',
-    d: 'Percent, whether it finished and the fetched architectures of a download started by core-stage; a failed or cancelled download adds code 200, error and message.',
+    d: 'Percent, whether it finished and the fetched architectures of a download started by core-stage; a failed or cancelled download answers 400 with error and message.',
   },
   'core-stage-cancel': {
     t: 'Cancel the core download',
@@ -652,7 +651,7 @@ export const DOCS = {
 
   acts: {
     t: 'Background jobs',
-    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; a failed job has code (400, 500, or 200 for an ok: false result), error and message.',
+    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; a failed job has code (400, or 500 for a fault in the panel), error and message.',
   },
   'act-cancel': {
     t: 'Cancel a background job',

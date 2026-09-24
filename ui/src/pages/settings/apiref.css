@@ -64,12 +64,6 @@ button.apcc {
   font-family: ui-monospace, Consolas, monospace;
 }
 
-button.apcc small {
-  margin-inline-start: 5px;
-  font-size: 10px;
-  font-weight: 700;
-}
-
 button.apcc.on {
   box-shadow: inset 0 0 0 1px currentColor;
 }

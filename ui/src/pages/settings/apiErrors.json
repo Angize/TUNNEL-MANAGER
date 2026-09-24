@@ -164,9 +164,9 @@
   ]
  },
  "core-check": {
-  "soft": [
+  "bad": [
    [
-    200,
+    400,
     "github_failed",
     "download from GitHub failed: …"
    ]
@@ -736,19 +736,19 @@
  "delete-link": {
   "act": [
    [
-    200,
+    400,
     "delete_failed",
     "… — the link was kept; delete again when the node is reachable, or use force"
-   ],
-   [
-    200,
-    "node_offline",
-    "node '…' is unreachable — the link was left untouched; delete again when the node is back, or use force"
    ],
    [
     400,
     "missing_field",
     "field '…' is missing"
+   ],
+   [
+    400,
+    "node_offline",
+    "node '…' is unreachable — the link was left untouched; delete again when the node is back, or use force"
    ],
    [
     400,
@@ -1654,18 +1654,16 @@
    ],
    [
     400,
-    "node_not_found",
-    "node not found"
-   ]
-  ],
-  "soft": [
-   [
-    200,
     "node_failed",
     "…"
    ],
    [
-    200,
+    400,
+    "node_not_found",
+    "node not found"
+   ],
+   [
+    400,
     "node_offline",
     "…"
    ]
@@ -1695,18 +1693,16 @@
    ],
    [
     400,
-    "node_not_found",
-    "node not found"
-   ]
-  ],
-  "soft": [
-   [
-    200,
     "node_failed",
     "…"
    ],
    [
-    200,
+    400,
+    "node_not_found",
+    "node not found"
+   ],
+   [
+    400,
     "node_offline",
     "…"
    ]
@@ -1748,16 +1744,14 @@
     400,
     "no_ip_pool",
     "this link has no IP pool"
-   ]
-  ],
-  "soft": [
+   ],
    [
-    200,
+    400,
     "node_failed",
     "…"
    ],
    [
-    200,
+    400,
     "node_offline",
     "…"
    ]
@@ -1779,16 +1773,14 @@
     400,
     "no_ip_pool",
     "this link has no IP pool"
-   ]
-  ],
-  "soft": [
+   ],
    [
-    200,
+    400,
     "node_failed",
     "…"
    ],
    [
-    200,
+    400,
     "node_offline",
     "…"
    ]
@@ -1829,16 +1821,14 @@
     400,
     "no_edge_pool",
     "this link has no edge pool"
-   ]
-  ],
-  "soft": [
+   ],
    [
-    200,
+    400,
     "node_failed",
     "…"
    ],
    [
-    200,
+    400,
     "node_offline",
     "…"
    ]
@@ -1865,16 +1855,14 @@
     400,
     "no_edge_pool",
     "this link has no edge pool"
-   ]
-  ],
-  "soft": [
+   ],
    [
-    200,
+    400,
     "node_failed",
     "…"
    ],
    [
-    200,
+    400,
     "node_offline",
     "…"
    ]
@@ -1938,6 +1926,11 @@
    ],
    [
     400,
+    "node_failed",
+    "…"
+   ],
+   [
+    400,
     "node_not_found",
     "node not found"
    ],
@@ -1948,20 +1941,13 @@
    ],
    [
     400,
-    "portfw_not_found",
-    "node '…' has no port forward named '…' — stopped so a tunnel with the same name is not deleted"
-   ]
-  ],
-  "soft": [
-   [
-    200,
-    "node_failed",
+    "node_offline",
     "…"
    ],
    [
-    200,
-    "node_offline",
-    "…"
+    400,
+    "portfw_not_found",
+    "node '…' has no port forward named '…' — stopped so a tunnel with the same name is not deleted"
    ]
   ]
  },
@@ -2146,23 +2132,21 @@
    ],
    [
     400,
-    "proxy_not_found",
-    "proxy not found"
-   ]
-  ],
-  "soft": [
-   [
-    200,
     "proxy_no_reach",
     "could not reach Google through the proxy — …"
    ],
    [
-    200,
+    400,
     "proxy_no_relay",
     "the proxy does not relay — …"
    ],
    [
-    200,
+    400,
+    "proxy_not_found",
+    "proxy not found"
+   ],
+   [
+    400,
     "proxy_unreachable",
     "…"
    ]
