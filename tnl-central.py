@@ -2786,10 +2786,12 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
 
         _install_step(jid, "agent", "run")
         try:
-            raw, ameta = _staged_agent()
+            raw, ameta = _deliverable_agent(_delivery_mode("agent"))
         except OSError:
             return fail("agent", "ایجنتی روی پنل آماده نیست",
                         "در «تنظیمات» ایجنت را از گیت‌هاب بگیر یا فایلش را بارگذاری کن، بعد دوباره امتحان کن.")
+        except ValueError as e:
+            return fail("agent", "ایجنتِ پنل برای این حالتِ تحویل آماده نیست", str(e))
         verify = f"echo '{ameta['sha256']}  /tmp/tnl-node.py' | sha256sum -c - >/dev/null; echo TNL_RECV_OK"
         if _delivery_mode("agent") == "github":
             recv = (f"set -e; umask 077; (curl -fsSL {NODE_RAW_URL} -o /tmp/tnl-node.py"
@@ -3735,9 +3737,7 @@ def _update_start(kind, nodes, plan):
     return {"ok": True, "job": jid} if jid else {"ok": True, "none": True}
 
 
-def api_update_agent(d):
-    nodes = _update_targets(d)
-    mode = _delivery_mode("agent")
+def _deliverable_agent(mode):
     have = _agent_meta_or_empty()
     if mode == "github" and (not have or have.get("source") == "git"):
         try:
@@ -3745,11 +3745,17 @@ def api_update_agent(d):
         except Exception:
             if not have:
                 raise
+    raw, meta = _staged_agent()
+    _agent_delivery_check(meta, mode)
+    return raw, meta
+
+
+def api_update_agent(d):
+    nodes = _update_targets(d)
     try:
-        raw, meta = _staged_agent()
+        raw, meta = _deliverable_agent(_delivery_mode("agent"))
     except OSError:
         raise ValueError("ابتدا یک ایجنت بارگذاری کنید")
-    _agent_delivery_check(meta, mode)
     sig = _sign_sha(meta["sha256"])
     enc = _body_cache(lambda n: _agent_update_body(n, raw, meta, sig))
     plan = [("check", "ping", lambda _n, _c=None: {}, 15,
