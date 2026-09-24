@@ -757,13 +757,14 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "code": "missing_field",
-     "error": "field 'b_node' is missing",
      "note": "",
      "offer": "",
      "can": true,
      "started": 1790276355,
-     "ended": 1790276355
+     "ended": 1790276355,
+     "code": 400,
+     "error": "missing_field",
+     "message": "field 'b_node' is missing"
     },
     "new:17ff0101": {
      "key": "new:17ff0101",
@@ -775,13 +776,14 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "code": "same_node",
-     "error": "the two ends of a tunnel must be two different nodes",
      "note": "",
      "offer": "",
      "can": true,
      "started": 1790276399,
-     "ended": 1790276399
+     "ended": 1790276399,
+     "code": 400,
+     "error": "same_node",
+     "message": "the two ends of a tunnel must be two different nodes"
     },
     "new:7d19b919": {
      "key": "new:7d19b919",
@@ -793,8 +795,6 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "code": "",
-     "error": "",
      "note": "",
      "offer": "",
      "can": true,
@@ -811,8 +811,6 @@
      "si": 4,
      "sn": 4,
      "pct": 100,
-     "code": "",
-     "error": "",
      "note": "",
      "offer": "",
      "can": false,
@@ -829,13 +827,14 @@
      "si": 0,
      "sn": 4,
      "pct": 0,
-     "code": "bad_edge_port",
-     "error": "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: 443, 2053, 2083, 2087, 2096, 8443 — port 80 is not accepted. (Or turn wss off and u…",
      "note": "",
      "offer": "",
      "can": true,
      "started": 1790276524,
-     "ended": 1790276524
+     "ended": 1790276524,
+     "code": 400,
+     "error": "bad_edge_port",
+     "message": "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: 443, 2053, 2083, 2087, 2096, 8443 — port 80 is not accepted. (Or turn wss off and u…"
     }
    },
    "now": 1790276526
@@ -935,8 +934,6 @@
    "version": "v2.136.0",
    "done": true,
    "cancel": false,
-   "code": "",
-   "error": "",
    "arches": [
     "amd64",
     "arm64"
@@ -1983,70 +1980,83 @@
  "_generic": {
   "401": [
    [
+    401,
     "unauthorized",
     "unauthorized"
    ],
    [
+    401,
     "bad_token",
     "invalid API token"
    ]
   ],
   "403": [
    [
+    403,
     "api_disabled",
     "API is not available"
    ]
   ],
   "403d": [
    [
+    403,
     "token_denied",
     "this endpoint is not available with an API token"
    ]
   ],
   "404": [
    [
+    404,
     "unknown_route",
     "unknown API route"
    ]
   ],
   "405": [
    [
+    405,
     "post_only",
     "this endpoint requires POST"
    ]
   ],
   "413": [
    [
+    413,
     "too_large",
     "request body too large; a core binary is at most 15 MB, a backup 32 MB"
    ]
   ],
   "429": [
    [
+    429,
     "locked",
     "too many failed attempts from this address; try again in a few minutes"
    ]
   ],
   "500": [
    [
+    500,
     "store_unavailable",
     "the panel's store (Redis) is unavailable …"
    ],
    [
+    500,
     "store_unknown",
     "the panel's store (Redis) is unavailable — it is unknown whether this change was saved; when it is back, check the list again"
    ],
    [
+    500,
     "store_error",
     "…"
    ],
    [
+    500,
     "internal",
     "internal error"
    ]
   ],
   "503": [
    [
+    503,
     "busy",
     "the panel is busy — try again in a moment"
    ]
@@ -2063,8 +2073,6 @@
    "si": 0,
    "sn": 4,
    "pct": 0,
-   "code": "",
-   "error": "",
    "note": "",
    "offer": "",
    "can": true,
@@ -2081,8 +2089,6 @@
    "si": 4,
    "sn": 4,
    "pct": 100,
-   "code": "",
-   "error": "",
    "note": "",
    "offer": "",
    "can": false,
@@ -2099,13 +2105,14 @@
    "si": 0,
    "sn": 4,
    "pct": 0,
-   "code": "same_node",
-   "error": "the two ends of a tunnel must be two different nodes",
    "note": "",
    "offer": "",
    "can": true,
    "started": 1790276399,
-   "ended": 1790276399
+   "ended": 1790276399,
+   "code": 400,
+   "error": "same_node",
+   "message": "the two ends of a tunnel must be two different nodes"
   }
  }
 }

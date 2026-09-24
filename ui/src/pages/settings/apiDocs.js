@@ -15,8 +15,8 @@ export const TEXT = {
   guide: [
     'Every request needs the header <b>Authorization: Bearer TOKEN</b>. Create the token above and turn external API access on.',
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
-    'Every answer is JSON and all of its text is English. Every error carries a stable code in <b>code</b> and an English explanation in <b>error</b> — a bot should decide on the code, not on the text. Under each route are all the codes that route can return.',
-    'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; on fail the error code is in code and the explanation in error.',
+    'Every answer is JSON and all of its text is English. Every error carries the HTTP status in <b>code</b>, a stable error name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. A failure answered with HTTP 200 and ok: false has code 200. Under each route are all the errors that route can return.',
+    'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (the status it would have had if it failed at once: 400, 500, or 200 for an ok: false result), error and message.',
     'Four routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore.',
   ],
   codes: 'Status codes',
@@ -33,8 +33,8 @@ export const TEXT = {
   exampleBody: 'Example body',
   copy: 'Copy',
   answers: 'Responses',
-  rowsAct: 'Every code a failure of this job can carry (next to state=fail):',
-  rowsAll: 'Every code this route can return:',
+  rowsAct: 'Every error a failure of this job can carry (next to state=fail):',
+  rowsAll: 'Every error this route can return:',
   c: {
     200: 'Success',
     act: 'The job result in /api/acts — one finished and one failed sample',
@@ -565,7 +565,7 @@ export const DOCS = {
   },
   'proxy-test': {
     t: 'Test a proxy',
-    d: 'Connects from the panel to the proxy right now. A broken proxy also gets HTTP 200, with ok=false and the code and reason of the failure.',
+    d: 'Connects from the panel to the proxy right now. A broken proxy also gets HTTP 200, with ok=false, code 200, and the error and message of the failure.',
     p: [['id', 1, S, 'proxy id']],
   },
   'proxy-del': {
@@ -607,7 +607,7 @@ export const DOCS = {
   },
   'core-stage-status': {
     t: 'Core download progress',
-    d: 'Percent, whether it finished, the fetched architectures, and the code and error of a download started by core-stage.',
+    d: 'Percent, whether it finished and the fetched architectures of a download started by core-stage; a failed or cancelled download adds code 200, error and message.',
   },
   'core-stage-cancel': {
     t: 'Cancel the core download',
@@ -654,7 +654,7 @@ export const DOCS = {
 
   acts: {
     t: 'Background jobs',
-    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; on fail the error code is in code and the explanation in error.',
+    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; a failed job has code (400, 500, or 200 for an ok: false result), error and message.',
   },
   'act-cancel': {
     t: 'Cancel a background job',

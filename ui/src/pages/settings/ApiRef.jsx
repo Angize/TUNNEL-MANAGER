@@ -63,8 +63,8 @@ function Json({ value }) {
   return <pre className="apjs mono">{JSON.stringify(value, null, 2)}</pre>
 }
 
-function row([code, error]) {
-  return '{"code": ' + JSON.stringify(code) + ', "error": ' + JSON.stringify(error) + '}'
+function row([code, error, message]) {
+  return '{"code": ' + code + ', "error": ' + JSON.stringify(error) + ', "message": ' + JSON.stringify(message) + '}'
 }
 
 function Rows({ rows }) {
