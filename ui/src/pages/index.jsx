@@ -2,7 +2,7 @@ import OverviewPage from './overview/OverviewPage.jsx'
 import FleetPage, { FLEET_KINDS } from './fleet/FleetPage.jsx'
 import LinksPage, { LINK_KINDS } from './links/LinksPage.jsx'
 import LogsPage from './logs/LogsPage.jsx'
-import SettingsPage from './settings/SettingsPage.jsx'
+import SettingsPage, { SETTINGS_KINDS } from './settings/SettingsPage.jsx'
 import './overview/overview.css'
 
 const PAGES = {
@@ -16,6 +16,7 @@ const PAGES = {
 const HUBS = {
   fleet: { kinds: FLEET_KINDS.map((k) => k.id), first: 'nodes' },
   links: { kinds: LINK_KINDS.map((k) => k.id), first: 'core' },
+  settings: { kinds: SETTINGS_KINDS.map((k) => k.id), first: 'set-values' },
 }
 
 export const HUB_IDS = Object.keys(HUBS)

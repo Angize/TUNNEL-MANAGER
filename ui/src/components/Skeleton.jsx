@@ -8,7 +8,6 @@ const SETTINGS_GROUPS = [
   ['sc-conn', 2],
   ['sc-pool', 2],
   ['sc-perf', 1],
-  ['sc-panel', 2],
 ]
 
 export function Sk({ as, className, w, style }) {
@@ -312,9 +311,9 @@ export function OverviewSkeleton() {
 
 export function SettingsSkeleton() {
   return (
-    <div className="stgrid">
+    <div className="card sg">
       {SETTINGS_GROUPS.map(([tone, rows]) => (
-        <div className={'card sg ' + tone} key={tone}>
+        <section className={'sgsec ' + tone} key={tone}>
           <div className="sghd">
             <Box w={30} h={30} r={9} />
             <Sk as="b" w={110} />
@@ -335,7 +334,7 @@ export function SettingsSkeleton() {
               </div>
             ))}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   )

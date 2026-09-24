@@ -43,3 +43,9 @@
   font-size: 11.5px;
   border-radius: 10px;
 }
+
+@media (max-width: 840px) {
+  .rdbar {
+    margin-top: 14px;
+  }
+}
