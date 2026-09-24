@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import { AgentRowsSkeleton } from '../../components/Skeleton.jsx'
 import Icon from '../../components/Icon.jsx'
@@ -9,6 +9,7 @@ import AgentNodeRow from './AgentNodeRow.jsx'
 import DownloadProxyCard from './DownloadProxyCard.jsx'
 import DeliverySegment from './DeliverySegment.jsx'
 import PushFab from './PushFab.jsx'
+import UpdateRow from './UpdateRow.jsx'
 import usePushJob from './usePushJob.js'
 import { coreVersionName } from './versions.js'
 import { T, TF } from '../../i18n/fa.js'
@@ -23,8 +24,17 @@ import './agent.css'
 
 const STAGE_POLL_MS = 400
 
-function Meta({ children }) {
-  return <div className="opmeta">{children}</div>
+function Facts({ items }) {
+  return (
+    <div className="upmeta">
+      {items.map((it, i) => (
+        <Fragment key={i}>
+          {i ? <span className="sep" /> : null}
+          <bdi className={it.mono ? 'mono' : undefined}>{it.text}</bdi>
+        </Fragment>
+      ))}
+    </div>
+  )
 }
 
 function Message({ value, onCancel }) {
@@ -70,6 +80,7 @@ export default function AgentPage({ headless }) {
   const [gitMsg, setGitMsg] = useState(null)
   const [coreMsg, setCoreMsg] = useState(null)
   const [gitBusy, setGitBusy] = useState(false)
+  const [open, setOpen] = useState({ agent: false, core: false })
   const agentFile = useRef(null)
   const coreFile = useRef(null)
   const queryRef = useRef(query)
@@ -459,120 +470,93 @@ export default function AgentPage({ headless }) {
   const stagedSha = (staged && staged.sha && staged.sha[stagedArch]) || ''
   const stagedSize = (staged && staged.size && staged.size[stagedArch]) || 0
   const pushNodes = (push.state && push.state.nodes) || {}
+  const toggle = (kind) => setOpen((prev) => ({ ...prev, [kind]: !prev[kind] }))
+  const agentFacts = agentUnknown
+    ? [{ text: T('loading') }]
+    : agentReady
+      ? [
+          { text: String(agentMeta.sha256 || '').slice(0, 12), mono: true },
+          { text: Math.round(num(agentMeta.size) / 1024) + ' ' + T('unit_kb') },
+        ]
+      : [{ text: T('ag_no_agent_loaded') }]
+  const coreFacts = coreUnknown
+    ? [{ text: T('loading') }]
+    : staged
+      ? [
+          stagedSize ? { text: (stagedSize / 1048576).toFixed(1) + ' ' + T('unit_mb_full') } : null,
+          (staged.arches || []).length ? { text: staged.arches.join(' · ') } : null,
+          stagedSha ? { text: String(stagedSha).slice(0, 12), mono: true } : null,
+        ].filter(Boolean)
+      : [{ text: T('ag_no_core_staged') }]
 
   return (
     <>
       {headless ? null : <PageHead icon="server" titleKey="ag_title" subKey="ag_sub" />}
 
-      <div className="opgrid">
-        <div className="card opc sc-panel">
-          <div className="ophd">
-            <span className="sgt">
-              <Icon name="server" />
-            </span>
-            <b>{T('ag_node_agent')}</b>
-            <span className="grow" />
-            <span>
-              {agentUnknown ? null : (
-                <span className={'badge ' + (agentReady ? 'ok' : 'na')}>
-                  {agentReady ? T('ag_ready') : T('ag_empty')}
-                </span>
-              )}
-            </span>
-          </div>
-          <Meta>
-            {agentReady ? (
-              <>
-                <span>{T('ag_word_agent')}</span>
-                <span className="mono">{agentMeta.version}</span>
-                <span className="sep" />
-                <span className="mono">{String(agentMeta.sha256 || '').slice(0, 12)}</span>
-                <span className="sep" />
-                <span>
-                  {Math.round(num(agentMeta.size) / 1024)} {T('unit_kb')}
-                </span>
-              </>
-            ) : (
-              <span className="muted">{T(agentUnknown ? 'loading' : 'ag_no_agent_loaded')}</span>
-            )}
-          </Meta>
+      <div className="card opc sc-panel upc">
+        <UpdateRow
+          icon="server"
+          title={T('ag_word_agent')}
+          sub={agentUnknown ? T('loading') : agentReady ? <bdi className="mono">{agentMeta.version}</bdi> : T('ag_empty')}
+          state={agentUnknown ? null : agentReady ? { cls: 'ok', text: T('ag_ready') } : { cls: 'na', text: T('ag_empty') }}
+          goLabel={T('ag_push_all')}
+          onGo={() => pushAgent('all')}
+          open={open.agent}
+          onToggle={() => toggle('agent')}
+        >
+          <Facts items={agentFacts} />
+          <DeliverySegment value={delivery.agent} onChange={(v) => changeDelivery('agent', v)} />
           <div className="oprow">
-            <button className="primary" disabled={gitBusy} onClick={fetchAgentFromGit}>
-              <Icon name="redo" />
+            <button className="ghost" disabled={gitBusy} onClick={fetchAgentFromGit}>
+              <Icon name="download" />
               {T('ag_fetch_git')}
             </button>
-            <button className="ghost" onClick={() => agentFile.current.click()}>
-              <Icon name="plus" />
+            <button className="ghost opfit" onClick={() => agentFile.current.click()}>
+              <Icon name="upload" />
               {T('ag_file_btn')}
             </button>
           </div>
-          <DeliverySegment value={delivery.agent} onChange={(v) => changeDelivery('agent', v)} />
-          <Message value={gitMsg} />
-          <Message value={agentMsg} />
-          <input
-            type="file"
-            accept=".py"
-            ref={agentFile}
-            style={{ display: 'none' }}
-            onChange={(e) => uploadAgentFile(e.target)}
-          />
-          <button className="primary opgo" onClick={() => pushAgent('all')}>
-            <Icon name="redo" />
-            {T('ag_push_all')}
-          </button>
-        </div>
+        </UpdateRow>
+        {gitMsg ? <Message value={gitMsg} /> : null}
+        {agentMsg ? <Message value={agentMsg} /> : null}
 
-        <div className="card opc sc-perf">
-          <div className="ophd">
-            <span className="sgt">
-              <Icon name="cpu" />
-            </span>
-            <b>{T('ag_data_core')}</b>
-            <span className="grow" />
-            <span>
-              {coreUnknown ? null : (
-                <span className={'badge ' + (!staged ? 'na' : coreReady.ready ? 'ok' : 'warn')}>
-                  {T(!staged ? 'ag_empty' : coreReady.ready ? 'ag_ready' : 'ag_not_ready')}
-                </span>
-              )}
-            </span>
-          </div>
-          <Meta>
-            {staged ? (
+        <div className="updiv" />
+
+        <UpdateRow
+          icon="cpu"
+          title={T('ag_word_core')}
+          sub={
+            coreUnknown ? (
+              T('loading')
+            ) : staged ? (
               <>
-                <span>{T('ag_word_core')}</span>
-                <span className="mono">{staged.version}</span>
-                {stagedSha ? (
-                  <>
-                    <span className="sep" />
-                    <span className="mono">{String(stagedSha).slice(0, 12)}</span>
-                  </>
-                ) : null}
-                {stagedSize ? (
-                  <>
-                    <span className="sep" />
-                    <span>
-                      {(stagedSize / 1048576).toFixed(1)} {T('unit_mb_full')}
-                    </span>
-                  </>
-                ) : null}
-                {(staged.arches || []).length ? (
-                  <>
-                    <span className="sep" />
-                    <span>{staged.arches.join(' · ')}</span>
-                  </>
-                ) : null}
+                <bdi className="mono">{staged.version}</bdi>
+                {coreReady.ready ? null : <span className="stw">{' · ' + T('ag_not_ready')}</span>}
               </>
             ) : (
-              <span className="muted">{T(coreUnknown ? 'loading' : 'ag_no_core_staged')}</span>
-            )}
-          </Meta>
+              T('ag_empty')
+            )
+          }
+          state={
+            coreUnknown
+              ? null
+              : !staged
+                ? { cls: 'na', text: T('ag_empty') }
+                : coreReady.ready
+                  ? { cls: 'ok', text: T('ag_ready') }
+                  : { cls: 'warn', text: T('ag_not_ready') }
+          }
+          goLabel={T('ag_install_all')}
+          onGo={pushCoreAll}
+          open={open.core}
+          onToggle={() => toggle('core')}
+        >
+          {coreFacts.length ? <Facts items={coreFacts} /> : null}
           {staged && !coreReady.ready && coreReady.missing.length ? (
             <div className="muted" style={{ fontSize: 12 }}>
               {T('cor_not_ready').replace('{a}', coreReady.missing.join('، '))}
             </div>
           ) : null}
-
           <div className="oprow">
             <div className="opsel">
               {!coreUnknown && versions.length ? (
@@ -593,14 +577,14 @@ export default function AgentPage({ headless }) {
               {T('cor_check')}
             </button>
           </div>
-
+          <DeliverySegment value={delivery.core} onChange={(v) => changeDelivery('core', v)} />
           <div className="oprow">
-            <button className="primary" onClick={stageCore}>
-              <Icon name="redo" />
+            <button className="ghost" onClick={stageCore}>
+              <Icon name="download" />
               {T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')}
             </button>
-            <button className="ghost" onClick={() => coreFile.current.click()}>
-              <Icon name="plus" />
+            <button className="ghost opfit" onClick={() => coreFile.current.click()}>
+              <Icon name="upload" />
               {T('ag_binary')}
             </button>
             {hasCustom ? (
@@ -609,20 +593,17 @@ export default function AgentPage({ headless }) {
               </button>
             ) : null}
           </div>
+        </UpdateRow>
+        {coreMsg ? <Message value={coreMsg} onCancel={cancelStage} /> : null}
 
-          <DeliverySegment value={delivery.core} onChange={(v) => changeDelivery('core', v)} />
-          <Message value={coreMsg} onCancel={cancelStage} />
-          <input
-            type="file"
-            ref={coreFile}
-            style={{ display: 'none' }}
-            onChange={(e) => uploadCoreBinary(e.target)}
-          />
-          <button className="primary opgo" onClick={pushCoreAll}>
-            <Icon name="redo" />
-            {T('ag_install_all')}
-          </button>
-        </div>
+        <input
+          type="file"
+          accept=".py"
+          ref={agentFile}
+          style={{ display: 'none' }}
+          onChange={(e) => uploadAgentFile(e.target)}
+        />
+        <input type="file" ref={coreFile} style={{ display: 'none' }} onChange={(e) => uploadCoreBinary(e.target)} />
       </div>
 
       <DownloadProxyCard />

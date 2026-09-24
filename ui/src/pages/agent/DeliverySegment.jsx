@@ -8,8 +8,8 @@ const OPTIONS = [
 
 export default function DeliverySegment({ value, onChange }) {
   return (
-    <div className="opdlv">
-      <label>{T('dlv_lbl')}</label>
+    <div className="minisg">
+      <span>{T('dlv_lbl')}</span>
       <div className="seg2">
         {OPTIONS.map(([key, labelKey]) => (
           <button
