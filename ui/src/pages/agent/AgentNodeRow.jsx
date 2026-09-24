@@ -2,7 +2,6 @@ import Icon from '../../components/Icon.jsx'
 import PushBar, { pushTone } from './PushBar.jsx'
 import { coreVersionName, versionIsNewer } from './versions.js'
 import { T } from '../../i18n/fa.js'
-import { num } from '../../lib/num.js'
 
 function VersionPill({ icon, tone, version, title }) {
   return (
@@ -95,7 +94,7 @@ export default function AgentNodeRow({
         <VersionPill
           icon="server"
           tone={agent.tone}
-          version={info.version ? 'v' + num(info.version) : '—'}
+          version={info.sha256 ? String(info.sha256).slice(0, 12) : '—'}
           title={agent.title}
         />
         <VersionPill
