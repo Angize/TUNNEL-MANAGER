@@ -51,7 +51,7 @@ function withKind(prev, kind) {
 function Shell() {
   const [page, setPage] = useState(firstPage)
   const [kinds, setKinds] = useState(firstKinds)
-  const [summary, setSummary] = useState({ counts: {}, evSeq: 0, logCount: 0, loaded: false })
+  const [summary, setSummary] = useState({ counts: {}, evSeq: '0-0', logCount: 0, loaded: false })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
   const [palette, setPalette] = useState(false)
@@ -130,13 +130,13 @@ function Shell() {
       const raw = getLS(SEEN_KEY)
       let s
       try {
-        s = await apiGet('summary' + (raw === '' ? '' : '?seen=' + encodeURIComponent(num(raw))))
+        s = await apiGet('summary' + (raw === '' ? '' : '?seen=' + encodeURIComponent(raw)))
       } catch {
         return
       }
       if (!alive) return
 
-      const seq = num(s.ev_seq)
+      const seq = String(s.ev_seq || '0-0')
       setSummary({
         counts: {
           nodes_total: num(s.nodes_total),

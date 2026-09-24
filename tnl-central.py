@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import hmac
 import http.client
+import importlib.util
 import ipaddress
 import ssl
 import json
@@ -75,8 +76,6 @@ _agent_lock = threading.Lock()
 _core_blob_lock = threading.Lock()
 _node_locks = {}
 _node_locks_guard = threading.Lock()
-_settings = {}
-_settings_lock = threading.RLock()
 _drift = {}
 _drift_lock = threading.Lock()
 _CENTRAL_PORT = 0
@@ -185,10 +184,6 @@ def read_json(path, kind, optional=False):
     return data
 
 
-def read_store(path, kind):
-    return read_json(path, kind, True)
-
-
 def load_conf():
     return read_json(WEB_CONF, dict)
 
@@ -206,6 +201,523 @@ def save_bytes(path, data, mode=0o644):
 
 def save_json(path, obj):
     save_bytes(path, json.dumps(obj, indent=2).encode(), 0o600)
+
+
+REDIS_SOCK = "/run/tnl-redis/redis.sock"
+REDIS_DIR = "/var/lib/tnl-redis"
+REDIS_CONF = "/etc/tnl-redis.conf"
+REDIS_SERVICE = "tnl-redis.service"
+REDIS_UNIT_FILE = "/etc/systemd/system/" + REDIS_SERVICE
+REDIS_TIMEOUT = 10
+REDIS_MUST = {"appendonly": "yes", "appendfsync": "always", "maxmemory-policy": "noeviction", "save": ""}
+STORE_FREE_MIN = 1 << 30
+STORE_DOWN = "ذخیره‌سازِ پنل (ردیس) در دسترس نیست"
+STORE_RO = "رکوردِ ذخیره‌شده فقط‌خواندنی است — تغییر فقط از راهِ store_edit/store_tx"
+
+
+class StoreError(RegistryError):
+    pass
+
+
+class StoreUnknown(StoreError):
+    pass
+
+
+def _ro(*a, **k):
+    raise TypeError(STORE_RO)
+
+
+class _FrozenDict(dict):
+    __setitem__ = __delitem__ = clear = pop = popitem = setdefault = update = __ior__ = _ro
+
+    def __copy__(self):
+        return dict(self)
+
+    def __deepcopy__(self, memo):
+        return _thaw(self)
+
+
+class _FrozenList(list):
+    __setitem__ = __delitem__ = append = extend = insert = pop = remove = clear = sort = reverse = _ro
+    __iadd__ = __imul__ = _ro
+
+    def __copy__(self):
+        return list(self)
+
+    def __deepcopy__(self, memo):
+        return _thaw(self)
+
+
+def _freeze(v):
+    if isinstance(v, dict):
+        return _FrozenDict((k, _freeze(x)) for k, x in v.items())
+    if isinstance(v, list):
+        return _FrozenList(_freeze(x) for x in v)
+    return v
+
+
+def _thaw(v):
+    return json.loads(json.dumps(v))
+
+
+def _enc(v):
+    return json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+
+
+_R = None
+_R_lock = threading.Lock()
+
+
+def _redis_client(timeout):
+    try:
+        import redis
+        from redis.backoff import NoBackoff
+        from redis.retry import Retry
+    except ImportError:
+        raise StoreError("کتابخانهٔ پایتونِ ردیس (python3-redis) نصب نیست — نصب را دوباره اجرا کن: "
+                         "sudo python3 tnl-central.py --install") from None
+    return redis.Redis(unix_socket_path=REDIS_SOCK, decode_responses=True, socket_timeout=timeout,
+                       socket_connect_timeout=3, retry=Retry(NoBackoff(), 0))
+
+
+def _redis():
+    global _R
+    if _R is None:
+        with _R_lock:
+            if _R is None:
+                _R = _redis_client(REDIS_TIMEOUT)
+    return _R
+
+
+def _store_exc(e):
+    rx = sys.modules.get("redis.exceptions")
+    return isinstance(e, OSError) or (rx is not None and isinstance(e, rx.RedisError))
+
+
+def _store_why(e):
+    s = str(e)
+    rx = sys.modules.get("redis.exceptions")
+    if "maxmemory" in s or s.startswith("OOM"):
+        return "حافظهٔ ردیس پر است"
+    if "MISCONF" in s:
+        return "ردیس نمی‌تواند روی دیسک بنویسد"
+    if isinstance(e, TimeoutError) or (rx is not None and isinstance(e, rx.TimeoutError)):
+        return "ردیس دیر جواب داد"
+    if isinstance(e, OSError) or (rx is not None and isinstance(e, rx.ConnectionError)):
+        return "اتصال به ردیس برقرار نشد"
+    return "ردیس خطا داد"
+
+
+def _store_msg(e):
+    if isinstance(e, RegistryError):
+        return str(e)
+    if _store_exc(e):
+        return "%s (%s)" % (STORE_DOWN, _store_why(e))
+    raise e
+
+
+class _Snap:
+    __slots__ = ("rows", "by_id", "score")
+
+    def __init__(self, rows=(), score=None):
+        self.rows = tuple(rows)
+        self.by_id = {r["id"]: r for r in self.rows}
+        self.score = score or {}
+
+
+class _Coll:
+    def __init__(self, name, label):
+        self.name, self.label = name, label
+        self.hkey, self.okey = "tnl:" + name, "tnl:" + name + ":order"
+        self.snap = _Snap()
+
+
+_NODES = _Coll("nodes", "نودها")
+_LINKS = _Coll("links", "تونل‌ها")
+_PROXIES = _Coll("proxies", "پروکسی‌ها")
+_COLLS = {c.name: c for c in (_NODES, _LINKS, _PROXIES)}
+_GROUPS = ("nodes", "links", "proxies", "settings", "pending", "moved", "pforder")
+K_PFORDER = "tnl:portfw:order"
+
+
+class _Mirror:
+    def __init__(self):
+        self.loaded = False
+        self.settings = None
+        self.pending = {}
+        self.moved = {}
+        self.pforder = ()
+        self.bad = frozenset()
+
+
+_M = _Mirror()
+_bad_lock = threading.Lock()
+
+
+def _mark_bad(groups, bad):
+    with _bad_lock:
+        _M.bad = (_M.bad | set(groups)) if bad else (_M.bad - set(groups))
+
+
+_BAD = object()
+
+
+def _json_field(key, field, raw, kind):
+    try:
+        v = json.loads(raw)
+    except (TypeError, ValueError):
+        v = _BAD
+    if v is _BAD or (kind is not None and not isinstance(v, kind)):
+        raise RegistryError("دادهٔ «%s%s» در ردیس خراب است — پنل تا درست نشود بالا نمی‌آید"
+                            % (key, " / " + field if field else ""))
+    return v
+
+
+def _coll_parse(c, order, raw):
+    ids = [m for m, _s in order]
+    if set(ids) != set(raw) or len(ids) != len(raw):
+        odd = sorted(set(raw) ^ set(ids))[:4]
+        raise RegistryError("ترتیب و رکوردهای «%s» (%s) در ردیس با هم نمی‌خوانند: %s — پنل تا درست نشود بالا نمی‌آید"
+                            % (c.label, c.hkey, "، ".join(odd)))
+    rows = []
+    for rid in ids:
+        rec = _json_field(c.hkey, rid, raw[rid], dict)
+        if rec.get("id") != rid:
+            raise RegistryError("شناسهٔ رکوردِ «%s» (%s / %s) در ردیس با کلیدش یکی نیست" % (c.label, c.hkey, rid))
+        rows.append(rec)
+    return rows, {m: float(s) for m, s in order}
+
+
+def _store_read(r, groups):
+    p = r.pipeline(transaction=True)
+    for g in groups:
+        if g in _COLLS:
+            p.zrange(_COLLS[g].okey, 0, -1, withscores=True)
+            p.hgetall(_COLLS[g].hkey)
+        elif g == "pforder":
+            p.get(K_PFORDER)
+        else:
+            p.hgetall("tnl:" + g)
+    res = iter(p.execute())
+    out = {}
+    for g in groups:
+        if g in _COLLS:
+            out[g] = _coll_parse(_COLLS[g], next(res), next(res))
+        elif g == "pforder":
+            out[g] = _json_field(K_PFORDER, "", next(res) or "[]", list)
+        else:
+            want = {"pending": list, "moved": dict}.get(g)
+            out[g] = {k: _json_field("tnl:" + g, k, v, want) for k, v in next(res).items()}
+    return out
+
+
+def _store_publish(data):
+    for g, v in data.items():
+        if g in _COLLS:
+            rows, score = v
+            _COLLS[g].snap = _Snap([_freeze(x) for x in rows], score)
+        elif g == "settings":
+            d = settings_defaults()
+            d.update(v)
+            _M.settings = _freeze(d)
+        elif g == "pending":
+            _M.pending = {k: tuple(str(x) for x in names) for k, names in v.items() if names}
+        elif g == "moved":
+            _M.moved = {k: _freeze(x) for k, x in v.items()}
+        elif g == "pforder":
+            _M.pforder = tuple(str(x) for x in v)
+
+
+def _store_guard(r):
+    bad = []
+    for k, want in REDIS_MUST.items():
+        got = r.config_get(k).get(k)
+        if got != want:
+            bad.append("%s=%s (باید «%s» باشد)" % (k, "?" if got is None else got, want))
+    if bad:
+        raise StoreError("ردیس با تنظیمِ امن اجرا نمی‌شود: %s — فایلِ %s را درست کن یا نصب را دوباره اجرا کن"
+                         % ("، ".join(bad), REDIS_CONF))
+
+
+_store_boot_lock = threading.Lock()
+
+
+def store_boot(wait=0):
+    with _store_boot_lock:
+        if _M.loaded:
+            return
+        r = _redis()
+        until = time.time() + wait
+        while True:
+            try:
+                r.ping()
+                break
+            except Exception as e:
+                if not _store_exc(e):
+                    raise
+                if time.time() >= until:
+                    raise StoreError("%s — systemctl status %s" % (_store_msg(e), REDIS_SERVICE)) from None
+                time.sleep(1)
+        try:
+            _store_guard(r)
+            data = _store_read(r, _GROUPS)
+        except RegistryError:
+            raise
+        except Exception as e:
+            raise StoreError(_store_msg(e)) from None
+        _store_publish(data)
+        _M.loaded = True
+
+
+def _store_ready():
+    if not _M.loaded:
+        store_boot()
+
+
+def _store_resync(groups):
+    try:
+        data = _store_read(_redis(), sorted(groups))
+    except RegistryError:
+        raise
+    except Exception as e:
+        raise StoreError(_store_msg(e)) from None
+    _store_publish(data)
+    _mark_bad(groups, False)
+
+
+def _group_lock(g):
+    return {"pending": _pending_lock, "moved": _moved_lock}.get(g, _reg_lock)
+
+
+class _Tx:
+    def __init__(self):
+        self.ops = []
+
+    def put(self, c, rec):
+        self.ops.append(("put", c.name, rec["id"], _enc(rec)))
+
+    def drop(self, c, rid):
+        self.ops.append(("drop", c.name, rid))
+
+    def order(self, c, ids):
+        self.ops.append(("order", c.name, [str(x) for x in ids]))
+
+    def settings(self, obj):
+        self.ops.append(("settings", {k: _enc(v) for k, v in obj.items()}))
+
+    def pending(self, nid, names):
+        self.ops.append(("pending", nid, [str(x) for x in names]))
+
+    def moved(self, nid, val):
+        self.ops.append(("moved", nid, val))
+
+    def pforder(self, keys):
+        self.ops.append(("pforder", [str(x) for x in keys]))
+
+    def raw(self, fn):
+        self.ops.append(("raw", fn))
+
+
+def _op_group(op):
+    if op[0] in ("put", "drop", "order"):
+        return op[1]
+    return None if op[0] == "raw" else op[0]
+
+
+class _TxWork:
+    def __init__(self, groups):
+        self.colls = {}
+        for g in groups:
+            if g in _COLLS:
+                s = _COLLS[g].snap
+                self.colls[g] = ([x["id"] for x in s.rows], dict(s.by_id), dict(s.score))
+        self.settings = self.pforder = None
+        self.pending = dict(_M.pending) if "pending" in groups else None
+        self.moved = dict(_M.moved) if "moved" in groups else None
+
+    def emit(self, p, op):
+        kind = op[0]
+        if kind in ("put", "drop", "order"):
+            c = _COLLS[op[1]]
+            ids, by, sc = self.colls[op[1]]
+        if kind == "put":
+            rid, payload = op[2], op[3]
+            p.hset(c.hkey, rid, payload)
+            if rid not in by:
+                sc[rid] = max(sc.values(), default=-1.0) + 1
+                ids.append(rid)
+                p.zadd(c.okey, {rid: sc[rid]})
+            by[rid] = _freeze(json.loads(payload))
+        elif kind == "drop":
+            rid = op[2]
+            p.hdel(c.hkey, rid)
+            p.zrem(c.okey, rid)
+            if rid in by:
+                ids.remove(rid)
+                by.pop(rid)
+                sc.pop(rid, None)
+        elif kind == "order":
+            new_ids = op[2]
+            if sorted(new_ids) != sorted(ids):
+                raise ValueError("ترتیبِ تازه با فهرستِ فعلی نمی‌خواند — صفحه را تازه کن و دوباره بکش")
+            slots = sorted(sc[i] for i in ids)
+            moved = {rid: slots[k] for k, rid in enumerate(new_ids) if sc[rid] != slots[k]}
+            if moved:
+                p.zadd(c.okey, moved)
+                sc.update(moved)
+            ids[:] = new_ids
+        elif kind == "settings":
+            p.delete("tnl:settings")
+            if op[1]:
+                p.hset("tnl:settings", mapping=op[1])
+            self.settings = {k: json.loads(v) for k, v in op[1].items()}
+        elif kind == "pending":
+            nid, names = op[1], op[2]
+            if names:
+                p.hset("tnl:pending", nid, _enc(names))
+                self.pending[nid] = tuple(names)
+            else:
+                p.hdel("tnl:pending", nid)
+                self.pending.pop(nid, None)
+        elif kind == "moved":
+            nid, val = op[1], op[2]
+            if val is None:
+                p.hdel("tnl:moved", nid)
+                self.moved.pop(nid, None)
+            else:
+                p.hset("tnl:moved", nid, _enc(val))
+                self.moved[nid] = _freeze(val)
+        elif kind == "pforder":
+            p.set(K_PFORDER, _enc(op[1]))
+            self.pforder = tuple(op[1])
+        else:
+            op[1](p)
+
+    def publish(self):
+        for g, (ids, by, sc) in self.colls.items():
+            _COLLS[g].snap = _Snap([by[i] for i in ids], sc)
+        if self.settings is not None:
+            d = settings_defaults()
+            d.update(self.settings)
+            _M.settings = _freeze(d)
+        if self.pending is not None:
+            _M.pending = self.pending
+        if self.moved is not None:
+            _M.moved = self.moved
+        if self.pforder is not None:
+            _M.pforder = self.pforder
+
+
+def _op_landed(op):
+    kind = op[0]
+    if kind == "put":
+        return _COLLS[op[1]].snap.by_id.get(op[2]) == json.loads(op[3])
+    if kind == "drop":
+        return op[2] not in _COLLS[op[1]].snap.by_id
+    if kind == "order":
+        return [x["id"] for x in _COLLS[op[1]].snap.rows] == op[2]
+    if kind == "settings":
+        return all(_M.settings.get(k) == json.loads(v) for k, v in op[1].items())
+    if kind == "pending":
+        return _M.pending.get(op[1], ()) == tuple(op[2])
+    if kind == "moved":
+        return _M.moved.get(op[1]) == op[2]
+    if kind == "pforder":
+        return _M.pforder == tuple(op[1])
+    return True
+
+
+def _tx_commit(ops):
+    if not ops:
+        return
+    _store_ready()
+    groups = {g for g in map(_op_group, ops) if g}
+    if groups & _M.bad:
+        _store_resync(groups & _M.bad)
+    work = _TxWork(groups)
+    p = _redis().pipeline(transaction=True)
+    for op in ops:
+        work.emit(p, op)
+    try:
+        p.execute()
+    except Exception as e:
+        if not _store_exc(e):
+            raise
+        log_warn("store", "write failed: %s" % str(e)[:300])
+        unknown = StoreUnknown("%s — معلوم نیست این تغییر ذخیره شد یا نه؛ وقتی برگشت، فهرست را دوباره ببین"
+                               % STORE_DOWN)
+        if not groups:
+            raise unknown from None
+        try:
+            _store_resync(groups)
+        except StoreError:
+            _mark_bad(groups, True)
+            raise unknown from None
+        if all(_op_landed(op) for op in ops):
+            log_warn("store", "the write landed despite the error")
+            return
+        raise StoreError("ذخیره نشد — %s" % _store_why(e)) from None
+    work.publish()
+
+
+class store_tx:
+    def __enter__(self):
+        self.t = _Tx()
+        return self.t
+
+    def __exit__(self, et, ev, tb):
+        if et is None:
+            _tx_commit(self.t.ops)
+        return False
+
+
+def store_edit(c, rid, fn):
+    cur = c.snap.by_id.get(rid)
+    if cur is None:
+        return None
+    new = _thaw(cur)
+    fn(new)
+    if new != cur:
+        with store_tx() as t:
+            t.put(c, new)
+    return c.snap.by_id.get(rid)
+
+
+_store_issues = []
+
+
+def _store_health():
+    global _store_issues
+    issues = []
+    try:
+        r = _redis()
+        _store_guard(r)
+        info = r.info("persistence")
+        if info.get("aof_last_write_status", "ok") != "ok":
+            issues.append("ردیس نتوانست دادهٔ پنل را روی دیسک بنویسد (aof_last_write_status)")
+        if info.get("aof_last_bgrewrite_status", "ok") != "ok":
+            issues.append("فشرده‌سازیِ فایلِ ردیس (AOF rewrite) شکست خورد")
+        for g in sorted(_M.bad):
+            with _group_lock(g):
+                if g in _M.bad:
+                    _store_resync({g})
+    except Exception as e:
+        issues.append(_store_msg(e))
+    try:
+        st = os.statvfs(REDIS_DIR)
+        free = st.f_bavail * st.f_frsize
+        if free < STORE_FREE_MIN:
+            issues.append("روی دیسکِ ردیس فقط %.1f گیگابایت جا مانده — اگر پر شود، پنل هیچ تغییری را ذخیره نمی‌کند"
+                          % (free / 1e9))
+    except OSError:
+        pass
+    if _M.bad:
+        issues.append("این بخش‌ها بعد از خطای ذخیره هنوز با ردیس هماهنگ نشده‌اند: " + "، ".join(sorted(_M.bad)))
+    with _events_lock:
+        backlog = len(_ev_out)
+    if backlog and time.time() - _ev_saved[0] > 60:
+        issues.append("%d رویدادِ لاگ هنوز در ردیس ذخیره نشده" % backlog)
+    _store_issues = issues
 
 
 _TUNING_DEFAULTS = {
@@ -338,21 +850,9 @@ def settings_defaults():
 DELIVERY_MODES = ("push", "github", "panel")
 
 
-def load_settings():
-    d = settings_defaults()
-    d.update(read_store(SETTINGS_FILE, dict))
-    return d
-
-
 def get_settings():
-    with _settings_lock:
-        return dict(_settings) if _settings else load_settings()
-
-
-def _seed_settings():
-    with _settings_lock:
-        _settings.clear()
-        _settings.update(load_settings())
+    _store_ready()
+    return dict(_M.settings)
 
 
 def validate_settings(d):
@@ -409,54 +909,48 @@ def validate_settings(d):
 _moved_lock = threading.Lock()
 
 
-def _moved_load():
-    try:
-        with open(MOVED_FILE) as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-_moved = _moved_load()
-
-
-def _moved_save():
-    save_json(MOVED_FILE, _moved)
-
-
 def _moved_note(nid, name, old, new, new_port):
     with _moved_lock:
-        prev = _moved.get(nid)
-        _moved[nid] = {"to": new, "to_port": new_port}
+        prev = _M.moved.get(nid)
         fresh = not prev or (prev.get("to"), prev.get("to_port")) != (new, new_port)
         if fresh:
-            _moved_save()
+            with store_tx() as t:
+                t.moved(nid, {"to": new, "to_port": new_port})
         return fresh
 
 
 def _moved_clear(nid):
     with _moved_lock:
-        if _moved.pop(nid, None) is not None:
-            _moved_save()
+        if nid in _M.moved:
+            with store_tx() as t:
+                t.moved(nid, None)
+
+
+def _moved_gc(valid):
+    stale = [k for k in _M.moved if k not in valid]
+    if not stale:
+        return
+    try:
+        with _moved_lock, store_tx() as t:
+            for k in stale:
+                t.moved(k, None)
+    except StoreError as e:
+        log_warn("moved", str(e))
 
 
 def moved_to(nid):
-    with _moved_lock:
-        v = _moved.get(nid)
-        return v["to"] if v else ""
+    v = _M.moved.get(nid)
+    return v["to"] if v else ""
 
 
 def moved_port(nid):
-    with _moved_lock:
-        v = _moved.get(nid)
-        return int(v.get("to_port") or 0) if v else 0
+    v = _M.moved.get(nid)
+    return int(v.get("to_port") or 0) if v else 0
 
 
 def moved_addr(nid):
-    with _moved_lock:
-        v = _moved.get(nid)
-        return ("%s:%d" % (v["to"], int(v.get("to_port") or 0))) if v else ""
+    v = _M.moved.get(nid)
+    return ("%s:%d" % (v["to"], int(v.get("to_port") or 0))) if v else ""
 
 
 def _set_drift(lid, val):
@@ -667,23 +1161,33 @@ def log_warn(key, msg):
 
 
 def load_nodes():
-    return read_store(NODES_FILE, list)
+    _store_ready()
+    return list(_NODES.snap.rows)
 
 
 def load_links():
-    return read_store(LINKS_FILE, list)
+    _store_ready()
+    return list(_LINKS.snap.rows)
 
 
 def get_node(nid):
-    return next((n for n in load_nodes() if n["id"] == nid), None)
+    _store_ready()
+    return _NODES.snap.by_id.get(nid)
+
+
+def get_link(lid):
+    _store_ready()
+    return _LINKS.snap.by_id.get(lid)
 
 
 def load_proxies():
-    return read_store(PROXIES_FILE, list)
+    _store_ready()
+    return list(_PROXIES.snap.rows)
 
 
 def get_proxy(pid):
-    return next((p for p in load_proxies() if p["id"] == pid), None)
+    _store_ready()
+    return _PROXIES.snap.by_id.get(pid)
 
 
 def node_proxy(node):
@@ -693,74 +1197,54 @@ def node_proxy(node):
     return proxy_url(p) if p else ""
 
 
-def _pending_load():
-    return read_store(PENDING_FILE, dict)
-
-
 def _pending_add(node_id, name):
     if not node_id or not name:
         return True
     with _pending_lock:
-        d = _pending_load()
-        lst = list(d.get(node_id) or [])
-        if name not in lst:
-            lst.append(name)
-        d[node_id] = lst
-        try:
-            save_json(PENDING_FILE, d)
+        cur = _M.pending.get(node_id, ())
+        if name in cur:
             return True
-        except OSError:
+        try:
+            with store_tx() as t:
+                t.pending(node_id, cur + (name,))
+            return True
+        except StoreError as e:
+            log_warn("pending", str(e))
             return False
 
 
 def _pending_remove(node_id, name):
     with _pending_lock:
-        try:
-            d = _pending_load()
-        except RegistryError as e:
-            log_warn("pending", str(e))
+        cur = _M.pending.get(node_id, ())
+        if name not in cur:
             return
-        lst = [x for x in (d.get(node_id) or []) if x != name]
-        if lst:
-            d[node_id] = lst
-        else:
-            d.pop(node_id, None)
         try:
-            save_json(PENDING_FILE, d)
-        except OSError:
-            pass
-
-
-def _pending_prune_node(node_id):
-    with _pending_lock:
-        d = _pending_load()
-        if node_id in d:
-            d.pop(node_id, None)
-            try:
-                save_json(PENDING_FILE, d)
-            except OSError:
-                pass
+            with store_tx() as t:
+                t.pending(node_id, [x for x in cur if x != name])
+        except StoreError as e:
+            log_warn("pending", str(e))
 
 
 def _pending_names(node_id):
-    return list(_pending_load().get(node_id) or [])
+    _store_ready()
+    return list(_M.pending.get(node_id, ()))
 
 
 def _pending_counts():
-    return {k: len(v) for k, v in _pending_load().items() if v}
+    _store_ready()
+    return {k: len(v) for k, v in _M.pending.items()}
 
 
 def _pending_gc(valid):
-    with _pending_lock:
-        d = _pending_load()
-        drop = [k for k in d if k not in valid]
-        if drop:
-            for k in drop:
-                d.pop(k, None)
-            try:
-                save_json(PENDING_FILE, d)
-            except OSError:
-                pass
+    stale = [k for k in _M.pending if k not in valid]
+    if not stale:
+        return
+    try:
+        with _pending_lock, store_tx() as t:
+            for k in stale:
+                t.pending(k, ())
+    except StoreError as e:
+        log_warn("pending", str(e))
 
 
 _hold_lock = threading.Lock()
@@ -1340,7 +1824,7 @@ def _ensure_cached(nodes):
     threading.Thread(target=_warm, daemon=True).start()
 
 
-NODE_STATE = ("_pc", "_tf", "_uh", "_moved", "_addr_gen")
+NODE_STATE = ("_pc", "_tf", "_uh", "_addr_gen")
 
 
 def _prune_node_state(valid):
@@ -1359,6 +1843,7 @@ def _prune_node_state(valid):
             if lk is not None and not lk.locked():
                 _node_locks.pop(nid, None)
     _pending_gc(valid)
+    _moved_gc(valid)
 
 
 def poller_loop():
@@ -1782,7 +2267,7 @@ def _uh_sample(nid, up, now):
     with _uh_lock:
         e = _uh.get(nid)
         if e is None:
-            _uh[nid] = {"ring": [], "bts": now, "up": 1 if up else 0, "tot": 1}
+            _uh[nid] = {"ring": [], "bts": now, "up": 1 if up else 0, "tot": 1, "n": 0}
             return
         e["up"] = e.get("up", 0) + (1 if up else 0)
         e["tot"] = e.get("tot", 0) + 1
@@ -1790,6 +2275,7 @@ def _uh_sample(nid, up, now):
             frac = e["up"] / e["tot"] if e["tot"] else 1.0
             missed = min(int((now - e["bts"]) / UPTIME_BUCKET), UPTIME_KEEP)
             e["ring"].extend([frac] * missed)
+            e["n"] = e.get("n", 0) + missed
             if len(e["ring"]) > UPTIME_KEEP:
                 e["ring"] = e["ring"][-UPTIME_KEEP:]
             e["bts"] = now
@@ -1836,24 +2322,6 @@ def _uh_pct(nid, window_hours):
     return int(total / n * 10000) / 100
 
 
-def _uh_snapshot():
-    with _uh_lock:
-        return {nid: list(e["ring"]) for nid, e in _uh.items() if e.get("ring")}
-
-
-def _uh_load():
-    try:
-        with open(UPTIME_FILE) as f:
-            data = json.load(f)
-    except Exception:
-        return
-    now = time.time()
-    with _uh_lock:
-        for nid, ring in (data or {}).items():
-            if isinstance(ring, list):
-                _uh[nid] = {"ring": [max(0.0, min(1.0, float(x))) for x in ring][-UPTIME_KEEP:], "bts": now, "up": 0, "tot": 0}
-
-
 def _tf_snapshot():
     out = {}
     with _tf_lock:
@@ -1866,24 +2334,107 @@ def _tf_snapshot():
     return out
 
 
-def _tf_load():
-    try:
-        with open(TRAFFIC_FILE) as f:
-            data = json.load(f)
-    except Exception:
-        return
+K_TRAFFIC = "tnl:traffic"
+K_UPTIME = "tnl:uptime:"
+K_CHECKIN = "tnl:checkin"
+_tf_flushed = {}
+_uh_flushed = {}
+
+
+def _stats_read(r):
+    tf, ck, up = {}, {}, {}
+    for k, v in r.hgetall(K_TRAFFIC).items():
+        try:
+            d = json.loads(v)
+            tf[k] = {i: [int(x[0]), int(x[1])] for i, x in d.items() if isinstance(x, list) and len(x) == 2}
+        except (ValueError, TypeError, AttributeError, IndexError):
+            log_warn("stats", "bad traffic field %s in redis skipped" % k)
+    for k, v in r.hgetall(K_CHECKIN).items():
+        try:
+            ck[k] = int(v)
+        except (TypeError, ValueError):
+            log_warn("stats", "bad checkin field %s in redis skipped" % k)
+    ukeys = list(r.scan_iter(K_UPTIME + "*", count=1000))
+    p = r.pipeline(transaction=False)
+    for k in ukeys:
+        p.lrange(k, 0, -1)
+    for k, ring in zip(ukeys, p.execute()):
+        try:
+            up[k[len(K_UPTIME):]] = [max(0.0, min(1.0, float(x))) for x in ring][-UPTIME_KEEP:]
+        except ValueError:
+            log_warn("stats", "bad uptime list %s in redis skipped" % k)
+    return tf, ck, up
+
+
+def _stats_boot():
+    r = _redis()
+    valid = {n["id"] for n in load_nodes()}
+    tf_raw, ck_raw, rings = _stats_read(r)
+    stale = [k for k in set(tf_raw) | set(ck_raw) | set(rings) if k not in valid]
+    if stale:
+        with _reg_lock, store_tx() as t:
+            for nid in stale:
+                t.raw(lambda p, nid=nid: _stats_forget(p, nid))
+    now = time.time()
     with _tf_lock:
-        for nid, ifs in (data or {}).items():
+        for nid in valid & set(tf_raw):
             e = _tf.setdefault(nid, {"prev_ts": 0.0, "prev_up": None, "if": {}, "seed": {}})
-            for k, v in (ifs or {}).items():
-                if isinstance(v, list) and len(v) == 2:
-                    e["seed"][k] = [int(v[0]), int(v[1])]
+            e["seed"].update(tf_raw[nid])
+            _tf_flushed[nid] = _enc(tf_raw[nid])
+    with _uh_lock:
+        for nid in valid & set(rings):
+            ring = rings[nid]
+            _uh[nid] = {"ring": ring, "bts": now, "up": 0, "tot": 0, "n": len(ring)}
+            _uh_flushed[nid] = len(ring)
+    with _checkin_ctr_lock:
+        for nid in valid & set(ck_raw):
+            _checkin_ctr[nid] = _checkin_ctr_saved[nid] = ck_raw[nid]
+
+
+def _stats_forget(p, nid):
+    p.hdel(K_TRAFFIC, nid)
+    p.hdel(K_CHECKIN, nid)
+    p.delete(K_UPTIME + nid)
+
+
+def _stats_drop(nid):
+    with _tf_lock:
+        _tf.pop(nid, None)
+        _tf_flushed.pop(nid, None)
+    with _uh_lock:
+        _uh.pop(nid, None)
+        _uh_flushed.pop(nid, None)
+    with _checkin_ctr_lock:
+        _checkin_ctr.pop(nid, None)
+        _checkin_ctr_saved.pop(nid, None)
 
 
 def _persist_stats():
-    valid = {n["id"] for n in load_nodes()}
-    save_json(TRAFFIC_FILE, {k: v for k, v in _tf_snapshot().items() if k in valid})
-    save_json(UPTIME_FILE, {k: v for k, v in _uh_snapshot().items() if k in valid})
+    with _reg_lock:
+        valid = {n["id"] for n in load_nodes()}
+        tf = {k: _enc(v) for k, v in _tf_snapshot().items() if k in valid}
+        with _tf_lock:
+            tf_new = {k: v for k, v in tf.items() if _tf_flushed.get(k) != v}
+        with _uh_lock:
+            uh_new = {}
+            for nid, e in _uh.items():
+                fresh = e.get("n", 0) - _uh_flushed.get(nid, 0)
+                if fresh > 0 and nid in valid:
+                    uh_new[nid] = (e["n"], e["ring"][-min(fresh, UPTIME_KEEP):])
+        if not tf_new and not uh_new:
+            return
+        p = _redis().pipeline(transaction=True)
+        if tf_new:
+            p.hset(K_TRAFFIC, mapping=tf_new)
+        for nid, (_n, vals) in uh_new.items():
+            if vals:
+                p.rpush(K_UPTIME + nid, *vals)
+                p.ltrim(K_UPTIME + nid, -UPTIME_KEEP, -1)
+        p.execute()
+    with _tf_lock:
+        _tf_flushed.update(tf_new)
+    with _uh_lock:
+        _uh_flushed.update({nid: n for nid, (n, _v) in uh_new.items()})
 
 
 def traffic_persist_loop():
@@ -1891,10 +2442,15 @@ def traffic_persist_loop():
         time.sleep(60)
         try:
             _persist_stats()
-        except RegistryError as e:
-            log_warn("persist", str(e))
+        except Exception as e:
+            try:
+                log_warn("persist", _store_msg(e))
+            except Exception:
+                log_internal("persist")
+        try:
+            _store_health()
         except Exception:
-            pass
+            log_internal("store health")
 
 
 def query_dict(path):
@@ -2364,7 +2920,7 @@ def api_next_port(d):
 
 
 def api_summary(d):
-    _ev_total, _ev_newest, _ev_unread = _ev_badge(_sint((d or {}).get("seen")))
+    _ev_total, _ev_newest, _ev_unread = _ev_badge((d or {}).get("seen"))
     nodes = load_nodes()
     links = load_links()
     try:
@@ -2375,6 +2931,7 @@ def api_summary(d):
 
     on = mu = mt = du = dt = 0
     heat, crit, alerts, outdated = [], [], [], 0
+    alerts.extend({"level": "bad", "kind": "store", "tab": "settings", "msg": m} for m in _store_issues)
     worst = {"disk": None, "ram": None, "cpu": None}
     for n in nodes:
         nid, nm = n["id"], n.get("name", "")
@@ -2556,8 +3113,8 @@ def api_node_add(d):
             raise ValueError(f"نودی با نامِ «{name}» از قبل وجود دارد — یک نامِ یکتا انتخاب کن")
         if _host_taken(nodes, host):
             raise ValueError(f"نودی با آی‌پیِ «{host}» از قبل وجود دارد")
-        nodes.append(node)
-        save_json(NODES_FILE, nodes)
+        with store_tx() as t:
+            t.put(_NODES, node)
     threading.Thread(target=_node_first_contact, args=(node,), daemon=True).start()
     return {"ok": True, "id": node["id"], "checking": True}
 
@@ -2841,8 +3398,8 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
                 return fail("register", f"نودی با نامِ «{name}» در این فاصله اضافه شد — نام باید یکتا باشد")
             if _host_taken(nodes, cfg["host"]):
                 return fail("register", f"نودی با آی‌پیِ «{cfg['host']}» در این فاصله اضافه شد")
-            nodes.append(node)
-            save_json(NODES_FILE, nodes)
+            with store_tx() as t:
+                t.put(_NODES, node)
         _refresh_cache([node["id"]])
         online = False
         for _ in range(6):
@@ -2953,21 +3510,21 @@ def api_node_edit(d):
             raise ValueError(f"نودِ دیگری با نامِ «{name}» وجود دارد — نام باید یکتا باشد")
         if _host_taken(nodes, host, exclude_id=d["id"]):
             raise ValueError(f"نودِ دیگری با آی‌پیِ «{host}» وجود دارد")
-        n["name"], n["host"], n["port"] = name, host, port
-        n["proxy_on"], n["proxy_id"] = pon, pid
-        _addr_bump(d["id"])
+        n2 = _thaw(n)
+        n2["name"], n2["host"], n2["port"] = name, host, port
+        n2["proxy_on"], n2["proxy_id"] = pon, pid
         if token:
-            n["token"] = token
-        save_json(NODES_FILE, nodes)
-        links = load_links()
-        chg = False
-        for L in links:
-            if L.get("a_node") == d["id"] and L.get("a_name") != name:
-                L["a_name"], chg = name, True
-            if L.get("b_node") == d["id"] and L.get("b_name") != name:
-                L["b_name"], chg = name, True
-        if chg:
-            save_json(LINKS_FILE, links)
+            n2["token"] = token
+        with store_tx() as t:
+            t.put(_NODES, n2)
+            for L in load_links():
+                ends = [k for k in ("a", "b") if L.get(k + "_node") == d["id"] and L.get(k + "_name") != name]
+                if ends:
+                    L2 = _thaw(L)
+                    for k in ends:
+                        L2[k + "_name"] = name
+                    t.put(_LINKS, L2)
+        _addr_bump(d["id"])
     if moved_addr(d["id"]) in ("%s:%d" % (host, port), "%s:0" % host):
         _moved_clear(d["id"])
     _refresh_bg([d["id"]])
@@ -2977,16 +3534,15 @@ def api_node_edit(d):
 def api_node_toggle(d):
     _require(d, ["id"])
     want = bool(d.get("disabled"))
-    with _reg_lock:
-        nodes = load_nodes()
-        n = next((x for x in nodes if x["id"] == d["id"]), None)
-        if not n:
-            raise ValueError("نود پیدا نشد")
+
+    def flip(x):
         if want:
-            n["disabled"] = True
+            x["disabled"] = True
         else:
-            n.pop("disabled", None)
-        save_json(NODES_FILE, nodes)
+            x.pop("disabled", None)
+    with _reg_lock:
+        if store_edit(_NODES, d["id"], flip) is None:
+            raise ValueError("نود پیدا نشد")
     return {"ok": True, "disabled": want}
 
 
@@ -3029,21 +3585,19 @@ def api_node_del(d):
                          "تا تونلِ یتیم نماند. جای دیسکِ پنل را باز کن و دوباره بزن."
                          % (n["name"], "پاک شد" if node_ok else "پاک نشد (قطع بود)",
                             len(_dropped), "، ".join(_park_failed)))
-    with _reg_lock:
-        save_json(LINKS_FILE, [L for L in load_links() if L["id"] not in mine_ids])
-    out = {"ok": True, "node_wiped": node_ok}
-    with _reg_lock:
-        save_json(NODES_FILE, [n for n in load_nodes() if n["id"] != nid])
-    _pending_prune_node(nid)
+    with _reg_lock, _pending_lock, _moved_lock, store_tx() as t:
+        for lid in mine_ids:
+            t.drop(_LINKS, lid)
+        t.drop(_NODES, nid)
+        t.pending(nid, ())
+        t.moved(nid, None)
+        t.raw(lambda p: _stats_forget(p, nid))
     with _tomb_lock:
         _tomb[nid] = time.time() + 20
     with _pc_lock:
         _pc.pop(nid, None)
-    with _tf_lock:
-        _tf.pop(nid, None)
-    with _uh_lock:
-        _uh.pop(nid, None)
-    return out
+    _stats_drop(nid)
+    return {"ok": True, "node_wiped": node_ok}
 
 
 def api_node_test(d):
@@ -3082,9 +3636,8 @@ def api_node_adopt_ip(d):
         if _host_taken(nodes, new, exclude_id=n["id"]):
             raise ValueError("نودِ دیگری از قبل روی «%s» ثبت است — دو نود با یک نشانی "
                              "بعداً قابلِ ویرایش نیستند؛ اول آن یکی را درست کن" % new)
-        t["host"], t["port"] = new, newp
+        store_edit(_NODES, n["id"], lambda x: x.update(host=new, port=newp))
         _addr_bump(n["id"])
-        save_json(NODES_FILE, nodes)
     _moved_clear(n["id"])
     _refresh_cache([n["id"]])
     return {"ok": True, "host": new, "port": newp}
@@ -4498,16 +5051,11 @@ def api_fleet(d):
 def api_link_view(d):
     _require(d, ["id"])
     with _reg_lock:
-        links = load_links()
-        side = None
-        for x in links:
-            if x["id"] == d["id"]:
-                side = "a" if x.get("view_side") == "b" else "b"
-                x["view_side"] = side
-                break
-        if side is None:
+        L = get_link(d["id"])
+        if L is None:
             raise ValueError("تونل پیدا نشد")
-        save_json(LINKS_FILE, links)
+        side = "a" if L.get("view_side") == "b" else "b"
+        store_edit(_LINKS, L["id"], lambda x: x.update(view_side=side))
     return {"ok": True, "view_side": side}
 
 
@@ -5502,16 +6050,21 @@ def _create_tunnel_impl(d, h):
         raise ValueError(f"نودِ «{B['name']}»: {rb.get('error') or rb.get('msg')}"
                          + (tail or " (تغییراتِ نیم‌کاره روی دو نود برچیده شد)"))
     act_step(h, "ثبتِ تونل", 3, CREATE_STEPS, stop=False)
+    rec = {"id": secrets.token_hex(6), "name": name, "type": ttype, "subnet": subnet,
+           "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
+           "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip,
+           **extra, **({"server_side": server_side} if ttype == "core" else {})}
     try:
-        with _reg_lock:
-            links = load_links()
-            links.append({"id": secrets.token_hex(6), "name": name, "type": ttype, "subnet": subnet,
-                          "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
-                          "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip, 
-                          **extra, **({"server_side": server_side} if ttype == "core" else {})})
-            save_json(LINKS_FILE, links)
-        _pending_remove(A["id"], name)
-        _pending_remove(B["id"], name)
+        with _reg_lock, _pending_lock, store_tx() as t:
+            t.put(_LINKS, rec)
+            for nid in {A["id"], B["id"]}:
+                cur = _M.pending.get(nid, ())
+                if name in cur:
+                    t.pending(nid, [x for x in cur if x != name])
+    except StoreUnknown as e:
+        _refresh_cache([A["id"], B["id"]])
+        raise ValueError("تونل روی هر دو نود ساخته شد ولی %s — برای همین برچیده نشد. اگر بعداً در فهرست نبود، "
+                         "به‌صورتِ «تونلِ ثبت‌نشده» روی نود نشان داده می‌شود و می‌توانی پاکش کنی" % e) from None
     except Exception as e:
         tail = _drop_tunnel_from(_node_set(A, B), name)
         raise ValueError("ذخیرهٔ رکوردِ لینک شکست خورد"
@@ -5575,8 +6128,8 @@ def _delete_link_impl(d, h):
             _refresh_cache([L["a_node"], L["b_node"]])
             return {"ok": False, "offer": "force", "msg": "; ".join(errs) + " — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن"}
         act_step(h, "برداشتنِ رکورد", 2, DELETE_STEPS, stop=False)
-        with _reg_lock:
-            save_json(LINKS_FILE, [x for x in load_links() if x["id"] != d["id"]])
+        with _reg_lock, store_tx() as t:
+            t.drop(_LINKS, d["id"])
         _tf_forget(L["a_node"], [L["name"]])
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
@@ -5601,21 +6154,23 @@ def api_reorder(d):
     if kind == "portfw":
         return _reorder_portfw(aid, targets)
     if kind == "nodes":
-        path, loader = NODES_FILE, load_nodes
+        coll = _NODES
     elif kind in ("core", "tunnels"):
-        path, loader = LINKS_FILE, load_links
+        coll = _LINKS
     else:
         raise ValueError("نوعِ نامعتبر")
     with _reg_lock:
-        items = loader()
-        pos = {str(it.get("id")): i for i, it in enumerate(items)}
+        _store_ready()
+        ids = [x["id"] for x in coll.snap.rows]
+        pos = {rid: i for i, rid in enumerate(ids)}
         if aid not in pos or any(t not in pos for t in targets):
             raise ValueError("مورد پیدا نشد")
         for bid in targets:
             i, jx = pos[aid], pos[bid]
-            items[i], items[jx] = items[jx], items[i]
+            ids[i], ids[jx] = ids[jx], ids[i]
             pos[aid], pos[bid] = jx, i
-        save_json(path, items)
+        with store_tx() as t:
+            t.order(coll, ids)
     return {"ok": True}
 
 
@@ -6006,24 +6561,22 @@ def _edit_link_impl(d, h):
                 raise ValueError(str(e) + undone + _restore_tail(stuck)) from None
         raise
     act_step(h, "ثبتِ تغییر", 3, EDIT_STEPS, stop=False)
+
+    def apply(x):
+        x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip,
+                  "a_node": A["id"], "a_name": A["name"],
+                  "b_node": B["id"], "b_name": B["name"]})
+        for k in _LINK_EXTRA_KEYS:
+            if k in extra:
+                x[k] = extra[k]
+            else:
+                x.pop(k, None)
+        if ttype == "core":
+            x["server_side"] = server_side
+        else:
+            x.pop("server_side", None)
     with _reg_lock:
-        links = load_links()
-        for x in links:
-            if x["id"] == L["id"]:
-                x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip,
-                          "a_node": A["id"], "a_name": A["name"],
-                          "b_node": B["id"], "b_name": B["name"]})
-                for k in _LINK_EXTRA_KEYS:
-                    if k in extra:
-                        x[k] = extra[k]
-                    else:
-                        x.pop(k, None)
-                if ttype == "core":
-                    x["server_side"] = server_side
-                else:
-                    x.pop("server_side", None)
-                break
-        save_json(LINKS_FILE, links)
+        store_edit(_LINKS, L["id"], apply)
     _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
     return {"ok": True, "name": new_name}
 
@@ -6212,13 +6765,8 @@ def _rebuild_link_impl(d, h):
     moved = a_ip != L["a_ip"] or b_ip != L["b_ip"]
     if moved and bool(d.get("pin", True)):
         with _reg_lock:
-            links = load_links()
-            for x in links:
-                if x["id"] == L["id"]:
-                    x.update({"a_ip": a_ip, "b_ip": b_ip,
-                              **{k: src[k] for k in ("a_ip_pool", "b_ip_pool") if src is not L}})
-                    break
-            save_json(LINKS_FILE, links)
+            store_edit(_LINKS, L["id"], lambda x: x.update({"a_ip": a_ip, "b_ip": b_ip,
+                       **{k: src[k] for k in ("a_ip_pool", "b_ip_pool") if src is not L}}))
         moved = False
     _set_drift(L["id"], moved)
     _refresh_cache([L["a_node"], L["b_node"]])
@@ -6233,22 +6781,15 @@ def api_link_tag(d):
     tag = _int_or(d.get("tag") or 0, "رنگِ نشانه‌گذاری نامعتبر است")
     if not 0 <= tag <= CARD_TAGS:
         raise ValueError("رنگِ نشانه‌گذاری نامعتبر است")
-    with _reg_lock:
-        items = load_links()
-        L = next((x for x in items if x["id"] == d["id"]), None)
-        if L is None:
-            items = load_nodes()
-            L = next((x for x in items if x["id"] == d["id"]), None)
-            path = NODES_FILE
-        else:
-            path = LINKS_FILE
-        if L is None:
-            raise ValueError("مورد پیدا نشد")
+    def paint(x):
         if tag:
-            L["tag"] = tag
+            x["tag"] = tag
         else:
-            L.pop("tag", None)
-        save_json(path, items)
+            x.pop("tag", None)
+    with _reg_lock:
+        coll = _LINKS if get_link(d["id"]) else _NODES
+        if store_edit(coll, d["id"], paint) is None:
+            raise ValueError("مورد پیدا نشد")
     return {"ok": True, "tag": tag}
 
 
@@ -6290,11 +6831,7 @@ def api_link_toggle(d):
                     raise ValueError("%s: %s%s" % (N["name"], why, tail))
                 done.append(N)
             with _reg_lock:
-                links = load_links()
-                cur = next((x for x in links if x["id"] == d["id"]), None)
-                if cur is not None:
-                    cur["enabled"] = enabled
-                    save_json(LINKS_FILE, links)
+                store_edit(_LINKS, d["id"], lambda x: x.update(enabled=enabled))
         finally:
             _refresh_cache([L["a_node"], L["b_node"]])
     return {"ok": True, "enabled": enabled}
@@ -6310,13 +6847,14 @@ def _stray_rows(nodes, links):
     for L in links:
         for k in ("a_node", "b_node"):
             want.setdefault(L.get(k), set()).add(str(L.get("name") or ""))
-    pend = _pending_load()
+    _store_ready()
+    pend = _M.pending
     out = []
     for n in nodes:
         cfgs = _cached_list(n["id"]).get("configs")
         if cfgs is None:
             continue
-        known = want.get(n["id"], set()) | set(pend.get(n["id"]) or [])
+        known = want.get(n["id"], set()) | set(pend.get(n["id"], ()))
         for c in cfgs:
             nm = str(c.get("name") or "")
             if nm and c.get("type") != "portfw" and nm not in known:
@@ -6477,58 +7015,45 @@ def _ech_pool_state(lid):
 
 
 def _ech_write(lid, kind, updates, degrade):
-    changed = False
     chmap = {}
+
+    def apply(x):
+        if degrade:
+            if x.get("ws_ech"):
+                x.pop("ws_ech", None)
+            for s in (x.get("ws_edge_snis") or []):
+                if isinstance(s, dict) and s.get("ech"):
+                    s["ech"] = ""
+        elif kind == "single":
+            nk = updates.get(x.get("ws_host"), "")
+            if nk and nk != x.get("ws_ech", ""):
+                x["ws_ech"] = nk
+                chmap[x.get("ws_host")] = nk
+        else:
+            for s in (x.get("ws_edge_snis") or []):
+                if not isinstance(s, dict):
+                    continue
+                nk = updates.get(s.get("host"), "")
+                if nk and nk != s.get("ech", ""):
+                    s["ech"] = nk
+                    chmap[s.get("host")] = nk
     with _reg_lock:
-        links = load_links()
-        for x in links:
-            if x.get("id") != lid:
-                continue
-            if degrade:
-                if x.get("ws_ech"):
-                    x.pop("ws_ech", None)
-                    changed = True
-                for s in (x.get("ws_edge_snis") or []):
-                    if isinstance(s, dict) and s.get("ech"):
-                        s["ech"] = ""
-                        changed = True
-            elif kind == "single":
-                nk = updates.get(x.get("ws_host"), "")
-                if nk and nk != x.get("ws_ech", ""):
-                    x["ws_ech"] = nk
-                    chmap[x.get("ws_host")] = nk
-                    changed = True
-            else:
-                for s in (x.get("ws_edge_snis") or []):
-                    if not isinstance(s, dict):
-                        continue
-                    nk = updates.get(s.get("host"), "")
-                    if nk and nk != s.get("ech", ""):
-                        s["ech"] = nk
-                        chmap[s.get("host")] = nk
-                        changed = True
-            break
-        if changed:
-            save_json(LINKS_FILE, links)
-    return changed, chmap
+        before = get_link(lid)
+        after = store_edit(_LINKS, lid, apply)
+    return after is not before, chmap
 
 
 def _ech_blank(lid, hosts):
     want = set(hosts)
-    changed = False
+
+    def apply(x):
+        for s in (x.get("ws_edge_snis") or []):
+            if isinstance(s, dict) and s.get("host") in want and s.get("ech"):
+                s["ech"] = ""
     with _reg_lock:
-        links = load_links()
-        for x in links:
-            if x.get("id") != lid:
-                continue
-            for s in (x.get("ws_edge_snis") or []):
-                if isinstance(s, dict) and s.get("host") in want and s.get("ech"):
-                    s["ech"] = ""
-                    changed = True
-            break
-        if changed:
-            save_json(LINKS_FILE, links)
-    return changed
+        before = get_link(lid)
+        after = store_edit(_LINKS, lid, apply)
+    return after is not before
 
 
 def _ech_keys_blank(L, kind, hosts):
@@ -6768,6 +7293,9 @@ def ech_refresh_loop():
 EVENTS_FILE = os.path.join(CENTRAL_DIR, "events.json")
 EVENTS_SEQ_FILE = os.path.join(CENTRAL_DIR, "events.seq")
 EVENTS_TTL = 24 * 3600
+K_EVENTS = "tnl:events"
+K_EVENTS_API = "tnl:events:api"
+EV_BATCH = 500
 
 EV_GROUPS = (("tunnel", "تونل"), ("node", "نود"), ("rot", "چرخش و استخر"),
              ("ech", "ECH"), ("cfg", "تنظیم"), ("auth", "ورود"), ("api", "API"))
@@ -6807,9 +7335,11 @@ EV_TYPES = (
 )
 EV_TYPE_GROUP = {t: g for t, g, _fa in EV_TYPES}
 _events_lock = threading.Lock()
-_ev_seq_total = None
 _ev_list = None
-_ev_dirty = False
+_ev_last = (0, 0)
+_ev_out = []
+_ev_wake = threading.Event()
+_ev_saved = [0.0]
 _ev_state = {"init": False, "nodes": {}, "held": [], "links": {}, "evseq": {}, "rotip": {},
              "links_coarse_down": set(), "coarse_hold": {}, "core_down": {}}
 
@@ -6996,18 +7526,57 @@ def _ingest_core_events(lid, end, nm, events):
     _ev_state["evseq"][key] = max(last, newest)
 
 
+def _ev_key(s):
+    a, _, b = str(s or "").partition("-")
+    try:
+        return int(a), int(b or 0)
+    except ValueError:
+        return 0, 0
+
+
+def _ev_next_id():
+    global _ev_last
+    ms = int(time.time() * 1000)
+    last_ms, last_n = _ev_last
+    _ev_last = (ms, 0) if ms > last_ms else (last_ms, last_n + 1)
+    return "%d-%d" % _ev_last
+
+
+def _ev_boot():
+    global _ev_last
+    r = _redis()
+    p = r.pipeline(transaction=True)
+    for key in (K_EVENTS, K_EVENTS_API):
+        p.exists(key)
+        p.xrange(key, "-", "+")
+    res = p.execute()
+    last, out = (int(time.time() * 1000), 0), []
+    for key, there, rows in zip((K_EVENTS, K_EVENTS_API), res[0::2], res[1::2]):
+        if there:
+            last = max(last, _ev_key(r.xinfo_stream(key)["last-generated-id"]))
+        for eid, f in rows:
+            out.append({"ts": _sint(f.get("ts")), "id": eid, "level": f.get("level", ""),
+                        "kind": f.get("kind", ""), "fa": f.get("fa", ""), "dfa": f.get("dfa", "")})
+    _ev_last = last
+    out = _ev_prune(out)
+    out.sort(key=lambda e: (e["ts"], _ev_key(e["id"])), reverse=True)
+    return out
+
+
+def events_boot():
+    global _ev_list
+    with _events_lock:
+        _ev_list = _ev_boot()
+
+
 def _ev_all():
-    global _ev_list, _ev_dirty
+    global _ev_list, _ev_last
     if _ev_list is None:
         try:
-            with open(EVENTS_FILE) as f:
-                raw = json.load(f)
-        except (OSError, ValueError):
-            raw = []
-        raw = raw if isinstance(raw, list) else []
-        _ev_list = _ev_prune(raw)
-        if len(_ev_list) != len(raw):
-            _ev_dirty = True
+            _ev_list = _ev_boot()
+        except Exception as e:
+            log_warn("events", _store_msg(e))
+            _ev_list, _ev_last = [], (int(time.time() * 1000), 0)
     return _ev_list
 
 
@@ -7016,43 +7585,77 @@ def load_events():
         return list(_ev_all())
 
 
-def _ev_flush():
-    global _ev_dirty
-    if not _ev_dirty:
-        return
+def _ev_batch():
+    with _events_lock:
+        batch = []
+        for op in _ev_out[:EV_BATCH]:
+            batch.append(op)
+            if op[0] == "clear":
+                break
+        return batch
+
+
+def _ev_drain():
+    batch = _ev_batch()
+    if not batch:
+        return True
+    cut = (int(time.time()) - EVENTS_TTL) * 1000
+    p = _redis().pipeline(transaction=True)
+    for op in batch:
+        if op[0] == "add":
+            e = op[1]
+            f = {"ts": e["ts"], "level": e["level"], "kind": e["kind"], "fa": e["fa"], "dfa": e["dfa"]}
+            if e["kind"] == "api-ok":
+                p.xadd(K_EVENTS_API, f, id=e["id"], maxlen=API_OK_KEEP, approximate=False)
+            else:
+                p.xadd(K_EVENTS, f, id=e["id"], minid=cut, approximate=True)
+        elif op[0] == "clear":
+            p.xtrim(K_EVENTS, maxlen=0, approximate=False)
+            p.xtrim(K_EVENTS_API, maxlen=0, approximate=False)
+        else:
+            p.xtrim(K_EVENTS, minid=cut, approximate=True)
     try:
-        save_json(EVENTS_FILE, _ev_list)
-        save_json(EVENTS_SEQ_FILE, _ev_seq_get())
-        _ev_dirty = False
-    except OSError:
-        pass
+        res = p.execute(raise_on_error=False)
+    except Exception as e:
+        log_warn("events", _store_msg(e))
+        return False
+    for op, r in zip(batch, res):
+        if isinstance(r, Exception) and not (op[0] == "add" and "equal or smaller" in str(r)):
+            log_warn("events", "رویدادها در ردیس ذخیره نشدند: %s" % _store_why(r))
+            return False
+    with _events_lock:
+        del _ev_out[:len(batch)]
+    _ev_saved[0] = time.time()
+    return True
 
 
-def _ev_seq_get():
-    global _ev_seq_total
-    if _ev_seq_total is None:
+def _ev_writer_loop():
+    while True:
+        _ev_wake.wait(1.0)
+        _ev_wake.clear()
         try:
-            with open(EVENTS_SEQ_FILE) as f:
-                _ev_seq_total = int(json.load(f))
-        except (OSError, ValueError, TypeError):
-            _ev_seq_total = 0
-    return _ev_seq_total
+            while _ev_out and _ev_drain():
+                pass
+        except Exception:
+            log_internal("event writer")
 
 
 def _ev_badge(seen):
     hidden = _ev_hidden()
-    total = newest = unread = 0
+    mark = _ev_key(seen)
+    total = unread = 0
+    newest = (0, 0)
     with _events_lock:
         for e in _ev_all():
             if e.get("kind") in hidden:
                 continue
             total += 1
-            s = _sint(e.get("seq"))
-            if s > newest:
-                newest = s
-            if s > seen:
+            k = _ev_key(e["id"])
+            if k > newest:
+                newest = k
+            if k > mark:
                 unread += 1
-    return total, newest, unread
+    return total, "%d-%d" % newest, unread
 
 
 def _ev_cat(t):
@@ -7074,26 +7677,24 @@ def _ev_prune(evs, now=None):
 
 
 def ev_sweep():
-    global _ev_list, _ev_dirty
+    global _ev_list
     with _events_lock:
         before = len(_ev_all())
         _ev_list = _ev_prune(_ev_list)
-        if len(_ev_list) != before:
-            _ev_dirty = True
-        _ev_flush()
-        return before - len(_ev_list)
+        if not _ev_out or _ev_out[-1][0] != "trim":
+            _ev_out.append(("trim",))
+    _ev_wake.set()
+    return before - len(_ev_list)
 
 
 def log_event(level, kind, fa, dfa="", ts=None):
-    global _ev_seq_total, _ev_dirty
     now = int(time.time())
     at = min(int(ts), now) if ts else now
     with _events_lock:
         lst = _ev_all()
+        e = {"ts": at, "id": _ev_next_id(), "level": level, "kind": kind, "fa": fa, "dfa": dfa}
         pos = next((i for i, x in enumerate(lst) if _sint(x.get("ts")) <= at), len(lst))
-        _ev_seq_total = _ev_seq_get() + 1
-        lst.insert(pos, {"ts": at, "seq": _ev_seq_total, "level": level, "kind": kind,
-                         "fa": fa, "dfa": dfa})
+        lst.insert(pos, e)
         if kind == "api-ok":
             seen = 0
             for i in range(len(lst) - 1, -1, -1):
@@ -7106,7 +7707,9 @@ def log_event(level, kind, fa, dfa="", ts=None):
                 if lst[i]["kind"] == "api-ok":
                     del lst[i]
                     seen -= 1
-        _ev_dirty = True
+        if at >= now - EVENTS_TTL:
+            _ev_out.append(("add", e))
+    _ev_wake.set()
 
 
 def _link_mark(L):
@@ -7376,11 +7979,10 @@ def api_events(d):
 
 
 def api_events_clear(d):
-    global _ev_dirty
     with _events_lock:
         _ev_all()[:] = []
-        _ev_dirty = True
-        _ev_flush()
+        _ev_out.append(("clear",))
+    _ev_wake.set()
     return {"ok": True}
 
 
@@ -7455,11 +8057,8 @@ def _pf_key(node_id, name):
 
 
 def _pf_load_order():
-    try:
-        o = json.load(open(PORTFW_ORDER_FILE))
-        return o if isinstance(o, list) else []
-    except Exception:
-        return []
+    _store_ready()
+    return list(_M.pforder)
 
 
 def _pf_sorted(seq, key_of):
@@ -7498,7 +8097,8 @@ def _reorder_portfw(a, targets):
         for b in targets:
             ia, ib = cur.index(a), cur.index(b)
             cur[ia], cur[ib] = cur[ib], cur[ia]
-        save_json(PORTFW_ORDER_FILE, cur)
+        with store_tx() as t:
+            t.pforder(cur)
     return {"ok": True}
 
 
@@ -7805,8 +8405,8 @@ def api_proxy_add(d):
         ps = load_proxies()
         p = {"id": secrets.token_hex(5), "name": _proxy_name(d, {x["name"].lower() for x in ps}),
              "scheme": scheme, "host": host, "port": port, "user": user, "pass": pw or ""}
-        ps.append(p)
-        save_json(PROXIES_FILE, ps)
+        with store_tx() as t:
+            t.put(_PROXIES, p)
     return {"ok": True, "proxy": _proxy_row(p)}
 
 
@@ -7818,42 +8418,45 @@ def _node_ids(d, key):
 
 
 def _assign_proxy(pid, add, drop):
-    nodes = load_nodes()
-    moved = []
-    for n in nodes:
+    out = []
+    for n in load_nodes():
         has = bool(n.get("proxy_on")) and str(n.get("proxy_id") or "") == pid
         if n["id"] in add and not has:
-            n["proxy_on"], n["proxy_id"] = True, pid
+            on = True
         elif n["id"] in drop and has:
-            n["proxy_on"], n["proxy_id"] = False, ""
+            on = False
         else:
             continue
-        _addr_bump(n["id"])
-        moved.append(n["id"])
-    if moved:
-        save_json(NODES_FILE, nodes)
-    return moved
+        n2 = _thaw(n)
+        n2["proxy_on"], n2["proxy_id"] = on, pid if on else ""
+        out.append(n2)
+    return out
 
 
 def api_proxy_edit(d):
     _require(d, ["id"])
     scheme, host, port, user, pw = _proxy_fields(d)
     add, drop = _node_ids(d, "nodes_on"), _node_ids(d, "nodes_off")
-    moved = []
     with _reg_lock:
         ps = load_proxies()
-        p = next((x for x in ps if x["id"] == d["id"]), None)
-        if not p:
+        cur = next((x for x in ps if x["id"] == d["id"]), None)
+        if not cur:
             raise ValueError("پروکسی پیدا نشد")
+        p = _thaw(cur)
         p["name"] = _proxy_name(d, {x["name"].lower() for x in ps if x["id"] != p["id"]})
         p["scheme"], p["host"], p["port"], p["user"] = scheme, host, port, user
         if pw:
             p["pass"] = pw
         elif not user:
             p["pass"] = ""
-        save_json(PROXIES_FILE, ps)
-        if add or drop:
-            moved = _assign_proxy(p["id"], add, drop)
+        flips = _assign_proxy(p["id"], add, drop) if add or drop else []
+        with store_tx() as t:
+            t.put(_PROXIES, p)
+            for n2 in flips:
+                t.put(_NODES, n2)
+        moved = [n2["id"] for n2 in flips]
+        for nid in moved:
+            _addr_bump(nid)
     if moved:
         _refresh_bg(moved)
     return {"ok": True, "proxy": _proxy_row(p)}
@@ -7888,7 +8491,8 @@ def api_proxy_del(d):
             raise ValueError("این پروکسی هنوز استفاده می‌شود: " + "؛ ".join(where) + " — اول آن‌ها را از این پروکسی جدا کن")
         if p["id"] in _proxy_holds:
             raise ValueError("یک نصبِ نود یا ساخت/ویرایشِ تونل که همین حالا در جریان است از این پروکسی استفاده می‌کند — بعد از تمام‌شدنش دوباره حذف کن")
-        save_json(PROXIES_FILE, [x for x in ps if x["id"] != p["id"]])
+        with store_tx() as t:
+            t.drop(_PROXIES, p["id"])
     return {"ok": True}
 
 
@@ -7901,11 +8505,10 @@ def api_settings(d):
 
 
 def api_settings_set(d):
-    with _reg_lock, _settings_lock:
+    with _reg_lock:
         obj = validate_settings(d or {})
-        save_json(SETTINGS_FILE, obj)
-        _settings.clear()
-        _settings.update(obj)
+        with store_tx() as t:
+            t.settings(obj)
     return {"ok": True, "settings": settings_public(obj)}
 
 
@@ -7915,12 +8518,11 @@ def api_token_hash(token):
 
 def api_token_new(d):
     token = secrets.token_urlsafe(32)
-    with _settings_lock:
+    with _reg_lock:
         obj = get_settings()
         obj["api_token_hash"] = api_token_hash(token)
-        save_json(SETTINGS_FILE, obj)
-        _settings.clear()
-        _settings.update(obj)
+        with store_tx() as t:
+            t.settings(obj)
     return {"ok": True, "token": token}
 
 
@@ -7932,22 +8534,6 @@ _checkin_ctr_saved = {}
 _checkin_ctr_lock = threading.Lock()
 
 
-def checkin_ctr_load():
-    try:
-        with open(CHECKIN_CTR_FILE) as f:
-            stored = json.load(f)
-    except Exception:
-        return
-    if not isinstance(stored, dict):
-        return
-    with _checkin_ctr_lock:
-        for k, v in stored.items():
-            try:
-                _checkin_ctr[k] = _checkin_ctr_saved[k] = int(v)
-            except (TypeError, ValueError):
-                continue
-
-
 def checkin_ctr_accept(nid, ctr):
     with _checkin_ctr_lock:
         if ctr <= _checkin_ctr.get(nid, 0):
@@ -7955,9 +8541,16 @@ def checkin_ctr_accept(nid, ctr):
         _checkin_ctr[nid] = ctr
         if ctr - _checkin_ctr_saved.get(nid, 0) < CHECKIN_CTR_PERSIST_MS:
             return True
-        _checkin_ctr_saved[nid] = ctr
-        snap = dict(_checkin_ctr_saved)
-    save_json(CHECKIN_CTR_FILE, snap)
+    try:
+        _redis().hset(K_CHECKIN, nid, ctr)
+    except Exception as e:
+        if not _store_exc(e):
+            raise
+        log_warn("checkin", "%s (%s)" % (STORE_DOWN, _store_why(e)))
+        return True
+    with _checkin_ctr_lock:
+        if ctr > _checkin_ctr_saved.get(nid, 0):
+            _checkin_ctr_saved[nid] = ctr
     return True
 
 
@@ -8036,10 +8629,9 @@ def api_checkin_impl(source_ip, d):
         if _host_taken(nodes, want_host, exclude_id=n["id"]):
             return {"ok": False, "clash": True, "host": host, "port": port,
                     "error": "نودِ دیگری از قبل روی این نشانی ثبت است؛ نشانی عوض نشد"}
-        n["host"], n["port"] = want_host, want_port
         host, port, nid = want_host, want_port, n["id"]
+        store_edit(_NODES, nid, lambda x: x.update(host=want_host, port=want_port))
         _addr_bump(nid)
-        save_json(NODES_FILE, nodes)
     _refresh_cache([nid])
     return {"ok": True, "host": host, "port": port}
 
@@ -8680,12 +9272,15 @@ def service_settled(tries=6):
     return False
 
 
-DEP_PACKAGES = ("openssl", "ca-certificates", "iproute2", "openssh-client", "sshpass")
-DEP_BINARIES = ("openssl", "ssh", "sshpass", "ip", "systemctl")
+DEP_PACKAGES = ("openssl", "ca-certificates", "iproute2", "openssh-client", "sshpass", "redis-server", "python3-redis")
+DEP_BINARIES = ("openssl", "ssh", "sshpass", "ip", "systemctl", "redis-server")
 
 
 def missing_binaries():
-    return [b for b in DEP_BINARIES if not shutil.which(b)]
+    miss = [b for b in DEP_BINARIES if not shutil.which(b)]
+    if importlib.util.find_spec("redis") is None:
+        miss.append("python3-redis")
+    return miss
 
 
 def _port_or(value, fallback):
@@ -8707,6 +9302,7 @@ def install_deps():
         subprocess.run(["apt-get", "install", "-yqq", *DEP_PACKAGES], env=env, timeout=900)
     except Exception as e:
         print(f"[!] apt failed: {e}")
+    importlib.invalidate_caches()
     still = missing_binaries()
     if still:
         print("[✘] still missing after install: " + " ".join(still))
@@ -8738,16 +9334,224 @@ def set_password(conf):
     conf.update(stored)
 
 
+REDIS_CONF_TEXT = f"""port 0
+unixsocket {REDIS_SOCK}
+unixsocketperm 770
+dir {REDIS_DIR}
+appendonly yes
+appendfsync always
+appenddirname "appendonlydir"
+aof-use-rdb-preamble yes
+no-appendfsync-on-rewrite no
+save ""
+maxmemory-policy noeviction
+databases 1
+protected-mode yes
+daemonize no
+supervised systemd
+loglevel notice
+logfile ""
+"""
+
+REDIS_UNIT_TEXT = f"""[Unit]
+Description=Redis store for tnl-central
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+User=redis
+Group=redis
+ExecStart=/usr/bin/redis-server {REDIS_CONF}
+RuntimeDirectory=tnl-redis
+RuntimeDirectoryMode=0750
+StateDirectory=tnl-redis
+StateDirectoryMode=0750
+UMask=0077
+LimitNOFILE=65536
+Restart=always
+RestartSec=2
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def install_store():
+    with open(REDIS_CONF, "w") as f:
+        f.write(REDIS_CONF_TEXT)
+    os.chmod(REDIS_CONF, 0o644)
+    with open(REDIS_UNIT_FILE, "w") as f:
+        f.write(REDIS_UNIT_TEXT)
+    subprocess.run(["systemctl", "disable", "--now", "redis-server.service"], capture_output=True)
+    subprocess.run(["systemctl", "daemon-reload"])
+    subprocess.run(["systemctl", "enable", REDIS_SERVICE], capture_output=True)
+    subprocess.run(["systemctl", "restart", REDIS_SERVICE])
+    try:
+        store_boot(wait=30)
+    except RegistryError as e:
+        print("%s %s" % (BAD, e))
+        print("    journalctl -u %s" % REDIS_SERVICE)
+        return False
+    print("%s redis store ready at %s (appendfsync always)" % (OK, REDIS_SOCK))
+    return True
+
+
+_IMPORT = (("nodes", NODES_FILE, list), ("links", LINKS_FILE, list), ("proxies", PROXIES_FILE, list),
+           ("settings", SETTINGS_FILE, dict), ("pending", PENDING_FILE, dict), ("moved", MOVED_FILE, dict),
+           ("checkin", CHECKIN_CTR_FILE, dict), ("pforder", PORTFW_ORDER_FILE, list),
+           ("traffic", TRAFFIC_FILE, dict), ("uptime", UPTIME_FILE, dict), ("events", EVENTS_FILE, list))
+_IMPORT_ALSO = (EVENTS_SEQ_FILE,)
+_IMPORT_LEFTOVERS = ("jobs.json", "engine.meta.json")
+
+
+def _import_src(base):
+    src = {}
+    for name, path, kind in _IMPORT:
+        src[name] = read_json(os.path.join(base, os.path.basename(path)), kind, True)
+    for name in ("nodes", "links", "proxies"):
+        ids = [x.get("id") if isinstance(x, dict) else None for x in src[name]]
+        if any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
+            raise RegistryError("فایلِ %s.json رکوردِ بی‌شناسه یا شناسهٔ تکراری دارد" % name)
+    src["pending"] = {k: [str(x) for x in v] for k, v in src["pending"].items() if isinstance(v, list) and v}
+    src["moved"] = {k: v for k, v in src["moved"].items() if isinstance(v, dict)}
+    src["checkin"] = {k: _sint(v) for k, v in src["checkin"].items() if _sint(v) > 0}
+    src["pforder"] = [str(x) for x in src["pforder"]]
+    src["uptime"] = {k: [max(0.0, min(1.0, _sflt(x))) for x in v][-UPTIME_KEEP:]
+                     for k, v in src["uptime"].items() if isinstance(v, list) and v}
+    src["traffic"] = {k: {i: [_sint(x[0]), _sint(x[1])] for i, x in v.items() if isinstance(x, list) and len(x) == 2}
+                      for k, v in src["traffic"].items() if isinstance(v, dict)}
+    now = time.time()
+    evs = [e for e in _ev_prune(src["events"], now) if isinstance(e, dict)]
+    evs.sort(key=lambda e: (_sint(e.get("ts")), _sint(e.get("seq"))))
+    api = [e for e in evs if e.get("kind") == "api-ok"][-API_OK_KEEP:]
+    evs = sorted([e for e in evs if e.get("kind") != "api-ok"] + api,
+                 key=lambda e: (_sint(e.get("ts")), _sint(e.get("seq"))))
+    out, last = [], (0, 0)
+    for e in evs:
+        ms = max(_sint(e.get("ts")) * 1000, 1)
+        last = (ms, 0) if ms > last[0] else (last[0], last[1] + 1)
+        f = {"ts": _sint(e.get("ts")), "level": str(e.get("level") or ""), "kind": str(e.get("kind") or ""),
+             "fa": str(e.get("fa") or ""), "dfa": str(e.get("dfa") or "")}
+        out.append((K_EVENTS_API if f["kind"] == "api-ok" else K_EVENTS, "%d-%d" % last, f))
+    src["events"] = out
+    return src
+
+
+def _import_write(r, src):
+    p = r.pipeline(transaction=True)
+    for name in ("nodes", "links", "proxies"):
+        c = _COLLS[name]
+        if src[name]:
+            p.hset(c.hkey, mapping={x["id"]: _enc(x) for x in src[name]})
+            p.zadd(c.okey, {x["id"]: float(i) for i, x in enumerate(src[name])})
+    for key, name in (("tnl:settings", "settings"), ("tnl:pending", "pending"), ("tnl:moved", "moved"),
+                      (K_TRAFFIC, "traffic")):
+        if src[name]:
+            p.hset(key, mapping={k: _enc(v) for k, v in src[name].items()})
+    if src["checkin"]:
+        p.hset(K_CHECKIN, mapping=src["checkin"])
+    if src["pforder"]:
+        p.set(K_PFORDER, _enc(src["pforder"]))
+    for nid, ring in src["uptime"].items():
+        p.rpush(K_UPTIME + nid, *ring)
+    for key, eid, f in src["events"]:
+        p.xadd(key, f, id=eid)
+    p.execute()
+
+
+def _import_read(r):
+    got = _store_read(r, _GROUPS)
+    out = {name: got[name][0] for name in ("nodes", "links", "proxies")}
+    out.update({k: got[k] for k in ("settings", "pending", "moved", "pforder")})
+    out["traffic"], out["checkin"], out["uptime"] = _stats_read(r)
+    out["events"] = sorted([(key, eid, dict(f, ts=_sint(f.get("ts")))) for key in (K_EVENTS, K_EVENTS_API)
+                            for eid, f in r.xrange(key, "-", "+")], key=lambda x: _ev_key(x[1]))
+    return out
+
+
+def _store_keys(r):
+    return list(r.scan_iter("tnl:*", count=1000))
+
+
+def _import_diff(r, want):
+    got = _import_read(r)
+    got["events"] = [list(x) for x in got["events"]]
+    return [k for k in want if want[k] != got.get(k)]
+
+
+def import_json(base=CENTRAL_DIR):
+    src = _import_src(base)
+    want = _thaw({k: v for k, v in src.items() if k != "events"})
+    want["events"] = sorted(([key, eid, f] for key, eid, f in src["events"]), key=lambda x: _ev_key(x[1]))
+    r = _redis()
+    wrote = not _store_keys(r)
+    if wrote:
+        try:
+            _import_write(_redis_client(600), src)
+        except Exception as e:
+            log_warn("import", "%s — checking what landed" % _store_msg(e))
+    bad = _import_diff(r, want)
+    if bad and not wrote:
+        raise RegistryError("ردیس از قبل دادهٔ دیگری دارد (%s) — واردکردن فقط روی ردیسِ خالی انجام می‌شود و به آن دست زده نشد"
+                            % "، ".join(bad))
+    if bad:
+        keys = _store_keys(r)
+        if keys:
+            r.delete(*keys)
+        raise RegistryError("دادهٔ واردشده با فایل‌ها نخواند (%s) — ردیس دوباره خالی شد و فایل‌ها دست‌نخورده ماندند"
+                            % "، ".join(bad))
+    for path in [p for _n, p, _k in _IMPORT] + list(_IMPORT_ALSO):
+        full = os.path.join(base, os.path.basename(path))
+        if os.path.isfile(full):
+            os.replace(full, full + ".imported")
+    _store_resync(set(_GROUPS))
+    return {k: len(v) for k, v in src.items()}
+
+
+def _import_step():
+    if not any(os.path.isfile(p) for _n, p, _k in _IMPORT):
+        print("%s no JSON data to import" % OK)
+        return True
+    was = service_active()
+    if was:
+        svc("stop")
+    try:
+        counts = import_json()
+    except Exception as e:
+        print("%s import failed: %s" % (BAD, _store_msg(e)))
+        if was:
+            svc("start")
+            print("    the previous panel was started again; nothing was changed.")
+        return False
+    print("%s imported %s" % (OK, ", ".join("%d %s" % (n, k) for k, n in counts.items())))
+    left = [f for f in _IMPORT_LEFTOVERS if os.path.isfile(os.path.join(CENTRAL_DIR, f))]
+    if left:
+        print("    not imported (no code reads them): " + ", ".join(left))
+    return True
+
+
+def export_json(out_dir):
+    r = _redis()
+    got = _import_read(r)
+    os.makedirs(out_dir, mode=0o700, exist_ok=True)
+    got["events"] = [dict(f, seq=i + 1) for i, (_key, _eid, f) in enumerate(got["events"])]
+    for name, path, _kind in _IMPORT:
+        save_json(os.path.join(out_dir, os.path.basename(path)), got[name])
+    return {k: len(v) for k, v in got.items()}
+
+
 def write_service():
     with open(SERVICE_FILE, "w") as f:
         f.write(f"""[Unit]
 Description=tnl central panel
-After=network-online.target
-Wants=network-online.target
+After=network-online.target {REDIS_SERVICE}
+Wants=network-online.target {REDIS_SERVICE}
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env python3 {INSTALLED} --serve
+ExecStart=/usr/bin/python3 {INSTALLED} --serve
 Restart=on-failure
 RestartSec=3
 
@@ -8835,9 +9639,20 @@ def do_install():
     if not sys.stdin.isatty():
         print("%s install asks for a username and a password, so it needs a terminal." % BAD)
         return False
-    total = 6
+    total = 8
 
-    step(1, total, "files")
+    step(1, total, "dependencies")
+    install_deps()
+
+    step(2, total, "redis store")
+    if not install_store():
+        return False
+
+    step(3, total, "data import")
+    if not _import_step():
+        return False
+
+    step(4, total, "files")
     os.makedirs(CENTRAL_DIR, exist_ok=True)
     os.chmod(CENTRAL_DIR, 0o700)
     if os.path.realpath(SELF_PATH) != INSTALLED:
@@ -8856,16 +9671,13 @@ def do_install():
         print("    unpack the release tarball and run it from inside that folder.")
         return False
 
-    step(2, total, "dependencies")
-    install_deps()
-
-    step(3, total, "port and login")
+    step(5, total, "port and login")
     conf = cli_conf()
     have = conf.get("port", 8080)
     conf["port"] = _port_or(input("Panel port [%s]: " % have), have)
     set_password(conf)
 
-    step(4, total, "signing key")
+    step(6, total, "signing key")
     try:
         _signing_keys()
         print("%s rsa key ready" % OK)
@@ -8874,7 +9686,7 @@ def do_install():
         print("    without it every push to a node is refused, so the install stops here.")
         return False
 
-    step(5, total, "service")
+    step(7, total, "service")
     write_service()
     svc("enable")
     svc("restart")
@@ -8883,7 +9695,7 @@ def do_install():
         return False
     print("%s %s is active" % (OK, SERVICE))
 
-    step(6, total, "core and agent")
+    step(8, total, "core and agent")
     try:
         info = _stage_core("latest")
         print("%s core %s staged (%s)" % (OK, info["version"], ", ".join(info["arches"])))
@@ -8943,12 +9755,27 @@ def uninstall():
         return
     svc("stop")
     svc("disable")
-    try:
-        os.remove(SERVICE_FILE)
-    except FileNotFoundError:
-        pass
+    subprocess.run(["systemctl", "disable", "--now", REDIS_SERVICE], capture_output=True)
+    for path in (SERVICE_FILE, REDIS_UNIT_FILE):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
     subprocess.run(["systemctl", "daemon-reload"])
-    print(f"[✔] service removed (node registry & links kept in {CENTRAL_DIR}).")
+    print(f"[✔] services removed (nodes, links and settings kept in {REDIS_DIR}; install again to use them).")
+
+
+def do_export():
+    default = "/root/tnl-backup-" + time.strftime("%Y%m%d-%H%M%S")
+    out = (input(f"Export to [{default}]: ").strip() if sys.stdin.isatty() else "") or default
+    try:
+        counts = export_json(out)
+    except Exception as e:
+        print(f"[!] export failed: {_store_msg(e)}")
+        return False
+    print(f"[✔] exported to {out}: " + ", ".join("%d %s" % (n, k) for k, n in counts.items()))
+    print("    restore on an empty store: copy these files into %s and run --install." % CENTRAL_DIR)
+    return True
 
 
 def do_restart():
@@ -8968,6 +9795,7 @@ MENU = [
     ("4", "Change the port", ""),
     ("5", "Change the password", ""),
     ("6", "Uninstall", "keeps nodes, links and settings"),
+    ("7", "Backup", "exports nodes, links, settings and logs as JSON"),
     ("0", "Exit", ""),
 ]
 
@@ -9053,6 +9881,8 @@ def menu():
                 change_password()
             elif c == "6":
                 uninstall()
+            elif c == "7":
+                do_export()
             elif c == "0":
                 return
             else:
@@ -9116,10 +9946,16 @@ def serve():
     global _CENTRAL_PORT, _CENTRAL_TLS
     try:
         conf = load_conf()
-        _seed_settings()
     except RegistryError as e:
         print("tnl-central did not start - %s" % e)
         print("fix or remove that file, then run the setup menu:  sudo python3 tnl-central.py")
+        sys.exit(1)
+    try:
+        store_boot(wait=60)
+        _stats_boot()
+        events_boot()
+    except Exception as e:
+        print("tnl-central did not start - %s" % _store_msg(e))
         sys.exit(1)
     _CENTRAL_PORT = int(conf.get("port", 8080))
     _CENTRAL_TLS = bool(conf.get("tls"))
@@ -9127,9 +9963,8 @@ def serve():
         _signing_keys()
     except Exception as e:
         print(f"warning: could not init signing key (openssl missing?): {e}")
-    _tf_load()
-    _uh_load()
-    checkin_ctr_load()
+    _store_health()
+    threading.Thread(target=_ev_writer_loop, daemon=True).start()
     threading.Thread(target=poller_loop, daemon=True).start()
     threading.Thread(target=traffic_persist_loop, daemon=True).start()
     threading.Thread(target=reconcile_loop, daemon=True).start()
@@ -9152,8 +9987,12 @@ def _stop_on_term(signum, frame):
 
 
 def _flush_on_stop():
-    with _events_lock:
-        _ev_flush()
+    try:
+        for _ in range(50):
+            if not _ev_out or not _ev_drain():
+                break
+    except Exception:
+        log_internal("events on stop")
     try:
         _persist_stats()
     except Exception:
@@ -9175,6 +10014,12 @@ def main():
             print("Run as root (sudo).")
             sys.exit(1)
         if not refresh_ui():
+            sys.exit(1)
+    elif arg == "--export":
+        if os.geteuid() != 0:
+            print("Run as root (sudo).")
+            sys.exit(1)
+        if not do_export():
             sys.exit(1)
     elif arg == "--set-pass":
         if os.geteuid() != 0:
