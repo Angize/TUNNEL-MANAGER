@@ -3,9 +3,9 @@ import { SettingsSkeleton } from '../../components/Skeleton.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
 import { T } from '../../i18n/fa.js'
 
-export default function FormGate({ groups }) {
+export default function FormGate({ skeleton }) {
   const { loadError, load } = useSettingsForm()
-  if (!loadError) return <SettingsSkeleton groups={groups} />
+  if (!loadError) return skeleton || <SettingsSkeleton />
   return (
     <div className="card loadfail">
       <span>{T('set_load_fail') + ' ' + loadError}</span>

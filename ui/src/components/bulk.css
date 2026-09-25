@@ -1,26 +1,9 @@
 .bulkbtn {
-  background: color-mix(in srgb, var(--acc) 10%, var(--card));
-  color: var(--acc);
-  border: 1px solid color-mix(in srgb, var(--acc) 30%, transparent);
-  box-shadow: var(--dsh);
   font-weight: 800;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .18s, background .18s;
-}
-
-.bulkbtn:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--dsh-hi);
 }
 
 .bulkbtn:active {
   transform: scale(.98);
-}
-
-.bulkbtn.on {
-  background: color-mix(in srgb, var(--acc) 18%, var(--card));
-  border-color: color-mix(in srgb, var(--acc) 42%, transparent);
 }
 
 .selck {
@@ -114,14 +97,11 @@
 }
 
 .bulkbar .go {
+  margin: 0;
   margin-inline-start: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: color-mix(in srgb, var(--acc) 14%, var(--card));
-  color: var(--acc);
-  border: 1px solid color-mix(in srgb, var(--acc) 34%, transparent);
-  box-shadow: var(--dsh);
   font-weight: 800;
   font-size: 12.5px;
   padding: 9px 13px;

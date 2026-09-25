@@ -5162,7 +5162,7 @@ def _stage_run(version):
 def api_core_stage(d):
     version = str((d or {}).get("version") or "latest").strip()
     if version == "custom":
-        raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصبِ هسته روی همهٔ نودها» یا از منوی هر نود نصب کن",
+        raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصب روی همه» در ردیفِ هسته یا از منوی هر نود نصب کن",
                   "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)")
     if _delivery_mode("core") == "github":
         info = _stage_core_meta(version)

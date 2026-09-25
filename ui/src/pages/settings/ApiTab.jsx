@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
+import { ApiCardSkeleton } from '../../components/Skeleton.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
@@ -8,7 +9,6 @@ import { T } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
 
 const ApiRef = lazy(() => import('./ApiRef.jsx'))
-const GATE_GROUPS = [['sc-panel', 1]]
 
 function ApiGroup({ f }) {
   const { form, set, token } = f
@@ -58,7 +58,7 @@ export default function ApiTab({ active }) {
 
   return (
     <div className="stpage">
-      {f.form ? <ApiGroup f={f} /> : <FormGate groups={GATE_GROUPS} />}
+      {f.form ? <ApiGroup f={f} /> : <FormGate skeleton={<ApiCardSkeleton />} />}
 
       {seen ? (
         <Suspense fallback={<div className="card muted">{T('loading')}</div>}>

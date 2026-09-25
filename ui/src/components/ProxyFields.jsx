@@ -3,8 +3,12 @@ import Select from './Select.jsx'
 import { T } from '../i18n/fa.js'
 import { checkable } from '../lib/keys.js'
 
+export function proxyItems(proxies) {
+  return (proxies || []).map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
+}
+
 export default function ProxyFields({ proxies, value, onChange }) {
-  const items = (proxies || []).map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
+  const items = proxyItems(proxies)
   const selected = value.id || (items.length ? items[0].v : '')
 
   useEffect(() => {

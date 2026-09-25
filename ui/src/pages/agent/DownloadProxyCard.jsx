@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
+import { proxyItems } from '../../components/ProxyFields.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
@@ -28,7 +29,7 @@ export default function DownloadProxyCard() {
     load()
   }, [load])
 
-  const items = proxies.map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
+  const items = proxyItems(proxies)
   const ready = !!value && items.length > 0
   const picked = ready ? value.id || items[0].v : ''
 

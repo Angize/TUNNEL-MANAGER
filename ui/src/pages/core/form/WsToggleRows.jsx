@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import Select from '../../../components/Select.jsx'
+import { proxyItems } from '../../../components/ProxyFields.jsx'
 import { Seg2, SegOpt, TglBox } from './controls.jsx'
 import { wssMandatory } from './gates.js'
 import { sniModes } from './presets.js'
@@ -20,10 +21,9 @@ function EchProxyPicker({ proxies, value, patch }) {
       </div>
     )
   }
-  const items = proxies.map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
   return (
     <Select
-      items={items}
+      items={proxyItems(proxies)}
       value={value}
       placeholder={T('select')}
       onChange={(v) => patch({ echProxyId: v })}

@@ -82,21 +82,6 @@ select:focus {
   transform: scale(.98);
 }
 
-.primary.glass {
-  background: color-mix(in srgb, var(--acc) 12%, var(--card));
-  border: 1px solid color-mix(in srgb, var(--acc) 32%, transparent);
-  color: var(--acc);
-  box-shadow: var(--dsh);
-}
-
-.primary.glass:hover {
-  box-shadow: var(--dsh-hi);
-}
-
-.primary.glass .ic {
-  color: var(--acc);
-}
-
 .ghost {
   margin-top: 18px;
   margin-inline-start: 8px;
@@ -118,19 +103,29 @@ select:focus {
   box-shadow: var(--dsh-hi);
 }
 
+.primary.glass,
 .ghost.tone {
   --c: var(--acc);
   background: color-mix(in srgb, var(--c) 10%, var(--card));
-  border-color: color-mix(in srgb, var(--c) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
   color: var(--c);
+  box-shadow: var(--dsh);
 }
 
+.primary.glass:hover,
 .ghost.tone:hover {
   color: var(--c);
+  box-shadow: var(--dsh-hi);
 }
 
+.primary.glass .ic,
 .ghost.tone .ic {
   color: var(--c);
+}
+
+.ghost.tone.on {
+  background: color-mix(in srgb, var(--c) 18%, var(--card));
+  border-color: color-mix(in srgb, var(--c) 42%, transparent);
 }
 
 .ghost.tone-put {
