@@ -1,5 +1,6 @@
 const state = {}
 const listeners = new Set()
+const openedOnce = new Set()
 
 export function subscribeOpenCards(fn) {
   listeners.add(fn)
@@ -12,6 +13,14 @@ export function isCardOpen(id) {
 
 export function toggleCard(id) {
   state[id] = !state[id]
+  for (const fn of listeners) fn(state)
+}
+
+export function openCardOnce(id, token) {
+  if (openedOnce.has(token)) return
+  openedOnce.add(token)
+  if (state[id]) return
+  state[id] = true
   for (const fn of listeners) fn(state)
 }
 

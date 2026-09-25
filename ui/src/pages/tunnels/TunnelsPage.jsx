@@ -18,6 +18,7 @@ import useBulk from '../../lib/useBulk.js'
 import { BulkBar, BulkButton, BulkSheet } from '../../components/Bulk.jsx'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
+import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import './tunnels.css'
@@ -84,6 +85,7 @@ export default function TunnelsPage({ active }) {
   const order = useCardReorder('tunnels', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+  const builds = splitBuilds(pending, ordered)
   const bulk = useBulk({ list: list === null ? null : ordered, command: 'tunnels:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
 
@@ -107,9 +109,9 @@ export default function TunnelsPage({ active }) {
       <div>
         {list === null ? (
           <CardSkeletons kind="tunnel" count={counts.links} />
-        ) : links.length || pending.length ? (
+        ) : builds.shown.length || builds.cards.length ? (
           <>
-            {ordered.map((link) => (
+            {builds.shown.map((link) => (
               <TunnelCard
                 key={link.id}
                 link={link}
@@ -120,7 +122,7 @@ export default function TunnelsPage({ active }) {
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}
-            {pending.map((act) => (
+            {builds.cards.map((act) => (
               <PendingCard key={'pend_' + act.key} act={act} tagClass={ctagClass} />
             ))}
             {bulk.selecting ? <div className="bulkpad" /> : null}

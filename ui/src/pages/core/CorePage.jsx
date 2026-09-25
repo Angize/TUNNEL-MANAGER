@@ -18,6 +18,7 @@ import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
+import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import './core.css'
@@ -99,6 +100,7 @@ export default function CorePage({ active }) {
   const order = useCardReorder('core', links.map((l) => l.id), afterAction)
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+  const builds = splitBuilds(pending, ordered)
   const bulk = useBulk({ list: list === null ? null : ordered, command: 'core:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
 
@@ -122,9 +124,9 @@ export default function CorePage({ active }) {
       <div>
         {list === null ? (
           <CardSkeletons kind="tunnel" count={counts.core} />
-        ) : links.length || pending.length ? (
+        ) : builds.shown.length || builds.cards.length ? (
           <>
-            {ordered.map((link) => (
+            {builds.shown.map((link) => (
               <CoreCard
                 key={link.id}
                 link={link}
@@ -136,7 +138,7 @@ export default function CorePage({ active }) {
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}
-            {pending.map((act) => (
+            {builds.cards.map((act) => (
               <PendingCard key={'pend_' + act.key} act={act} tagClass={tagClassForFamily} />
             ))}
             {bulk.selecting ? <div className="bulkpad" /> : null}
