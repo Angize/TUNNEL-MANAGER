@@ -7701,6 +7701,8 @@ EV_TYPES = (
     ("ech-rebuild", "ech", tx("بازسازیِ سریعِ ECH", "quick ECH rebuild")),
     ("ech-saved", "ech", tx("ذخیرهٔ کلیدِ خودترمیمِ هسته", "self-healed core key saved")),
     ("cfg-clamped", "cfg", tx("تنظیمی که کامل اعمال نشد", "setting not fully applied")),
+    ("auth-in", "auth", tx("ورودِ موفق به پنل", "panel login")),
+    ("auth-out", "auth", tx("خروج از پنل", "panel logout")),
     ("auth-fail", "auth", tx("تلاشِ ناموفقِ ورود", "failed login")),
     ("auth-lock", "auth", tx("قفلِ نشانی پس از تلاشِ زیاد", "address locked after many tries")),
     ("api-refused", "api", tx("درخواستِ ردشدهٔ API", "refused API request")),
@@ -9645,6 +9647,8 @@ class Handler(BaseHTTPRequestHandler):
             conf = self._conf()
             if self._user():
                 bump_sess_epoch(conf)
+                self._auth_log("ok", "auth-out", tx("خروج از پنل انجام شد و همهٔ نشست‌های باز باطل شدند.",
+                                                    "logged out of the panel; every open session was ended."))
             secure = "; Secure" if conf.get("tls") else ""
             self._send(200, {"ok": True}, extra={"Set-Cookie": "tnl_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure})
         elif path.startswith("/api/"):
@@ -9709,6 +9713,7 @@ class Handler(BaseHTTPRequestHandler):
         if user_ok and pass_ok:
             secure = "; Secure" if conf.get("tls") else ""
             cookie = f"tnl_session={make_token(conf, conf['user'])}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict{secure}"
+            self._auth_log("ok", "auth-in", tx("ورود موفق به پنل انجام شد.", "logged in to the panel."))
             self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
         else:
             note_fail(ip)
