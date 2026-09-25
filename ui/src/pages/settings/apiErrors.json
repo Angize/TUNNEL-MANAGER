@@ -717,7 +717,7 @@
    [
     400,
     "workers_not_allowed",
-    "parallel queues are only for the raw or udp carrier without FEC; elsewhere the core keeps one queue"
+    "parallel queues are for raw and udp without FEC, tcp, and ws without an http/grpc cdn_carrier; elsewhere the core keeps one queue"
    ],
    [
     400,
@@ -1278,7 +1278,7 @@
    [
     400,
     "workers_not_allowed",
-    "parallel queues are only for the raw or udp carrier without FEC; elsewhere the core keeps one queue"
+    "parallel queues are for raw and udp without FEC, tcp, and ws without an http/grpc cdn_carrier; elsewhere the core keeps one queue"
    ],
    [
     400,

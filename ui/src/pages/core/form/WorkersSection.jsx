@@ -37,6 +37,11 @@ export default function WorkersSection({ form, cfg, sides, patch }) {
   return (
     <div style={{ marginTop: 11 }}>
       <label className="first">{T('workers_lbl')}</label>
+      {form.Tr === 'tcp' || form.Tr === 'ws' ? (
+        <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
+          {T('workers_conn_d')}
+        </div>
+      ) : null}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <SideWorkers
           counts={counts}
