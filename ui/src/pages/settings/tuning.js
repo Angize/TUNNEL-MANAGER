@@ -42,6 +42,7 @@ export function rangeViolation(form, ranges) {
     [numberList(form.suspect), minutes(ranges.suspect_backoff), 'set_t_suspect'],
     [[fieldNumber(form.deadRetest)], minutes(ranges.dead_retest_secs), 'set_t_deadretest'],
     [[fieldNumber(form.sockBuf)], ranges.sock_buf_mb, 'set_t_sockbuf'],
+    [[fieldNumber(form.tcpBuf)], ranges.tcp_buf_mb, 'set_t_tcpbuf'],
   ]
   for (const [values, [lo, hi], labelKey] of checks) {
     for (const v of values) {
@@ -68,6 +69,7 @@ export function collectTuning(form) {
     dead_retest_secs: minutesToSeconds(form.deadRetest),
     probe_min_pct: parseInt(latinDigits(form.probeMin), 10),
     sock_buf_mb: parseInt(latinDigits(form.sockBuf), 10),
+    tcp_buf_mb: parseInt(latinDigits(form.tcpBuf), 10),
     suspect_backoff: parseMinuteList(form.suspect),
     ladder_revive: parseSecondList(form.revive),
   }

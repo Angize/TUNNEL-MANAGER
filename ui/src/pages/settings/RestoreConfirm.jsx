@@ -32,6 +32,7 @@ const LABELS = {
   'tuning.suspect_backoff': 'set_t_suspect',
   'tuning.dead_retest_secs': 'set_t_deadretest',
   'tuning.sock_buf_mb': 'set_t_sockbuf',
+  'tuning.tcp_buf_mb': 'set_t_tcpbuf',
 }
 
 const DELIVERY = { push: 'dlv_push_t', github: 'dlv_git_t', panel: 'dlv_pan_t' }
