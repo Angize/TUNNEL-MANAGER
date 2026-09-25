@@ -315,7 +315,7 @@ export const DOCS = {
   },
   'node-kernel-tune': {
     t: 'Node kernel tuning',
-    d: "Reads the node's BBR and network queue state, or turns the tuning on or off.",
+    d: "Reads the node's BBR and network queue state, or turns the tuning on or off. overridden lists each value another program changed after the tuning was applied (key, want, now).",
     p: [
       ['id', 1, S, 'node id'],
       ['action', 0, S, 'status (default), apply or revert'],

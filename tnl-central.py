@@ -3901,8 +3901,12 @@ def api_node_kernel_tune(d):
     p = node_call(n, "kernel-tune", "POST", {"action": action}, timeout=15)
     if not p.get("ok"):
         return _node_soft(p, "unreachable")
+    ov = p.get("overridden")
+    changed = [{k: str(x.get(k) or "") for k in ("key", "want", "now")}
+               for x in (ov if isinstance(ov, list) else []) if isinstance(x, dict) and x.get("key")]
     return {"ok": True, "active": bool(p.get("active")), "cc": str(p.get("cc") or ""),
-            "qdisc": str(p.get("qdisc") or ""), "bbr_available": bool(p.get("bbr_available"))}
+            "qdisc": str(p.get("qdisc") or ""), "bbr_available": bool(p.get("bbr_available")),
+            "overridden": changed}
 
 
 def api_node_stats(d):

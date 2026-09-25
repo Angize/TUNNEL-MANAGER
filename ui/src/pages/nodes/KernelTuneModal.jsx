@@ -50,6 +50,7 @@ export default function KernelTuneModal({ node, onClose }) {
 
   const active = !!status.active
   const bbr = !!status.bbr_available
+  const changed = status.overridden
 
   const run = async (action) => {
     setBusy(true)
@@ -88,9 +89,9 @@ export default function KernelTuneModal({ node, onClose }) {
       <div className="kt-desc">{T('kt_desc')}</div>
       <div className="nd-grid">
         <Tile icon="activity" label={T('kt_state')} wide>
-          <span className={'lpill' + (active ? '' : ' off')}>
+          <span className={'lpill' + (active ? (changed.length ? ' warn' : '') : ' off')}>
             <span className="pd" />
-            {T(active ? 'kt_on' : 'kt_off')}
+            {T(active ? (changed.length ? 'kt_on_changed' : 'kt_on') : 'kt_off')}
           </span>
         </Tile>
         <Tile icon="traf" label={T('kt_cc')}>
@@ -99,6 +100,23 @@ export default function KernelTuneModal({ node, onClose }) {
         <Tile icon="swap" label={T('kt_qdisc')}>
           <span className="mono">{status.qdisc || '?'}</span>
         </Tile>
+        {changed.length ? (
+          <Tile icon="warn" label={T('kt_changed_head')} wide>
+            {changed.map((c) => (
+              <span key={c.key} className="kt-chg">
+                <span className="mono kt-k">{c.key}</span>
+                <span className="kt-vs">
+                  <span>
+                    {T('kt_want')} <bdi className="mono">{c.want}</bdi>
+                  </span>
+                  <span>
+                    {T('kt_now')} <bdi className="mono">{c.now || '?'}</bdi>
+                  </span>
+                </span>
+              </span>
+            ))}
+          </Tile>
+        ) : null}
       </div>
       {bbr ? null : <div className="msg" style={{ marginTop: 9 }}>{T('kt_nobbr')}</div>}
       <div className={message ? 'msg ' + message.cls : 'msg'}>{message ? message.text : null}</div>
