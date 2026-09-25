@@ -3,6 +3,7 @@ import { apiGet, apiPost } from '../lib/api.js'
 import { postError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
 import { actSeen } from '../lib/acts.js'
+import { openCardOnce } from '../lib/openCards.js'
 import { num } from '../lib/num.js'
 import { T } from '../i18n/fa.js'
 
@@ -26,6 +27,13 @@ const ACCEPT_POLL_MS = 280
 const DONE_TIMEOUT_MS = 600000
 const DONE_POLL_MS = 900
 
+function actsState(r) {
+  for (const act of Object.values(r.acts)) {
+    if (act.link) openCardOnce(act.link, act.key)
+  }
+  return { acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) }
+}
+
 function runningBuilds(acts) {
   let n = 0
   for (const key of Object.keys(acts)) {
@@ -46,7 +54,7 @@ export function ActsProvider({ children }) {
     } catch {
       return
     }
-    setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
+    setState(actsState(r))
   }, [])
 
   const isLive = useCallback(
@@ -56,8 +64,10 @@ export function ActsProvider({ children }) {
 
   const actFor = useCallback(
     (linkId) => {
-      const act = state.acts['link:' + linkId]
-      return isLive(act) ? act : null
+      const own = state.acts['link:' + linkId]
+      if (isLive(own)) return own
+      const built = Object.values(state.acts).find((act) => act.link === linkId)
+      return isLive(built) ? built : null
     },
     [state.acts, isLive]
   )
@@ -101,7 +111,7 @@ export function ActsProvider({ children }) {
         r = null
       }
       if (r) {
-        setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
+        setState(actsState(r))
         const act = r.acts[key]
         if (!act) return { err: T('act_lost') }
         if (act.state === 'fail') return { err: act.error }
@@ -124,7 +134,7 @@ export function ActsProvider({ children }) {
         r = null
       }
       if (!r) continue
-      setState({ acts: r.acts, now: num(r.now), buildCount: runningBuilds(r.acts) })
+      setState(actsState(r))
       const act = r.acts[key]
       if (!act) return { err: T('act_lost') }
       if (act.state === 'done') return { ok: true }

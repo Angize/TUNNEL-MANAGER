@@ -651,7 +651,7 @@ export const DOCS = {
 
   acts: {
     t: 'Background jobs',
-    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; a failed job has code (400, or 500 for a fault in the panel), error and message.',
+    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; a failed job has code (400, or 500 for a fault in the panel), error and message. A create job also has name (the name of the new tunnel, once its id is picked) and link (the id of the new tunnel, once it is saved).',
   },
   'act-cancel': {
     t: 'Cancel a background job',

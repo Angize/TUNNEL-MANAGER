@@ -5987,7 +5987,7 @@ def api_create_tunnel(d):
     return act_start("new:" + secrets.token_hex(4), build,
                      target="%s ↔ %s" % ((A or {}).get("name", "?"), (B or {}).get("name", "?")),
                      page="core" if ttype == "core" else "tunnels",
-                     ttype=_create_family(d, ttype))
+                     ttype=_create_family(d, ttype), more={"name": "", "link": ""})
 
 
 RAW_DPORTS_MAX = 16
@@ -6324,6 +6324,8 @@ def _create_tunnel_impl(d, h):
     subnet = norm_subnet(ttype, tid, d.get("subnet"), d.get("subnet_base"))
     name = tunnel_name(ttype, tid)
     _name_hold(h["key"], (A["id"], B["id"]), name)
+    with _act_lock:
+        h["name"] = name
     _guard_subnet_overlap(A, B, subnet)
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}
@@ -6341,6 +6343,9 @@ def _create_tunnel_impl(d, h):
         extra.update(ce)
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
+        if server_side == "a":
+            with _act_lock:
+                h["target"] = "%s ↔ %s" % (B["name"], A["name"])
     _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
     node_extra = _node_extra(extra)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
@@ -6390,6 +6395,8 @@ def _create_tunnel_impl(d, h):
         tail = _drop_tunnel_from(_node_set(A, B), name)
         raise Bad("save_failed", "ذخیرهٔ رکوردِ لینک شکست خورد{0} ({1})", "saving the link record failed{0} ({1})",
                   tail or _HALF_UNDONE, tx_cut(_why(e), 80))
+    with _act_lock:
+        h["link"] = rec["id"]
     _refresh_cache([A["id"], B["id"]])
     return {"ok": True, "name": name}
 
@@ -9265,14 +9272,14 @@ def _act_prune():
         _acts.pop(k, None)
 
 
-def _act_open(key, target="", page="", ttype=""):
+def _act_open(key, target="", page="", ttype="", more=None):
     with _act_lock:
         _act_prune()
         cur = _acts.get(key)
         if cur and cur["state"] == "run":
             raise Bad("job_running", "همین کار روی این مورد در جریان است — تا تمام‌شدنش صبر کن",
                       "this job is already running on this item — wait until it finishes")
-        h = {"key": key, "target": target, "page": page, "ttype": ttype,
+        h = {"key": key, "target": target, "page": page, "ttype": ttype, **(more or {}),
              "state": "run", "step": "", "si": 0, "sn": 0, "pct": 0, "note": "", "offer": "",
              "cancel": False, "can": True, "started": int(time.time()), "ended": 0}
         _acts[key] = h
@@ -9300,8 +9307,8 @@ def _act_run(h, fn):
                      error=tx_cut(_why(e) if str(e) else _FAILED, 300), ended=int(time.time()))
 
 
-def act_start(key, fn, target="", page="", ttype=""):
-    h = _act_open(key, target, page, ttype)
+def act_start(key, fn, target="", page="", ttype="", more=None):
+    h = _act_open(key, target, page, ttype, more)
     threading.Thread(target=_act_run, args=(h, fn), daemon=True).start()
     return {"ok": True, "act": key}
 
