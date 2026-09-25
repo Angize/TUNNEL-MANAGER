@@ -29,6 +29,9 @@ export default {
   ov_uptime_lbl: 'میانگینِ آپ‌تایمِ',
   ov_worst: 'پرمصرف‌ترین نودها',
   ov_worst_q: 'بدترین کیفیت: تونلِ',
+  ov_stray_del: 'پاک کن',
+  ov_stray_del_q: 'تونلِ «{name}» از روی نود پاک شود؟ پنل هیچ رکوردی برایش ندارد.',
+  ov_stray_del_ok: 'در صفِ حذف گذاشته شد — با پینگِ بعدیِ نود پاک می‌شود',
 
   tst_connected: 'متصل',
   tst_noping: 'بدونِ پینگ',

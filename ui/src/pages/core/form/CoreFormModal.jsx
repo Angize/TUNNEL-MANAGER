@@ -34,7 +34,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const { subnetFree } = useSummary()
   const [nodes, setNodes] = useState(null)
   const [proxies, setProxies] = useState([])
-  const [savedTuning, setSavedTuning] = useState(null)
   const [tab, setTab] = useState('ip')
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
@@ -44,10 +43,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   closeRef.current = onClose
 
   const patch = useCallback((next) => setForm((f) => ({ ...f, ...next })), [])
-  const tuning = useMemo(
-    () => ({ ...(cfg.tuning_defaults || {}), ...(savedTuning || {}) }),
-    [cfg, savedTuning]
-  )
 
   useEffect(
     () => () => {
@@ -79,9 +74,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     load()
     apiGet('proxies')
       .then((r) => alive && setProxies(r.proxies))
-      .catch(() => {})
-    apiGet('settings')
-      .then((r) => alive && setSavedTuning(r.tuning || {}))
       .catch(() => {})
     return () => {
       alive = false
@@ -345,7 +337,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
           storedB={link ? link.b_ip || '' : ''}
           subtitle={link ? link.name : ''}
           peer={peerLid ? peerLive : null}
-          tuning={tuning}
           patch={patch}
           onNode={onNode}
         />
@@ -355,7 +346,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         <SettingsTab
           form={form}
           cfg={cfg}
-          tuning={tuning}
           link={link}
           proxies={proxies}
           sides={sides}

@@ -19,7 +19,7 @@ function applySide(section) {
     live[h.key] = {
       state: String(h.state || 'healthy'),
       next: +h.next_retest_unix || 0,
-      fails: +h.fails || 0,
+      total: +h.retest_secs || 0,
     }
   }
   return {

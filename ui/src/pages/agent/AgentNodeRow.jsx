@@ -25,14 +25,28 @@ function agentPill(node, agentMeta, fromGit) {
   return { tone: 'ok', title: label + ': ' + T('ag_uptodate'), disabled: true, highlight }
 }
 
-function corePill(node, staged, wanted) {
+function customPill(label, info, installed, customSha) {
+  if (installed && String(info.core_sha) === String(customSha)) {
+    return { tone: 'ok', title: label + ': ' + T('ag_uptodate'), disabled: true, highlight: false }
+  }
+  return {
+    tone: installed ? 'ok' : 'na',
+    title: label + ': ' + T('ag_ver_pick').replace('{v}', coreVersionName('custom')),
+    disabled: false,
+    highlight: false,
+  }
+}
+
+function corePill(node, staged, wanted, customSha) {
   const label = T('ag_lbl_core')
   const info = node.info || {}
   const installed = !!(info.core_sha && String(info.core_sha).length)
+  if (!node.online) return { tone: 'offl', title: label + ': ' + T('offline'), disabled: true, highlight: false }
+  if (wanted === 'custom') return customPill(label, info, installed, customSha)
   const arch = info.arch || 'amd64'
   const stagedSha = (staged && staged.sha && staged.sha[arch]) || ''
   const stagedVersion = String((staged && staged.version) || '')
-  const wantDiff = !!(wanted && wanted !== 'custom' && installed && String(info.core_ver || '') !== wanted)
+  const wantDiff = !!(wanted && installed && String(info.core_ver || '') !== wanted)
   const stagedDiff = !!(
     staged &&
     (!installed ||
@@ -41,9 +55,8 @@ function corePill(node, staged, wanted) {
         : !!stagedVersion && String(info.core_ver || '') !== stagedVersion))
   )
   const hasUpdate = stagedDiff && !versionIsNewer(info.core_ver, stagedVersion)
-  const highlight = hasUpdate && node.online
+  const highlight = hasUpdate
 
-  if (!node.online) return { tone: 'offl', title: label + ': ' + T('offline'), disabled: true, highlight }
   if (!installed) {
     return {
       tone: 'na',
@@ -70,6 +83,7 @@ export default function AgentNodeRow({
   agentFromGit,
   staged,
   wanted,
+  customSha,
   status,
   onPushAgent,
   onPushCore,
@@ -77,7 +91,7 @@ export default function AgentNodeRow({
   const info = node.info || {}
   const installed = !!(info.core_sha && String(info.core_sha).length)
   const agent = agentPill(node, agentMeta, agentFromGit)
-  const core = corePill(node, staged, wanted)
+  const core = corePill(node, staged, wanted, customSha)
 
   return (
     <div className="nx">

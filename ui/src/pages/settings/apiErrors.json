@@ -282,7 +282,7 @@
    [
     400,
     "bad_edge_ip",
-    "invalid CDN edge address (edge_ip)"
+    "invalid CDN edge address (edge_ip) — write an IP or IP:port"
    ],
    [
     400,
@@ -642,12 +642,12 @@
    [
     400,
     "save_unknown",
-    "the tunnel was built on both nodes but … — so it was not torn down. If it is missing from the list later, it shows on the node as an unregistered tunnel and you can delete it"
+    "the tunnel was built on both nodes but … — so it was not torn down. If it is missing from the list later, the dashboard reports it as unregistered and you can delete it with stray-del"
    ],
    [
     400,
     "server_port_taken",
-    "this server IP and port already belong to tunnel '…'. Use another port or another carrier — one IP allows a different carrier or a different port."
+    "this server IP and port already belong to tunnel '…'. Use another port — one IP and port fits only UDP next to TCP or CDN (RAW takes no port); TCP and CDN are both TCP."
    ],
    [
     400,
@@ -858,7 +858,7 @@
    [
     400,
     "bad_edge_ip",
-    "invalid CDN edge address (edge_ip)"
+    "invalid CDN edge address (edge_ip) — write an IP or IP:port"
    ],
    [
     400,
@@ -1213,7 +1213,7 @@
    [
     400,
     "server_port_taken",
-    "this server IP and port already belong to tunnel '…'. Use another port or another carrier — one IP allows a different carrier or a different port."
+    "this server IP and port already belong to tunnel '…'. Use another port — one IP and port fits only UDP next to TCP or CDN (RAW takes no port); TCP and CDN are both TCP."
    ],
    [
     400,
@@ -1537,6 +1537,11 @@
     400,
     "missing_field",
     "field '…' is missing"
+   ],
+   [
+    400,
+    "node_busy",
+    "a tunnel of this node is being built or changed right now — let it finish, then delete the node"
    ],
    [
     400,
@@ -2299,7 +2304,7 @@
    [
     400,
     "server_port_taken",
-    "this server IP and port already belong to tunnel '…'. Use another port or another carrier — one IP allows a different carrier or a different port."
+    "this server IP and port already belong to tunnel '…'. Use another port — one IP and port fits only UDP next to TCP or CDN (RAW takes no port); TCP and CDN are both TCP."
    ],
    [
     400,
@@ -2515,6 +2520,30 @@
     400,
     "unknown_event_type",
     "unknown event type: …"
+   ]
+  ]
+ },
+ "stray-del": {
+  "bad": [
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "node_not_found",
+    "node not found"
+   ],
+   [
+    400,
+    "not_stray",
+    "tunnel '…' on node '…' is no longer unregistered"
+   ],
+   [
+    400,
+    "pending_write_failed",
+    "the delete queue for '…' was not written — free disk space on the panel and try again"
    ]
   ]
  },

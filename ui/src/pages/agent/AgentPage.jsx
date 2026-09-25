@@ -637,6 +637,7 @@ export default function AgentPage({ headless }) {
               agentFromGit={delivery.agent === 'github'}
               staged={staged}
               wanted={wanted}
+              customSha={custom ? custom.sha256 : ''}
               status={pushNodes[node.id] || (push.seeded[node.id] ? { state: 'run', pct: 0, step: 'start', si: 0, sn: 1, remote: true } : null)}
               onPushAgent={pushAgent}
               onPushCore={pushCore}

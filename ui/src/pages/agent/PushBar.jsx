@@ -1,12 +1,20 @@
-import { T } from '../../i18n/fa.js'
+import { FA, T } from '../../i18n/fa.js'
+import { translateError } from '../../lib/errors.js'
 import { num } from '../../lib/num.js'
+
+function errWord(status) {
+  const key = 'upe_' + (status.err || 'failed')
+  const why = status.detail ? translateError(status.detail) : ''
+  if (!(key in FA)) return why || T('upe_failed')
+  return why ? T(key) + ' — ' + why : T(key)
+}
 
 export function pushWord(status) {
   if (status.state === 'wait') return T('ag_p_wait')
   if (status.state === 'skip') return T('ag_p_skip')
   if (status.state === 'same') return T('ag_p_same')
   if (status.state === 'ok') return T('ag_p_ok')
-  if (status.state === 'err') return T('upe_' + (status.err || 'failed'))
+  if (status.state === 'err') return errWord(status)
   if (!status.step) return T('ag_p_wait')
   const word = T('ups_' + status.step)
   if (num(status.sn) > 1) {

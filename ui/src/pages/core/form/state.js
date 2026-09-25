@@ -71,7 +71,7 @@ export function createForm(cfg) {
     aIp: '',
     bIp: '',
     rot: { on: false, secs: 600, aSel: {}, bSel: {} },
-    pool: { pool: false, rotate: 600, ip: [], sni: [] },
+    pool: { pool: false, rotate: 600, ip: [], sni: [], paths: {} },
   }
 }
 
@@ -150,6 +150,9 @@ export function editForm(cfg, link) {
       portRoll: !!link.ws_port_roll,
       ip: (link.ws_edge_ips || []).slice(),
       sni: (link.ws_edge_snis || []).map((s) => (s && s.host) || '').filter(Boolean),
+      paths: Object.fromEntries(
+        (link.ws_edge_snis || []).filter((s) => s && s.host && s.path).map((s) => [s.host, s.path])
+      ),
     },
   }
 }

@@ -1494,14 +1494,16 @@
      "kind": "ip",
      "state": "suspect",
      "fails": 0,
-     "next_retest_unix": 1790277650
+     "next_retest_unix": 1790277650,
+     "retest_secs": 600
     },
     {
      "key": "10.77.4.3:443",
      "kind": "ip",
      "state": "suspect",
      "fails": 0,
-     "next_retest_unix": 1790277656
+     "next_retest_unix": 1790277656,
+     "retest_secs": 600
     },
     "… 1 more"
    ],
@@ -1547,13 +1549,15 @@
       "key": "10.77.3.2:20020",
       "state": "healthy",
       "fails": 0,
-      "next_retest_unix": 0
+      "next_retest_unix": 0,
+      "retest_secs": 0
      },
      {
       "key": "10.77.3.3:20020",
       "state": "healthy",
       "fails": 0,
-      "next_retest_unix": 0
+      "next_retest_unix": 0,
+      "retest_secs": 0
      }
     ],
     "ts": 1790276523
@@ -1569,13 +1573,15 @@
       "key": "10.77.4.2",
       "state": "healthy",
       "fails": 0,
-      "next_retest_unix": 0
+      "next_retest_unix": 0,
+      "retest_secs": 0
      },
      {
       "key": "10.77.4.3",
       "state": "healthy",
       "fails": 0,
-      "next_retest_unix": 0
+      "next_retest_unix": 0,
+      "retest_secs": 0
      }
     ],
     "ts": 1790276523
@@ -1956,6 +1962,17 @@
    "code": 200,
    "ok": true,
    "act": "link:30edc9475d23"
+  }
+ },
+ "stray-del": {
+  "req": {
+   "node": "9eec8c5207",
+   "name": "core7"
+  },
+  "q": null,
+  "ok": {
+   "code": 200,
+   "ok": true
   }
  },
  "settings-set": {

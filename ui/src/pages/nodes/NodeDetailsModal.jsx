@@ -7,10 +7,10 @@ import Sparkline from '../overview/Sparkline.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { readError, translateError } from '../../lib/errors.js'
+import { getUiInterval } from '../../lib/poll.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 
-const POLL_MS = 2000
 const SPARK_POINTS = 30
 
 function Tile({ icon, label, children, wide, ltr }) {
@@ -71,50 +71,56 @@ export default function NodeDetailsModal({ node, onClose }) {
       else setIpsError(readError(v))
     })
 
-    const poll = () => {
-      apiGet('node-stats?id=' + node.id)
-        .then((r) => {
-          if (!alive) return
-          if (r.online) {
-            setStats(r.stats)
-            setOnline(true)
-          } else {
-            setOnline(false)
-          }
-        })
-        .catch(() => {})
-
-      apiGet('traffic?id=' + node.id)
-        .then((r) => {
-          if (!alive) return
-          setTraffic(r.node)
-          rxHistory.current = [...rxHistory.current, num(r.node.rx_bps)].slice(-SPARK_POINTS)
-          txHistory.current = [...txHistory.current, num(r.node.tx_bps)].slice(-SPARK_POINTS)
-          setRows(r.tunnels.concat(r.portfw))
-        })
-        .catch(() => {})
+    let timer = 0
+    const poll = async () => {
+      if (!document.hidden) {
+        await Promise.all([
+          apiGet('node-stats?id=' + node.id)
+            .then((r) => {
+              if (!alive) return
+              if (r.online) {
+                setStats(r.stats)
+                setOnline(true)
+              } else {
+                setOnline(false)
+              }
+            })
+            .catch(() => {}),
+          apiGet('traffic?id=' + node.id)
+            .then((r) => {
+              if (!alive) return
+              setTraffic(r.node)
+              rxHistory.current = [...rxHistory.current, num(r.node.rx_bps)].slice(-SPARK_POINTS)
+              txHistory.current = [...txHistory.current, num(r.node.tx_bps)].slice(-SPARK_POINTS)
+              setRows(r.tunnels.concat(r.portfw))
+            })
+            .catch(() => {}),
+        ])
+      }
+      if (alive) timer = setTimeout(poll, getUiInterval())
     }
 
     poll()
-    const timer = setInterval(poll, POLL_MS)
     return () => {
       alive = false
-      clearInterval(timer)
+      clearTimeout(timer)
     }
   }, [node.id, node.online])
 
-  const retest = () => {
-    apiGet('node-stats?id=' + node.id)
-      .then((r) => {
-        setOnline(!!r.online)
-        if (r.online) {
-          setStats(r.stats)
-          toast(T('online'), 'ok')
-        } else {
-          toast(T('offline') + ': ' + (translateError(r.error) || T('not_available')), 'err')
-        }
-      })
-      .catch((e) => toast(readError(e), 'err'))
+  const retest = async () => {
+    const r = await apiPost('node-test', { id: node.id })
+    if (!r.ok) {
+      toast(readError(r), 'err')
+      return
+    }
+    const probe = r.d.info || {}
+    setOnline(!!r.d.ok)
+    if (r.d.ok) {
+      setStats(probe.stats || {})
+      toast(T('online'), 'ok')
+    } else {
+      toast(T('offline') + ': ' + (translateError(probe.error) || T('not_available')), 'err')
+    }
   }
 
   const shownOnline = node.online && online

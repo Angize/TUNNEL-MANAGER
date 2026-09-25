@@ -82,12 +82,24 @@
 }
 
 .oalert .go {
-  margin-inline-start: auto;
   font-size: 11px;
   color: var(--acc);
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.oalert .msg + .go {
+  margin-inline-start: auto;
+}
+
+.oalert .go.del {
+  color: var(--bad);
+}
+
+.oalert .go[aria-disabled='true'] {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .ohcard {
@@ -457,30 +469,4 @@
   font-size: 24px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-}
-
-.lpill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--ok);
-  background: var(--okw);
-  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
-  border-radius: 20px;
-  padding: 2px 8px;
-}
-
-.lpill .pd {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  animation: lpulse 1.4s infinite;
-}
-
-@keyframes lpulse {
-  0%, 100% { opacity: 1 }
-  50% { opacity: .25 }
 }
