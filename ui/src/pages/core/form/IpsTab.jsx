@@ -64,7 +64,6 @@ export default function IpsTab({
   storedB,
   subtitle,
   peer,
-  tuning,
   patch,
   onNode,
 }) {
@@ -145,7 +144,7 @@ export default function IpsTab({
         </div>
       ) : null}
 
-      {peer ? <PeerLive live={peer} tuning={tuning} /> : null}
+      {peer ? <PeerLive live={peer} /> : null}
 
       <label>{T('roles_lbl')}</label>
       <Seg2>

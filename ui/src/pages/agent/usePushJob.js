@@ -39,6 +39,7 @@ export default function usePushJob({ onSettled }) {
 
   const poll = useCallback(async () => {
     let failures = 0
+    let last = null
     try {
       for (;;) {
         let r = null
@@ -64,6 +65,7 @@ export default function usePushJob({ onSettled }) {
           }
         } else {
           failures = 0
+          last = r
           setState(r)
           if (r.done) break
         }
@@ -77,8 +79,9 @@ export default function usePushJob({ onSettled }) {
     settle.current = window.setTimeout(() => {
       if (!alive.current || job.current) return
       onSettledRef.current()
-      setState(null)
       setSeeded({})
+      if (last && Object.values(last.nodes || {}).some((n) => n.state === 'err')) return
+      setState(null)
     }, SETTLE_MS)
   }, [])
 

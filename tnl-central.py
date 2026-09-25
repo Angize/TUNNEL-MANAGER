@@ -9,6 +9,7 @@ import http.client
 import importlib.util
 import io
 import ipaddress
+import itertools
 import ssl
 import json
 import os
@@ -1863,6 +1864,7 @@ NODE_HOLD_SECS = 30
 CORE_SILENT_SECS = 30
 _pc = {}
 _pc_lock = threading.Lock()
+_poll_seq = itertools.count(1)
 _tf = {}
 _tf_lock = threading.Lock()
 TF_MAX_GAP = 120.0
@@ -1943,6 +1945,7 @@ def _marks(prev, ping, lst, ping_at, list_at):
 
 
 def _poll_node(n):
+    seq = next(_poll_seq)
     gen = _addr_at(n["id"])
     ping_at = time.time()
     _t0 = time.perf_counter()
@@ -1968,8 +1971,11 @@ def _poll_node(n):
     if _tombed(n["id"], now) or gen != _addr_at(n["id"]):
         return
     with _pc_lock:
-        prev = (_pc.get(n["id"]) or {}).get("marks") or {}
-        _pc[n["id"]] = {"ping": ping, "list": lst, "marks": _marks(prev, ping, lst, ping_at, list_at)}
+        old = _pc.get(n["id"]) or {}
+        if old.get("seq", 0) > seq:
+            return
+        _pc[n["id"]] = {"ping": ping, "list": lst, "seq": seq,
+                        "marks": _marks(old.get("marks") or {}, ping, lst, ping_at, list_at)}
     if ping.get("ok"):
         _pending_drain(n)
 
@@ -2417,20 +2423,24 @@ def _tf_reset(nid, keys):
                 e["seed"].pop(k, None)
 
 
-def _tf_read(nid):
+def _tf_read(nid, keys=None):
     with _tf_lock:
         e = _tf.get(nid)
         if not e:
             return {}
+        seed, live = e["seed"], e["if"]
+        if keys is not None:
+            seed = {k: seed[k] for k in keys if k in seed}
+            live = {k: live[k] for k in keys if k in live}
         out = {k: {"prx": 0, "ptx": 0, "rx_bps": 0.0, "tx_bps": 0.0,
                    "crx": int(v[0]), "ctx": int(v[1]), "miss": 0}
-               for k, v in e["seed"].items() if isinstance(v, list) and len(v) == 2}
-        out.update({k: dict(v) for k, v in e["if"].items()})
+               for k, v in seed.items() if isinstance(v, list) and len(v) == 2}
+        out.update({k: dict(v) for k, v in live.items()})
         return out
 
 
 def _tf_node_view(nid):
-    s = _tf_read(nid).get("_node")
+    s = _tf_read(nid, ("_node",)).get("_node")
     if not s:
         return None
     return {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"], "rx_total": s["crx"], "tx_total": s["ctx"]}
@@ -3204,12 +3214,12 @@ def api_summary(d):
                     "rtt": lrtt, "loss": lloss}
             if worst_tun is None or (cand["loss"], cand["rtt"]) > (worst_tun["loss"], worst_tun["rtt"]):
                 worst_tun = cand
-    for who, nm in _stray_snapshot():
-        alerts.append({"level": "warn", "kind": "stray", "tab": "nodes",
+    for nid, who, nm in _stray_snapshot():
+        alerts.append({"level": "warn", "kind": "stray", "tab": "nodes", "stray": {"node": nid, "name": nm},
                        "msg": tx("تونلِ «{0}» روی نودِ «{1}» هست ولی در پنل ثبت نیست",
                                  "tunnel '{0}' is on node '{1}' but not registered in the panel", nm, who)})
     if outdated:
-        alerts.append({"level": "warn", "kind": "agent", "msg": tx(
+        alerts.append({"level": "warn", "kind": "agent", "tab": "set-upkeep", "msg": tx(
             "ایجنتِ {0} نود با ایجنتِ پنل یکی نیست", "the agent on {0} nodes differs from the panel's agent", outdated)})
 
     _sset = get_settings()
@@ -3224,11 +3234,10 @@ def api_summary(d):
                 downcnt += 1
 
     frx_bps = ftx_bps = frx = ftx = 0
-    with _tf_lock:
-        for e in _tf.values():
-            nd = e.get("if", {}).get("_node")
-            if nd:
-                frx_bps += nd["rx_bps"]; ftx_bps += nd["tx_bps"]; frx += nd["crx"]; ftx += nd["ctx"]
+    for n in nodes:
+        v = _tf_node_view(n["id"])
+        if v:
+            frx_bps += v["rx_bps"]; ftx_bps += v["tx_bps"]; frx += v["rx_total"]; ftx += v["tx_total"]
 
     offline = len(nodes) - on
     score = max(0, min(100, 100 - offline * 8 - len(crit) * 6 - down * 10 - drift_n * 4 - noping * 3))
@@ -3755,8 +3764,22 @@ def api_node_toggle(d):
     return {"ok": True, "disabled": want}
 
 
+def _node_busy(nid):
+    with _node_locks_guard:
+        lk = _node_locks.get(str(nid))
+    return bool(lk and lk.locked())
+
+
 def api_node_del(d):
     _require(d, ["id"])
+    if _node_busy(d["id"]):
+        raise Bad("node_busy", "روی این نود همین الان تونلی ساخته یا عوض می‌شود — بگذار تمام شود، بعد نود را پاک کن",
+                  "a tunnel of this node is being built or changed right now — let it finish, then delete the node")
+    with _PairLock(d["id"]):
+        return _node_del_impl(d)
+
+
+def _node_del_impl(d):
     nid = d["id"]
     force = bool(d.get("wipe_force") or d.get("force"))
     n = get_node(nid)
@@ -3783,8 +3806,7 @@ def api_node_del(d):
         pn = get_node(peer_id)
         if not pn:
             return
-        with _PairLock(peer_id, peer_id):
-            rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)
+        rr = node_call(pn, "delete", "POST", {"name": L["name"]}, timeout=8)
         if rr.get("ok"):
             _dropped.append(L["name"])
         elif not _pending_add(peer_id, L["name"]):
@@ -3879,10 +3901,9 @@ def api_node_kernel_tune(d):
 
 def api_node_stats(d):
     _require(d, ["id"])
-    n = get_node(d["id"])
-    if not n:
+    if not get_node(d["id"]):
         raise _no_node()
-    p = node_call(n, "ping", "GET", timeout=8)
+    p = _cached_ping(d["id"])
     if not p.get("ok"):
         return {"online": False, "error": p.get("error", "unreachable")}
     return {"online": True, "stats": p.get("stats") or {},
@@ -4154,12 +4175,21 @@ def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
     return {"url": url, **body}
 
 
-def _readiness():
+def _agent_ready():
+    mode = _delivery_mode("agent")
     try:
-        _staged_agent()
-        agent = True
+        meta = _staged_agent()[1]
     except Exception:
-        agent = False
+        return mode == "github"
+    try:
+        _agent_delivery_check(meta, mode)
+    except Bad:
+        return False
+    return True
+
+
+def _readiness():
+    agent = _agent_ready()
     info = _staged_info()
     gh = _delivery_mode("core") == "github"
     if gh:
@@ -4386,7 +4416,7 @@ def _push_one(jid, nid, plan):
                 _push_set(jid, nid, state="skip", step=code, pct=0)
                 return
             except ValueError as e:
-                _push_set(jid, nid, state="err", err="unbuildable", detail=_why(e))
+                _push_set(jid, nid, state="err", err=e.code if isinstance(e, Bad) else "unbuildable", detail=_why(e))
                 return
             _push_set(jid, nid, step=code, pct=at(i, 0))
             if body is None:
@@ -5162,7 +5192,7 @@ def _stage_run(version):
 def api_core_stage(d):
     version = str((d or {}).get("version") or "latest").strip()
     if version == "custom":
-        raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصب روی همه» در ردیفِ هسته یا از منوی هر نود نصب کن",
+        raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصب روی همه» در ردیفِ هسته، یا دکمهٔ «هسته» در ردیفِ هر نود نصب کن",
                   "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)")
     if _delivery_mode("core") == "github":
         info = _stage_core_meta(version)
@@ -5401,10 +5431,10 @@ def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, 
     if ttype == "core":
         clash = _core_l4_conflict(binds, exclude_id=lid)
         if clash:
-            raise Bad("server_port_taken", "همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{0}» است. پورتِ دیگری بگذار "
-                      "یا حاملِ دیگری انتخاب کن — روی یک آی‌پی، حاملِ متفاوت یا پورتِ متفاوت مجاز است.",
-                      "this server IP and port already belong to tunnel '{0}'. Use another port or another carrier "
-                      "— one IP allows a different carrier or a different port.", clash.get("name"))
+            raise Bad("server_port_taken", "همین آی‌پی و پورتِ سرور از قبل مالِ تونلِ «{0}» است. پورتِ دیگری بگذار — "
+                      "روی یک آی‌پی و پورت فقط UDP کنارِ TCP یا CDN جا می‌شود (RAW پورت نمی‌گیرد)؛ TCP و CDN هر دو TCP‌اند.",
+                      "this server IP and port already belong to tunnel '{0}'. Use another port — one IP and port "
+                      "fits only UDP next to TCP or CDN (RAW takes no port); TCP and CDN are both TCP.", clash.get("name"))
     _guard_port_conflicts(binds, exclude=own | _shared_ports(ttype, lid))
 
 
@@ -5791,11 +5821,13 @@ def _ws_fields(d, transport, cur=None):
         out["ws_tls"] = True
     edge = str((d["edge_ip"] if "edge_ip" in d else cur.get("edge_ip")) or "").strip()
     if edge:
-        eh = edge.rpartition(":")[0] or edge
-        if not re.match(r"^[A-Za-z0-9.\-]{1,253}$", eh):
-            raise Bad("bad_edge_ip", "آدرسِ لبهٔ CDN (edge_ip) نامعتبر است", "invalid CDN edge address (edge_ip)")
-        ep = edge.rpartition(":")[2] if ":" in edge else ""
-        if ep.isdigit():
+        eh, sep, ep = edge.rpartition(":")
+        if not sep:
+            eh = edge
+        if not re.match(r"^[A-Za-z0-9.\-]{1,253}$", eh) or (sep and not ep.isdigit()):
+            raise Bad("bad_edge_ip", "آدرسِ لبهٔ CDN (edge_ip) نامعتبر است — آی‌پی یا آی‌پی:پورت بنویس",
+                      "invalid CDN edge address (edge_ip) — write an IP or IP:port")
+        if sep:
             _edge_port_ok(int(ep), bool(out.get("ws_tls")))
         out["edge_ip"] = edge
     if out.get("ws_tls") and not edge:
@@ -6219,12 +6251,13 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
         ce["gso"] = True
     if "ip_rotate" in d:
         if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
-            ap = _pool_with(a_ip, d.get("a_ip_pool"), a_ips)
-            bp = _pool_with(b_ip, d.get("b_ip_pool"), b_ips)
+            ap = _pool_with(a_ip, d["a_ip_pool"] if "a_ip_pool" in d else cur.get("a_ip_pool"), a_ips)
+            bp = _pool_with(b_ip, d["b_ip_pool"] if "b_ip_pool" in d else cur.get("b_ip_pool"), b_ips)
             if len(ap) >= 2 or len(bp) >= 2:
                 ce["ip_rotate"] = True
                 ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
-                ce["rotate_secs"] = _rotate_secs(d.get("rotate_secs"), 86400, tx("فاصلهٔ چرخش", "rotation interval"))
+                ce["rotate_secs"] = _rotate_secs(d["rotate_secs"] if "rotate_secs" in d else cur.get("rotate_secs"),
+                                                 86400, tx("فاصلهٔ چرخش", "rotation interval"))
     elif cur.get("ip_rotate"):
         for _k in _ROTATION_KEYS:
             if cur.get(_k) is not None:
@@ -6388,9 +6421,9 @@ def _create_tunnel_impl(d, h):
     except StoreUnknown as e:
         _refresh_cache([A["id"], B["id"]])
         raise Bad("save_unknown", "تونل روی هر دو نود ساخته شد ولی {0} — برای همین برچیده نشد. اگر بعداً در فهرست نبود، "
-                  "به‌صورتِ «تونلِ ثبت‌نشده» روی نود نشان داده می‌شود و می‌توانی پاکش کنی",
+                  "داشبورد هشدار می‌دهد که روی نود هست ولی در پنل ثبت نیست و همان‌جا «پاک کن» را می‌زنی",
                   "the tunnel was built on both nodes but {0} — so it was not torn down. If it is missing from the list "
-                  "later, it shows on the node as an unregistered tunnel and you can delete it", _why(e)) from None
+                  "later, the dashboard reports it as unregistered and you can delete it with stray-del", _why(e)) from None
     except Exception as e:
         tail = _drop_tunnel_from(_node_set(A, B), name)
         raise Bad("save_failed", "ذخیرهٔ رکوردِ لینک شکست خورد{0} ({1})", "saving the link record failed{0} ({1})",
@@ -6553,10 +6586,7 @@ def _restore_link(A, B, L, extra=None):
                 break
         return N["name"]
 
-    stuck = [x for x in parallel_map(put_back, ((A, a_body), (B, b_body))) if x]
-    if stuck:
-        _set_drift(L["id"], True)
-    return stuck
+    return [x for x in parallel_map(put_back, ((A, a_body), (B, b_body))) if x]
 
 
 def _restore_tail(stuck):
@@ -6574,6 +6604,7 @@ def api_edit_link(d):
             with _PairLock(a, b, (d or {}).get("a_node"), (d or {}).get("b_node")):
                 return _edit_link_impl(d, h)
         finally:
+            _name_free(h["key"])
             _release_proxies(h["key"])
 
     return act_link(d, edit)
@@ -6607,6 +6638,7 @@ def _edge_status_of(L, node, missing):
             "state": str(h.get("state") or "healthy"),
             "fails": int(h.get("fails") or 0),
             "next_retest_unix": int(h.get("next_retest_unix") or 0),
+            "retest_secs": int(h.get("retest_secs") or 0),
         })
     node_now = int(r.get("now") or 0)
     pair = r.get("pair") if isinstance(r.get("pair"), dict) else {}
@@ -6693,7 +6725,8 @@ def _peer_sec_norm(sec):
         if not _peer_addr_ok(key):
             continue
         health.append({"key": key, "state": str(h.get("state") or "healthy"),
-                       "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0)})
+                       "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0),
+                       "retest_secs": int(h.get("retest_secs") or 0)})
     active = str(sec.get("active") or "")
     return {"active": active if _peer_addr_ok(active) else "",
             "addrs": [x for x in (str(v) for v in (sec.get("addrs") or [])) if _peer_addr_ok(x)][:64],
@@ -6853,7 +6886,7 @@ def _edit_link_impl(d, h):
     extra = {}
     if _needs_tunnel_port(ttype, d, L):
         _asked = "port" in d and not str(d.get("port") or "").strip()
-        _moved_carrier = ttype == "core" and str(d.get("transport") or "") != str(L.get("transport") or "")
+        _moved_carrier = ttype == "core" and _shape_of(d, L)[0] != L.get("transport")
         _stale = _asked or _moved_carrier or L.get("type") not in ("l2tpv3", "fou", "core")
         port = (_int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port()) or (0 if _stale else L.get("port"))
                 or free_tunnel_port(A, B, exclude_id=L["id"]))
@@ -6889,6 +6922,7 @@ def _edit_link_impl(d, h):
         _core_workers_bodies(extra, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
+    _name_hold(h["key"], (A["id"], B["id"]), new_name)
     touched = False
     try:
         if name_changed or type_changed or moved or ttype == "core":
@@ -6977,7 +7011,7 @@ def api_check_link(d):
     def chk(nid):
         n = get_node(nid)
         if not n:
-            return {"online": False, "health": None}
+            return {"online": False, "health": None, "error": ""}
         r = node_call(n, "check", "POST", {"name": L["name"]}, timeout=30)
         if r.get("ok"):
             return {"online": True, "health": r.get("health"), "error": ""}
@@ -7048,6 +7082,8 @@ def _rebuild_job(d):
         with _PairLock(a, b):
             try:
                 r = _rebuild_link_impl(d, h)
+            except ActCancelled:
+                raise
             except Exception as e:
                 _rb_note(str(d.get("id") or ""), False, e)
                 raise
@@ -7215,7 +7251,7 @@ def _stray_rows(nodes, links):
         known = want.get(n["id"], set()) | set(pend.get(n["id"], ()))
         for c in cfgs:
             nm = str(c.get("name") or "")
-            if nm and c.get("type") != "portfw" and nm not in known:
+            if nm and c.get("type") != "portfw" and nm not in known and not _name_busy(n["id"], nm):
                 out.append((n, nm))
     return out
 
@@ -7224,9 +7260,9 @@ _stray_lock = threading.Lock()
 _stray_seen = {}
 _stray_live = []
 _STRAY_BODY = tx("این پیکربندی از یک ساخت یا جابه‌جاییِ نیمه‌کاره مانده و پنل هیچ رکوردی برایش ندارد؛ "
-                 "تا وقتی هست، شناسه‌اش روی آن نود اشغال است. اگر لازمش نداری، از همان نود پاکش کن.",
+                 "تا وقتی هست، شناسه‌اش روی آن نود اشغال است. اگر لازمش نداری، در داشبورد کنارِ هشدارش «پاک کن» را بزن.",
                  "this setup is left from a half-done build or move and the panel has no record of it; "
-                 "while it exists its id is taken on that node. If you do not need it, delete it on that node.")
+                 "while it exists its id is taken on that node. If you do not need it, delete it with stray-del.")
 
 
 def _stray_scan(nodes, links):
@@ -7238,13 +7274,13 @@ def _stray_scan(nodes, links):
                 fresh[key] = False
                 continue
             fresh[key] = True
-            live.append((n.get("name") or n["id"], nm))
+            live.append((n["id"], n.get("name") or n["id"], nm))
             if not _stray_seen[key]:
                 told.append(live[-1])
         _stray_seen.clear()
         _stray_seen.update(fresh)
         _stray_live[:] = live
-    for who, nm in told:
+    for _, who, nm in told:
         log_event("warn", "link-stray",
                   tx("نودِ «{0}»: تونلِ «{1}» روی نود هست ولی در پنل ثبت نیست",
                      "node '{0}': tunnel '{1}' is on the node but not registered in the panel", who, nm), _STRAY_BODY)
@@ -7253,6 +7289,25 @@ def _stray_scan(nodes, links):
 def _stray_snapshot():
     with _stray_lock:
         return list(_stray_live)
+
+
+def api_stray_del(d):
+    _require(d, ["node", "name"])
+    n = get_node(d["node"])
+    if not n:
+        raise _no_node()
+    nm = str(d["name"])
+    with _reg_lock:
+        if (n["id"], nm) not in {(x["id"], y) for x, y in _stray_rows([n], load_links())}:
+            raise Bad("not_stray", "تونلِ «{0}» روی نودِ «{1}» دیگر ثبت‌نشده نیست",
+                      "tunnel '{0}' on node '{1}' is no longer unregistered", nm, n["name"])
+        if not _pending_add(n["id"], nm):
+            raise Bad("pending_write_failed", "صفِ حذف برای «{0}» نوشته نشد — جای دیسکِ پنل را باز کن و دوباره بزن",
+                      "the delete queue for '{0}' was not written — free disk space on the panel and try again", nm)
+    with _stray_lock:
+        _stray_seen.pop((n["id"], nm), None)
+        _stray_live[:] = [x for x in _stray_live if x[0] != n["id"] or x[2] != nm]
+    return {"ok": True}
 
 
 def _reconcile_once():
@@ -7535,7 +7590,7 @@ def _ech_refresh_link(L, kind, hosts, mins_label):
                          "the ECH record was published again; the tunnel was rebuilt with the new key"),
                       tx("رکوردِ ECH برگشت ولی بازسازی شکست خورد — تونل هنوز بدون ECH است",
                          "the ECH record is back but the rebuild failed — the tunnel is still without ECH")))
-    if changed and chmap:
+    elif changed and chmap:
         tried, pushed = _ech_live_push(lid, chmap)
         dfa = _ech_rows(chmap)
         if pushed:
@@ -9425,6 +9480,7 @@ API = {
     "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,
     "proxy-del": api_proxy_del, "proxy-test": api_proxy_test,
     "rebuild-link": api_rebuild_link, "restart-link": api_restart_link, "delete-link": api_delete_link, "link-toggle": api_link_toggle,
+    "stray-del": api_stray_del,
     "edge-status": api_edge_status,
     "pool-retest-now": api_pool_retest_now, "pool-select": api_pool_select,
     "peer-status": api_peer_status, "peer-retest-now": api_peer_retest_now, "peer-select": api_peer_select,
@@ -9444,7 +9500,7 @@ API = {
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
-             "delete-link", "link-toggle", "edge-status", "pool-retest-now", "pool-select",
+             "delete-link", "link-toggle", "stray-del", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select",
              "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
              "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",

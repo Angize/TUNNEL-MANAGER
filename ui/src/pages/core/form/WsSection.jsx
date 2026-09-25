@@ -56,7 +56,7 @@ function CdnShape({ form, enums, patch }) {
   )
 }
 
-export default function WsSection({ form, cfg, tuning, lid, live, patch }) {
+export default function WsSection({ form, cfg, lid, live, patch }) {
   if (form.Tr !== 'ws') return null
   const current = wsProfOf(form.Cdn)
 
@@ -85,7 +85,6 @@ export default function WsSection({ form, cfg, tuning, lid, live, patch }) {
         <WsPool
           form={form}
           enums={cfg.enums}
-          tuning={tuning}
           lid={lid}
           live={live}
           patch={patch}

@@ -81,6 +81,7 @@ export const GROUPS = [
       'link-rebuild-info',
       'restart-link',
       'delete-link',
+      'stray-del',
       'link-toggle',
       'check-link',
       'link-speed',
@@ -396,6 +397,14 @@ export const DOCS = {
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
+    ],
+  },
+  'stray-del': {
+    t: 'Delete an unregistered tunnel',
+    d: "Deletes a tunnel that is on a node but has no record in the panel — the dashboard's unregistered-tunnel alert carries its node and name in stray. It is queued and removed on the node's next poll.",
+    p: [
+      ['node', 1, S, 'node id'],
+      ['name', 1, S, 'the tunnel name on that node'],
     ],
   },
   'link-toggle': {

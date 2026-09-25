@@ -15,7 +15,7 @@ import useSecondTick from './useSecondTick.js'
 import { PEER_ACC_MIN } from './presets.js'
 import { T } from '../../../i18n/fa.js'
 
-function PeerRow({ side, ip, section, status, pending, tuning, live }) {
+function PeerRow({ side, ip, section, status, pending, live }) {
   const health = section.live[ip]
   const active = section.active === ip
   const tone = healthTone(health, active, PEER_TITLES)
@@ -52,19 +52,14 @@ function PeerRow({ side, ip, section, status, pending, tuning, live }) {
       {burned ? (
         <div className="ecd">
           <Countdown health={health} now={status.now} polledMs={status.polledMs} />
-          <ProgressBar
-            health={health}
-            now={status.now}
-            polledMs={status.polledMs}
-            tuning={tuning}
-          />
+          <ProgressBar health={health} now={status.now} polledMs={status.polledMs} />
         </div>
       ) : null}
     </div>
   )
 }
 
-function PeerBox({ side, label, status, pending, tuning, live, open, onToggle }) {
+function PeerBox({ side, label, status, pending, live, open, onToggle }) {
   const section = status[side]
   if (!section || section.addrs.length < 2) return null
 
@@ -95,7 +90,6 @@ function PeerBox({ side, label, status, pending, tuning, live, open, onToggle })
             section={section}
             status={status}
             pending={pending}
-            tuning={tuning}
             live={live}
           />
         ))}
@@ -104,7 +98,7 @@ function PeerBox({ side, label, status, pending, tuning, live, open, onToggle })
   )
 }
 
-export default function PeerLive({ live, tuning }) {
+export default function PeerLive({ live }) {
   const [open, setOpen] = useState({ dst: true, src: true })
   const { status, pending } = live
   useSecondTick(true)
@@ -122,7 +116,6 @@ export default function PeerLive({ live, tuning }) {
             label={side === 'dst' ? T('dst_ip') : T('src_ip')}
             status={status}
             pending={pending}
-            tuning={tuning}
             live={live}
             open={open[side]}
             onToggle={() => setOpen({ ...open, [side]: !open[side] })}

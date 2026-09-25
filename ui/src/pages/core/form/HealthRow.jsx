@@ -1,5 +1,5 @@
 import Icon from '../../../components/Icon.jsx'
-import { barPercent, countdownText, remain, stepTotal } from './countdown.js'
+import { barPercent, countdownText, remain } from './countdown.js'
 import { WarnCap } from './controls.jsx'
 import { T } from '../../../i18n/fa.js'
 import { pressable } from '../../../lib/keys.js'
@@ -51,10 +51,8 @@ export function Countdown({ health, now, polledMs }) {
   return <span className="pcd">{countdownText(left)}</span>
 }
 
-export function ProgressBar({ health, now, polledMs, tuning }) {
-  const total = stepTotal(health, tuning)
-  const left = remain(now, polledMs, health.next)
-  const pct = barPercent(total, left)
+export function ProgressBar({ health, now, polledMs }) {
+  const pct = barPercent(health.total, remain(now, polledMs, health.next))
   if (pct < 0) return null
   return (
     <span className={'pbar' + (health.state === 'dead' ? ' bad' : '')}>

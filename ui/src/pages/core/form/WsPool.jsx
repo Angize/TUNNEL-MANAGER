@@ -24,7 +24,7 @@ const KINDS = [
   { kind: 'sni', label: () => T('pool_sni_lbl'), placeholder: 'cdn.example.com' },
 ]
 
-function EdgeRow({ value, kind, health, active, lid, pending, tuning, status, onRetest, onSelect, onDelete }) {
+function EdgeRow({ value, kind, health, active, lid, pending, status, onRetest, onSelect, onDelete }) {
   const tone = healthTone(health, active, EDGE_TITLES)
   const burned = isBurned(health)
   const isTarget = pending && pending.kind === kind && pending.key === value
@@ -40,12 +40,7 @@ function EdgeRow({ value, kind, health, active, lid, pending, tuning, status, on
       {burned ? (
         <span className="ert">
           <Countdown health={health} now={status.now} polledMs={status.polledMs} />
-          <ProgressBar
-            health={health}
-            now={status.now}
-            polledMs={status.polledMs}
-            tuning={tuning}
-          />
+          <ProgressBar health={health} now={status.now} polledMs={status.polledMs} />
         </span>
       ) : null}
       <span className="eacts">
@@ -77,7 +72,7 @@ function EdgeRow({ value, kind, health, active, lid, pending, tuning, status, on
   )
 }
 
-export default function WsPool({ form, enums, tuning, lid, live, patch }) {
+export default function WsPool({ form, enums, lid, live, patch }) {
   const [open, setOpen] = useState({ ip: false, sni: false })
   const [draft, setDraft] = useState({ ip: '', sni: '' })
   const pool = form.pool
@@ -149,7 +144,6 @@ export default function WsPool({ form, enums, tuning, lid, live, patch }) {
                     active={status.act[kind] === value}
                     lid={lid}
                     pending={live.pending}
-                    tuning={tuning}
                     status={status}
                     onRetest={live.retest}
                     onSelect={live.select}

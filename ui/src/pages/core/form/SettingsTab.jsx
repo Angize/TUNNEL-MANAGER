@@ -42,7 +42,6 @@ function SubnetExtra({ form, link, patch }) {
 export default function SettingsTab({
   form,
   cfg,
-  tuning,
   link,
   proxies,
   sides,
@@ -113,7 +112,6 @@ export default function SettingsTab({
       <WsSection
         form={form}
         cfg={cfg}
-        tuning={tuning}
         lid={poolLive.lid}
         live={poolLive}
         patch={patch}
