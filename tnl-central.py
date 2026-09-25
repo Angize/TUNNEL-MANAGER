@@ -8162,12 +8162,14 @@ def _node_path_rows(nodes, members, t0):
     st = _ev_state["nodes"]
     rows = []
     for key, behind in ((tx("مستقیم", "direct"), False), (tx("پشتِ پروکسی", "behind a proxy"), True)):
-        others = [n["id"] for n in nodes if n["id"] not in members and n["id"] in st
-                  and bool(n.get("proxy_on")) == behind
-                  and not (st[n["id"]][0] is False and (st[n["id"]][1] < t0 or not st[n["id"]][2]))]
-        if others:
+        path = [n["id"] for n in nodes if bool(n.get("proxy_on")) == behind]
+        down = [nid for nid in path if nid in members]
+        others = [nid for nid in path if nid not in members and nid in st
+                  and not (st[nid][0] is False and (st[nid][1] < t0 or not st[nid][2]))]
+        if others or down:
             up = sum(1 for nid in others if st[nid][0])
-            rows.append(tx("{0}: {1} از {2} آنلاین ماندند", "{0}: {1} of {2} stayed online", key, up, len(others)))
+            rows.append(tx("{0}: {1} از {2} آنلاین ماندند", "{0}: {1} of {2} stayed online",
+                           key, up, len(others) + len(down)))
     return rows
 
 
