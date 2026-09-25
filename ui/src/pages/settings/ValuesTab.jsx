@@ -124,6 +124,9 @@ export default function ValuesTab({ active }) {
           <SettingRow label={T('set_t_sockbuf')} helpKey="set_t_sockbuf_d" exampleKey="set_x_sockbuf">
             <NumberField value={form.sockBuf} onChange={set('sockBuf')} min={0} max={64} step={1} />
           </SettingRow>
+          <SettingRow label={T('set_t_tcpbuf')} helpKey="set_t_tcpbuf_d" exampleKey="set_x_tcpbuf">
+            <NumberField value={form.tcpBuf} onChange={set('tcpBuf')} min={0} max={64} step={1} />
+          </SettingRow>
         </SettingsGroup>
       </div>
 

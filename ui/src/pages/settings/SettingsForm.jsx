@@ -64,6 +64,7 @@ export function SettingsFormProvider({ tabs, children }) {
       suspect: (tuned('suspect_backoff') || []).map((x) => secondsToMinutes(x)).join(', '),
       deadRetest: String(secondsToMinutes(tuned('dead_retest_secs'))),
       sockBuf: String(tuned('sock_buf_mb')),
+      tcpBuf: String(tuned('tcp_buf_mb')),
     }
     setMode(nextMode)
     setForm(next)

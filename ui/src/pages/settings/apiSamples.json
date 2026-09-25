@@ -349,7 +349,8 @@
      180,
      "… 1 more"
     ],
-    "sock_buf_mb": 4
+    "sock_buf_mb": 16,
+    "tcp_buf_mb": 16
    }
   }
  },
@@ -383,7 +384,8 @@
      180,
      "… 1 more"
     ],
-    "sock_buf_mb": 4
+    "sock_buf_mb": 16,
+    "tcp_buf_mb": 16
    },
    "tuning_steps": {
     "probe_min_pct": [
@@ -401,6 +403,10 @@
      100
     ],
     "sock_buf_mb": [
+     0,
+     64
+    ],
+    "tcp_buf_mb": [
      0,
      64
     ],
@@ -2009,7 +2015,8 @@
       180,
       "… 1 more"
      ],
-     "sock_buf_mb": 4
+     "sock_buf_mb": 16,
+     "tcp_buf_mb": 16
     }
    }
   }

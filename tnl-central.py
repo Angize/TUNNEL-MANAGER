@@ -55,6 +55,7 @@ CORE_RAW_PROFILE_PROTOS = {"bare": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 
 CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
 CORE_TRANSPORTS       = ("udp", "tcp", "raw", "ws")
 SOCKBUF_TRANSPORTS    = ("udp", "raw")
+TCPBUF_TRANSPORTS     = ("tcp", "ws")
 MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
@@ -869,7 +870,8 @@ _TUNING_DEFAULTS = {
     "dead_retest_secs": 21600,
     "probe_min_pct": 15,
     "ladder_revive": [45, 180, 600],
-    "sock_buf_mb": 4,
+    "sock_buf_mb": 16,
+    "tcp_buf_mb": 16,
 }
 REVIVE_STEP_MIN, REVIVE_STEP_MAX = 10, 3600
 BACKOFF_STEP_MIN, BACKOFF_STEP_MAX = 1, 86400
@@ -881,12 +883,14 @@ _TUNING_LIST_LABELS = {"suspect_backoff": tx("زمان‌بندیِ تستِ م�
                        "ladder_revive": tx("صبر پیش از تلاشِ دوبارهٔ نردبان", "wait before the ladder tries again")}
 _TUNING_NUM_LABELS = {"dead_retest_secs": tx("تستِ مجددِ آی‌پیِ سوخته", "retest of a dead IP"),
                       "probe_min_pct": tx("حداقلِ بسته‌های برگشتی", "minimum returned packets"),
-                      "sock_buf_mb": tx("بافرِ سوکت", "socket buffer")}
+                      "sock_buf_mb": tx("بافرِ سوکتِ udp/raw", "udp/raw socket buffer"),
+                      "tcp_buf_mb": tx("بافرِ سوکتِ TCP", "TCP socket buffer")}
 _TUNING_STEPS = {"probe_min_pct": (5, _TUNING_NUM_LABELS["probe_min_pct"])}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "probe_min_pct": (5, 100),
     "sock_buf_mb": (0, 64),
+    "tcp_buf_mb": (0, 64),
 }
 
 
@@ -2833,11 +2837,13 @@ def _core_workers_bodies(src, a_body, b_body):
 
 def _apply_core_tuning(a_body, b_body):
     tn = _settings_tuning()
-    if "sock_buf_mb" in tn and a_body.get("transport") in SOCKBUF_TRANSPORTS:
-        _mb = max(0, min(64, int(tn["sock_buf_mb"])))
-        a_body["sock_buf"] = b_body["sock_buf"] = -1 if _mb == 0 else _mb * (1 << 20)
+    for key, field, carriers in (("sock_buf_mb", "sock_buf", SOCKBUF_TRANSPORTS),
+                                 ("tcp_buf_mb", "tcp_buf", TCPBUF_TRANSPORTS)):
+        if key in tn and a_body.get("transport") in carriers:
+            _mb = max(0, min(64, int(tn[key])))
+            a_body[field] = b_body[field] = -1 if _mb == 0 else _mb * (1 << 20)
     _tn = {k: v for k, v in tn.items()
-           if k not in ("sock_buf_mb", "probe_min_pct")}
+           if k not in ("sock_buf_mb", "tcp_buf_mb", "probe_min_pct")}
     if _tn:
         for body in (a_body, b_body):
             if body.get("role") == "client":
