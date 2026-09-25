@@ -264,6 +264,30 @@
   margin-bottom: 13px;
 }
 
+.kt-chg {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.8;
+  color: var(--gold);
+  white-space: normal;
+}
+
+.kt-chg .kt-k {
+  display: block;
+  font-weight: 700;
+}
+
+.kt-vs {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 14px;
+}
+
+.kt-vs > span {
+  white-space: nowrap;
+}
+
 .nd-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

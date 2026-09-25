@@ -186,6 +186,16 @@ body:not(.rdragging) .card.acc:hover {
   animation: none;
 }
 
+.lpill.warn {
+  color: var(--gold);
+  background: var(--goldw);
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
+.lpill.warn .pd {
+  background: var(--gold);
+}
+
 @keyframes lpulse {
   0%, 100% { opacity: 1 }
   50% { opacity: .25 }

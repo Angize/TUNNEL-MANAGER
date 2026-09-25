@@ -1198,7 +1198,8 @@
    "active": false,
    "cc": "bbr",
    "qdisc": "",
-   "bbr_available": true
+   "bbr_available": true,
+   "overridden": []
   }
  },
  "update-core": {
