@@ -6116,7 +6116,7 @@ def _needs_tunnel_port(ttype, d, cur):
     return ttype == "core" and _shape_of(d, cur)[0] != "raw"
 
 
-def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
+def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False):
     shape = _shape_of(d, cur)
     cur = _carried(cur, shape)
     ce = {}
@@ -6225,7 +6225,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     ce.update(_fec_fields(d, transport, cur))
     ce.update(_workers_field(d, bool(ce.get("fec")), cur))
     ce.update(_desync_fields(d, shape, cur, ce.get("cdn_carrier", "ws") != "ws"))
-    if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
+    if (bool(d.get("obfs")) if "obfs" in d else (cipher != "none" if new else bool(cur.get("obfs")))):
         if cipher == "none":
             raise Bad("obfs_needs_cipher", "استتار به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",
                       "obfuscation needs encryption (do not set the cipher to none)")
@@ -6270,7 +6270,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
             raise Bad("bad_port_tries", "تعدادِ قرعهٔ پورتِ مبدأ باید بینِ 1 تا {0} باشد",
                       "port_tries must be from 1 to {0}", PORT_TRIES_MAX)
         ce["port_tries"] = _ptries
-    if (bool(d.get("gso")) if "gso" in d else bool(cur.get("gso"))):
+    if (bool(d.get("gso")) if "gso" in d else (new or bool(cur.get("gso")))):
         ce["gso"] = True
     if "ip_rotate" in d:
         if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
@@ -6395,7 +6395,7 @@ def _create_tunnel_impl(d, h):
         extra["psk"] = secrets.token_hex(32)
     server_side = None
     if ttype == "core":
-        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips)
+        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips, new=True)
         extra.update(ce)
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
