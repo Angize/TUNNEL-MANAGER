@@ -66,7 +66,6 @@ DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
 CORE_MAX_WORKERS = 8
 QUEUEING_TRANSPORTS = ("raw", "udp")
-WORKERS_TRANSPORTS = ("raw", "udp", "tcp", "ws")
 _reg_lock = threading.Lock()
 _pending_lock = threading.Lock()
 _agent_lock = threading.Lock()
@@ -5471,11 +5470,7 @@ def _core_l4_conflict(new_binds, exclude_id=None):
 
 
 
-def _workers_carrier(transport, cdn):
-    return transport in WORKERS_TRANSPORTS and not (transport == "ws" and cdn in ("http", "grpc"))
-
-
-def _workers_field(d, transport, cdn, fec_on, cur=None):
+def _workers_field(d, fec_on, cur=None):
     cur = cur or {}
     out, asked_any = {}, False
     for key in ("a_workers", "b_workers"):
@@ -5495,12 +5490,10 @@ def _workers_field(d, transport, cdn, fec_on, cur=None):
             out[key] = n
     if not out:
         return {}
-    if not _workers_carrier(transport, cdn) or fec_on:
+    if fec_on:
         if asked_any:
-            raise Bad("workers_not_allowed", "«صف‌های موازی» برای raw و udp بدونِ FEC، tcp و ws بدونِ حاملِ http/grpc است؛ "
-                      "جای دیگر هسته همان یک صف را برمی‌دارد",
-                      "parallel queues are for raw and udp without FEC, tcp, and ws without an http/grpc cdn_carrier; "
-                      "elsewhere the core keeps one queue")
+            raise Bad("workers_not_allowed", "«صف‌های موازی» با FEC جور نیست؛ FEC یک صفِ مرتب لازم دارد و هسته همان یک صف را برمی‌دارد",
+                      "parallel queues do not run with FEC; FEC needs one ordered queue, so the core keeps one")
         return {}
     return out
 
@@ -6072,8 +6065,6 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
         return transport == "ws"
     if key in _SHAPE_DATAGRAM:
         return transport in QUEUEING_TRANSPORTS
-    if key in _WORKERS_KEYS:
-        return transport in WORKERS_TRANSPORTS
     if key in _SHAPE_DESYNC:
         return transport != "udp"
     if key in ("sport_lo", "sport_hi"):
@@ -6218,7 +6209,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips):
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur))
     ce.update(_fec_fields(d, transport, cur))
-    ce.update(_workers_field(d, transport, ce.get("cdn_carrier", "ws"), bool(ce.get("fec")), cur))
+    ce.update(_workers_field(d, bool(ce.get("fec")), cur))
     ce.update(_desync_fields(d, shape, cur, ce.get("cdn_carrier", "ws") != "ws"))
     if (bool(d.get("obfs")) if "obfs" in d else bool(cur.get("obfs"))):
         if cipher == "none":

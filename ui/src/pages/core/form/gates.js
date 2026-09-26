@@ -38,9 +38,11 @@ export function fecDatagram(form) {
 }
 
 export function wkCarrier(form) {
-  if (form.Tr === 'tcp') return true
-  if (form.Tr === 'ws') return form.Cdn === 'ws'
-  return (form.Tr === 'raw' || form.Tr === 'udp') && !form.Fec
+  return !(fecDatagram(form) && form.Fec)
+}
+
+export function wkShared(form) {
+  return form.Tr === 'tcp' || form.Tr === 'ws'
 }
 
 export function wkClamp(n, max) {

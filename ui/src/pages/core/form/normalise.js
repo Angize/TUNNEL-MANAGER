@@ -8,6 +8,7 @@ import {
   rotIsDirect,
   rotMulti,
   wkCarrier,
+  wkShared,
   wssMandatory,
 } from './gates.js'
 
@@ -31,6 +32,7 @@ export default function normalise(form, cfg, aIps, bIps) {
     set('WorkersA', 1)
     set('WorkersB', 1)
   }
+  if (wkShared(view)) set('WorkersB', at('WorkersA'))
   if (!desyncOk(view)) set('Desync', false)
   if (parseInt(at('dsTtl'), 10) > DS_TTL_CAP) set('dsTtl', String(DS_TTL_CAP))
   if (!rawPortOn(view)) set('Sprot', false)

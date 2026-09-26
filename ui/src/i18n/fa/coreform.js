@@ -94,7 +94,6 @@ export default {
   porttries_bad: 'عدد باید بینِ 1 تا 60 باشد',
 
   workers_lbl: 'صف‌های موازیِ تونل',
-  workers_conn_d: 'روی tcp و ws هر صف یک اتصالِ جداست؛ هر دو سر را یکی بگذار',
   workers_lbl_node: 'روی {n}',
   workers_lbl_cores: 'دارای {c} هسته',
   workers_1: 'پیش‌فرض',
