@@ -64,6 +64,9 @@ DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
 DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
+FAKE_TTL_MAX = 255
+FAKE_COUNT_MAX = 64
+SPLIT_POS_MAX = 1400
 CORE_MAX_WORKERS = 8
 QUEUEING_TRANSPORTS = ("raw", "udp")
 _reg_lock = threading.Lock()
@@ -1015,6 +1018,11 @@ def get_settings():
     return dict(_M.settings)
 
 
+SETTINGS_RANGES = {"reconcile_interval": (5, 3600), "poll_interval": (0.3, 60.0),
+                   "ui_interval": (0.3, 60.0), "ech_refresh_mins": (1.0, 1440.0)}
+UPTIME_WINDOWS = (1, 3, 6, 8, 12, 24)
+
+
 def validate_settings(d):
     out = get_settings()
     if "reconcile_mode" in d:
@@ -1025,21 +1033,25 @@ def validate_settings(d):
     if "reconcile_interval" in d and d["reconcile_interval"] not in (None, ""):
         sec = _num_or(d["reconcile_interval"], Bad("bad_number", "بازهٔ بررسیِ ترمیم باید عدد باشد (ثانیه)",
                                                    "the repair check interval must be a number (seconds)"))
-        out["reconcile_interval"] = int(round(max(5, min(3600, sec))))
+        lo, hi = SETTINGS_RANGES["reconcile_interval"]
+        out["reconcile_interval"] = int(round(max(lo, min(hi, sec))))
     if "poll_interval" in d and d["poll_interval"] not in (None, ""):
-        out["poll_interval"] = max(0.3, min(60.0, round(_num_or(d["poll_interval"], Bad(
+        lo, hi = SETTINGS_RANGES["poll_interval"]
+        out["poll_interval"] = max(lo, min(hi, round(_num_or(d["poll_interval"], Bad(
             "bad_number", "بازهٔ پایشِ فلیت باید عدد باشد (ثانیه)", "the fleet poll interval must be a number (seconds)")), 2)))
     if "ui_interval" in d and d["ui_interval"] not in (None, ""):
-        out["ui_interval"] = max(0.3, min(60.0, round(_num_or(d["ui_interval"], Bad(
+        lo, hi = SETTINGS_RANGES["ui_interval"]
+        out["ui_interval"] = max(lo, min(hi, round(_num_or(d["ui_interval"], Bad(
             "bad_number", "بازهٔ رفرشِ نمایش باید عدد باشد (ثانیه)", "the screen refresh interval must be a number (seconds)")), 2)))
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
         w = _int_or(d["uptime_window"], Bad("bad_number", "بازهٔ نمودارِ دسترس‌پذیری نامعتبر است",
                                             "the uptime chart window is invalid"))
-        out["uptime_window"] = w if w in (1, 3, 6, 8, 12, 24) else 1
+        out["uptime_window"] = w if w in UPTIME_WINDOWS else 1
     if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
         m = round(_num_or(d["ech_refresh_mins"], Bad("bad_number", "بازهٔ تازه‌سازیِ کلیدِ ECH باید عدد باشد (دقیقه)",
                                                      "the ECH key refresh interval must be a number (minutes)")), 2)
-        out["ech_refresh_mins"] = 0.0 if m <= 0 else max(1.0, min(1440.0, m))
+        lo, hi = SETTINGS_RANGES["ech_refresh_mins"]
+        out["ech_refresh_mins"] = 0.0 if m <= 0 else max(lo, min(hi, m))
     for k in ("agent_delivery", "core_delivery"):
         if k in d:
             m = str(d[k]).strip().lower()
@@ -3132,7 +3144,8 @@ def api_summary(d):
         nid, nm = n["id"], n.get("name", "")
         p = _cached_ping(nid)
         if not p.get("ok"):
-            heat.append({"name": nm, "pct": None, "online": False})
+            heat.append({"name": nm, "pct": None, "online": False, "pending": not _cache_get(nid),
+                         "disabled": bool(n.get("disabled"))})
             if _cache_get(nid):
                 alerts.append({"level": "bad", "kind": "node", "msg": tx("نودِ «{0}» آفلاین است", "node '{0}' is offline", nm)})
             mv = moved_addr(nid)
@@ -3157,7 +3170,7 @@ def api_summary(d):
                 alerts.append({"level": "bad", "kind": key, "msg": tx("{0} «{1}» به {2}٪ رسیده", "{0} of '{1}' is at {2}%",
                                                                       lab, nm, val)})
         w = max(cpu, ram, disk)
-        heat.append({"name": nm, "pct": w, "online": True})
+        heat.append({"name": nm, "pct": w, "online": True, "disabled": bool(n.get("disabled"))})
         if w >= UP_CRIT:
             crit.append(nid)
 
@@ -5521,12 +5534,12 @@ def _desync_fields(d, shape, cur=None, is_http=False):
     if not on:
         return out
     out["fake_desync"] = True
-    ttl = _int_in(d.get("fake_ttl") or cur.get("fake_ttl") or 4, 1, 255,
-                  Bad("bad_fake_ttl", "TTL طعمه باید بین 1 تا 255 باشد", "the decoy TTL must be from 1 to 255"))
+    ttl = _int_in(d.get("fake_ttl") or cur.get("fake_ttl") or 4, 1, FAKE_TTL_MAX,
+                  Bad("bad_fake_ttl", "TTL طعمه باید بین 1 تا {0} باشد", "the decoy TTL must be from 1 to {0}", FAKE_TTL_MAX))
     if _shape_consumes("fake_ttl", *shape):
         out["fake_ttl"] = min(ttl, DESYNC_INJECT_TTL_MAX)
-    cnt = _int_in(d.get("fake_count") or cur.get("fake_count") or 2, 1, 64,
-                  Bad("bad_fake_count", "تعدادِ طعمه باید بین 1 تا 64 باشد", "the decoy count must be from 1 to 64"))
+    cnt = _int_in(d.get("fake_count") or cur.get("fake_count") or 2, 1, FAKE_COUNT_MAX,
+                  Bad("bad_fake_count", "تعدادِ طعمه باید بین 1 تا {0} باشد", "the decoy count must be from 1 to {0}", FAKE_COUNT_MAX))
     out["fake_count"] = cnt
     mode = str(d.get("fake_mode") or cur.get("fake_mode") or "ttl").strip().lower()
     if mode not in ("ttl", "badsum", "both"):
@@ -5719,9 +5732,9 @@ def _sni_split_fields(d, cur, ech=False):
     on = d.get("sni_split") if ("sni_split" in d) else cur.get("sni_split")
     if not on:
         return {}
-    sp = _int_in((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0, 0, 1400,
-                 Bad("bad_split_pos", "split_pos باید بین 0 تا 1400 باشد (0 = خودکار، وسطِ دامنه)",
-                     "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)"))
+    sp = _int_in((d.get("split_pos") if "split_pos" in d else cur.get("split_pos")) or 0, 0, SPLIT_POS_MAX,
+                 Bad("bad_split_pos", "split_pos باید بین 0 تا {0} باشد (0 = خودکار، وسطِ دامنه)",
+                     "split_pos must be from 0 to {0} (0 = automatic, middle of the domain)", SPLIT_POS_MAX))
     if ech and not sp:
         raise Bad("split_needs_pos", "با ECH روشن نامِ دامنه در ClientHello رمز است، پس نقطهٔ برشِ خودکار پیدا نمی‌شود و هیچ چیزی تکه نمی‌شود — یا «نقطهٔ برش» را دستی بگذار یا تقسیمِ SNI را خاموش کن",
                   "with ECH on, the domain in the ClientHello is encrypted, so no automatic split point is found and "
@@ -9435,6 +9448,11 @@ def ui_config():
         "ev_groups": [list(x) for x in EV_GROUPS],
         "settings_defaults": {k: v for k, v in settings_defaults().items() if k != "tuning"},
         "split_ttl_max": SPLIT_TTL_MAX,
+        "limits": {"fake_ttl": [1, FAKE_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
+                   "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [0, PORT_TRIES_MAX],
+                   "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN},
+        "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
+        "uptime_windows": list(UPTIME_WINDOWS),
         "workers_max": CORE_MAX_WORKERS,
         "usage_crit_pct": UP_CRIT,
         "api": [[cmd, "POST" if cmd in MUTATIONS else "GET", cmd not in TOKEN_DENY] for cmd in API],

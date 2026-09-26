@@ -302,7 +302,7 @@
    [
     400,
     "bad_fake_count",
-    "the decoy count must be from 1 to 64"
+    "the decoy count must be from 1 to …"
    ],
    [
     400,
@@ -317,7 +317,7 @@
    [
     400,
     "bad_fake_ttl",
-    "the decoy TTL must be from 1 to 255"
+    "the decoy TTL must be from 1 to …"
    ],
    [
     400,
@@ -382,7 +382,7 @@
    [
     400,
     "bad_split_pos",
-    "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)"
+    "split_pos must be from 0 to … (0 = automatic, middle of the domain)"
    ],
    [
     400,
@@ -878,7 +878,7 @@
    [
     400,
     "bad_fake_count",
-    "the decoy count must be from 1 to 64"
+    "the decoy count must be from 1 to …"
    ],
    [
     400,
@@ -893,7 +893,7 @@
    [
     400,
     "bad_fake_ttl",
-    "the decoy TTL must be from 1 to 255"
+    "the decoy TTL must be from 1 to …"
    ],
    [
     400,
@@ -958,7 +958,7 @@
    [
     400,
     "bad_split_pos",
-    "split_pos must be from 0 to 1400 (0 = automatic, middle of the domain)"
+    "split_pos must be from 0 to … (0 = automatic, middle of the domain)"
    ],
    [
     400,
