@@ -221,6 +221,7 @@
 .modalov.palov {
   align-items: flex-start;
   padding-top: 64px;
+  animation: none;
 }
 
 .pal {
@@ -234,7 +235,6 @@
   max-height: 70vh;
   display: flex;
   flex-direction: column;
-  animation: modrise .35s cubic-bezier(.25, 1.2, .4, 1);
 }
 
 .palin {

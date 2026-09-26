@@ -47,9 +47,11 @@ textarea:focus {
   transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .18s;
 }
 
-.primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 30px -12px color-mix(in srgb, var(--acc) 85%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 30px -12px color-mix(in srgb, var(--acc) 85%, transparent);
+  }
 }
 
 .bspin {
@@ -98,10 +100,12 @@ textarea:focus {
   transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .18s, color .18s;
 }
 
-.ghost:hover {
-  transform: translateY(-2px);
-  color: var(--tx);
-  box-shadow: var(--dsh-hi);
+@media (hover: hover) and (pointer: fine) {
+  .ghost:hover {
+    transform: translateY(-2px);
+    color: var(--tx);
+    box-shadow: var(--dsh-hi);
+  }
 }
 
 .primary.glass,

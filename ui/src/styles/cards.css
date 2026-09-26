@@ -14,9 +14,11 @@
   padding: 0;
 }
 
-body:not(.rdragging) .card.acc:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--dsh-hi);
+@media (hover: hover) and (pointer: fine) {
+  body:not(.rdragging) .card.acc:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--dsh-hi);
+  }
 }
 
 .card.acc.off {
@@ -32,8 +34,10 @@ body:not(.rdragging) .card.acc:hover {
   user-select: none;
 }
 
-.chead:hover {
-  background: var(--ctl);
+@media (hover: hover) and (pointer: fine) {
+  .chead:hover {
+    background: var(--ctl);
+  }
 }
 
 .hmain {
@@ -320,9 +324,11 @@ button.act {
   transition: transform .18s cubic-bezier(.2, .8, .2, 1), background .18s, box-shadow .18s;
 }
 
-button.act:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--dsh-hi);
+@media (hover: hover) and (pointer: fine) {
+  button.act:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--dsh-hi);
+  }
 }
 
 button.act:active {

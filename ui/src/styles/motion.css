@@ -133,6 +133,10 @@
   animation: tabin .24s var(--ease-out);
 }
 
+.ctabp.on.kb {
+  animation: none;
+}
+
 .flderr,
 .warncap,
 .lgfnote {

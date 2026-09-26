@@ -103,9 +103,11 @@
   transition: background .15s, color .15s, transform .18s cubic-bezier(.2, .8, .2, 1);
 }
 
-.fchip:hover {
-  color: var(--tx);
-  transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {
+  .fchip:hover {
+    color: var(--tx);
+    transform: translateY(-1px);
+  }
 }
 
 .fchip.on {
@@ -264,9 +266,11 @@
   cursor: pointer;
 }
 
-.lev.tap:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--dsh-hi);
+@media (hover: hover) and (pointer: fine) {
+  .lev.tap:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--dsh-hi);
+  }
 }
 
 .lev.tap:focus-visible {
