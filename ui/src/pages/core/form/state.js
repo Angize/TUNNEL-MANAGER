@@ -27,7 +27,7 @@ export function createForm(cfg) {
     SportRandom: false,
     Sprot: false,
     Ctb: false,
-    Gso: false,
+    Gso: true,
     WsTls: false,
     Ech: false,
     EchProxy: false,
