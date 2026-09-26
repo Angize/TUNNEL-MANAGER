@@ -9546,6 +9546,27 @@ API_REFUSED = {
 }
 
 
+class ClientGone(BaseException):
+    pass
+
+
+CLIENT_GONE = (ConnectionError, TimeoutError)
+
+
+class ClientWriter:
+    def __init__(self, raw):
+        self.raw = raw
+
+    def write(self, b):
+        try:
+            return self.raw.write(b)
+        except CLIENT_GONE as e:
+            raise ClientGone() from e
+
+    def __getattr__(self, name):
+        return getattr(self.raw, name)
+
+
 class HeaderDeadline:
     def __init__(self, raw, sock, idle):
         self.raw, self.sock, self.idle, self.until = raw, sock, idle, None
@@ -9573,11 +9594,17 @@ class HeaderDeadline:
 
     def readline(self, *a):
         self._tick()
-        return self.raw.readline(*a)
+        try:
+            return self.raw.readline(*a)
+        except CLIENT_GONE as e:
+            raise ClientGone() from e
 
     def read(self, *a):
         self._tick()
-        return self.raw.read(*a)
+        try:
+            return self.raw.read(*a)
+        except CLIENT_GONE as e:
+            raise ClientGone() from e
 
     def __getattr__(self, name):
         return getattr(self.raw, name)
@@ -9594,11 +9621,14 @@ class Handler(BaseHTTPRequestHandler):
     def setup(self):
         BaseHTTPRequestHandler.setup(self)
         self.rfile = HeaderDeadline(self.rfile, self.connection, self.timeout)
+        self.wfile = ClientWriter(self.wfile)
 
     def handle_one_request(self):
         self.rfile.arm(self.header_budget)
         try:
             BaseHTTPRequestHandler.handle_one_request(self)
+        except ClientGone:
+            self.close_connection = True
         finally:
             self.rfile.disarm()
 
