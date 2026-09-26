@@ -34,7 +34,7 @@ export function hostAddress(subnet, host) {
   return dotted(addr - (addr % size) + host) + '/' + prefix
 }
 
-export function subnetCap(base) {
+function subnetCap(base) {
   const entry = BASE_NETS[base] || BASE_NETS['192.168']
   return (1 << (24 - entry[1])) - 1
 }

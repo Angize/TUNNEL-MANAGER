@@ -8,7 +8,7 @@ const TICK_MS = 150
 const POLL_MS = 380
 const MIN_SPIN_MS = 600
 
-export function installSteps() {
+function installSteps() {
   return [
     { label: T('inst_ssh'), detail: T('inst_connecting') },
     { label: T('inst_agent'), detail: T('inst_waiting') },
