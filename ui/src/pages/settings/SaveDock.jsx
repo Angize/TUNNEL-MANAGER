@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from '../../components/Icon.jsx'
 import { T, TF } from '../../i18n/fa.js'
+import usePresence from '../../lib/usePresence.js'
+
+const EXIT_MS = 180
 
 const PHONE = '(max-width: 840px)'
 
@@ -20,17 +23,22 @@ function usePhone() {
   return phone
 }
 
-export default function SaveDock({ count, busy, onRevert, onSave }) {
+function Bar({ count, busy, leaving, onRevert, onSave }) {
   const phone = usePhone()
 
   useEffect(() => {
-    if (!phone) return undefined
+    if (!phone || leaving) return undefined
     document.body.classList.add('dock-on')
     return () => document.body.classList.remove('dock-on')
-  }, [phone])
+  }, [phone, leaving])
 
   const bar = (
-    <div className={'savedock' + (phone ? ' docked' : '')} role="region" aria-label={T('save')}>
+    <div
+      className={'savedock' + (phone ? ' docked' : '') + (leaving ? ' out' : '')}
+      role="region"
+      aria-label={T('save')}
+      inert={leaving}
+    >
       <span className="sdtext">
         <i />
         {TF('set_dirty', { n: count })}
@@ -47,4 +55,12 @@ export default function SaveDock({ count, busy, onRevert, onSave }) {
   )
 
   return phone ? createPortal(bar, document.body) : bar
+}
+
+export default function SaveDock({ show, count, busy, onRevert, onSave }) {
+  const shown = usePresence(show, EXIT_MS)
+  const [kept, setKept] = useState(count)
+  if (show && count !== kept) setKept(count)
+  if (!shown) return null
+  return <Bar count={show ? count : kept} busy={busy} leaving={!show} onRevert={onRevert} onSave={onSave} />
 }

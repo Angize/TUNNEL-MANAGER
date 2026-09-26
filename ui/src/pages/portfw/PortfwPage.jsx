@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import { CardSkeletons } from '../../components/Skeleton.jsx'
@@ -13,7 +13,8 @@ import { toast } from '../../lib/toast.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
-import { listBusy } from '../../lib/reorder.js'
+import { listBusy, reorderMode } from '../../lib/reorder.js'
+import useFlipList from '../../lib/useFlipList.js'
 
 export default function PortfwPage({ active }) {
   const { counts } = useSummary()
@@ -21,6 +22,7 @@ export default function PortfwPage({ active }) {
   const [nodes, setNodes] = useState([])
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [opening, setOpening] = useState(false)
 
   const load = useCallback(async () => {
     if (listBusy()) return undefined
@@ -42,7 +44,10 @@ export default function PortfwPage({ active }) {
   }, [])
 
   const openAdd = async () => {
+    if (opening) return
+    setOpening(true)
     const all = await loadNodes()
+    setOpening(false)
     if (!all) return
     if (!all.some((n) => n.online && !n.hidden)) {
       toast(T('pf_no_online'), 'err')
@@ -59,12 +64,16 @@ export default function PortfwPage({ active }) {
   const order = useCardReorder('portfw', items.map((x) => x.node_id + x.name), reload)
   const byId = new Map(items.map((x) => [x.node_id + x.name, x]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
+  const listBox = useRef(null)
+  useFlipList(listBox, list === null ? null : ordered.map((x) => x.node_id + x.name), query, {
+    hold: reorderMode() || listBusy(),
+  })
 
   return (
     <>
       <div className="tbtnrow">
-        <button className="primary glass" onClick={openAdd}>
-          <Icon name="plus" />
+        <button className="primary glass" disabled={opening} onClick={openAdd}>
+          {opening ? <span className="bspin ink sm" /> : <Icon name="plus" />}
           {T('pf_add')}
         </button>
       </div>
@@ -76,7 +85,7 @@ export default function PortfwPage({ active }) {
 
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
-      <div>
+      <div ref={listBox} className="flist">
         {list === null ? (
           <CardSkeletons kind="portfw" count={counts.portfw} />
         ) : ordered.length ? (
@@ -89,7 +98,7 @@ export default function PortfwPage({ active }) {
             />
           ))
         ) : (
-          <div className="card muted">{query ? T('no_results') : T('pf_empty')}</div>
+          <div className={'card muted' + (query ? '' : ' empty')}>{query ? T('no_results') : T('pf_empty')}</div>
         )}
       </div>
 

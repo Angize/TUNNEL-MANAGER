@@ -11,6 +11,7 @@ import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
+import Msg from '../../components/Msg.jsx'
 
 export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const [busy, guard] = useBusy()
@@ -105,7 +106,7 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
         onRotate={setRotate}
         onMinutes={setRotateMinutes}
       />
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

@@ -95,7 +95,7 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
     },
     rebuild: async () => {
       if (link.drift) {
-        pickRebuild()
+        await withBusy('rebuild', pickRebuild)
         return
       }
       if (await askBox(T('rebuild_confirm'), T('tip_rebuild'))) await startAct('rebuild', 'rebuild_failed', false)

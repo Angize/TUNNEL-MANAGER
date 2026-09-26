@@ -17,7 +17,8 @@ import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
-import { listBusy } from '../../lib/reorder.js'
+import { listBusy, reorderMode } from '../../lib/reorder.js'
+import useFlipList from '../../lib/useFlipList.js'
 import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
@@ -101,6 +102,13 @@ export default function CorePage({ active }) {
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
   const builds = splitBuilds(pending, ordered)
+  const listBox = useRef(null)
+  useFlipList(
+    listBox,
+    list === null ? null : [...builds.shown.map((l) => l.id), ...builds.cards.map((a) => 'pend_' + a.key)],
+    query,
+    { hold: reorderMode() || listBusy() }
+  )
   const bulk = useBulk({ list: list === null ? null : ordered, command: 'core:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
 
@@ -121,7 +129,7 @@ export default function CorePage({ active }) {
 
       <Toolbar value={query} placeholder={T('core_search')} reorder onSearch={setQuery} />
 
-      <div>
+      <div ref={listBox} className="flist">
         {list === null ? (
           <CardSkeletons kind="tunnel" count={counts.core} />
         ) : builds.shown.length || builds.cards.length ? (
@@ -144,7 +152,7 @@ export default function CorePage({ active }) {
             {bulk.selecting ? <div className="bulkpad" /> : null}
           </>
         ) : (
-          <div className="card muted">{query ? T('no_results') : T('core_empty')}</div>
+          <div className={'card muted' + (query ? '' : ' empty')}>{query ? T('no_results') : T('core_empty')}</div>
         )}
       </div>
 

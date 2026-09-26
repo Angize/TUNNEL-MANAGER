@@ -31,7 +31,7 @@ function ApiGroup({ f }) {
       </div>
       <div className="oprow">
         {token ? (
-          <CopyValue text={token} className="aptok" />
+          <CopyValue key={token} text={token} className="aptok" />
         ) : (
           <div className="aptok">
             <Icon name="lock" />
@@ -66,7 +66,7 @@ export default function ApiTab({ active }) {
         </Suspense>
       ) : null}
 
-      {active && f.dirty ? <SaveDock count={f.dirty} busy={f.busy} onRevert={f.revert} onSave={f.save} /> : null}
+      <SaveDock show={active && !!f.dirty} count={f.dirty} busy={f.busy} onRevert={f.revert} onSave={f.save} />
     </div>
   )
 }

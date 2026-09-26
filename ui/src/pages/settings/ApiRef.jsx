@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Icon from '../../components/Icon.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import CopyValue, { copyText } from '../../components/CopyValue.jsx'
 import RichText from '../../components/RichText.jsx'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -120,6 +121,7 @@ function Body({ cmd, method, token, base }) {
   const sample = SAMPLES[cmd] || {}
   const list = answers(cmd, method, token, doc.act)
   const [pick, setPick] = useState(list[0].key)
+  const [picked, setPicked] = useState(false)
   const cur = list.find((a) => a.key === pick) || list[0]
   const params = doc.p || []
   const curl = token ? curlOf(base, cmd, method, sample) : ''
@@ -175,38 +177,50 @@ function Body({ cmd, method, token, base }) {
             key={a.key}
             className={'apcc ' + tone(a.code) + (a.key === cur.key ? ' on' : '')}
             aria-pressed={a.key === cur.key}
-            onClick={() => setPick(a.key)}
+            onClick={(e) => {
+              setPicked(!!e.detail)
+              setPick(a.key)
+            }}
           >
             {a.code}
           </button>
         ))}
       </div>
-      <p className="apcnote">{cur.note}</p>
-      {cur.bodies.map((b, i) => (
-        <Json key={i} value={b} label="response.json" />
-      ))}
-      {cur.rows.length ? (
-        <>
-          <p className="apcnote">{cur.bodies.length ? TEXT.rowsAct : TEXT.rowsAll}</p>
-          <Rows rows={cur.rows} />
-        </>
-      ) : null}
+      <div key={cur.key} className={'apres' + (picked ? ' in' : '')}>
+        <p className="apcnote">{cur.note}</p>
+        {cur.bodies.map((b, i) => (
+          <Json key={i} value={b} label="response.json" />
+        ))}
+        {cur.rows.length ? (
+          <>
+            <p className="apcnote">{cur.bodies.length ? TEXT.rowsAct : TEXT.rowsAll}</p>
+            <Rows rows={cur.rows} />
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }
 
 function Row({ cmd, method, token, open, onToggle, base }) {
   const doc = DOCS[cmd] || {}
+  const [kb, setKb] = useState(false)
+  const toggle = (e) => {
+    setKb(e.type !== 'click' || !e.detail)
+    onToggle()
+  }
   return (
     <div className={'apep' + (open ? ' open' : '')}>
-      <div className="apsum" aria-expanded={open ? 'true' : 'false'} {...pressable(onToggle)}>
+      <div className="apsum" aria-expanded={open ? 'true' : 'false'} {...pressable(toggle)}>
         <span className={'apm ' + method.toLowerCase()}>{method}</span>
         <code className="appath mono">/api/{cmd}</code>
         <span className="apt">{doc.t || ''}</span>
         {token ? null : <span className="apdeny">{TEXT.deny}</span>}
         <Icon name="chev" />
       </div>
-      {open ? <Body cmd={cmd} method={method} token={token} base={base} /> : null}
+      <Reveal show={open} instant={kb}>
+        <Body cmd={cmd} method={method} token={token} base={base} />
+      </Reveal>
     </div>
   )
 }

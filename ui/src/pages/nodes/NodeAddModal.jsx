@@ -6,6 +6,7 @@ import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import InstallProgress from './InstallProgress.jsx'
 import useInstallJob from './useInstallJob.js'
 import { isNodeNameValid } from './nodeName.js'
@@ -206,7 +207,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
         </button>
       </div>
 
-      {mode === 'auto' ? (
+      <Reveal show={mode === 'auto'}>
         <div>
           <div className="autonote">
             <Icon name="bolt" />
@@ -281,7 +282,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
                 </button>
               </span>
             </div>
-            {authMode === 'pass' ? (
+            <Reveal show={authMode === 'pass'}>
               <Field hint={T('nadd_pass_hint')}>
                 <input
                   className="fld2"
@@ -293,7 +294,8 @@ export default function NodeAddModal({ onClose, onAdded }) {
                   onChange={(e) => setAuto({ ...auto, pass: e.target.value })}
                 />
               </Field>
-            ) : (
+            </Reveal>
+            <Reveal show={authMode === 'key'}>
               <Field hint={T('nadd_key_hint')}>
                 <textarea
                   className="fld2"
@@ -305,7 +307,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
                   onChange={(e) => setAuto({ ...auto, key: e.target.value })}
                 />
               </Field>
-            )}
+            </Reveal>
           </div>
 
           <ProxyFields proxies={proxies} value={autoProxy} onChange={setAutoProxy} />
@@ -314,7 +316,8 @@ export default function NodeAddModal({ onClose, onAdded }) {
             <InstallProgress state={progress} />
           </div>
         </div>
-      ) : (
+      </Reveal>
+      <Reveal show={mode === 'manual'}>
         <div>
           <div className="grid2">
             <Field label={T('nadd_manual_name')} first>
@@ -351,7 +354,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
           </div>
           <ProxyFields proxies={proxies} value={manualProxy} onChange={setManualProxy} />
         </div>
-      )}
+      </Reveal>
     </Modal>
   )
 }

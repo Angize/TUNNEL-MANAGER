@@ -78,11 +78,12 @@
   align-items: center;
   gap: 10px;
   padding: 10px 2px;
-  border-bottom: 1px solid var(--bord);
 }
 
-.oalert:last-child {
-  border-bottom: 0;
+.oalert + .oalert,
+.oalerts > .rv + .rv .oalert,
+.oalerts > .rv + .oalert {
+  border-top: 1px solid var(--bord);
 }
 
 .oalert .msg {
@@ -226,7 +227,9 @@
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
+  translate: -50% 0;
+  transform-origin: 50% 100%;
+  animation: htipin .15s var(--ease-out);
   direction: rtl;
   background: var(--tx);
   color: var(--page);
@@ -239,6 +242,22 @@
   pointer-events: none;
   z-index: 6;
   box-shadow: 0 5px 16px rgba(0, 0, 0, .28);
+}
+
+@keyframes htipin {
+  from { opacity: 0; transform: translateY(4px) scale(.96) }
+}
+
+@keyframes htipout {
+  to { opacity: 0; transform: scale(.97) }
+}
+
+.htip.instant {
+  animation: none;
+}
+
+.htip.out {
+  animation: htipout .12s var(--ease-out) forwards;
 }
 
 .htip span {

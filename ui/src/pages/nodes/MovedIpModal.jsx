@@ -6,6 +6,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
+import Msg from '../../components/Msg.jsx'
 
 function Tile({ icon, label, value }) {
   return (
@@ -61,7 +62,7 @@ export default function MovedIpModal({ node, onClose, onAdopted }) {
         <Tile icon="globe" label={T('mv_new')} value={node.moved_to} />
         <Tile icon="server" label={T('mv_old')} value={node.host + ':' + node.port} />
       </div>
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

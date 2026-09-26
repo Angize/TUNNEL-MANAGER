@@ -1,7 +1,7 @@
 import { T } from '../../i18n/fa.js'
 import { eventLevel, formatEventTime, layoutEvent, valueClass } from './logFormat.js'
 
-export default function LogEvent({ event, open, onToggle }) {
+export default function LogEvent({ event, open, onToggle, born }) {
   const level = eventLevel(event)
   const { text, lead, rest, isPair } = layoutEvent(event)
   const foldable = rest.length > 0
@@ -21,9 +21,13 @@ export default function LogEvent({ event, open, onToggle }) {
         tabIndex: 0,
         'aria-expanded': open ? 'true' : 'false',
         onClick: activate,
+        onPointerDown: (e) => {
+          delete e.currentTarget.dataset.kb
+        },
         onKeyDown: (e) => {
           if (e.key === ' ' || e.key === 'Enter') {
             e.preventDefault()
+            e.currentTarget.dataset.kb = '1'
             activate()
           }
         },
@@ -32,7 +36,14 @@ export default function LogEvent({ event, open, onToggle }) {
 
   return (
     <div
-      className={'lev ' + level + (foldable ? ' tap' : '') + (foldable && open ? ' open' : '')}
+      className={
+        'lev ' +
+        level +
+        (foldable ? ' tap' : '') +
+        (foldable && open ? ' open' : '') +
+        (born === undefined ? '' : ' lev-new')
+      }
+      style={born === undefined ? undefined : { '--i': born }}
       {...interactive}
     >
       <span className="lev-bar" />
@@ -54,13 +65,15 @@ export default function LogEvent({ event, open, onToggle }) {
         ) : null}
         {foldable ? (
           <>
-            <div className="lev-fold">
-              {rest.map((row, i) => (
-                <div className="lev-row" key={row.k + i}>
-                  <b>{row.k}</b>
-                  <span className={valueClass(row.v)}>{row.v}</span>
-                </div>
-              ))}
+            <div className="lev-fold" inert={!open}>
+              <div className="lev-fold-in">
+                {rest.map((row, i) => (
+                  <div className="lev-row" key={row.k + i}>
+                    <b>{row.k}</b>
+                    <span className={valueClass(row.v)}>{row.v}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <span className="lev-more">
               <span className="more">{T('sod_more')}</span>

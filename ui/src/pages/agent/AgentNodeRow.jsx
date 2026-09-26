@@ -1,4 +1,5 @@
 import Icon from '../../components/Icon.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import PushBar, { pushTone } from './PushBar.jsx'
 import { coreVersionName, versionIsNewer } from './versions.js'
 import { T } from '../../i18n/fa.js'
@@ -116,9 +117,13 @@ export default function AgentNodeRow({
         />
       </div>
 
-      <div className={'msg agres' + (status ? ' ' + pushTone(status) : '')}>
-        {status ? <PushBar status={status} /> : null}
-      </div>
+      <Reveal show={!!status}>
+        {status ? (
+          <div className={'msg agres' + (pushTone(status) ? ' ' + pushTone(status) : '')}>
+            <PushBar status={status} />
+          </div>
+        ) : null}
+      </Reveal>
 
       <div className="nxa">
         <button

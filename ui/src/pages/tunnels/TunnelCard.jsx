@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
-import { Check, Cross } from '../../components/Marks.jsx'
 import ActionRow from '../../components/ActionRow.jsx'
 import TagPicker from '../../components/TagPicker.jsx'
 import TunnelMeta from './TunnelMeta.jsx'
-import RichText from '../../components/RichText.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState } from './sideHealth.js'
-import RebuildPicker from '../../components/RebuildPicker.jsx'
+import RebuildPicker, { loadRebuild } from '../../components/RebuildPicker.jsx'
+import CardResult from '../../components/CardResult.jsx'
 import Grip from '../../components/Grip.jsx'
 import { SelBox } from '../../components/Bulk.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
@@ -92,7 +91,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
   const hold = useLongPress(() => setPicking(true))
   const act = actFor(link.id)
   const dragging = useDragging(link.id)
-  const [pickingRebuild, setPickingRebuild] = useState(false)
+  const [pickingRebuild, setPickingRebuild] = useState(null)
   const enabled = link.enabled !== false
   const [busyAct, withBusy] = useActionBusy()
   const [toggleBusy, withToggle] = useActionBusy()
@@ -103,7 +102,11 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
     setMessage,
     withBusy,
     withToggle,
-    pickRebuild: () => setPickingRebuild(true),
+    pickRebuild: async () => {
+      const got = await loadRebuild(link.id)
+      if (got) setPickingRebuild(got)
+      else if (got === false) onReload()
+    },
     register: registerActions,
   })
 
@@ -304,38 +307,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
               <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
             </div>
 
-            <div className={message ? 'msg ' + message.cls : 'msg'}>
-              {message && message.lines ? (
-                <>
-                  <div className="chh">
-                    {message.lines.ok ? <Check /> : <Cross />} {message.lines.head}
-                  </div>
-                  <div className="chl">{message.lines.a}</div>
-                  <div className="chl">{message.lines.b}</div>
-                </>
-              ) : message && message.speed ? (
-                <>
-                  <div className="chh">
-                    {message.cls === 'ok' ? <Check /> : <Cross />} {T('speed_done')}{' '}
-                    <span className="muted">{message.speed.how}</span>
-                  </div>
-                  <div className="chl">
-                    {T('speed_down')}: {'\u2066' + message.speed.down + '\u2069'}
-                  </div>
-                  <div className="chl">
-                    {T('speed_up')}: {'\u2066' + message.speed.up + '\u2069'}
-                  </div>
-                  <div className="wrap muted" style={{ marginTop: 6 }}>
-                    <RichText text={T('speed_note')} />
-                  </div>
-                </>
-              ) : message ? (
-                <>
-                  {message.swap ? <Icon name="swap" /> : null}
-                  {message.text}
-                </>
-              ) : null}
-            </div>
+            <CardResult message={message} />
           </div>
         </div>
       </div>
@@ -354,7 +326,8 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
       {pickingRebuild ? (
         <RebuildPicker
           id={link.id}
-          onClose={() => setPickingRebuild(false)}
+          start={pickingRebuild}
+          onClose={() => setPickingRebuild(null)}
           onDone={onReload}
         />
       ) : null}

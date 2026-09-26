@@ -6,6 +6,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
+import Msg from '../../components/Msg.jsx'
 
 export default function DeleteNodeModal({ node, onClose, onDeleted }) {
   const [busy, setBusy] = useState(false)
@@ -55,7 +56,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
         </div>
         <div className="do-s">{offline ? T('del_wipe_force_s') : T('del_wipe_s')}</div>
       </button>
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

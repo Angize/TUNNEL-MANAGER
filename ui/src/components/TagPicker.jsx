@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CARD_TAGS } from '../lib/cardTags.js'
 import { T } from '../i18n/fa.js'
+import { leaveGhost } from '../lib/leaveGhost.js'
 
 const ARM_MS = 300
 const STUCK_MS = 10000
@@ -11,6 +12,7 @@ export default function TagPicker({ current, onPick, onClose }) {
   const armTimer = useRef(0)
   const stuckTimer = useRef(0)
   const boxRef = useRef(null)
+  const veil = useRef(null)
   const onCloseRef = useRef(onClose)
 
   onCloseRef.current = onClose
@@ -45,6 +47,11 @@ export default function TagPicker({ current, onPick, onClose }) {
     }
   }, [])
 
+  useLayoutEffect(() => {
+    const node = veil.current
+    return () => leaveGhost(node)
+  }, [])
+
   const pick = (tag) => {
     if (!armed) return
     onPick(tag)
@@ -52,6 +59,7 @@ export default function TagPicker({ current, onPick, onClose }) {
 
   return createPortal(
     <div
+      ref={veil}
       className="tagov"
       onContextMenu={(e) => e.preventDefault()}
       onClick={(e) => {
@@ -67,7 +75,7 @@ export default function TagPicker({ current, onPick, onClose }) {
               key={i}
               type="button"
               className={'tagdot' + (current === i + 1 ? ' on' : '')}
-              style={{ background: `linear-gradient(140deg,${colors.a},${colors.b})` }}
+              style={{ background: `linear-gradient(140deg,${colors.a},${colors.b})`, '--i': i }}
               onClick={() => pick(i + 1)}
             />
           ))}

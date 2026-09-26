@@ -9,7 +9,7 @@ import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
-import { Check } from '../../components/Marks.jsx'
+import Msg from '../../components/Msg.jsx'
 
 function Names({ names }) {
   return (
@@ -137,14 +137,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
         <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(proxy)} />
         <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
       </div>
-      <div className={msg ? 'msg ' + msg.cls : 'msg'}>
-        {msg ? (
-          <>
-            {msg.check ? <Check /> : null}
-            {msg.check ? ' ' + msg.text : msg.text}
-          </>
-        ) : null}
-      </div>
+      <Msg text={msg && msg.text} cls={msg && msg.cls} check={msg && msg.check} />
     </AccordionCard>
   )
 }

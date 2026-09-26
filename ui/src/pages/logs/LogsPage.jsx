@@ -3,6 +3,7 @@ import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import { Sk } from '../../components/Skeleton.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
 import useHiddenTypes from './useHiddenTypes.js'
@@ -14,12 +15,34 @@ import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { setLS } from '../../lib/storage.js'
 import { setPageRefresh } from '../../lib/poll.js'
+import { reducedMotion } from '../../lib/motion.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import './logs.css'
 
 const PAGE_SIZE = 200
 const SEEN_KEY = 'tnl_logs_seen'
+const BORN_MAX = 6
+const BORN_MS = 600
+const NO_BORN = new Map()
+
+function idKey(id) {
+  const [a, b] = String(id || '').split('-')
+  return [Number(a) || 0, Number(b) || 0]
+}
+
+function idAfter(a, b) {
+  return a[0] > b[0] || (a[0] === b[0] && a[1] > b[1])
+}
+
+function newestId(events, start) {
+  let top = start
+  for (const e of events) {
+    const k = idKey(e.id)
+    if (idAfter(k, top)) top = k
+  }
+  return top
+}
 
 function LogSkeleton() {
   return (
@@ -51,6 +74,11 @@ export default function LogsPage() {
   const [show, setShow] = useState(PAGE_SIZE)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [openIds, setOpenIds] = useState({})
+  const [born, setBorn] = useState(NO_BORN)
+  const [kbFilters, setKbFilters] = useState(false)
+  const [cleared, setCleared] = useState(false)
+  const newest = useRef(null)
+  const listBox = useRef(null)
   const signature = useRef('')
   const flight = useRef(null)
 
@@ -80,6 +108,12 @@ export default function LogsPage() {
     flight.current = null
     if (!r) return
     signature.current = sig
+    const before = newest.current
+    newest.current = newestId(r.events, before || [0, 0])
+    if (before) {
+      const fresh = r.events.filter((e) => idAfter(idKey(e.id), before)).slice(0, BORN_MAX)
+      if (fresh.length) setBorn(new Map(fresh.map((e, i) => [e, i])))
+    }
     setEvents(r.events)
     setHiddenOut(r.hidden_out)
     if (!isPending()) adoptFromServer(r.hidden)
@@ -100,6 +134,12 @@ export default function LogsPage() {
   useEffect(() => {
     setShow(PAGE_SIZE)
   }, [filter, query])
+
+  useEffect(() => {
+    if (!born.size) return undefined
+    const timer = setTimeout(() => setBorn(NO_BORN), BORN_MS)
+    return () => clearTimeout(timer)
+  }, [born])
 
   const keys = useMemo(() => {
     const list = events || []
@@ -146,7 +186,20 @@ export default function LogsPage() {
       toast(postError(r), 'err')
       return
     }
+    const list = listBox.current
+    if (list && !reducedMotion()) {
+      try {
+        await list.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(8px)' }], {
+          duration: 200,
+          easing: 'cubic-bezier(.23, 1, .32, 1)',
+          fill: 'forwards',
+        }).finished
+      } catch {
+        list.getAnimations().forEach((a) => a.cancel())
+      }
+    }
     toast(T('logs_cleared'), 'ok')
+    setCleared(true)
     setEvents([])
     setHiddenOut(0)
     refetch()
@@ -160,6 +213,11 @@ export default function LogsPage() {
   const shown = visible.slice(0, show)
   const remaining = visible.length - shown.length
 
+  const more = (e) => {
+    if (e.type === 'click' && e.detail) setBorn(new Map(visible.slice(show, show + BORN_MAX).map((ev, i) => [ev, i])))
+    setShow(show + PAGE_SIZE)
+  }
+
   return (
     <div className="logs">
       <PageHead icon="list" titleKey="logs_title" />
@@ -169,7 +227,10 @@ export default function LogsPage() {
           type="button"
           className={'ghost lgfbtn' + (filtersOpen ? ' on' : '')}
           disabled={!known}
-          onClick={() => setFiltersOpen(!filtersOpen)}
+          onClick={(e) => {
+            setKbFilters(!e.detail)
+            setFiltersOpen(!filtersOpen)
+          }}
         >
           <Icon name="cog" />
           {T('logf_btn')}
@@ -183,22 +244,24 @@ export default function LogsPage() {
 
       <Toolbar value={query} placeholder={T('logs_search')} onSearch={setQuery} />
 
-      {filtersOpen && known ? (
-        <LogFiltersPanel
-          evTypes={evTypes}
-          evGroups={evGroups}
-          hidden={hidden}
-          onToggleType={toggleType}
-          onToggleGroup={toggleGroup}
-        />
-      ) : null}
+      <Reveal show={filtersOpen && known} instant={kbFilters}>
+        {known ? (
+          <LogFiltersPanel
+            evTypes={evTypes}
+            evGroups={evGroups}
+            hidden={hidden}
+            onToggleType={toggleType}
+            onToggleGroup={toggleGroup}
+          />
+        ) : null}
+      </Reveal>
 
       {events === null ? (
         <LogSkeleton />
       ) : !events.length ? (
-        <div className="card muted">{T(hiddenOut ? 'logf_empty' : 'logs_empty')}</div>
+        <div className={'card muted' + (cleared ? ' logempty' : '')}>{T(hiddenOut ? 'logf_empty' : 'logs_empty')}</div>
       ) : (
-        <>
+        <div ref={listBox}>
           {hiddenCount && !filtersOpen ? (
             <div className="lgfnote">
               <Icon name="cog" />
@@ -236,6 +299,7 @@ export default function LogsPage() {
                       key={key}
                       event={event}
                       open={!!openIds[key]}
+                      born={born.get(event)}
                       onToggle={() => setOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))}
                     />
                   )
@@ -251,11 +315,11 @@ export default function LogsPage() {
                 className="card muted logmore"
                 role="button"
                 tabIndex={0}
-                onClick={() => setShow(show + PAGE_SIZE)}
+                onClick={more}
                 onKeyDown={(e) => {
                   if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault()
-                    setShow(show + PAGE_SIZE)
+                    more(e)
                   }
                 }}
               >
@@ -263,7 +327,7 @@ export default function LogsPage() {
               </div>
             ) : null}
           </div>
-        </>
+        </div>
       )}
     </div>
   )

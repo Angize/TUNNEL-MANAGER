@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
 import TabBar from './shell/TabBar.jsx'
@@ -9,12 +10,14 @@ import { apiGet } from './lib/api.js'
 import { getLS, setLS } from './lib/storage.js'
 import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
 import { num } from './lib/num.js'
+import { reducedMotion } from './lib/motion.js'
 import { runPageRefresh, setUiInterval } from './lib/poll.js'
 import { stopReorder } from './lib/reorder.js'
 import { mayLeave } from './lib/leaveGuard.js'
 import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import Reveal from './components/Reveal.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
@@ -243,8 +246,13 @@ function Shell() {
 
   const onKind = useCallback((kind) => setKinds((prev) => withKind(prev, kind)), [])
 
-  const onToggleTheme = useCallback(() => {
-    setDark(toggleTheme())
+  const onToggleTheme = useCallback((e) => {
+    const swap = () => setDark(toggleTheme())
+    if (!e || e.type !== 'click' || !e.detail || !document.startViewTransition || reducedMotion()) {
+      swap()
+      return
+    }
+    document.startViewTransition(() => flushSync(swap))
   }, [])
 
   const summaryValue = useMemo(
@@ -268,7 +276,7 @@ function Shell() {
       }
       const tag = e.target && e.target.tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      if (document.querySelector('.modalov')) return
+      if (document.querySelector('.modalov:not(.leaving)')) return
       e.preventDefault()
       setPalette(true)
     }
@@ -291,8 +299,12 @@ function Shell() {
         />
         <main className="main">
           <TopBar dark={dark} onToggleTheme={onToggleTheme} />
-          <ConnBar lost={lost} onRetry={() => retry.current()} />
-          <ReadinessBar readiness={readiness} onNavigate={navigate} />
+          <Reveal show={!!lost}>
+            <ConnBar lost={lost} onRetry={() => retry.current()} />
+          </Reveal>
+          <Reveal show={!!readiness && !readiness.ok}>
+            <ReadinessBar readiness={readiness} onNavigate={navigate} />
+          </Reveal>
           <div id="view" className="pg" key={page}>
             {uiConfig ? (
               <UiConfigProvider value={uiConfig}>

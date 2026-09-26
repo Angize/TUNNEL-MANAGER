@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import Modal from './Modal.jsx'
 import Icon from './Icon.jsx'
 import IpChips from './IpChips.jsx'
@@ -9,6 +9,7 @@ import { postError, readError, translateError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
 import useBusy from '../lib/useBusy.js'
 import { useActs } from '../state/ActsContext.jsx'
+import Msg from './Msg.jsx'
 
 const SIDES = [
   ['a', 'a_ip'],
@@ -21,49 +22,30 @@ function firstChoice(side) {
   return ((side.ips || [])[0] || {}).ip || ''
 }
 
-export default function RebuildPicker({ id, onClose, onDone }) {
-  const [info, setInfo] = useState(null)
-  const [picked, setPicked] = useState({})
+export async function loadRebuild(id) {
+  const r = await apiPost('link-rebuild-info', { id })
+  if (!r.ok) {
+    toast(readError(r), 'err')
+    return null
+  }
+  const chosen = {}
+  for (const [side, key] of SIDES) {
+    if (!r.d[side] || !r.d[side].drifted) continue
+    chosen[key] = firstChoice(r.d[side])
+  }
+  if (!Object.keys(chosen).length) {
+    toast(T('rb_no_drift'), 'ok')
+    return false
+  }
+  return { info: r.d, picked: chosen }
+}
+
+export default function RebuildPicker({ id, start, onClose, onDone }) {
+  const info = start.info
+  const [picked, setPicked] = useState(start.picked)
   const [message, setMessage] = useState('')
   const [busy, guard] = useBusy()
   const { waitAccepted } = useActs()
-  const closeRef = useRef(onClose)
-  const doneRef = useRef(onDone)
-
-  closeRef.current = onClose
-  doneRef.current = onDone
-
-  useEffect(() => {
-    let alive = true
-    apiPost('link-rebuild-info', { id })
-      .then((r) => {
-        if (!alive) return
-        if (!r.ok) {
-          toast(readError(r), 'err')
-          closeRef.current()
-          return
-        }
-        const d = r.d
-        const chosen = {}
-        for (const [side, key] of SIDES) {
-          if (!d[side] || !d[side].drifted) continue
-          chosen[key] = firstChoice(d[side])
-        }
-        if (!Object.keys(chosen).length) {
-          toast(T('rb_no_drift'), 'ok')
-          closeRef.current()
-          doneRef.current()
-          return
-        }
-        setPicked(chosen)
-        setInfo(d)
-      })
-    return () => {
-      alive = false
-    }
-  }, [id])
-
-  if (!info) return null
 
   const rebuild = async () => {
     const body = { id }
@@ -152,7 +134,7 @@ export default function RebuildPicker({ id, onClose, onDone }) {
           </div>
         )
       })}
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

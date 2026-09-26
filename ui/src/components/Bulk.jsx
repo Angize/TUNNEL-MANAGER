@@ -7,6 +7,8 @@ import { leaveGhost } from '../lib/leaveGhost.js'
 import './bulk.css'
 
 export function BulkButton({ bulk }) {
+  const ran = useRef(false)
+  if (bulk.run) ran.current = true
   if (bulk.run) {
     const { key, i, k } = bulk.run
     const action = BULK_ACTIONS.find((a) => a.key === key)
@@ -27,7 +29,7 @@ export function BulkButton({ bulk }) {
   }
   return (
     <button
-      className={'ghost tone bulkbtn' + (bulk.selecting ? ' on' : '')}
+      className={'ghost tone bulkbtn' + (bulk.selecting ? ' on' : '') + (ran.current ? ' back' : '')}
       onClick={bulk.selecting ? bulk.exit : bulk.start}
     >
       <Icon name={bulk.selecting ? 'check' : 'grid'} />
@@ -46,6 +48,12 @@ export function SelBox({ on }) {
 
 function Bar({ bulk }) {
   const k = bulk.picked.size
+  const box = useRef(null)
+
+  useLayoutEffect(() => {
+    const node = box.current
+    return () => leaveGhost(node)
+  }, [])
 
   useEffect(() => {
     document.body.classList.add('bulksel')
@@ -53,7 +61,7 @@ function Bar({ bulk }) {
   }, [])
 
   return createPortal(
-    <div className="bulkbar">
+    <div ref={box} className="bulkbar">
       <button type="button" className="x" title={T('bulk_exit')} onClick={bulk.exit}>
         <Icon name="x" />
       </button>

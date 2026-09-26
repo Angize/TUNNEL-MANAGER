@@ -3,7 +3,6 @@ import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import { useActionBusy } from '../../lib/useBusy.js'
-import { Check } from '../../components/Marks.jsx'
 import UptimeBar from './UptimeBar.jsx'
 import { coreVersionName } from '../agent/versions.js'
 import { T } from '../../i18n/fa.js'
@@ -13,6 +12,7 @@ import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import { checkable } from '../../lib/keys.js'
+import Msg from '../../components/Msg.jsx'
 
 const PENDING_DEL_STYLE = {
   fontSize: 9,
@@ -213,14 +213,7 @@ export default function NodeCard({
         <ActBtn cls="danger" icon="trash" title={T('tip_delete')} locked={!!busyAct} onClick={() => onDelete(node)} />
       </div>
 
-      <div className={message ? 'msg ' + message.cls : 'msg'}>
-        {message ? (
-          <>
-            {message.check ? <Check /> : null}
-            {message.check ? ' ' + message.text : message.text}
-          </>
-        ) : null}
-      </div>
+      <Msg text={message && message.text} cls={message && message.cls} check={message && message.check} />
     </AccordionCard>
   )
 }

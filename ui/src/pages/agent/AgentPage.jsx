@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import { AgentRowsSkeleton } from '../../components/Skeleton.jsx'
 import Icon from '../../components/Icon.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import Select from '../../components/Select.jsx'
 import { Check } from '../../components/Marks.jsx'
@@ -41,31 +42,43 @@ function Facts({ items }) {
   )
 }
 
+function msgKey(value) {
+  return value.progress != null ? 'p' : value.cls + '|' + value.text
+}
+
 function Message({ value, onCancel }) {
+  const key = msgKey(value)
+  const firstKey = useRef(key)
   return (
     <div className={'msg ' + value.cls}>
-      {value.progress != null ? (
-        <>
-          <div className="pushbar">
-            <i style={{ width: value.progress + '%' }} />
-          </div>
-          <div className="plbl">
-            <span>{T('cor_downloading')}</span>
-            <b>{value.progress}%</b>
-          </div>
-          <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={onCancel}>
-            <Icon name="xc" />
-            {T('cor_dl_cancel')}
-          </button>
-        </>
-      ) : (
-        <>
-          {value.text}
-          {value.check ? <Check /> : null}
-        </>
-      )}
+      <div key={key} className={'msgin' + (key !== firstKey.current ? ' sw' : '')}>
+        {value.progress != null ? (
+          <>
+            <div className="pushbar">
+              <i style={{ width: value.progress + '%' }} />
+            </div>
+            <div className="plbl">
+              <span>{T('cor_downloading')}</span>
+              <b>{value.progress}%</b>
+            </div>
+            <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={onCancel}>
+              <Icon name="xc" />
+              {T('cor_dl_cancel')}
+            </button>
+          </>
+        ) : (
+          <>
+            {value.text}
+            {value.check ? <Check /> : null}
+          </>
+        )}
+      </div>
     </div>
   )
+}
+
+function MessageSlot({ value, onCancel }) {
+  return <Reveal show={!!value}>{value ? <Message value={value} onCancel={onCancel} /> : null}</Reveal>
 }
 
 export default function AgentPage({ headless }) {
@@ -526,8 +539,8 @@ export default function AgentPage({ headless }) {
             </button>
           </div>
         </UpdateRow>
-        {gitMsg ? <Message value={gitMsg} /> : null}
-        {agentMsg ? <Message value={agentMsg} /> : null}
+        <MessageSlot value={gitMsg} />
+        <MessageSlot value={agentMsg} />
 
         <div className="updiv" />
 
@@ -604,7 +617,7 @@ export default function AgentPage({ headless }) {
             ) : null}
           </div>
         </UpdateRow>
-        {coreMsg ? <Message value={coreMsg} onCancel={cancelStage} /> : null}
+        <MessageSlot value={coreMsg} onCancel={cancelStage} />
 
         <input
           type="file"

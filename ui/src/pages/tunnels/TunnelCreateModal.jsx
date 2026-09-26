@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
-import ModalLoading from '../../components/ModalLoading.jsx'
+import Reveal from '../../components/Reveal.jsx'
+import modalLoading from '../../components/ModalLoading.jsx'
 import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
@@ -16,6 +17,7 @@ import { TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
+import Msg from '../../components/Msg.jsx'
 
 const PORT_TYPES = ['l2tpv3', 'fou']
 
@@ -43,6 +45,28 @@ function TypeExtra({ type, port, onPort }) {
     )
   }
   return null
+}
+
+function extraKind(type) {
+  if (PORT_TYPES.includes(type)) return 'l2'
+  return type === 'vxlan' || type === 'ipsec' ? type : ''
+}
+
+function TypeExtraBox({ type, port, onPort }) {
+  const kind = extraKind(type)
+  const [shownKind, setShownKind] = useState(kind)
+  const [swapped, setSwapped] = useState(false)
+  if (kind !== shownKind) {
+    setShownKind(kind)
+    setSwapped(!!kind && !!shownKind)
+  }
+  return (
+    <Reveal show={!!kind}>
+      <div key={kind} className={swapped ? 'tswap' : undefined}>
+        <TypeExtra type={type} port={port} onPort={onPort} />
+      </div>
+    </Reveal>
+  )
 }
 
 function IpField({ label, ips, value, onChange }) {
@@ -109,14 +133,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   }, [])
 
   if (!nodes) {
-    return (
-      <ModalLoading
-        icon="plus"
-        title={T('add_tunnel_t')}
-        subtitle={T('create_sub')}
-        onClose={onClose}
-      />
-    )
+    return modalLoading({ icon: 'plus', title: T('add_tunnel_t'), subtitle: T('create_sub'), onClose })
   }
 
   const items = nodes.map((n) => ({ v: n.id, label: n.name, sub: n.host }))
@@ -202,7 +219,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
       <Field label={T('tun_type')}>
         <Select items={TUNNEL_TYPES} value={type} placeholder={T('ttype')} onChange={changeType} />
       </Field>
-      <TypeExtra type={type} port={port} onPort={setPort} />
+      <TypeExtraBox type={type} port={port} onPort={setPort} />
 
       <Field label={T('local_range')}>
         <Select
@@ -212,7 +229,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
           onChange={setRange}
         />
       </Field>
-      {range === 'custom' ? (
+      <Reveal show={range === 'custom'}>
         <Field label={T('custom_subnet')}>
           <input
             className="phrtl"
@@ -222,9 +239,9 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
             onChange={(e) => setCustomSubnet(e.target.value)}
           />
         </Field>
-      ) : null}
+      </Reveal>
 
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

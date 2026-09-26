@@ -275,16 +275,59 @@
 }
 
 .lev-fold {
-  display: none;
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px dashed var(--bord);
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0 dashed var(--bord);
+  transition:
+    grid-template-rows .14s var(--ease-out),
+    margin-top .14s var(--ease-out),
+    padding-top .14s var(--ease-out),
+    border-top-width .14s var(--ease-out);
+}
+
+.lev-fold-in {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
   flex-direction: column;
   gap: 5px;
+  opacity: 0;
+  transition: opacity .1s var(--ease-out);
 }
 
 .lev.open .lev-fold {
-  display: flex;
+  grid-template-rows: 1fr;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top-width: 1px;
+  transition-duration: .18s;
+}
+
+.lev.open .lev-fold-in {
+  opacity: 1;
+  transition: opacity .14s var(--ease-out) .04s;
+}
+
+.lev[data-kb] .lev-fold,
+.lev[data-kb] .lev-fold-in {
+  transition: none;
+}
+
+@keyframes levin {
+  from { opacity: 0; transform: translateY(-6px) }
+}
+
+.lev.lev-new {
+  animation: levin .22s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lev.lev-new {
+    animation-delay: 0s;
+  }
 }
 
 .lev-row {

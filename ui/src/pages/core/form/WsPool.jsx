@@ -26,13 +26,13 @@ const KINDS = [
   { kind: 'sni', label: () => T('pool_sni_lbl'), placeholder: 'cdn.example.com' },
 ]
 
-function EdgeRow({ value, kind, health, active, lid, pending, status, onRetest, onSelect, onDelete }) {
+function EdgeRow({ value, kind, health, active, lid, pending, status, fresh, onRetest, onSelect, onDelete }) {
   const tone = healthTone(health, active, EDGE_TITLES)
   const burned = isBurned(health)
   const isTarget = pending && pending.kind === kind && pending.key === value
 
   return (
-    <div className={'erow ' + tone.row + (health && health.state === 'dead' ? ' dead' : '')}>
+    <div className={'erow ' + tone.row + (health && health.state === 'dead' ? ' dead' : '') + (fresh ? ' fresh' : '')}>
       <span className={'estat ' + tone.stat} title={tone.title}>
         <Icon name={tone.icon} />
       </span>
@@ -77,6 +77,7 @@ function EdgeRow({ value, kind, health, active, lid, pending, status, onRetest, 
 export default function WsPool({ form, enums, lid, live, patch }) {
   const [open, setOpen] = useState({ ip: false, sni: false })
   const [draft, setDraft] = useState({ ip: '', sni: '' })
+  const [fresh, setFresh] = useState('')
   const pool = form.pool
   const status = live.status
   useSecondTick(true)
@@ -95,6 +96,7 @@ export default function WsPool({ form, enums, lid, live, patch }) {
     setDraft({ ...draft, [kind]: '' })
     if (pool[kind].includes(value)) return
     setPool({ [kind]: pool[kind].concat([value]) })
+    setFresh(kind + ':' + value)
     setOpen({ ...open, [kind]: true })
   }
 
@@ -147,6 +149,7 @@ export default function WsPool({ form, enums, lid, live, patch }) {
                     lid={lid}
                     pending={live.pending}
                     status={status}
+                    fresh={fresh === kind + ':' + value}
                     onRetest={live.retest}
                     onSelect={live.select}
                     onDelete={remove}
@@ -166,19 +169,7 @@ export default function WsPool({ form, enums, lid, live, patch }) {
                 value={draft[kind]}
                 onChange={(e) => setDraft({ ...draft, [kind]: e.target.value })}
               />
-              <button
-                type="button"
-                onClick={() => add(kind)}
-                style={{
-                  background: 'var(--fill)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 9,
-                  minWidth: 42,
-                  fontSize: 18,
-                  cursor: 'pointer',
-                }}
-              >
+              <button type="button" className="padd" onClick={() => add(kind)}>
                 +
               </button>
             </div>

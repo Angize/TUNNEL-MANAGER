@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { FA, T } from '../../i18n/fa.js'
 import { translateError } from '../../lib/errors.js'
 import { num } from '../../lib/num.js'
@@ -48,13 +49,17 @@ export default function PushBar({ status }) {
   const pct = Math.max(0, Math.min(100, num(status.pct)))
   const tone = pushTone(status)
   const spin = status.state === 'run' && status.remote
+  const step = status.state + ':' + status.step + ':' + status.si
+  const firstStep = useRef(step)
   return (
     <>
       <div className={'pushbar' + (tone ? ' ' + tone : '') + (spin ? ' spin' : '')}>
         <i style={{ width: pct + '%' }} />
       </div>
       <div className="plbl" title={status.detail || undefined}>
-        <span>{pushLabel(status)}</span>
+        <span key={step} className={step !== firstStep.current ? 'sw' : undefined}>
+          {pushLabel(status)}
+        </span>
         <b>{pct}%</b>
       </div>
     </>

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import { CardSkeletons } from '../../components/Skeleton.jsx'
 import ProxyCard from './ProxyCard.jsx'
@@ -8,6 +8,7 @@ import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { listBusy } from '../../lib/reorder.js'
+import useFlipList from '../../lib/useFlipList.js'
 import './proxies.css'
 
 export default function ProxiesPage({ active }) {
@@ -23,6 +24,10 @@ export default function ProxiesPage({ active }) {
 
   const [list, reload] = usePolledData(load, null, active)
 
+  const listBox = useRef(null)
+  const cardKey = (proxy) => proxy.id + ':' + (edits[proxy.id] || 0)
+  useFlipList(listBox, list === null ? null : list.map(cardKey), null, { hold: listBusy() })
+
   const saved = (id) => {
     if (id) setEdits((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }))
     reload()
@@ -37,20 +42,20 @@ export default function ProxiesPage({ active }) {
         </button>
       </div>
 
-      <div>
+      <div ref={listBox} className="flist">
         {list === null ? (
           <CardSkeletons kind="proxy" count={counts.proxies} />
         ) : list.length ? (
           list.map((proxy) => (
             <ProxyCard
-              key={proxy.id + ':' + (edits[proxy.id] || 0)}
+              key={cardKey(proxy)}
               proxy={proxy}
               onEdit={setEditing}
               onChanged={reload}
             />
           ))
         ) : (
-          <div className="card muted">{T('px_empty')}</div>
+          <div className="card muted empty">{T('px_empty')}</div>
         )}
       </div>
 

@@ -164,7 +164,7 @@
   width: 14px;
   height: 14px;
   color: var(--sub);
-  transition: transform .2s;
+  transition: transform .26s var(--ease-out);
 }
 
 .apep.open .apsum > .ic {
@@ -368,4 +368,27 @@
 .apjs .tp {
   color: #28c840;
   font-weight: 700;
+}
+
+.apcc,
+.apcopy {
+  transition:
+    background-color .18s var(--ease-out),
+    border-color .18s var(--ease-out),
+    color .18s var(--ease-out),
+    box-shadow .18s var(--ease-out),
+    transform .12s var(--ease-out);
+}
+
+.apcc:active,
+.apcopy:active {
+  transform: scale(.96);
+}
+
+.apsum {
+  transition: background-color .18s var(--ease-out);
+}
+
+.apsum:active {
+  background-color: color-mix(in srgb, var(--acc) 6%, transparent);
 }

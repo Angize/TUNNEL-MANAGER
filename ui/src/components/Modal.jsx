@@ -4,15 +4,43 @@ import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
 import { coarsePointer, restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
+import { EASE_DRAWER, EASE_OUT, narrow, reducedMotion } from '../lib/motion.js'
 
 const open = []
 let bodyOverflow = ''
 
-export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, label, children }) {
+
+function growFrom(el, was) {
+  const d = el.offsetHeight - was
+  if (d <= 0 || reducedMotion()) return
+  if (narrow()) {
+    el.animate([{ transform: 'translateY(' + d + 'px)' }, { transform: 'none' }], {
+      duration: 320,
+      easing: EASE_DRAWER,
+      composite: 'add',
+    })
+  } else {
+    el.animate([{ clipPath: 'inset(' + d / 2 + 'px 0 round 22px)' }, { clipPath: 'inset(0 round 22px)' }], {
+      duration: 260,
+      easing: EASE_OUT,
+    })
+  }
+  for (const part of el.querySelectorAll('.mbody, .mfoot')) {
+    part.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], {
+      duration: 200,
+      delay: 60,
+      easing: EASE_OUT,
+      fill: 'backwards',
+    })
+  }
+}
+
+export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, label, loading, children }) {
   const id = useId()
   const titleId = id + 't'
   const box = useRef(null)
   const veil = useRef(null)
+  const loadedFrom = useRef(0)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
 
@@ -24,7 +52,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
     }
     open.push(id)
     const onKey = (e) => {
-      if (open[open.length - 1] !== id || document.querySelector('.dlgov')) return
+      if (open[open.length - 1] !== id || document.querySelector('.dlgov:not(.leaving)')) return
       if (e.key === 'Escape') {
         e.stopImmediatePropagation()
         closeRef.current()
@@ -49,6 +77,21 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
     const node = veil.current
     return () => leaveGhost(node)
   }, [])
+
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    if (loading) {
+      loadedFrom.current = el.offsetHeight
+      return
+    }
+    const was = loadedFrom.current
+    if (!was) return
+    loadedFrom.current = 0
+    const field = !coarsePointer() && el.querySelector('input,select,textarea')
+    if (field) field.focus()
+    growFrom(el, was)
+  }, [loading])
 
   return createPortal(
     <div

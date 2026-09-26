@@ -19,11 +19,22 @@ function copyFallback(text) {
   }
 }
 
+function flash(el) {
+  const on = el.classList.contains('cpa')
+  el.classList.remove('cpa', 'cpb')
+  el.classList.add(on ? 'cpb' : 'cpa')
+}
+
 export function copyText(text, event) {
   if (event) event.stopPropagation()
   const value = String(text || '').trim()
   if (!value) return
-  const done = (ok) => toast(ok ? T('copied') : T('copy_fail'), ok ? 'ok' : 'err')
+  const target = event && event.type === 'click' && event.detail && event.currentTarget
+  const mark = target && target.classList.contains('cpv') ? target : null
+  const done = (ok) => {
+    if (ok && mark) flash(mark)
+    toast(ok ? T('copied') : T('copy_fail'), ok ? 'ok' : 'err')
+  }
   if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(value).then(
       () => done(true),

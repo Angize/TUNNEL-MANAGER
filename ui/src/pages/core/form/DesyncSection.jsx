@@ -35,7 +35,7 @@ function Desync({ form, limits, patch }) {
           </Seg2>
           <div className="grid2">
             {ttlUsed ? (
-              <Field label={T('ds_ttl_lbl')}>
+              <Field label={T('ds_ttl_lbl')} className="tswap">
                 <Stepper
                   min={limits.fake_ttl[0]}
                   max={limits.fake_ttl[1]}

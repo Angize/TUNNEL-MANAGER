@@ -228,7 +228,14 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
             onClick={rotateNow}
           />
         ) : null}
-        <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(item)} />
+        <ActBtn
+          cls="warn"
+          icon="pen"
+          title={T('tip_edit')}
+          busy={busyAct === 'edit'}
+          locked={!!busyAct}
+          onClick={() => withBusy('edit', () => onEdit(item))}
+        />
         <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
       </div>
     </AccordionCard>

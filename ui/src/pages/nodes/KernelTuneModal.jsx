@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
-import ModalLoading from '../../components/ModalLoading.jsx'
+import modalLoading from '../../components/ModalLoading.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
+import Msg from '../../components/Msg.jsx'
 
-function Tile({ icon, label, children, wide }) {
+function Tile({ icon, label, children, wide, fresh }) {
   return (
-    <div className={'nd-tile' + (wide ? ' nd-wide' : '')}>
+    <div className={'nd-tile' + (wide ? ' nd-wide' : '') + (fresh ? ' kt-new' : '')}>
       <span className="medi">
         <Icon name={icon} />
       </span>
@@ -26,6 +27,14 @@ export default function KernelTuneModal({ node, onClose }) {
   const closeRef = useRef(onClose)
 
   closeRef.current = onClose
+
+  const count = status ? status.overridden.length : -1
+  const [seenCount, setSeenCount] = useState(count)
+  const [chgNew, setChgNew] = useState(false)
+  if (count !== seenCount) {
+    setSeenCount(count)
+    setChgNew(seenCount === 0 && count > 0)
+  }
 
   useEffect(() => {
     let alive = true
@@ -45,7 +54,7 @@ export default function KernelTuneModal({ node, onClose }) {
   }, [node.id])
 
   if (!status) {
-    return <ModalLoading icon="gauge" title={T('kt_title')} subtitle={T('kt_sub')} onClose={onClose} />
+    return modalLoading({ icon: 'gauge', title: T('kt_title'), subtitle: T('kt_sub'), onClose })
   }
 
   const active = !!status.active
@@ -101,7 +110,7 @@ export default function KernelTuneModal({ node, onClose }) {
           <span className="mono">{status.qdisc || '?'}</span>
         </Tile>
         {changed.length ? (
-          <Tile icon="warn" label={T('kt_changed_head')} wide>
+          <Tile icon="warn" label={T('kt_changed_head')} wide fresh={chgNew}>
             {changed.map((c) => (
               <span key={c.key} className="kt-chg">
                 <span className="mono kt-k">{c.key}</span>
@@ -119,7 +128,7 @@ export default function KernelTuneModal({ node, onClose }) {
         ) : null}
       </div>
       {bbr ? null : <div className="msg" style={{ marginTop: 9 }}>{T('kt_nobbr')}</div>}
-      <div className={message ? 'msg ' + message.cls : 'msg'}>{message ? message.text : null}</div>
+      <Msg text={message && message.text} cls={message && message.cls} />
     </Modal>
   )
 }

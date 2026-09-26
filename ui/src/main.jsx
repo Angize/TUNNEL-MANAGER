@@ -8,13 +8,13 @@ import './styles/forms.css'
 import './styles/opcard.css'
 import './styles/modal.css'
 import './styles/toast.css'
-import './styles/motion.css'
 import './styles/skeleton.css'
 import './styles/select.css'
 import './styles/traffic.css'
 import './styles/readiness.css'
 import './styles/acts.css'
 import App from './App.jsx'
+import './styles/motion.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

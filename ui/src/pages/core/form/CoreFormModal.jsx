@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Modal from '../../../components/Modal.jsx'
-import ModalLoading from '../../../components/ModalLoading.jsx'
+import modalLoading from '../../../components/ModalLoading.jsx'
 import Icon from '../../../components/Icon.jsx'
 import IpsTab from './IpsTab.jsx'
 import SettingsTab from './SettingsTab.jsx'
@@ -21,6 +21,7 @@ import { useSummary } from '../../../state/SummaryContext.jsx'
 import { useUiConfig } from '../../../state/UiConfigContext.jsx'
 import useBusy from '../../../lib/useBusy.js'
 import { T } from '../../../i18n/fa.js'
+import Msg from '../../../components/Msg.jsx'
 import '../coreform.css'
 
 const TABS = [
@@ -155,15 +156,13 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const peerLive = usePeerStatus(peerLid)
 
   if (!form) {
-    return (
-      <ModalLoading
-        icon={link ? 'pen' : 'cpu'}
-        title={T(link ? 'core_edit_t' : 'core_tun_t')}
-        subtitle={link ? link.name : T('core_tun_sub')}
-        cls="edit"
-        onClose={onClose}
-      />
-    )
+    return modalLoading({
+      icon: link ? 'pen' : 'cpu',
+      title: T(link ? 'core_edit_t' : 'core_tun_t'),
+      subtitle: link ? link.name : T('core_tun_sub'),
+      cls: 'edit',
+      onClose,
+    })
   }
 
   const sides = {
@@ -390,7 +389,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         />
       </div>
 
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
+import Reveal from '../../../components/Reveal.jsx'
 import { barPercent, countdownText, remain } from './countdown.js'
 import { WarnCap } from './controls.jsx'
 import { T } from '../../../i18n/fa.js'
@@ -81,12 +83,17 @@ export function StaleCap({ status }) {
 }
 
 export function Accordion({ label, badges, collapsible, open, onToggle, children }) {
+  const [kb, setKb] = useState(false)
+  const toggle = (e) => {
+    setKb(e.type !== 'click' || !e.detail)
+    onToggle()
+  }
   return (
     <div className="pacc">
       <div
         className="pacchd"
         style={collapsible ? undefined : { cursor: 'default' }}
-        {...(collapsible ? pressable(onToggle) : {})}
+        {...(collapsible ? pressable(toggle) : {})}
       >
         <div className="pacctl">
           <div className="pacct">{label}</div>
@@ -96,9 +103,9 @@ export function Accordion({ label, badges, collapsible, open, onToggle, children
           {collapsible ? <div className={'pchev' + (open ? ' open' : '')}>▾</div> : null}
         </div>
       </div>
-      <div className="paccbody" style={open ? undefined : { display: 'none' }}>
-        {children}
-      </div>
+      <Reveal show={open} instant={kb}>
+        <div className="paccbody">{children}</div>
+      </Reveal>
     </div>
   )
 }

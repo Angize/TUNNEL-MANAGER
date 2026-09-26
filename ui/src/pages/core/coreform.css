@@ -179,7 +179,7 @@
 
 .pchev {
   color: var(--sub);
-  transition: transform .2s;
+  transition: transform .3s var(--ease-out);
   font-size: 12px;
   flex: 0 0 auto;
 }
@@ -190,6 +190,16 @@
 
 .paccbody {
   padding: 0 11px 11px;
+}
+
+.padd {
+  background: var(--fill);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  min-width: 42px;
+  font-size: 18px;
+  cursor: pointer;
 }
 
 .erow {
