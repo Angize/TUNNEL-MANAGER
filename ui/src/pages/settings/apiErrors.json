@@ -2449,32 +2449,27 @@
    [
     400,
     "bad_number",
-    "the ECH key refresh interval must be a number (minutes)"
+    "'…' must be a number"
    ],
    [
     400,
     "bad_number",
-    "the fleet poll interval must be a number (seconds)"
+    "'…' must be a whole number"
    ],
    [
     400,
     "bad_number",
-    "the repair check interval must be a number (seconds)"
-   ],
-   [
-    400,
-    "bad_number",
-    "the screen refresh interval must be a number (seconds)"
-   ],
-   [
-    400,
-    "bad_number",
-    "the uptime chart window is invalid"
+    "the uptime chart window must be a whole number"
    ],
    [
     400,
     "bad_reconcile_mode",
     "the mode must be auto or alert"
+   ],
+   [
+    400,
+    "bad_uptime_window",
+    "the uptime chart window must be one of … hours — … is not accepted"
    ],
    [
     400,
@@ -2485,6 +2480,16 @@
     400,
     "proxy_not_found",
     "proxy not found — it may have been deleted"
+   ],
+   [
+    400,
+    "setting_range",
+    "'…' must be 0 (off) or from … to … — … is not accepted"
+   ],
+   [
+    400,
+    "setting_range",
+    "'…' must be from … to … — … is not accepted"
    ],
    [
     400,

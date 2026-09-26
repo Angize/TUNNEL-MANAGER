@@ -1018,9 +1018,33 @@ def get_settings():
     return dict(_M.settings)
 
 
-SETTINGS_RANGES = {"reconcile_interval": (5, 3600), "poll_interval": (0.3, 60.0),
-                   "ui_interval": (0.3, 60.0), "ech_refresh_mins": (1.0, 1440.0)}
+SETTINGS_RANGES = {"reconcile_interval": (5, 3600), "poll_interval": (0.3, 60),
+                   "ui_interval": (0.3, 60), "ech_refresh_mins": (1, 1440)}
 UPTIME_WINDOWS = (1, 3, 6, 8, 12, 24)
+
+
+_SETTING_LABELS = {"reconcile_interval": tx("بازهٔ بررسیِ ترمیم", "repair check interval"),
+                   "poll_interval": tx("بازهٔ پایشِ فلیت", "fleet poll interval"),
+                   "ui_interval": tx("بازهٔ رفرشِ نمایش", "screen refresh interval"),
+                   "ech_refresh_mins": tx("بازهٔ تازه‌سازیِ کلیدِ ECH", "ECH key refresh interval")}
+
+
+def _setting_num(d, k, whole=False, off=False):
+    label = _SETTING_LABELS[k]
+    if whole:
+        v = _int_or(d[k], Bad("bad_number", "«{0}» باید عددِ صحیح باشد", "'{0}' must be a whole number", label))
+    else:
+        v = round(_num_or(d[k], Bad("bad_number", "«{0}» باید عدد باشد", "'{0}' must be a number", label)), 2)
+    if off and v == 0:
+        return 0.0
+    lo, hi = SETTINGS_RANGES[k]
+    if off and not lo <= v <= hi:
+        raise Bad("setting_range", "«{0}» باید 0 (خاموش) یا بینِ {1} تا {2} باشد — {3} پذیرفته نیست",
+                  "'{0}' must be 0 (off) or from {1} to {2} — {3} is not accepted", label, lo, hi, str(d[k]).strip())
+    if not lo <= v <= hi:
+        raise Bad("setting_range", "«{0}» باید بینِ {1} تا {2} باشد — {3} پذیرفته نیست",
+                  "'{0}' must be from {1} to {2} — {3} is not accepted", label, lo, hi, str(d[k]).strip())
+    return v
 
 
 def validate_settings(d):
@@ -1031,27 +1055,20 @@ def validate_settings(d):
             raise Bad("bad_reconcile_mode", "حالت باید auto یا alert باشد", "the mode must be auto or alert")
         out["reconcile_mode"] = m
     if "reconcile_interval" in d and d["reconcile_interval"] not in (None, ""):
-        sec = _num_or(d["reconcile_interval"], Bad("bad_number", "بازهٔ بررسیِ ترمیم باید عدد باشد (ثانیه)",
-                                                   "the repair check interval must be a number (seconds)"))
-        lo, hi = SETTINGS_RANGES["reconcile_interval"]
-        out["reconcile_interval"] = int(round(max(lo, min(hi, sec))))
-    if "poll_interval" in d and d["poll_interval"] not in (None, ""):
-        lo, hi = SETTINGS_RANGES["poll_interval"]
-        out["poll_interval"] = max(lo, min(hi, round(_num_or(d["poll_interval"], Bad(
-            "bad_number", "بازهٔ پایشِ فلیت باید عدد باشد (ثانیه)", "the fleet poll interval must be a number (seconds)")), 2)))
-    if "ui_interval" in d and d["ui_interval"] not in (None, ""):
-        lo, hi = SETTINGS_RANGES["ui_interval"]
-        out["ui_interval"] = max(lo, min(hi, round(_num_or(d["ui_interval"], Bad(
-            "bad_number", "بازهٔ رفرشِ نمایش باید عدد باشد (ثانیه)", "the screen refresh interval must be a number (seconds)")), 2)))
+        out["reconcile_interval"] = _setting_num(d, "reconcile_interval", whole=True)
+    for k in ("poll_interval", "ui_interval"):
+        if k in d and d[k] not in (None, ""):
+            out[k] = _setting_num(d, k)
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
-        w = _int_or(d["uptime_window"], Bad("bad_number", "بازهٔ نمودارِ دسترس‌پذیری نامعتبر است",
-                                            "the uptime chart window is invalid"))
-        out["uptime_window"] = w if w in UPTIME_WINDOWS else 1
+        w = _int_or(d["uptime_window"], Bad("bad_number", "بازهٔ نمودارِ دسترس‌پذیری باید عددِ صحیح باشد",
+                                            "the uptime chart window must be a whole number"))
+        if w not in UPTIME_WINDOWS:
+            raise Bad("bad_uptime_window", "بازهٔ نمودارِ دسترس‌پذیری باید یکی از {0} ساعت باشد — {1} پذیرفته نیست",
+                      "the uptime chart window must be one of {0} hours — {1} is not accepted",
+                      tx_join("، ", [str(h) for h in UPTIME_WINDOWS], ", "), w)
+        out["uptime_window"] = w
     if "ech_refresh_mins" in d and d["ech_refresh_mins"] not in (None, ""):
-        m = round(_num_or(d["ech_refresh_mins"], Bad("bad_number", "بازهٔ تازه‌سازیِ کلیدِ ECH باید عدد باشد (دقیقه)",
-                                                     "the ECH key refresh interval must be a number (minutes)")), 2)
-        lo, hi = SETTINGS_RANGES["ech_refresh_mins"]
-        out["ech_refresh_mins"] = 0.0 if m <= 0 else max(lo, min(hi, m))
+        out["ech_refresh_mins"] = _setting_num(d, "ech_refresh_mins", off=True)
     for k in ("agent_delivery", "core_delivery"):
         if k in d:
             m = str(d[k]).strip().lower()
