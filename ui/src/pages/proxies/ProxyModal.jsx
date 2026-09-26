@@ -1,15 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Field from '../../components/Field.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
+import SecretInput from '../../components/SecretInput.jsx'
 import ProxyNodes from './ProxyNodes.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import useBusy from '../../lib/useBusy.js'
 
 export default function ProxyModal({ proxy, onClose, onSaved }) {
+  const nodesId = useId()
   const [name, setName] = useState(proxy ? proxy.name : '')
   const [busy, guard] = useBusy()
   const [scheme, setScheme] = useState((proxy && proxy.scheme) || 'socks5')
@@ -83,14 +87,17 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
       footer={footer}
       onClose={onClose}
     >
-      <label className="first">{T('px_name')}</label>
-      <input maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
+      <Field label={T('px_name')} first>
+        <input maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
 
       <div className="authhd" style={{ marginTop: 16 }}>
         <span className="t">{T('px_type')}</span>
-        <span className="authseg">
+        <span className="authseg" role="radiogroup" aria-label={T('px_type')}>
           <button
             type="button"
+            role="radio"
+            aria-checked={scheme === 'socks5' ? 'true' : 'false'}
             className={scheme === 'socks5' ? 'on' : undefined}
             onClick={() => setScheme('socks5')}
           >
@@ -98,6 +105,8 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
           </button>
           <button
             type="button"
+            role="radio"
+            aria-checked={scheme === 'http' ? 'true' : 'false'}
             className={scheme === 'http' ? 'on' : undefined}
             onClick={() => setScheme('http')}
           >
@@ -107,40 +116,36 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
       </div>
 
       <div className="grid2">
-        <div>
-          <label className="first">{T('px_ip')}</label>
-          <input className="mono" value={host} onChange={(e) => setHost(e.target.value)} />
-        </div>
-        <div>
-          <label className="first">{rangeLabel(T('px_port'), 1, PORT_MAX)}</label>
+        <Field label={T('px_ip')} first>
           <input
             className="mono"
-            inputMode="numeric"
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
+            {...LTR_TEXT}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
           />
-        </div>
+        </Field>
+        <Field label={rangeLabel(T('px_port'), 1, PORT_MAX)} first>
+          <NumberInput className="mono" value={port} onChange={setPort} />
+        </Field>
       </div>
 
       <div className="grid2">
-        <div>
-          <label>{T('px_user')}</label>
+        <Field label={T('px_user')}>
           <input
+            className="phrtl"
+            {...LTR_TEXT}
             placeholder={T('px_opt')}
             value={user}
             onChange={(e) => setUser(e.target.value)}
           />
-        </div>
-        <div>
-          <label>{T('px_pass')}</label>
-          <input
-            type="password"
-            autoComplete="new-password"
+        </Field>
+        <Field label={T('px_pass')}>
+          <SecretInput
             placeholder={proxy && proxy.has_pass ? T('px_pass_keep') : T('px_opt')}
             value={pass}
-            onChange={(e) => setPass(e.target.value)}
+            onChange={setPass}
           />
-        </div>
+        </Field>
       </div>
 
       <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.9, marginTop: 6 }}>
@@ -149,8 +154,10 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
 
       {proxy ? (
         <>
-          <label>{T('px_nodes')}</label>
-          <ProxyNodes proxyId={proxy.id} nodes={nodes} picked={picked} onPick={setPicked} />
+          <label id={nodesId}>{T('px_nodes')}</label>
+          <div role="group" aria-labelledby={nodesId}>
+            <ProxyNodes proxyId={proxy.id} nodes={nodes} picked={picked} onPick={setPicked} />
+          </div>
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.9, marginTop: 6 }}>
             {T('px_nodes_hint')}
           </div>

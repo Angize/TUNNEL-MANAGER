@@ -1,68 +1,70 @@
-import { ScrollSeg, SegOpt } from './controls.jsx'
-import { wkCarrier, wkShared } from './gates.js'
-import { workerCounts } from './presets.js'
-import { T } from '../../../i18n/fa.js'
+import { useId } from 'react'
+import Stepper from '../../../components/Stepper.jsx'
+import { wkShared } from './gates.js'
+import { T, TF } from '../../../i18n/fa.js'
 
-function workersLabel(name, cpus) {
-  const base = T('workers_lbl_node').split('{n}').join(name || '')
-  return cpus ? base + ' · ' + T('workers_lbl_cores').split('{c}').join(String(cpus)) : base
-}
-
-function Picker({ counts, label, value, order, onPick }) {
+function Picker({ max, name, side, value, order, onPick }) {
+  const id = useId()
   return (
-    <div style={{ order }}>
-      {label ? (
-        <div className="muted" style={{ fontSize: 11, marginTop: 7 }}>
-          {label}
+    <div className="wkcol" style={{ order }}>
+      {side ? (
+        <div className="wksub" id={id + 's'}>
+          <b>{TF('workers_lbl_node', { n: side.name || '' })}</b>
+          {side.cpus ? <span>{' · ' + TF('workers_lbl_cores', { c: side.cpus })}</span> : null}
         </div>
       ) : null}
-      <ScrollSeg>
-        {counts.map((n) => (
-          <SegOpt
-            key={n}
-            on={n === value}
-            title={String(n)}
-            sub={T('workers_' + n)}
-            onClick={() => onPick(n)}
-          />
-        ))}
-      </ScrollSeg>
+      <Stepper
+        min={1}
+        max={max}
+        readOnly
+        value={String(value)}
+        aria-label={name}
+        aria-describedby={(side ? id + 's ' : '') + id + 'h'}
+        onChange={(v) => onPick(Number(v))}
+      />
+      <div className="fldhint" id={id + 'h'}>
+        {T('workers_' + value)}
+      </div>
     </div>
   )
 }
 
 export default function WorkersSection({ form, cfg, sides, patch }) {
-  if (!wkCarrier(form)) return null
-  const counts = workerCounts(cfg.workers_max)
-
-  if (wkShared(form)) {
-    return (
-      <div style={{ marginTop: 11 }}>
-        <label className="first">{T('workers_lbl')}</label>
-        <Picker counts={counts} value={form.WorkersA} onPick={(n) => patch({ WorkersA: n, WorkersB: n })} />
-      </div>
-    )
-  }
-
+  const name = T('workers_lbl')
+  const shared = wkShared(form)
   const serverIsA = form.Srv !== 'b'
+
   return (
-    <div style={{ marginTop: 11 }}>
-      <label className="first">{T('workers_lbl')}</label>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <Picker
-          counts={counts}
-          label={workersLabel(sides.a.name, sides.a.cpus)}
-          value={form.WorkersA}
-          order={serverIsA ? 0 : 1}
-          onPick={(n) => patch({ WorkersA: n })}
-        />
-        <Picker
-          counts={counts}
-          label={workersLabel(sides.b.name, sides.b.cpus)}
-          value={form.WorkersB}
-          order={serverIsA ? 1 : 0}
-          onPick={(n) => patch({ WorkersB: n })}
-        />
+    <div className="wksec">
+      <label className="first">{name}</label>
+      <div className={'wkgrid' + (shared ? '' : ' two')}>
+        {shared ? (
+          <Picker
+            max={cfg.workers_max}
+            name={name}
+            value={form.WorkersA}
+            onPick={(n) => patch({ WorkersA: n, WorkersB: n })}
+          />
+        ) : (
+          <>
+            <Picker
+              max={cfg.workers_max}
+              name={name}
+              side={sides.a}
+              value={form.WorkersA}
+              order={serverIsA ? 0 : 1}
+              onPick={(n) => patch({ WorkersA: n })}
+            />
+            <Picker
+              max={cfg.workers_max}
+              name={name}
+              side={sides.b}
+              value={form.WorkersB}
+              order={serverIsA ? 1 : 0}
+              onPick={(n) => patch({ WorkersB: n })}
+            />
+          </>
+        )}
       </div>
     </div>
   )

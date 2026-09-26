@@ -43,12 +43,12 @@
 .card.node .noff .ic {
   width: 15px;
   height: 15px;
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .card.node .noff b {
   font-size: 12px;
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .card.node .noff span {
@@ -269,7 +269,7 @@
   font-size: 11px;
   font-weight: 400;
   line-height: 1.8;
-  color: var(--gold);
+  color: var(--gold-tx);
   white-space: normal;
 }
 
@@ -311,7 +311,7 @@
 }
 
 .nd-tile .medi {
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .nd-tile .medi .ic {
@@ -353,7 +353,7 @@
 .nd-off .ic {
   width: 30px;
   height: 30px;
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .nd-off b {
@@ -379,7 +379,7 @@
 .nd-sec .ic {
   width: 15px;
   height: 15px;
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .nd-divider {
@@ -417,7 +417,7 @@
   padding: 4px 10px;
   border-radius: 8px;
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
   cursor: pointer;
   user-select: none;
   transition: transform .12s, background .15s, color .15s;
@@ -503,7 +503,7 @@
 
 .seg button.on {
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 30%, transparent);
 }
 
@@ -526,7 +526,7 @@
 }
 
 .autonote .ic {
-  color: var(--gold);
+  color: var(--gold-tx);
   flex: 0 0 auto;
   margin-top: 1px;
 }
@@ -578,17 +578,17 @@
 
 .ibanner.run {
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .ibanner.ok {
   background: var(--okw);
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .ibanner.err {
   background: var(--badw);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .istep {
@@ -609,17 +609,17 @@
 
 .istep-i.ok {
   background: var(--okw);
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .istep-i.err {
   background: var(--badw);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .istep-i.warn {
   background: var(--warnw);
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .istep-i.warn .ic {
@@ -647,7 +647,7 @@
 }
 
 .istep.err .istep-t {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .istep-s {
@@ -722,7 +722,7 @@
 .delopt .do-t .ic {
   width: 17px;
   height: 17px;
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .delopt .do-s {
@@ -743,11 +743,11 @@
 
 .delopt.danger .do-t,
 .delopt.danger .do-t .ic {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .delopt.danger .do-s {
-  color: color-mix(in srgb, var(--bad) 72%, var(--sub));
+  color: color-mix(in srgb, var(--bad-tx) 72%, var(--sub));
 }
 
 .ippeer .ipi {
@@ -763,7 +763,7 @@
 }
 
 .ippeer.show {
-  background: var(--acc);
+  background: var(--fill);
   color: #fff;
 }
 
@@ -785,10 +785,55 @@
   padding: 4px 9px;
   border-radius: 8px;
   background: var(--goldw);
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .ippf .ic {
   width: 12px;
   height: 12px;
+}
+
+.seg button:disabled {
+  cursor: not-allowed;
+}
+
+.seg button:disabled:not(.on) {
+  opacity: .5;
+}
+
+.authbox textarea.fld2 {
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.secret {
+  position: relative;
+}
+
+.secret input {
+  padding-right: 64px;
+}
+
+.secbtn {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: var(--ctl);
+  color: var(--sub);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secbtn[aria-pressed='true'] {
+  background: var(--accw);
+  color: var(--acc-tx);
+}
+
+input.phrtl:placeholder-shown {
+  direction: rtl;
 }

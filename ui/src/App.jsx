@@ -3,6 +3,7 @@ import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
 import TabBar from './shell/TabBar.jsx'
 import ReadinessBar from './shell/ReadinessBar.jsx'
+import ConnBar from './shell/ConnBar.jsx'
 import CommandPalette from './shell/CommandPalette.jsx'
 import { apiGet } from './lib/api.js'
 import { getLS, setLS } from './lib/storage.js'
@@ -13,6 +14,7 @@ import { stopReorder } from './lib/reorder.js'
 import { mayLeave } from './lib/leaveGuard.js'
 import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
@@ -24,6 +26,7 @@ const HIDDEN_INTERVAL = 4000
 const BOOT_INTERVAL = 6000
 const MIN_INTERVAL = 300
 const READY_RECHECK = 60000
+const LOST_AFTER = 2
 const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
 const KIND_KEY = 'tnl_kind_'
@@ -56,6 +59,8 @@ function Shell() {
   const [dark, setDark] = useState(false)
   const [palette, setPalette] = useState(false)
   const [readiness, setReadiness] = useState(null)
+  const [lost, setLost] = useState(null)
+  const retry = useRef(() => {})
   const [uiConfig, setUiConfig] = useState(null)
   const { refresh: actsRefresh } = useActs()
   const interval = useRef(DEFAULT_INTERVAL)
@@ -128,6 +133,8 @@ function Shell() {
     let alive = true
     let timer = 0
     let ticking = false
+    let fails = 0
+    let lastOk = 0
 
     const fetchSummary = async () => {
       const raw = getLS(SEEN_KEY)
@@ -135,9 +142,14 @@ function Shell() {
       try {
         s = await apiGet('summary' + (raw === '' ? '' : '?seen=' + encodeURIComponent(raw)))
       } catch {
+        fails++
+        if (alive && fails >= LOST_AFTER) setLost({ last: lastOk })
         return
       }
       if (!alive) return
+      fails = 0
+      lastOk = Date.now()
+      setLost(null)
 
       const seq = String(s.ev_seq || '0-0')
       setSummary({
@@ -196,6 +208,11 @@ function Shell() {
 
     const onVisible = () => {
       if (document.hidden) return
+      clearTimeout(timer)
+      tick()
+    }
+
+    retry.current = () => {
       clearTimeout(timer)
       tick()
     }
@@ -274,12 +291,15 @@ function Shell() {
         />
         <main className="main">
           <TopBar dark={dark} onToggleTheme={onToggleTheme} />
+          <ConnBar lost={lost} onRetry={() => retry.current()} />
           <ReadinessBar readiness={readiness} onNavigate={navigate} />
           <div id="view" className="pg" key={page}>
             {uiConfig ? (
               <UiConfigProvider value={uiConfig}>
                 <SummaryProvider value={summaryValue}>
-                  <Page onNavigate={navigate} kind={kinds[page]} onKind={onKind} />
+                  <ErrorBoundary>
+                    <Page onNavigate={navigate} kind={kinds[page]} onKind={onKind} />
+                  </ErrorBoundary>
                 </SummaryProvider>
               </UiConfigProvider>
             ) : (

@@ -1,0 +1,153 @@
+:root {
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes fadeup {
+  from { opacity: 0; transform: translateY(4px) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes tabin {
+  from { opacity: 0; transform: translateY(8px) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes popin {
+  from { opacity: 0; transform: scale(.8) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes bumpa {
+  40% { transform: scale(1.14) }
+}
+
+@keyframes bumpb {
+  40% { transform: scale(1.14) }
+}
+
+.seg2 .segopt,
+.ptile,
+.setfield,
+.msrow,
+.lstchip,
+.lstadd,
+.fchip,
+.hb,
+.srq,
+.stpb,
+.swrow,
+.tbtnrow > button {
+  transition:
+    background-color .18s var(--ease-out),
+    border-color .18s var(--ease-out),
+    color .18s var(--ease-out),
+    box-shadow .18s var(--ease-out),
+    transform .12s var(--ease-out);
+}
+
+.seg2 .segopt:active,
+.ptile:active,
+.setfield:active,
+.lstadd:active,
+.stpb:active:not([aria-disabled='true']),
+.srq:active,
+.hb:active,
+.ctab:active,
+.fchip:active,
+.primary:active,
+.ghost:active,
+.tbtnrow > button:active {
+  transform: scale(.96);
+}
+
+.swrow:active:not(.dis) {
+  transform: scale(.99);
+}
+
+.swrow {
+  transition:
+    background-color .32s var(--ease-out),
+    border-color .32s var(--ease-out),
+    box-shadow .32s var(--ease-out),
+    transform .12s var(--ease-out);
+}
+
+.swrow[aria-checked='true'] {
+  border-color: color-mix(in srgb, var(--ok) 38%, var(--edge));
+  background-color: color-mix(in srgb, var(--ok) 6%, var(--card));
+}
+
+@keyframes swona {
+  0% { transform: scale(1) }
+  35% { transform: scale(.985) }
+  100% { transform: scale(1) }
+}
+
+@keyframes swonb {
+  0% { transform: scale(1) }
+  35% { transform: scale(.985) }
+  100% { transform: scale(1) }
+}
+
+@keyframes swring {
+  0% { box-shadow: var(--dsh), 0 0 0 0 color-mix(in srgb, var(--c-ring) 40%, transparent) }
+  100% { box-shadow: var(--dsh), 0 0 0 10px transparent }
+}
+
+@keyframes swringb {
+  0% { box-shadow: var(--dsh), 0 0 0 0 color-mix(in srgb, var(--c-ring) 40%, transparent) }
+  100% { box-shadow: var(--dsh), 0 0 0 10px transparent }
+}
+
+.swrow.flipa {
+  animation: swona .34s var(--ease-out), swring .6s var(--ease-out);
+}
+
+.swrow.flipb {
+  animation: swonb .34s var(--ease-out), swringb .6s var(--ease-out);
+}
+
+.swrow {
+  --c-ring: var(--slate);
+}
+
+.swrow[aria-checked='true'] {
+  --c-ring: var(--ok);
+}
+
+.tglsw::after {
+  transition: inset-inline-start .3s cubic-bezier(.25, 1.2, .4, 1), width .15s var(--ease-out);
+}
+
+.swrow:active:not(.dis) .tglsw::after,
+.tglsw:active::after {
+  width: 24px;
+}
+
+.swrow:active:not(.dis) .tglsw.on::after,
+.tglsw.on:active::after {
+  inset-inline-start: 16px;
+}
+
+.ctabp.on {
+  animation: tabin .24s var(--ease-out);
+}
+
+.flderr,
+.warncap,
+.lgfnote {
+  animation: fadeup .2s var(--ease-out);
+}
+
+.lstchip,
+.msrow.sel .mscheck {
+  animation: popin .16s var(--ease-out);
+}
+
+.stpv.bumpa {
+  animation: bumpa .2s var(--ease-out);
+}
+
+.stpv.bumpb {
+  animation: bumpb .2s var(--ease-out);
+}

@@ -36,27 +36,41 @@
   white-space: nowrap;
 }
 
-.ochip b {
+.okpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.card.okpi {
+  margin: 0;
+}
+
+.okl {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sub);
+}
+
+.okv {
+  margin-top: 4px;
+  font-size: 28px;
   font-weight: 800;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
-.ochip.a {
-  background: var(--accw);
-  color: var(--acc);
-  border-color: transparent;
+.okt {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sub);
 }
 
-.ochip.o {
-  background: var(--okw);
-  color: var(--ok);
-  border-color: transparent;
-}
-
-.ochip.b {
-  background: var(--badw);
-  color: var(--bad);
-  border-color: transparent;
+.okn {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--sub);
+  font-variant-numeric: tabular-nums;
 }
 
 .oalert {
@@ -72,6 +86,7 @@
 }
 
 .oalert .msg {
+  margin-top: 0;
   font-size: 12.5px;
   font-weight: 600;
   min-width: 0;
@@ -83,7 +98,7 @@
 
 .oalert .go {
   font-size: 11px;
-  color: var(--acc);
+  color: var(--acc-tx);
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -94,7 +109,7 @@
 }
 
 .oalert .go.del {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .oalert .go[aria-disabled='true'] {
@@ -116,29 +131,109 @@
   position: relative;
 }
 
-.hbar {
-  flex: 1 1 0;
-  max-width: 56px;
-  border-radius: 5px 5px 3px 3px;
-  min-height: 8px;
+.otiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.otile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--edge);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  color: var(--tx);
+  font: inherit;
+  text-align: start;
   cursor: pointer;
   transition: filter .12s;
 }
 
-.hbar:active {
+.otile:active {
   filter: brightness(1.12);
+}
+
+.otile:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+}
+
+.otile.off {
+  opacity: .72;
+}
+
+.otn {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ots {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.otw {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.otp {
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.otb {
+  height: 4px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--sub) 20%, transparent);
+  overflow: hidden;
+}
+
+.otb i {
+  display: block;
+  height: 100%;
+  border-radius: 20px;
+}
+
+.otnote {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.otnote:first-child {
+  margin-top: 0;
 }
 
 .htip {
   position: absolute;
-  bottom: calc(100% + 7px);
+  bottom: calc(100% + 8px);
+  left: 50%;
   transform: translateX(-50%);
   direction: rtl;
   background: var(--tx);
   color: var(--page);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  padding: 4px 9px;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 8px;
   border-radius: 8px;
   white-space: nowrap;
   pointer-events: none;
@@ -163,9 +258,9 @@
 
 .heat-lg {
   display: flex;
-  gap: 14px;
-  margin-top: 10px;
-  font-size: 11px;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 12px;
   color: var(--sub);
   flex-wrap: wrap;
   justify-content: center;
@@ -463,10 +558,69 @@
   margin: 0;
   text-align: center;
   padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .ostat2 .big {
   font-size: 24px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+}
+
+.ostat-l {
+  font-size: 12px;
+}
+
+@media (min-width: 1024px) {
+  .okpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ogrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 16px;
+  }
+
+  .ogrid.oduo {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+
+  .ogrid > .osec {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ogrid > .osec > .sec {
+    min-height: 24px;
+  }
+
+  .ogrid > .osec > :last-child {
+    flex: 1 1 auto;
+  }
+
+  .ogood {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .otraf {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .otraf .tf-chart {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .otraf .tf-spk {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 96px;
+  }
 }

@@ -1,15 +1,19 @@
 import { useEffect } from 'react'
+import Field from './Field.jsx'
 import Select from './Select.jsx'
 import { T } from '../i18n/fa.js'
-import { checkable } from '../lib/keys.js'
+import SwitchRow from './SwitchRow.jsx'
+import Reveal from './Reveal.jsx'
 
 export function proxyItems(proxies) {
   return (proxies || []).map((p) => ({ v: p.id, label: p.name, sub: p.addr }))
 }
 
+
 export default function ProxyFields({ proxies, value, onChange }) {
   const items = proxyItems(proxies)
   const selected = value.id || (items.length ? items[0].v : '')
+  const toggle = () => onChange({ on: !value.on, id: selected })
 
   useEffect(() => {
     if (value.on && !value.id && selected) onChange({ on: true, id: selected })
@@ -17,28 +21,18 @@ export default function ProxyFields({ proxies, value, onChange }) {
 
   return (
     <>
-      <div className="tglbox">
-        <div
-          className={'tglsw' + (value.on ? ' on' : '')}
-          {...checkable('switch', value.on, () => onChange({ on: !value.on, id: selected }))}
-        />
-        <div className="tt">
-          <b>{T('nd_proxy_on')}</b>
-          <small>{T('nd_proxy_all')}</small>
-        </div>
-      </div>
-      {value.on ? (
-        <div>
-          <label>{T('nd_proxy_pick')}</label>
-          {items.length ? (
-            <Select items={items} value={selected} onChange={(id) => onChange({ on: true, id })} />
-          ) : (
-            <div className="muted" style={{ fontSize: 12 }}>
-              {T('nd_proxy_none')}
-            </div>
-          )}
-        </div>
-      ) : null}
+      <SwitchRow on={value.on} title={T('nd_proxy_on')} note={T('nd_proxy_all')} onToggle={toggle} />
+      <Reveal show={value.on}>
+        {items.length ? (
+          <Field label={T('nd_proxy_pick')}>
+            <Select items={items} value={selected} onChange={(pid) => onChange({ on: true, id: pid })} />
+          </Field>
+        ) : (
+          <div className="muted" style={{ fontSize: 12, margin: '12px 2px 0' }}>
+            {T('nd_proxy_none')}
+          </div>
+        )}
+      </Reveal>
     </>
   )
 }

@@ -15,13 +15,6 @@ import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 
-const ADD_BUTTON_STYLE = {
-  margin: '0 0 14px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-}
-
 export default function PortfwPage({ active }) {
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('portfw')
@@ -69,13 +62,15 @@ export default function PortfwPage({ active }) {
 
   return (
     <>
-      <button className="primary glass" onClick={openAdd} style={ADD_BUTTON_STYLE}>
-        <Icon name="plus" />
-        {T('pf_add')}
-      </button>
+      <div className="tbtnrow">
+        <button className="primary glass" onClick={openAdd}>
+          <Icon name="plus" />
+          {T('pf_add')}
+        </button>
+      </div>
 
       <div className="sec">
-        <Icon name="activity" color="var(--acc)" />
+        <Icon name="activity" color="var(--acc-tx)" />
         {T('pf_active')}
       </div>
 

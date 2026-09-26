@@ -10,13 +10,6 @@ import usePolledData from '../../lib/usePolledData.js'
 import { listBusy } from '../../lib/reorder.js'
 import './proxies.css'
 
-const ADD_BUTTON_STYLE = {
-  margin: '0 0 14px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-}
-
 export default function ProxiesPage({ active }) {
   const { counts } = useSummary()
   const [editing, setEditing] = useState(undefined)
@@ -37,10 +30,12 @@ export default function ProxiesPage({ active }) {
 
   return (
     <>
-      <button className="primary glass" onClick={() => setEditing(null)} style={ADD_BUTTON_STYLE}>
-        <Icon name="plus" />
-        {T('px_add')}
-      </button>
+      <div className="tbtnrow">
+        <button className="primary glass" onClick={() => setEditing(null)}>
+          <Icon name="plus" />
+          {T('px_add')}
+        </button>
+      </div>
 
       <div>
         {list === null ? (

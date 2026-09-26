@@ -27,6 +27,7 @@ export default function Toolbar({ value, placeholder, reorder, onSearch }) {
     <div className="toolbar">
       <input
         className="search"
+        aria-label={placeholder}
         placeholder={placeholder}
         value={text}
         onChange={(e) => change(e.target.value)}

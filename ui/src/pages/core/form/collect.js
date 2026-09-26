@@ -18,9 +18,9 @@ import {
   cdnShapeErr,
   cdnShapeValue,
   intOf,
+  limitErr,
   portErr,
-  portTriesErr,
-  portTriesValue,
+  portTriesRangeErr,
   rawProtoErr,
   sportErr,
   sprotErr,
@@ -68,6 +68,7 @@ export function rotValidate(form, aIps, bIps) {
 
 export function collectCarrier(form, cfg, body) {
   const enums = cfg.enums
+  const limits = cfg.limits
 
   if (form.Tr === 'raw') {
     if (form.cipher === 'none') return T('raw_need_enc')
@@ -75,7 +76,7 @@ export function collectCarrier(form, cfg, body) {
     if (form.RawProfile === 'bare') {
       const protoError = rawProtoErr(form.rawProto, enums)
       if (protoError) return protoError
-      body.raw_proto = parseInt(form.rawProto || '253', 10)
+      body.raw_proto = intOf(form.rawProto) || 253
     }
     const sprotError = sprotErr(form)
     if (sprotError) return sprotError
@@ -83,33 +84,33 @@ export function collectCarrier(form, cfg, body) {
     body.raw_dports = sprotLive(form) ? intOf(form.rawDports) : 0
     body.conntrack_bypass = ctbOn(form, enums) && !!form.Ctb
     if (rawPortOn(form)) {
-      const dportError = portErr(form.rawPort)
+      const dportError = portErr(form.rawPort, limits)
       if (dportError) return dportError
-      const dport = parseInt(form.rawPort, 10)
-      body.raw_port = dport >= 1 && dport <= 65535 ? dport : 0
+      body.raw_port = intOf(form.rawPort)
       if (body.raw_sport_rotate) {
         body.raw_sport_random = false
         body.raw_sport = 0
       } else {
-        const sportError = sportErr(form.rawSport)
+        const sportError = sportErr(form.rawSport, limits)
         if (sportError) return sportError
         body.raw_sport_random = !!form.SportRandom
-        const sport = parseInt(form.rawSport, 10)
-        body.raw_sport = !form.SportRandom && sport >= 1 && sport <= 65535 ? sport : 0
+        body.raw_sport = form.SportRandom ? 0 : intOf(form.rawSport)
       }
     }
   }
 
-  const bandError = bandOn(form, enums) ? bandErr(form) : ''
-  if (bandError) return bandError
   if (bandOn(form, enums)) {
+    const bandError = bandErr(form, limits)
+    if (bandError) return bandError
     body.sport_lo = intOf(form.bandLo)
     body.sport_hi = intOf(form.bandHi)
   }
 
-  const triesError = portTriesErr(form, enums)
-  if (triesError) return triesError
-  if (portTriesOn(form, enums)) body.port_tries = portTriesValue(form)
+  if (portTriesOn(form, enums)) {
+    const triesError = portTriesRangeErr(form, limits)
+    if (triesError) return triesError
+    body.port_tries = intOf(form.portTries)
+  }
 
   if (fecDatagram(form)) {
     body.fec = !!form.Fec
@@ -127,8 +128,14 @@ export function collectCarrier(form, cfg, body) {
   if (desyncOk(form)) {
     body.fake_desync = form.Desync
     if (form.Desync) {
-      if (dsTtlUsed(form)) body.fake_ttl = parseInt(form.dsTtl, 10) || 4
-      body.fake_count = parseInt(form.dsCount, 10) || 2
+      if (dsTtlUsed(form)) {
+        const ttlError = limitErr(form, 'dsTtl', limits)
+        if (ttlError) return ttlError
+        body.fake_ttl = intOf(form.dsTtl) || 4
+      }
+      const countError = limitErr(form, 'dsCount', limits)
+      if (countError) return countError
+      body.fake_count = intOf(form.dsCount) || 2
       body.fake_mode = form.DesyncMode
       if (body.fake_mode === 'both' && body.fake_count < 2) return T('ds_both_needs2')
     }
@@ -142,9 +149,15 @@ export function collectCarrier(form, cfg, body) {
     if (form.Ech && form.EchProxy) body.ech_proxy_id = form.echProxyId
     body.sni_split = form.SniSplit
     if (form.SniSplit) {
-      body.split_pos = parseInt(form.splitPos, 10) || 0
+      const posError = limitErr(form, 'splitPos', limits)
+      if (posError) return posError
+      body.split_pos = intOf(form.splitPos)
       body.sni_mode = form.SniMode
-      if (form.SniMode === 'disorder') body.split_ttl = parseInt(form.splitTtl, 10) || 0
+      if (form.SniMode === 'disorder') {
+        const ttlError = limitErr(form, 'splitTtl', limits)
+        if (ttlError) return ttlError
+        body.split_ttl = intOf(form.splitTtl)
+      }
       if (form.Ech && !body.split_pos) return T('sni_ech_need_pos')
     }
     body.cdn_carrier = form.Cdn
@@ -154,10 +167,9 @@ export function collectCarrier(form, cfg, body) {
       const shape = cdnShape(enums)
       for (const name of CDN_FIELD_NAMES) {
         const field = shape[name]
-        if (!cdnShapeApplies(field, form.Cdn, enums)) continue
-        const value = cdnShapeValue(form, name, enums)
-        body[field.k] =
-          isNaN(value) || value < field.lo || value > field.hi ? field.d : value
+        if (cdnShapeApplies(field, form.Cdn, enums)) {
+          body[field.k] = cdnShapeValue(form, name, enums)
+        }
       }
     }
     if (form.pool.pool) {

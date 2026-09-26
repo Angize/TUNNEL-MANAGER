@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { confirmBox } from './dialog.js'
+import { askBox, confirmBox } from './dialog.js'
 import { toast } from './toast.js'
 import { closeAllCards } from './openCards.js'
 import { registerCommand } from './pageCommand.js'
@@ -158,7 +158,8 @@ export default function useBulk({ list, command, onDone }) {
     if (!k || runRef.current) return
     if (action.key !== 'ping') {
       const ask = T('bulk_q_' + action.key).replace('{k}', String(k)) + '\n' + bulkNames(links)
-      if (!(await confirmBox(ask, T('bulk_yes_' + action.key)))) return
+      const box = action.tone === 'bad' ? confirmBox : askBox
+      if (!(await box(ask, T('bulk_yes_' + action.key)))) return
     }
     exit()
     await execute(action, links)

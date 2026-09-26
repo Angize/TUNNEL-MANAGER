@@ -20,7 +20,8 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--acc) 55%, transparent);
   box-shadow: var(--dsh), 0 0 0 4px var(--accw);
@@ -34,7 +35,7 @@ select:focus {
 
 .primary {
   margin-top: 18px;
-  background: linear-gradient(135deg, var(--acc), var(--acc-deep));
+  background: linear-gradient(135deg, var(--fill), var(--fill-deep));
   color: #fff;
   border: 0;
   font-weight: 800;
@@ -105,7 +106,7 @@ select:focus {
 
 .primary.glass,
 .ghost.tone {
-  --c: var(--acc);
+  --c: var(--acc-tx);
   background: color-mix(in srgb, var(--c) 10%, var(--card));
   border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
   color: var(--c);
@@ -129,27 +130,27 @@ select:focus {
 }
 
 .ghost.tone-put {
-  --c: var(--teal);
+  --c: var(--teal-tx);
 }
 
 .ghost.tone-check {
-  --c: var(--violet);
+  --c: var(--violet-tx);
 }
 
 .ghost.tone-renew {
-  --c: var(--gold);
+  --c: var(--gold-tx);
 }
 
 .ghost.tone-del {
-  --c: var(--bad);
+  --c: var(--bad-tx);
 }
 
 .ghost.tone-more {
-  --c: var(--slate);
+  --c: var(--slate-tx);
 }
 
 .ghost.tone-more[aria-expanded='true'] {
-  --c: var(--acc);
+  --c: var(--acc-tx);
 }
 
 .msg {
@@ -159,11 +160,11 @@ select:focus {
 }
 
 .msg.ok {
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .msg.err {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .loadfail {
@@ -172,7 +173,7 @@ select:focus {
   align-items: center;
   gap: 10px 14px;
   font-size: 12.5px;
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .loadfail .ghost {
@@ -191,33 +192,49 @@ select:focus {
   min-height: 0;
 }
 
-.tglbox {
+.swrow {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  padding: 11px 12px;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  margin-top: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--edge);
   border-radius: 12px;
   background: var(--card);
   box-shadow: var(--dsh);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.tglbox .tt {
+.swrow:hover {
+  border-color: color-mix(in srgb, var(--acc) 35%, var(--edge));
+}
+
+.swrow.dis {
+  opacity: .45;
+  cursor: default;
+}
+
+.swtx {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.tglbox .tt b {
-  font-size: 12.5px;
+.swtx b {
+  font-size: 13px;
   font-weight: 700;
-  display: block;
+  line-height: 1.5;
 }
 
-.tglbox .tt small {
-  font-size: 10.5px;
+.swtx small {
+  font-size: 12px;
   color: var(--sub);
-  display: block;
-  margin-top: 1px;
   line-height: 1.5;
 }
 
@@ -247,7 +264,7 @@ select:focus {
 }
 
 .tglsw.on {
-  background: var(--acc);
+  background: var(--ok);
   border-color: transparent;
 }
 
@@ -291,7 +308,7 @@ select:focus {
 }
 
 .authseg button.on {
-  background: var(--acc);
+  background: var(--fill);
   color: #fff;
 }
 
@@ -333,7 +350,7 @@ select:focus {
 }
 
 .seg2 .segopt.on span {
-  color: color-mix(in srgb, var(--acc) 80%, var(--sub));
+  color: color-mix(in srgb, var(--acc-tx) 80%, var(--sub));
 }
 
 .pgrid {
@@ -385,66 +402,166 @@ select:focus {
 }
 
 .ptile.on .pn {
-  color: var(--acc);
-}
-
-.trwrap {
-  position: relative;
-  margin: 2px 0 11px;
-}
-
-.trwrap .trbar {
-  margin: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 2px;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity;
-  scrollbar-width: none;
-}
-
-.trwrap .trbar::-webkit-scrollbar {
-  display: none;
-}
-
-.trwrap .trbar .segopt {
-  flex: 0 0 auto;
-  width: 82px;
-  scroll-snap-align: start;
-}
-
-.trwrap .trbar .segopt span {
-  white-space: nowrap;
-}
-
-.trwrap::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 2px;
-  inset-inline-end: 0;
-  width: 34px;
-  pointer-events: none;
-  z-index: 2;
-  transition: opacity .2s;
-  background: linear-gradient(to left, transparent, var(--modal));
-}
-
-[dir="ltr"] .trwrap::before {
-  background: linear-gradient(to right, transparent, var(--modal));
-}
-
-.trwrap.atend::before {
-  opacity: 0;
-}
-
-.tglbox.dis {
-  opacity: .45;
-  pointer-events: none;
+  color: var(--acc-tx);
 }
 
 .portlock {
   opacity: .42;
   pointer-events: none;
+}
+
+.seg2.segwrap {
+  flex-wrap: wrap;
+}
+
+.seg2.segwrap .segopt {
+  flex: 1 1 72px;
+}
+
+.fldhint,
+.flderr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 2px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fldhint {
+  color: var(--sub);
+}
+
+.flderr {
+  color: var(--bad-tx);
+  font-weight: 600;
+}
+
+.flderr .ic {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.fld.bad input,
+.fld.bad select,
+.fld.bad .msbtn,
+.fld.bad .stepper {
+  border-color: color-mix(in srgb, var(--bad) 60%, transparent);
+}
+
+.stepper {
+  display: flex;
+  align-items: stretch;
+  height: 44px;
+  border: 1px solid var(--edge);
+  border-radius: 13px;
+  background: var(--card);
+  box-shadow: var(--dsh);
+  overflow: hidden;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.stepper:focus-within {
+  border-color: color-mix(in srgb, var(--acc) 55%, transparent);
+  box-shadow: var(--dsh), 0 0 0 4px var(--accw);
+}
+
+.stpb {
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--ctl);
+  color: var(--tx);
+  cursor: pointer;
+  transition: background .2s, color .2s;
+}
+
+.stpb:hover:not([aria-disabled='true']) {
+  background: var(--accw);
+  color: var(--acc-tx);
+}
+
+.stpb[aria-disabled='true'] {
+  opacity: .4;
+  cursor: default;
+}
+
+@keyframes stphita {
+  0% { border-color: var(--bad); box-shadow: var(--dsh), 0 0 0 4px color-mix(in srgb, var(--bad) 22%, transparent) }
+  14% { transform: translateX(-5px) }
+  28% { transform: translateX(5px) }
+  42% { transform: translateX(-3px) }
+  56% { transform: translateX(2px) }
+  64% { border-color: var(--bad); box-shadow: var(--dsh), 0 0 0 4px color-mix(in srgb, var(--bad) 22%, transparent) }
+  70% { transform: none }
+  100% { transform: none }
+}
+
+@keyframes stphitb {
+  0% { border-color: var(--bad); box-shadow: var(--dsh), 0 0 0 4px color-mix(in srgb, var(--bad) 22%, transparent) }
+  14% { transform: translateX(-5px) }
+  28% { transform: translateX(5px) }
+  42% { transform: translateX(-3px) }
+  56% { transform: translateX(2px) }
+  64% { border-color: var(--bad); box-shadow: var(--dsh), 0 0 0 4px color-mix(in srgb, var(--bad) 22%, transparent) }
+  70% { transform: none }
+  100% { transform: none }
+}
+
+.stepper.hita {
+  animation: stphita .6s cubic-bezier(.36, .07, .19, .97);
+}
+
+.stepper.hitb {
+  animation: stphitb .6s cubic-bezier(.36, .07, .19, .97);
+}
+
+.stpb:focus-visible {
+  outline-offset: -3px;
+}
+
+.stpb .ic {
+  width: 16px;
+  height: 16px;
+}
+
+.stpv {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.stpv input,
+.stpv input:focus {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stpv input:has(+ .stpu) {
+  flex: none;
+  text-align: left;
+}
+
+.stpu {
+  flex: none;
+  font-size: 12px;
+  color: var(--sub);
+  white-space: nowrap;
 }

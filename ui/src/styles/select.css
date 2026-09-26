@@ -27,7 +27,7 @@
 
 .msbtn.open .cv {
   transform: rotate(180deg);
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .mssub {
@@ -93,7 +93,7 @@
 }
 
 .msrow.sel .mscheck {
-  background: var(--acc);
+  background: var(--fill);
   border-color: var(--acc);
   color: #fff;
 }

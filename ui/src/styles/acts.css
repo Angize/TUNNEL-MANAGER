@@ -23,22 +23,22 @@
 }
 
 .ast.run {
-  color: var(--acc);
+  color: var(--acc-tx);
   background: var(--accw);
 }
 
 .ast.cancel {
-  color: var(--gold);
+  color: var(--gold-tx);
   background: var(--goldw);
 }
 
 .ast.fail {
-  color: var(--bad);
+  color: var(--bad-tx);
   background: var(--badw);
 }
 
 .ast.done {
-  color: var(--ok);
+  color: var(--ok-tx);
   background: var(--okw);
 }
 
@@ -130,7 +130,7 @@
 }
 
 .abtn.danger {
-  color: var(--bad);
+  color: var(--bad-tx);
   border-color: color-mix(in srgb, var(--bad) 35%, transparent);
 }
 

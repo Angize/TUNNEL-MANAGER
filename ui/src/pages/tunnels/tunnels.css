@@ -1,34 +1,3 @@
-.tbtnrow {
-  display: flex;
-  gap: 8px;
-  margin: 14px 0 10px;
-  flex-wrap: wrap;
-}
-
-.tbtnrow > button {
-  flex: 0 1 auto;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.2;
-  padding: 9px 16px;
-  min-height: 40px;
-  border-radius: 14px;
-}
-
-.tbtnrow > button.primary {
-  flex: 0 1 auto;
-}
-
-.tbtnrow > button .ic {
-  width: 15px;
-  height: 15px;
-}
-
 .tninfo {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -145,8 +114,8 @@
   font-weight: 800;
 }
 
-.stw.warn { color: var(--gold) }
-.stw.bad { color: var(--bad) }
+.stw.warn { color: var(--gold-tx) }
+.stw.bad { color: var(--bad-tx) }
 .stw.na { color: var(--sub) }
 
 .chh {
@@ -160,7 +129,7 @@
 }
 
 .enc {
-  color: var(--bad);
+  color: var(--bad-tx);
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -173,14 +142,14 @@
 }
 
 .offtxt {
-  color: var(--bad);
+  color: var(--bad-tx);
   font-weight: 700;
 }
 
 .offbadge {
   margin-top: 11px;
   font-size: 11.5px;
-  color: var(--bad);
+  color: var(--bad-tx);
   display: flex;
   gap: 7px;
   align-items: flex-start;

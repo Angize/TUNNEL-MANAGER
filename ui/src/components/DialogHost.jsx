@@ -1,12 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { closeDialog, subscribeDialogs } from '../lib/dialog.js'
+import { restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { T } from '../i18n/fa.js'
 
 function Dialog({ entry, top }) {
-  const primary = useRef(null)
+  const box = useRef(null)
+  const safe = useRef(null)
+  const textId = useId()
 
   useEffect(() => {
-    if (top && primary.current) primary.current.focus()
+    const opener = document.activeElement
+    return () => restoreFocus(opener)
+  }, [])
+
+  useEffect(() => {
+    if (top && safe.current) safe.current.focus()
   }, [top])
 
   const cancelValue = entry.kind === 'confirm' ? false : undefined
@@ -18,24 +26,34 @@ function Dialog({ entry, top }) {
         if (e.target === e.currentTarget) closeDialog(entry.id, cancelValue)
       }}
     >
-      <div className="modal">
-        <div className="mtext">{entry.msg}</div>
+      <div
+        className="modal"
+        ref={box}
+        role="alertdialog"
+        aria-modal="true"
+        aria-describedby={textId}
+        tabIndex={-1}
+        onKeyDown={(e) => trapTab(e, box.current)}
+      >
+        <div className="mtext" id={textId}>
+          {entry.msg}
+        </div>
         <div className="mbtns">
           {entry.kind === 'confirm' ? (
             <>
               <button
-                ref={primary}
-                className="primary"
+                type="button"
+                className={'primary' + (entry.danger ? ' danger' : '')}
                 onClick={() => closeDialog(entry.id, true)}
               >
                 {entry.yesLabel}
               </button>
-              <button className="ghost" onClick={() => closeDialog(entry.id, false)}>
+              <button type="button" ref={safe} className="ghost" onClick={() => closeDialog(entry.id, false)}>
                 {T('cancel')}
               </button>
             </>
           ) : (
-            <button ref={primary} className="primary" onClick={() => closeDialog(entry.id)}>
+            <button type="button" ref={safe} className="primary" onClick={() => closeDialog(entry.id)}>
               {T('got_it')}
             </button>
           )}

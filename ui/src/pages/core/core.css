@@ -8,12 +8,12 @@
 }
 
 .rl.srv {
-  color: var(--acc);
+  color: var(--acc-tx);
   background: color-mix(in srgb, var(--acc) 18%, transparent);
 }
 
 .rl.cli {
-  color: var(--gold);
+  color: var(--gold-tx);
   background: var(--goldw);
 }
 
@@ -58,7 +58,7 @@
 
 .cprot .rotmark {
   display: inline-flex;
-  color: var(--acc);
+  color: var(--acc-tx);
   cursor: help;
 }
 
@@ -116,7 +116,7 @@
 }
 
 .cgrid .encval {
-  color: var(--ok);
+  color: var(--ok-tx);
   font-size: 11px;
   font-weight: 800;
   direction: ltr;
@@ -159,13 +159,13 @@
 
 .warncap.ok {
   background: var(--okw);
-  color: var(--ok);
+  color: var(--ok-tx);
   border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
 }
 
 .warncap.no {
   background: var(--badw);
-  color: var(--bad);
+  color: var(--bad-tx);
   border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
 }
 

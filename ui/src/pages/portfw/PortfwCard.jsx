@@ -15,19 +15,19 @@ const ROTATE_TAG_STYLE = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 4,
-  color: 'var(--gold)',
+  color: 'var(--gold-tx)',
   borderColor: 'color-mix(in srgb, var(--gold) 34%, transparent)',
   background: 'var(--goldw)',
 }
 
 const PORTFW_TAG_STYLE = {
-  color: '#fb923c',
-  background: 'color-mix(in srgb, #fb923c 15%, transparent)',
+  color: 'var(--h-orange)',
+  background: 'color-mix(in srgb, var(--h-orange) 15%, transparent)',
 }
 
 const ROTATE_BTN_STYLE = {
-  color: '#fb923c',
-  borderColor: 'color-mix(in srgb, #fb923c 46%, transparent)',
+  color: 'var(--h-orange)',
+  borderColor: 'color-mix(in srgb, var(--h-orange) 46%, transparent)',
 }
 
 function rotateLabel(minutes) {
@@ -165,7 +165,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
           {listenIp ? (
             <div>
               {T('pf_lip_lbl')}
-              <b className="mono" style={{ color: 'var(--acc)' }}>
+              <b className="mono" style={{ color: 'var(--acc-tx)' }}>
                 {listenIp}
               </b>
             </div>
@@ -196,7 +196,7 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
           {multiTarget && activeTarget ? (
             <div className="wrap">
               {T('pf_active_now')}
-              <b className="mono" style={{ color: 'var(--ok)' }}>
+              <b className="mono" style={{ color: 'var(--ok-tx)' }}>
                 {activeTarget}
               </b>
             </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Modal from '../../../components/Modal.jsx'
 import ModalLoading from '../../../components/ModalLoading.jsx'
 import Icon from '../../../components/Icon.jsx'
@@ -9,6 +9,7 @@ import usePeerStatus from './usePeerStatus.js'
 import usePoolStatus from './usePoolStatus.js'
 import { collectCarrier, rotCollect, rotValidate } from './collect.js'
 import { createForm, editForm, nodeCpus, nodeItemsForEdit, nodeLabel, pickedIp } from './state.js'
+import { portErr } from './validate.js'
 import { apiGet, apiPost } from '../../../lib/api.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
@@ -37,6 +38,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const [tab, setTab] = useState('ip')
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
+  const tabBase = useId()
   const mounted = useRef(true)
   const closeRef = useRef(onClose)
 
@@ -129,22 +131,23 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     )
   }, [gateKey, cfg, aKey, bKey])
 
-  const wantsDrawnPort =
-    !link && !!form && form.Tr !== 'raw' && form.Tr !== 'ws' && form.port === ''
+  const drawFor = !link && form && form.Tr !== 'raw' && form.Tr !== 'ws' ? form.Tr : ''
 
   useEffect(() => {
-    if (!wantsDrawnPort) return undefined
+    if (!drawFor) return undefined
     let alive = true
     apiGet('next-port')
       .then((r) => {
         if (!alive) return
-        setForm((f) => (f && f.port === '' ? { ...f, port: String(r.port), portAuto: true } : f))
+        setForm((f) =>
+          f && (f.port === '' || f.portAuto) ? { ...f, port: String(r.port), portAuto: true } : f
+        )
       })
       .catch(() => {})
     return () => {
       alive = false
     }
-  }, [wantsDrawnPort])
+  }, [drawFor])
 
   const poolLid = link && link.ws_pool ? link.id : ''
   const peerLid = link && link.ip_rotate ? link.id : ''
@@ -175,10 +178,16 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     else patch({ bNode: value, bIp: '', rot: { ...form.rot, bSel: sel } })
   }
 
+  const stop = async (text, where) => {
+    setMessage('')
+    if (where) setTab(where)
+    await alertBox(text)
+  }
+
   const submit = async () => {
     setMessage('')
     if (form.aNode === form.bNode) {
-      await alertBox(T('two_diff_nodes'))
+      await stop(T('two_diff_nodes'), 'ip')
       return
     }
 
@@ -211,16 +220,14 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
     const carrierError = collectCarrier(form, cfg, body)
     if (carrierError) {
-      setMessage('')
-      await alertBox(carrierError)
+      await stop(carrierError, 'set')
       return
     }
 
     if (body.cover) {
       const sni = form.coverSni.trim()
       if (!sni) {
-        setMessage('')
-        await alertBox(T('cover_need_sni'))
+        await stop(T('cover_need_sni'), 'set')
         return
       }
       body.cover_sni = sni
@@ -228,8 +235,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
     const rotError = rotValidate(form, aIps, bIps)
     if (rotError) {
-      setMessage('')
-      await alertBox(rotError)
+      await stop(rotError, 'ip')
       return
     }
 
@@ -252,20 +258,24 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     if (form.range === 'custom') {
       const subnet = (form.subnet || '').trim()
       if (!subnet) {
-        setMessage('')
-        await alertBox(T('snr_custom_need'))
+        await stop(T('snr_custom_need'), 'set')
         return
       }
       body.subnet = subnet
     } else if (link) {
       const fitError = subnetFitError('core', link.tunnel_id, form.range)
       if (fitError) {
-        setMessage('')
-        await alertBox(fitError)
+        await stop(fitError, 'set')
         return
       }
       body.subnet = subnetForBase('core', link.tunnel_id, form.range)
     } else body.subnet_base = form.range
+
+    const portError = portErr(form.port, cfg.limits)
+    if (portError) {
+      await stop(portError, 'set')
+      return
+    }
 
     if (form.Tr === 'ws' && !form.port) body.port = '80'
     else if (form.port) body.port = form.port
@@ -275,21 +285,31 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
     const r = await apiPost(link ? 'edit-link' : 'create-tunnel', body)
     if (!(r.ok && r.d.act)) {
-      setMessage('')
-      await alertBox(postError(r))
+      await stop(postError(r))
       return
     }
     const verdict = await waitAccepted(r.d.act, () => mounted.current)
     if (verdict.gone) return
     if (verdict.err || verdict.cancelled) {
-      setMessage('')
-      await alertBox(
-        verdict.cancelled ? T('a_stopped') : translateError(verdict.err) || T('failed')
-      )
+      await stop(verdict.cancelled ? T('a_stopped') : translateError(verdict.err) || T('failed'))
       return
     }
     onClose()
     onDone()
+  }
+
+  const onTabKey = (e) => {
+    const at = TABS.findIndex((entry) => entry.v === tab)
+    const next = {
+      ArrowLeft: (at + 1) % TABS.length,
+      ArrowRight: (at + TABS.length - 1) % TABS.length,
+      Home: 0,
+      End: TABS.length - 1,
+    }[e.key]
+    if (next === undefined) return
+    e.preventDefault()
+    setTab(TABS[next].v)
+    document.getElementById(tabBase + 't' + TABS[next].v).focus()
   }
 
   const footer = (
@@ -312,11 +332,16 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       cls="edit"
       onClose={onClose}
     >
-      <div className="ctabs">
+      <div className="ctabs" role="tablist" onKeyDown={onTabKey}>
         {TABS.map((entry) => (
           <button
             key={entry.v}
+            id={tabBase + 't' + entry.v}
             type="button"
+            role="tab"
+            aria-selected={tab === entry.v ? 'true' : 'false'}
+            aria-controls={tabBase + 'p' + entry.v}
+            tabIndex={tab === entry.v ? 0 : -1}
             className={'ctab' + (tab === entry.v ? ' on' : '')}
             onClick={() => setTab(entry.v)}
           >
@@ -326,7 +351,12 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         ))}
       </div>
 
-      <div className={'ctabp' + (tab === 'ip' ? ' on' : '')}>
+      <div
+        id={tabBase + 'pip'}
+        role="tabpanel"
+        aria-labelledby={tabBase + 'tip'}
+        className={'ctabp' + (tab === 'ip' ? ' on' : '')}
+      >
         <IpsTab
           form={form}
           cfg={cfg}
@@ -342,7 +372,12 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         />
       </div>
 
-      <div className={'ctabp' + (tab === 'set' ? ' on' : '')}>
+      <div
+        id={tabBase + 'pset'}
+        role="tabpanel"
+        aria-labelledby={tabBase + 'tset'}
+        className={'ctabp' + (tab === 'set' ? ' on' : '')}
+      >
         <SettingsTab
           form={form}
           cfg={cfg}

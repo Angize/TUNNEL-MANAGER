@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { MAX_POLL_FAILURES } from '../../lib/poll.js'
-import { confirmBox } from '../../lib/dialog.js'
+import { askBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { T } from '../../i18n/fa.js'
 
@@ -132,7 +132,7 @@ export default function usePushJob({ onSettled }) {
 
   const cancel = useCallback(async () => {
     if (!job.current) return
-    if (!(await confirmBox(T('ag_p_cancel_q'), T('ag_p_cancel')))) return
+    if (!(await askBox(T('ag_p_cancel_q'), T('ag_p_cancel')))) return
     const r = await apiPost('push-cancel', { job: job.current })
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
   }, [])

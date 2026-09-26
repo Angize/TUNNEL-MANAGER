@@ -33,10 +33,12 @@ export default {
   nd_proxy_all: 'ترافیکِ پنل به این نود از این پروکسی',
   nd_proxy_pick: 'پروکسی',
   nd_proxy_none: 'پروکسی‌ای نساخته‌ای — اول از بخشِ «پروکسی‌ها» یکی بساز',
+  sec_show: 'نمایش',
 
   nadd_title: 'افزودنِ نود',
   nadd_auto: 'خودکار',
   nadd_manual: 'دستی',
+  nadd_mode: 'روشِ افزودن',
   nadd_autonote: 'پنل با SSH وارد می‌شود و ایجنت را نصب می‌کند',
   nadd_node_name: 'نامِ نود',
   nadd_srv_ip: 'آی‌پیِ سرور',

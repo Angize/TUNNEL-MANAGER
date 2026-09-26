@@ -3,7 +3,7 @@
   display: flex;
   gap: 4px;
   padding: 4px;
-  margin: 6px 0 8px;
+  margin: 8px 0;
   border-radius: 15px;
   background: var(--card);
   border: 1px solid var(--edge);
@@ -56,19 +56,19 @@
 }
 
 .lseg button.on {
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .lseg button.on i {
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .ldots {
   display: flex;
   justify-content: center;
   gap: 5px;
-  margin: 0 0 6px;
+  margin: 0 0 8px;
 }
 
 .ldots i {

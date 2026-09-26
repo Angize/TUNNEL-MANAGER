@@ -2,7 +2,6 @@ import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
 
 const LTR_HEAD = { direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 0 auto', minWidth: 0 }
-const HEAT_HEIGHTS = [42, 66, 30, 55, 48, 62, 36, 58]
 const SETTINGS_GROUPS = [
   ['sc-panel', 6],
   ['sc-conn', 2],
@@ -169,141 +168,146 @@ export function AgentRowsSkeleton({ count }) {
 function Section({ icon, titleKey, children }) {
   return (
     <div className="sec">
-      <Icon name={icon} color="var(--acc)" />
+      <Icon name={icon} color="var(--acc-tx)" />
       {T(titleKey)}
       {children}
     </div>
   )
 }
 
+function OvSection({ icon, titleKey, extra, children }) {
+  return (
+    <section className="osec">
+      <Section icon={icon} titleKey={titleKey}>
+        {extra}
+      </Section>
+      {children}
+    </section>
+  )
+}
+
 export function OverviewSkeleton() {
   return (
     <>
-      <div className="card ohero">
-        <div>
-          <Sk as="div" className="oscore" w={64} style={{ borderRadius: 8 }} />
-          <Sk as="div" className="oscore-l" w={70} />
-        </div>
-        <div className="ochips">
-          <Sk className="ochip" w={56} style={{ borderRadius: 20 }} />
-          <Sk className="ochip" w={94} style={{ borderRadius: 20 }} />
-          <Sk className="ochip" w={58} style={{ borderRadius: 20 }} />
-          <Sk className="ochip" w={62} style={{ borderRadius: 20 }} />
-        </div>
-      </div>
-
-      <Section icon="warn" titleKey="ov_attention" />
-      <div className="card">
-        {[0, 1].map((i) => (
-          <div className="oalert" key={i}>
-            <Dot size={8} />
-            <Sk className="msg" w={i ? '46%' : '62%'} />
-            <Sk className="go" w={52} />
+      <div className="okpis">
+        {[0, 1, 2, 3].map((i) => (
+          <div className="card okpi" key={i}>
+            <Sk as="div" className="okl" w={72} />
+            <Sk as="div" className="okv" w={56} style={{ borderRadius: 8 }} />
           </div>
         ))}
       </div>
 
-      <Section icon="grid" titleKey="ov_allnodes" />
-      <div className="card ohcard">
-        <div className="oheat">
-          {HEAT_HEIGHTS.map((h, i) => (
-            <span
-              className="sk"
-              key={i}
-              style={{ flex: '1 1 0', maxWidth: 56, height: h, borderRadius: '5px 5px 3px 3px' }}
-            />
-          ))}
-        </div>
-        <div className="heat-lg">
-          <Sk w={54} />
-          <Sk w={54} />
-          <Sk w={54} />
-        </div>
-        <Sk as="div" className="muted" w={260} style={{ margin: '6px auto 0', fontSize: 11 }} />
-      </div>
-
-      <Section icon="server" titleKey="ov_central" />
-      <div className="card">
-        <div className="gauges">
-          {[0, 1, 2].map((i) => (
-            <div className="gauge" key={i}>
-              <div className="gwrap">
-                <Box w={84} h={84} r={42} />
+      <div className="ogrid oduo">
+        <OvSection icon="warn" titleKey="ov_attention">
+          <div className="card">
+            {[0, 1].map((i) => (
+              <div className="oalert" key={i}>
+                <Dot size={8} />
+                <Sk className="msg" w={i ? '46%' : '62%'} />
+                <Sk className="go" w={52} />
               </div>
-              <Sk as="div" className="gl" w={34} style={{ margin: '8px auto 0' }} />
-              <Sk as="div" className="gsub" w={70} style={{ margin: '2px auto 0' }} />
+            ))}
+          </div>
+        </OvSection>
+
+        <OvSection icon="traf" titleKey="ov_traffic" extra={<Box w={50} h={23} r={20} />}>
+          <div className="card otraf">
+            <div className="tf-chart">
+              <div className="tf-top">
+                <span className="din iso">
+                  <Sk as="b" w={90} style={{ display: 'inline-block' }} />
+                </span>
+                <span className="dout iso">
+                  <Sk as="b" w={90} style={{ display: 'inline-block' }} />
+                </span>
+              </div>
+              <Box w="100%" h={46} r={8} />
+            </div>
+            <div className="ttiles">
+              {[0, 1].map((i) => (
+                <div className="ttile" key={i}>
+                  <span className="din">
+                    <Sk w={60} style={{ display: 'inline-block' }} />
+                  </span>
+                  <Sk as="b" w={84} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </OvSection>
+      </div>
+
+      <OvSection icon="grid" titleKey="ov_allnodes">
+        <div className="otiles">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <div className="otile" key={i}>
+              <Sk w={i % 3 ? 88 : 120} />
+              <Sk w={64} />
+              <Box w="100%" h={6} r={3} />
             </div>
           ))}
         </div>
-      </div>
+      </OvSection>
 
-      <Section icon="activity" titleKey="ov_worst" />
-      <div className="card">
-        {[0, 1, 2].map((i) => (
-          <div className="wrow" key={i}>
-            <Sk className="wk" w={34} />
-            <Sk className="wnm" w={80} />
-            <Box w="auto" h={8} r={4} style={{ flex: '1 1 auto' }} />
-            <Sk className="wpc" w={32} />
-          </div>
-        ))}
-      </div>
-
-      <Section icon="link" titleKey="ov_tunbreak" />
-      <div className="card">
-        <div className="tst">
-          {[0, 1, 2, 3].map((i) => (
-            <div className="tb" key={i}>
-              <Sk as="div" className="n" w={36} style={{ margin: '0 auto' }} />
-              <Sk as="div" className="l" w={50} style={{ margin: '0 auto' }} />
+      <div className="ogrid">
+        <OvSection icon="server" titleKey="ov_central">
+          <div className="card">
+            <div className="gauges">
+              {[0, 1, 2].map((i) => (
+                <div className="gauge" key={i}>
+                  <div className="gwrap">
+                    <Box w={84} h={84} r={42} />
+                  </div>
+                  <Sk as="div" className="gl" w={34} style={{ margin: '8px auto 0' }} />
+                  <Sk as="div" className="gsub" w={70} style={{ margin: '2px auto 0' }} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <Box w="100%" h={12} r={20} style={{ marginTop: 11 }} />
-        <div className="typleg">
-          <Sk w={64} />
-          <Sk w={64} />
-        </div>
-        <div className="onote">
-          <Sk w="60%" />
-        </div>
-      </div>
-
-      <Section icon="traf" titleKey="ov_traffic">
-        <Box w={50} h={23} r={20} />
-      </Section>
-      <div className="card">
-        <div className="tf-chart">
-          <div className="tf-top">
-            <span className="din iso">
-              <Sk as="b" w={90} style={{ display: 'inline-block' }} />
-            </span>
-            <span className="dout iso">
-              <Sk as="b" w={90} style={{ display: 'inline-block' }} />
-            </span>
           </div>
-          <Box w="100%" h={46} r={8} />
-        </div>
-        <div className="ttiles">
-          {[0, 1].map((i) => (
-            <div className="ttile" key={i}>
-              <span className="din">
-                <Sk w={60} style={{ display: 'inline-block' }} />
-              </span>
-              <Sk as="b" w={84} />
+        </OvSection>
+
+        <OvSection icon="activity" titleKey="ov_worst">
+          <div className="card">
+            {[0, 1, 2].map((i) => (
+              <div className="wrow" key={i}>
+                <Sk className="wk" w={34} />
+                <Sk className="wnm" w={80} />
+                <Box w="auto" h={8} r={4} style={{ flex: '1 1 auto' }} />
+                <Sk className="wpc" w={32} />
+              </div>
+            ))}
+          </div>
+        </OvSection>
+
+        <OvSection icon="link" titleKey="ov_tunbreak">
+          <div className="card">
+            <div className="tst">
+              {[0, 1, 2, 3].map((i) => (
+                <div className="tb" key={i}>
+                  <Sk as="div" className="n" w={36} style={{ margin: '0 auto' }} />
+                  <Sk as="div" className="l" w={50} style={{ margin: '0 auto' }} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
-
-      <Section icon="clock" titleKey="ov_uptime" />
-      <div className="ostat2">
-        {[0, 1].map((i) => (
-          <div className="card" key={i}>
-            <Sk as="div" className="big" w={70} style={{ borderRadius: 6 }} />
-            <Sk as="div" className="muted" w={120} style={{ fontSize: 11.5 }} />
+            <Box w="100%" h={12} r={20} style={{ marginTop: 12 }} />
+            <div className="typleg">
+              <Sk w={64} />
+              <Sk w={64} />
+            </div>
           </div>
-        ))}
+        </OvSection>
+
+        <OvSection icon="clock" titleKey="ov_uptime">
+          <div className="ostat2">
+            {[0, 1].map((i) => (
+              <div className="card" key={i}>
+                <Sk as="div" className="big" w={70} style={{ borderRadius: 6 }} />
+                <Sk as="div" className="muted" w={120} />
+              </div>
+            ))}
+          </div>
+        </OvSection>
       </div>
     </>
   )

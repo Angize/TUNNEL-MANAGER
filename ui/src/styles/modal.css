@@ -1,11 +1,22 @@
-@keyframes fade {
-  from { opacity: 0 }
-  to { opacity: 1 }
+@keyframes veilin {
+  from { background-color: transparent; backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0) }
+}
+
+@keyframes veilaway {
+  to { background-color: transparent; backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0) }
 }
 
 @keyframes modrise {
-  from { opacity: 0; transform: translateY(10px) scale(.985) }
+  from { opacity: 0; transform: translateY(16px) scale(.97) }
   to { opacity: 1; transform: none }
+}
+
+@keyframes modfall {
+  to { opacity: 0; transform: translateY(12px) scale(.97) }
+}
+
+@keyframes sheetdown {
+  to { transform: translateY(100%) }
 }
 
 .modalov {
@@ -19,7 +30,16 @@
   background: var(--veil);
   backdrop-filter: blur(16px) saturate(var(--sat));
   -webkit-backdrop-filter: blur(16px) saturate(var(--sat));
-  animation: fade .2s ease both;
+  animation: veilin .32s ease both;
+}
+
+.modalov.leaving {
+  pointer-events: none;
+  animation: veilaway .28s ease forwards;
+}
+
+.modalov.leaving .modal {
+  animation: modfall .24s cubic-bezier(.4, 0, 1, 1) forwards;
 }
 
 .modalov.dlgov {
@@ -34,7 +54,7 @@
   background: var(--modal);
   border: 1px solid var(--edge);
   box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .5), inset 0 1px 0 var(--hi);
-  animation: modrise .35s cubic-bezier(.25, 1.2, .4, 1);
+  animation: modrise .38s cubic-bezier(.22, 1, .36, 1);
 }
 
 .modal.wide {
@@ -64,8 +84,8 @@
   margin: 0;
 }
 
-.mbtns .primary {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bad) 92%, #fff), var(--bad));
+.mbtns .primary.danger {
+  background: linear-gradient(180deg, var(--bad-fill), color-mix(in srgb, var(--bad-fill) 86%, #000));
   color: #fff;
   box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
 }
@@ -126,7 +146,7 @@
 
 .msticky .mx:hover {
   background: var(--badw);
-  color: var(--bad);
+  color: var(--bad-tx);
   border-color: color-mix(in srgb, var(--bad) 40%, transparent);
 }
 
@@ -135,7 +155,7 @@
   height: 30px;
   border-radius: 9px;
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -285,7 +305,7 @@
   background: var(--field);
   display: grid;
   place-items: center;
-  color: var(--acc);
+  color: var(--acc-tx);
   flex: 0 0 auto;
 }
 
@@ -330,4 +350,46 @@
   border-width: 2px;
   border-color: var(--bord);
   border-top-color: var(--acc);
+}
+
+@keyframes sheetup {
+  from { transform: translateY(100%) }
+  to { transform: none }
+}
+
+@media (max-width: 640px) {
+  .modalov:not(.dlgov) {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modalov:not(.dlgov) .modal.wide {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 22px 22px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheetup .5s cubic-bezier(.32, .72, 0, 1);
+  }
+
+  .modalov.leaving:not(.dlgov) .modal.wide {
+    animation: sheetdown .28s cubic-bezier(.4, 0, 1, 1) forwards;
+  }
+
+  .modalov:not(.dlgov) .modal.wide::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 40px;
+    height: 5px;
+    margin: 8px auto 0;
+    border-radius: 999px;
+    background: var(--edge);
+  }
+
+  .msticky .mx {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
 }

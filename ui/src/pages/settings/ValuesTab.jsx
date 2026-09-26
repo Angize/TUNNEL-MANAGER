@@ -1,52 +1,85 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
+import Stepper from '../../components/Stepper.jsx'
+import ListField from '../../components/ListField.jsx'
 import SettingRow from './SettingRow.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
-import { T } from '../../i18n/fa.js'
+import { FIELDS, fieldRange, fieldStep } from './tuning.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
+import { T, TF } from '../../i18n/fa.js'
 
-const WINDOW_OPTIONS = [
-  { v: '1', label: 'h1' },
-  { v: '3', label: 'h3' },
-  { v: '6', label: 'h6' },
-  { v: '8', label: 'h8' },
-  { v: '12', label: 'h12' },
-  { v: '24', label: 'h24' },
-]
+function ValueRow({ name, helpKey, exampleKey }) {
+  const { form, set, touch, errors } = useSettingsForm()
+  const config = useUiConfig()
+  const spec = FIELDS[name]
+  const list = spec.kind === 'list'
+  const range = fieldRange(name, config)
 
-function NumberField({ value, onChange, min, max, step }) {
   return (
-    <input
-      className="search"
-      type="number"
-      step={step}
-      min={min}
-      max={max}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  )
-}
-
-function TextField({ value, onChange }) {
-  return (
-    <input
-      className="search wtxt"
-      type="text"
-      inputMode="numeric"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <SettingRow
+      label={T(spec.labelKey)}
+      helpKey={helpKey}
+      exampleKey={exampleKey}
+      unit={list || spec.stepper ? '' : T(spec.unitKey)}
+      error={errors[name]}
+      wide={list}
+      half={spec.half}
+    >
+      {list ? (
+        <ListField
+          value={form[name]}
+          range={range}
+          placeholder={T(spec.unitKey)}
+          onChange={(value) => {
+            set(name)(value)
+            touch(name)
+          }}
+        />
+      ) : spec.stepper ? (
+        <Stepper
+          min={range[0]}
+          max={range[1]}
+          step={fieldStep(name, config)}
+          unit={T(spec.unitKey)}
+          value={form[name]}
+          onChange={set(name)}
+          onBlur={() => touch(name)}
+        />
+      ) : (
+        <NumberInput
+          className="search"
+          kind={spec.kind}
+          value={form[name]}
+          onChange={set(name)}
+          onBlur={() => touch(name)}
+        />
+      )}
+    </SettingRow>
   )
 }
 
 export default function ValuesTab({ active }) {
   const f = useSettingsForm()
+  const config = useUiConfig()
   const [picking, setPicking] = useState(false)
+  const root = useRef(null)
+  const shownTry = useRef(0)
+  const { tried } = f
+
+  useEffect(() => {
+    if (tried === shownTry.current) return
+    shownTry.current = tried
+    const bad = active && root.current && root.current.querySelector('[aria-invalid="true"]')
+    if (!bad) return
+    bad.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    bad.focus({ preventScroll: true })
+  }, [tried, active])
 
   if (!f.form) {
     return (
@@ -57,12 +90,12 @@ export default function ValuesTab({ active }) {
   }
 
   const { form, set, mode, setMode, probeSamples } = f
-  const probeHint = T('set_pm_hint')
-    .replace('{n}', Math.ceil(Math.max(5, Math.min(100, parseInt(form.probeMin, 10) || 0)) * probeSamples / 100))
-    .replace('{c}', probeSamples)
+  const [probeLo, probeHi] = fieldRange('probeMin', config)
+  const probePct = Math.max(probeLo, Math.min(probeHi, parseInt(form.probeMin, 10) || 0))
+  const probeHint = TF('set_pm_hint', { n: Math.ceil((probePct * probeSamples) / 100), c: probeSamples })
 
   return (
-    <div className="stpage">
+    <div className="stpage" ref={root}>
       <div className="card sg">
         <SettingsGroup section icon="cog" titleKey="set_g1" chipKey="set_g1c" tone="sc-panel">
           <SettingRow label={T('set_on_ipchange')} helpKey="set_on_ipchange_d" exampleKey="set_x_ipchange">
@@ -74,25 +107,14 @@ export default function ValuesTab({ active }) {
             </button>
           </SettingRow>
 
-          <SettingRow label={T('set_rec_int')} helpKey="set_rec_range" exampleKey="set_x_rec">
-            <NumberField value={form.reconcile} onChange={set('reconcile')} min={5} max={3600} />
-          </SettingRow>
-
-          <SettingRow label={T('set_poll_int')} helpKey="set_poll_range" exampleKey="set_x_poll">
-            <NumberField value={form.poll} onChange={set('poll')} min={0.3} max={60} step={0.1} />
-          </SettingRow>
-
-          <SettingRow label={T('set_ui_int')} helpKey="set_ui_range" exampleKey="set_x_ui">
-            <NumberField value={form.ui} onChange={set('ui')} min={0.3} max={60} step={0.1} />
-          </SettingRow>
-
-          <SettingRow label={T('set_ech_int')} helpKey="set_ech_range" exampleKey="set_x_ech">
-            <NumberField value={form.ech} onChange={set('ech')} min={0} max={1440} step={1} />
-          </SettingRow>
+          <ValueRow name="reconcile" helpKey="set_rec_range" exampleKey="set_x_rec" />
+          <ValueRow name="poll" helpKey="set_poll_range" exampleKey="set_x_poll" />
+          <ValueRow name="ui" helpKey="set_ui_range" exampleKey="set_x_ui" />
+          <ValueRow name="ech" helpKey="set_ech_range" exampleKey="set_x_ech" />
 
           <SettingRow label={T('set_upwin')} helpKey="set_upwin_d" exampleKey="set_x_upwin">
             <Select
-              items={WINDOW_OPTIONS.map((o) => ({ v: o.v, label: T(o.label) }))}
+              items={config.uptime_windows.map((h) => ({ v: String(h), label: T('h' + h) }))}
               value={form.window}
               onChange={set('window')}
             />
@@ -100,33 +122,20 @@ export default function ValuesTab({ active }) {
         </SettingsGroup>
 
         <SettingsGroup section icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
-          <SettingRow label={T('set_t_probemin')} helpKey="set_t_probemin_d" exampleKey="set_x_probemin">
-            <NumberField value={form.probeMin} onChange={set('probeMin')} min={5} max={100} step={5} />
-          </SettingRow>
+          <ValueRow name="probeMin" helpKey="set_t_probemin_d" exampleKey="set_x_probemin" />
           <p className="srnote">{probeHint}</p>
 
-          <SettingRow label={T('set_t_revive')} helpKey="set_t_revive_d" exampleKey="set_x_revive">
-            <TextField value={form.revive} onChange={set('revive')} />
-          </SettingRow>
+          <ValueRow name="revive" helpKey="set_t_revive_d" exampleKey="set_x_revive" />
         </SettingsGroup>
 
         <SettingsGroup section icon="redo" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
-          <SettingRow label={T('set_t_suspect')} helpKey="set_t_suspect_d" exampleKey="set_x_suspect">
-            <TextField value={form.suspect} onChange={set('suspect')} />
-          </SettingRow>
-
-          <SettingRow label={T('set_t_deadretest')} helpKey="set_t_deadretest_d" exampleKey="set_x_deadretest">
-            <NumberField value={form.deadRetest} onChange={set('deadRetest')} min={1} max={1440} step={1} />
-          </SettingRow>
+          <ValueRow name="suspect" helpKey="set_t_suspect_d" exampleKey="set_x_suspect" />
+          <ValueRow name="deadRetest" helpKey="set_t_deadretest_d" exampleKey="set_x_deadretest" />
         </SettingsGroup>
 
         <SettingsGroup section icon="bolt" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
-          <SettingRow label={T('set_t_sockbuf')} helpKey="set_t_sockbuf_d" exampleKey="set_x_sockbuf">
-            <NumberField value={form.sockBuf} onChange={set('sockBuf')} min={0} max={64} step={1} />
-          </SettingRow>
-          <SettingRow label={T('set_t_tcpbuf')} helpKey="set_t_tcpbuf_d" exampleKey="set_x_tcpbuf">
-            <NumberField value={form.tcpBuf} onChange={set('tcpBuf')} min={0} max={64} step={1} />
-          </SettingRow>
+          <ValueRow name="sockBuf" helpKey="set_t_sockbuf_d" exampleKey="set_x_sockbuf" />
+          <ValueRow name="tcpBuf" helpKey="set_t_tcpbuf_d" exampleKey="set_x_tcpbuf" />
         </SettingsGroup>
       </div>
 

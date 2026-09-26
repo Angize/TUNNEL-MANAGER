@@ -1,26 +1,35 @@
+import Field from '../../../components/Field.jsx'
+import Reveal from '../../../components/Reveal.jsx'
+import Stepper from '../../../components/Stepper.jsx'
 import { WarnCap } from './controls.jsx'
 import { portTriesOn } from './gates.js'
 import { portTriesRangeErr } from './validate.js'
-import { PORT_TRIES_MAX } from './presets.js'
 import { rangeLabel } from '../../../lib/form.js'
 import { T } from '../../../i18n/fa.js'
 
-export default function PortTriesSection({ form, enums, patch }) {
-  if (!portTriesOn(form, enums)) return null
-
+function Tries({ form, cfg, patch }) {
   return (
-    <div style={{ marginTop: 11 }}>
-      <label className="first">{rangeLabel(T('porttries_lbl'), 1, PORT_TRIES_MAX)}</label>
-      <input
-        className="mono"
-        inputMode="numeric"
-        maxLength={2}
+    <Field
+      label={rangeLabel(T('porttries_lbl'), 1, cfg.limits.port_tries[1])}
+      first
+      style={{ marginTop: 12 }}
+    >
+      <Stepper
+        min={1}
+        max={cfg.limits.port_tries[1]}
         placeholder="2"
-        style={{ textAlign: 'center', direction: 'ltr' }}
         value={form.portTries}
-        onChange={(e) => patch({ portTries: e.target.value })}
+        onChange={(v) => patch({ portTries: v })}
       />
-      <WarnCap text={portTriesRangeErr(form)} style={{ marginTop: 8 }} />
-    </div>
+      <WarnCap text={portTriesRangeErr(form, cfg.limits)} style={{ marginTop: 8 }} />
+    </Field>
+  )
+}
+
+export default function PortTriesSection(props) {
+  return (
+    <Reveal show={portTriesOn(props.form, props.cfg.enums)}>
+      <Tries {...props} />
+    </Reveal>
   )
 }

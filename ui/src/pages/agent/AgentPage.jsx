@@ -16,7 +16,7 @@ import { T, TF } from '../../i18n/fa.js'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
-import { alertBox, confirmBox } from '../../lib/dialog.js'
+import { alertBox, askBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import { MAX_POLL_FAILURES, setPageRefresh } from '../../lib/poll.js'
@@ -253,7 +253,7 @@ export default function AgentPage({ headless }) {
         toast(T('ag_no_online'), 'err')
         return
       }
-      const ok = await confirmBox(
+      const ok = await askBox(
         T('ag_confirm_all') + ids.length + T('ag_confirm_all2'),
         T('yes_all')
       )
@@ -458,7 +458,7 @@ export default function AgentPage({ headless }) {
       toast(T('ag_no_online'), 'err')
       return
     }
-    const ok = await confirmBox(
+    const ok = await askBox(
       T('ag_confirm_core') + coreVersionName(wanted) + T('ag_confirm_core2') + ids.length + T('ag_confirm_core3'),
       T('yes_all')
     )
@@ -619,7 +619,7 @@ export default function AgentPage({ headless }) {
       <DownloadProxyCard />
 
       <div className="sec" style={{ marginTop: 16 }}>
-        <Icon name="server" color="var(--acc)" />
+        <Icon name="server" color="var(--acc-tx)" />
         {T('nodes_fleet')}
       </div>
 

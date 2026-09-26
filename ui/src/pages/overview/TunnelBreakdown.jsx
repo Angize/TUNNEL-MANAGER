@@ -3,14 +3,14 @@ import { T } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
 
 const TYPE_COLORS = [
-  ['core', '#6366f1'],
-  ['vxlan', '#0ea5e9'],
+  ['core', 'var(--h-indigo)'],
+  ['vxlan', 'var(--h-sky)'],
   ['gre', 'var(--ok)'],
-  ['sit', '#a855f7'],
-  ['ipip', '#14b8a6'],
-  ['l2tpv3', '#8b5cf6'],
-  ['fou', '#ec4899'],
-  ['ipsec', '#f43f5e'],
+  ['sit', 'var(--h-grape)'],
+  ['ipip', 'var(--h-teal)'],
+  ['l2tpv3', 'var(--h-purple)'],
+  ['fou', 'var(--h-pink)'],
+  ['ipsec', 'var(--h-rose)'],
 ]
 
 function StateTile({ value, label, color }) {
@@ -31,11 +31,11 @@ function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
       <div className="onote">
         {trouble ? (
           <>
-            <Icon name="warn" color="var(--bad)" /> {T('ov_trouble')}
+            <Icon name="warn" color="var(--bad-tx)" /> {T('ov_trouble')}
           </>
         ) : (
           <>
-            <Icon name="okc" color="var(--ok)" /> {T('ov_all_good')}
+            <Icon name="okc" color="var(--ok-tx)" /> {T('ov_all_good')}
           </>
         )}
         {fleetPing != null ? (
@@ -63,7 +63,7 @@ function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
       {loss > 0 ? (
         <>
           {' · '}
-          {T('ov_loss')} <b style={{ color: 'var(--bad)' }}>{Math.round(loss) + T('pct')}</b>
+          {T('ov_loss')} <b style={{ color: 'var(--bad-tx)' }}>{Math.round(loss) + T('pct')}</b>
         </>
       ) : null}
       {worst.rtt != null ? (
@@ -90,13 +90,13 @@ export default function TunnelBreakdown({ summary }) {
   return (
     <div className="card">
       <div className="tst">
-        <StateTile value={up} label={T('tst_connected')} color="var(--ok)" />
-        <StateTile value={noPing} label={T('tst_noping')} color="var(--gold)" />
-        <StateTile value={down} label={T('tst_down')} color={down ? 'var(--bad)' : 'var(--tx)'} />
+        <StateTile value={up} label={T('tst_connected')} color="var(--ok-tx)" />
+        <StateTile value={noPing} label={T('tst_noping')} color="var(--gold-tx)" />
+        <StateTile value={down} label={T('tst_down')} color={down ? 'var(--bad-tx)' : 'var(--tx)'} />
         <StateTile
           value={drift}
           label={T('tst_rebuild')}
-          color={drift ? 'var(--gold)' : 'var(--tx)'}
+          color={drift ? 'var(--gold-tx)' : 'var(--tx)'}
         />
         {off ? <StateTile value={off} label={T('st_off')} color="var(--sub)" /> : null}
       </div>

@@ -262,6 +262,7 @@ export default function ApiRef() {
       <div className="aplist">
         <input
           className="search"
+          aria-label={TEXT.search}
           placeholder={TEXT.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}

@@ -1,6 +1,6 @@
 .sc-panel,
 .sc-perf {
-  --sc: var(--acc);
+  --sc: var(--acc-tx);
   --scbg: var(--accw);
 }
 
@@ -149,7 +149,7 @@
 }
 
 .uprow .hd2 small .stw {
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .uprow > .upgo {

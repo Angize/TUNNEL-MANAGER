@@ -1,10 +1,7 @@
 import { T } from '../../../i18n/fa.js'
 
 export const RAW_DPORTS_MAX = 16
-export const RAW_BAND_MIN_LO = 1024
-export const RAW_BAND_MIN_SPAN = 100
 export const RAW_SPROT_MAX = 60
-export const PORT_TRIES_MAX = 60
 export const SPROT_DEFAULT = 4
 export const PEER_ACC_MIN = 3
 
@@ -129,10 +126,4 @@ export function cipherItems(enums, transport) {
       v,
       label: v === 'auto' ? T('cipher_auto') : v === 'none' ? T('cipher_none') : v,
     }))
-}
-
-export function workerCounts(max) {
-  const out = []
-  for (let n = 1; n <= max; n++) out.push(n)
-  return out
 }

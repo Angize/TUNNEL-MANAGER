@@ -20,7 +20,7 @@ const EMPTY_STYLE = {
   textAlign: 'center',
   padding: '10px 0',
   fontSize: 12.5,
-  color: 'var(--ok)',
+  color: 'var(--ok-tx)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -50,9 +50,9 @@ export default function AlertList({ alerts, total, onNavigate }) {
 
   if (!alerts.length) {
     return (
-      <div className="card">
+      <div className="card ogood">
         <div style={EMPTY_STYLE}>
-          <Icon name="okc" color="var(--ok)" />
+          <Icon name="okc" color="var(--ok-tx)" />
           {T('ov_noalert')}
         </div>
       </div>

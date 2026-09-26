@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 import { BULK_ACTIONS, bulkNames } from '../lib/useBulk.js'
 import { T } from '../i18n/fa.js'
+import { leaveGhost } from '../lib/leaveGhost.js'
 import './bulk.css'
 
 export function BulkButton({ bulk }) {
@@ -73,23 +74,28 @@ export function BulkBar({ bulk, active }) {
   return bulk.selecting && active ? <Bar bulk={bulk} /> : null
 }
 
-export function BulkSheet({ bulk, links, core }) {
+function Sheet({ bulk, links, core }) {
   const close = bulk.closeSheet
+  const veil = useRef(null)
   useEffect(() => {
-    if (!bulk.sheet) return undefined
     const onKey = (e) => {
       if (e.key === 'Escape') close()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [bulk.sheet, close])
+  }, [close])
 
-  if (!bulk.sheet) return null
+  useLayoutEffect(() => {
+    const node = veil.current
+    return () => leaveGhost(node)
+  }, [])
+
   const chosen = (links || []).filter((l) => bulk.picked.has(l.id))
   const actions = BULK_ACTIONS.filter((a) => core || !a.coreOnly)
 
   return createPortal(
     <div
+      ref={veil}
       className="bsheetov"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close()
@@ -100,8 +106,14 @@ export function BulkSheet({ bulk, links, core }) {
         <div className="bst">{T('bulk_title').replace('{k}', String(chosen.length))}</div>
         <div className="bss">{bulkNames(chosen)}</div>
         <div className="btiles">
-          {actions.map((a) => (
-            <button key={a.key} type="button" className={'btile t-' + a.tone} onClick={() => bulk.perform(a)}>
+          {actions.map((a, i) => (
+            <button
+              key={a.key}
+              type="button"
+              className={'btile t-' + a.tone}
+              style={{ '--i': i }}
+              onClick={() => bulk.perform(a)}
+            >
               <span className="chip">
                 <Icon name={a.icon} />
               </span>
@@ -116,4 +128,8 @@ export function BulkSheet({ bulk, links, core }) {
     </div>,
     document.body
   )
+}
+
+export function BulkSheet(props) {
+  return props.bulk.sheet ? <Sheet {...props} /> : null
 }

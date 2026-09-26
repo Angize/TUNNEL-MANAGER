@@ -292,7 +292,7 @@ export default function CoreCard({ link, activeEdge, onEdit, onReload, onTag, re
 
             {link.enabled === false ? (
               <div className="offbadge">
-                <Icon name="warn" color="var(--bad)" />
+                <Icon name="warn" color="var(--bad-tx)" />
                 <span>{T('tun_off_note')}</span>
               </div>
             ) : (

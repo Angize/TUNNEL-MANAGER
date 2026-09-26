@@ -256,7 +256,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
 
             {link.enabled === false ? (
               <div className="offbadge">
-                <Icon name="warn" color="var(--bad)" />
+                <Icon name="warn" color="var(--bad-tx)" />
                 <span>{T('tun_off_note')}</span>
               </div>
             ) : (

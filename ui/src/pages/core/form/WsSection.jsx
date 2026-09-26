@@ -1,13 +1,17 @@
+import Field from '../../../components/Field.jsx'
+import Reveal from '../../../components/Reveal.jsx'
+import SwitchRow from '../../../components/SwitchRow.jsx'
+import NumberInput from '../../../components/NumberInput.jsx'
 import RichText from '../../../components/RichText.jsx'
-import { TglBox, Tile, Tiles, WarnCap } from './controls.jsx'
+import { Tile, Tiles, WarnCap } from './controls.jsx'
 import WsPool from './WsPool.jsx'
 import { cdnShapeOn, wsProfOf } from './gates.js'
 import { CDN_FIELD_NAMES, cdnLabel, cdnShape, wsProfiles } from './presets.js'
 import { cdnShapeErr } from './validate.js'
 import { T } from '../../../i18n/fa.js'
+import { LTR_TEXT } from '../../../lib/form.js'
 
-function CdnShape({ form, enums, patch }) {
-  if (!cdnShapeOn(form)) return null
+function Shape({ form, enums, patch }) {
   const shape = cdnShape(enums)
   const uploadOnly = form.Cdn === 'http'
 
@@ -15,6 +19,8 @@ function CdnShape({ form, enums, patch }) {
     <div style={{ marginBottom: 8 }}>
       <label style={{ marginTop: 2 }}>{T('cdn_shape_lbl')}</label>
       <div
+        role="group"
+        aria-label={T('cdn_shape_lbl')}
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit,minmax(104px,1fr))',
@@ -25,29 +31,28 @@ function CdnShape({ form, enums, patch }) {
           const field = shape[name]
           const hidden = name !== 'downw' && !uploadOnly
           return (
-            <div
+            <Field
               key={name}
+              className="cshape"
+              label={
+                <>
+                  {cdnLabel(name)}{' '}
+                  <span className="muted" dir="ltr">
+                    {field.lo + '–' + field.hi}
+                  </span>
+                </>
+              }
               style={{
                 display: hidden ? 'none' : 'flex',
                 flexDirection: 'column',
                 minWidth: 0,
               }}
             >
-              <label style={{ marginTop: 0, flex: 1 }}>
-                {cdnLabel(name)}{' '}
-                <span className="muted" dir="ltr">
-                  {field.lo + '–' + field.hi}
-                </span>
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={field.lo}
-                max={field.hi}
+              <NumberInput
                 value={form.cdn[name]}
-                onChange={(e) => patch({ cdn: { ...form.cdn, [name]: e.target.value } })}
+                onChange={(v) => patch({ cdn: { ...form.cdn, [name]: v } })}
               />
-            </div>
+            </Field>
           )
         })}
       </div>
@@ -56,14 +61,21 @@ function CdnShape({ form, enums, patch }) {
   )
 }
 
-export default function WsSection({ form, cfg, lid, live, patch }) {
-  if (form.Tr !== 'ws') return null
+function CdnShape(props) {
+  return (
+    <Reveal show={cdnShapeOn(props.form)}>
+      <Shape {...props} />
+    </Reveal>
+  )
+}
+
+function Ws({ form, cfg, lid, live, patch }) {
   const current = wsProfOf(form.Cdn)
 
   return (
     <div>
       <label>{T('ws_prof_lbl')}</label>
-      <Tiles p3>
+      <Tiles p3 label={T('ws_prof_lbl')}>
         {wsProfiles().map((profile) => (
           <Tile
             key={profile.v}
@@ -75,13 +87,13 @@ export default function WsSection({ form, cfg, lid, live, patch }) {
         ))}
       </Tiles>
       <CdnShape form={form} enums={cfg.enums} patch={patch} />
-      <TglBox
+      <SwitchRow
         on={form.pool.pool}
         title={T('ws_pool_t')}
         note={T('ws_pool_d')}
-        onClick={() => patch({ pool: { ...form.pool, pool: !form.pool.pool } })}
+        onToggle={() => patch({ pool: { ...form.pool, pool: !form.pool.pool } })}
       />
-      {form.pool.pool ? (
+      <Reveal show={form.pool.pool}>
         <WsPool
           form={form}
           enums={cfg.enums}
@@ -89,35 +101,47 @@ export default function WsSection({ form, cfg, lid, live, patch }) {
           live={live}
           patch={patch}
         />
-      ) : (
-        <div style={{ marginTop: 11 }}>
-          <label>{T('ws_host_lbl')}</label>
-          <input
-            dir="ltr"
-            placeholder={T('ph_cdn_domain')}
-            value={form.wsHost}
-            onChange={(e) => patch({ wsHost: e.target.value })}
-          />
-          <label>{T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}</label>
-          <input
-            className="mono"
-            dir="ltr"
-            placeholder={T('ph_edge_ip')}
-            value={form.wsEdge}
-            onChange={(e) => patch({ wsEdge: e.target.value })}
-          />
+      </Reveal>
+      <Reveal show={!form.pool.pool}>
+        <div style={{ marginTop: 12 }}>
+          <Field label={T('ws_host_lbl')}>
+            <input
+              {...LTR_TEXT}
+              placeholder={T('ph_cdn_domain')}
+              value={form.wsHost}
+              onChange={(e) => patch({ wsHost: e.target.value })}
+            />
+          </Field>
+          <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
+            <input
+              {...LTR_TEXT}
+              className="mono"
+              placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
+              value={form.wsEdge}
+              onChange={(e) => patch({ wsEdge: e.target.value })}
+            />
+          </Field>
         </div>
-      )}
-      <label>{T('ws_path_lbl')}</label>
-      <input
-        dir="ltr"
-        placeholder="/"
-        value={form.wsPath}
-        onChange={(e) => patch({ wsPath: e.target.value })}
-      />
+      </Reveal>
+      <Field label={T('ws_path_lbl')}>
+        <input
+          {...LTR_TEXT}
+          placeholder="/"
+          value={form.wsPath}
+          onChange={(e) => patch({ wsPath: e.target.value })}
+        />
+      </Field>
       <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
         <RichText text={T('ws_note')} />
       </div>
     </div>
+  )
+}
+
+export default function WsSection(props) {
+  return (
+    <Reveal show={props.form.Tr === 'ws'}>
+      <Ws {...props} />
+    </Reveal>
   )
 }

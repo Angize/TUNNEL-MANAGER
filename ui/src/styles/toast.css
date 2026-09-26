@@ -36,14 +36,16 @@
 .toast.show {
   opacity: 1;
   transform: none;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .toast.err {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .toast.ok {
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 @media (max-width: 840px) {

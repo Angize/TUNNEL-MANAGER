@@ -1,7 +1,6 @@
 :root {
   color-scheme: light;
   --acc: #4d6bf0;
-  --acc-deep: #3a53d0;
   --ok: #0f9d58;
   --bad: #d13b3b;
   --gold: #c27506;
@@ -22,7 +21,7 @@
   --pill: rgba(255, 255, 255, .85);
   --veil: rgba(15, 27, 45, .28);
   --tx: #0f1b2d;
-  --sub: #5b6b82;
+  --sub: #57667c;
   --hi: rgba(255, 255, 255, .95);
   --blur: 9px;
   --sat: 150%;
@@ -35,12 +34,29 @@
   --goldw: color-mix(in srgb, var(--gold) 14%, transparent);
   --sk-base: rgba(15, 27, 45, .07);
   --sk-hi: rgba(255, 255, 255, .8);
+  --acc-tx: #3154ee;
+  --ok-tx: #0b7542;
+  --bad-tx: #bc2c2c;
+  --gold-tx: #935905;
+  --teal-tx: #0a736a;
+  --violet-tx: #7733ec;
+  --slate-tx: #576579;
+  --fill: #4460e6;
+  --fill-deep: #3a53d0;
+  --bad-fill: #d13b3b;
+  --h-sky: #096d9a;
+  --h-teal: #0d756a;
+  --h-pink: #c2146a;
+  --h-purple: #7138f4;
+  --h-rose: #c70b2b;
+  --h-orange: #aa4e03;
+  --h-indigo: #494def;
+  --h-grape: #8b1df4;
 }
 
 html.dark {
   color-scheme: dark;
   --acc: #8fa3ff;
-  --acc-deep: #4d6bf0;
   --ok: #4ade80;
   --bad: #f87171;
   --gold: #fbbf24;
@@ -61,7 +77,7 @@ html.dark {
   --pill: rgba(255, 255, 255, .1);
   --veil: rgba(0, 0, 0, .45);
   --tx: #e8edf5;
-  --sub: #93a0b5;
+  --sub: #98a5ba;
   --hi: rgba(255, 255, 255, .08);
   --dsh: 0 16px 44px -30px rgba(0, 0, 0, .7), inset 0 1px 0 var(--hi);
   --dsh-hi: 0 24px 56px -28px rgba(0, 0, 0, .8), inset 0 1px 0 var(--hi);
@@ -72,4 +88,20 @@ html.dark {
   --goldw: color-mix(in srgb, var(--gold) 15%, transparent);
   --sk-base: rgba(255, 255, 255, .06);
   --sk-hi: rgba(255, 255, 255, .14);
+  --acc-tx: var(--acc);
+  --ok-tx: var(--ok);
+  --bad-tx: var(--bad);
+  --gold-tx: var(--gold);
+  --teal-tx: var(--teal);
+  --violet-tx: var(--violet);
+  --slate-tx: var(--slate);
+  --bad-fill: #dc2626;
+  --h-sky: #0ea5e9;
+  --h-teal: #14b8a6;
+  --h-pink: #ef66aa;
+  --h-purple: #a580f8;
+  --h-rose: #f6637c;
+  --h-orange: #fb923c;
+  --h-indigo: #888bf4;
+  --h-grape: #b977f9;
 }

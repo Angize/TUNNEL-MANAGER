@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { apiPost } from './api.js'
 import { postError, translateError } from './errors.js'
-import { confirmBox } from './dialog.js'
+import { askBox } from './dialog.js'
 import { toast } from './toast.js'
 import { sideText } from '../pages/tunnels/sideHealth.js'
 import { T } from '../i18n/fa.js'
@@ -88,17 +88,17 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
       setEnabled(link.enabled === false, false)
     },
     resetTraffic: async () => {
-      if (await confirmBox(T('reset_confirm'), T('reset_yes'))) await reset(false)
+      if (await askBox(T('reset_confirm'), T('reset_yes'))) await reset(false)
     },
     restart: async () => {
-      if (await confirmBox(T('restart_confirm'), T('restart_yes'))) await startAct('restart', 'restart_failed', false)
+      if (await askBox(T('restart_confirm'), T('restart_yes'))) await startAct('restart', 'restart_failed', false)
     },
     rebuild: async () => {
       if (link.drift) {
         pickRebuild()
         return
       }
-      if (await confirmBox(T('rebuild_confirm'), T('tip_rebuild'))) await startAct('rebuild', 'rebuild_failed', false)
+      if (await askBox(T('rebuild_confirm'), T('tip_rebuild'))) await startAct('rebuild', 'rebuild_failed', false)
     },
   }
 }

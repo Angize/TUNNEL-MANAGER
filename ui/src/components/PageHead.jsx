@@ -5,7 +5,7 @@ export default function PageHead({ icon, titleKey, subKey }) {
   return (
     <>
       <h1>
-        <Icon name={icon} color="var(--acc)" />
+        <Icon name={icon} color="var(--acc-tx)" />
         {T(titleKey)}
       </h1>
       {subKey ? <p className="sub">{T(subKey)}</p> : null}

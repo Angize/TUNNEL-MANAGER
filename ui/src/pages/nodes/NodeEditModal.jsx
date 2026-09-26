@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Field from '../../components/Field.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
+import SecretInput from '../../components/SecretInput.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { isNodeNameValid } from './nodeName.js'
-import useBusy from '../../lib/useBusy.js'
+import useBusy from '../../lib/useBusy.js'
+import { LTR_TEXT } from '../../lib/form.js'
 
 export default function NodeEditModal({ node, onClose, onSaved }) {
   const [proxies, setProxies] = useState([])
@@ -73,28 +77,24 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
   return (
     <Modal icon="pen" title={T('nd_edit')} subtitle={node.name} footer={footer} onClose={onClose}>
       <div className="grid2">
-        <div>
-          <label className="first">{T('f_name')}</label>
+        <Field label={T('f_name')} first>
           <input value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div>
-          <label className="first">{T('f_host_ip')}</label>
-          <input value={host} onChange={(e) => setHost(e.target.value)} />
-        </div>
+        </Field>
+        <Field label={T('f_host_ip')} first>
+          <input
+            {...LTR_TEXT}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+          />
+        </Field>
       </div>
       <div className="grid2">
-        <div>
-          <label>{T('f_port')}</label>
-          <input value={port} onChange={(e) => setPort(e.target.value)} />
-        </div>
-        <div>
-          <label>{T('f_token')}</label>
-          <input
-            placeholder={T('tok_keep')}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-          />
-        </div>
+        <Field label={T('f_port')}>
+          <NumberInput value={port} onChange={setPort} />
+        </Field>
+        <Field label={T('f_token')}>
+          <SecretInput placeholder={T('tok_keep')} value={token} onChange={setToken} />
+        </Field>
       </div>
       <ProxyFields proxies={proxies} value={proxy} onChange={setProxy} />
       <div className="msg">{message}</div>

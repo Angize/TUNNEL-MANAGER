@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Field from '../../../components/Field.jsx'
 import Icon from '../../../components/Icon.jsx'
 import Select from '../../../components/Select.jsx'
 import {
@@ -18,6 +19,7 @@ import { poolValid } from './validate.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { toast } from '../../../lib/toast.js'
 import { T } from '../../../i18n/fa.js'
+import { LTR_TEXT } from '../../../lib/form.js'
 
 const KINDS = [
   { kind: 'ip', label: () => T('pool_ip_lbl'), placeholder: '104.16.0.1:443' },
@@ -157,7 +159,8 @@ export default function WsPool({ form, enums, lid, live, patch }) {
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <input
                 className="mono"
-                dir="ltr"
+                {...LTR_TEXT}
+                aria-label={label()}
                 style={{ flex: 1, textAlign: 'left' }}
                 placeholder={placeholder}
                 value={draft[kind]}
@@ -167,7 +170,7 @@ export default function WsPool({ form, enums, lid, live, patch }) {
                 type="button"
                 onClick={() => add(kind)}
                 style={{
-                  background: 'var(--acc)',
+                  background: 'var(--fill)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: 9,
@@ -182,13 +185,14 @@ export default function WsPool({ form, enums, lid, live, patch }) {
           </Accordion>
         )
       })}
-      <label style={{ marginTop: 14 }}>{T('rot_int_lbl')}</label>
-      <Select
-        items={items}
-        value={pool.rotate}
-        placeholder={T('rot_int_lbl')}
-        onChange={(v) => setPool({ rotate: +v })}
-      />
+      <Field label={T('rot_int_lbl')}>
+        <Select
+          items={items}
+          value={pool.rotate}
+          placeholder={T('rot_int_lbl')}
+          onChange={(v) => setPool({ rotate: +v })}
+        />
+      </Field>
     </div>
   )
 }
