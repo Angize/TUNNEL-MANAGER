@@ -1,5 +1,5 @@
 import { ScrollSeg, SegOpt } from './controls.jsx'
-import { wkCarrier } from './gates.js'
+import { wkCarrier, wkShared } from './gates.js'
 import { workerCounts } from './presets.js'
 import { T } from '../../../i18n/fa.js'
 
@@ -8,12 +8,14 @@ function workersLabel(name, cpus) {
   return cpus ? base + ' · ' + T('workers_lbl_cores').split('{c}').join(String(cpus)) : base
 }
 
-function SideWorkers({ counts, name, cpus, value, order, onPick }) {
+function Picker({ counts, label, value, order, onPick }) {
   return (
     <div style={{ order }}>
-      <div className="muted" style={{ fontSize: 11, marginTop: 7 }}>
-        {workersLabel(name, cpus)}
-      </div>
+      {label ? (
+        <div className="muted" style={{ fontSize: 11, marginTop: 7 }}>
+          {label}
+        </div>
+      ) : null}
       <ScrollSeg>
         {counts.map((n) => (
           <SegOpt
@@ -32,29 +34,31 @@ function SideWorkers({ counts, name, cpus, value, order, onPick }) {
 export default function WorkersSection({ form, cfg, sides, patch }) {
   if (!wkCarrier(form)) return null
   const counts = workerCounts(cfg.workers_max)
-  const serverIsA = form.Srv !== 'b'
 
+  if (wkShared(form)) {
+    return (
+      <div style={{ marginTop: 11 }}>
+        <label className="first">{T('workers_lbl')}</label>
+        <Picker counts={counts} value={form.WorkersA} onPick={(n) => patch({ WorkersA: n, WorkersB: n })} />
+      </div>
+    )
+  }
+
+  const serverIsA = form.Srv !== 'b'
   return (
     <div style={{ marginTop: 11 }}>
       <label className="first">{T('workers_lbl')}</label>
-      {form.Tr === 'tcp' || form.Tr === 'ws' ? (
-        <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
-          {T('workers_conn_d')}
-        </div>
-      ) : null}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <SideWorkers
+        <Picker
           counts={counts}
-          name={sides.a.name}
-          cpus={sides.a.cpus}
+          label={workersLabel(sides.a.name, sides.a.cpus)}
           value={form.WorkersA}
           order={serverIsA ? 0 : 1}
           onPick={(n) => patch({ WorkersA: n })}
         />
-        <SideWorkers
+        <Picker
           counts={counts}
-          name={sides.b.name}
-          cpus={sides.b.cpus}
+          label={workersLabel(sides.b.name, sides.b.cpus)}
           value={form.WorkersB}
           order={serverIsA ? 1 : 0}
           onPick={(n) => patch({ WorkersB: n })}

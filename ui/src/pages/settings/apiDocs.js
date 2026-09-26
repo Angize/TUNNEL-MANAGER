@@ -146,7 +146,7 @@ const TUNNEL_FIELDS = [
   ['fec', 0, B, 'forward error correction — udp and raw only'],
   ['fec_data', 0, N, 'data packets per FEC group (default 16, at most 64)'],
   ['fec_parity', 0, N, 'parity packets (default 4; data plus parity at most 255)'],
-  ['a_workers', 0, N, 'parallel queues on end a (1 to 8) — udp and raw without FEC, tcp, and ws without an http/grpc cdn_carrier; on tcp and ws each queue is its own connection'],
+  ['a_workers', 0, N, 'parallel queues on end a (1 to 8), any carrier but not with FEC; on tcp and ws (http and grpc included) each queue is its own connection and the panel form sets both ends to one number'],
   ['b_workers', 0, N, 'parallel queues on end b (1 to 8)'],
   ['fake_desync', 0, B, 'send decoy packets before the handshake — raw, tcp and ws'],
   ['fake_ttl', 0, N, 'decoy TTL (default 4)'],
