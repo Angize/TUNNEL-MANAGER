@@ -113,12 +113,13 @@ export default function SettingsTab({
           <BandSection form={form} cfg={cfg} patch={patch} />
         </>
       </Reveal>
-      <Reveal show={wkCarrier(form)}>
+      <Reveal show={wkCarrier(form) && form.Tr !== 'ws'}>
         <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       </Reveal>
       <WsSection
         form={form}
         cfg={cfg}
+        sides={sides}
         lid={poolLive.lid}
         live={poolLive}
         patch={patch}

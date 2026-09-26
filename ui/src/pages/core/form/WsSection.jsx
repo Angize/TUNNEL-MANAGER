@@ -4,6 +4,7 @@ import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import RichText from '../../../components/RichText.jsx'
 import { Tile, Tiles, WarnCap } from './controls.jsx'
+import WorkersSection from './WorkersSection.jsx'
 import WsPool from './WsPool.jsx'
 import { cdnShapeOn, wsProfOf } from './gates.js'
 import { CDN_FIELD_NAMES, cdnLabel, cdnShape, wsProfiles } from './presets.js'
@@ -69,7 +70,7 @@ function CdnShape(props) {
   )
 }
 
-function Ws({ form, cfg, lid, live, patch }) {
+function Ws({ form, cfg, sides, lid, live, patch }) {
   const current = wsProfOf(form.Cdn)
 
   return (
@@ -86,6 +87,7 @@ function Ws({ form, cfg, lid, live, patch }) {
           />
         ))}
       </Tiles>
+      <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       <CdnShape form={form} enums={cfg.enums} patch={patch} />
       <SwitchRow
         on={form.pool.pool}
