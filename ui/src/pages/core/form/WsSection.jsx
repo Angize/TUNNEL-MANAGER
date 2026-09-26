@@ -18,7 +18,7 @@ function Shape({ form, enums, patch }) {
 
   return (
     <div style={{ marginBottom: 8 }}>
-      <label style={{ marginTop: 2 }}>{T('cdn_shape_lbl')}</label>
+      <label>{T('cdn_shape_lbl')}</label>
       <div
         role="group"
         aria-label={T('cdn_shape_lbl')}
