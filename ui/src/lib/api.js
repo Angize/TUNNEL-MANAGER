@@ -2,7 +2,7 @@ import { confirmBox } from './dialog.js'
 import { T } from '../i18n/fa.js'
 
 export const NET_TIMEOUT = 20000
-export const NET_POST_TIMEOUT = 300000
+const NET_POST_TIMEOUT = 300000
 
 const HEADERS = {
   'Content-Type': 'application/json',

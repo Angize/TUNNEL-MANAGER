@@ -9,7 +9,7 @@ function errWord(status) {
   return why ? T(key) + ' — ' + why : T(key)
 }
 
-export function pushWord(status) {
+function pushWord(status) {
   if (status.state === 'wait') return T('ag_p_wait')
   if (status.state === 'skip') return T('ag_p_skip')
   if (status.state === 'same') return T('ag_p_same')
@@ -27,7 +27,7 @@ export function pushWord(status) {
   return word
 }
 
-export function pushLabel(status) {
+function pushLabel(status) {
   let text = pushWord(status)
   if (status.state === 'ok' && num(status.restarted) > 0) {
     text += ' · ' + T('ups_restarted').replace('{n}', num(status.restarted))

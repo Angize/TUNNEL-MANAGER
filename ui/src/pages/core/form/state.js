@@ -192,10 +192,6 @@ export function pickedIp(form, ips, selected, chosen, stored) {
   return stored && ips.includes(stored) ? stored : ''
 }
 
-export function rotCount(ips, selected) {
-  return ips.filter((ip) => selected[ip]).length
-}
-
 export function nodeCpus(nodes, id) {
   const node = (nodes || []).find((n) => n.id === id)
   return node ? num(node.cpus) : 0

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 const state = {}
 const listeners = new Set()
 
-export function getPageQuery(page) {
+function getPageQuery(page) {
   return state[page] || ''
 }
 

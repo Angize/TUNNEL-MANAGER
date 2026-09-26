@@ -24,7 +24,7 @@ export function tagClassForFamily(family) {
   return TAG_FAMILIES[String(family).toLowerCase()] ? 'c-' + family : 'c-sys'
 }
 
-export function rawProfileTag(link) {
+function rawProfileTag(link) {
   const profile = link.raw_profile || 'bare'
   return profile.toUpperCase() + (profile === 'bare' ? '(' + (num(link.raw_proto) || 253) + ')' : '')
 }

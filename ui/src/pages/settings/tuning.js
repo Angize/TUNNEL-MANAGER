@@ -5,7 +5,7 @@ function latinDigits(text) {
   return String(text || '').replace(/[۰-۹٠-٩]/g, (d) => String(d.charCodeAt(0) & 0xf))
 }
 
-export function minutesToSeconds(value) {
+function minutesToSeconds(value) {
   const n = parseInt(latinDigits(value), 10)
   return n >= 1 ? n * 60 : NaN
 }
@@ -21,11 +21,11 @@ function numberList(text) {
     .map((part) => (/^\d+$/.test(part) ? parseInt(part, 10) : NaN))
 }
 
-export function parseMinuteList(text) {
+function parseMinuteList(text) {
   return numberList(text).map((n) => (n >= 1 ? n * 60 : NaN))
 }
 
-export function parseSecondList(text) {
+function parseSecondList(text) {
   return numberList(text)
 }
 

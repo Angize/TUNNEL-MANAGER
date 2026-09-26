@@ -19,7 +19,7 @@ export function Sk({ as, className, w, style }) {
   )
 }
 
-export function Box({ w, h, r, style }) {
+function Box({ w, h, r, style }) {
   return (
     <span
       className="sk"
@@ -52,7 +52,7 @@ function TrafficRow({ cls }) {
   )
 }
 
-export function AccCardSkeleton() {
+function AccCardSkeleton() {
   return (
     <div className="card acc">
       <div className="chead">
@@ -76,7 +76,7 @@ export function AccCardSkeleton() {
   )
 }
 
-export function NodeCardSkeleton() {
+function NodeCardSkeleton() {
   return (
     <div className="card node acc">
       <div className="chead">
@@ -94,7 +94,7 @@ export function NodeCardSkeleton() {
   )
 }
 
-export function ProxyCardSkeleton() {
+function ProxyCardSkeleton() {
   return (
     <div className="card node acc">
       <div className="chead">
@@ -110,7 +110,7 @@ export function ProxyCardSkeleton() {
   )
 }
 
-export function PortfwCardSkeleton() {
+function PortfwCardSkeleton() {
   return (
     <div className="card acc">
       <div className="chead">

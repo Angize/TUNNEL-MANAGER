@@ -1,10 +1,10 @@
 import { T } from '../../i18n/fa.js'
 
-export function formatMs(value) {
+function formatMs(value) {
   return (value >= 10 ? Math.round(value) : Math.round(value * 10) / 10) + 'ms'
 }
 
-export function pingInfo(health) {
+function pingInfo(health) {
   if (!health) return ''
   const parts = []
   if (health.rtt_ms != null) parts.push(T('t_ping') + ' ' + formatMs(health.rtt_ms))
@@ -14,7 +14,7 @@ export function pingInfo(health) {
   return parts.join(' · ')
 }
 
-export function sideState(online, health) {
+function sideState(online, health) {
   if (!online) return { kind: 'bad', word: T('st_disc'), title: T('t_side_off') }
   if (!health) return { kind: 'bad', word: T('st_disc'), title: T('t_side_notun') }
   if (health.up == null) return { kind: 'na', word: '…', title: T('checking') }

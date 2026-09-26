@@ -21,7 +21,7 @@ export function eventKey(event) {
   return 'k' + (h >>> 0)
 }
 
-export function splitDetail(detail) {
+function splitDetail(detail) {
   const rows = []
   const notes = []
   for (const line of detail ? detail.split('\n') : []) {
@@ -36,7 +36,7 @@ export function splitDetail(detail) {
   return { rows, notes }
 }
 
-export function sentence(title, notes) {
+function sentence(title, notes) {
   let out = String(title || '').trim()
   for (const note of notes) {
     const next = String(note || '').trim()

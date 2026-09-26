@@ -9,7 +9,7 @@ import {
   cdnLabel,
   cdnShape,
 } from './presets.js'
-import { bandOn, cdnShapeApplies, cdnShapeOn, portTriesOn, sprotLive } from './gates.js'
+import { cdnShapeApplies, cdnShapeOn, portTriesOn, sprotLive } from './gates.js'
 
 export function intOf(text) {
   const n = parseInt(String(text || '').trim(), 10)
@@ -90,10 +90,6 @@ export function portTriesRangeErr(form) {
 export function portTriesErr(form, enums) {
   if (!portTriesOn(form, enums)) return ''
   return portTriesRangeErr(form)
-}
-
-export function bandFormErr(form, enums) {
-  return bandOn(form, enums) ? bandErr(form) : ''
 }
 
 export function cdnShapeValue(form, name, enums) {
