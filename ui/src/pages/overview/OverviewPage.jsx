@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import { OverviewSkeleton } from '../../components/Skeleton.jsx'
@@ -30,6 +30,12 @@ function Section({ icon, titleKey, extra, children }) {
 }
 
 function Kpi({ label, value, total, color, note }) {
+  const [lastNote, setLastNote] = useState(note)
+  const [fresh, setFresh] = useState(false)
+  if (note !== lastNote) {
+    setLastNote(note)
+    setFresh(!!note && !lastNote)
+  }
   return (
     <div className="card okpi">
       <div className="okl">{label}</div>
@@ -39,7 +45,7 @@ function Kpi({ label, value, total, color, note }) {
           {total != null ? <span className="okt">/{total}</span> : null}
         </span>
       </div>
-      {note ? <div className="okn">{note}</div> : null}
+      {note ? <div className={'okn' + (fresh ? ' won' : '')}>{note}</div> : null}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
@@ -14,6 +15,7 @@ import { TUNNEL_TYPES, subnetBaseOf, subnetFitError, subnetForBase, subnetRangeI
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
+import Msg from '../../components/Msg.jsx'
 
 const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
 
@@ -163,7 +165,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
         />
       </Field>
 
-      {showPort ? (
+      <Reveal show={showPort}>
         <Field label={rangeLabel(portLabel, 1, PORT_MAX)}>
           <NumberInput
             placeholder={type === 'vxlan' ? '4789' : T('ttype_port_ph')}
@@ -171,7 +173,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
             onChange={setPort}
           />
         </Field>
-      ) : null}
+      </Reveal>
 
       <div
         className="muted"
@@ -215,7 +217,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
         {link.tunnel_id}
         {T('link_ip_note2')}
       </div>
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

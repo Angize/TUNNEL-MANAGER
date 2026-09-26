@@ -3,8 +3,10 @@ import { T, TF } from '../../i18n/fa.js'
 import { usageColor } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
+import usePresence from '../../lib/usePresence.js'
 
 const TIP_MS = 2400
+const TIP_OUT_MS = 120
 
 const STATES = {
   online: { word: 'online', color: 'var(--ok-tx)' },
@@ -20,7 +22,8 @@ function nodeState(node) {
   return 'offline'
 }
 
-function NodeTile({ node, crit, tip, onTip }) {
+function NodeTile({ node, crit, tip, instant, onTip }) {
+  const shown = usePresence(tip, TIP_OUT_MS)
   const state = nodeState(node)
   const { word, color } = STATES[state]
   const pct = num(node.pct)
@@ -46,8 +49,8 @@ function NodeTile({ node, crit, tip, onTip }) {
       <span className="otb">
         {node.online ? <i style={{ width: pct + '%', background: metricColor }} /> : null}
       </span>
-      {tip ? (
-        <span className="htip" aria-hidden="true">
+      {shown ? (
+        <span className={'htip' + (tip ? (instant ? ' instant' : '') : ' out')} aria-hidden="true">
           <span>{node.name}</span> {metric || T(word)}
         </span>
       ) : null}
@@ -58,12 +61,14 @@ function NodeTile({ node, crit, tip, onTip }) {
 export default function NodeHeat({ heat }) {
   const crit = num(useUiConfig().usage_crit_pct)
   const [tip, setTip] = useState(null)
+  const [instant, setInstant] = useState(false)
   const timer = useRef(0)
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
   const showTip = (event, name) => {
     event.stopPropagation()
+    setInstant(tip !== null || !event.detail)
     setTip(name)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => setTip(null), TIP_MS)
@@ -81,7 +86,14 @@ export default function NodeHeat({ heat }) {
     <>
       <div className="otiles">
         {heat.map((node) => (
-          <NodeTile key={node.name} node={node} crit={crit} tip={tip === node.name} onTip={showTip} />
+          <NodeTile
+            key={node.name}
+            node={node}
+            crit={crit}
+            tip={tip === node.name}
+            instant={instant}
+            onTip={showTip}
+          />
         ))}
       </div>
       <div className="heat-lg">

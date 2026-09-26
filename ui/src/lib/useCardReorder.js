@@ -5,6 +5,7 @@ import { postError } from './errors.js'
 import { closeCard } from './openCards.js'
 import { listBusy, reorderMode, setDragging, setSaving } from './reorder.js'
 import { toast } from './toast.js'
+import { gsap, reducedMotion } from './motion.js'
 
 const EDGE = 76
 const MAX_STEP = 24
@@ -34,6 +35,25 @@ function buzz() {
   } catch {
     return false
   }
+}
+
+function settle(card, from) {
+  card.style.transform = ''
+  if (!from || reducedMotion()) return
+  card.classList.add('flipping')
+  gsap.fromTo(card, { y: from, zIndex: 60 }, {
+    y: 0,
+    duration: 0.22,
+    ease: 'ease-out',
+    clearProps: 'transform,zIndex',
+    onComplete: () => card.classList.remove('flipping'),
+  })
+}
+
+function unsettle(card) {
+  gsap.killTweensOf(card)
+  gsap.set(card, { clearProps: 'transform,zIndex' })
+  card.classList.remove('flipping')
 }
 
 function swap(order, a, b) {
@@ -161,6 +181,7 @@ export default function useCardReorder(kind, ids, onSaved) {
       const card = handle.closest('.card[data-rid]')
       if (!card || card.getAttribute('data-rk') !== kind) return
       if (e.cancelable) e.preventDefault()
+      unsettle(card)
 
       const id = card.getAttribute('data-rid')
       closeCard(id)
@@ -196,7 +217,7 @@ export default function useCardReorder(kind, ids, onSaved) {
       drag.current = null
       if (d.raf) cancelAnimationFrame(d.raf)
       releasePointer(d.card, d.pid)
-      d.card.style.transform = ''
+      settle(d.card, d.lastY - d.grabY)
       setDragging('')
       if (d.swaps.length) persist(d.id, d.swaps)
     }

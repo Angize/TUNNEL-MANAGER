@@ -1,25 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
+import Reveal from './Reveal.jsx'
 import { T } from '../i18n/fa.js'
 import { actAge, actBarPercent, actIsSpinner, actSeen, actWords } from '../lib/acts.js'
 import { useActs } from '../state/ActsContext.jsx'
 
-export default function ActionRow({ act }) {
+function Row({ act }) {
   const { now, cancel, dismiss } = useActs()
-  const lastStep = useRef(act ? act.step : null)
-  const [stepChanged, setStepChanged] = useState(false)
-
-  useEffect(() => {
-    if (!act) return
-    if (lastStep.current !== act.step) {
-      lastStep.current = act.step
-      setStepChanged(true)
-    } else {
-      setStepChanged(false)
-    }
-  }, [act])
-
-  if (!act) return null
-
+  const firstStep = useRef(act.step)
   const running = act.state === 'run'
 
   return (
@@ -28,7 +15,9 @@ export default function ActionRow({ act }) {
         {running ? <span className="apulse" /> : null}
         {T('a_st_' + act.state)}
       </span>
-      <span className={'astep' + (stepChanged ? ' sw' : '')}>{actWords(act, now)}</span>
+      <span key={act.step} className={'astep' + (act.step !== firstStep.current ? ' sw' : '')}>
+        {actWords(act, now)}
+      </span>
       {running ? <span className="aclock">{actAge(act, now)}</span> : null}
       {running ? (
         act.can ? (
@@ -57,4 +46,8 @@ export default function ActionRow({ act }) {
       )}
     </div>
   )
+}
+
+export default function ActionRow({ act }) {
+  return <Reveal show={!!act}>{act ? <Row act={act} /> : null}</Reveal>
 }

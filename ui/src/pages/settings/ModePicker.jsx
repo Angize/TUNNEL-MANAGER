@@ -28,7 +28,7 @@ export default function ModePicker({ value, onPick, onClose }) {
           <div
             key={mode}
             className={'mopt' + (value === mode ? ' on' : '')}
-            {...checkable('radio', value === mode, () => onPick(mode))}
+            {...checkable('radio', value === mode, (e) => onPick(mode, e))}
           >
             <span className="mrad" />
             <span className="mt">{modeLabel(mode)}</span>

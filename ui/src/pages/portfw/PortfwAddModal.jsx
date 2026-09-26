@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
@@ -13,6 +14,7 @@ import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
+import Msg from '../../components/Msg.jsx'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const [busy, guard] = useBusy()
@@ -82,9 +84,9 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
         />
       </Field>
 
-      {hasIpChoice ? (
+      <Reveal show={hasIpChoice}>
         <ListenIpField ips={ips} value={listenIp} onChange={setListenIp} />
-      ) : null}
+      </Reveal>
 
       <div className="grid2">
         <Field label={rangeLabel(T('pf_listen_port'), 1, PORT_MAX)}>
@@ -110,7 +112,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
         onRotate={setRotate}
         onMinutes={setRotateMinutes}
       />
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

@@ -4,17 +4,17 @@ import './reveal.css'
 
 const EXIT_MS = 260
 
-export default function Reveal({ show, children }) {
+export default function Reveal({ show, instant, appear, children }) {
   const shown = usePresence(show, EXIT_MS)
-  const [growing, setGrowing] = useState(false)
+  const [growing, setGrowing] = useState(!!appear && show && !instant)
   const [wasShown, setWasShown] = useState(show)
   const kept = useRef(children)
   if (show) kept.current = children
   if (show !== wasShown) {
     setWasShown(show)
-    setGrowing(show)
+    setGrowing(show && !instant)
   }
-  if (!shown) return null
+  if (!shown || (instant && !show)) return null
   const motion = show ? (growing ? ' rvin' : '') : ' rvout'
   return (
     <div

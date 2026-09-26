@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
@@ -13,6 +14,9 @@ import { useSettingsForm } from './SettingsForm.jsx'
 import { FIELDS, fieldRange, fieldStep } from './tuning.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { T, TF } from '../../i18n/fa.js'
+import { reducedMotion } from '../../lib/motion.js'
+
+const PICK_BEAT_MS = 140
 
 function ValueRow({ name, helpKey, exampleKey }) {
   const { form, set, touch, errors } = useSettingsForm()
@@ -68,6 +72,9 @@ export default function ValuesTab({ active }) {
   const f = useSettingsForm()
   const config = useUiConfig()
   const [picking, setPicking] = useState(false)
+  const pickBeat = useRef(0)
+
+  useEffect(() => () => clearTimeout(pickBeat.current), [])
   const root = useRef(null)
   const shownTry = useRef(0)
   const { tried } = f
@@ -146,13 +153,19 @@ export default function ValuesTab({ active }) {
           {T('set_reset_all')}
         </button>
       </div>
-      {active && f.dirty ? <SaveDock count={f.dirty} busy={f.busy} onRevert={f.revert} onSave={f.save} /> : null}
+      <SaveDock show={active && !!f.dirty} count={f.dirty} busy={f.busy} onRevert={f.revert} onSave={f.save} />
 
       {picking ? (
         <ModePicker
           value={mode}
-          onPick={(next) => {
-            setMode(next)
+          onPick={(next, e) => {
+            if (e && e.type === 'click' && e.detail && !reducedMotion()) {
+              setMode(next)
+              clearTimeout(pickBeat.current)
+              pickBeat.current = setTimeout(() => setPicking(false), PICK_BEAT_MS)
+              return
+            }
+            flushSync(() => setMode(next))
             setPicking(false)
           }}
           onClose={() => setPicking(false)}

@@ -12,6 +12,7 @@
 }
 
 .ast {
+  transition: background-color 240ms var(--ease-out), color 240ms var(--ease-out);
   font-size: 10px;
   font-weight: 800;
   padding: 3px 9px;
@@ -82,7 +83,7 @@
   width: 0;
   background: var(--acc);
   border-radius: 3px;
-  transition: width .6s cubic-bezier(.4, 0, .2, 1);
+  transition: width .6s cubic-bezier(.4, 0, .2, 1), background-color 240ms var(--ease-out);
 }
 
 .abar.cancel > i {
@@ -121,7 +122,11 @@
   background: var(--card);
   box-shadow: var(--dsh);
   color: var(--sub);
-  transition: .15s;
+  transition:
+    color .15s var(--ease-out),
+    border-color .15s var(--ease-out),
+    background-color .15s var(--ease-out),
+    transform .12s var(--ease-out);
 }
 
 .abtn:hover {

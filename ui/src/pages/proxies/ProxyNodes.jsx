@@ -1,3 +1,4 @@
+import Reveal from '../../components/Reveal.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
 
@@ -13,8 +14,7 @@ function NodeRow({ node, on, proxyId, onToggle }) {
   )
 }
 
-export default function ProxyNodes({ proxyId, nodes, picked, onPick }) {
-  if (nodes === null) return <div className="muted pxnmsg">{T('px_nodes_loading')}</div>
+function NodeList({ proxyId, nodes, picked, onPick }) {
   if (nodes === false) return <div className="pxnmsg pxnerr">{T('px_nodes_err')}</div>
   if (!nodes.length) return <div className="muted pxnmsg">{T('px_nodes_none')}</div>
 
@@ -55,5 +55,18 @@ export default function ProxyNodes({ proxyId, nodes, picked, onPick }) {
         ))}
       </div>
     </div>
+  )
+}
+
+export default function ProxyNodes({ proxyId, nodes, picked, onPick }) {
+  return (
+    <>
+      <Reveal show={nodes === null}>
+        <div className="muted pxnmsg">{T('px_nodes_loading')}</div>
+      </Reveal>
+      <Reveal show={nodes !== null}>
+        {nodes === null ? null : <NodeList proxyId={proxyId} nodes={nodes} picked={picked} onPick={onPick} />}
+      </Reveal>
+    </>
   )
 }

@@ -463,9 +463,6 @@
   animation-name: dockup;
 }
 
-body.dock-on .tabbar {
-  visibility: hidden;
-}
 
 .stfoot {
   display: flex;
@@ -499,6 +496,23 @@ body.dock-on .tabbar {
 @keyframes dockup {
   from { opacity: 0; transform: translate(-50%, 12px) }
   to { opacity: 1; transform: translateX(-50%) }
+}
+
+@keyframes dockout {
+  to { opacity: 0; transform: translateY(8px) }
+}
+
+@keyframes dockdown {
+  to { opacity: 0; transform: translate(-50%, 12px) }
+}
+
+.savedock.out {
+  pointer-events: none;
+  animation: dockout .18s var(--ease-out) forwards;
+}
+
+.savedock.docked.out {
+  animation-name: dockdown;
 }
 
 .setfield {

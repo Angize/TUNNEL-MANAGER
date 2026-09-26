@@ -1,5 +1,35 @@
 :root {
-  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  --ease-drawer: cubic-bezier(.32, .72, 0, 1);
+}
+
+.flist {
+  position: relative;
+}
+
+.flipping {
+  transition: none !important;
+}
+
+.flghost {
+  position: absolute;
+  margin: 0 !important;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.card {
+  transition:
+    transform .25s cubic-bezier(.2, .8, .2, 1),
+    box-shadow .25s,
+    opacity .24s var(--ease-out),
+    background-color .18s var(--ease-out);
+}
+
+.tninfo,
+.enmeta {
+  transition: opacity .24s var(--ease-out);
 }
 
 @keyframes fadeup {
@@ -36,7 +66,23 @@
 .srq,
 .stpb,
 .swrow,
-.tbtnrow > button {
+.tbtnrow > button,
+.msbtn,
+.reordbtn,
+.msticky .mx,
+.bulkbar .x,
+.bulkbar .all,
+.btile,
+.bsheet .bcancel,
+.tagdot,
+.tagnone,
+.authseg button,
+.seg button,
+.ib,
+.pfb,
+.mopt,
+.padd,
+.eib {
   transition:
     background-color .18s var(--ease-out),
     border-color .18s var(--ease-out),
@@ -56,8 +102,73 @@
 .fchip:active,
 .primary:active,
 .ghost:active,
-.tbtnrow > button:active {
+.tbtnrow > button:active,
+.reordbtn:active,
+.msticky .mx:active,
+.abtn:active,
+.bulkbar .x:active,
+.bulkbar .all:active,
+.btile:active,
+.authseg button:active,
+.ib:active:not(:disabled),
+.pfb:active:not(:disabled),
+.oalert .go:active,
+.padd:active,
+.eib:active:not(:disabled) {
   transform: scale(.96);
+}
+
+.msbtn:active,
+.bsheet .bcancel:active,
+.tagnone:active,
+.rbrow:active,
+.delopt:active:not(:disabled) {
+  transform: scale(.985);
+}
+
+.mopt:active {
+  transform: scale(.98);
+}
+
+.seg button:active:not(:disabled) {
+  transform: scale(.97);
+}
+
+.tagdot:active {
+  transform: scale(.94);
+}
+
+.ib,
+.pfb {
+  transition:
+    background-color .18s var(--ease-out),
+    border-color .18s var(--ease-out),
+    color .18s var(--ease-out),
+    box-shadow .18s var(--ease-out),
+    opacity .18s var(--ease-out),
+    transform .12s var(--ease-out);
+}
+
+.oalert .go,
+.logmore {
+  transition: transform .12s var(--ease-out), opacity .18s var(--ease-out);
+}
+
+.logmore:active {
+  transform: scale(.98);
+  opacity: 1;
+}
+
+.delopt {
+  transition: border-color .14s var(--ease-out), background-color .14s var(--ease-out), transform .12s var(--ease-out);
+}
+
+.secbtn {
+  transition: background-color .18s var(--ease-out), color .18s var(--ease-out), transform .12s var(--ease-out);
+}
+
+.secbtn:active {
+  transform: translateY(-50%) scale(.94);
 }
 
 .swrow:active:not(.dis) {
@@ -139,7 +250,9 @@
 
 .flderr,
 .warncap,
-.lgfnote {
+.lgfnote,
+.stpage > .loadfail,
+.opc .loadfail {
   animation: fadeup .2s var(--ease-out);
 }
 
@@ -154,4 +267,369 @@
 
 .stpv.bumpb {
   animation: bumpb .2s var(--ease-out);
+}
+
+@keyframes dotin {
+  from { opacity: 0; transform: scale(.9) }
+}
+
+.tagov {
+  animation: veilin .24s ease both;
+}
+
+.tagbox {
+  animation: modrise .26s var(--ease-out);
+}
+
+.tagdot {
+  animation: dotin .2s var(--ease-out) backwards;
+  animation-delay: calc(60ms + var(--i, 0) * 30ms);
+}
+
+.tagov.leaving {
+  pointer-events: none;
+  animation: veilaway .2s ease forwards;
+}
+
+.tagov.leaving .tagbox {
+  animation: modfall .2s var(--ease-out) forwards;
+}
+
+.tagov.leaving .tagdot {
+  animation: none;
+}
+
+.bulkbar.leaving .x,
+.bulkbar.leaving .all {
+  transition: none;
+}
+
+@keyframes rlift {
+  from { box-shadow: var(--dsh) }
+}
+
+.card.rdrag {
+  animation: rlift .18s var(--ease-out);
+}
+
+body.reord-on .rgrip {
+  animation: dotin .2s var(--ease-out);
+}
+
+.selck {
+  transition: background-color .14s var(--ease-out), border-color .14s var(--ease-out);
+  animation: dotin .2s var(--ease-out);
+}
+
+.selck .ic {
+  transform: scale(.8);
+  transition: opacity .14s var(--ease-out), transform .14s var(--ease-out);
+}
+
+.selck.on .ic {
+  transform: none;
+}
+
+.tab .tbadge,
+.navi .ct.ctun {
+  animation: dotin .2s var(--ease-out);
+}
+
+@keyframes cpoka {
+  from { color: var(--ok-tx) }
+}
+
+@keyframes cpokb {
+  from { color: var(--ok-tx) }
+}
+
+.cpv {
+  transition: opacity .12s var(--ease-out);
+}
+
+.cpv.cpa {
+  animation: cpoka .45s ease;
+}
+
+.cpv.cpb {
+  animation: cpokb .45s ease;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: .24s;
+  animation-timing-function: ease;
+}
+
+.logempty {
+  animation: fadeup .22s var(--ease-out);
+}
+
+.ogood.won > div {
+  animation: fadeup .2s var(--ease-out) both;
+}
+
+.ogood.won .ic {
+  animation: dotin .16s var(--ease-out) .06s both;
+}
+
+.okn.won {
+  animation: fadeup .2s var(--ease-out);
+}
+
+.okpi .iso {
+  transition: color .24s ease;
+}
+
+.msgt {
+  display: inline-block;
+  animation: fadeup .18s var(--ease-out);
+}
+
+.msgt > svg {
+  animation: dotin .16s var(--ease-out);
+}
+
+.iwrap {
+  animation: fadeup .24s var(--ease-out);
+}
+
+.istep {
+  animation: fadeup .28s var(--ease-out) both;
+}
+
+.istep-i {
+  transition: background-color .2s var(--ease-out), border-color .2s var(--ease-out);
+}
+
+.istep-i.ok > svg,
+.istep-i.err > svg,
+.istep-i.warn > .ic {
+  animation: dotin .18s var(--ease-out);
+}
+
+.ibanner {
+  transition: background-color .3s var(--ease-out), color .3s var(--ease-out);
+}
+
+@keyframes ckdraw {
+  to { stroke-dashoffset: 0 }
+}
+
+.ibanner.ok > svg path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ckdraw .32s var(--ease-out) .05s forwards;
+}
+
+@keyframes donering {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent) }
+  to { box-shadow: 0 0 0 10px transparent }
+}
+
+.primary.done {
+  animation: donering .6s var(--ease-out);
+}
+
+.primary.done > svg {
+  animation: dotin .18s var(--ease-out);
+}
+
+.tsw {
+  transition: background-color .2s var(--ease-out);
+}
+
+.tsw::after {
+  transition: right .3s cubic-bezier(.25, 1.2, .4, 1), width .15s var(--ease-out);
+}
+
+.tsw:not(.busy):active::after {
+  width: 22px;
+}
+
+.tsw.on:not(.busy):active::after {
+  right: 13px;
+}
+
+.lpill {
+  transition: color .2s var(--ease-out), background-color .2s var(--ease-out), border-color .2s var(--ease-out);
+}
+
+.lpill .pd {
+  transition: background-color .2s var(--ease-out);
+}
+
+.nd-tile.kt-new {
+  animation: fadeup .24s var(--ease-out);
+}
+
+.card.muted.empty {
+  animation: fadeup .3s var(--ease-out) .06s both;
+}
+
+.rbrow.sel .rbdot::after {
+  animation: dotin .16s var(--ease-out);
+}
+
+.mres {
+  animation: fadeup .18s var(--ease-out);
+}
+
+@keyframes spinin {
+  from { opacity: 0 }
+}
+
+.bspin {
+  animation: isp .9s linear infinite, spinin .14s var(--ease-out);
+}
+
+.tswap {
+  animation: fadeup .2s var(--ease-out);
+}
+
+.erow.fresh {
+  animation: fadeup .2s var(--ease-out);
+}
+
+.tabbar {
+  transition: opacity .2s var(--ease-out), translate .2s var(--ease-out), visibility 0s linear .2s;
+}
+
+body.dock-on .tabbar {
+  opacity: 0;
+  translate: 0 10px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body:not(.dock-on) .tabbar {
+  transition-delay: 0s, 0s, 0s;
+}
+
+.upc > .rv {
+  margin-top: -12px;
+}
+
+.upc > .rv > .rvb > :first-child {
+  margin-top: 12px;
+}
+
+@keyframes msgswap {
+  from { opacity: 0; filter: blur(2px); transform: translateY(4px) }
+}
+
+.msgin.sw {
+  animation: msgswap .2s var(--ease-out);
+}
+
+.msgin > svg path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ckdraw .3s var(--ease-out) .12s forwards;
+}
+
+.uprow > .upx .ic {
+  transition: transform .26s var(--ease-out);
+}
+
+.nx > .rv {
+  margin-top: -9px;
+}
+
+.nx > .rv .agres {
+  margin-top: 9px;
+}
+
+.plbl > span.sw {
+  animation: astepin .24s var(--ease-out);
+}
+
+.pushbar > i {
+  transition: width .42s linear, background-color .24s ease;
+}
+
+@keyframes pfabin {
+  from { opacity: 0; transform: translate(-50%, 16px) scale(.96) }
+}
+
+@keyframes pfabout {
+  to { opacity: 0; transform: translate(-50%, 12px) scale(.98) }
+}
+
+.pfab {
+  animation: pfabin .32s var(--ease-drawer);
+}
+
+.pfab.out {
+  pointer-events: none;
+  animation: pfabout .18s var(--ease-out) forwards;
+}
+
+.mopt .mrad {
+  transition: border-color .16s var(--ease-out);
+}
+
+.mopt.on .mrad::after {
+  animation: dotin .16s var(--ease-out);
+}
+
+.apres.in {
+  animation: fadeup .18s var(--ease-out);
+}
+
+.apref {
+  animation: fadeup .24s var(--ease-out);
+}
+
+@keyframes tokin {
+  from { opacity: 0; filter: blur(4px); transform: scale(.98) }
+}
+
+@keyframes tokring {
+  from { box-shadow: var(--dsh), 0 0 0 0 color-mix(in srgb, var(--gold) 40%, transparent) }
+  to { box-shadow: var(--dsh), 0 0 0 8px transparent }
+}
+
+.apcard .cpv.aptok {
+  animation: tokin .32s var(--ease-out), tokring .6s var(--ease-out);
+}
+
+.apcard .cpv.aptok.cpa {
+  animation: cpoka .45s ease;
+}
+
+.apcard .cpv.aptok.cpb {
+  animation: cpokb .45s ease;
+}
+
+.apcard .aponce {
+  animation: fadeup .2s var(--ease-out) .08s both;
+}
+
+.oprow > .opsel {
+  transition: opacity .2s var(--ease-out);
+}
+
+.opsk {
+  display: block;
+  flex: 1;
+  height: var(--sc-h);
+  border-radius: 10px;
+}
+
+.optg {
+  display: block;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  border-radius: 20px;
+}
+
+.dlpx > .oprow:not([aria-hidden]),
+.dlpx .ophd > .tglsw {
+  animation: fadeup .2s var(--ease-out);
+}
+
+.lstf {
+  position: relative;
 }

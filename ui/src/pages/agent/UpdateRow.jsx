@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import Icon from '../../components/Icon.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import { T } from '../../i18n/fa.js'
 
 export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, goDisabled, onGo, open, onToggle, children }) {
+  const [kb, setKb] = useState(false)
   return (
     <>
       <div className="ophd uprow">
@@ -23,12 +26,17 @@ export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, go
           aria-expanded={open}
           aria-label={T('ag_more')}
           title={T('ag_more')}
-          onClick={onToggle}
+          onClick={(e) => {
+            setKb(!e.detail)
+            onToggle()
+          }}
         >
           <Icon name="chev" />
         </button>
       </div>
-      {open ? <div className="upmore">{children}</div> : null}
+      <Reveal show={open} instant={kb}>
+        <div className="upmore">{children}</div>
+      </Reveal>
     </>
   )
 }

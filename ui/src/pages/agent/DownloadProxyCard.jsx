@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
+import { Sk } from '../../components/Skeleton.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -31,6 +32,7 @@ export default function DownloadProxyCard() {
 
   const items = proxyItems(proxies)
   const ready = !!value && items.length > 0
+  const loading = value === null && !error
   const picked = ready ? value.id || items[0].v : ''
 
   const save = async () => {
@@ -46,7 +48,7 @@ export default function DownloadProxyCard() {
   }
 
   return (
-    <div className="card opc sc-conn">
+    <div className="card opc sc-conn dlpx">
       <div className="ophd">
         <span className="sgt">
           <Icon name="shield" />
@@ -61,6 +63,8 @@ export default function DownloadProxyCard() {
             aria-label={T('dlpx_on')}
             {...checkable('switch', value.on, () => setValue({ on: !value.on, id: picked }))}
           />
+        ) : loading ? (
+          <Sk className="optg" />
         ) : null}
       </div>
       {ready ? (
@@ -72,6 +76,10 @@ export default function DownloadProxyCard() {
             <Icon name="check" />
             {T('save')}
           </button>
+        </div>
+      ) : loading ? (
+        <div className="oprow" aria-hidden="true">
+          <Sk className="opsk" />
         </div>
       ) : value ? (
         <div className="muted" style={{ fontSize: 12 }}>

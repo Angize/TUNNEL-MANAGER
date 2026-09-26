@@ -1,12 +1,31 @@
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
+import usePresence from '../../lib/usePresence.js'
 
 const FINISHED = ['ok', 'same', 'err', 'skip']
+const EXIT_MS = 180
 
 export default function PushFab({ state, onPause, onResume, onCancel }) {
-  if (!state || state.done) return null
+  const visible = !!(state && !state.done)
+  const shown = usePresence(visible, EXIT_MS)
+  const [kept, setKept] = useState(state)
+  if (visible && state !== kept) setKept(state)
+  if (!shown) return null
+  return (
+    <Fab
+      state={visible ? state : kept}
+      leaving={!visible}
+      onPause={onPause}
+      onResume={onResume}
+      onCancel={onCancel}
+    />
+  )
+}
+
+function Fab({ state, leaving, onPause, onResume, onCancel }) {
 
   const nodes = state.nodes || {}
   const order = state.order || []
@@ -18,7 +37,7 @@ export default function PushFab({ state, onPause, onResume, onCancel }) {
   })
 
   return createPortal(
-    <div className="pfab">
+    <div className={'pfab' + (leaving ? ' out' : '')} inert={leaving}>
       <span className="pfn">
         {num(done)}
         <s>/{num(order.length)}</s>

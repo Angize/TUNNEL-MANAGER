@@ -1,11 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { closeDialog, subscribeDialogs } from '../lib/dialog.js'
 import { restoreFocus, trapTab } from '../lib/focusTrap.js'
+import { leaveGhost } from '../lib/leaveGhost.js'
 import { T } from '../i18n/fa.js'
 
 function Dialog({ entry, top }) {
   const box = useRef(null)
   const safe = useRef(null)
+  const veil = useRef(null)
   const textId = useId()
 
   useEffect(() => {
@@ -17,10 +19,16 @@ function Dialog({ entry, top }) {
     if (top && safe.current) safe.current.focus()
   }, [top])
 
+  useLayoutEffect(() => {
+    const node = veil.current
+    return () => leaveGhost(node)
+  }, [])
+
   const cancelValue = entry.kind === 'confirm' ? false : undefined
 
   return (
     <div
+      ref={veil}
       className="modalov dlgov"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeDialog(entry.id, cancelValue)

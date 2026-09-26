@@ -9,8 +9,10 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { isNodeNameValid } from './nodeName.js'
-import useBusy from '../../lib/useBusy.js'
+import useBusy from '../../lib/useBusy.js'
+
 import { LTR_TEXT } from '../../lib/form.js'
+import Msg from '../../components/Msg.jsx'
 
 export default function NodeEditModal({ node, onClose, onSaved }) {
   const [proxies, setProxies] = useState([])
@@ -97,7 +99,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
         </Field>
       </div>
       <ProxyFields proxies={proxies} value={proxy} onChange={setProxy} />
-      <div className="msg">{message}</div>
+      <Msg text={message} />
     </Modal>
   )
 }

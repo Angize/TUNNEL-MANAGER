@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import PendingCard from '../../components/PendingCard.jsx'
@@ -17,7 +17,8 @@ import { registerCommand } from '../../lib/pageCommand.js'
 import useBulk from '../../lib/useBulk.js'
 import { BulkBar, BulkButton, BulkSheet } from '../../components/Bulk.jsx'
 import useCardReorder from '../../lib/useCardReorder.js'
-import { listBusy } from '../../lib/reorder.js'
+import { listBusy, reorderMode } from '../../lib/reorder.js'
+import useFlipList from '../../lib/useFlipList.js'
 import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
@@ -86,6 +87,13 @@ export default function TunnelsPage({ active }) {
   const byId = new Map(links.map((l) => [l.id, l]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
   const builds = splitBuilds(pending, ordered)
+  const listBox = useRef(null)
+  useFlipList(
+    listBox,
+    list === null ? null : [...builds.shown.map((l) => l.id), ...builds.cards.map((a) => 'pend_' + a.key)],
+    query,
+    { hold: reorderMode() || listBusy() }
+  )
   const bulk = useBulk({ list: list === null ? null : ordered, command: 'tunnels:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
 
@@ -106,7 +114,7 @@ export default function TunnelsPage({ active }) {
 
       <Toolbar value={query} placeholder={T('tun_search')} reorder onSearch={setQuery} />
 
-      <div>
+      <div ref={listBox} className="flist">
         {list === null ? (
           <CardSkeletons kind="tunnel" count={counts.links} />
         ) : builds.shown.length || builds.cards.length ? (
@@ -128,7 +136,7 @@ export default function TunnelsPage({ active }) {
             {bulk.selecting ? <div className="bulkpad" /> : null}
           </>
         ) : (
-          <div className="card muted">{query ? T('no_results') : T('tun_empty')}</div>
+          <div className={'card muted' + (query ? '' : ' empty')}>{query ? T('no_results') : T('tun_empty')}</div>
         )}
       </div>
 

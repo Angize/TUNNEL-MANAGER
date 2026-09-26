@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import { CardSkeletons } from '../../components/Skeleton.jsx'
 import NodeCard from './NodeCard.jsx'
 import NodeAddModal from './NodeAddModal.jsx'
@@ -18,7 +19,8 @@ import { num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
-import { listBusy } from '../../lib/reorder.js'
+import { listBusy, reorderMode } from '../../lib/reorder.js'
+import useFlipList from '../../lib/useFlipList.js'
 import './nodes.css'
 
 function isCentralStale(node) {
@@ -83,10 +85,16 @@ export default function NodesPage({ active }) {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
   const live = (snapshot) => byId.get(snapshot.id) || snapshot
+  const listBox = useRef(null)
+  useFlipList(listBox, data === null ? null : ordered.map((n) => n.id), query, { hold: reorderMode() || listBusy() })
 
   return (
     <>
-      <StaleBanner count={staleCount} />
+      {data ? (
+        <Reveal show={staleCount > 0}>
+          <StaleBanner count={staleCount} />
+        </Reveal>
+      ) : null}
       <div className="tbtnrow">
         <button className="primary glass" onClick={() => setAdding(true)}>
           <Icon name="plus" />
@@ -101,7 +109,7 @@ export default function NodesPage({ active }) {
 
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
-      <div>
+      <div ref={listBox} className="flist">
         {data === null ? (
           <CardSkeletons kind="node" count={counts.nodes_total} />
         ) : (
@@ -122,7 +130,7 @@ export default function NodesPage({ active }) {
                 />
               ))
             ) : (
-              <div className="card muted">{query ? T('no_results') : T('nodes_empty')}</div>
+              <div className={'card muted' + (query ? '' : ' empty')}>{query ? T('no_results') : T('nodes_empty')}</div>
             )}
           </>
         )}
