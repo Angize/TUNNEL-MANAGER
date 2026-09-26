@@ -1452,33 +1452,40 @@ _PX_CLOSED = tx("پروکسی اتصال را بست", "the proxy closed the con
 _PX_WANTS_AUTH = tx("پروکسی یوزر/پسورد می‌خواهد", "the proxy wants a username and password")
 _PX_BAD_AUTH = tx("یوزر/پسوردِ پروکسی پذیرفته نشد", "the proxy rejected the username and password")
 _PX_BAD_METHOD = tx("پروکسی روشِ احرازِ ما را نپذیرفت", "the proxy rejected our authentication method")
+_PX_AUTH_CLOSED = tx("پروکسی هنگامِ احراز اتصال را بست", "the proxy closed the connection during authentication")
 
 
-def _recvn(s, n):
+def _recvn(s, n, closed=_PX_CLOSED):
     buf = b""
     while len(buf) < n:
         c = s.recv(n - len(buf))
         if not c:
-            raise OSError(_PX_CLOSED)
+            raise OSError(closed)
         buf += c
     return buf
+
+
+def _socks5_hello(s, pu, pw):
+    s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")
+    ver, method = _recvn(s, 2)
+    if ver != 5:
+        raise OSError(tx("پاسخِ پروکسی SOCKS5 نیست", "the proxy's answer is not SOCKS5"))
+    if method == 2:
+        if not pu:
+            raise OSError(_PX_WANTS_AUTH)
+        u, w = pu.encode(), (pw or "").encode()
+        s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
+        if _recvn(s, 2, _PX_AUTH_CLOSED)[1] != 0:
+            raise OSError(_PX_BAD_AUTH)
+    elif method != 0:
+        raise OSError(_PX_BAD_METHOD)
 
 
 def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
     s = socket.create_connection((ph, pp), timeout)
     try:
         s.settimeout(timeout)
-        s.sendall(b"\x05\x02\x00\x02" if pu else b"\x05\x01\x00")
-        _, method = _recvn(s, 2)
-        if method == 2:
-            if not pu:
-                raise OSError(_PX_WANTS_AUTH)
-            u, w = pu.encode(), (pw or "").encode()
-            s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
-            if _recvn(s, 2)[1] != 0:
-                raise OSError(_PX_BAD_AUTH)
-        elif method != 0:
-            raise OSError(_PX_BAD_METHOD)
+        _socks5_hello(s, pu, pw)
         try:
             addr = b"\x01" + socket.inet_aton(dh)
         except OSError:
@@ -1498,15 +1505,29 @@ def _socks5_socket(ph, pp, pu, pw, dh, dp, timeout):
         raise
 
 
+def _http_connect_line(s, pu, pw, dh, dp):
+    req = f"CONNECT {dh}:{dp} HTTP/1.1\r\nHost: {dh}:{dp}\r\n"
+    if pu:
+        req += "Proxy-Authorization: Basic " + base64.b64encode(f"{pu}:{pw or ''}".encode()).decode() + "\r\n"
+    s.sendall((req + "\r\n").encode())
+    buf = b""
+    while b"\r\n" not in buf:
+        c = s.recv(4096)
+        if not c:
+            raise OSError(tx("پروکسی بدونِ پاسخ اتصال را بست", "the proxy closed the connection without an answer"))
+        buf += c
+        if len(buf) > 8192:
+            break
+    if not buf.startswith(b"HTTP/"):
+        raise OSError(tx("پاسخِ پروکسی HTTP نیست", "the proxy's answer is not HTTP"))
+    return buf
+
+
 def _http_connect_socket(ph, pp, pu, pw, dh, dp, timeout):
     s = socket.create_connection((ph, pp), timeout)
     try:
         s.settimeout(timeout)
-        req = f"CONNECT {dh}:{dp} HTTP/1.1\r\nHost: {dh}:{dp}\r\n"
-        if pu:
-            req += "Proxy-Authorization: Basic " + base64.b64encode(f"{pu}:{pw or ''}".encode()).decode() + "\r\n"
-        s.sendall((req + "\r\n").encode())
-        buf = b""
+        buf = _http_connect_line(s, pu, pw, dh, dp)
         while b"\r\n\r\n" not in buf:
             c = s.recv(4096)
             if not c:
@@ -2103,48 +2124,10 @@ def _proxy_probe(p, timeout=6):
         s = socket.create_connection((host, port), timeout)
         s.settimeout(timeout)
         if p["scheme"] == "socks5":
-            s.sendall(b"\x05\x02\x00\x02" if user else b"\x05\x01\x00")
-            head = b""
-            while len(head) < 2:
-                c = s.recv(2 - len(head))
-                if not c:
-                    raise OSError(_PX_CLOSED)
-                head += c
-            if head[0:1] != b"\x05":
-                raise OSError(tx("پاسخِ پروکسی SOCKS5 نیست", "the proxy's answer is not SOCKS5"))
-            method = head[1]
-            if method == 0xFF:
-                raise OSError(_PX_BAD_METHOD)
-            if method == 2:
-                if not user:
-                    raise OSError(_PX_WANTS_AUTH)
-                u, w = user.encode(), pw.encode()
-                s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(w)]) + w)
-                ares = b""
-                while len(ares) < 2:
-                    c = s.recv(2 - len(ares))
-                    if not c:
-                        raise OSError(tx("پروکسی هنگامِ احراز اتصال را بست", "the proxy closed the connection during authentication"))
-                    ares += c
-                if ares[1] != 0:
-                    raise OSError(_PX_BAD_AUTH)
+            _socks5_hello(s, user, pw)
         else:
-            s.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n" % (host, port, host, port)).encode()
-                      + ((b"Proxy-Authorization: Basic "
-                          + base64.b64encode(("%s:%s" % (user, pw)).encode()) + b"\r\n") if user else b"")
-                      + b"\r\n")
-            line = b""
-            while b"\r\n" not in line:
-                c = s.recv(256)
-                if not c:
-                    raise OSError(tx("پروکسی بدونِ پاسخ اتصال را بست", "the proxy closed the connection without an answer"))
-                line += c
-                if len(line) > 8192:
-                    break
-            if not line.startswith(b"HTTP/"):
-                raise OSError(tx("پاسخِ پروکسی HTTP نیست", "the proxy's answer is not HTTP"))
-            code = line.split(b" ")[1].decode(errors="replace") if b" " in line else "?"
-            if code == "407":
+            line = _http_connect_line(s, user, pw, host, port).split(b"\r\n", 1)[0]
+            if line.split(b" ")[1:2] == [b"407"]:
                 raise OSError(tx("یوزر/پسوردِ پروکسی پذیرفته نشد (407)", "the proxy rejected the username and password (407)"))
     except Exception as e:
         return {"ok": False, "ms": None, "code": "proxy_unreachable", "error": tx_cut(_net_why(e), 90), "ts": time.time()}
