@@ -3164,10 +3164,11 @@ def api_summary(d):
             heat.append({"name": nm, "pct": None, "online": False, "pending": not _cache_get(nid),
                          "disabled": bool(n.get("disabled"))})
             if _cache_get(nid):
-                alerts.append({"level": "bad", "kind": "node", "msg": tx("نودِ «{0}» آفلاین است", "node '{0}' is offline", nm)})
+                alerts.append({"level": "bad", "kind": "node", "node": nid,
+                               "msg": tx("نودِ «{0}» آفلاین است", "node '{0}' is offline", nm)})
             mv = moved_addr(nid)
             if mv:
-                alerts.append({"level": "warn", "kind": "node", "msg": tx(
+                alerts.append({"level": "warn", "kind": "node", "node": nid, "msg": tx(
                     "نودِ «{0}» از {1} جواب می‌دهد — نشانی‌اش را عوض کن",
                     "node '{0}' answers from {1} — change its address", nm, mv)})
             continue
@@ -3184,8 +3185,8 @@ def api_summary(d):
             if worst[key] is None or val > worst[key]["pct"]:
                 worst[key] = {"name": nm, "pct": val}
             if val >= UP_CRIT:
-                alerts.append({"level": "bad", "kind": key, "msg": tx("{0} «{1}» به {2}٪ رسیده", "{0} of '{1}' is at {2}%",
-                                                                      lab, nm, val)})
+                alerts.append({"level": "bad", "kind": key, "node": nid,
+                               "msg": tx("{0} «{1}» به {2}٪ رسیده", "{0} of '{1}' is at {2}%", lab, nm, val)})
         w = max(cpu, ram, disk)
         heat.append({"name": nm, "pct": w, "online": True, "disabled": bool(n.get("disabled"))})
         if w >= UP_CRIT:
