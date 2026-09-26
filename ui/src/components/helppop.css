@@ -1,0 +1,119 @@
+@keyframes hpin {
+  from { opacity: 0; transform: translateY(-6px) scale(.96) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes hpinup {
+  from { opacity: 0; transform: translateY(6px) scale(.96) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes hpout {
+  to { opacity: 0; transform: scale(.97) }
+}
+
+.hpop {
+  position: fixed;
+  z-index: 50;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--modal);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: var(--dsh-hi);
+  color: var(--tx);
+  transform-origin: var(--tip) top;
+  animation: hpin .18s cubic-bezier(.2, .8, .2, 1);
+  outline: none;
+}
+
+.hpop.up {
+  transform-origin: var(--tip) bottom;
+  animation-name: hpinup;
+}
+
+.hpop.out {
+  animation: hpout .14s ease-in forwards;
+}
+
+.hpop::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: calc(var(--tip, 50%) - 6px);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--edge);
+  border-left: 1px solid var(--edge);
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+.hpop.up::before {
+  top: auto;
+  bottom: -6px;
+  transform: rotate(225deg);
+}
+
+.hphd {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.hphd b {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.6;
+}
+
+.hpx {
+  flex: none;
+  position: relative;
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  margin-inline-end: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ctl);
+  color: var(--sub);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.hpx::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+.hpx:hover {
+  background: var(--accw);
+  color: var(--acc-tx);
+}
+
+.hpop p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.hpop .hpex {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--bord);
+  color: var(--sub);
+}
+
+.hpop .hpex b {
+  color: var(--acc-tx);
+  font-weight: 700;
+}

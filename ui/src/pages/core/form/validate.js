@@ -1,54 +1,65 @@
-import { T } from '../../../i18n/fa.js'
-import {
-  PORT_TRIES_MAX,
-  RAW_BAND_MIN_LO,
-  RAW_BAND_MIN_SPAN,
-  RAW_DPORTS_MAX,
-  RAW_SPROT_MAX,
-  SPROT_DEFAULT,
-  cdnLabel,
-  cdnShape,
-} from './presets.js'
-import { cdnShapeApplies, cdnShapeOn, portTriesOn, sprotLive } from './gates.js'
+import { T, TF } from '../../../i18n/fa.js'
+import { latinDigits } from '../../../lib/num.js'
+import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
+import { cdnShapeApplies, cdnShapeOn, sprotLive } from './gates.js'
 
-export function intOf(text) {
-  const n = parseInt(String(text || '').trim(), 10)
-  return isNaN(n) ? 0 : n
+function blank(text) {
+  return latinDigits(text).trim() === ''
 }
 
-export function rawProtoOwner(value, enums) {
+export function intOf(text) {
+  const s = latinDigits(text).trim()
+  if (!s) return 0
+  return /^\d+$/.test(s) ? Number(s) : NaN
+}
+
+function inRange(n, range) {
+  return n >= range[0] && n <= range[1]
+}
+
+function outside(text, range) {
+  return !blank(text) && !inRange(intOf(text), range)
+}
+
+const LIMITED = {
+  splitPos: ['split_pos', 'cf_f_split_pos'],
+  splitTtl: ['split_ttl', 'cf_f_split_ttl'],
+  dsTtl: ['fake_ttl', 'ds_ttl_lbl'],
+  dsCount: ['fake_count', 'ds_count_lbl'],
+}
+
+export function limitErr(form, key, limits) {
+  const [limit, name] = LIMITED[key]
+  const range = limits[limit]
+  return outside(form[key], range)
+    ? TF('cf_range_bad', { f: T(name), lo: range[0], hi: range[1] })
+    : ''
+}
+
+function rawProtoOwner(value, enums) {
   const map = (enums && enums.raw_protos) || {}
   for (const key of Object.keys(map)) if (map[key] === value) return key
   return ''
 }
 
 export function rawProtoErr(text, enums) {
-  const s = String(text || '').trim()
-  if (!s) return ''
-  const n = parseInt(s, 10)
+  if (blank(text)) return ''
+  const n = intOf(text)
   if (!(n >= 1 && n <= 255)) return T('raw_proto_bad')
   const owner = rawProtoOwner(n, enums)
-  return owner
-    ? T('raw_proto_owned').replace('{n}', n).split('{p}').join(owner)
-    : ''
+  return owner ? TF('raw_proto_owned', { n, p: owner }) : ''
 }
 
-export function portErr(text) {
-  const s = String(text || '').trim()
-  if (!s) return ''
-  const n = parseInt(s, 10)
-  return n >= 1 && n <= 65535 ? '' : T('raw_port_bad')
+export function portErr(text, limits) {
+  return outside(text, limits.port) ? T('raw_port_bad') : ''
 }
 
-export function sportErr(text) {
-  const s = String(text || '').trim()
-  if (!s) return ''
-  const n = parseInt(s, 10)
-  return n >= 1 && n <= 65535 ? '' : T('raw_sport_bad')
+export function sportErr(text, limits) {
+  return outside(text, limits.port) ? T('raw_sport_bad') : ''
 }
 
 export function sprotOf(form) {
-  return String(form.rawSprot || '').trim() === '' ? SPROT_DEFAULT : intOf(form.rawSprot)
+  return blank(form.rawSprot) ? SPROT_DEFAULT : intOf(form.rawSprot)
 }
 
 export function sprotErr(form) {
@@ -58,46 +69,33 @@ export function sprotErr(form) {
   const dports = intOf(form.rawDports)
   return dports === 0 || (dports >= 1 && dports <= RAW_DPORTS_MAX)
     ? ''
-    : T('raw_dports_bad').replace('{n}', String(RAW_DPORTS_MAX))
+    : TF('raw_dports_bad', { n: RAW_DPORTS_MAX })
 }
 
-export function bandErr(form) {
+export function bandErr(form, limits) {
   const lo = intOf(form.bandLo)
   const hi = intOf(form.bandHi)
-  if (!lo && !hi) return ''
-  if (
-    !(lo >= RAW_BAND_MIN_LO && lo <= 65535) ||
-    !(hi >= RAW_BAND_MIN_LO && hi <= 65535) ||
-    hi < lo
-  ) {
-    return T('band_bad').replace('{n}', String(RAW_BAND_MIN_LO))
+  if (lo === 0 && hi === 0) return ''
+  const band = [limits.band_min_lo, limits.port[1]]
+  if (!inRange(lo, band) || !inRange(hi, band) || hi < lo) {
+    return TF('band_bad', { n: limits.band_min_lo })
   }
-  if (hi - lo + 1 < RAW_BAND_MIN_SPAN) {
-    return T('band_narrow').replace('{n}', String(RAW_BAND_MIN_SPAN))
+  if (hi - lo + 1 < limits.band_min_span) {
+    return TF('band_narrow', { n: limits.band_min_span })
   }
   return ''
 }
 
-export function portTriesValue(form) {
-  return intOf(form.portTries)
-}
-
-export function portTriesRangeErr(form) {
-  const n = portTriesValue(form)
-  return n === 0 || (n >= 1 && n <= PORT_TRIES_MAX) ? '' : T('porttries_bad')
-}
-
-export function portTriesErr(form, enums) {
-  if (!portTriesOn(form, enums)) return ''
-  return portTriesRangeErr(form)
+export function portTriesRangeErr(form, limits) {
+  const range = limits.port_tries
+  return inRange(intOf(form.portTries), range)
+    ? ''
+    : TF('cf_range_bad', { f: T('porttries_lbl'), lo: 1, hi: range[1] })
 }
 
 export function cdnShapeValue(form, name, enums) {
-  const field = cdnShape(enums)[name]
-  const raw = String(form.cdn[name] || '').trim()
-  if (raw === '') return field.d
-  const n = parseInt(raw, 10)
-  return isNaN(n) ? NaN : n
+  const raw = form.cdn[name]
+  return blank(raw) ? cdnShape(enums)[name].d : intOf(raw)
 }
 
 export function cdnShapeErr(form, enums) {

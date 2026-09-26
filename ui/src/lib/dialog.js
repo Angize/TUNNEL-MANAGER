@@ -26,7 +26,13 @@ export function closeDialog(id, value) {
 
 export function confirmBox(msg, yesLabel) {
   return new Promise((resolve) => {
-    push({ id: ++seq, kind: 'confirm', msg, yesLabel, resolve })
+    push({ id: ++seq, kind: 'confirm', danger: true, msg, yesLabel, resolve })
+  })
+}
+
+export function askBox(msg, yesLabel) {
+  return new Promise((resolve) => {
+    push({ id: ++seq, kind: 'confirm', danger: false, msg, yesLabel, resolve })
   })
 }
 

@@ -1,14 +1,59 @@
 import { useEffect, useRef, useState } from 'react'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { usageColor } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
-import { pressable } from '../../lib/keys.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 const TIP_MS = 2400
-const OFFLINE_HEIGHT = 10
-const BASE_HEIGHT = 12
-const HEIGHT_PER_PCT = 0.54
+
+const STATES = {
+  online: { word: 'online', color: 'var(--ok-tx)' },
+  offline: { word: 'offline', color: 'var(--bad-tx)' },
+  disabled: { word: 'ov_node_disabled', color: 'var(--sub)' },
+  checking: { word: 'pending_check', color: 'var(--sub)' },
+}
+
+function nodeState(node) {
+  if (node.disabled) return 'disabled'
+  if (node.online) return 'online'
+  if (node.pending) return 'checking'
+  return 'offline'
+}
+
+function NodeTile({ node, crit, tip, onTip }) {
+  const state = nodeState(node)
+  const { word, color } = STATES[state]
+  const pct = num(node.pct)
+  const metricColor = node.online ? usageColor(pct, crit) : undefined
+  const metric = node.online ? pct + T('pct') : null
+
+  return (
+    <button
+      type="button"
+      className={'otile' + (state === 'disabled' ? ' off' : '')}
+      onClick={(e) => onTip(e, node.name)}
+    >
+      <span className="otn">{node.name}</span>
+      <span className="ots">
+        <span className="otw" style={{ color }}>
+          <i className="dot" style={{ background: color }} />
+          {T(word)}
+        </span>
+        <b className="otp" style={{ color: metricColor }}>
+          {metric || '—'}
+        </b>
+      </span>
+      <span className="otb">
+        {node.online ? <i style={{ width: pct + '%', background: metricColor }} /> : null}
+      </span>
+      {tip ? (
+        <span className="htip" aria-hidden="true">
+          <span>{node.name}</span> {metric || T(word)}
+        </span>
+      ) : null}
+    </button>
+  )
+}
 
 export default function NodeHeat({ heat }) {
   const crit = num(useUiConfig().usage_crit_pct)
@@ -17,54 +62,27 @@ export default function NodeHeat({ heat }) {
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  const showTip = (event, node) => {
+  const showTip = (event, name) => {
     event.stopPropagation()
-    const bar = event.currentTarget
-    setTip({ name: node.name, info: node.info, left: bar.offsetLeft + bar.offsetWidth / 2 })
+    setTip(name)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => setTip(null), TIP_MS)
   }
 
-  const bars = (heat || []).map((h) => {
-    const pct = num(h.pct)
-    return h.online
-      ? {
-          name: h.name,
-          info: pct + T('pct'),
-          height: BASE_HEIGHT + pct * HEIGHT_PER_PCT,
-          background: usageColor(pct, crit),
-        }
-      : {
-          name: h.name,
-          info: T('offline'),
-          height: OFFLINE_HEIGHT,
-          background: 'color-mix(in srgb, var(--sub) 35%, transparent)',
-        }
-  })
+  if (!heat.length) {
+    return (
+      <div className="card">
+        <div className="muted otnote">{T('ov_no_nodes')}</div>
+      </div>
+    )
+  }
 
   return (
-    <div className="card ohcard">
-      <div className="oheat">
-        {bars.length ? (
-          bars.map((bar) => (
-            <div
-              key={bar.name}
-              className="hbar"
-              title={bar.name + ' — ' + bar.info}
-              style={{ height: bar.height + 'px', background: bar.background }}
-              {...pressable((e) => showTip(e, bar))}
-            />
-          ))
-        ) : (
-          <div className="muted" style={{ fontSize: 12 }}>
-            {T('ov_no_nodes')}
-          </div>
-        )}
-        {tip ? (
-          <div className="htip" style={{ left: tip.left + 'px', display: 'block' }}>
-            <span>{tip.name}</span> {tip.info}
-          </div>
-        ) : null}
+    <>
+      <div className="otiles">
+        {heat.map((node) => (
+          <NodeTile key={node.name} node={node} crit={crit} tip={tip === node.name} onTip={showTip} />
+        ))}
       </div>
       <div className="heat-lg">
         <span>
@@ -80,9 +98,7 @@ export default function NodeHeat({ heat }) {
           {T('st_crit')}
         </span>
       </div>
-      <div className="muted" style={{ textAlign: 'center', marginTop: 6, fontSize: 11 }}>
-        {(heat || []).length + ' ' + T('ov_heat_note')}
-      </div>
-    </div>
+      <div className="muted otnote">{TF('ov_tiles_note', { n: heat.length })}</div>
+    </>
   )
 }

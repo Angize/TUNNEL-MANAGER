@@ -21,13 +21,6 @@ import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy } from '../../lib/reorder.js'
 import './nodes.css'
 
-const ADD_BUTTON_STYLE = {
-  margin: '0 0 14px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-}
-
 function isCentralStale(node) {
   const got = (node.info && node.info.central) || ''
   const want = node.central_want || ''
@@ -94,13 +87,15 @@ export default function NodesPage({ active }) {
   return (
     <>
       <StaleBanner count={staleCount} />
-      <button className="primary glass" onClick={() => setAdding(true)} style={ADD_BUTTON_STYLE}>
-        <Icon name="plus" />
-        {T('add_node')}
-      </button>
+      <div className="tbtnrow">
+        <button className="primary glass" onClick={() => setAdding(true)}>
+          <Icon name="plus" />
+          {T('add_node')}
+        </button>
+      </div>
 
       <div className="sec">
-        <Icon name="server" color="var(--acc)" />
+        <Icon name="server" color="var(--acc-tx)" />
         {T('nodes_fleet')}
       </div>
 

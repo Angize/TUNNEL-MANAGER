@@ -128,7 +128,7 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
     <AccordionCard id={proxy.id} className="node acc" head={head}>
       <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} />
       {status.error ? (
-        <div className="pxused" style={{ color: 'var(--bad)' }}>
+        <div className="pxused" style={{ color: 'var(--bad-tx)' }}>
           {translateError(status.error)}
         </div>
       ) : null}

@@ -1,5 +1,8 @@
+import Field from '../../../components/Field.jsx'
+import Reveal from '../../../components/Reveal.jsx'
+import SwitchRow from '../../../components/SwitchRow.jsx'
 import Select from '../../../components/Select.jsx'
-import { Seg2, SegOpt, TglBox } from './controls.jsx'
+import { Seg2, SegOpt} from './controls.jsx'
 import RotIpPool, { IpField } from './RotIpPool.jsx'
 import PeerLive from './PeerLive.jsx'
 import { rotIntervalItems } from './presets.js'
@@ -98,24 +101,30 @@ export default function IpsTab({
       ) : null}
 
       <div className="grid2">
-        <div style={{ order: serverIsA ? 0 : 1 }}>
-          <label className="first">{serverIsA ? T('srv_node') : T('cli_node')}</label>
+        <Field
+          label={serverIsA ? T('srv_node') : T('cli_node')}
+          first
+          style={{ order: serverIsA ? 0 : 1 }}
+        >
           <Select
             items={items}
             value={form.aNode}
             placeholder={T('srv_node')}
             onChange={(v) => onNode('a', v)}
           />
-        </div>
-        <div style={{ order: serverIsA ? 1 : 0 }}>
-          <label className="first">{serverIsA ? T('cli_node') : T('srv_node')}</label>
+        </Field>
+        <Field
+          label={serverIsA ? T('cli_node') : T('srv_node')}
+          first
+          style={{ order: serverIsA ? 1 : 0 }}
+        >
           <Select
             items={items}
             value={form.bNode}
             placeholder={T('cli_node')}
             onChange={(v) => onNode('b', v)}
           />
-        </div>
+        </Field>
       </div>
 
       <div className="grid2" style={{ marginTop: 11 }}>
@@ -123,31 +132,29 @@ export default function IpsTab({
         <Side form={form} side="b" ips={bIps} stored={storedB} patch={patch} />
       </div>
 
-      {multi ? (
-        <TglBox
+      <Reveal show={multi}>
+        <SwitchRow
           on={form.rot.on}
           title={T('rot_t')}
           note={T('rot_d')}
-          gap={12}
-          onClick={toggleRot}
+          onToggle={toggleRot}
         />
-      ) : null}
-      {multi && form.rot.on ? (
-        <div style={{ marginTop: 2 }}>
-          <label className="first">{T('rot_interval')}</label>
+      </Reveal>
+      <Reveal show={multi && form.rot.on}>
+        <Field label={T('rot_interval')} first style={{ marginTop: 8 }}>
           <Select
             items={rotIntervalItems()}
             value={form.rot.secs}
             placeholder={T('rot_interval')}
             onChange={(v) => patch({ rot: { ...form.rot, secs: +v } })}
           />
-        </div>
-      ) : null}
+        </Field>
+      </Reveal>
 
       {peer ? <PeerLive live={peer} /> : null}
 
       <label>{T('roles_lbl')}</label>
-      <Seg2>
+      <Seg2 label={T('roles_lbl')}>
         <SegOpt
           on={serverIsA}
           title={aName + ' ' + T('role_server_word')}

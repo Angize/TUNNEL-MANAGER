@@ -53,7 +53,7 @@ export default function TunnelMeta({ link }) {
         <div className="wrap">
           {T('enc')}:{' '}
           <span className="enc">
-            <Icon name="lock" color="var(--bad)" />
+            <Icon name="lock" color="var(--bad-tx)" />
             {T('encrypted')}
           </span>
         </div>

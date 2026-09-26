@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Field from '../../components/Field.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
-import { PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
@@ -62,8 +64,6 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
     </>
   )
 
-  const portLabelCls = hasIpChoice ? undefined : 'first'
-
   return (
     <Modal
       icon="pen"
@@ -83,18 +83,21 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       ) : null}
 
       <div className="grid2">
-        <div>
-          <label className={portLabelCls}>{rangeLabel(T('pf_listen_port'), 1, PORT_MAX)}</label>
-          <input value={listenPort} onChange={(e) => setListenPort(e.target.value)} />
-        </div>
-        <div>
-          <label className={portLabelCls}>{rangeLabel(T('pf_dst_port'), 1, PORT_MAX)}</label>
-          <input value={dstPort} onChange={(e) => setDstPort(e.target.value)} />
-        </div>
+        <Field label={rangeLabel(T('pf_listen_port'), 1, PORT_MAX)} first={!hasIpChoice}>
+          <NumberInput value={listenPort} onChange={setListenPort} />
+        </Field>
+        <Field label={rangeLabel(T('pf_dst_port'), 1, PORT_MAX)} first={!hasIpChoice}>
+          <NumberInput value={dstPort} onChange={setDstPort} />
+        </Field>
       </div>
 
-      <label>{T('pf_dst_ips')}</label>
-      <input value={dstIps} onChange={(e) => setDstIps(e.target.value)} />
+      <Field label={T('pf_dst_ips')}>
+        <input
+          {...LTR_TEXT}
+          value={dstIps}
+          onChange={(e) => setDstIps(e.target.value)}
+        />
+      </Field>
 
       <RotateFields
         rotate={rotate}

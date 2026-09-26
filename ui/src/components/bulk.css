@@ -24,8 +24,8 @@
 }
 
 .selck.on {
-  background: var(--acc);
-  border-color: var(--acc);
+  background: var(--fill);
+  border-color: var(--fill);
 }
 
 .selck.on .ic {
@@ -89,7 +89,7 @@
 .bulkbar .all {
   font-size: 11.5px;
   font-weight: 700;
-  color: var(--acc);
+  color: var(--acc-tx);
   white-space: nowrap;
   padding: 6px 8px;
   border-radius: 9px;
@@ -137,7 +137,7 @@
 .bulkrun > .ic {
   width: 16px;
   height: 16px;
-  color: var(--acc);
+  color: var(--acc-tx);
   flex: 0 0 auto;
 }
 
@@ -169,7 +169,7 @@
   font: inherit;
   font-size: 11.5px;
   font-weight: 800;
-  color: var(--bad);
+  color: var(--bad-tx);
   white-space: nowrap;
   padding: 6px 10px;
   border-radius: 9px;
@@ -268,19 +268,19 @@
 }
 
 .btile.t-ok {
-  --c: var(--ok);
+  --c: var(--ok-tx);
 }
 
 .btile.t-acc {
-  --c: var(--acc);
+  --c: var(--acc-tx);
 }
 
 .btile.t-gold {
-  --c: var(--gold);
+  --c: var(--gold-tx);
 }
 
 .btile.t-bad {
-  --c: var(--bad);
+  --c: var(--bad-tx);
 }
 
 .bsheet .bcancel {
@@ -309,4 +309,42 @@
   .bulksel .toasts {
     bottom: 144px;
   }
+}
+
+@keyframes tilein {
+  from { opacity: 0; transform: translateY(10px) scale(.96) }
+}
+
+@keyframes barup {
+  from { opacity: 0; transform: translate(-50%, 24px) }
+}
+
+.bulkbar {
+  animation: barup .36s cubic-bezier(.22, 1, .36, 1);
+}
+
+.bsheetov {
+  animation: veilin .32s ease both;
+}
+
+.bsheet {
+  animation: sheetup .48s cubic-bezier(.32, .72, 0, 1);
+}
+
+.bsheet .btile {
+  animation: tilein .36s cubic-bezier(.22, 1, .36, 1) both;
+  animation-delay: calc(120ms + var(--i, 0) * 35ms);
+}
+
+.bsheetov.leaving {
+  pointer-events: none;
+  animation: veilaway .28s ease forwards;
+}
+
+.bsheetov.leaving .bsheet {
+  animation: sheetdown .28s cubic-bezier(.4, 0, 1, 1) forwards;
+}
+
+.bsheetov.leaving .btile {
+  animation: none;
 }

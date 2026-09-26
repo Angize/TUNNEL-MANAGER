@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Field from '../../components/Field.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
@@ -71,43 +73,36 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
 
   return (
     <Modal icon="plus" title={T('pf_add_t')} footer={footer} onClose={onClose}>
-      <label className="first">{T('pf_node')}</label>
-      <Select
-        items={nodeItems}
-        value={nodeId}
-        placeholder={T('pf_node')}
-        onChange={selectNode}
-      />
+      <Field label={T('pf_node')} first>
+        <Select
+          items={nodeItems}
+          value={nodeId}
+          placeholder={T('pf_node')}
+          onChange={selectNode}
+        />
+      </Field>
 
       {hasIpChoice ? (
         <ListenIpField ips={ips} value={listenIp} onChange={setListenIp} />
       ) : null}
 
       <div className="grid2">
-        <div>
-          <label>{rangeLabel(T('pf_listen_port'), 1, PORT_MAX)}</label>
-          <input
-            placeholder="8080"
-            value={listenPort}
-            onChange={(e) => setListenPort(e.target.value)}
-          />
-        </div>
-        <div>
-          <label>{rangeLabel(T('pf_dst_port'), 1, PORT_MAX)}</label>
-          <input
-            placeholder="443"
-            value={dstPort}
-            onChange={(e) => setDstPort(e.target.value)}
-          />
-        </div>
+        <Field label={rangeLabel(T('pf_listen_port'), 1, PORT_MAX)}>
+          <NumberInput placeholder="8080" value={listenPort} onChange={setListenPort} />
+        </Field>
+        <Field label={rangeLabel(T('pf_dst_port'), 1, PORT_MAX)}>
+          <NumberInput placeholder="443" value={dstPort} onChange={setDstPort} />
+        </Field>
       </div>
 
-      <label>{T('pf_dst_ips')}</label>
-      <input
-        placeholder="10.0.0.1, 10.0.0.2"
-        value={dstIps}
-        onChange={(e) => setDstIps(e.target.value)}
-      />
+      <Field label={T('pf_dst_ips')}>
+        <input
+          {...LTR_TEXT}
+          placeholder="10.0.0.1, 10.0.0.2"
+          value={dstIps}
+          onChange={(e) => setDstIps(e.target.value)}
+        />
+      </Field>
 
       <RotateFields
         rotate={rotate}

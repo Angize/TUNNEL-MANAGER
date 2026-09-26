@@ -35,6 +35,7 @@ export default function ProxyNodes({ proxyId, nodes, picked, onPick }) {
       <div
         className={'msrow pxall' + (all ? ' sel' : some ? ' part' : '')}
         {...checkable('checkbox', all, toggleAll)}
+        aria-checked={all ? 'true' : some ? 'mixed' : 'false'}
       >
         <span className="mscheck" />
         <b>{T('px_nodes_all')}</b>

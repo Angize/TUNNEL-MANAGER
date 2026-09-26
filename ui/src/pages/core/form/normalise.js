@@ -11,6 +11,7 @@ import {
   wkShared,
   wssMandatory,
 } from './gates.js'
+import { intOf } from './validate.js'
 
 const DS_TTL_CAP = 8
 
@@ -34,7 +35,7 @@ export default function normalise(form, cfg, aIps, bIps) {
   }
   if (wkShared(view)) set('WorkersB', at('WorkersA'))
   if (!desyncOk(view)) set('Desync', false)
-  if (parseInt(at('dsTtl'), 10) > DS_TTL_CAP) set('dsTtl', String(DS_TTL_CAP))
+  if (intOf(at('dsTtl')) > DS_TTL_CAP) set('dsTtl', String(DS_TTL_CAP))
   if (!rawPortOn(view)) set('Sprot', false)
   if (!ctbOn({ ...view, Sprot: at('Sprot') }, enums)) set('Ctb', false)
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)

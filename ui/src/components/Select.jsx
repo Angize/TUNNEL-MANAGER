@@ -6,7 +6,7 @@ import { checkable } from '../lib/keys.js'
 
 const SEARCH_FROM = 10
 
-export default function Select({ items, value, placeholder, onChange }) {
+export default function Select({ items, value, placeholder, onChange, id, ...aria }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const listRef = useRef(null)
@@ -42,7 +42,11 @@ export default function Select({ items, value, placeholder, onChange }) {
     <>
       <button
         ref={buttonRef}
+        id={id}
         type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open ? 'true' : 'false'}
+        {...aria}
         className={'msbtn' + (cur ? '' : ' ph') + (open ? ' open' : '')}
         onClick={() => list.length && setOpen(true)}
       >
@@ -52,7 +56,7 @@ export default function Select({ items, value, placeholder, onChange }) {
         </span>
       </button>
       {open ? (
-        <Modal bare cls="sssheet" onClose={close}>
+        <Modal bare cls="sssheet" label={placeholder || T('select')} onClose={close}>
           <div className="sspop">
             {list.length > SEARCH_FROM ? (
               <input
@@ -63,7 +67,7 @@ export default function Select({ items, value, placeholder, onChange }) {
                 onChange={(e) => setQ(e.target.value)}
               />
             ) : null}
-            <div className="sspoplist" ref={listRef}>
+            <div className="sspoplist" role="radiogroup" ref={listRef}>
               {shown.map((it) => (
                 <div
                   key={String(it.v)}

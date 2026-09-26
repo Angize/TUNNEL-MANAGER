@@ -6,6 +6,9 @@
   font-display: swap;
 }
 
+button:focus-visible,
+a[href]:focus-visible,
+[tabindex]:not([tabindex='-1']):focus-visible,
 [role='button']:focus-visible,
 [role='switch']:focus-visible,
 [role='checkbox']:focus-visible,
@@ -55,7 +58,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 4px 2px 3px;
+  margin: 4px 2px;
 }
 
 .sub {

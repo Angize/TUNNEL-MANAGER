@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { collectTuning, listViolation, rangeViolation, secondsToMinutes, stepViolation } from './tuning.js'
+import { collectTuning, formErrors, secondsToMinutes } from './tuning.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
-import { alertBox, confirmBox } from '../../lib/dialog.js'
+import { alertBox, askBox, confirmBox } from '../../lib/dialog.js'
 import { setLeaveGuard } from '../../lib/leaveGuard.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
@@ -31,8 +31,6 @@ export function SettingsFormProvider({ tabs, children }) {
   const config = useUiConfig()
   const defaults = useMemo(() => config.settings_defaults || {}, [config])
   const tuningDefaults = useMemo(() => config.tuning_defaults || {}, [config])
-  const tuningSteps = useMemo(() => config.tuning_steps || {}, [config])
-  const tuningRanges = useMemo(() => config.tuning_ranges || {}, [config])
   const probeSamples = num(config.probe_samples) || 20
   const [agentGen, setAgentGen] = useState(0)
 
@@ -42,6 +40,8 @@ export function SettingsFormProvider({ tabs, children }) {
   const [saved, setSaved] = useState(null)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [touched, setTouched] = useState({})
+  const [tried, setTried] = useState(0)
 
   const settingValue = useCallback(
     (source, key) => (source && source[key] != null && source[key] !== '' ? source[key] : defaults[key]),
@@ -69,6 +69,8 @@ export function SettingsFormProvider({ tabs, children }) {
     setMode(nextMode)
     setForm(next)
     setSaved({ form: next, mode: nextMode })
+    setTouched({})
+    setTried(0)
   }, [settingValue, tuningDefaults])
 
   const load = useCallback(async () => {
@@ -88,6 +90,10 @@ export function SettingsFormProvider({ tabs, children }) {
   }, [load])
 
   const dirty = changedCount(form, mode, saved)
+  const allErrors = useMemo(() => (form ? formErrors(form, config) : {}), [form, config])
+  const errors = tried
+    ? allErrors
+    : Object.fromEntries(Object.entries(allErrors).filter(([key]) => touched[key]))
 
   useEffect(() => {
     if (!dirty) return undefined
@@ -95,19 +101,22 @@ export function SettingsFormProvider({ tabs, children }) {
       (target) =>
         target === 'settings' ||
         tabs.includes(target) ||
-        confirmBox(TF('set_leave_confirm', { n: dirty }), T('set_leave_yes'))
+        askBox(TF('set_leave_confirm', { n: dirty }), T('set_leave_yes'))
     )
   }, [dirty, tabs])
 
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }))
 
+  const touch = (key) => setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
+
   const save = async () => {
-    const tuning = collectTuning(form)
-    const bad = listViolation(form) || rangeViolation(form, tuningRanges) || stepViolation(tuning, tuningSteps)
-    if (bad) {
-      alertBox(bad)
+    const bad = Object.values(allErrors)
+    if (bad.length) {
+      setTried((n) => n + 1)
+      toast(bad[0], 'err')
       return
     }
+    const tuning = collectTuning(form)
     setBusy(true)
     const r = await apiPost('settings-set', {
       api_external: form.apiOn,
@@ -132,6 +141,8 @@ export function SettingsFormProvider({ tabs, children }) {
   const revert = () => {
     setForm(saved.form)
     setMode(saved.mode)
+    setTouched({})
+    setTried(0)
   }
 
   const newToken = async () => {
@@ -160,8 +171,8 @@ export function SettingsFormProvider({ tabs, children }) {
   }
 
   const value = {
-    form, mode, setMode, token, busy, loadError, dirty, agentGen, probeSamples,
-    load, set, save, revert, newToken, reset,
+    form, mode, setMode, token, busy, loadError, dirty, agentGen, probeSamples, errors, tried,
+    load, set, touch, save, revert, newToken, reset,
   }
 
   return <FormContext.Provider value={value}>{children}</FormContext.Provider>

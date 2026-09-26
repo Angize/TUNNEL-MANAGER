@@ -45,7 +45,7 @@
   width: 32px;
   height: 32px;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--acc), var(--acc-deep));
+  background: linear-gradient(135deg, var(--fill), var(--fill-deep));
   color: #fff;
   display: grid;
   place-items: center;
@@ -109,7 +109,7 @@
 }
 
 .navi.on .ic {
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .navi .ct {
@@ -123,7 +123,7 @@
 }
 
 .navi.on .ct {
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .navi .ctwrap {
@@ -141,7 +141,7 @@
 .navi .ct.ctun,
 .navi.on .ct.ctun {
   color: #fff;
-  background: var(--bad);
+  background: var(--bad-fill);
   border-radius: 20px;
   padding: 0 6px;
   min-width: 20px;
@@ -257,7 +257,7 @@
 }
 
 .tab.on .ic {
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .tab.on .tlbl {
@@ -275,7 +275,7 @@
   min-width: 15px;
   padding: 0 4px;
   border-radius: 20px;
-  background: var(--bad);
+  background: var(--bad-fill);
   color: #fff;
 }
 

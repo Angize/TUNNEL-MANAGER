@@ -41,23 +41,23 @@
   border: 0;
   border-radius: 8px;
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
   cursor: pointer;
 }
 
 .apcc.c2 {
   background: var(--okw);
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .apcc.c4 {
   background: var(--goldw);
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .apcc.c5 {
   background: var(--badw);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .apcc.on {
@@ -129,11 +129,11 @@
   padding: 3px 6px;
   border-radius: 7px;
   color: var(--page);
-  background: var(--acc);
+  background: var(--acc-tx);
 }
 
 .apm.post {
-  background: var(--ok);
+  background: var(--ok-tx);
 }
 
 .appath {
@@ -155,7 +155,7 @@
   padding: 1px 8px;
   border-radius: 20px;
   background: var(--goldw);
-  color: var(--gold);
+  color: var(--gold-tx);
   white-space: nowrap;
 }
 
@@ -202,7 +202,7 @@
   font-size: 12px;
   line-height: 1.8;
   background: var(--warnw);
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .aprms {
@@ -241,7 +241,7 @@
   padding: 0 7px;
   border-radius: 20px;
   background: var(--badw);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .aprmd {

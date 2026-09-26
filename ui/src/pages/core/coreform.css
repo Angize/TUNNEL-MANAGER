@@ -30,7 +30,7 @@
 
 .ctab.on {
   background: var(--accw);
-  color: var(--acc);
+  color: var(--acc-tx);
   border-color: color-mix(in srgb, var(--acc) 30%, transparent);
 }
 
@@ -40,6 +40,16 @@
 
 .ctabp.on {
   display: block;
+}
+
+.cbandend > label {
+  margin: 0 2px 4px;
+  text-align: center;
+}
+
+.cshape > label {
+  margin-top: 0;
+  flex: 1;
 }
 
 .rpool {
@@ -86,7 +96,7 @@
 }
 
 .rrow.on .sic {
-  color: var(--ok);
+  color: var(--ok-tx);
   opacity: 1;
 }
 
@@ -154,17 +164,17 @@
 
 .pbadge.ok {
   background: rgba(78, 201, 154, .16);
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .pbadge.bad {
   background: rgba(240, 115, 106, .16);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .pbadge.warn {
   background: var(--warnw);
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .pchev {
@@ -224,15 +234,15 @@
 }
 
 .estat.ok {
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .estat.warn {
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .estat.bad {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .eip {
@@ -295,21 +305,21 @@
 
 .eib:hover {
   border-color: var(--acc);
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .eib.del:hover {
   border-color: var(--bad);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .eib.on {
   border-color: var(--ok);
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .eib.aim.on {
-  color: var(--ok);
+  color: var(--ok-tx);
   border-color: color-mix(in srgb, var(--ok) 55%, transparent);
   background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
@@ -398,4 +408,50 @@
   flex: 1 1 auto;
   width: auto;
   max-width: 180px;
+}
+
+.wksec {
+  margin-top: 12px;
+}
+
+.wkgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+}
+
+.wkgrid.two {
+  grid-template-rows: auto auto auto;
+}
+
+.wkcol {
+  display: grid;
+  min-width: 0;
+  row-gap: 6px;
+}
+
+.wkgrid.two .wkcol {
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+}
+
+.wkcol .fldhint {
+  margin: 0 2px;
+  transition: color .2s;
+}
+
+.wksub {
+  align-self: end;
+  margin: 0 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.wksub b {
+  font-weight: 700;
+}
+
+.wksub span {
+  color: var(--sub);
 }

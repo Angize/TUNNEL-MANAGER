@@ -1,0 +1,41 @@
+@keyframes rvgrow {
+  from { grid-template-rows: 0fr }
+  to { grid-template-rows: 1fr }
+}
+
+@keyframes rvfadein {
+  from { opacity: 0; transform: translateY(-8px) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes rvshrink {
+  from { grid-template-rows: 1fr; opacity: 1 }
+  to { grid-template-rows: 0fr; opacity: 0 }
+}
+
+.rv {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.rvb {
+  min-height: 0;
+  min-width: 0;
+}
+
+.rvin {
+  animation: rvgrow .44s cubic-bezier(.22, 1, .36, 1);
+}
+
+.rvin > .rvb {
+  animation: rvfadein .36s cubic-bezier(.22, 1, .36, 1) .06s both;
+}
+
+.rvout {
+  animation: rvshrink .26s cubic-bezier(.4, 0, .2, 1) forwards;
+}
+
+.rvin > .rvb,
+.rvout > .rvb {
+  overflow: hidden;
+}

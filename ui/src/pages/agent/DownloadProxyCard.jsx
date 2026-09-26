@@ -46,7 +46,7 @@ export default function DownloadProxyCard() {
   }
 
   return (
-    <div className="card opc sc-conn" style={{ marginTop: 14 }}>
+    <div className="card opc sc-conn">
       <div className="ophd">
         <span className="sgt">
           <Icon name="shield" />

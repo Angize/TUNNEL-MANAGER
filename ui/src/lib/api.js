@@ -1,4 +1,4 @@
-import { confirmBox } from './dialog.js'
+import { askBox } from './dialog.js'
 import { T } from '../i18n/fa.js'
 
 export const NET_TIMEOUT = 20000
@@ -70,7 +70,7 @@ export async function apiPost(path, body, ms) {
 }
 
 export async function logout() {
-  if (!(await confirmBox(T('logout_q'), T('logout_yes')))) return
+  if (!(await askBox(T('logout_q'), T('logout_yes')))) return
   await apiPost('logout')
   location.href = '/'
 }

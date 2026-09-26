@@ -143,6 +143,7 @@ const PATHS = {
   ),
   bolt: <path d="M13 3L4 14h7l-1 7 9-11h-7z" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
   pen: (
     <>
       <path d="M4 20h4L19 9l-4-4L4 16z" />

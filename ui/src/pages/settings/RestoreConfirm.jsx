@@ -2,7 +2,7 @@ import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import RichText from '../../components/RichText.jsx'
 import { modeLabel } from './ModePicker.jsx'
-import { secondsToMinutes } from './tuning.js'
+import { FIELDS, secondsToMinutes } from './tuning.js'
 import { T, TF } from '../../i18n/fa.js'
 
 const COUNTS = [
@@ -35,6 +35,10 @@ const LABELS = {
   'tuning.tcp_buf_mb': 'set_t_tcpbuf',
 }
 
+const UNITS = Object.fromEntries(
+  Object.values(FIELDS).map((f) => [f.setting || 'tuning.' + f.tuning, f.unitKey]),
+)
+
 const DELIVERY = { push: 'dlv_push_t', github: 'dlv_git_t', panel: 'dlv_pan_t' }
 
 function madeAt(ts) {
@@ -59,6 +63,11 @@ function shown(key, v) {
   if (typeof v === 'boolean') return T(v ? 'bk_on' : 'bk_off')
   if (Array.isArray(v)) return v.join('، ')
   return String(v)
+}
+
+function withUnit(key, v) {
+  const text = shown(key, v)
+  return UNITS[key] && v != null && v !== '' ? text + ' ' + T(UNITS[key]) : text
 }
 
 const ORDER = Object.keys(LABELS)
@@ -131,9 +140,9 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
                   T('bk_secret')
                 ) : (
                   <>
-                    <bdi>{shown(c.key, c.old)}</bdi>
+                    <bdi>{withUnit(c.key, c.old)}</bdi>
                     {'  ←  '}
-                    <bdi>{shown(c.key, c.new)}</bdi>
+                    <bdi>{withUnit(c.key, c.new)}</bdi>
                   </>
                 )}
               </span>

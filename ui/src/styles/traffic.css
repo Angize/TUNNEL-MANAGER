@@ -1,9 +1,9 @@
 .din {
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .dout {
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .iso {
@@ -76,7 +76,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .tnarrow .ic {
@@ -94,13 +94,6 @@
   display: flex;
   gap: 9px;
   align-items: center;
-  margin: 2px 0 12px;
+  margin: 0 0 12px;
   flex-wrap: wrap;
-}
-
-.tgl {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 6px;
 }

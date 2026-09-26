@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import { Check } from '../../components/Marks.jsx'
+import Field from '../../components/Field.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
+import SecretInput from '../../components/SecretInput.jsx'
 import InstallProgress from './InstallProgress.jsx'
 import useInstallJob from './useInstallJob.js'
 import { isNodeNameValid } from './nodeName.js'
@@ -11,7 +14,7 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 
 const EMPTY_PROXY = { on: false, id: '' }
 
@@ -178,12 +181,26 @@ export default function NodeAddModal({ onClose, onAdded }) {
 
   return (
     <Modal icon="plus" title={T('nadd_title')} footer={footer} onClose={onClose}>
-      <div className="seg">
-        <button className={mode === 'auto' ? 'on' : undefined} onClick={() => switchMode('auto')}>
+      <div className="seg" role="radiogroup" aria-label={T('nadd_mode')}>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === 'auto' ? 'true' : 'false'}
+          className={mode === 'auto' ? 'on' : undefined}
+          disabled={busy}
+          onClick={() => switchMode('auto')}
+        >
           <Icon name="bolt" />
           {T('nadd_auto')}
         </button>
-        <button className={mode === 'manual' ? 'on' : undefined} onClick={() => switchMode('manual')}>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === 'manual' ? 'true' : 'false'}
+          className={mode === 'manual' ? 'on' : undefined}
+          disabled={busy}
+          onClick={() => switchMode('manual')}
+        >
           <Icon name="pen" />
           {T('nadd_manual')}
         </button>
@@ -196,59 +213,58 @@ export default function NodeAddModal({ onClose, onAdded }) {
             <span>{T('nadd_autonote')}</span>
           </div>
           <div className="grid2">
-            <div>
-              <label className="first">{T('nadd_node_name')}</label>
+            <Field label={T('nadd_node_name')} first>
               <input
                 placeholder="DE02"
                 value={auto.name}
                 onChange={(e) => setAuto({ ...auto, name: e.target.value })}
               />
-            </div>
-            <div>
-              <label className="first">{T('nadd_srv_ip')}</label>
+            </Field>
+            <Field label={T('nadd_srv_ip')} first>
               <input
+                {...LTR_TEXT}
                 placeholder="5.75.197.55"
                 value={auto.host}
                 onChange={(e) => setAuto({ ...auto, host: e.target.value })}
               />
-            </div>
+            </Field>
           </div>
           <div className="grid2">
-            <div>
-              <label>{rangeLabel(T('nadd_ssh_port'), 1, PORT_MAX)}</label>
-              <input
+            <Field label={rangeLabel(T('nadd_ssh_port'), 1, PORT_MAX)}>
+              <NumberInput
                 placeholder="22"
                 value={auto.sshPort}
-                onChange={(e) => setAuto({ ...auto, sshPort: e.target.value })}
+                onChange={(v) => setAuto({ ...auto, sshPort: v })}
               />
-            </div>
-            <div>
-              <label>{T('nadd_ssh_user')}</label>
+            </Field>
+            <Field label={T('nadd_ssh_user')}>
               <input
+                {...LTR_TEXT}
                 placeholder="root"
                 value={auto.sshUser}
                 onChange={(e) => setAuto({ ...auto, sshUser: e.target.value })}
               />
-            </div>
+            </Field>
           </div>
           <div className="grid2">
-            <div>
-              <label>{rangeLabel(T('nadd_agent_port'), 1, PORT_MAX)}</label>
-              <input
+            <Field label={rangeLabel(T('nadd_agent_port'), 1, PORT_MAX)}>
+              <NumberInput
                 placeholder="8099"
                 value={auto.agentPort}
-                onChange={(e) => setAuto({ ...auto, agentPort: e.target.value })}
+                onChange={(v) => setAuto({ ...auto, agentPort: v })}
               />
-            </div>
+            </Field>
             <div />
           </div>
 
           <div className="authbox">
             <div className="authhd">
               <span className="t">{T('nadd_ssh_auth')}</span>
-              <span className="authseg">
+              <span className="authseg" role="radiogroup" aria-label={T('nadd_ssh_auth')}>
                 <button
                   type="button"
+                  role="radio"
+                  aria-checked={authMode === 'pass' ? 'true' : 'false'}
                   className={authMode === 'pass' ? 'on' : undefined}
                   onClick={() => setAuthMode('pass')}
                 >
@@ -256,6 +272,8 @@ export default function NodeAddModal({ onClose, onAdded }) {
                 </button>
                 <button
                   type="button"
+                  role="radio"
+                  aria-checked={authMode === 'key' ? 'true' : 'false'}
                   className={authMode === 'key' ? 'on' : undefined}
                   onClick={() => setAuthMode('key')}
                 >
@@ -264,26 +282,30 @@ export default function NodeAddModal({ onClose, onAdded }) {
               </span>
             </div>
             {authMode === 'pass' ? (
-              <input
-                className="fld2"
-                type="password"
-                autoComplete="new-password"
-                placeholder={T('nadd_pass_ph')}
-                value={auto.pass}
-                onChange={(e) => setAuto({ ...auto, pass: e.target.value })}
-              />
+              <Field hint={T('nadd_pass_hint')}>
+                <input
+                  className="fld2"
+                  type="password"
+                  autoComplete="new-password"
+                  aria-label={T('nadd_pass_word')}
+                  placeholder={T('nadd_pass_ph')}
+                  value={auto.pass}
+                  onChange={(e) => setAuto({ ...auto, pass: e.target.value })}
+                />
+              </Field>
             ) : (
-              <textarea
-                className="fld2"
-                rows={3}
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                value={auto.key}
-                onChange={(e) => setAuto({ ...auto, key: e.target.value })}
-              />
+              <Field hint={T('nadd_key_hint')}>
+                <textarea
+                  className="fld2"
+                  rows={3}
+                  {...LTR_TEXT}
+                  aria-label={T('nadd_privkey')}
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                  value={auto.key}
+                  onChange={(e) => setAuto({ ...auto, key: e.target.value })}
+                />
+              </Field>
             )}
-            <div className="muted" style={{ fontSize: 11, marginTop: 7 }}>
-              {authMode === 'key' ? T('nadd_key_hint') : T('nadd_pass_hint')}
-            </div>
           </div>
 
           <ProxyFields proxies={proxies} value={autoProxy} onChange={setAutoProxy} />
@@ -295,40 +317,37 @@ export default function NodeAddModal({ onClose, onAdded }) {
       ) : (
         <div>
           <div className="grid2">
-            <div>
-              <label className="first">{T('nadd_manual_name')}</label>
+            <Field label={T('nadd_manual_name')} first>
               <input
                 placeholder="frankfurt-1"
                 value={manual.name}
                 onChange={(e) => setManual({ ...manual, name: e.target.value })}
               />
-            </div>
-            <div>
-              <label className="first">{T('nadd_manual_host')}</label>
+            </Field>
+            <Field label={T('nadd_manual_host')} first>
               <input
+                {...LTR_TEXT}
                 placeholder="203.0.113.10"
                 value={manual.host}
                 onChange={(e) => setManual({ ...manual, host: e.target.value })}
               />
-            </div>
+            </Field>
           </div>
           <div className="grid2">
-            <div>
-              <label>{rangeLabel(T('nadd_agent_port2'), 1, PORT_MAX)}</label>
-              <input
+            <Field label={rangeLabel(T('nadd_agent_port2'), 1, PORT_MAX)}>
+              <NumberInput
                 placeholder="8099"
                 value={manual.port}
-                onChange={(e) => setManual({ ...manual, port: e.target.value })}
+                onChange={(v) => setManual({ ...manual, port: v })}
               />
-            </div>
-            <div>
-              <label>{T('nadd_node_tok')}</label>
-              <input
+            </Field>
+            <Field label={T('nadd_node_tok')}>
+              <SecretInput
                 placeholder={T('nadd_node_tok')}
                 value={manual.token}
-                onChange={(e) => setManual({ ...manual, token: e.target.value })}
+                onChange={(v) => setManual({ ...manual, token: v })}
               />
-            </div>
+            </Field>
           </div>
           <ProxyFields proxies={proxies} value={manualProxy} onChange={setManualProxy} />
         </div>

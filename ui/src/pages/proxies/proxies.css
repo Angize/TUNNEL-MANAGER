@@ -20,7 +20,7 @@
   flex: 0 0 auto;
   font-size: 10.5px;
   font-weight: 700;
-  color: var(--gold);
+  color: var(--gold-tx);
   background: color-mix(in srgb, var(--gold) 14%, transparent);
   padding: 1px 7px;
   border-radius: 20px;
@@ -32,7 +32,7 @@
 }
 
 .pxnerr {
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .pxused {
@@ -56,7 +56,7 @@
 .pxuc {
   font-size: 11px;
   font-weight: 800;
-  color: var(--acc);
+  color: var(--acc-tx);
   background: var(--accw);
   padding: 2px 8px;
   border-radius: 20px;
@@ -69,7 +69,7 @@
   gap: 6px;
   margin-bottom: 7px;
   font-size: 11.5px;
-  color: var(--acc);
+  color: var(--acc-tx);
 }
 
 .pxgrid + .pxpanel {

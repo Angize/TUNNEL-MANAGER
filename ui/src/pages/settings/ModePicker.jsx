@@ -22,7 +22,7 @@ export default function ModePicker({ value, onPick, onClose }) {
   }, [])
 
   return (
-    <Modal bare cls="modesheet" onClose={onClose}>
+    <Modal bare cls="modesheet" label={T('set_on_ipchange')} onClose={onClose}>
       <div className="modelist" ref={listRef}>
         {OPTIONS.map(({ mode, isDefault }) => (
           <div

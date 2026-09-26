@@ -91,11 +91,10 @@ export default {
   band_narrow: 'بازه دستِ‌کم {n} پورت پهنا می‌خواهد',
 
   porttries_lbl: 'چند بار پورتِ مبدأ عوض شود',
-  porttries_bad: 'عدد باید بینِ 1 تا 60 باشد',
 
   workers_lbl: 'صف‌های موازیِ تونل',
   workers_lbl_node: 'روی {n}',
-  workers_lbl_cores: 'دارای {c} هسته',
+  workers_lbl_cores: '{c} هسته',
   workers_1: 'پیش‌فرض',
   workers_2: 'سبک',
   workers_3: 'نیمه‌سبک',
@@ -124,7 +123,6 @@ export default {
   ph_cdn_domain: 'مثلاً cdn.example.com',
   ws_edge_lbl: 'آی‌پیِ لبهٔ CDN (اختیاری)',
   ws_edge_lbl_wss: 'آی‌پیِ لبهٔ CDN (برای wss لازم)',
-  ph_edge_ip: 'مثلاً 104.16.0.1 یا 104.16.0.1:443',
   ws_path_lbl: 'مسیر (path)',
   ws_note: 'سرور پشتِ CDN · SSL روی Flexible، پورتِ 80',
   wss_need_host: 'برای wss باید دامنه (Host) را وارد کنی',
@@ -236,4 +234,12 @@ export default {
   core_port_lbl2: 'پورت (می‌توانی 443)',
   port_band_ph: 'خالی = یک پورتِ تصادفی از باند',
   port_ws_ph: '80 (کلادفلر Flexible)',
+
+  cf_band_from: 'از',
+  cf_band_to: 'تا',
+  cf_range_bad: '«{f}» باید عددی بینِ {lo} تا {hi} باشد',
+  cf_f_split_pos: 'نقطهٔ برش',
+  cf_f_split_ttl: 'TTLِ سگمنتِ سر',
+  cf_edge_ph_plain: 'مثلاً 104.16.0.1 یا 104.16.0.1:80',
+  cf_edge_ph_tls: 'مثلاً 104.16.0.1 یا 104.16.0.1:443',
 }

@@ -1,24 +1,23 @@
-import { TglBox, Tile, Tiles } from './controls.jsx'
+import { Tile, Tiles } from './controls.jsx'
+import Reveal from '../../../components/Reveal.jsx'
+import SwitchRow from '../../../components/SwitchRow.jsx'
 import { fecDatagram } from './gates.js'
 import { fecRates } from './presets.js'
 import { T } from '../../../i18n/fa.js'
 
-export default function FecSection({ form, patch }) {
-  if (!fecDatagram(form)) return null
-
+function Fec({ form, patch }) {
   return (
     <>
-      <TglBox
+      <SwitchRow
         on={!!form.Fec}
         title={T('fec_t')}
         note={T('fec_d')}
-        gap={11}
-        onClick={() => patch({ Fec: !form.Fec })}
+        onToggle={() => patch({ Fec: !form.Fec })}
       />
-      {form.Fec ? (
+      <Reveal show={!!form.Fec}>
         <div>
           <label>{T('fec_rate_lbl')}</label>
-          <Tiles>
+          <Tiles label={T('fec_rate_lbl')}>
             {fecRates().map((rate) => (
               <Tile
                 key={rate.d + '+' + rate.p}
@@ -34,7 +33,15 @@ export default function FecSection({ form, patch }) {
             {T('fec_note')}
           </div>
         </div>
-      ) : null}
+      </Reveal>
     </>
+  )
+}
+
+export default function FecSection(props) {
+  return (
+    <Reveal show={fecDatagram(props.form)}>
+      <Fec {...props} />
+    </Reveal>
   )
 }

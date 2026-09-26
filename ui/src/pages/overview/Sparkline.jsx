@@ -50,6 +50,7 @@ export default function Sparkline({ rx, tx }) {
         strokeWidth="1.8"
         strokeLinejoin="round"
         strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
       />
       <path
         d={txPath}
@@ -58,6 +59,7 @@ export default function Sparkline({ rx, tx }) {
         strokeWidth="1.8"
         strokeLinejoin="round"
         strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
       />
     </svg>
   )

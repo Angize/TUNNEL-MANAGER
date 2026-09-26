@@ -40,7 +40,7 @@
 }
 
 .minisg .seg2 .segopt.on b {
-  color: var(--acc);
+  color: var(--acc-tx);
   font-weight: 800;
 }
 
@@ -127,19 +127,19 @@
 .nxv .vp.ok {
   background: var(--okw);
   border-color: transparent;
-  color: var(--ok);
+  color: var(--ok-tx);
 }
 
 .nxv .vp.up {
   background: var(--warnw);
   border-color: transparent;
-  color: var(--gold);
+  color: var(--gold-tx);
 }
 
 .nxv .vp.na {
   background: var(--badw);
   border-color: transparent;
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .nxv .vp.offl {
@@ -200,7 +200,7 @@
 
 .ib.up {
   background: color-mix(in srgb, var(--gold) 15%, transparent);
-  color: var(--gold);
+  color: var(--gold-tx);
   border-color: color-mix(in srgb, var(--gold) 34%, transparent);
 }
 
@@ -321,7 +321,7 @@
 
 .pfb.stop {
   border-color: color-mix(in srgb, var(--bad) 50%, transparent);
-  color: var(--bad);
+  color: var(--bad-tx);
 }
 
 .pfb:disabled {
@@ -345,5 +345,5 @@ body.pushing .savedock:not(.docked) {
 }
 
 .cn-stale {
-  color: var(--gold);
+  color: var(--gold-tx);
 }

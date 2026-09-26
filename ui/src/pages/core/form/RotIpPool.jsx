@@ -1,3 +1,4 @@
+import Field from '../../../components/Field.jsx'
 import Select from '../../../components/Select.jsx'
 import { T } from '../../../i18n/fa.js'
 import { checkable } from '../../../lib/keys.js'
@@ -21,9 +22,9 @@ export default function RotIpPool({ label, ips, selected, onToggle }) {
   return (
     <>
       <label className="first">
-        {label} <span style={{ color: 'var(--acc)' }}>{'(' + count + ')'}</span>
+        {label} <span style={{ color: 'var(--acc-tx)' }}>{'(' + count + ')'}</span>
       </label>
-      <div className="rpool">
+      <div className="rpool" role="group" aria-label={label}>
         {ips.map((ip) => {
           const on = !!selected[ip]
           return (
@@ -43,23 +44,18 @@ export default function RotIpPool({ label, ips, selected, onToggle }) {
 }
 
 export function IpField({ label, ips, value, onChange }) {
-  if (ips.length > 1) {
-    return (
-      <>
-        <label className="first">{label}</label>
+  return (
+    <Field label={label} first>
+      {ips.length > 1 ? (
         <Select
           items={ips.map((ip) => ({ v: ip, label: ip }))}
           value={value}
           placeholder={T('ip')}
           onChange={onChange}
         />
-      </>
-    )
-  }
-  return (
-    <>
-      <label className="first">{label}</label>
-      <input className="mono" value={ips[0] || '—'} disabled style={{ opacity: 0.6 }} />
-    </>
+      ) : (
+        <input className="mono" value={ips[0] || '—'} disabled style={{ opacity: 0.6 }} />
+      )}
+    </Field>
   )
 }

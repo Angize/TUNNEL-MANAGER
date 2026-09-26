@@ -1,10 +1,16 @@
-import { Seg2, SegOpt, TglBox, WarnCap } from './controls.jsx'
+import { useId } from 'react'
+import Reveal from '../../../components/Reveal.jsx'
+import SwitchRow from '../../../components/SwitchRow.jsx'
+import Field from '../../../components/Field.jsx'
+import NumberInput from '../../../components/NumberInput.jsx'
+import Stepper from '../../../components/Stepper.jsx'
+import { Seg2, SegOpt, WarnCap } from './controls.jsx'
 import { ctbOn, rawPortOn, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
 import { intOf, sprotErr } from './validate.js'
-import { PORT_MAX, rangeLabel } from '../../../lib/form.js'
+import { rangeLabel } from '../../../lib/form.js'
 import { RAW_SPORT_FIXED } from '../carrier.js'
 import { T } from '../../../i18n/fa.js'
 
@@ -30,15 +36,17 @@ const SPORT_PRESETS = {
   tcp: [],
 }
 
-function SourcePort({ form, patch }) {
+function SourcePort({ form, limits, patch }) {
+  const id = useId()
   const locked = sprotLive(form)
-  const current = parseInt(form.rawSport, 10)
+  const current = intOf(form.rawSport)
   const presets = SPORT_PRESETS[form.RawProfile]
+  const label = rangeLabel(T('raw_sport_lbl'), ...limits.port)
 
   return (
     <div className={locked ? 'portlock' : undefined} inert={locked}>
-      <label style={{ marginTop: 13 }}>{rangeLabel(T('raw_sport_lbl'), 1, PORT_MAX)}</label>
-      <Seg2>
+      <label htmlFor={form.SportRandom ? undefined : id}>{label}</label>
+      <Seg2 label={label}>
         <SegOpt
           on={!form.SportRandom}
           title={T('raw_sport_fixed_n')}
@@ -52,10 +60,10 @@ function SourcePort({ form, patch }) {
           onClick={() => patch({ SportRandom: true })}
         />
       </Seg2>
-      {form.SportRandom ? null : (
+      <Reveal show={!form.SportRandom}>
         <div style={{ marginTop: 8 }}>
           {presets.length ? (
-            <Seg2 style={{ marginBottom: 8 }}>
+            <Seg2 label={label} style={{ marginBottom: 8 }}>
               {presets.map((preset) => (
                 <SegOpt
                   key={preset.v}
@@ -67,17 +75,17 @@ function SourcePort({ form, patch }) {
               ))}
             </Seg2>
           ) : null}
-          <input
+          <NumberInput
+            id={id}
             className="mono"
-            inputMode="numeric"
             maxLength={5}
             placeholder={String(RAW_SPORT_FIXED)}
             style={{ textAlign: 'center', direction: 'ltr' }}
             value={form.rawSport}
-            onChange={(e) => patch({ rawSport: e.target.value })}
+            onChange={(v) => patch({ rawSport: v })}
           />
         </div>
-      )}
+      </Reveal>
     </div>
   )
 }
@@ -97,56 +105,53 @@ function SportRotation({ form, patch }) {
 
   return (
     <div>
-      <TglBox on={live} title={T('raw_sprot_t')} note={T('raw_sprot_d')} onClick={toggle} />
-      {live ? (
+      <SwitchRow on={live} title={T('raw_sprot_t')} note={T('raw_sprot_d')} onToggle={toggle} />
+      <Reveal show={live}>
         <div>
           <div className="grid2">
-            <div>
-              <label>{rangeLabel(T('raw_sprot_lbl'), 1, RAW_SPROT_MAX)}</label>
-              <input
-                className="mono"
-                inputMode="numeric"
-                maxLength={2}
+            <Field label={rangeLabel(T('raw_sprot_lbl'), 1, RAW_SPROT_MAX)}>
+              <Stepper
+                min={1}
+                max={RAW_SPROT_MAX}
                 placeholder={String(SPROT_DEFAULT)}
-                style={{ textAlign: 'center', direction: 'ltr' }}
                 value={form.rawSprot}
-                onChange={(e) => patch({ rawSprot: e.target.value })}
+                onChange={(v) => patch({ rawSprot: v })}
               />
-            </div>
-            <div>
-              <label>{rangeLabel(T('raw_dports_lbl'), 1, RAW_DPORTS_MAX)}</label>
-              <input
-                className="mono"
-                inputMode="numeric"
-                maxLength={2}
+            </Field>
+            <Field label={rangeLabel(T('raw_dports_lbl'), 1, RAW_DPORTS_MAX)}>
+              <Stepper
+                min={1}
+                max={RAW_DPORTS_MAX}
                 placeholder="1"
-                style={{ textAlign: 'center', direction: 'ltr' }}
                 value={form.rawDports}
-                onChange={(e) => patch({ rawDports: e.target.value })}
+                onChange={(v) => patch({ rawDports: v })}
               />
-            </div>
+            </Field>
           </div>
           <WarnCap text={sprotErr(form)} style={{ marginTop: 8 }} />
         </div>
-      ) : null}
+      </Reveal>
     </div>
   )
 }
 
-export default function PortSection({ form, enums, patch }) {
-  if (!rawPortOn(form)) return null
-  const current = parseInt(form.rawPort, 10)
+function RawPort({ form, cfg, patch }) {
+  const id = useId()
+  const current = intOf(form.rawPort)
+  const label = rangeLabel(T('raw_port_lbl'), ...cfg.limits.port)
   const draws = (
     <>
-      <PortTriesSection form={form} enums={enums} patch={patch} />
-      <BandSection form={form} enums={enums} patch={patch} />
+      <PortTriesSection form={form} cfg={cfg} patch={patch} />
+      <BandSection form={form} cfg={cfg} patch={patch} />
     </>
   )
 
   return (
-    <div style={{ marginTop: 11 }}>
-      <label className="first">{rangeLabel(T('raw_port_lbl'), 1, PORT_MAX)}</label>
-      <Seg2 style={{ marginBottom: 8 }}>
+    <div style={{ marginTop: 12 }}>
+      <label className="first" htmlFor={id}>
+        {label}
+      </label>
+      <Seg2 label={label} style={{ marginBottom: 8 }}>
         {DPORT_PRESETS[form.RawProfile].map((preset) => (
           <SegOpt
             key={preset.v}
@@ -157,27 +162,35 @@ export default function PortSection({ form, enums, patch }) {
           />
         ))}
       </Seg2>
-      <input
+      <NumberInput
+        id={id}
         className="mono"
-        inputMode="numeric"
         maxLength={5}
         placeholder="443"
         style={{ textAlign: 'center', direction: 'ltr' }}
         value={form.rawPort}
-        onChange={(e) => patch({ rawPort: e.target.value })}
+        onChange={(v) => patch({ rawPort: v })}
       />
-      <SourcePort form={form} patch={patch} />
-      {form.SportRandom ? draws : null}
+      <SourcePort form={form} limits={cfg.limits} patch={patch} />
+      <Reveal show={form.SportRandom}>{draws}</Reveal>
       <SportRotation form={form} patch={patch} />
-      {form.SportRandom ? null : draws}
-      {ctbOn(form, enums) ? (
-        <TglBox
+      <Reveal show={!form.SportRandom}>{draws}</Reveal>
+      <Reveal show={ctbOn(form, cfg.enums)}>
+        <SwitchRow
           on={!!form.Ctb}
           title={T('ctb_t')}
           note={T('ctb_d')}
-          onClick={() => patch({ Ctb: !form.Ctb })}
+          onToggle={() => patch({ Ctb: !form.Ctb })}
         />
-      ) : null}
+      </Reveal>
     </div>
+  )
+}
+
+export default function PortSection(props) {
+  return (
+    <Reveal show={rawPortOn(props.form)}>
+      <RawPort {...props} />
+    </Reveal>
   )
 }

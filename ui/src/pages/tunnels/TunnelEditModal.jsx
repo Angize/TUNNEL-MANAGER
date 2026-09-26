@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Field from '../../components/Field.jsx'
+import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
@@ -7,7 +9,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { ipItems } from '../../lib/nodes.js'
-import { PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetBaseOf, subnetFitError, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
@@ -19,22 +21,20 @@ function EndIpField({ label, ips, current, value, onChange }) {
   const list = ips && ips.length ? ips : current ? [current] : []
   if (list.length > 1) {
     return (
-      <div>
-        <label className="first">{label}</label>
+      <Field label={label} first>
         <Select
           items={ipItems(list)}
           value={value || (current && list.includes(current) ? current : list[0])}
           placeholder={T('ip')}
           onChange={onChange}
         />
-      </div>
+      </Field>
     )
   }
   return (
-    <div>
-      <label className="first">{label}</label>
+    <Field label={label} first>
       <input className="mono" value={list[0] || current || '—'} disabled style={{ opacity: 0.6 }} />
-    </div>
+    </Field>
   )
 }
 
@@ -142,34 +142,35 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       onClose={onClose}
     >
       <div className="grid2">
-        <div>
-          <label className="first">{T('tun_type')}</label>
+        <Field label={T('tun_type')} first>
           <Select items={TUNNEL_TYPES} value={type} placeholder={T('ttype')} onChange={changeType} />
-        </div>
-        <div>
-          <label className="first">{T('range')}</label>
+        </Field>
+        <Field label={T('range')} first>
           <Select
             items={subnetRangeItems(subnetFree)}
             value={base}
             placeholder={T('range')}
             onChange={changeBase}
           />
-        </div>
+        </Field>
       </div>
 
-      <label>{T('subnet')}</label>
-      <input value={subnet} onChange={(e) => setSubnet(e.target.value)} />
+      <Field label={T('subnet')}>
+        <input
+          {...LTR_TEXT}
+          value={subnet}
+          onChange={(e) => setSubnet(e.target.value)}
+        />
+      </Field>
 
       {showPort ? (
-        <div>
-          <label>{rangeLabel(portLabel, 1, PORT_MAX)}</label>
-          <input
-            inputMode="numeric"
+        <Field label={rangeLabel(portLabel, 1, PORT_MAX)}>
+          <NumberInput
             placeholder={type === 'vxlan' ? '4789' : T('ttype_port_ph')}
             value={port}
-            onChange={(e) => setPort(e.target.value)}
+            onChange={setPort}
           />
-        </div>
+        </Field>
       ) : null}
 
       <div
@@ -183,7 +184,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
           gap: 6,
         }}
       >
-        <Icon name="pin" color="var(--acc)" />
+        <Icon name="pin" color="var(--acc-tx)" />
         {T('ip_each_end')}
         {multiIp ? (
           <span className="tag" style={{ fontSize: 9.5, padding: '1px 7px' }}>
