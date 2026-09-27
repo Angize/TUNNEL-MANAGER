@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
-import { Sk } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
@@ -44,30 +44,12 @@ function newestId(events, start) {
   return top
 }
 
-function LogSkeleton() {
-  return (
-    <div className="loglist">
-      {Array.from({ length: 5 }, (_, i) => (
-        <div className="lev" key={i}>
-          <span className="lev-bar sk" />
-          <div>
-            <div className="lev-head">
-              <Sk className="lev-lv" w={42} />
-              <Sk className="lev-time" w={64} />
-            </div>
-            <Sk as="div" className="lev-text" w={i % 2 ? '46%' : '62%'} />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export default function LogsPage() {
   const { ev_types: evTypes, ev_groups: evGroups } = useUiConfig()
   const { evSeq, logCount, loaded } = useSummary()
 
   const [events, setEvents] = useState(null)
+  const [progress, setProgress] = useState(0)
   const [hiddenOut, setHiddenOut] = useState(0)
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
@@ -100,7 +82,7 @@ export default function LogsPage() {
     flight.current = mine
     let r = null
     try {
-      r = await apiGet('events')
+      r = await apiGet('events', newest.current ? undefined : setProgress)
     } catch {
       r = null
     }
@@ -256,9 +238,8 @@ export default function LogsPage() {
         ) : null}
       </Reveal>
 
-      {events === null ? (
-        <LogSkeleton />
-      ) : !events.length ? (
+      <LoadBar on={events === null} value={progress} />
+      {events === null ? null : !events.length ? (
         <div className={'card muted' + (cleared ? ' logempty' : '')}>{T(hiddenOut ? 'logf_empty' : 'logs_empty')}</div>
       ) : (
         <div ref={listBox}>

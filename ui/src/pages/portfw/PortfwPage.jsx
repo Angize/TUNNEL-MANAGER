@@ -1,12 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
-import { CardSkeletons } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import PortfwCard from './PortfwCard.jsx'
 import PortfwAddModal from './PortfwAddModal.jsx'
 import PortfwEditModal from './PortfwEditModal.jsx'
 import { T } from '../../i18n/fa.js'
-import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
 import { readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
@@ -17,20 +16,19 @@ import { listBusy, reorderMode } from '../../lib/reorder.js'
 import useFlipList from '../../lib/useFlipList.js'
 
 export default function PortfwPage({ active }) {
-  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('portfw')
   const [nodes, setNodes] = useState([])
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(null)
   const [opening, setOpening] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
-    const r = await apiGet('portfw-list?q=' + encodeURIComponent(query))
+    const r = await apiGet('portfw-list?q=' + encodeURIComponent(query), onProgress)
     return r.portfw.filter((x) => x.name)
   }, [query])
 
-  const [list, reload] = usePolledData(load, query, active)
+  const [list, reload, progress] = usePolledData(load, query, active)
 
   const loadNodes = useCallback(async () => {
     try {
@@ -88,10 +86,9 @@ export default function PortfwPage({ active }) {
 
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
+      <LoadBar on={list === null} value={progress} />
       <div ref={listBox} className="flist">
-        {list === null ? (
-          <CardSkeletons kind="portfw" count={counts.portfw} />
-        ) : ordered.length ? (
+        {list === null ? null : ordered.length ? (
           ordered.map((item) => (
             <PortfwCard
               key={item.node_id + item.name}

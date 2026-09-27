@@ -1,10 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
-import { CardSkeletons } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import ProxyCard from './ProxyCard.jsx'
 import ProxyModal from './ProxyModal.jsx'
 import { T } from '../../i18n/fa.js'
-import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet } from '../../lib/api.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { listBusy } from '../../lib/reorder.js'
@@ -12,17 +11,16 @@ import useFlipList from '../../lib/useFlipList.js'
 import './proxies.css'
 
 export default function ProxiesPage({ active }) {
-  const { counts } = useSummary()
   const [editing, setEditing] = useState(undefined)
   const [edits, setEdits] = useState({})
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
-    const r = await apiGet('proxies')
+    const r = await apiGet('proxies', onProgress)
     return r.proxies
   }, [])
 
-  const [list, reload] = usePolledData(load, null, active)
+  const [list, reload, progress] = usePolledData(load, null, active)
 
   const listBox = useRef(null)
   const cardKey = (proxy) => proxy.id + ':' + (edits[proxy.id] || 0)
@@ -42,10 +40,9 @@ export default function ProxiesPage({ active }) {
         </button>
       </div>
 
+      <LoadBar on={list === null} value={progress} />
       <div ref={listBox} className="flist">
-        {list === null ? (
-          <CardSkeletons kind="proxy" count={counts.proxies} />
-        ) : list.length ? (
+        {list === null ? null : list.length ? (
           list.map((proxy) => (
             <ProxyCard
               key={cardKey(proxy)}

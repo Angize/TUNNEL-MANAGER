@@ -38,11 +38,34 @@ async function readBody(r) {
   }
 }
 
-export async function apiGet(path) {
+async function readJson(r, onProgress) {
+  const total = Number(r.headers.get('X-Raw-Length')) || 0
+  if (!total || !r.body) {
+    const whole = await r.json()
+    onProgress(1)
+    return whole
+  }
+  const reader = r.body.getReader()
+  const dec = new TextDecoder()
+  let text = ''
+  let got = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    got += value.byteLength
+    text += dec.decode(value, { stream: true })
+    onProgress(Math.min(got / total, 1))
+  }
+  text += dec.decode()
+  onProgress(1)
+  return JSON.parse(text)
+}
+
+export async function apiGet(path, onProgress) {
   const g = abortAfter(NET_TIMEOUT)
   try {
     const r = await fetch('/api/' + path, { signal: g.signal })
-    if (r.ok) return await r.json()
+    if (r.ok) return onProgress ? await readJson(r, onProgress) : await r.json()
     leaveIfSignedOut(r.status)
     const d = await readBody(r)
     throw new ApiError(r.status, d.error)

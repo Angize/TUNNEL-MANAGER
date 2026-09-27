@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import { CardSkeletons } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import NodeCard from './NodeCard.jsx'
 import NodeAddModal from './NodeAddModal.jsx'
 import { useBulk } from '../../state/BulkInstallContext.jsx'
@@ -12,7 +12,6 @@ import KernelTuneModal from './KernelTuneModal.jsx'
 import DeleteNodeModal from './DeleteNodeModal.jsx'
 import MovedIpModal from './MovedIpModal.jsx'
 import { T } from '../../i18n/fa.js'
-import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
@@ -44,7 +43,6 @@ function StaleBanner({ count }) {
 }
 
 export default function NodesPage({ active }) {
-  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('nodes')
   const [overrides, setOverrides] = useState({})
   const [adding, setAdding] = useState(false)
@@ -55,14 +53,14 @@ export default function NodesPage({ active }) {
   const [moved, setMoved] = useState(null)
   const settled = useRef(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
     const epoch = settled.current
-    const r = await apiGet('nodes?q=' + encodeURIComponent(query))
+    const r = await apiGet('nodes?q=' + encodeURIComponent(query), onProgress)
     return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1, epoch }
   }, [query])
 
-  const [data, reload] = usePolledData(load, query, active)
+  const [data, reload, progress] = usePolledData(load, query, active)
   const bulk = useBulk()
   const { asked, took, setDialog } = bulk
   const closeAdd = () => {
@@ -127,10 +125,9 @@ export default function NodesPage({ active }) {
 
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
+      <LoadBar on={data === null} value={progress} />
       <div ref={listBox} className="flist">
-        {data === null ? (
-          <CardSkeletons kind="node" count={counts.nodes_total} />
-        ) : (
+        {data === null ? null : (
           <>
             {ordered.length ? (
               ordered.map((node) => (

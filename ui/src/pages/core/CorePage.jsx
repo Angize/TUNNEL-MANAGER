@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import PendingCard from '../../components/PendingCard.jsx'
-import { CardSkeletons } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import CoreCard from './CoreCard.jsx'
 import CoreFormModal from './form/CoreFormModal.jsx'
 import { tagClassForFamily } from './carrier.js'
@@ -21,12 +21,10 @@ import { listBusy, reorderMode } from '../../lib/reorder.js'
 import useFlipList from '../../lib/useFlipList.js'
 import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
-import { useSummary } from '../../state/SummaryContext.jsx'
 import './core.css'
 
 export default function CorePage({ active }) {
   const { actFor, pendingFor, buildCount, refresh: actsRefresh } = useActs()
-  const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('core')
   const [tagOverrides, setTagOverrides] = useState({})
   const [edges, setEdges] = useState({})
@@ -56,15 +54,19 @@ export default function CorePage({ active }) {
     }
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
-    const r = await apiGet('fleet?kind=core&q=' + encodeURIComponent(query))
+    const r = await apiGet('fleet?kind=core&q=' + encodeURIComponent(query), onProgress)
     return r.links
   }, [query])
 
-  const [list, reload] = usePolledData(load, query, active, pollEdges)
+  const [list, reload, progress] = usePolledData(load, query, active, pollEdges)
+
+  const buildsSeen = useRef(buildCount)
 
   useEffect(() => {
+    if (buildsSeen.current === buildCount) return
+    buildsSeen.current = buildCount
     reload()
   }, [buildCount, reload])
 
@@ -129,10 +131,9 @@ export default function CorePage({ active }) {
 
       <Toolbar value={query} placeholder={T('core_search')} reorder onSearch={setQuery} />
 
+      <LoadBar on={list === null} value={progress} />
       <div ref={listBox} className="flist">
-        {list === null ? (
-          <CardSkeletons kind="tunnel" count={counts.core} />
-        ) : builds.shown.length || builds.cards.length ? (
+        {list === null ? null : builds.shown.length || builds.cards.length ? (
           <>
             {builds.shown.map((link) => (
               <CoreCard
