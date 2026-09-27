@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
@@ -75,7 +75,7 @@ function HealthBadge({ offline, health }) {
   )
 }
 
-export default function PortfwCard({ item, onEdit, onChanged }) {
+function PortfwCard({ item, onEdit, onChanged }) {
   const health = item.health || {}
   const serverActive = health.active || ''
   const [override, setOverride] = useState(null)
@@ -241,3 +241,5 @@ export default function PortfwCard({ item, onEdit, onChanged }) {
     </AccordionCard>
   )
 }
+
+export default memo(PortfwCard)

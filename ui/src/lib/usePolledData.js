@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { setPageRefresh } from './poll.js'
+import { sameDeep } from './sameDeep.js'
 
-export default function usePolledData(load, key, active = true) {
+export default function usePolledData(load, key, active = true, onLoaded) {
   const [data, setData] = useState(null)
   const alive = useRef(true)
   const latest = useRef(0)
   const loader = useRef(load)
+  const loaded = useRef(onLoaded)
   const wasActive = useRef(active)
 
   loader.current = load
+  loaded.current = onLoaded
 
   const reload = useCallback(async () => {
     const mine = ++latest.current
@@ -18,7 +21,9 @@ export default function usePolledData(load, key, active = true) {
     } catch {
       return
     }
-    if (alive.current && mine === latest.current && value !== undefined) setData(value)
+    if (!alive.current || mine !== latest.current || value === undefined) return
+    setData((prev) => sameDeep(prev, value))
+    if (loaded.current) loaded.current(value)
   }, [])
 
   useEffect(() => {

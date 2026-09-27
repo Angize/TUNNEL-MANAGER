@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
@@ -40,7 +40,7 @@ function NodeTraffic({ traffic }) {
   )
 }
 
-export default function NodeCard({
+function NodeCard({
   node,
   windowHours,
   onToggle,
@@ -217,3 +217,5 @@ export default function NodeCard({
     </AccordionCard>
   )
 }
+
+export default memo(NodeCard)

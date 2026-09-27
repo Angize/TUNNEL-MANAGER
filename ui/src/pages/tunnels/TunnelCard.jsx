@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import ActionRow from '../../components/ActionRow.jsx'
 import TagPicker from '../../components/TagPicker.jsx'
@@ -21,7 +21,6 @@ import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import { tagClass, tagStyle } from '../../lib/cardTags.js'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../../lib/openCards.js'
 import useLongPress from '../../lib/useLongPress.js'
-import { useActs } from '../../state/ActsContext.jsx'
 import useCardActions from '../../lib/useCardActions.js'
 import { checkable, pressable } from '../../lib/keys.js'
 
@@ -78,8 +77,7 @@ function SideBox({ link, side }) {
   )
 }
 
-export default function TunnelCard({ link, onEdit, onReload, onTag, registerActions, sel }) {
-  const { actFor } = useActs()
+function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
   const [open, setOpen] = useState(() => isCardOpen(link.id))
   const [message, setMessage] = useState(null)
   const [picking, setPicking] = useState(false)
@@ -89,7 +87,6 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
   useEffect(() => () => clearTimeout(messageTimer.current), [])
 
   const hold = useLongPress(() => setPicking(true))
-  const act = actFor(link.id)
   const dragging = useDragging(link.id)
   const [pickingRebuild, setPickingRebuild] = useState(null)
   const enabled = link.enabled !== false
@@ -107,7 +104,7 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
       if (got) setPickingRebuild(got)
       else if (got === false) onReload()
     },
-    register: registerActions,
+    register,
   })
 
   const speed = async () => {
@@ -334,3 +331,5 @@ export default function TunnelCard({ link, onEdit, onReload, onTag, registerActi
     </>
   )
 }
+
+export default memo(TunnelCard)

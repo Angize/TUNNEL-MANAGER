@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
@@ -62,7 +62,7 @@ function UsedBy({ nodes, tunnels, panel }) {
   )
 }
 
-export default function ProxyCard({ proxy, onEdit, onChanged }) {
+function ProxyCard({ proxy, onEdit, onChanged }) {
   const [msg, setMsg] = useState(null)
 
   const status = proxy.status || {}
@@ -141,3 +141,5 @@ export default function ProxyCard({ proxy, onEdit, onChanged }) {
     </AccordionCard>
   )
 }
+
+export default memo(ProxyCard)
