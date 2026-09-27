@@ -18,7 +18,7 @@ export function subscribeToasts(fn) {
 
 export function dismissToast(id) {
   if (!items.some((t) => t.id === id && t.show)) return
-  items = items.map((t) => (t.id === id ? { ...t, show: false } : t))
+  items = items.map((t) => (t.id === id ? { ...t, show: false, out: true } : t))
   emit()
   setTimeout(() => {
     items = items.filter((t) => t.id !== id)
