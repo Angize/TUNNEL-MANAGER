@@ -21,7 +21,7 @@
 
 .msbtn .cv {
   color: var(--sub);
-  transition: .2s;
+  transition: transform .2s var(--ease-in-out), color .2s ease;
   font-size: 12px;
 }
 
@@ -103,9 +103,47 @@
   border-color: var(--acc);
 }
 
-.modal.sssheet {
-  max-width: 360px;
-  padding: 8px;
+@keyframes selin {
+  from { opacity: 0; transform: translateY(var(--sely)) scale(.97) }
+}
+
+@keyframes selout {
+  to { opacity: 0; transform: translateY(var(--sely)) scale(.97) }
+}
+
+.selov {
+  position: fixed;
+  inset: 0;
+  z-index: 61;
+}
+
+.selov.leaving {
+  pointer-events: none;
+}
+
+.selpop {
+  --sely: -4px;
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--modal);
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: var(--dsh-hi);
+  transform-origin: 50% 0;
+  animation: selin .18s var(--ease-out);
+}
+
+.selpop.up {
+  --sely: 4px;
+  transform-origin: 50% 100%;
+}
+
+.selov.leaving .selpop {
+  animation: selout .12s var(--ease-out) forwards;
 }
 
 .sspop {
