@@ -192,26 +192,18 @@
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  padding: 16px;
 }
 
 .bsheet {
   width: min(560px, 100%);
   background: var(--modal);
   border: 1px solid var(--edge);
-  border-bottom: 0;
-  border-radius: 20px 20px 0 0;
-  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, .18), inset 0 1px 0 var(--hi);
-}
-
-.bsheet .hdl {
-  width: 40px;
-  height: 4px;
-  border-radius: 4px;
-  background: var(--edge);
-  margin: 0 auto 9px;
+  border-radius: 20px;
+  padding: 14px;
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .5), inset 0 1px 0 var(--hi);
 }
 
 .bsheet .bst {
@@ -338,7 +330,7 @@
 }
 
 .bsheet {
-  animation: sheetup .48s cubic-bezier(.32, .72, 0, 1);
+  animation: modrise .32s cubic-bezier(.22, 1, .36, 1);
 }
 
 .bsheet .btile {
@@ -352,7 +344,7 @@
 }
 
 .bsheetov.leaving .bsheet {
-  animation: sheetdown .28s cubic-bezier(.4, 0, 1, 1) forwards;
+  animation: modfall .2s cubic-bezier(.4, 0, 1, 1) forwards;
 }
 
 .bsheetov.leaving .btile {
