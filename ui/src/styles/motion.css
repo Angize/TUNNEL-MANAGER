@@ -12,7 +12,8 @@
   transition: none !important;
 }
 
-.flghost {
+.flghost,
+.swghost {
   position: absolute;
   margin: 0 !important;
   pointer-events: none;
