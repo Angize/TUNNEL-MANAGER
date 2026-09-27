@@ -31,6 +31,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
   const sized = useRef(false)
   const settle = useRef(0)
   const touching = useRef(false)
+  const lit = useRef(-1)
   const indexRef = useRef(index)
 
   indexRef.current = index
@@ -46,9 +47,12 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
     const a = buttons[lo]
     const b = buttons[hi]
     if (!a || !b) return
-    bar.style.left = a.offsetLeft + (b.offsetLeft - a.offsetLeft) * t + 'px'
-    bar.style.width = a.offsetWidth + (b.offsetWidth - a.offsetWidth) * t + 'px'
+    const width = a.offsetWidth + (b.offsetWidth - a.offsetWidth) * t + 'px'
+    bar.style.transform = 'translateX(' + (a.offsetLeft + (b.offsetLeft - a.offsetLeft) * t) + 'px)'
+    if (bar.style.width !== width) bar.style.width = width
     const near = Math.round(f)
+    if (near === lit.current) return
+    lit.current = near
     buttons.forEach((el, i) => el.classList.toggle('on', i === near))
     if (dots.current) {
       dots.current.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i === near))
@@ -91,8 +95,14 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
         if (!touching.current) commit()
       }, SETTLE_MS)
     }
+    let frame = 0
     const scroll = () => {
-      paint(position())
+      if (!frame) {
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          paint(position())
+        })
+      }
       if (!HAS_SCROLLEND) later()
     }
     const down = () => {
@@ -113,6 +123,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
     }
     return () => {
       clearTimeout(settle.current)
+      cancelAnimationFrame(frame)
       el.removeEventListener('scroll', scroll, passive)
       el.removeEventListener('scrollend', commit, passive)
       el.removeEventListener('touchstart', down, passive)
@@ -124,6 +135,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
   useLayoutEffect(() => {
     const el = pager.current
     if (!el) return
+    lit.current = index
     const goal = target(index)
     if (Math.abs(el.scrollLeft - goal) < 2) {
       paint(index)
