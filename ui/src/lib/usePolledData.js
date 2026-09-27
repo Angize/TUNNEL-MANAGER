@@ -4,6 +4,8 @@ import { sameDeep } from './sameDeep.js'
 
 export default function usePolledData(load, key, active = true, onLoaded) {
   const [data, setData] = useState(null)
+  const [progress, setProgress] = useState(0)
+  const hasData = useRef(false)
   const alive = useRef(true)
   const latest = useRef(0)
   const loader = useRef(load)
@@ -15,13 +17,19 @@ export default function usePolledData(load, key, active = true, onLoaded) {
 
   const reload = useCallback(async () => {
     const mine = ++latest.current
+    const report = hasData.current
+      ? undefined
+      : (p) => {
+          if (mine === latest.current) setProgress(p)
+        }
     let value
     try {
-      value = await loader.current()
+      value = await loader.current(report)
     } catch {
       return
     }
     if (!alive.current || mine !== latest.current || value === undefined) return
+    hasData.current = true
     setData((prev) => sameDeep(prev, value))
     if (loaded.current) loaded.current(value)
   }, [])
@@ -41,5 +49,5 @@ export default function usePolledData(load, key, active = true, onLoaded) {
     return setPageRefresh(reload)
   }, [reload, active])
 
-  return [data, reload]
+  return [data, reload, progress]
 }

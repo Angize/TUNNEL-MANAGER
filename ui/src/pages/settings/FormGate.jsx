@@ -1,11 +1,10 @@
 import Icon from '../../components/Icon.jsx'
-import { SettingsSkeleton } from '../../components/Skeleton.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
 import { T } from '../../i18n/fa.js'
 
-export default function FormGate({ skeleton }) {
+export default function FormGate() {
   const { loadError, load } = useSettingsForm()
-  if (!loadError) return skeleton || <SettingsSkeleton />
+  if (!loadError) return null
   return (
     <div className="card loadfail">
       <span>{T('set_load_fail') + ' ' + loadError}</span>

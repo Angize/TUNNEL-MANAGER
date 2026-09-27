@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
-import { OverviewSkeleton } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import AlertList from './AlertList.jsx'
 import NodeHeat from './NodeHeat.jsx'
 import Gauge from './Gauge.jsx'
@@ -73,20 +73,20 @@ export default function OverviewPage({ onNavigate }) {
   const rxHistory = useRef([])
   const txHistory = useRef([])
 
-  const load = useCallback(async () => {
-    const summary = await apiGet('summary')
+  const load = useCallback(async (onProgress) => {
+    const summary = await apiGet('summary', onProgress)
     rxHistory.current = [...rxHistory.current, num(summary.fleet_rx_bps)].slice(-SPARK_POINTS)
     txHistory.current = [...txHistory.current, num(summary.fleet_tx_bps)].slice(-SPARK_POINTS)
     return summary
   }, [])
 
-  const [summary] = usePolledData(load)
+  const [summary, , progress] = usePolledData(load)
 
   if (!summary) {
     return (
       <>
         <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
-        <OverviewSkeleton />
+        <LoadBar on value={progress} />
       </>
     )
   }
@@ -103,6 +103,7 @@ export default function OverviewPage({ onNavigate }) {
   return (
     <>
       <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
+      <LoadBar on={false} />
 
       <div className="okpis">
         <Kpi label={T('ov_health')} value={score} color={scoreColor(score)} />

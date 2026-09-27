@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
-import { ApiCardSkeleton } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
@@ -61,7 +61,8 @@ export default function ApiTab({ active }) {
 
   return (
     <div className="stpage">
-      {f.form ? <ApiGroup f={f} /> : <FormGate skeleton={<ApiCardSkeleton />} />}
+      <LoadBar on={!f.form && !f.loadError} value={f.loaded} />
+      {f.form ? <ApiGroup f={f} /> : <FormGate />}
 
       {seen ? (
         <Suspense fallback={<div className="card muted">{T('loading')}</div>}>

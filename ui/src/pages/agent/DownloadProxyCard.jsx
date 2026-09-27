@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
-import { Sk } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -15,11 +15,15 @@ export default function DownloadProxyCard() {
   const [proxies, setProxies] = useState([])
   const [value, setValue] = useState(null)
   const [error, setError] = useState('')
+  const [pxPart, setPxPart] = useState(0)
+  const [stPart, setStPart] = useState(0)
 
   const load = useCallback(async () => {
     setError('')
+    setPxPart(0)
+    setStPart(0)
     try {
-      const [px, s] = await Promise.all([apiGet('proxies'), apiGet('settings')])
+      const [px, s] = await Promise.all([apiGet('proxies', setPxPart), apiGet('settings', setStPart)])
       setProxies(px.proxies)
       setValue({ on: !!s.dl_proxy_on, id: String(s.dl_proxy_id || '') })
     } catch (e) {
@@ -66,10 +70,9 @@ export default function DownloadProxyCard() {
           >
             <KnobCheck />
           </div>
-        ) : loading ? (
-          <Sk className="optg" />
         ) : null}
       </div>
+      <LoadBar on={loading} value={(pxPart + stPart) / 2} />
       {ready ? (
         <div className="oprow">
           <div className={'opsel' + (value.on ? '' : ' off')} inert={!value.on}>
@@ -80,11 +83,7 @@ export default function DownloadProxyCard() {
             {T('save')}
           </button>
         </div>
-      ) : loading ? (
-        <div className="oprow" aria-hidden="true">
-          <Sk className="opsk" />
-        </div>
-      ) : value ? (
+      ) : loading ? null : value ? (
         <div className="muted" style={{ fontSize: 12 }}>
           {T('dlpx_none')}
         </div>
