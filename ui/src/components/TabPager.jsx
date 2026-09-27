@@ -17,7 +17,10 @@ function trail(pane, dir) {
   if (!pane) return
   const cards = [...pane.querySelectorAll('.flist > .card')]
   cards
-    .filter((el) => el.getBoundingClientRect().top < innerHeight)
+    .filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.bottom > 0 && r.top < innerHeight
+    })
     .slice(0, TRAIL_MAX)
     .forEach((el, i) => {
       el.animate([{ transform: 'translateX(' + TRAIL_PX * dir + 'px)' }, { transform: 'none' }], {
