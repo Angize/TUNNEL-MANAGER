@@ -110,7 +110,6 @@ function Sheet({ bulk, links, core }) {
       }}
     >
       <div className="bsheet">
-        <div className="hdl" />
         <div className="bst">{T('bulk_title').replace('{k}', String(chosen.length))}</div>
         <div className="bss">{bulkNames(chosen)}</div>
         <div className="btiles">

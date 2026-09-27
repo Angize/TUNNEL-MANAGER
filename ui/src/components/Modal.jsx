@@ -4,35 +4,53 @@ import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
 import { coarsePointer, restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
-import { EASE_DRAWER, EASE_OUT, narrow, reducedMotion } from '../lib/motion.js'
+import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 
 const open = []
 let bodyOverflow = ''
 
 
-function growFrom(el, was) {
-  const d = el.offsetHeight - was
-  if (d <= 0 || reducedMotion()) return
-  if (narrow()) {
-    el.animate([{ transform: 'translateY(' + d + 'px)' }, { transform: 'none' }], {
-      duration: 320,
-      easing: EASE_DRAWER,
-      composite: 'add',
+const WRAPS = ['ctabp', 'rv', 'rvb']
+
+function rows(body, bottom) {
+  const out = []
+  const walk = (el, depth) => {
+    for (const c of el.children) {
+      if (out.length >= 10) return
+      if (c.classList.contains('ctabp') && !c.classList.contains('on')) continue
+      const wrap = depth < 5 && (WRAPS.some((k) => c.classList.contains(k)) || (!c.className && c.children.length > 1))
+      if (wrap) walk(c, depth + 1)
+      else if (c.getBoundingClientRect().top < bottom) out.push(c)
+    }
+  }
+  walk(body, 0)
+  return out
+}
+
+function cascadeIn(el, from) {
+  if (reducedMotion()) return
+  const body = el.querySelector('.mbody')
+  const parts = [...(from ? [] : [el.querySelector('.msticky')]), ...(body ? rows(body, el.getBoundingClientRect().bottom) : []), el.querySelector('.mfoot')]
+  parts.filter(Boolean).forEach((part, i) => {
+    part.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], {
+      duration: 240,
+      delay: 80 + i * 30,
+      easing: EASE_OUT,
+      fill: 'backwards',
     })
-  } else {
+  })
+}
+
+function growFrom(el, was) {
+  if (reducedMotion()) return
+  const d = el.offsetHeight - was
+  if (d > 0) {
     el.animate([{ clipPath: 'inset(' + d / 2 + 'px 0 round 22px)' }, { clipPath: 'inset(0 round 22px)' }], {
       duration: 260,
       easing: EASE_OUT,
     })
   }
-  for (const part of el.querySelectorAll('.mbody, .mfoot')) {
-    part.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], {
-      duration: 200,
-      delay: 60,
-      easing: EASE_OUT,
-      fill: 'backwards',
-    })
-  }
+  cascadeIn(el, true)
 }
 
 export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, label, loading, children }) {
@@ -41,6 +59,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
   const box = useRef(null)
   const veil = useRef(null)
   const loadedFrom = useRef(0)
+  const cascadeOnOpen = useRef(!bare && !loading)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
 
@@ -76,6 +95,10 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
   useLayoutEffect(() => {
     const node = veil.current
     return () => leaveGhost(node)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (cascadeOnOpen.current && box.current) cascadeIn(box.current)
   }, [])
 
   useLayoutEffect(() => {
