@@ -134,6 +134,7 @@
   -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   box-shadow: var(--dsh-hi);
   transform-origin: 50% 0;
+  font-size: 13.5px;
   animation: selin .18s var(--ease-out);
 }
 
@@ -158,9 +159,36 @@
 }
 
 .sspoplist {
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-height: min(58vh, 420px);
   min-height: 0;
+}
+
+.sspoplist .msrow {
+  padding-block: 9px;
+}
+
+.sspoplist .mstx {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sspoplist .msl,
+.sspoplist .mssub {
+  max-width: 100%;
+  line-height: 1.4;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sspoplist .mssub {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  font-size: 11px;
 }
 
 .search {
