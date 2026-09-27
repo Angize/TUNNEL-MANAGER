@@ -17,13 +17,15 @@ export const CASCADE = [
   '#agList > .nx',
 ].join(', ')
 
+export function onScreen(el) {
+  const r = el.getBoundingClientRect()
+  return r.bottom > 0 && r.top < innerHeight && !el.closest('[inert]')
+}
+
 export function riseIn(els) {
   if (reducedMotion()) return
   els
-    .filter((el) => {
-      const r = el.getBoundingClientRect()
-      return r.bottom > 0 && r.top < innerHeight && !el.closest('[inert]')
-    })
+    .filter(onScreen)
     .slice(0, RISE_MAX)
     .forEach((el, i) => {
       el.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], {

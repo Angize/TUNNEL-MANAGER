@@ -4,7 +4,7 @@ import { T } from '../i18n/fa.js'
 import { num } from '../lib/num.js'
 import { useSummary } from '../state/SummaryContext.jsx'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
-import { CASCADE } from '../lib/riseIn.js'
+import { CASCADE, onScreen } from '../lib/riseIn.js'
 import './tabpager.css'
 
 const SETTLE_MS = 120
@@ -18,10 +18,7 @@ function trail(pane, dir) {
   if (!pane) return
   const cards = [...pane.querySelectorAll(CASCADE)]
   cards
-    .filter((el) => {
-      const r = el.getBoundingClientRect()
-      return r.bottom > 0 && r.top < innerHeight
-    })
+    .filter(onScreen)
     .slice(0, TRAIL_MAX)
     .forEach((el, i) => {
       el.animate([{ transform: 'translateX(' + TRAIL_PX * dir + 'px)' }, { transform: 'none' }], {
