@@ -16,6 +16,8 @@ import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
+import useSaved from '../../lib/useSaved.js'
+import SaveLabel from '../../components/SaveLabel.jsx'
 
 const EMPTY_PROXY = { on: false, id: '' }
 
@@ -24,6 +26,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
   const [authMode, setAuthMode] = useState('pass')
   const [proxies, setProxies] = useState([])
   const [busy, setBusy] = useState(false)
+  const [saved, markSaved] = useSaved()
   const [installed, setInstalled] = useState(false)
   const progressRef = useRef(null)
 
@@ -135,7 +138,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
     })
     setBusy(false)
     if (r.ok && r.d.ok) {
-      onClose()
+      if (await markSaved(T('added_ok'))) onClose()
       toast(T('node_added_checking'), 'ok')
       onAdded()
       return
@@ -169,10 +172,12 @@ export default function NodeAddModal({ onClose, onAdded }) {
     <>
       <button
         className={'primary' + (installed ? ' done' : '')}
-        disabled={busy}
+        disabled={busy || !!saved}
         onClick={submit}
       >
-        {busy ? <span className="bspin" /> : primaryLabel}
+        <SaveLabel busy={busy} saved={saved}>
+          {primaryLabel}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

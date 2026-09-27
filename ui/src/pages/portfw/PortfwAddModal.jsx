@@ -15,9 +15,12 @@ import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 import Msg from '../../components/Msg.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
+import useSaved from '../../lib/useSaved.js'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const [busy, guard] = useBusy()
+  const [saved, markSaved] = useSaved()
   const nodeItems = nodes.map((n) => ({ v: n.id, label: n.name, sub: n.host }))
   const [nodeId, setNodeId] = useState(nodeItems.length ? nodeItems[0].v : '')
   const [listenIp, setListenIp] = useState('')
@@ -53,7 +56,8 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
       listen_ip: effectiveListenIp,
     })
     if (r.ok && r.d.ok) {
-      onClose()
+      setMessage('')
+      if (await markSaved(T('added_ok'))) onClose()
       toast(T('pf_created') + r.d.name, 'ok')
       onCreated()
       return
@@ -65,7 +69,9 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(create)}>
-        {busy ? <span className="bspin" /> : T('add')}
+        <SaveLabel busy={busy} saved={saved}>
+          {T('add')}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

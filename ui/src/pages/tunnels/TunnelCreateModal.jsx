@@ -18,6 +18,8 @@ import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import Msg from '../../components/Msg.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
+import useSaved from '../../lib/useSaved.js'
 
 const PORT_TYPES = ['l2tpv3', 'fou']
 
@@ -87,6 +89,7 @@ function IpField({ label, ips, value, onChange }) {
 export default function TunnelCreateModal({ onClose, onCreated }) {
   const [nodes, setNodes] = useState(null)
   const [busy, guard] = useBusy()
+  const [saved, markSaved] = useSaved()
   const [aNode, setANode] = useState('')
   const [bNode, setBNode] = useState('')
   const [aIp, setAIp] = useState('')
@@ -179,14 +182,17 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
       alertBox(verdict.cancelled ? T('a_stopped') : translateError(verdict.err) || T('failed'))
       return
     }
-    onClose()
+    setMessage('')
+    if (await markSaved(T('created_ok'))) onClose()
     onCreated()
   }
 
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(create)}>
-        {busy ? <span className="bspin" /> : T('create_tun_btn')}
+        <SaveLabel busy={busy} saved={saved}>
+          {T('create_tun_btn')}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}
