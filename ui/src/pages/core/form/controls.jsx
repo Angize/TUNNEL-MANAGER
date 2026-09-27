@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import Icon from '../../../components/Icon.jsx'
 
 export function Seg2({ label, style, children }) {
@@ -31,9 +32,43 @@ export function ScrollSeg({ label, children }) {
   )
 }
 
+function frameTo(grid, frame, glide) {
+  const on = grid.querySelector(':scope > .ptile.on')
+  if (!on || !on.offsetWidth) {
+    frame.classList.remove('shown')
+    return
+  }
+  const snap = !glide || !frame.classList.contains('shown')
+  if (snap) frame.style.transition = 'none'
+  frame.style.width = on.offsetWidth + 'px'
+  frame.style.height = on.offsetHeight + 'px'
+  frame.style.transform = 'translate(' + on.offsetLeft + 'px, ' + on.offsetTop + 'px)'
+  frame.classList.add('shown')
+  if (snap) {
+    frame.getBoundingClientRect()
+    frame.style.transition = ''
+  }
+}
+
 export function Tiles({ p3, label, children }) {
+  const grid = useRef(null)
+  const frame = useRef(null)
+
+  useLayoutEffect(() => {
+    frameTo(grid.current, frame.current, true)
+  })
+
+  useLayoutEffect(() => {
+    const g = grid.current
+    const f = frame.current
+    const watch = new ResizeObserver(() => frameTo(g, f, false))
+    watch.observe(g)
+    return () => watch.disconnect()
+  }, [])
+
   return (
-    <div className={'pgrid' + (p3 ? ' p3' : '')} role="radiogroup" aria-label={label}>
+    <div className={'pgrid' + (p3 ? ' p3' : '')} role="radiogroup" aria-label={label} ref={grid}>
+      <i className="pframe" ref={frame} aria-hidden="true" />
       {children}
     </div>
   )
