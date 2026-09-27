@@ -107,7 +107,7 @@ export default function CorePage({ active }) {
     listBox,
     list === null ? null : [...builds.shown.map((l) => l.id), ...builds.cards.map((a) => 'pend_' + a.key)],
     query,
-    { hold: reorderMode() || listBusy() }
+    { hold: reorderMode() || listBusy(), slides: (key) => !key.startsWith('pend_') }
   )
   const bulk = useBulk({ list: list === null ? null : ordered, command: 'core:checkall', onDone: afterAction })
   const bulkExit = bulk.exit
