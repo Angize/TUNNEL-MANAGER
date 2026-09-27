@@ -29,7 +29,7 @@ function ctagClass(family) {
 }
 
 export default function TunnelsPage({ active }) {
-  const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
+  const { actFor, pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('tunnels')
   const [creating, setCreating] = useState(false)
@@ -123,10 +123,11 @@ export default function TunnelsPage({ active }) {
               <TunnelCard
                 key={link.id}
                 link={link}
+                act={actFor(link.id)}
                 onEdit={setEditing}
                 onReload={afterAction}
                 onTag={setTag}
-                registerActions={(fn) => bulk.register(link.id, fn)}
+                register={bulk.register}
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}

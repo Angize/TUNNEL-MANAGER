@@ -5,6 +5,7 @@ import { toast } from '../lib/toast.js'
 import { actSeen } from '../lib/acts.js'
 import { openCardOnce } from '../lib/openCards.js'
 import { num } from '../lib/num.js'
+import { sameDeep } from '../lib/sameDeep.js'
 import { T } from '../i18n/fa.js'
 
 const ActsContext = createContext(null)
@@ -47,6 +48,15 @@ export function ActsProvider({ children }) {
   const dismissed = useRef({})
   const [dismissTick, setDismissTick] = useState(0)
 
+  const apply = useCallback((r) => {
+    const next = actsState(r)
+    setState((prev) => {
+      const acts = sameDeep(prev.acts, next.acts)
+      if (acts === prev.acts && next.now === prev.now && next.buildCount === prev.buildCount) return prev
+      return { ...next, acts }
+    })
+  }, [])
+
   const refresh = useCallback(async () => {
     let r
     try {
@@ -54,8 +64,8 @@ export function ActsProvider({ children }) {
     } catch {
       return
     }
-    setState(actsState(r))
-  }, [])
+    apply(r)
+  }, [apply])
 
   const isLive = useCallback(
     (act) => !!act && !dismissed.current[actSeen(act)],
@@ -111,7 +121,7 @@ export function ActsProvider({ children }) {
         r = null
       }
       if (r) {
-        setState(actsState(r))
+        apply(r)
         const act = r.acts[key]
         if (!act) return { err: T('act_lost') }
         if (act.state === 'fail') return { err: act.error }
@@ -121,7 +131,7 @@ export function ActsProvider({ children }) {
       await new Promise((done) => setTimeout(done, ACCEPT_POLL_MS))
     }
     return { ok: true }
-  }, [])
+  }, [apply])
 
   const waitDone = useCallback(async (key) => {
     const end = Date.now() + DONE_TIMEOUT_MS
@@ -134,7 +144,7 @@ export function ActsProvider({ children }) {
         r = null
       }
       if (!r) continue
-      setState(actsState(r))
+      apply(r)
       const act = r.acts[key]
       if (!act) return { err: T('act_lost') }
       if (act.state === 'done') return { ok: true }
@@ -142,7 +152,7 @@ export function ActsProvider({ children }) {
       if (act.state === 'cancel') return { err: T('a_st_cancel') }
     }
     return { err: T('bulk_timeout') }
-  }, [])
+  }, [apply])
 
   const value = useMemo(
     () => ({

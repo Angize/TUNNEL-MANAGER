@@ -78,8 +78,8 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
   }
 
   useEffect(() => {
-    if (register) register((name, arg) => bulk.current[name](arg))
-  }, [register])
+    if (register) register(link.id, (name, arg) => bulk.current[name](arg))
+  }, [register, link.id])
 
   return {
     check,

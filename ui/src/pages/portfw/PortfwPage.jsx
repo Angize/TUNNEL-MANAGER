@@ -56,9 +56,12 @@ export default function PortfwPage({ active }) {
     setAdding(true)
   }
 
-  const openEdit = async (item) => {
-    if (await loadNodes()) setEditing(item)
-  }
+  const openEdit = useCallback(
+    async (item) => {
+      if (await loadNodes()) setEditing(item)
+    },
+    [loadNodes]
+  )
 
   const items = list || []
   const order = useCardReorder('portfw', items.map((x) => x.node_id + x.name), reload)

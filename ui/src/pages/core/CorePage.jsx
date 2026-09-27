@@ -25,7 +25,7 @@ import { useSummary } from '../../state/SummaryContext.jsx'
 import './core.css'
 
 export default function CorePage({ active }) {
-  const { pendingFor, buildCount, refresh: actsRefresh } = useActs()
+  const { actFor, pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const { counts } = useSummary()
   const [query, setQuery] = usePageQuery('core')
   const [tagOverrides, setTagOverrides] = useState({})
@@ -35,27 +35,8 @@ export default function CorePage({ active }) {
   const polledIds = useRef(new Set())
   const edgeFlight = useRef(new Set())
 
-  const load = useCallback(async () => {
-    if (listBusy()) return undefined
-    const r = await apiGet('fleet?kind=core&q=' + encodeURIComponent(query))
-    return r.links
-  }, [query])
-
-  const [list, reload] = usePolledData(load, query, active)
-
-  useEffect(() => {
-    reload()
-  }, [buildCount, reload])
-
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-
-  useEffect(() => {
-    const pooled = (list || []).filter((l) => l.transport === 'ws' && l.ws_pool && l.enabled !== false)
+  const pollEdges = useCallback((links) => {
+    const pooled = (links || []).filter((l) => l.transport === 'ws' && l.ws_pool && l.enabled !== false)
     const polled = new Set(pooled.map((l) => l.id))
     polledIds.current = polled
     setEdges((prev) =>
@@ -73,7 +54,26 @@ export default function CorePage({ active }) {
         setEdges((prev) => (prev[link.id] === active ? prev : { ...prev, [link.id]: active }))
       })
     }
-  }, [list])
+  }, [])
+
+  const load = useCallback(async () => {
+    if (listBusy()) return undefined
+    const r = await apiGet('fleet?kind=core&q=' + encodeURIComponent(query))
+    return r.links
+  }, [query])
+
+  const [list, reload] = usePolledData(load, query, active, pollEdges)
+
+  useEffect(() => {
+    reload()
+  }, [buildCount, reload])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const setTag = useCallback(async (link, tag) => {
     const previous = num(link.tag)
@@ -138,11 +138,12 @@ export default function CorePage({ active }) {
               <CoreCard
                 key={link.id}
                 link={link}
+                act={actFor(link.id)}
                 activeEdge={edges[link.id] || ''}
                 onEdit={setEditing}
                 onReload={afterAction}
                 onTag={setTag}
-                registerActions={(fn) => bulk.register(link.id, fn)}
+                register={bulk.register}
                 sel={bulk.selecting ? { picked: bulk.picked.has(link.id), pick: bulk.pick } : null}
               />
             ))}
