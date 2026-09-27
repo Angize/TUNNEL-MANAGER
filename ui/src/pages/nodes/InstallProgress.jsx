@@ -3,7 +3,7 @@ import Icon from '../../components/Icon.jsx'
 import { Check, Cross } from '../../components/Marks.jsx'
 import { T, TF } from '../../i18n/fa.js'
 
-function StepIcon({ state }) {
+export function StepIcon({ state }) {
   if (state === 'ok') return <span className="istep-i ok"><Check /></span>
   if (state === 'err') return <span className="istep-i err"><Cross /></span>
   if (state === 'warn') return <span className="istep-i warn"><Icon name="warn" /></span>
@@ -16,7 +16,7 @@ function displayState(confirmed, running) {
   return running ? 'run' : 'err'
 }
 
-function Roll({ text }) {
+export function Roll({ text }) {
   const [now, setNow] = useState(text)
   const [gone, setGone] = useState(null)
   if (text !== now) {

@@ -21,6 +21,8 @@ import Reveal from './components/Reveal.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
+import { BulkInstallProvider } from './state/BulkInstallContext.jsx'
+import { BulkFabHost } from './pages/nodes/NodeBulk.jsx'
 import { T } from './i18n/fa.js'
 import { HUB_IDS, hasPage, hubFirst, hubOf, pageComponent } from './pages/index.jsx'
 
@@ -329,6 +331,7 @@ function Shell() {
           onClose={() => setPalette(false)}
         />
       ) : null}
+      <BulkFabHost onNavigate={navigate} />
       <ToastHost />
       <DialogHost />
     </>
@@ -338,7 +341,9 @@ function Shell() {
 export default function App() {
   return (
     <ActsProvider>
-      <Shell />
+      <BulkInstallProvider>
+        <Shell />
+      </BulkInstallProvider>
     </ActsProvider>
   )
 }

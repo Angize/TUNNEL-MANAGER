@@ -3305,6 +3305,8 @@ _INSTALL_STEPS = [("ssh", tx("اتصالِ SSH", "SSH connection")), ("agent", t
 _INSTALL_LABELS = dict(_INSTALL_STEPS)
 _install_jobs = {}
 _install_lock = threading.Lock()
+_INSTALL_PARALLEL = 4
+_install_batches = {}
 
 
 def _scrub(s):
@@ -3609,28 +3611,35 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
                 pass
 
 
-def api_node_install(d):
-    _gate_ready(True)
-    _require(d, ["name", "ssh_host"])
-    name, host = _node_name(d["name"]), _node_host(d["ssh_host"])
-    _node_unique(load_nodes(), name, host)
-    ssh_port = _int_in(d.get("ssh_port") or 22, 1, 65535, Bad("bad_ssh_port", "پورتِ SSH نامعتبر است", "invalid SSH port"))
-    user = str(d.get("ssh_user") or "root").strip()
+def _install_plan(row, shared):
+    _require(row, ["name", "ssh_host"])
+    name, host = _node_name(row["name"]), _node_host(row["ssh_host"])
+    ssh_port = _int_in(row.get("ssh_port") or shared.get("ssh_port") or 22, 1, 65535,
+                       Bad("bad_ssh_port", "پورتِ SSH نامعتبر است", "invalid SSH port"))
+    user = str(row.get("ssh_user") or shared.get("ssh_user") or "root").strip()
     if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", user):
         raise Bad("bad_ssh_user", "کاربرِ SSH نامعتبر است", "invalid SSH user")
-    agent_port = _int_in(d.get("agent_port") or 8099, 1, 65535,
+    agent_port = _int_in(row.get("agent_port") or shared.get("agent_port") or 8099, 1, 65535,
                          Bad("bad_agent_port", "پورتِ ایجنت نامعتبر است", "invalid agent port"))
-    pon, pid = valid_proxy_ref(d)
-    password = str(d.get("ssh_pass") or "")
-    key = str(d.get("ssh_key") or "").strip()
+    password = str(row.get("ssh_pass") or "")
+    key = str(row.get("ssh_key") or "").strip()
+    if not password and not key:
+        password = str(shared.get("ssh_pass") or "")
+        key = str(shared.get("ssh_key") or "").strip()
     if not password and not key:
         raise Bad("ssh_auth_missing", "رمزِ SSH یا کلیدِ خصوصی لازم است", "an SSH password or a private key is required")
+    return {"name": name, "host": host, "port": ssh_port, "user": user, "agent_port": agent_port,
+            "password": password, "key": key}
+
+
+def _install_start(plan, pon, pid, launch):
     jid = secrets.token_hex(6)
     if pon:
         _hold_proxy(pid, "install:" + jid)
     try:
-        cfg = {"host": host, "port": ssh_port, "user": user, "password": password,
+        cfg = {"host": plan["host"], "port": plan["port"], "user": plan["user"], "password": plan["password"],
                "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
+        key = plan["key"]
         if key:
             fd, kp = tempfile.mkstemp(prefix="tnlkey_")
             with os.fdopen(fd, "wb") as f:
@@ -3644,10 +3653,20 @@ def api_node_install(d):
             _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
                                             for k, l in _INSTALL_STEPS],
                                   "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
-        threading.Thread(target=_install_worker, args=(jid, cfg, name, agent_port, pon, pid), daemon=True).start()
+        launch((jid, cfg, plan["name"], plan["agent_port"], pon, pid))
     except Exception:
         _release_proxies("install:" + jid)
         raise
+    return jid
+
+
+def api_node_install(d):
+    _gate_ready(True)
+    plan = _install_plan(d, {})
+    _node_unique(load_nodes(), plan["name"], plan["host"])
+    pon, pid = valid_proxy_ref(d)
+    jid = _install_start(plan, pon, pid,
+                         lambda args: threading.Thread(target=_install_worker, args=args, daemon=True).start())
     return {"ok": True, "job": jid}
 
 
@@ -3657,6 +3676,149 @@ def api_node_install_status(d):
     if not j:
         raise _no_job()
     return {**j, "ok": True, "success": bool(j.get("ok"))}
+
+
+def _no_batch():
+    return Bad("batch_not_found", "این نصبِ گروهی دیگر در پنل نیست", "this bulk install is no longer on the panel")
+
+
+def _batch_done(b):
+    return not b["queue"] and not b["pumps"]
+
+
+def _job_row(j):
+    steps = j["steps"]
+    if not j["done"]:
+        i = next((i for i, s in enumerate(steps) if s["state"] == "run"), 0)
+        return {"state": "run", "at": i + 1, "step": steps[i]["label"]}
+    if j["ok"]:
+        s = steps[-1]
+        return {"state": "warn" if s["state"] == "warn" else "ok", "at": len(steps), "step": s["label"],
+                "detail": s["detail"]}
+    i = next((i for i, s in enumerate(steps) if s["state"] == "err"), 0)
+    s = steps[i]
+    return {"state": "err", "at": i + 1, "step": s["label"], "detail": s["detail"], "log": s["log"]}
+
+
+def _batch_row(r):
+    base = {"name": r["name"], "host": r["host"], "port": r["port"], "user": r["user"], "of": len(_INSTALL_STEPS),
+            "state": "wait", "at": 0, "step": "", "detail": "", "log": ""}
+    if r["stop"]:
+        return {**base, "state": "stop"}
+    if r["error"] is not None:
+        return {**base, "state": "err", "at": 1, "step": _INSTALL_STEPS[0][1], "detail": r["error"]}
+    view = r["final"] or (_job_row(_install_jobs[r["job"]]) if r["job"] in _install_jobs else None)
+    return {**base, **view} if view else base
+
+
+def _batch_run(b, i, args):
+    with _install_lock:
+        b["rows"][i]["job"] = args[0]
+    _install_worker(*args)
+    with _install_lock:
+        j = _install_jobs.get(args[0])
+        b["rows"][i]["final"] = _job_row(j) if j else None
+
+
+def _batch_pump(b):
+    while True:
+        with _install_lock:
+            if b["stopped"] or not b["queue"]:
+                b["pumps"] -= 1
+                last = not b["pumps"]
+                if last:
+                    b["plans"] = []
+                break
+            i = b["queue"].pop(0)
+            plan, b["plans"][i] = b["plans"][i], None
+        try:
+            _install_start(plan, b["pon"], b["pid"], lambda args, i=i: _batch_run(b, i, args))
+        except Exception as e:
+            with _install_lock:
+                b["rows"][i]["error"] = _why(e)
+    if last:
+        _release_proxies("batch:" + b["id"])
+
+
+def api_node_install_batch(d):
+    _gate_ready(True)
+    rows = d.get("rows")
+    if not isinstance(rows, list) or not rows:
+        raise Bad("rows_missing", "فهرستِ سرورها خالی است", "the server list is empty")
+    pon, pid = valid_proxy_ref(d)
+    nodes = load_nodes()
+    plans, names, hosts = [], set(), set()
+    for i, row in enumerate(rows, 1):
+        try:
+            if not isinstance(row, dict):
+                raise Bad("bad_row", "هر ردیف باید یک شیء باشد", "each row must be an object")
+            plan = _install_plan(row, d)
+            _node_unique(nodes, plan["name"], plan["host"])
+            for seen, key in ((names, plan["name"].lower()), (hosts, plan["host"].lower())):
+                if key in seen:
+                    raise Bad("batch_duplicate", "«{0}» در فهرست دو بار آمده", "'{0}' appears twice in the list", key)
+                seen.add(key)
+        except Bad as e:
+            raise Bad(e.code, "ردیفِ {0}: {1}", "row {0}: {1}", i, _why(e)) from None
+        plans.append((plan, row))
+    now = int(time.time())
+    b = {"id": secrets.token_hex(6), "ts": now, "stopped": False, "pon": pon, "pid": pid,
+         "queue": list(range(len(plans))), "plans": [p for p, _ in plans],
+         "pumps": min(_INSTALL_PARALLEL, len(plans)),
+         "rows": [{"name": p["name"], "host": p["host"], "port": str(r.get("ssh_port") or ""),
+                   "user": str(r.get("ssh_user") or ""), "job": None, "stop": False, "error": None, "final": None}
+                  for p, r in plans]}
+    if pon:
+        _hold_proxy(pid, "batch:" + b["id"])
+    try:
+        with _install_lock:
+            if any(not _batch_done(v) for v in _install_batches.values()):
+                raise Bad("batch_running", "یک نصبِ گروهیِ دیگر در جریان است — صبر کن تمام شود یا متوقفش کن",
+                          "another bulk install is running — wait for it to finish or stop it")
+            for k in [k for k, v in _install_batches.items() if now - v["ts"] > 3600]:
+                _install_batches.pop(k, None)
+            _install_batches[b["id"]] = b
+    except Exception:
+        _release_proxies("batch:" + b["id"])
+        raise
+    for _ in range(b["pumps"]):
+        threading.Thread(target=_batch_pump, args=(b,), daemon=True).start()
+    with _install_lock:
+        return _batch_view(b)
+
+
+def _batch_view(b):
+    return {"ok": True, "batch": b["id"], "done": _batch_done(b), "stopped": b["stopped"],
+            "rows": [_batch_row(r) for r in b["rows"]]}
+
+
+def api_install_batch(d):
+    bid = str(d.get("batch") or "")
+    with _install_lock:
+        if bid:
+            b = _install_batches.get(bid)
+            if not b:
+                raise _no_batch()
+        else:
+            live = [v for v in _install_batches.values() if not _batch_done(v)]
+            if not live:
+                return {"ok": True, "batch": ""}
+            b = max(live, key=lambda v: v["ts"])
+        return _batch_view(b)
+
+
+def api_install_batch_stop(d):
+    _require(d, ["batch"])
+    with _install_lock:
+        b = _install_batches.get(d["batch"])
+        if not b:
+            raise _no_batch()
+        b["stopped"] = True
+        for i in b["queue"]:
+            b["rows"][i]["stop"] = True
+            b["plans"][i] = None
+        b["queue"] = []
+    return {"ok": True}
 
 
 def api_node_edit(d):
@@ -9394,7 +9556,8 @@ def ui_config():
         "split_ttl_max": SPLIT_TTL_MAX,
         "limits": {"fake_ttl": [1, FAKE_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
                    "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [0, PORT_TRIES_MAX],
-                   "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN},
+                   "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN,
+                   "install_parallel": _INSTALL_PARALLEL},
         "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
         "uptime_windows": list(UPTIME_WINDOWS),
         "workers_max": CORE_MAX_WORKERS,
@@ -9426,6 +9589,8 @@ API = {
     "ui-config": api_ui_config, "api-token-new": api_token_new,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
+    "node-install-batch": api_node_install_batch, "install-batch": api_install_batch,
+    "install-batch-stop": api_install_batch_stop,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
     "node-adopt-ip": api_node_adopt_ip, "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
@@ -9452,7 +9617,7 @@ API = {
     "reorder": api_reorder, "link-tag": api_link_tag,
     "backup": api_backup, "backup-restore": api_backup_restore,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
              "delete-link", "link-toggle", "stray-del", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select",

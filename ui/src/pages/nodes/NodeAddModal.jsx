@@ -10,6 +10,8 @@ import Reveal from '../../components/Reveal.jsx'
 import { reducedMotion } from '../../lib/motion.js'
 import InstallProgress from './InstallProgress.jsx'
 import useInstallJob from './useInstallJob.js'
+import { BulkFooter, BulkForm, BulkRun, useBulkList } from './NodeBulk.jsx'
+import SshAuth from './SshAuth.jsx'
 import { isNodeNameValid } from './nodeName.js'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -22,8 +24,8 @@ import SaveLabel from '../../components/SaveLabel.jsx'
 
 const EMPTY_PROXY = { on: false, id: '' }
 
-export default function NodeAddModal({ onClose, onAdded }) {
-  const [mode, setMode] = useState('auto')
+export default function NodeAddModal({ onClose, onAdded, bulk }) {
+  const [mode, setMode] = useState(bulk.batch ? 'bulk' : 'auto')
   const [authMode, setAuthMode] = useState('pass')
   const [proxies, setProxies] = useState([])
   const [busy, setBusy] = useState(false)
@@ -57,6 +59,8 @@ export default function NodeAddModal({ onClose, onAdded }) {
   )
 
   const { state: progress, start, reset } = useInstallJob({ onFinished })
+  const list = useBulkList(bulk, mode === 'bulk' && !bulk.batch)
+  const locked = busy || bulk.starting || !!bulk.batch
   const stage = progress ? (progress.finished ? 'end' : progress.revealIdx) : ''
 
   useEffect(() => {
@@ -173,7 +177,9 @@ export default function NodeAddModal({ onClose, onAdded }) {
     </>
   )
 
-  const footer = (
+  const footer = mode === 'bulk' ? (
+    <BulkFooter bulk={bulk} list={list} onClose={onClose} />
+  ) : (
     <>
       <button
         className={'primary' + (installed ? ' done' : '')}
@@ -198,7 +204,7 @@ export default function NodeAddModal({ onClose, onAdded }) {
           role="radio"
           aria-checked={mode === 'auto' ? 'true' : 'false'}
           className={mode === 'auto' ? 'on' : undefined}
-          disabled={busy}
+          disabled={locked}
           onClick={() => switchMode('auto')}
         >
           <Icon name="bolt" />
@@ -207,9 +213,20 @@ export default function NodeAddModal({ onClose, onAdded }) {
         <button
           type="button"
           role="radio"
+          aria-checked={mode === 'bulk' ? 'true' : 'false'}
+          className={mode === 'bulk' ? 'on' : undefined}
+          disabled={locked}
+          onClick={() => switchMode('bulk')}
+        >
+          <Icon name="list" />
+          {T('nadd_bulk')}
+        </button>
+        <button
+          type="button"
+          role="radio"
           aria-checked={mode === 'manual' ? 'true' : 'false'}
           className={mode === 'manual' ? 'on' : undefined}
-          disabled={busy}
+          disabled={locked}
           onClick={() => switchMode('manual')}
         >
           <Icon name="pen" />
@@ -268,63 +285,30 @@ export default function NodeAddModal({ onClose, onAdded }) {
             <div />
           </div>
 
-          <div className="authbox">
-            <div className="authhd">
-              <span className="t">{T('nadd_ssh_auth')}</span>
-              <span className="authseg" role="radiogroup" aria-label={T('nadd_ssh_auth')}>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={authMode === 'pass' ? 'true' : 'false'}
-                  className={authMode === 'pass' ? 'on' : undefined}
-                  onClick={() => setAuthMode('pass')}
-                >
-                  {T('nadd_pass')}
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={authMode === 'key' ? 'true' : 'false'}
-                  className={authMode === 'key' ? 'on' : undefined}
-                  onClick={() => setAuthMode('key')}
-                >
-                  {T('nadd_privkey')}
-                </button>
-              </span>
-            </div>
-            <Reveal show={authMode === 'pass'}>
-              <Field hint={T('nadd_pass_hint')}>
-                <input
-                  className="fld2"
-                  type="password"
-                  autoComplete="new-password"
-                  aria-label={T('nadd_pass_word')}
-                  placeholder={T('nadd_pass_ph')}
-                  value={auto.pass}
-                  onChange={(e) => setAuto({ ...auto, pass: e.target.value })}
-                />
-              </Field>
-            </Reveal>
-            <Reveal show={authMode === 'key'}>
-              <Field hint={T('nadd_key_hint')}>
-                <textarea
-                  className="fld2"
-                  rows={3}
-                  {...LTR_TEXT}
-                  aria-label={T('nadd_privkey')}
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                  value={auto.key}
-                  onChange={(e) => setAuto({ ...auto, key: e.target.value })}
-                />
-              </Field>
-            </Reveal>
-          </div>
+          <SshAuth
+            mode={authMode}
+            onMode={setAuthMode}
+            pass={auto.pass}
+            onPass={(v) => setAuto({ ...auto, pass: v })}
+            sshKey={auto.key}
+            onKey={(v) => setAuto({ ...auto, key: v })}
+            passHint={T('nadd_pass_hint')}
+            keyHint={T('nadd_key_hint')}
+          />
 
           <ProxyFields proxies={proxies} value={autoProxy} onChange={setAutoProxy} />
 
           <div ref={progressRef}>
             <InstallProgress state={progress} />
           </div>
+        </div>
+      </Reveal>
+      <Reveal show={mode === 'bulk'}>
+        <div>
+          <Reveal show={!bulk.batch}>
+            <BulkForm bulk={bulk} list={list} proxies={proxies} />
+          </Reveal>
+          <Reveal show={!!bulk.batch}>{bulk.batch ? <BulkRun batch={bulk.batch} /> : null}</Reveal>
         </div>
       </Reveal>
       <Reveal show={mode === 'manual'}>
