@@ -1,11 +1,32 @@
 import { useLayoutEffect, useRef } from 'react'
-import { gsap, reducedMotion } from './motion.js'
+import { EASE_OUT, gsap, reducedMotion } from './motion.js'
 
 const MOVE_S = 0.32
 const ENTER_S = 0.3
 const EXIT_S = 0.2
 const SLIDE_S = 0.28
 const HOLD_S = 0.18
+const RISE_MS = 300
+const RISE_STEP_MS = 40
+const RISE_MAX = 10
+
+function riseIn(els) {
+  if (reducedMotion()) return
+  els
+    .filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.top < innerHeight && r.right > 0 && r.left < innerWidth
+    })
+    .slice(0, RISE_MAX)
+    .forEach((el, i) => {
+      el.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], {
+        duration: RISE_MS,
+        delay: i * RISE_STEP_MS,
+        easing: EASE_OUT,
+        fill: 'backwards',
+      })
+    })
+}
 
 function place(el) {
   return {
@@ -37,6 +58,7 @@ export default function useFlipList(
   const last = useRef(null)
   const plan = useRef(null)
   const quiet = useRef(false)
+  const entered = useRef(false)
   const sig = keys && !hold ? keys.join('\n') : null
   const prev = last.current
 
@@ -67,6 +89,10 @@ export default function useFlipList(
     const kids = [...root.children]
     const els = new Map(keys.map((key, i) => [key, kids[i]]).filter(([, el]) => el))
     last.current = { sig, context, els }
+    if (!entered.current) {
+      entered.current = true
+      if (enter) riseIn([...els.values()])
+    }
     if (!p) return
     const fresh = [...els.values()].filter((el) => !p.where.has(el))
     const slide = !fresh.length && p.ghosts.some((g) => g.slide)
