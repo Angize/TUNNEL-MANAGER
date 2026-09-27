@@ -3,13 +3,34 @@ import PageHead from './PageHead.jsx'
 import { T } from '../i18n/fa.js'
 import { num } from '../lib/num.js'
 import { useSummary } from '../state/SummaryContext.jsx'
+import { EASE_OUT } from '../lib/motion.js'
 import './tabpager.css'
 
 const SETTLE_MS = 120
+const TRAIL_PX = 30
+const TRAIL_MS = 340
+const TRAIL_STEP_MS = 40
+const TRAIL_MAX = 8
 const HAS_SCROLLEND = typeof window !== 'undefined' && 'onscrollend' in window
 
 function reducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+}
+
+function trail(pane, dir) {
+  if (!pane) return
+  const cards = [...pane.querySelectorAll('.flist > .card')]
+  cards
+    .filter((el) => el.getBoundingClientRect().top < innerHeight)
+    .slice(0, TRAIL_MAX)
+    .forEach((el, i) => {
+      el.animate([{ transform: 'translateX(' + TRAIL_PX * dir + 'px)' }, { transform: 'none' }], {
+        duration: TRAIL_MS,
+        delay: 80 + i * TRAIL_STEP_MS,
+        easing: EASE_OUT,
+        fill: 'backwards',
+      })
+    })
 }
 
 function pageTop(el) {
@@ -33,6 +54,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
   const touching = useRef(false)
   const lit = useRef(-1)
   const indexRef = useRef(index)
+  const shown = useRef(index)
 
   indexRef.current = index
 
@@ -144,7 +166,10 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
       paint(index)
     } else {
       el.scrollTo({ left: goal, behavior: 'smooth' })
+      const rtl = getComputedStyle(el).direction === 'rtl'
+      trail(panes.current[index], (index > shown.current ? 1 : -1) * (rtl ? -1 : 1))
     }
+    shown.current = index
     placed.current = true
   }, [index, paint, target])
 
