@@ -7,6 +7,7 @@ import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
+import { reducedMotion } from '../../lib/motion.js'
 import InstallProgress from './InstallProgress.jsx'
 import useInstallJob from './useInstallJob.js'
 import { isNodeNameValid } from './nodeName.js'
@@ -53,6 +54,13 @@ export default function NodeAddModal({ onClose, onAdded }) {
   )
 
   const { state: progress, start, reset } = useInstallJob({ onFinished })
+  const stage = progress ? (progress.finished ? 'end' : progress.revealIdx) : ''
+
+  useEffect(() => {
+    if (stage && progressRef.current) {
+      progressRef.current.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'nearest' })
+    }
+  }, [stage])
 
   useEffect(() => {
     let alive = true
@@ -110,9 +118,6 @@ export default function NodeAddModal({ onClose, onAdded }) {
       return
     }
     start(r.d.job)
-    if (progressRef.current) {
-      progressRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
   }
 
   const addManual = async () => {
