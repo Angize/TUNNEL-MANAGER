@@ -187,7 +187,11 @@ export default function AgentPage({ headless }) {
     [loadNodes, loadAgentInfo, loadCoreVersions, agentUnknown, coreUnknown]
   )
 
+  const nodesAsked = useRef(query)
+
   useEffect(() => {
+    if (nodesAsked.current === query) return
+    nodesAsked.current = query
     loadNodes()
   }, [query, loadNodes])
 

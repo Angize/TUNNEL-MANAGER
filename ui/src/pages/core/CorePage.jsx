@@ -62,7 +62,11 @@ export default function CorePage({ active }) {
 
   const [list, reload, progress] = usePolledData(load, query, active, pollEdges)
 
+  const buildsSeen = useRef(buildCount)
+
   useEffect(() => {
+    if (buildsSeen.current === buildCount) return
+    buildsSeen.current = buildCount
     reload()
   }, [buildCount, reload])
 
