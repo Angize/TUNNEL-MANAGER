@@ -2184,11 +2184,6 @@
    ],
    [
     400,
-    "proxy_no_relay",
-    "the proxy does not relay — …"
-   ],
-   [
-    400,
     "proxy_not_found",
     "proxy not found"
    ],

@@ -2120,7 +2120,7 @@ def poller_loop():
             pxs = load_proxies()
             live_px = {p["id"] for p in pxs}
             with _px_lock:
-                for store in (_px, _px_relay, _px_reach):
+                for store in (_px, _px_reach):
                     for pid in [k for k in store if k not in live_px]:
                         store.pop(pid, None)
             for p in pxs:
@@ -2169,81 +2169,10 @@ def _proxy_probe(p, timeout=6):
     return {"ok": True, "ms": int((time.monotonic() - t0) * 1000), "error": "", "ts": time.time()}
 
 
-PX_RELAY_GAP = 15
 PX_REACH_GAP = 60
 PX_REACH_HOST = "www.google.com"
 PX_REACH_PATH = "/generate_204"
-PX_ECHO_TTL = 120
-_px_relay = {}
 _px_reach = {}
-_px_echo = {"ts": 0.0, "addr": None}
-_px_echo_lock = threading.Lock()
-
-
-def _echo_over(sock, host, port, timeout):
-    end = time.monotonic() + timeout
-    sock.settimeout(timeout)
-    sock.sendall(("GET /px-echo HTTP/1.0\r\nHost: %s:%d\r\nConnection: close\r\n\r\n"
-                  % (host, port)).encode())
-    line = b""
-    while b"\r\n" not in line:
-        sock.settimeout(max(0.05, end - time.monotonic()))
-        c = sock.recv(128)
-        if not c:
-            raise OSError(tx("چیزی برنگشت", "nothing came back"))
-        line += c
-        if len(line) > 4096:
-            break
-    if not line.startswith(b"HTTP/"):
-        raise OSError(tx("پاسخِ عبوری HTTP نیست", "the relayed answer is not HTTP"))
-
-
-def _panel_echo_addr():
-    with _px_echo_lock:
-        now = time.time()
-        if now - _px_echo["ts"] < PX_ECHO_TTL:
-            return _px_echo["addr"]
-        return _panel_echo_probe(now)
-
-
-def _panel_echo_probe(now):
-    addr, ip, port = None, central_ip(), _CENTRAL_PORT
-    if is_ipv4(ip) and port:
-        s = None
-        try:
-            s = socket.create_connection((ip, int(port)), 3)
-            _echo_over(s, ip, int(port), 3)
-            addr = (ip, int(port))
-        except Exception:
-            addr = None
-        finally:
-            if s is not None:
-                try:
-                    s.close()
-                except Exception:
-                    pass
-    _px_echo.update(ts=now, addr=addr)
-    return addr
-
-
-def _proxy_relay(p, timeout=6):
-    addr = _panel_echo_addr()
-    if not addr:
-        return {"ok": True, "skipped": True, "error": "", "ts": time.time()}
-    s = None
-    try:
-        s = _proxy_socket(proxy_url(p), addr[0], addr[1], timeout)
-        _echo_over(s, addr[0], addr[1], timeout)
-    except Exception as e:
-        return {"ok": False, "skipped": False, "ts": time.time(), "code": "proxy_no_relay",
-                "error": tx("پروکسی عبور نمی‌دهد — {0}", "the proxy does not relay — {0}", tx_cut(_net_why(e), 60))}
-    finally:
-        if s is not None:
-            try:
-                s.close()
-            except Exception:
-                pass
-    return {"ok": True, "skipped": False, "error": "", "ts": time.time()}
 
 
 def _proxy_reach(p, timeout=8):
@@ -2293,9 +2222,6 @@ def _px_cached(store, p, gap, probe, fresh=False):
 def _px_deep(p, st, fresh=False):
     if not st.get("ok"):
         return st
-    relay = _px_cached(_px_relay, p, PX_RELAY_GAP, _proxy_relay, fresh)
-    if not (relay.get("skipped") or relay.get("ok")):
-        return {**st, "ok": False, "code": relay["code"], "error": relay["error"]}
     reach = _px_cached(_px_reach, p, PX_REACH_GAP, _proxy_reach, fresh)
     if not reach.get("ok"):
         return {**st, "ok": False, "code": reach["code"], "error": reach["error"]}
