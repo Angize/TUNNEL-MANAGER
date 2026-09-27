@@ -12,9 +12,12 @@ import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 import Msg from '../../components/Msg.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
+import useSaved from '../../lib/useSaved.js'
 
 export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const [busy, guard] = useBusy()
+  const [saved, markSaved] = useSaved()
   const ips = nodeIps(nodes, item.node_id)
   const hasIpChoice = ips.length > 1
   const rotatedBefore = item.switch_interval > 0
@@ -46,7 +49,8 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       ...(hasIpChoice ? { listen_ip: listenIp } : {}),
     })
     if (r.ok && r.d.ok) {
-      onClose()
+      setMessage('')
+      if (await markSaved(T('saved_ok'))) onClose()
       onSaved()
       return
     }
@@ -57,7 +61,9 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(save)}>
-        {busy ? <span className="bspin" /> : T('save')}
+        <SaveLabel busy={busy} saved={saved}>
+          {T('save')}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

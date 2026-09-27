@@ -16,6 +16,8 @@ import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import Msg from '../../components/Msg.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
+import useSaved from '../../lib/useSaved.js'
 
 const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
 
@@ -43,6 +45,7 @@ function EndIpField({ label, ips, current, value, onChange }) {
 export default function TunnelEditModal({ link, onClose, onSaved }) {
   const { waitAccepted } = useActs()
   const [busy, guard] = useBusy()
+  const [saved, markSaved] = useSaved()
   const { subnetFree } = useSummary()
   const mounted = useRef(true)
   const [type, setType] = useState(link.type)
@@ -116,14 +119,17 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       alertBox(verdict.cancelled ? T('a_stopped') : translateError(verdict.err) || T('failed'))
       return
     }
-    onClose()
+    setMessage('')
+    if (await markSaved(T('saved_ok'))) onClose()
     onSaved()
   }
 
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(save)}>
-        {busy ? <span className="bspin" /> : T('save_rebuild')}
+        <SaveLabel busy={busy} saved={saved}>
+          {T('save_rebuild')}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

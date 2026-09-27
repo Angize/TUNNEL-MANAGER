@@ -435,6 +435,26 @@ body.reord-on .rgrip {
   animation: dotin .18s var(--ease-out);
 }
 
+@keyframes doneside {
+  from { opacity: 0; transform: translateX(6px) }
+}
+
+.bdone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bdone path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ckdraw .3s var(--ease-out) forwards;
+}
+
+.bdone > span + span {
+  animation: doneside .2s var(--ease-out) .1s backwards;
+}
+
 .tsw {
   transition: background-color .2s var(--ease-out);
 }

@@ -8,14 +8,16 @@ import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
-import { toast } from '../../lib/toast.js'
 import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import useBusy from '../../lib/useBusy.js'
+import useSaved from '../../lib/useSaved.js'
+import SaveLabel from '../../components/SaveLabel.jsx'
 
 export default function ProxyModal({ proxy, onClose, onSaved }) {
   const nodesId = useId()
   const [name, setName] = useState(proxy ? proxy.name : '')
   const [busy, guard] = useBusy()
+  const [saved, markSaved] = useSaved()
   const [scheme, setScheme] = useState((proxy && proxy.scheme) || 'socks5')
   const [host, setHost] = useState(proxy ? proxy.host : '')
   const [port, setPort] = useState(proxy ? String(proxy.port) : '')
@@ -60,8 +62,7 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
     }
     const r = await apiPost(proxy ? 'proxy-edit' : 'proxy-add', body)
     if (r.ok && r.d.ok) {
-      onClose()
-      toast(T('px_saved'), 'ok')
+      if (await markSaved(T(proxy ? 'saved_ok' : 'added_ok'))) onClose()
       onSaved()
     } else {
       alertBox(postError(r))
@@ -71,7 +72,9 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(save)}>
-        {busy ? <span className="bspin" /> : T(proxy ? 'save' : 'add')}
+        <SaveLabel busy={busy} saved={saved}>
+          {T(proxy ? 'save' : 'add')}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

@@ -13,10 +13,13 @@ import useBusy from '../../lib/useBusy.js'
 
 import { LTR_TEXT } from '../../lib/form.js'
 import Msg from '../../components/Msg.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
+import useSaved from '../../lib/useSaved.js'
 
 export default function NodeEditModal({ node, onClose, onSaved }) {
   const [proxies, setProxies] = useState([])
   const [busy, guard] = useBusy()
+  const [saved, markSaved] = useSaved()
   const [name, setName] = useState(node.name)
   const [host, setHost] = useState(node.host)
   const [port, setPort] = useState(String(node.port))
@@ -57,7 +60,8 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
       ...proxyBody(proxy),
     })
     if (r.ok && r.d.ok) {
-      onClose()
+      setMessage('')
+      if (await markSaved(T('saved_ok'))) onClose()
       onSaved()
       return
     }
@@ -68,7 +72,9 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(save)}>
-        {busy ? <span className="bspin" /> : T('save')}
+        <SaveLabel busy={busy} saved={saved}>
+          {T('save')}
+        </SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('cancel')}

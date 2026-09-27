@@ -19,7 +19,6 @@ export default {
   px_pass: 'پسورد',
   px_pass_keep: 'خالی = پسوردِ فعلی بماند',
   px_port: 'پورت',
-  px_saved: 'پروکسی ذخیره شد',
   px_test: 'تستِ اتصال',
   px_testing: 'در حالِ تست…',
   px_type: 'نوعِ پروکسی',

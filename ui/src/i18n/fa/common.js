@@ -30,6 +30,9 @@ export default {
 
   save: 'ذخیره',
   save_rebuild: 'ذخیره و بازسازی',
+  saved_ok: 'ذخیره شد',
+  created_ok: 'ساخته شد',
+  added_ok: 'اضافه شد',
   cancel: 'انصراف',
   add: 'افزودن',
   close: 'بستن',
