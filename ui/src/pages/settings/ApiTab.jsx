@@ -7,6 +7,7 @@ import FormGate from './FormGate.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
 import { T } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
+import KnobCheck from '../../components/KnobCheck.jsx'
 
 const ApiRef = lazy(() => import('./ApiRef.jsx'))
 
@@ -27,7 +28,9 @@ function ApiGroup({ f }) {
           className={'tglsw' + (form.apiOn ? ' on' : '')}
           aria-label={T('set_api_on')}
           {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
-        />
+        >
+          <KnobCheck />
+        </div>
       </div>
       <div className="oprow">
         {token ? (

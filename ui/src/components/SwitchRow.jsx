@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { checkable } from '../lib/keys.js'
+import KnobCheck from './KnobCheck.jsx'
 
 export default function SwitchRow({ on, title, note, locked, onToggle }) {
   const id = useId()
@@ -20,7 +21,9 @@ export default function SwitchRow({ on, title, note, locked, onToggle }) {
         <b id={id + 't'}>{title}</b>
         {note ? <small id={id + 'd'}>{note}</small> : null}
       </span>
-      <span className={'tglsw' + (on ? ' on' : '')} aria-hidden="true" />
+      <span className={'tglsw' + (on ? ' on' : '')} aria-hidden="true">
+        <KnobCheck />
+      </span>
     </div>
   )
 }

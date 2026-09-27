@@ -9,6 +9,7 @@ import { postError, readError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { checkable } from '../../lib/keys.js'
+import KnobCheck from '../../components/KnobCheck.jsx'
 
 export default function DownloadProxyCard() {
   const [proxies, setProxies] = useState([])
@@ -62,7 +63,9 @@ export default function DownloadProxyCard() {
             className={'tglsw' + (value.on ? ' on' : '')}
             aria-label={T('dlpx_on')}
             {...checkable('switch', value.on, () => setValue({ on: !value.on, id: picked }))}
-          />
+          >
+            <KnobCheck />
+          </div>
         ) : loading ? (
           <Sk className="optg" />
         ) : null}

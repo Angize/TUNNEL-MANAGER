@@ -276,6 +276,41 @@ textarea:focus {
   inset-inline-start: 21px;
 }
 
+@keyframes ckin {
+  from { stroke-dashoffset: 24 }
+}
+
+.tglsw {
+  isolation: isolate;
+}
+
+.tgck {
+  position: absolute;
+  top: 6px;
+  inset-inline-start: 25px;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 24;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s var(--ease-out);
+}
+
+.tglsw.on .tgck {
+  opacity: 1;
+}
+
+.swrow.flipa .tglsw.on .tgck path,
+.swrow.flipb .tglsw.on .tgck path {
+  animation: ckin .2s var(--ease-out) .1s backwards;
+}
+
 .authhd {
   display: flex;
   align-items: center;
