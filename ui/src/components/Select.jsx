@@ -15,12 +15,12 @@ function place(pop, anchor) {
   const r = anchor.getBoundingClientRect()
   const below = innerHeight - r.bottom - GAP - EDGE
   const above = r.top - GAP - EDGE
-  const w = Math.min(Math.max(r.width, MIN_W), innerWidth - 2 * EDGE)
-  pop.style.maxHeight = ''
+  Object.assign(pop.style, { width: '', left: '0px', maxHeight: '' })
+  const w = Math.min(Math.max(r.width, MIN_W, pop.offsetWidth + 1), innerWidth - 2 * EDGE)
+  pop.style.width = w + 'px'
   const up = pop.offsetHeight > below && above > below
   pop.classList.toggle('up', up)
   Object.assign(pop.style, {
-    width: w + 'px',
     left: Math.min(Math.max(r.right - w, EDGE), innerWidth - EDGE - w) + 'px',
     top: up ? '' : r.bottom + GAP + 'px',
     bottom: up ? innerHeight - r.top + GAP + 'px' : '',
@@ -150,8 +150,10 @@ export default function Select({ items, value, placeholder, onChange, id, ...ari
                   {...checkable('radio', String(it.v) === String(value), () => pick(it.v))}
                 >
                   <span className="mscheck" />
-                  <span>{it.label}</span>
-                  {it.sub ? <span className="mssub">{it.sub}</span> : null}
+                  <span className="mstx">
+                    <span className="msl">{it.label}</span>
+                    {it.sub ? <span className="mssub">{it.sub}</span> : null}
+                  </span>
                 </div>
               ))}
             </div>
