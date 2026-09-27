@@ -1,8 +1,10 @@
+import { useRef } from 'react'
 import Icon from './Icon.jsx'
 import { Check, Cross } from './Marks.jsx'
 import RichText from './RichText.jsx'
 import Reveal from './Reveal.jsx'
 import { T } from '../i18n/fa.js'
+import useHeightTween from '../lib/useHeightTween.js'
 
 function Body({ message }) {
   if (message.lines) {
@@ -44,9 +46,11 @@ function Body({ message }) {
 }
 
 export default function CardResult({ message }) {
+  const box = useRef(null)
+  useHeightTween(box, message, !!message)
   return (
     <Reveal show={!!message}>
-      <div className={'msg' + (message && message.cls ? ' ' + message.cls : '')}>
+      <div ref={box} className={'msg' + (message && message.cls ? ' ' + message.cls : '')}>
         {message ? (
           <div className="mres" key={JSON.stringify(message)}>
             <Body message={message} />
