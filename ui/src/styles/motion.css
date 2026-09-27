@@ -39,7 +39,7 @@
 }
 
 @keyframes tabin {
-  from { opacity: 0; transform: translateY(8px) }
+  from { opacity: 0; transform: translateX(var(--tabx)) }
   to { opacity: 1; transform: none }
 }
 
@@ -241,12 +241,16 @@
   inset-inline-start: 16px;
 }
 
-.ctabp.on {
-  animation: tabin .24s var(--ease-out);
+.ctabp {
+  --tabx: -24px;
 }
 
-.ctabp.on.kb {
-  animation: none;
+.ctabs + .ctabp {
+  --tabx: 24px;
+}
+
+.ctabp.on.tap {
+  animation: tabin .26s var(--ease-out);
 }
 
 .flderr,
