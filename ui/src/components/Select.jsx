@@ -11,17 +11,25 @@ const GAP = 6
 const EDGE = 12
 const MIN_W = 180
 
+function bounds(anchor) {
+  const box = anchor.closest('.modal')
+  const b = box ? box.getBoundingClientRect() : null
+  return { lo: Math.max(EDGE, b ? b.left : 0), hi: Math.min(innerWidth - EDGE, b ? b.right : innerWidth) }
+}
+
 function place(pop, anchor) {
   const r = anchor.getBoundingClientRect()
+  const { lo, hi } = bounds(anchor)
   const below = innerHeight - r.bottom - GAP - EDGE
   const above = r.top - GAP - EDGE
   Object.assign(pop.style, { width: '', left: '0px', maxHeight: '' })
-  const w = Math.min(Math.max(r.width, MIN_W, pop.offsetWidth + 1), innerWidth - 2 * EDGE)
+  const w = Math.min(Math.max(r.width, MIN_W, pop.offsetWidth + 1), hi - lo)
+  const start = r.left + r.right > lo + hi ? r.right - w : r.left
   pop.style.width = w + 'px'
   const up = pop.offsetHeight > below && above > below
   pop.classList.toggle('up', up)
   Object.assign(pop.style, {
-    left: Math.min(Math.max(r.right - w, EDGE), innerWidth - EDGE - w) + 'px',
+    left: Math.min(Math.max(start, lo), hi - w) + 'px',
     top: up ? '' : r.bottom + GAP + 'px',
     bottom: up ? innerHeight - r.top + GAP + 'px' : '',
     maxHeight: Math.max(up ? above : below, 120) + 'px',
