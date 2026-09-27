@@ -42,7 +42,11 @@ export default function TunnelsPage({ active }) {
 
   const [list, reload, progress] = usePolledData(load, query, active)
 
+  const buildsSeen = useRef(buildCount)
+
   useEffect(() => {
+    if (buildsSeen.current === buildCount) return
+    buildsSeen.current = buildCount
     reload()
   }, [buildCount, reload])
 
