@@ -5,32 +5,17 @@ import { T } from '../i18n/fa.js'
 import { coarsePointer, restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
+import { formRows } from '../lib/formRows.js'
 
 const open = []
 let bodyOverflow = ''
 
-
-const WRAPS = ['ctabp', 'rv', 'rvb']
-
-function rows(body, bottom) {
-  const out = []
-  const walk = (el, depth) => {
-    for (const c of el.children) {
-      if (out.length >= 10) return
-      if (c.classList.contains('ctabp') && !c.classList.contains('on')) continue
-      const wrap = depth < 5 && (WRAPS.some((k) => c.classList.contains(k)) || (!c.className && c.children.length > 1))
-      if (wrap) walk(c, depth + 1)
-      else if (c.getBoundingClientRect().top < bottom) out.push(c)
-    }
-  }
-  walk(body, 0)
-  return out
-}
-
 function cascadeIn(el, from) {
   if (reducedMotion()) return
   const body = el.querySelector('.mbody')
-  const parts = [...(from ? [] : [el.querySelector('.msticky')]), ...(body ? rows(body, el.getBoundingClientRect().bottom) : []), el.querySelector('.mfoot')]
+  const bottom = el.getBoundingClientRect().bottom
+  const rows = body ? formRows(body).filter((c) => c.getBoundingClientRect().top < bottom) : []
+  const parts = [...(from ? [] : [el.querySelector('.msticky')]), ...rows.slice(0, 10), el.querySelector('.mfoot')]
   parts.filter(Boolean).forEach((part, i) => {
     part.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], {
       duration: 240,
