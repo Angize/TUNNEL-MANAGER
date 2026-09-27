@@ -188,9 +188,6 @@
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: var(--veil);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -325,7 +322,14 @@
   animation: bardown .2s var(--ease-out) forwards;
 }
 
-.bsheetov {
+.bsheetov::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--veil);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   animation: veilin .32s ease both;
 }
 
@@ -340,6 +344,9 @@
 
 .bsheetov.leaving {
   pointer-events: none;
+}
+
+.bsheetov.leaving::before {
   animation: veilaway .28s ease forwards;
 }
 

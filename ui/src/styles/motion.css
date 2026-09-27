@@ -273,7 +273,7 @@
   from { opacity: 0; transform: scale(.9) }
 }
 
-.tagov {
+.tagov::before {
   animation: veilin .24s ease both;
 }
 
@@ -288,6 +288,9 @@
 
 .tagov.leaving {
   pointer-events: none;
+}
+
+.tagov.leaving::before {
   animation: veilaway .2s ease forwards;
 }
 

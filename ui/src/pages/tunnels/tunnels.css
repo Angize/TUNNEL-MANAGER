@@ -185,13 +185,20 @@
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: var(--veil);
-  backdrop-filter: blur(16px) saturate(var(--sat));
-  -webkit-backdrop-filter: blur(16px) saturate(var(--sat));
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+}
+
+.tagov::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--veil);
+  backdrop-filter: blur(16px) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(16px) saturate(var(--sat));
 }
 
 .tagbox {
