@@ -1,0 +1,40 @@
+@keyframes ldwait {
+  to { opacity: .45 }
+}
+
+@keyframes ldout {
+  to { opacity: 0 }
+}
+
+.ldslot {
+  position: relative;
+  height: 0;
+}
+
+.ldbar {
+  position: absolute;
+  top: -7px;
+  left: 2px;
+  right: 2px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--acc) 14%, transparent);
+}
+
+.ldbar.wait {
+  animation: ldwait 1s ease-in-out infinite alternate;
+}
+
+.ldbar.done {
+  animation: ldout .18s var(--ease-out) .2s both;
+}
+
+.ldbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--acc);
+  transform-origin: 100% 50%;
+  transition: transform .2s var(--ease-out);
+}

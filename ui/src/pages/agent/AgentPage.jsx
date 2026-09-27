@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
-import { AgentRowsSkeleton } from '../../components/Skeleton.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -14,7 +14,6 @@ import UpdateRow from './UpdateRow.jsx'
 import usePushJob from './usePushJob.js'
 import { coreVersionName } from './versions.js'
 import { T, TF } from '../../i18n/fa.js'
-import { useSummary } from '../../state/SummaryContext.jsx'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox, askBox, confirmBox } from '../../lib/dialog.js'
@@ -82,7 +81,6 @@ function MessageSlot({ value, onCancel }) {
 }
 
 export default function AgentPage({ headless }) {
-  const { counts } = useSummary()
   const [agentMeta, setAgentMeta] = useState(null)
   const [versions, setVersions] = useState(null)
   const [staged, setStaged] = useState(null)
@@ -90,6 +88,9 @@ export default function AgentPage({ headless }) {
   const [wanted, setWanted] = useState('')
   const [delivery, setDelivery] = useState({ agent: 'push', core: 'push' })
   const [nodes, setNodes] = useState(null)
+  const [nodesProgress, setNodesProgress] = useState(0)
+  const nodesSeen = useRef(false)
+  const nodesTurn = useRef(0)
   const [query, setQuery] = useState('')
   const [agentMsg, setAgentMsg] = useState(null)
   const [gitMsg, setGitMsg] = useState(null)
@@ -137,13 +138,20 @@ export default function AgentPage({ headless }) {
 
   const loadNodes = useCallback(async () => {
     const asked = queryRef.current
+    const mine = ++nodesTurn.current
+    const report = nodesSeen.current
+      ? undefined
+      : (p) => {
+          if (mine === nodesTurn.current) setNodesProgress(p)
+        }
     let r
     try {
-      r = await apiGet('nodes?q=' + encodeURIComponent(asked))
+      r = await apiGet('nodes?q=' + encodeURIComponent(asked), report)
     } catch {
       return
     }
     if (asked !== queryRef.current) return
+    nodesSeen.current = true
     setNodes(r.nodes)
   }, [])
 
@@ -638,10 +646,9 @@ export default function AgentPage({ headless }) {
 
       <Toolbar value={query} placeholder={T('ag_search')} onSearch={setQuery} />
 
+      <LoadBar on={nodes === null} value={nodesProgress} />
       <div id="agList">
-        {nodes === null ? (
-          <AgentRowsSkeleton count={counts.nodes_total} />
-        ) : nodes.length ? (
+        {nodes === null ? null : nodes.length ? (
           nodes.map((node) => (
             <AgentNodeRow
               key={node.id}

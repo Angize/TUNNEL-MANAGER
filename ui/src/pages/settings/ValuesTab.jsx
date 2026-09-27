@@ -10,6 +10,7 @@ import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
+import LoadBar from '../../components/LoadBar.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
 import { FIELDS, fieldRange, fieldStep } from './tuning.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -91,6 +92,7 @@ export default function ValuesTab({ active }) {
   if (!f.form) {
     return (
       <div className="stpage">
+        <LoadBar on={!f.loadError} value={f.loaded} />
         <FormGate />
       </div>
     )
@@ -103,6 +105,7 @@ export default function ValuesTab({ active }) {
 
   return (
     <div className="stpage" ref={root}>
+      <LoadBar on={false} />
       <div className="card sg">
         <SettingsGroup section icon="cog" titleKey="set_g1" chipKey="set_g1c" tone="sc-panel">
           <SettingRow label={T('set_on_ipchange')} helpKey="set_on_ipchange_d" exampleKey="set_x_ipchange">

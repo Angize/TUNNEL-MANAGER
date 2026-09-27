@@ -9598,6 +9598,7 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False)
         data = body.encode() if isinstance(body, str) else body
+        raw = len(data)
         enc = ""
         if not big and len(data) >= self.GZIP_MIN and "gzip" in self.headers.get("Accept-Encoding", ""):
             data, enc = gzip.compress(data, 6), "gzip"
@@ -9607,6 +9608,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", enc)
             self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Raw-Length", str(raw))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
