@@ -1,14 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import Icon from '../../../components/Icon.jsx'
 
-export function Seg2({ label, style, children }) {
-  return (
-    <div className="seg2" role="radiogroup" aria-label={label} style={style}>
-      {children}
-    </div>
-  )
-}
-
 export function SegOpt({ on, title, sub, onClick }) {
   return (
     <button
@@ -24,16 +16,8 @@ export function SegOpt({ on, title, sub, onClick }) {
   )
 }
 
-export function ScrollSeg({ label, children }) {
-  return (
-    <div className="seg2 segwrap" role="radiogroup" aria-label={label}>
-      {children}
-    </div>
-  )
-}
-
-function frameTo(grid, frame, glide) {
-  const on = grid.querySelector(':scope > .ptile.on')
+function frameTo(box, frame, pick, glide) {
+  const on = box.querySelector(pick)
   if (!on || !on.offsetWidth) {
     frame.classList.remove('shown')
     return
@@ -50,22 +34,47 @@ function frameTo(grid, frame, glide) {
   }
 }
 
-export function Tiles({ p3, label, children }) {
-  const grid = useRef(null)
+function useSlidingFrame(pick) {
+  const box = useRef(null)
   const frame = useRef(null)
 
   useLayoutEffect(() => {
-    frameTo(grid.current, frame.current, true)
+    frameTo(box.current, frame.current, pick, true)
   })
 
   useLayoutEffect(() => {
-    const g = grid.current
+    const b = box.current
     const f = frame.current
-    const watch = new ResizeObserver(() => frameTo(g, f, false))
-    watch.observe(g)
+    const watch = new ResizeObserver(() => frameTo(b, f, pick, false))
+    watch.observe(b)
     return () => watch.disconnect()
-  }, [])
+  }, [pick])
 
+  return [box, frame]
+}
+
+export function Seg2({ label, style, children }) {
+  const [box, frame] = useSlidingFrame(':scope > .segopt.on')
+  return (
+    <div className="seg2" role="radiogroup" aria-label={label} style={style} ref={box}>
+      <i className="pframe" ref={frame} aria-hidden="true" />
+      {children}
+    </div>
+  )
+}
+
+export function ScrollSeg({ label, children }) {
+  const [box, frame] = useSlidingFrame(':scope > .segopt.on')
+  return (
+    <div className="seg2 segwrap" role="radiogroup" aria-label={label} ref={box}>
+      <i className="pframe" ref={frame} aria-hidden="true" />
+      {children}
+    </div>
+  )
+}
+
+export function Tiles({ p3, label, children }) {
+  const [grid, frame] = useSlidingFrame(':scope > .ptile.on')
   return (
     <div className={'pgrid' + (p3 ? ' p3' : '')} role="radiogroup" aria-label={label} ref={grid}>
       <i className="pframe" ref={frame} aria-hidden="true" />
