@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import ActionRow from '../../components/ActionRow.jsx'
+import CardBody from '../../components/CardBody.jsx'
 import TagPicker from '../../components/TagPicker.jsx'
 import TunnelMeta from './TunnelMeta.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
@@ -226,87 +227,85 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
           {sel ? null : <Chevron />}
         </div>
 
-        <div className="cbody" inert={!open}>
-          <div className="cbody-in">
-            {link.drift ? (
-              <div
-                className="msg err"
-                style={{ margin: '0 0 9px', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Icon name="warn" color="#e0564f" />
-                <span>{T('drift_note')}</span>
-              </div>
-            ) : null}
-            {link.rb && !link.rb.ok ? (
-              <div className="msg err" style={{ margin: '0 0 9px' }}>
-                {T('rb_last_fail')}
-                {translateError(link.rb.error || T('rebuild_failed'))}
-              </div>
-            ) : null}
-
-            <div className="tninfo">
-              <SideBox link={link} side="a" />
-              <span className="tnarrow">
-                <Icon name="arrows" />
-              </span>
-              <SideBox link={link} side="b" />
+        <CardBody open={open}>
+          {link.drift ? (
+            <div
+              className="msg err"
+              style={{ margin: '0 0 9px', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Icon name="warn" color="#e0564f" />
+              <span>{T('drift_note')}</span>
             </div>
-
-            <TunnelMeta link={link} />
-
-            {link.enabled === false ? (
-              <div className="offbadge">
-                <Icon name="warn" color="var(--bad-tx)" />
-                <span>{T('tun_off_note')}</span>
-              </div>
-            ) : (
-              <div className="ltraf">
-                {link.rx_total != null || link.rx_bps != null ? (
-                  <>
-                    <span className="din iso">↓ {fmtRate(link.rx_bps)}</span>
-                    <span className="dout iso">↑ {fmtRate(link.tx_bps)}</span>
-                  </>
-                ) : (
-                  <span className="muted" style={{ fontSize: 11 }}>
-                    {T('no_live_side')}
-                  </span>
-                )}
-                <span className="tot">
-                  {T('total')}{' '}
-                  {link.rx_total != null || link.rx_bps != null ? (
-                    <span className="iso">
-                      <b className="din">↓{fmtBytes(link.rx_total)}</b>
-                      <b className="dout">↑{fmtBytes(link.tx_total)}</b>
-                    </span>
-                  ) : (
-                    <b className="mono">—</b>
-                  )}
-                </span>
-              </div>
-            )}
-
-            <ActionRow act={act} />
-
-            <div className="nact iconly">
-              <ActBtn cls="ok" icon="activity" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />
-              <ActBtn cls="info" icon="gauge" title={T('tip_speed')} busy={busyAct === 'speed'} locked={!!busyAct} onClick={speed} />
-              <ActBtn
-                cls="info"
-                icon="swap"
-                title={T('tip_flip') + (link.view_name || '—')}
-                busy={busyAct === 'flip'}
-                locked={!!busyAct}
-                onClick={flip}
-              />
-              <ActBtn cls="reset" icon="reset" title={T('tip_reset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
-              <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(link)} />
-              <ActBtn icon="redo" title={T('tip_rebuild')} busy={busyAct === 'rebuild'} locked={!!busyAct} onClick={rebuild} />
-              <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
+          ) : null}
+          {link.rb && !link.rb.ok ? (
+            <div className="msg err" style={{ margin: '0 0 9px' }}>
+              {T('rb_last_fail')}
+              {translateError(link.rb.error || T('rebuild_failed'))}
             </div>
+          ) : null}
 
-            <CardResult message={message} />
+          <div className="tninfo">
+            <SideBox link={link} side="a" />
+            <span className="tnarrow">
+              <Icon name="arrows" />
+            </span>
+            <SideBox link={link} side="b" />
           </div>
-        </div>
+
+          <TunnelMeta link={link} />
+
+          {link.enabled === false ? (
+            <div className="offbadge">
+              <Icon name="warn" color="var(--bad-tx)" />
+              <span>{T('tun_off_note')}</span>
+            </div>
+          ) : (
+            <div className="ltraf">
+              {link.rx_total != null || link.rx_bps != null ? (
+                <>
+                  <span className="din iso">↓ {fmtRate(link.rx_bps)}</span>
+                  <span className="dout iso">↑ {fmtRate(link.tx_bps)}</span>
+                </>
+              ) : (
+                <span className="muted" style={{ fontSize: 11 }}>
+                  {T('no_live_side')}
+                </span>
+              )}
+              <span className="tot">
+                {T('total')}{' '}
+                {link.rx_total != null || link.rx_bps != null ? (
+                  <span className="iso">
+                    <b className="din">↓{fmtBytes(link.rx_total)}</b>
+                    <b className="dout">↑{fmtBytes(link.tx_total)}</b>
+                  </span>
+                ) : (
+                  <b className="mono">—</b>
+                )}
+              </span>
+            </div>
+          )}
+
+          <ActionRow act={act} />
+
+          <div className="nact iconly">
+            <ActBtn cls="ok" icon="activity" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />
+            <ActBtn cls="info" icon="gauge" title={T('tip_speed')} busy={busyAct === 'speed'} locked={!!busyAct} onClick={speed} />
+            <ActBtn
+              cls="info"
+              icon="swap"
+              title={T('tip_flip') + (link.view_name || '—')}
+              busy={busyAct === 'flip'}
+              locked={!!busyAct}
+              onClick={flip}
+            />
+            <ActBtn cls="reset" icon="reset" title={T('tip_reset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
+            <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(link)} />
+            <ActBtn icon="redo" title={T('tip_rebuild')} busy={busyAct === 'rebuild'} locked={!!busyAct} onClick={rebuild} />
+            <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
+          </div>
+
+          <CardResult message={message} />
+        </CardBody>
       </div>
 
       {picking ? (

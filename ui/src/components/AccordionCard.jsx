@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Grip from './Grip.jsx'
+import CardBody from './CardBody.jsx'
 import { isCardOpen, subscribeOpenCards, toggleCard } from '../lib/openCards.js'
 import useDragging from '../lib/useDragging.js'
 import { pressable } from '../lib/keys.js'
@@ -41,9 +42,7 @@ export default function AccordionCard({ id, kind, className, head, beforeBody, c
         <Chevron />
       </div>
       {beforeBody}
-      <div className="cbody" inert={!open}>
-        <div className="cbody-in">{children}</div>
-      </div>
+      <CardBody open={open}>{children}</CardBody>
     </div>
   )
 }
