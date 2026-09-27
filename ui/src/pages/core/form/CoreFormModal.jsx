@@ -379,7 +379,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
           bIps={bIps}
           storedA={link ? link.a_ip || '' : ''}
           storedB={link ? link.b_ip || '' : ''}
-          subtitle={link ? link.name : ''}
           peer={peerLid ? peerLive : null}
           patch={patch}
           onNode={onNode}

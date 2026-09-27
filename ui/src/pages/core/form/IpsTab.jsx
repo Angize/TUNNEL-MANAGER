@@ -65,7 +65,6 @@ export default function IpsTab({
   bIps,
   storedA,
   storedB,
-  subtitle,
   peer,
   patch,
   onNode,
@@ -94,12 +93,6 @@ export default function IpsTab({
 
   return (
     <>
-      {subtitle ? (
-        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-          <span className="mono">{subtitle}</span>
-        </div>
-      ) : null}
-
       <div className="grid2">
         <Field
           label={serverIsA ? T('srv_node') : T('cli_node')}
