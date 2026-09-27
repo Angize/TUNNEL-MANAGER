@@ -68,6 +68,7 @@ export default {
   inst_connecting: 'در حالِ اتصال…',
   inst_waiting: 'در انتظار…',
   inst_installing: 'در حالِ نصب…',
+  inst_step_of: '{n} از {total}',
   inst_done: 'انجام شد',
   inst_retry: 'تلاشِ مجدد',
   inst_node_installed: 'نود نصب شد',

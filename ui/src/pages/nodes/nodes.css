@@ -576,6 +576,40 @@
   margin: 8px 0 6px;
 }
 
+.iroll {
+  display: inline-grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.irl {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.irl.in {
+  animation: irlin .24s var(--ease-out);
+}
+
+.irl.out {
+  animation: irlout .2s var(--ease-out) forwards;
+}
+
+@keyframes irlin {
+  from { opacity: 0; transform: translateY(100%) }
+}
+
+@keyframes irlout {
+  to { opacity: 0; transform: translateY(-100%) }
+}
+
+.ibx {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  opacity: .75;
+}
+
 .ibanner.run {
   background: var(--accw);
   color: var(--acc-tx);
