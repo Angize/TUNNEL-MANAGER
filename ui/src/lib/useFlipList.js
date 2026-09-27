@@ -4,6 +4,8 @@ import { gsap, reducedMotion } from './motion.js'
 const MOVE_S = 0.32
 const ENTER_S = 0.3
 const EXIT_S = 0.2
+const SLIDE_S = 0.28
+const HOLD_S = 0.18
 
 function place(el) {
   return {
@@ -12,7 +14,7 @@ function place(el) {
   }
 }
 
-function ghostOut(root, g) {
+function ghostOut(root, g, slide) {
   const ghost = g.el.cloneNode(true)
   ghost.removeAttribute('id')
   ghost.setAttribute('aria-hidden', 'true')
@@ -20,10 +22,18 @@ function ghostOut(root, g) {
   ghost.classList.add('flghost')
   Object.assign(ghost.style, { top: g.y + 'px', left: g.x + 'px', width: g.w + 'px' })
   root.appendChild(ghost)
-  gsap.to(ghost, { opacity: 0, scale: 0.97, duration: EXIT_S, ease: 'ease-out', onComplete: () => ghost.remove() })
+  const to = slide
+    ? { xPercent: -110, opacity: 0, duration: SLIDE_S, ease: 'ease-in-out' }
+    : { opacity: 0, scale: 0.97, duration: EXIT_S, ease: 'ease-out' }
+  gsap.to(ghost, { ...to, onComplete: () => ghost.remove() })
 }
 
-export default function useFlipList(box, keys, context, { enter = true, exit = true, hold = false } = {}) {
+export default function useFlipList(
+  box,
+  keys,
+  context,
+  { enter = true, exit = true, hold = false, slides = () => true } = {}
+) {
   const last = useRef(null)
   const plan = useRef(null)
   const quiet = useRef(false)
@@ -39,7 +49,7 @@ export default function useFlipList(box, keys, context, { enter = true, exit = t
         ghosts: exit
           ? [...prev.els]
               .filter(([key]) => !next.has(key))
-              .map(([, el]) => ({ el, ...where.get(el), w: el.offsetWidth }))
+              .map(([key, el]) => ({ el, slide: slides(key), ...where.get(el), w: el.offsetWidth }))
           : [],
       }
     }
@@ -58,14 +68,12 @@ export default function useFlipList(box, keys, context, { enter = true, exit = t
     const els = new Map(keys.map((key, i) => [key, kids[i]]).filter(([, el]) => el))
     last.current = { sig, context, els }
     if (!p) return
-    p.ghosts.forEach((g) => ghostOut(root, g))
-    const fresh = []
+    const fresh = [...els.values()].filter((el) => !p.where.has(el))
+    const slide = !fresh.length && p.ghosts.some((g) => g.slide)
+    p.ghosts.forEach((g) => ghostOut(root, g, slide && g.slide))
     for (const el of els.values()) {
       const was = p.where.get(el)
-      if (!was) {
-        fresh.push(el)
-        continue
-      }
+      if (!was) continue
       const dx = was.x - el.offsetLeft
       const dy = was.y - el.offsetTop
       if (!dx && !dy) continue
@@ -74,6 +82,7 @@ export default function useFlipList(box, keys, context, { enter = true, exit = t
         x: 0,
         y: 0,
         duration: MOVE_S,
+        delay: slide ? HOLD_S : 0,
         ease: 'ease-out',
         overwrite: 'auto',
         clearProps: 'transform',

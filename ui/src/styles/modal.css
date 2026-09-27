@@ -42,6 +42,22 @@
   z-index: 59;
 }
 
+@keyframes dlgfrom {
+  from { opacity: 0; transform: translate(var(--fx), var(--fy)) scale(.4) }
+}
+
+@keyframes dlgback {
+  to { opacity: 0; transform: translate(var(--fx), var(--fy)) scale(.4) }
+}
+
+.modal.fromcard {
+  animation: dlgfrom .34s var(--ease-in-out);
+}
+
+.modalov.leaving .modal.fromcard {
+  animation: dlgback .26s var(--ease-in-out) forwards;
+}
+
 .modal {
   width: 344px;
   max-width: 100%;

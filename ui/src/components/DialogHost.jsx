@@ -2,12 +2,31 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { closeDialog, subscribeDialogs } from '../lib/dialog.js'
 import { restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
+import { reducedMotion } from '../lib/motion.js'
 import { T } from '../i18n/fa.js'
+
+let pressed = null
+
+function originCard(entry) {
+  if (!entry.danger || reducedMotion()) return null
+  const focused = document.activeElement
+  const src = focused && focused !== document.body ? focused : pressed
+  return src && src.closest ? src.closest('.card') : null
+}
+
+function offsetTo(card, box) {
+  const c = card.getBoundingClientRect()
+  return {
+    '--fx': c.left + c.width / 2 - (box.offsetLeft + box.offsetWidth / 2) + 'px',
+    '--fy': c.top + c.height / 2 - (box.offsetTop + box.offsetHeight / 2) + 'px',
+  }
+}
 
 function Dialog({ entry, top }) {
   const box = useRef(null)
   const safe = useRef(null)
   const veil = useRef(null)
+  const [from, setFrom] = useState(null)
   const textId = useId()
 
   useEffect(() => {
@@ -18,6 +37,19 @@ function Dialog({ entry, top }) {
   useEffect(() => {
     if (top && safe.current) safe.current.focus()
   }, [top])
+
+  useLayoutEffect(() => {
+    const el = box.current
+    const card = originCard(entry)
+    if (!card) return undefined
+    setFrom(offsetTo(card, el))
+    return () => {
+      if (!card.isConnected) return
+      const back = offsetTo(card, el)
+      el.style.setProperty('--fx', back['--fx'])
+      el.style.setProperty('--fy', back['--fy'])
+    }
+  }, [entry])
 
   useLayoutEffect(() => {
     const node = veil.current
@@ -35,7 +67,8 @@ function Dialog({ entry, top }) {
       }}
     >
       <div
-        className="modal"
+        className={'modal' + (from ? ' fromcard' : '')}
+        style={from || undefined}
         ref={box}
         role="alertdialog"
         aria-modal="true"
@@ -77,6 +110,14 @@ export default function DialogHost() {
   stackRef.current = stack
 
   useEffect(() => subscribeDialogs(setStack), [])
+
+  useEffect(() => {
+    const onDown = (e) => {
+      pressed = e.target
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [])
 
   useEffect(() => {
     const onKey = (e) => {
