@@ -393,10 +393,34 @@ textarea:focus {
 }
 
 .pgrid {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin: 2px 0 4px;
+}
+
+.pframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  border: 1.5px solid color-mix(in srgb, var(--acc) 60%, transparent);
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    transform .28s var(--ease-in-out),
+    width .28s var(--ease-in-out),
+    height .28s var(--ease-in-out);
+}
+
+.pframe.shown {
+  opacity: 1;
+}
+
+.pgrid > .ptile.on {
+  border-color: transparent;
 }
 
 .pgrid.p3 {
