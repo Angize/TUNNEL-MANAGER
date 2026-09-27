@@ -1,9 +1,9 @@
 @keyframes veilin {
-  from { background-color: transparent; backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0) }
+  from { opacity: 0 }
 }
 
 @keyframes veilaway {
-  to { background-color: transparent; backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0) }
+  to { opacity: 0 }
 }
 
 @keyframes modrise {
@@ -27,6 +27,13 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
+}
+
+.modalov::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background: var(--veil);
   backdrop-filter: blur(16px) saturate(var(--sat));
   -webkit-backdrop-filter: blur(16px) saturate(var(--sat));
@@ -35,6 +42,9 @@
 
 .modalov.leaving {
   pointer-events: none;
+}
+
+.modalov.leaving::before {
   animation: veilaway .28s ease forwards;
 }
 
@@ -221,6 +231,9 @@
 .modalov.palov {
   align-items: flex-start;
   padding-top: 64px;
+}
+
+.modalov.palov::before {
   animation: none;
 }
 
