@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import NodeCard from './NodeCard.jsx'
 import NodeAddModal from './NodeAddModal.jsx'
+import { useBulk } from '../../state/BulkInstallContext.jsx'
 import NodeEditModal from './NodeEditModal.jsx'
 import NodeDetailsModal from './NodeDetailsModal.jsx'
 import KernelTuneModal from './KernelTuneModal.jsx'
@@ -60,6 +61,23 @@ export default function NodesPage({ active }) {
   }, [query])
 
   const [data, reload, progress] = usePolledData(load, query, active)
+  const bulk = useBulk()
+  const { asked, took, setDialog } = bulk
+  const closeAdd = () => {
+    setAdding(false)
+    if (!bulk.batch || bulk.batch.done) bulk.finish()
+  }
+
+  useEffect(() => {
+    if (!asked) return
+    took()
+    setAdding(true)
+  }, [asked, took])
+
+  useEffect(() => {
+    setDialog(adding)
+    return () => setDialog(false)
+  }, [adding, setDialog])
 
   const onToggle = useCallback(async (node) => {
     const disabled = node.disabled !== true
@@ -133,7 +151,7 @@ export default function NodesPage({ active }) {
         )}
       </div>
 
-      {adding ? <NodeAddModal onClose={() => setAdding(false)} onAdded={reload} /> : null}
+      {adding ? <NodeAddModal bulk={bulk} onClose={closeAdd} onAdded={reload} /> : null}
       {editing ? (
         <NodeEditModal node={editing} onClose={() => setEditing(null)} onSaved={reload} />
       ) : null}

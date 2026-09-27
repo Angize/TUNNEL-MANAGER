@@ -1060,6 +1060,101 @@
    "success": true
   }
  },
+ "node-install-batch": {
+  "req": {
+   "rows": [
+    {
+     "name": "N1",
+     "ssh_host": "10.77.3.2"
+    },
+    {
+     "name": "N2",
+     "ssh_host": "10.77.3.66",
+     "ssh_user": "admin",
+     "ssh_port": 2222,
+     "ssh_pass": "********"
+    },
+    {
+     "name": "N3",
+     "ssh_host": "10.77.3.4"
+    }
+   ],
+   "ssh_pass": "********"
+  },
+  "q": null,
+  "ok": {
+   "code": 200,
+   "ok": true,
+   "batch": "154ae0b70d5b",
+   "done": false,
+   "stopped": false,
+   "rows": [
+    {
+     "name": "N1",
+     "host": "10.77.3.2",
+     "port": "",
+     "user": "",
+     "of": 4,
+     "state": "run",
+     "at": 1,
+     "step": "SSH connection",
+     "detail": "",
+     "log": ""
+    },
+    "… 2 more"
+   ]
+  }
+ },
+ "install-batch": {
+  "req": null,
+  "q": {
+   "batch": "154ae0b70d5b"
+  },
+  "ok": {
+   "code": 200,
+   "ok": true,
+   "batch": "154ae0b70d5b",
+   "done": false,
+   "stopped": false,
+   "rows": [
+    {
+     "name": "N1",
+     "host": "10.77.3.2",
+     "port": "",
+     "user": "",
+     "of": 4,
+     "state": "run",
+     "at": 2,
+     "step": "delivering the agent to the node",
+     "detail": "",
+     "log": ""
+    },
+    {
+     "name": "N2",
+     "host": "10.77.3.66",
+     "port": "2222",
+     "user": "admin",
+     "of": 4,
+     "state": "err",
+     "at": 1,
+     "step": "SSH connection",
+     "detail": "SSH connection failed",
+     "log": "admin@10.77.3.66: Permission denied (publickey,password)."
+    },
+    "… 1 more"
+   ]
+  }
+ },
+ "install-batch-stop": {
+  "req": {
+   "batch": "154ae0b70d5b"
+  },
+  "q": null,
+  "ok": {
+   "code": 200,
+   "ok": true
+  }
+ },
  "node-stats": {
   "req": null,
   "q": {

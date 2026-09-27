@@ -1315,6 +1315,29 @@
  "events": {},
  "events-clear": {},
  "fleet": {},
+ "install-batch": {
+  "bad": [
+   [
+    400,
+    "batch_not_found",
+    "this bulk install is no longer on the panel"
+   ]
+  ]
+ },
+ "install-batch-stop": {
+  "bad": [
+   [
+    400,
+    "batch_not_found",
+    "this bulk install is no longer on the panel"
+   ],
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ]
+  ]
+ },
  "install-status": {
   "bad": [
    [
@@ -1665,6 +1688,90 @@
     400,
     "proxy_not_found",
     "the chosen proxy was just deleted — pick another proxy and try again"
+   ],
+   [
+    400,
+    "ssh_auth_missing",
+    "an SSH password or a private key is required"
+   ]
+  ]
+ },
+ "node-install-batch": {
+  "bad": [
+   [
+    400,
+    "bad_agent_port",
+    "invalid agent port"
+   ],
+   [
+    400,
+    "bad_node_host",
+    "invalid node IP or host"
+   ],
+   [
+    400,
+    "bad_node_name",
+    "invalid node name"
+   ],
+   [
+    400,
+    "bad_row",
+    "each row must be an object"
+   ],
+   [
+    400,
+    "bad_ssh_port",
+    "invalid SSH port"
+   ],
+   [
+    400,
+    "bad_ssh_user",
+    "invalid SSH user"
+   ],
+   [
+    400,
+    "batch_duplicate",
+    "'…' appears twice in the list"
+   ],
+   [
+    400,
+    "batch_running",
+    "another bulk install is running — wait for it to finish or stop it"
+   ],
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "node_host_taken",
+    "a node with IP '…' already exists"
+   ],
+   [
+    400,
+    "node_name_taken",
+    "a node named '…' already exists — pick a unique name"
+   ],
+   [
+    400,
+    "not_ready",
+    "this needs something that is not ready on the panel yet: … — get it in settings and try again"
+   ],
+   [
+    400,
+    "proxy_missing",
+    "no proxy picked — create one under proxies and pick it"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the chosen proxy was just deleted — pick another proxy and try again"
+   ],
+   [
+    400,
+    "rows_missing",
+    "the server list is empty"
    ],
    [
     400,
