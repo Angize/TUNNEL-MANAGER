@@ -352,9 +352,15 @@ textarea:focus {
 }
 
 .seg2 {
+  position: relative;
   display: flex;
   gap: 8px;
   margin: 2px 0 11px;
+}
+
+.seg2 > .pframe {
+  border-color: var(--acc);
+  border-radius: 11px;
 }
 
 .seg2 .segopt {
@@ -390,6 +396,10 @@ textarea:focus {
 
 .seg2 .segopt.on span {
   color: color-mix(in srgb, var(--acc-tx) 80%, var(--sub));
+}
+
+.seg2 > .segopt.on {
+  border-color: transparent;
 }
 
 .pgrid {
