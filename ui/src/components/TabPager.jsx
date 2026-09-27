@@ -4,6 +4,7 @@ import { T } from '../i18n/fa.js'
 import { num } from '../lib/num.js'
 import { useSummary } from '../state/SummaryContext.jsx'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
+import { CASCADE } from '../lib/riseIn.js'
 import './tabpager.css'
 
 const SETTLE_MS = 120
@@ -15,7 +16,7 @@ const HAS_SCROLLEND = typeof window !== 'undefined' && 'onscrollend' in window
 
 function trail(pane, dir) {
   if (!pane) return
-  const cards = [...pane.querySelectorAll('.flist > .card')]
+  const cards = [...pane.querySelectorAll(CASCADE)]
   cards
     .filter((el) => {
       const r = el.getBoundingClientRect()

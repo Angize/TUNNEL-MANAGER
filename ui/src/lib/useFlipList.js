@@ -1,32 +1,12 @@
 import { useLayoutEffect, useRef } from 'react'
-import { EASE_OUT, gsap, reducedMotion } from './motion.js'
+import { gsap, reducedMotion } from './motion.js'
+import { riseIn } from './riseIn.js'
 
 const MOVE_S = 0.32
 const ENTER_S = 0.3
 const EXIT_S = 0.2
 const SLIDE_S = 0.28
 const HOLD_S = 0.18
-const RISE_MS = 300
-const RISE_STEP_MS = 40
-const RISE_MAX = 10
-
-function riseIn(els) {
-  if (reducedMotion()) return
-  els
-    .filter((el) => {
-      const r = el.getBoundingClientRect()
-      return r.top < innerHeight && r.right > 0 && r.left < innerWidth
-    })
-    .slice(0, RISE_MAX)
-    .forEach((el, i) => {
-      el.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], {
-        duration: RISE_MS,
-        delay: i * RISE_STEP_MS,
-        easing: EASE_OUT,
-        fill: 'backwards',
-      })
-    })
-}
 
 function place(el) {
   return {

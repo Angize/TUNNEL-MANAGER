@@ -3,6 +3,7 @@ import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import useRiseIn from '../../lib/useRiseIn.js'
 import Reveal from '../../components/Reveal.jsx'
 import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
@@ -63,6 +64,8 @@ export default function LogsPage() {
   const listBox = useRef(null)
   const signature = useRef('')
   const flight = useRef(null)
+
+  useRiseIn(listBox, events !== null)
 
   const loadRef = useRef(() => {})
 
