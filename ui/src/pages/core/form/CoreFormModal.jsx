@@ -42,7 +42,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const [nodes, setNodes] = useState(null)
   const [proxies, setProxies] = useState([])
   const [tab, setTab] = useState('ip')
-  const [tabKb, setTabKb] = useState(false)
+  const [tabTap, setTabTap] = useState(false)
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
   const tabBase = useId()
@@ -316,7 +316,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     }[e.key]
     if (next === undefined) return
     e.preventDefault()
-    setTabKb(true)
+    setTabTap(false)
     setTab(TABS[next].v)
     document.getElementById(tabBase + 't' + TABS[next].v).focus()
   }
@@ -355,7 +355,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
             tabIndex={tab === entry.v ? 0 : -1}
             className={'ctab' + (tab === entry.v ? ' on' : '')}
             onClick={(e) => {
-              setTabKb(!e.detail)
+              setTabTap(!!e.detail)
               setTab(entry.v)
             }}
           >
@@ -369,7 +369,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         id={tabBase + 'pip'}
         role="tabpanel"
         aria-labelledby={tabBase + 'tip'}
-        className={'ctabp' + (tab === 'ip' ? ' on' : '') + (tabKb ? ' kb' : '')}
+        className={'ctabp' + (tab === 'ip' ? ' on' : '') + (tabTap ? ' tap' : '')}
       >
         <IpsTab
           form={form}
@@ -390,7 +390,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         id={tabBase + 'pset'}
         role="tabpanel"
         aria-labelledby={tabBase + 'tset'}
-        className={'ctabp' + (tab === 'set' ? ' on' : '') + (tabKb ? ' kb' : '')}
+        className={'ctabp' + (tab === 'set' ? ' on' : '') + (tabTap ? ' tap' : '')}
         ref={setBox}
       >
         <RevealSwap value={swapping}>
