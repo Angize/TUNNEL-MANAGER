@@ -29,7 +29,7 @@ function ApiGroup({ f }) {
           aria-label={T('set_api_on')}
           {...checkable('switch', form.apiOn, () => set('apiOn')(!form.apiOn))}
         >
-          <KnobCheck />
+          <KnobCheck on={form.apiOn} />
         </div>
       </div>
       <div className="oprow">

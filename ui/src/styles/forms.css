@@ -276,10 +276,6 @@ textarea:focus {
   inset-inline-start: 21px;
 }
 
-@keyframes ckin {
-  from { stroke-dashoffset: 24 }
-}
-
 .tglsw {
   isolation: isolate;
 }
@@ -304,11 +300,6 @@ textarea:focus {
 
 .tglsw.on .tgck {
   opacity: 1;
-}
-
-.swrow.flipa .tglsw.on .tgck path,
-.swrow.flipb .tglsw.on .tgck path {
-  animation: ckin .2s var(--ease-out) .1s backwards;
 }
 
 .authhd {
