@@ -2,20 +2,22 @@
   position: fixed;
   left: 50%;
   bottom: 26px;
-  transform: translateX(-50%);
   z-index: 60;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: max-content;
-  max-width: 88vw;
+  width: 0;
+  height: 0;
   pointer-events: none;
 }
 
 .toast {
-  transform: translateY(20px);
-  max-width: 100%;
+  --y: 0px;
+  --s: 1;
+  --dy: 24px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: max-content;
+  max-width: 88vw;
+  transform: translate(-50%, calc(var(--y) + var(--dy))) scale(var(--s));
   padding: 12px 18px;
   border-radius: 16px;
   font-size: 13px;
@@ -29,15 +31,25 @@
   -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   box-shadow: var(--dsh-hi);
   opacity: 0;
-  transition: transform .35s cubic-bezier(.25, 1.2, .4, 1), opacity .25s;
+  transition: transform .3s var(--ease-out), opacity .3s var(--ease-out);
   pointer-events: none;
 }
 
 .toast.show {
+  --dy: 0px;
   opacity: 1;
-  transform: none;
   pointer-events: auto;
   cursor: pointer;
+}
+
+.toast.show.deep {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toast.out {
+  --dy: 14px;
+  transition-duration: .2s;
 }
 
 .toast.err {

@@ -1,40 +1,37 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
 import { dismissToast, subscribeToasts } from '../lib/toast.js'
-import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 
-function lift(el) {
-  const now = getComputedStyle(el).translate
-  const y = now && now !== 'none' ? parseFloat(now.split(' ')[1] || '0') || 0 : 0
-  el.getAnimations().forEach((a) => {
-    if (a.id === 'tlift') a.cancel()
+const GAP = 8
+const PEEK = 9
+const SHRINK = 0.05
+const DEPTH = 3
+
+function stack(root, open) {
+  const list = [...root.children].filter((el) => !el.classList.contains('out')).reverse()
+  let above = 0
+  list.forEach((el, i) => {
+    el.style.setProperty('--y', (open ? -above : -i * PEEK) + 'px')
+    el.style.setProperty('--s', String(open ? 1 : 1 - i * SHRINK))
+    el.style.zIndex = String(100 - i)
+    el.classList.toggle('deep', !open && i >= DEPTH)
+    above += el.offsetHeight + GAP
   })
-  return y
 }
 
 export default function ToastHost() {
   const [items, setItems] = useState([])
+  const [open, setOpen] = useState(false)
   const box = useRef(null)
-  const seen = useRef(new Map())
 
   useEffect(() => subscribeToasts(setItems), [])
 
+  const live = items.filter((t) => !t.out).length
+  if (open && live < 2) setOpen(false)
+
   useLayoutEffect(() => {
-    const root = box.current
-    const was = seen.current
-    const now = new Map()
-    for (const el of root.children) now.set(el.dataset.id, root.offsetHeight - el.offsetTop)
-    seen.current = now
-    if (reducedMotion()) return
-    for (const el of root.children) {
-      const before = was.get(el.dataset.id)
-      if (before === undefined) continue
-      const dy = now.get(el.dataset.id) - before + lift(el)
-      if (Math.abs(dy) < 1) continue
-      const a = el.animate([{ translate: '0 ' + dy + 'px' }, { translate: '0 0' }], { duration: 300, easing: EASE_OUT })
-      a.id = 'tlift'
-    }
-  }, [items])
+    stack(box.current, open)
+  }, [items, open])
 
   return (
     <div ref={box} className="toasts" role="status" aria-live="polite">
@@ -42,9 +39,12 @@ export default function ToastHost() {
         <div
           key={t.id}
           data-id={t.id}
-          className={'toast ' + t.kind + (t.show ? ' show' : '')}
+          className={'toast ' + t.kind + (t.show ? ' show' : '') + (t.out ? ' out' : '')}
           role={t.kind === 'err' ? 'alert' : undefined}
-          onClick={() => dismissToast(t.id)}
+          onClick={() => {
+            if (!open && live > 1) setOpen(true)
+            else dismissToast(t.id)
+          }}
         >
           {t.kind === 'ok' ? <Icon name="okc" /> : t.kind === 'err' ? <Icon name="xc" /> : null}
           <span>{t.msg}</span>
