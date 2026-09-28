@@ -53,7 +53,7 @@ export function zoneItems(provider, zones) {
 }
 
 export function cdnLocked(form) {
-  return !!(form.pool.pool || (form.Ech && form.cdnMode !== 'cf'))
+  return !!(form.pool.pool || (form.Ech && form.cdnMode === 'ar'))
 }
 
 export function cdnAuto(form) {
