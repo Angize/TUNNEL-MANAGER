@@ -8772,6 +8772,7 @@ def api_portfw_list(d):
                            "listen_ip": c.get("listen_ip") or "", "node_ip": node_ip,
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
                            "switch_interval": c.get("switch_interval", 0),
+                           "enabled": c.get("enabled", True) is not False,
                            "health": h.get(c.get("name")) if h is not None else None, "offline": h is None,
                            **bw})
     all_pf = _pf_sorted(all_pf, lambda it: _pf_key(it["node_id"], it["name"]))
@@ -8810,8 +8811,8 @@ def _pf_own(n, name):
         if str(c.get("name") or "") == name:
             return c
     raise Bad("portfw_not_found", "روی نودِ «{0}» پورت‌فورواردی به نامِ «{1}» ثبت نیست "
-              "— برای اینکه تونلی به همین نام پاک نشود متوقف شد",
-              "node '{0}' has no port forward named '{1}' — stopped so a tunnel with the same name is not deleted",
+              "— متوقف شد تا روی تونلی هم‌نام کاری انجام نشود",
+              "node '{0}' has no port forward named '{1}' — stopped so nothing is done to a tunnel of the same name",
               n.get("name") or n["id"], name)
 
 
@@ -8829,6 +8830,8 @@ def _pf_move(n, to, name, d):
         body["iface"] = _pf_field("iface", d["iface"])
     if d.get("listen_ip"):
         body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
+    if old.get("enabled") is False:
+        body["enabled"] = False
     made = _pf_push(to, "portfw", body)["name"]
     r = node_call(n, "delete", "POST", {"name": name})
     if not r.get("ok"):
@@ -8850,6 +8853,23 @@ def _pf_move(n, to, name, d):
                 t.pforder(order)
     _refresh_cache([n["id"]])
     return {"ok": True, "name": made, "node": to["id"]}
+
+
+def api_portfw_toggle(d):
+    _require(d, ["node", "name"])
+    n = get_node(d["node"])
+    if not n:
+        raise _no_node()
+    name = _pf_name(d["name"])
+    _pf_own(n, name)
+    enabled = bool(d.get("enabled"))
+    r = node_call(n, "link-enable", "POST", {"name": name, "enabled": enabled}, timeout=NODE_OP_TIMEOUT)
+    _refresh_cache([n["id"]])
+    if not r.get("ok"):
+        why = tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or r.get("msg") or _FAILED)
+        raise Bad("toggle_failed", "{0}: {1}{2}", "{0}: {1}{2}", n["name"], why,
+                  tx(" — پورت‌فوروارد عوض نشد", " — the port forward did not change"))
+    return {"ok": True, "enabled": enabled}
 
 
 def api_portfw_next(d):
@@ -9734,7 +9754,7 @@ API = {
     "events": api_events, "events-clear": api_events_clear,
     "acts": api_acts, "act-cancel": api_act_cancel,
     "portfw": api_portfw, "portfw-list": api_portfw_list, "portfw-edit": api_portfw_edit,
-    "portfw-next": api_portfw_next, "portfw-del": api_portfw_del,
+    "portfw-next": api_portfw_next, "portfw-del": api_portfw_del, "portfw-toggle": api_portfw_toggle,
     "agent-upload": api_agent_upload, "agent-info": api_agent_info,
     "update-agent": api_update_agent, "update-core": api_update_core,
     "agent-fetch-git": api_agent_fetch_git,
@@ -9748,7 +9768,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
              "delete-link", "link-toggle", "stray-del", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select",
-             "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del",
+             "link-view", "traffic-reset", "events-clear", "portfw", "portfw-edit", "portfw-next", "portfw-del", "portfw-toggle",
              "agent-upload", "agent-fetch-git", "settings-set", "core-check", "core-upload", "core-stage",
              "core-delete-blob", "core-stage-cancel",
              "update-agent", "update-core",

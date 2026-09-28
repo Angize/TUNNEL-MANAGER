@@ -95,7 +95,7 @@ export const GROUPS = [
     ],
   ],
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
-  ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-next', 'portfw-del']],
+  ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
   [
     'updates',
@@ -567,6 +567,15 @@ export const DOCS = {
       ['interval_min', 0, N, 'rotation interval in minutes'],
       ['iface', 0, S, 'network interface'],
       ['listen_ip', 0, S, 'listen IP'],
+    ],
+  },
+  'portfw-toggle': {
+    t: 'Turn a port forward on or off',
+    d: 'Off removes the forwarding rule on the node and keeps its settings; on builds it again. An off forward does not rotate.',
+    p: [
+      ['node', 1, S, 'node id'],
+      ['name', 1, S, 'port forward name'],
+      ['enabled', 0, B, 'true = on, false = off'],
     ],
   },
   'portfw-next': {
