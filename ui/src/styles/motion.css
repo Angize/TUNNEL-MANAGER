@@ -13,10 +13,6 @@
 }
 
 .flghost,
-.swz {
-  display: contents;
-}
-
 .swghost {
   position: absolute;
   margin: 0 !important;
