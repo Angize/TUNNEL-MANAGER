@@ -20,8 +20,7 @@ import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
 import { useUiConfig } from '../../../state/UiConfigContext.jsx'
 import useBusy from '../../../lib/useBusy.js'
-import useSwapFlip from '../../../lib/useSwapFlip.js'
-import { RevealSwap } from '../../../lib/revealSwap.js'
+import SwapCascade from '../../../components/SwapCascade.jsx'
 import { T } from '../../../i18n/fa.js'
 import Msg from '../../../components/Msg.jsx'
 import SaveLabel from '../../../components/SaveLabel.jsx'
@@ -48,8 +47,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const tabBase = useId()
   const mounted = useRef(true)
   const closeRef = useRef(onClose)
-  const setBox = useRef(null)
-  const swapping = useSwapFlip(setBox, form ? form.Tr : null)
 
   closeRef.current = onClose
 
@@ -390,9 +387,8 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         role="tabpanel"
         aria-labelledby={tabBase + 'tset'}
         className={'ctabp' + (tab === 'set' ? ' on' : '') + (tabTap ? ' tap' : '')}
-        ref={setBox}
       >
-        <RevealSwap value={swapping}>
+        <SwapCascade value={form.Tr}>
           <SettingsTab
             form={form}
             cfg={cfg}
@@ -403,7 +399,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
             poolLive={{ ...poolLive, lid: poolLid }}
             patch={patch}
           />
-        </RevealSwap>
+        </SwapCascade>
       </div>
 
       <Msg text={message} />

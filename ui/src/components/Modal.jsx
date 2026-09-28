@@ -6,6 +6,7 @@ import { coarsePointer, restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 import { formRows } from '../lib/formRows.js'
+import { SwapRoot } from '../lib/revealSwap.js'
 
 const open = []
 let bodyOverflow = ''
@@ -42,6 +43,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
   const id = useId()
   const titleId = id + 't'
   const box = useRef(null)
+  const body = useRef(null)
   const veil = useRef(null)
   const loadedFrom = useRef(0)
   const cascadeOnOpen = useRef(!bare && !loading)
@@ -136,7 +138,9 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
                 ✕
               </button>
             </div>
-            <div className="mbody">{children}</div>
+            <div className="mbody" ref={body}>
+              <SwapRoot value={body}>{children}</SwapRoot>
+            </div>
             {footer ? <div className="mfoot">{footer}</div> : null}
           </>
         )}

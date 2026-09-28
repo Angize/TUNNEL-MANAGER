@@ -7,6 +7,7 @@ import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
+import SwapCascade from '../../components/SwapCascade.jsx'
 import { reducedMotion } from '../../lib/motion.js'
 import InstallProgress from './InstallProgress.jsx'
 import useInstallJob from './useInstallJob.js'
@@ -234,121 +235,123 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
         </button>
       </div>
 
-      <Reveal show={mode === 'auto'}>
-        <div>
-          <div className="autonote">
-            <Icon name="bolt" />
-            <span>{T('nadd_autonote')}</span>
-          </div>
-          <div className="grid2">
-            <Field label={T('nadd_node_name')} first>
-              <input
-                placeholder="DE02"
-                value={auto.name}
-                onChange={(e) => setAuto({ ...auto, name: e.target.value })}
-              />
-            </Field>
-            <Field label={T('nadd_srv_ip')} first>
-              <input
-                {...LTR_TEXT}
-                placeholder="5.75.197.55"
-                value={auto.host}
-                onChange={(e) => setAuto({ ...auto, host: e.target.value })}
-              />
-            </Field>
-          </div>
-          <div className="grid2">
-            <Field label={rangeLabel(T('nadd_ssh_port'), 1, PORT_MAX)}>
-              <NumberInput
-                placeholder="22"
-                value={auto.sshPort}
-                onChange={(v) => setAuto({ ...auto, sshPort: v })}
-              />
-            </Field>
-            <Field label={T('nadd_ssh_user')}>
-              <input
-                {...LTR_TEXT}
-                placeholder="root"
-                value={auto.sshUser}
-                onChange={(e) => setAuto({ ...auto, sshUser: e.target.value })}
-              />
-            </Field>
-          </div>
-          <div className="grid2">
-            <Field label={rangeLabel(T('nadd_agent_port'), 1, PORT_MAX)}>
-              <NumberInput
-                placeholder="8099"
-                value={auto.agentPort}
-                onChange={(v) => setAuto({ ...auto, agentPort: v })}
-              />
-            </Field>
-            <div />
-          </div>
+      <SwapCascade value={mode}>
+        <Reveal show={mode === 'auto'}>
+          <div>
+            <div className="autonote">
+              <Icon name="bolt" />
+              <span>{T('nadd_autonote')}</span>
+            </div>
+            <div className="grid2">
+              <Field label={T('nadd_node_name')} first>
+                <input
+                  placeholder="DE02"
+                  value={auto.name}
+                  onChange={(e) => setAuto({ ...auto, name: e.target.value })}
+                />
+              </Field>
+              <Field label={T('nadd_srv_ip')} first>
+                <input
+                  {...LTR_TEXT}
+                  placeholder="5.75.197.55"
+                  value={auto.host}
+                  onChange={(e) => setAuto({ ...auto, host: e.target.value })}
+                />
+              </Field>
+            </div>
+            <div className="grid2">
+              <Field label={rangeLabel(T('nadd_ssh_port'), 1, PORT_MAX)}>
+                <NumberInput
+                  placeholder="22"
+                  value={auto.sshPort}
+                  onChange={(v) => setAuto({ ...auto, sshPort: v })}
+                />
+              </Field>
+              <Field label={T('nadd_ssh_user')}>
+                <input
+                  {...LTR_TEXT}
+                  placeholder="root"
+                  value={auto.sshUser}
+                  onChange={(e) => setAuto({ ...auto, sshUser: e.target.value })}
+                />
+              </Field>
+            </div>
+            <div className="grid2">
+              <Field label={rangeLabel(T('nadd_agent_port'), 1, PORT_MAX)}>
+                <NumberInput
+                  placeholder="8099"
+                  value={auto.agentPort}
+                  onChange={(v) => setAuto({ ...auto, agentPort: v })}
+                />
+              </Field>
+              <div />
+            </div>
 
-          <SshAuth
-            mode={authMode}
-            onMode={setAuthMode}
-            pass={auto.pass}
-            onPass={(v) => setAuto({ ...auto, pass: v })}
-            sshKey={auto.key}
-            onKey={(v) => setAuto({ ...auto, key: v })}
-            passHint={T('nadd_pass_hint')}
-            keyHint={T('nadd_key_hint')}
-          />
+            <SshAuth
+              mode={authMode}
+              onMode={setAuthMode}
+              pass={auto.pass}
+              onPass={(v) => setAuto({ ...auto, pass: v })}
+              sshKey={auto.key}
+              onKey={(v) => setAuto({ ...auto, key: v })}
+              passHint={T('nadd_pass_hint')}
+              keyHint={T('nadd_key_hint')}
+            />
 
-          <ProxyFields proxies={proxies} value={autoProxy} onChange={setAutoProxy} />
+            <ProxyFields proxies={proxies} value={autoProxy} onChange={setAutoProxy} />
 
-          <div ref={progressRef}>
-            <InstallProgress state={progress} />
+            <div ref={progressRef}>
+              <InstallProgress state={progress} />
+            </div>
           </div>
-        </div>
-      </Reveal>
-      <Reveal show={mode === 'bulk'}>
-        <div>
-          <Reveal show={!bulk.batch}>
-            <BulkForm bulk={bulk} list={list} proxies={proxies} />
-          </Reveal>
-          <Reveal show={!!bulk.batch}>{bulk.batch ? <BulkRun batch={bulk.batch} /> : null}</Reveal>
-        </div>
-      </Reveal>
-      <Reveal show={mode === 'manual'}>
-        <div>
-          <div className="grid2">
-            <Field label={T('nadd_manual_name')} first>
-              <input
-                placeholder="frankfurt-1"
-                value={manual.name}
-                onChange={(e) => setManual({ ...manual, name: e.target.value })}
-              />
-            </Field>
-            <Field label={T('nadd_manual_host')} first>
-              <input
-                {...LTR_TEXT}
-                placeholder="203.0.113.10"
-                value={manual.host}
-                onChange={(e) => setManual({ ...manual, host: e.target.value })}
-              />
-            </Field>
+        </Reveal>
+        <Reveal show={mode === 'bulk'}>
+          <SwapCascade value={!!bulk.batch}>
+            <Reveal show={!bulk.batch}>
+              <BulkForm bulk={bulk} list={list} proxies={proxies} />
+            </Reveal>
+            <Reveal show={!!bulk.batch}>{bulk.batch ? <BulkRun batch={bulk.batch} /> : null}</Reveal>
+          </SwapCascade>
+        </Reveal>
+        <Reveal show={mode === 'manual'}>
+          <div>
+            <div className="grid2">
+              <Field label={T('nadd_manual_name')} first>
+                <input
+                  placeholder="frankfurt-1"
+                  value={manual.name}
+                  onChange={(e) => setManual({ ...manual, name: e.target.value })}
+                />
+              </Field>
+              <Field label={T('nadd_manual_host')} first>
+                <input
+                  {...LTR_TEXT}
+                  placeholder="203.0.113.10"
+                  value={manual.host}
+                  onChange={(e) => setManual({ ...manual, host: e.target.value })}
+                />
+              </Field>
+            </div>
+            <div className="grid2">
+              <Field label={rangeLabel(T('nadd_agent_port2'), 1, PORT_MAX)}>
+                <NumberInput
+                  placeholder="8099"
+                  value={manual.port}
+                  onChange={(v) => setManual({ ...manual, port: v })}
+                />
+              </Field>
+              <Field label={T('nadd_node_tok')}>
+                <SecretInput
+                  placeholder={T('nadd_node_tok')}
+                  value={manual.token}
+                  onChange={(v) => setManual({ ...manual, token: v })}
+                />
+              </Field>
+            </div>
+            <ProxyFields proxies={proxies} value={manualProxy} onChange={setManualProxy} />
           </div>
-          <div className="grid2">
-            <Field label={rangeLabel(T('nadd_agent_port2'), 1, PORT_MAX)}>
-              <NumberInput
-                placeholder="8099"
-                value={manual.port}
-                onChange={(v) => setManual({ ...manual, port: v })}
-              />
-            </Field>
-            <Field label={T('nadd_node_tok')}>
-              <SecretInput
-                placeholder={T('nadd_node_tok')}
-                value={manual.token}
-                onChange={(v) => setManual({ ...manual, token: v })}
-              />
-            </Field>
-          </div>
-          <ProxyFields proxies={proxies} value={manualProxy} onChange={setManualProxy} />
-        </div>
-      </Reveal>
+        </Reveal>
+      </SwapCascade>
     </Modal>
   )
 }
