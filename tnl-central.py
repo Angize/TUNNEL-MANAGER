@@ -10130,7 +10130,8 @@ def api_cdn_sync(d):
     if not new:
         raise _no_tunnel()
     if not new["ok"]:
-        raise Bad("cdn_sync_failed", "{0}", "{0}", Tx(new["error"], new["error_en"]))
+        raise Bad("cdn_sync_failed", "مرحلهٔ {0} باز هم انجام نشد: {1}", "the {0} step did not finish again: {1}",
+                  CDN_NAMES[new["provider"]], Tx(new["error"], new["error_en"]))
     return {"ok": True, "cdn": new, **({"msg": left} if left else {})}
 
 
