@@ -5,8 +5,6 @@ export default {
   core_edit_note: 'ذخیره، تونل را روی دو نود از نو می‌سازد',
   creating_core: 'در حال ساختِ تونلِ هسته روی دو نود…',
   saving_rebuild_both: 'در حال ذخیره و بازسازیِ دو سر…',
-  cor_tab_ips: 'آی‌پی‌ها',
-  cor_tab_set: 'تنظیمات',
 
   srv_node: 'نودِ سرور',
   cli_node: 'نودِ کلاینت',

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import FormTabs from '../../components/FormTabs.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import modalLoading from '../../components/ModalLoading.jsx'
 import Field from '../../components/Field.jsx'
@@ -99,6 +100,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   const [range, setRange] = useState('192.168')
   const [customSubnet, setCustomSubnet] = useState('')
   const [message, setMessage] = useState('')
+  const [tab, setTab] = useState('ip')
   const { waitAccepted } = useActs()
   const { subnetFree } = useSummary()
   const mounted = useRef(true)
@@ -154,6 +156,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   const create = async () => {
     if (aNode === bNode) {
       setMessage('')
+      setTab('ip')
       alertBox(T('two_diff_nodes'))
       return
     }
@@ -208,44 +211,73 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
       footer={footer}
       onClose={onClose}
     >
-      <div className="grid2">
-        <Field label={T('src_node')} first>
-          <Select items={items} value={aNode} placeholder={T('src_node')} onChange={(v) => { setANode(v); setAIp('') }} />
-        </Field>
-        <Field label={T('dst_node')} first>
-          <Select items={items} value={bNode} placeholder={T('dst_node')} onChange={(v) => { setBNode(v); setBIp('') }} />
-        </Field>
-      </div>
+      <FormTabs
+        tab={tab}
+        onTab={setTab}
+        panes={{
+          ip: (
+            <>
+              <div className="grid2">
+                <Field label={T('src_node')} first>
+                  <Select
+                    items={items}
+                    value={aNode}
+                    placeholder={T('src_node')}
+                    onChange={(v) => {
+                      setANode(v)
+                      setAIp('')
+                    }}
+                  />
+                </Field>
+                <Field label={T('dst_node')} first>
+                  <Select
+                    items={items}
+                    value={bNode}
+                    placeholder={T('dst_node')}
+                    onChange={(v) => {
+                      setBNode(v)
+                      setBIp('')
+                    }}
+                  />
+                </Field>
+              </div>
 
-      <div className="grid2" style={{ marginTop: 11 }}>
-        <IpField label={T('src_ip')} ips={aIps} value={aIp} onChange={setAIp} />
-        <IpField label={T('dst_ip')} ips={bIps} value={bIp} onChange={setBIp} />
-      </div>
+              <div className="grid2" style={{ marginTop: 11 }}>
+                <IpField label={T('src_ip')} ips={aIps} value={aIp} onChange={setAIp} />
+                <IpField label={T('dst_ip')} ips={bIps} value={bIp} onChange={setBIp} />
+              </div>
 
-      <Field label={T('tun_type')}>
-        <Select items={TUNNEL_TYPES} value={type} placeholder={T('ttype')} onChange={changeType} />
-      </Field>
-      <TypeExtraBox type={type} port={port} onPort={setPort} />
-
-      <Field label={T('local_range')}>
-        <Select
-          items={subnetRangeItems(subnetFree)}
-          value={range}
-          placeholder={T('range')}
-          onChange={setRange}
-        />
-      </Field>
-      <Reveal show={range === 'custom'}>
-        <Field label={T('custom_subnet')}>
-          <input
-            className="phrtl"
-            {...LTR_TEXT}
-            placeholder={T('custom_subnet_ph')}
-            value={customSubnet}
-            onChange={(e) => setCustomSubnet(e.target.value)}
-          />
-        </Field>
-      </Reveal>
+              <Field label={T('local_range')}>
+                <Select
+                  items={subnetRangeItems(subnetFree)}
+                  value={range}
+                  placeholder={T('range')}
+                  onChange={setRange}
+                />
+              </Field>
+              <Reveal show={range === 'custom'}>
+                <Field label={T('custom_subnet')}>
+                  <input
+                    className="phrtl"
+                    {...LTR_TEXT}
+                    placeholder={T('custom_subnet_ph')}
+                    value={customSubnet}
+                    onChange={(e) => setCustomSubnet(e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+            </>
+          ),
+          set: (
+            <>
+              <Field label={T('tun_type')} first>
+                <Select items={TUNNEL_TYPES} value={type} placeholder={T('ttype')} onChange={changeType} />
+              </Field>
+              <TypeExtraBox type={type} port={port} onPort={setPort} />
+            </>
+          ),
+        }}
+      />
 
       <Msg text={message} />
     </Modal>

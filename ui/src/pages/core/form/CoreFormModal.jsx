@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Modal from '../../../components/Modal.jsx'
 import modalLoading from '../../../components/ModalLoading.jsx'
-import Icon from '../../../components/Icon.jsx'
+import FormTabs from '../../../components/FormTabs.jsx'
 import IpsTab from './IpsTab.jsx'
 import SettingsTab from './SettingsTab.jsx'
 import normalise from './normalise.js'
@@ -27,11 +27,6 @@ import SaveLabel from '../../../components/SaveLabel.jsx'
 import useSaved from '../../../lib/useSaved.js'
 import '../coreform.css'
 
-const TABS = [
-  { v: 'ip', icon: 'pin', label: () => T('cor_tab_ips') },
-  { v: 'set', icon: 'cog', label: () => T('cor_tab_set') },
-]
-
 export default function CoreFormModal({ link, onClose, onDone }) {
   const cfg = useUiConfig()
   const [busy, guard] = useBusy()
@@ -41,10 +36,8 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const [nodes, setNodes] = useState(null)
   const [proxies, setProxies] = useState([])
   const [tab, setTab] = useState('ip')
-  const [tabTap, setTabTap] = useState(false)
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
-  const tabBase = useId()
   const mounted = useRef(true)
   const closeRef = useRef(onClose)
 
@@ -303,21 +296,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     onDone()
   }
 
-  const onTabKey = (e) => {
-    const at = TABS.findIndex((entry) => entry.v === tab)
-    const next = {
-      ArrowLeft: (at + 1) % TABS.length,
-      ArrowRight: (at + TABS.length - 1) % TABS.length,
-      Home: 0,
-      End: TABS.length - 1,
-    }[e.key]
-    if (next === undefined) return
-    e.preventDefault()
-    setTabTap(false)
-    setTab(TABS[next].v)
-    document.getElementById(tabBase + 't' + TABS[next].v).focus()
-  }
-
   const footer = (
     <>
       <button className="primary" disabled={busy} onClick={guard(submit)}>
@@ -340,68 +318,41 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       cls="edit"
       onClose={onClose}
     >
-      <div className="ctabs" role="tablist" onKeyDown={onTabKey}>
-        {TABS.map((entry) => (
-          <button
-            key={entry.v}
-            id={tabBase + 't' + entry.v}
-            type="button"
-            role="tab"
-            aria-selected={tab === entry.v ? 'true' : 'false'}
-            aria-controls={tabBase + 'p' + entry.v}
-            tabIndex={tab === entry.v ? 0 : -1}
-            className={'ctab' + (tab === entry.v ? ' on' : '')}
-            onClick={(e) => {
-              setTabTap(!!e.detail)
-              setTab(entry.v)
-            }}
-          >
-            <Icon name={entry.icon} />
-            {entry.label()}
-          </button>
-        ))}
-      </div>
-
-      <div
-        id={tabBase + 'pip'}
-        role="tabpanel"
-        aria-labelledby={tabBase + 'tip'}
-        className={'ctabp' + (tab === 'ip' ? ' on' : '') + (tabTap ? ' tap' : '')}
-      >
-        <IpsTab
-          form={form}
-          cfg={cfg}
-          link={link}
-          items={items}
-          aIps={aIps}
-          bIps={bIps}
-          storedA={link ? link.a_ip || '' : ''}
-          storedB={link ? link.b_ip || '' : ''}
-          peer={peerLid ? peerLive : null}
-          subnetFree={subnetFree}
-          patch={patch}
-          onNode={onNode}
-        />
-      </div>
-
-      <div
-        id={tabBase + 'pset'}
-        role="tabpanel"
-        aria-labelledby={tabBase + 'tset'}
-        className={'ctabp' + (tab === 'set' ? ' on' : '') + (tabTap ? ' tap' : '')}
-      >
-        <SwapCascade value={form.Tr}>
-          <SettingsTab
-            form={form}
-            cfg={cfg}
-            link={link}
-            proxies={proxies}
-            sides={sides}
-            poolLive={{ ...poolLive, lid: poolLid }}
-            patch={patch}
-          />
-        </SwapCascade>
-      </div>
+      <FormTabs
+        tab={tab}
+        onTab={setTab}
+        panes={{
+          ip: (
+            <IpsTab
+              form={form}
+              cfg={cfg}
+              link={link}
+              items={items}
+              aIps={aIps}
+              bIps={bIps}
+              storedA={link ? link.a_ip || '' : ''}
+              storedB={link ? link.b_ip || '' : ''}
+              peer={peerLid ? peerLive : null}
+              subnetFree={subnetFree}
+              patch={patch}
+              onNode={onNode}
+            />
+          ),
+          set: (
+            <SwapCascade value={form.Tr}>
+              <SettingsTab
+                form={form}
+                cfg={cfg}
+                link={link}
+                proxies={proxies}
+                sides={sides}
+                poolLive={{ ...poolLive, lid: poolLid }}
+                patch={patch}
+              />
+            </SwapCascade>
+          ),
+        }}
+      />
 
       <Msg text={message} />
     </Modal>
