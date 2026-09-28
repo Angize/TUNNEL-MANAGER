@@ -81,7 +81,7 @@ function RedirectStep({ plan, tls }) {
   return <Step tone="warn" title={T('cdn_redirect_t')} note={T('cdn_redirect_d')} chip={T('cdn_check')} />
 }
 
-function CfSteps({ plan, host, port, tls, carrier }) {
+function CfSteps({ plan, host, port, tls, carrier, ech }) {
   const rules = plan.rules || {}
   const steps = []
 
@@ -158,6 +158,10 @@ function CfSteps({ plan, host, port, tls, carrier }) {
         chip={T('cdn_will_make')}
       />
     )
+  }
+
+  if (ech) {
+    steps.push(<Step key="ech" tone="new" title={T('cdn_ech_t')} note={T('cdn_ech_d')} chip={T('cdn_ech_chip')} />)
   }
 
   if (plan.websockets != null) {
@@ -308,7 +312,7 @@ function Plan({ state, provider, host, target, form, patch, tls }) {
       </div>
       <RecordStep plan={plan} host={host} target={target} form={form} patch={patch} />
       {provider === 'cf' ? (
-        <CfSteps plan={plan} host={host} port={form.port} tls={tls} carrier={form.Cdn} />
+        <CfSteps plan={plan} host={host} port={form.port} tls={tls} carrier={form.Cdn} ech={!!form.Ech} />
       ) : (
         <ArSteps plan={plan} tls={tls} carrier={form.Cdn} />
       )}
@@ -351,7 +355,6 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
   const shown = locked ? 'manual' : provider
 
   const pick = (p) => {
-    if (locked) return
     if (p !== 'manual' && !(keys && keys[p] && keys[p].set)) {
       alertBox(TF('cdn_need_key', { p: providerName(p) }))
       return

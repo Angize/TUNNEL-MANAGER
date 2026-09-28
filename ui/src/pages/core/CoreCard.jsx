@@ -16,6 +16,7 @@ import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { useActionBusy } from '../../lib/useBusy.js'
 import { T, TF } from '../../i18n/fa.js'
+import { useActs } from '../../state/ActsContext.jsx'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { confirmBox, confirmToggle } from '../../lib/dialog.js'
@@ -118,6 +119,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
   const enabled = link.enabled !== false
   const [busyAct, withBusy] = useActionBusy()
   const [toggleBusy, withToggle] = useActionBusy()
+  const { waitDone } = useActs()
   const [first, second] = sideOrder(link)
 
   const activeIp = (side) => link[side + '_ip_active'] || link[side + '_ip']
@@ -179,11 +181,26 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
     onReload()
   }
 
+  const skipCdn = async (why, force) => {
+    const ask = TF('cdn_del_failed_ask', { e: translateError(why) || T('failed') })
+    if (!(await confirmBox(ask, T('cdn_del_skip_yes')))) return
+    const r = await withBusy('del', () =>
+      apiPost('delete-link', force ? { id: link.id, force: true, cdn_skip: true } : { id: link.id, cdn_skip: true })
+    )
+    if (!r) return
+    if (!(r.ok && r.d.act)) toast(postError(r), 'err')
+    onReload()
+  }
+
   const remove = async () => {
     const force =
       link.a_online === false ||
       link.b_online === false ||
       (!!act && act.state === 'fail' && act.offer === 'force')
+    if (act && act.state === 'fail' && act.offer === 'cdn_skip') {
+      await skipCdn(act.error, force)
+      return
+    }
     const ask = T(force ? 'del_force_ask' : 'del_tun_confirm')
     const yes = T(force ? 'del_force_yes' : 'confirm_del')
     const body = force ? { id: link.id, force: true } : { id: link.id }
@@ -205,6 +222,9 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
     }
     setMessage(null)
     onReload()
+    if (!(link.cdn && link.cdn.applied) || body.cdn_keep) return
+    const verdict = await waitDone(r.d.act)
+    if (verdict.offer === 'cdn_skip') await skipCdn(verdict.err, force)
   }
 
   return (

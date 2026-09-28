@@ -692,8 +692,38 @@
    ],
    [
     400,
+    "cdn_api",
+    "… did not return the new rule in its answer"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
     "cdn_cf_443",
     "with Cloudflare, wss works only on edge port 443; Flexible falls back to Full on … and the tunnel never comes up"
+   ],
+   [
+    400,
+    "cdn_config_rules_full",
+    "there is no room for a Configuration Rule on '…' — … of … config rules of the plan are used; delete one or set the SSL mode to the whole zone under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_ech_missing",
+    "no ECH key for '…' within … seconds — …"
+   ],
+   [
+    400,
+    "cdn_host_busy",
+    "'…' is being set up for another tunnel right now — try again in a moment"
    ],
    [
     400,
@@ -713,7 +743,12 @@
    [
     400,
     "cdn_no_ech",
-    "the CDN setup does not work with ECH yet — turn ECH off or set the CDN up by hand"
+    "ECH works on Cloudflare only — turn ECH off for …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
    ],
    [
     400,
@@ -724,6 +759,36 @@
     400,
     "cdn_private_ip",
     "the server IP (…) is not public and the CDN cannot reach it — pick a public IPv4"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_record_exists",
+    "'…' already has a record (…) — choose to replace it or pick another name"
+   ],
+   [
+    400,
+    "cdn_rules_full",
+    "there is no room for another Origin Rule on '…' — … of … rules of the plan are used; delete one or share the port rule"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_missing",
+    "domain '…' is not in the … account"
+   ],
+   [
+    400,
+    "cdn_zone_off",
+    "domain '…' is not active in … (…) and passes no traffic"
    ],
    [
     400,
@@ -764,6 +829,11 @@
     400,
     "ech_proxy_missing",
     "no ECH proxy picked — create one under proxies and pick it"
+   ],
+   [
+    400,
+    "ech_proxy_missing",
+    "this tunnel's ECH proxy no longer exists — create one and pick it when editing the tunnel"
    ],
    [
     400,
@@ -859,6 +929,11 @@
     400,
     "proxy_not_found",
     "the chosen proxy was just deleted — pick another proxy and try again"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
    ],
    [
     400,
@@ -1041,6 +1116,11 @@
    ]
   ],
   "act": [
+   [
+    400,
+    "cdn_remove_failed",
+    "removing from … did not finish: …"
+   ],
    [
     400,
     "delete_failed",
@@ -1333,8 +1413,38 @@
    ],
    [
     400,
+    "cdn_api",
+    "… did not return the new rule in its answer"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
     "cdn_cf_443",
     "with Cloudflare, wss works only on edge port 443; Flexible falls back to Full on … and the tunnel never comes up"
+   ],
+   [
+    400,
+    "cdn_config_rules_full",
+    "there is no room for a Configuration Rule on '…' — … of … config rules of the plan are used; delete one or set the SSL mode to the whole zone under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_ech_missing",
+    "no ECH key for '…' within … seconds — …"
+   ],
+   [
+    400,
+    "cdn_host_busy",
+    "'…' is being set up for another tunnel right now — try again in a moment"
    ],
    [
     400,
@@ -1354,7 +1464,12 @@
    [
     400,
     "cdn_no_ech",
-    "the CDN setup does not work with ECH yet — turn ECH off or set the CDN up by hand"
+    "ECH works on Cloudflare only — turn ECH off for …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
    ],
    [
     400,
@@ -1365,6 +1480,36 @@
     400,
     "cdn_private_ip",
     "the server IP (…) is not public and the CDN cannot reach it — pick a public IPv4"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_record_exists",
+    "'…' already has a record (…) — choose to replace it or pick another name"
+   ],
+   [
+    400,
+    "cdn_rules_full",
+    "there is no room for another Origin Rule on '…' — … of … rules of the plan are used; delete one or share the port rule"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_missing",
+    "domain '…' is not in the … account"
+   ],
+   [
+    400,
+    "cdn_zone_off",
+    "domain '…' is not active in … (…) and passes no traffic"
    ],
    [
     400,
@@ -1500,6 +1645,11 @@
     400,
     "proxy_not_found",
     "the chosen proxy was just deleted — pick another proxy and try again"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
    ],
    [
     400,
@@ -2005,6 +2155,11 @@
  },
  "node-del": {
   "bad": [
+   [
+    400,
+    "cdn_remove_failed",
+    "removing from … did not finish: … — the node and its tunnels were left as they are"
+   ],
    [
     400,
     "missing_field",
