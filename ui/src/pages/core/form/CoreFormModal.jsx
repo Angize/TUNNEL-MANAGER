@@ -16,7 +16,7 @@ import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps, nodeItemsForEdit, nodeLabel } from '../../../lib/nodes.js'
-import { CDN_PROVIDERS } from '../../../lib/cdn.js'
+import { CDN_PROVIDERS, cdnAuto } from '../../../lib/cdn.js'
 import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
@@ -295,7 +295,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
 
-    if (form.Tr === 'ws' && form.cdnMode === 'manual' && !form.port) body.port = '80'
+    if (form.Tr === 'ws' && !cdnAuto(form) && !form.port) body.port = '80'
     else if (form.port) body.port = form.port
     else if (link && form.Tr !== 'raw') body.port = ''
 

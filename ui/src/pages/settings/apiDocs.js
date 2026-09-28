@@ -186,7 +186,7 @@ const TUNNEL_FIELDS = [
 ]
 
 const CDN_PARAM =
-  'build the CDN side too — {"provider": "cf" or "ar", "zone", "label", "replace", "share"}; ws transport only, not with ws_pool or ech. The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. replace=true takes over a record of that name that points somewhere else; share=true (cf only) joins one Origin Rule per port. A CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
+  'build the CDN side too — {"provider": "cf" or "ar", "zone", "label", "replace", "share"}; ws transport only, not with ws_pool; ech only with Cloudflare (the panel makes the record first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. replace=true takes over a record of that name that points somewhere else; share=true (cf only) joins one Origin Rule per port. A CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
 
 const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 
@@ -332,10 +332,11 @@ export const DOCS = {
   },
   'node-del': {
     t: 'Delete a node',
-    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The node is cleaned first, and if it does not answer, nothing is deleted.",
+    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The CDN records and rules of its tunnels are removed first, then the node is cleaned; if either fails, nothing is deleted (a CDN failure answers offer=cdn_skip). cdn lists the CDN steps.",
     p: [
       ['id', 1, S, 'node id'],
       ['force', 0, B, 'if the panel has confirmed the node is down, delete it from the panel without cleaning the node'],
+      ['cdn_skip', 0, B, 'after a failed CDN removal (offer=cdn_skip): delete anyway and leave the tunnels\' records and rules in the CDN (logged as cdn-left)'],
     ],
   },
   'node-toggle': {
@@ -449,11 +450,12 @@ export const DOCS = {
   'delete-link': {
     t: 'Delete a tunnel',
     act: true,
-    d: 'Deletes the tunnel from both ends and from the panel. If one end is down the job ends with offer=force and nothing is deleted; then send it again with force=true.',
+    d: 'Deletes the tunnel from both ends and from the panel. If one end is down the job ends with offer=force and nothing is deleted; then send it again with force=true. A tunnel the panel set up in a CDN is removed from the CDN first (record, then its rule); if that fails nothing is deleted and the job ends with offer=cdn_skip.',
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
       ['cdn_keep', 0, B, 'keep the DNS record and the Origin Rule the panel made in the CDN (default false = remove them)'],
+      ['cdn_skip', 0, B, 'after a failed CDN removal (offer=cdn_skip): delete the tunnel only and leave the record and rule in the CDN (logged as cdn-left)'],
     ],
   },
   'stray-del': {

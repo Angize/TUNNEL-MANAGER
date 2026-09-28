@@ -81,7 +81,7 @@ function RedirectStep({ plan, tls }) {
   return <Step tone="warn" title={T('cdn_redirect_t')} note={T('cdn_redirect_d')} chip={T('cdn_check')} />
 }
 
-function CfSteps({ plan, host, port, tls, carrier }) {
+function CfSteps({ plan, host, port, tls, carrier, ech }) {
   const rules = plan.rules || {}
   const steps = []
 
@@ -158,6 +158,10 @@ function CfSteps({ plan, host, port, tls, carrier }) {
         chip={T('cdn_will_make')}
       />
     )
+  }
+
+  if (ech) {
+    steps.push(<Step key="ech" tone="new" title={T('cdn_ech_t')} note={T('cdn_ech_d')} chip={T('cdn_ech_chip')} />)
   }
 
   if (plan.websockets != null) {
@@ -308,7 +312,7 @@ function Plan({ state, provider, host, target, form, patch, tls }) {
       </div>
       <RecordStep plan={plan} host={host} target={target} form={form} patch={patch} />
       {provider === 'cf' ? (
-        <CfSteps plan={plan} host={host} port={form.port} tls={tls} carrier={form.Cdn} />
+        <CfSteps plan={plan} host={host} port={form.port} tls={tls} carrier={form.Cdn} ech={!!form.Ech} />
       ) : (
         <ArSteps plan={plan} tls={tls} carrier={form.Cdn} />
       )}
@@ -348,6 +352,8 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
   const host = hostOf(form.cdnLabel, form.cdnZone)
   const target = (serverIp || '…') + (provider === 'ar' ? ':' + (form.port || T('cdn_port_free')) : '')
 
+  const shown = locked ? 'manual' : provider
+
   const pick = (p) => {
     if (p !== 'manual' && !(keys && keys[p] && keys[p].set)) {
       alertBox(TF('cdn_need_key', { p: providerName(p) }))
@@ -363,9 +369,9 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
     <div className="cdnauto">
       <label>{T('cdn_auto_lbl')}</label>
       <Seg2 label={T('cdn_auto_lbl')}>
-        <SegOpt on={provider === 'cf'} title={providerName('cf')} sub={sub('cf')} onClick={() => pick('cf')} />
-        <SegOpt on={provider === 'ar'} title={providerName('ar')} sub={sub('ar')} onClick={() => pick('ar')} />
-        <SegOpt on={provider === 'manual'} title={T('cdn_manual_opt')} sub={T('cdn_manual_opt_d')} onClick={() => pick('manual')} />
+        <SegOpt on={shown === 'cf'} title={providerName('cf')} sub={sub('cf')} onClick={() => pick('cf')} />
+        <SegOpt on={shown === 'ar'} title={providerName('ar')} sub={sub('ar')} onClick={() => pick('ar')} />
+        <SegOpt on={shown === 'manual'} title={T('cdn_manual_opt')} sub={T('cdn_manual_opt_d')} onClick={() => pick('manual')} />
       </Seg2>
       {locked ? <div className="cdnlock">{T('cdn_locked')}</div> : null}
 
@@ -376,7 +382,7 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
               <Select
                 items={zoneItems(provider, zones)}
                 value={form.cdnZone}
-                placeholder={T(zones ? 'cdn_zone_pick' : 'cdn_zone_loading')}
+                placeholder={T(zones || zonesError ? 'cdn_zone_pick' : 'cdn_zone_loading')}
                 onChange={(v) => {
                   const picked = (zones || []).find((z) => z.name === v)
                   patch({ cdnZone: v, cdnZoneOk: !picked || !!picked.ok, cdnReplace: null })

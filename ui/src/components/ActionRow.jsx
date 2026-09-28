@@ -7,7 +7,7 @@ import { useActs } from '../state/ActsContext.jsx'
 
 const CDN_ICON = { ok: 'okc', undo: 'undo', info: 'info' }
 
-function CdnSteps({ steps }) {
+export function CdnSteps({ steps }) {
   if (!steps || !steps.length) return null
   return (
     <ol className="cdnsteps">

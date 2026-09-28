@@ -55,7 +55,7 @@ export default function CdnStatus({ link, onReload }) {
         <>
           <div className="cdnowntx">
             <div>{translateError(cdn.error)}</div>
-            <div className="muted">{[live ? TF('cdn_own_live', { ip: live }) : '', T('cdn_own_auto')].filter(Boolean).join(' ')}</div>
+            <div className="muted">{[live ? TF('cdn_own_live', { ip: live }) : '', cdn.code === 'cdn_removed' ? '' : T('cdn_own_auto')].filter(Boolean).join(' ')}</div>
           </div>
           <button type="button" className="ghost tone tone-renew cdnfix" disabled={busy} onClick={sync}>
             <Icon name="redo" />

@@ -176,7 +176,7 @@ export function collectCarrier(form, cfg, body) {
     if (form.pool.pool) {
       const poolError = poolCollect(form, body)
       if (poolError) return poolError
-    } else if (form.cdnMode !== 'manual') {
+    } else if (cdnAuto(form)) {
       body.ws_pool = false
       body.ws_host = ''
       body.edge_ip = form.cdnEdgeAuto ? '' : form.wsEdge.trim()
