@@ -9648,14 +9648,14 @@ def _cdn_records(cred, zone_row, host):
             and str(r.get("name") or "").lower() == name]
 
 
-def _cdn_clear_others(cred, want, recs, rid, jr, restore):
+def _cdn_clear_others(cred, want, recs, rid, jr, replace):
     others = [r for r in recs if r.get("id") != rid]
     if others and not want["replace"]:
         raise Bad("cdn_record_exists", "برای «{0}» از قبل رکورد هست ({1}) — «جایش بنشین» را انتخاب کن یا اسمِ دیگری بده",
                   "'{0}' already has a record ({1}) — choose to replace it or pick another name",
                   want["host"], tx_join("، ", [_rec_show(cred["prov"], r) for r in others], ", "))
     for r in others:
-        restore(r, jr)
+        replace(r, jr)
 
 
 def _cf_setting(cred, zid, key, soft=False):
@@ -9705,13 +9705,15 @@ def _cf_rules_path(zid, rs, rule=None):
     return "/zones/%s/rulesets/%s/rules%s" % (zid, rs["id"], "/" + rule["id"] if rule else "")
 
 
-def _cf_restore_record(cred, zid):
-    def restore(r, jr):
-        back = {k: r[k] for k in _CF_KEEP if r.get(k) is not None}
-        _cf(cred, "DELETE", "/zones/%s/dns_records/%s" % (zid, r["id"]))
+def _cdn_replacer(cred, base, keep):
+    call = _cf if cred["prov"] == "cf" else _ar
+
+    def replace(r, jr):
+        back = {k: r[k] for k in keep if r.get(k) is not None}
+        call(cred, "DELETE", "%s/%s" % (base, r["id"]))
         jr.did(tx("رکوردِ قبلیِ «{0}» ({1}) برداشته شد", "the old record of '{0}' ({1}) was removed", r.get("name"),
-                  _rec_show("cf", r)), lambda: _cf(cred, "POST", "/zones/%s/dns_records" % zid, back))
-    return restore
+                  _rec_show(cred["prov"], r)), lambda: call(cred, "POST", base, back))
+    return replace
 
 
 def _cf_apply(cred, want, cur, ctx, jr):
@@ -9732,7 +9734,7 @@ def _cf_apply(cred, want, cur, ctx, jr):
                   z["name"], cap)
     recs = _cdn_records(cred, z, host)
     mine = next((r for r in recs if rid and r.get("id") == rid), None)
-    _cdn_clear_others(cred, want, recs, rid if mine else "", jr, _cf_restore_record(cred, zid))
+    _cdn_clear_others(cred, want, recs, rid if mine else "", jr, _cdn_replacer(cred, "/zones/%s/dns_records" % zid, _CF_KEEP))
     if not mine:
         js = _cf(cred, "POST", "/zones/%s/dns_records" % zid,
                  {"type": "A", "name": host, "content": ip, "ttl": 1, "proxied": True, "comment": CDN_MARK + " " + ctx["name"]})
@@ -9791,15 +9793,6 @@ def _ar_ready(r, ip, port):
             and _sint(v[0].get("port")) == port and bool(r.get("cloud")) and r.get("upstream_https") == "http")
 
 
-def _ar_restore_record(cred, dz):
-    def restore(r, jr):
-        back = {k: r[k] for k in _AR_KEEP if r.get(k) is not None}
-        _ar(cred, "DELETE", "/domains/%s/dns-records/%s" % (dz, r["id"]))
-        jr.did(tx("رکوردِ قبلیِ «{0}» ({1}) برداشته شد", "the old record of '{0}' ({1}) was removed", r.get("name"),
-                  _rec_show("ar", r)), lambda: _ar(cred, "POST", "/domains/%s/dns-records" % dz, back))
-    return restore
-
-
 def _ar_apply(cred, want, cur, ctx, jr):
     z = _cdn_zone(cred, want["zone"])
     host, ip, port = want["host"], ctx["ip"], ctx["port"]
@@ -9807,7 +9800,7 @@ def _ar_apply(cred, want, cur, ctx, jr):
     rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
     recs = _cdn_records(cred, z, host)
     mine = next((r for r in recs if rid and r.get("id") == rid), None)
-    _cdn_clear_others(cred, want, recs, rid if mine else "", jr, _ar_restore_record(cred, dz))
+    _cdn_clear_others(cred, want, recs, rid if mine else "", jr, _cdn_replacer(cred, "/domains/%s/dns-records" % dz, _AR_KEEP))
     body = _ar_body(host[: -len(z["name"]) - 1], ip, port)
     if not mine:
         js = _ar(cred, "POST", "/domains/%s/dns-records" % dz, body)
