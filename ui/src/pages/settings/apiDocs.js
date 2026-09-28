@@ -673,7 +673,7 @@ export const DOCS = {
   },
   'cdn-plan': {
     t: 'Preview a CDN build',
-    d: 'Reads what the build would change and writes nothing: whether the record exists and where it points (record.mine, record.others); on Cloudflare the zone SSL mode and Automatic SSL, the Origin Rules (count = rules taking a slot besides the one this tunnel would reuse, cap, mine, manual, shared ports, the port it would join), WebSockets and whether HTTP goes to HTTPS (Cloudflare has no API for gRPC, so it is not reported); on ArvanCloud HTTPS, the certificate, gRPC and the DDoS mode (null when the key cannot read it).',
+    d: 'Reads what the build would change and writes nothing: whether the record exists and where it points (record.mine, record.others); on Cloudflare the zone SSL mode and Automatic SSL, the Origin Rules (count = rules taking a slot besides the one this tunnel would reuse, cap, mine, manual, shared ports, the port it would join), WebSockets and whether HTTP goes to HTTPS (Cloudflare has no API for gRPC, so it is not reported); on ArvanCloud HTTPS, the certificate, gRPC and the DDoS mode (null when the panel could not read it).',
     p: [
       CDN_PROVIDER,
       ['zone', 1, S, 'domain'],
