@@ -12,6 +12,22 @@ export function ipItems(ips) {
   return (ips || []).map((ip) => ({ v: ip, label: ip }))
 }
 
+export function nodeLabel(items, id) {
+  const item = (items || []).find((x) => x.v === id)
+  return (item && item.label) || id
+}
+
+export function seedIp(ips, chosen, stored) {
+  if (chosen && ips.includes(chosen)) return chosen
+  if (stored && ips.includes(stored)) return stored
+  return ips[0]
+}
+
+export function endIp(ips, chosen, stored) {
+  if (ips.length > 1) return seedIp(ips, chosen, stored) || ''
+  return stored && ips.includes(stored) ? stored : ''
+}
+
 export function nodeItemsForEdit(nodes, link) {
   const out = []
   const seen = {}

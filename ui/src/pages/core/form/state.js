@@ -1,5 +1,6 @@
 import { num } from '../../../lib/num.js'
 import { subnetBaseOf } from '../../../lib/subnet.js'
+import { endIp, seedIp } from '../../../lib/nodes.js'
 import { wkClamp } from './gates.js'
 import { CDN_FIELD_NAMES, cdnShape } from './presets.js'
 
@@ -157,27 +158,15 @@ export function editForm(cfg, link) {
   }
 }
 
-export function seedIp(ips, chosen, stored) {
-  if (chosen && ips.includes(chosen)) return chosen
-  if (stored && ips.includes(stored)) return stored
-  return ips[0]
-}
-
 export function pickedIp(form, ips, selected, chosen, stored) {
   if (form.rot.on && ips.length > 1) {
     if (stored && selected[stored]) return stored
     return ips.find((ip) => selected[ip]) || seedIp(ips, chosen, stored) || ''
   }
-  if (ips.length > 1) return seedIp(ips, chosen, stored) || ''
-  return stored && ips.includes(stored) ? stored : ''
+  return endIp(ips, chosen, stored)
 }
 
 export function nodeCpus(nodes, id) {
   const node = (nodes || []).find((n) => n.id === id)
   return node ? num(node.cpus) : 0
-}
-
-export function nodeLabel(items, id) {
-  const item = (items || []).find((x) => x.v === id)
-  return (item && item.label) || id
 }

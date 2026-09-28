@@ -11,7 +11,7 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { ipItems, nodeIps, nodeItemsForEdit } from '../../lib/nodes.js'
+import { endIp, ipItems, nodeIps, nodeItemsForEdit, nodeLabel, seedIp } from '../../lib/nodes.js'
 import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetBaseOf, subnetFitError, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
@@ -30,7 +30,7 @@ function EndIpField({ label, ips, current, value, onChange }) {
       <Field label={label} first>
         <Select
           items={ipItems(list)}
-          value={value || (current && list.includes(current) ? current : list[0])}
+          value={seedIp(list, value, current)}
           placeholder={T('ip')}
           onChange={onChange}
         />
@@ -39,7 +39,7 @@ function EndIpField({ label, ips, current, value, onChange }) {
   }
   return (
     <Field label={label} first>
-      <input className="mono" value={list[0] || current || '—'} disabled style={{ opacity: 0.6 }} />
+      <input className="mono" value={list[0] || '—'} disabled style={{ opacity: 0.6 }} />
     </Field>
   )
 }
@@ -110,16 +110,10 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   if (!nodes) return modalLoading({ icon: 'link', title: T('edit_tun_t'), subtitle, onClose })
 
   const items = nodeItemsForEdit(nodes, link)
-  const nameOf = (id) => (items.find((it) => it.v === id) || {}).label || id
-  const ipsOf = (id, own, stored) => {
-    const got = nodeIps(nodes, id)
-    return got.length || id !== own ? got : stored || []
-  }
-  const aIps = ipsOf(aNode, link.a_node, link.a_ips)
-  const bIps = ipsOf(bNode, link.b_node, link.b_ips)
+  const aIps = nodeIps(nodes, aNode)
+  const bIps = nodeIps(nodes, bNode)
   const aCur = aNode === link.a_node ? link.a_ip : ''
   const bCur = bNode === link.b_node ? link.b_ip : ''
-  const endIp = (chosen, ips, cur) => chosen || (cur && ips.includes(cur) ? cur : ips.length > 1 ? ips[0] : '')
   const multiIp = aIps.length > 1 || bIps.length > 1
   const showPort = PORT_TYPES.includes(type)
   const portLabel = type === 'vxlan' ? T('le_port_4789') : T('le_port_auto')
@@ -147,8 +141,8 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       subnet,
       a_node: aNode,
       b_node: bNode,
-      a_ip: endIp(aIp, aIps, aCur),
-      b_ip: endIp(bIp, bIps, bCur),
+      a_ip: endIp(aIps, aIp, aCur),
+      b_ip: endIp(bIps, bIp, bCur),
     }
     if (showPort) body.port = port.trim()
 
@@ -270,8 +264,20 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       </div>
 
       <div className="grid2" style={{ marginTop: 11 }}>
-        <EndIpField label={T('ip_of') + nameOf(aNode)} ips={aIps} current={aCur} value={aIp} onChange={setAIp} />
-        <EndIpField label={T('ip_of') + nameOf(bNode)} ips={bIps} current={bCur} value={bIp} onChange={setBIp} />
+        <EndIpField
+          label={T('ip_of') + nodeLabel(items, aNode)}
+          ips={aIps}
+          current={aCur}
+          value={aIp}
+          onChange={setAIp}
+        />
+        <EndIpField
+          label={T('ip_of') + nodeLabel(items, bNode)}
+          ips={bIps}
+          current={bCur}
+          value={bIp}
+          onChange={setBIp}
+        />
       </div>
 
       <div className="muted" style={{ fontSize: 11.5, marginTop: 9 }}>
