@@ -1043,6 +1043,11 @@
   "act": [
    [
     400,
+    "cdn_remove_failed",
+    "removing from … did not finish: …"
+   ],
+   [
+    400,
     "delete_failed",
     "… — the link was kept; delete again when the node is reachable, or use force"
    ],
@@ -2005,6 +2010,11 @@
  },
  "node-del": {
   "bad": [
+   [
+    400,
+    "cdn_remove_failed",
+    "removing from … did not finish: … — the node and its tunnels were left as they are"
+   ],
    [
     400,
     "missing_field",

@@ -3986,9 +3986,38 @@ def api_node_del(d):
 def _node_del_impl(d):
     nid = d["id"]
     force = bool(d.get("wipe_force") or d.get("force"))
+    skip = bool(d.get("cdn_skip"))
     n = get_node(nid)
     if not n:
         raise _no_node()
+    with _reg_lock:
+        links = load_links()
+        mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
+        mine_ids = {L["id"] for L in mine}
+    with _CdnLinkLock(*mine_ids):
+        applied = [(lid, a) for lid in sorted(mine_ids) for a in [((get_link(lid) or {}).get("cdn") or {}).get("applied")] if a]
+        jr = _CdnJournal()
+        stripped = []
+        if applied and not skip:
+            prov, why = _cdn_strip_all(applied, jr)
+            if why:
+                return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed", "cdn": jr.items,
+                        "error": tx("پاک‌کردن از {0} انجام نشد: {1} — نود و تونل‌هایش دست نخوردند",
+                                  "removing from {0} did not finish: {1} — the node and its tunnels were left as they are",
+                                  CDN_NAMES[prov], why)}
+            stripped = [lid for lid, _a in applied]
+        elif applied:
+            for _lid, a in applied:
+                _cdn_untouched(jr, a)
+        try:
+            return _node_del_wipe(nid, n, force, mine, mine_ids, jr, applied if skip else [])
+        except BaseException:
+            for lid in stripped:
+                _cdn_mark_removed(lid)
+            raise
+
+
+def _node_del_wipe(nid, n, force, mine, mine_ids, jr, left):
     if force and _known_offline(n):
         node_ok = False
     else:
@@ -3999,10 +4028,6 @@ def _node_del_impl(d):
                       "پاک‌سازیِ سمتِ نود ناتمام ماند: {0} — اگر نود قطع است چند لحظه صبر کن تا وضعیتش قرمز شود بعد «پاک‌سازیِ اجباری» بزن.",
                       "the cleanup on the node did not finish: {0} — if the node is down, wait until it shows red, then use force",
                       r.get("error") or r.get("msg") or tx("خطا", "error"))
-    with _reg_lock:
-        links = load_links()
-        mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
-        mine_ids = {L["id"] for L in mine}
     _park_failed, _dropped = [], []
 
     def _del_peer_half(L):
@@ -4026,19 +4051,17 @@ def _node_del_impl(d):
                   "no orphan tunnel. Free disk space on the panel and try again.",
                   n["name"], tx("پاک شد", "was wiped") if node_ok else tx("پاک نشد (قطع بود)", "was not wiped (it was down)"),
                   len(_dropped), _park_failed)
-    with _CdnLinkLock(*mine_ids):
-        gone = [((get_link(lid) or {}).get("cdn") or {}).get("applied") for lid in mine_ids]
-        with _reg_lock, _pending_lock, _moved_lock, store_tx() as t:
-            for lid in mine_ids:
-                t.drop(_LINKS, lid)
-            t.drop(_NODES, nid)
-            t.pending(nid, ())
-            t.moved(nid, None)
-            t.raw(lambda p: _stats_forget(p, nid))
+    with _reg_lock, _pending_lock, _moved_lock, store_tx() as t:
+        for lid in mine_ids:
+            t.drop(_LINKS, lid)
+        t.drop(_NODES, nid)
+        t.pending(nid, ())
+        t.moved(nid, None)
+        t.raw(lambda p: _stats_forget(p, nid))
     with _tomb_lock:
         _tomb[nid] = time.time() + 20
-    down = {}
-    cdn_note = _cdn_left_note([x for a in gone if a for x in _cdn_remove(a, down=down)])
+    for _lid, a in left:
+        _cdn_left_by_operator(a)
     try:
         _forget_host(n["host"], n.get("ssh_port"))
     except Exception as e:
@@ -4046,8 +4069,7 @@ def _node_del_impl(d):
     with _pc_lock:
         _pc.pop(nid, None)
     _stats_drop(nid)
-    return {"ok": True, "node_wiped": node_ok,
-            **({"msg": tx("نود حذف شد{0}", "the node was deleted{0}", cdn_note)} if cdn_note else {})}
+    return {"ok": True, "node_wiped": node_ok, **({"cdn": jr.items} if jr.items else {})}
 
 
 def api_node_test(d):
@@ -6704,44 +6726,56 @@ def _delete_link_impl(d, h):
             else:
                 errs.append(tx("{0}: صفِ حذفِ معلق نوشته نشد", "{0}: the pending-delete queue was not written", nm))
 
-        act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1, DELETE_STEPS, more=False)
-        for nid, nm in ends:
-            n = get_node(nid)
-            if not n:
-                continue
-            if force and _known_offline(n):
-                defer(nid, nm)
-                continue
-            r = node_call(n, "delete", "POST", {"name": L["name"]})
-            if not r.get("ok"):
-                if not force:
-                    errs.append(tx("{0}: {1}", "{0}: {1}", nm, r.get("error")))
-                else:
-                    defer(nid, nm)
-        if errs:
-            _refresh_cache([L["a_node"], L["b_node"]])
-            return {"ok": False, "offer": "force", "code": "delete_failed", "msg": tx(
-                "{0} — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن",
-                "{0} — the link was kept; delete again when the node is reachable, or use force", tx_join("; ", errs))}
-        act_step(h, tx("برداشتنِ رکورد", "removing the record"), 2, DELETE_STEPS, stop=False)
         with _CdnLinkLock(L["id"]):
-            gone = (get_link(L["id"]) or L).get("cdn")
+            cdn = (get_link(L["id"]) or L).get("cdn") or {}
+            applied = cdn.get("applied")
+            strip = bool(applied) and not d.get("cdn_keep") and not d.get("cdn_skip")
+            n = DELETE_STEPS + strip
+            jr = _CdnJournal(h)
+            if strip:
+                act_step(h, tx("پاک‌کردن از {0}", "removing from {0}", CDN_NAMES[applied["provider"]]), 1, n)
+                prov, why = _cdn_strip_all([(L["id"], applied)], jr)
+                if why:
+                    return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
+                            "msg": tx("پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)}
+            elif applied and d.get("cdn_skip"):
+                _cdn_untouched(jr, applied)
+            elif applied:
+                jr.note(tx("رکورد و قانون در {0} نگه داشته شد", "the record and rule were kept in {0}", CDN_NAMES[applied["provider"]]), "info")
+            act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1 + strip, n, stop=not strip, more=False)
+            for nid, nm in ends:
+                node = get_node(nid)
+                if not node:
+                    continue
+                if force and _known_offline(node):
+                    defer(nid, nm)
+                    continue
+                r = node_call(node, "delete", "POST", {"name": L["name"]})
+                if not r.get("ok"):
+                    if not force:
+                        errs.append(tx("{0}: {1}", "{0}: {1}", nm, r.get("error")))
+                    else:
+                        defer(nid, nm)
+            if errs:
+                if strip:
+                    _cdn_mark_removed(L["id"])
+                _refresh_cache([L["a_node"], L["b_node"]])
+                return {"ok": False, "offer": "force", "code": "delete_failed", "msg": tx(
+                    "{0} — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن",
+                    "{0} — the link was kept; delete again when the node is reachable, or use force", tx_join("; ", errs))}
+            act_step(h, tx("برداشتنِ رکورد", "removing the record"), 2 + strip, n, stop=False)
             with _reg_lock, store_tx() as t:
                 t.drop(_LINKS, d["id"])
+        if applied and d.get("cdn_skip"):
+            _cdn_left_by_operator(applied)
         _tf_forget(L["a_node"], [L["name"]])
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
-        notes = []
         if deferred:
-            notes.append(tx("لینک حذف شد؛ پاک‌سازیِ سمتِ «{0}» وقتی نود برگشت خودکار انجام می‌شود",
-                            "the link was deleted; the cleanup on '{0}' runs by itself when the node is back",
-                            tx_join("»، «", deferred, "', '")))
-        if gone and gone.get("applied") and not d.get("cdn_keep"):
-            act_step(h, tx("پاک‌کردن از {0}", "removing from {0}", CDN_NAMES[gone["provider"]]), 2, DELETE_STEPS, stop=False)
-            left = _cdn_left_note(_cdn_remove(gone.get("applied")))
-            if left:
-                notes.append(tx("لینک حذف شد{0}", "the link was deleted{0}", left))
-        return {"ok": True, **({"msg": tx_join(" ", notes)} if notes else {})}
+            return {"ok": True, "msg": tx("لینک حذف شد؛ پاک‌سازیِ سمتِ «{0}» وقتی نود برگشت خودکار انجام می‌شود",
+                                          "the link was deleted; the cleanup on '{0}' runs by itself when the node is back",
+                                          tx_join("»، «", deferred, "', '"))}
+        return {"ok": True}
 
 
 REORDER_MAX = 256
@@ -9639,29 +9673,32 @@ def _cdn_uptodate(st):
 
 class _CdnJournal:
     def __init__(self, h=None):
-        self.h, self.undo = h, []
+        self.h, self.undo, self.items, self.fixed, self.lid = h, [], [], {}, ""
+        self.base = list((h or {}).get("cdn") or [])
+
+    def _show(self):
+        if self.h is not None:
+            with _act_lock:
+                self.h["cdn"] = self.base + self.items
 
     def note(self, text, st):
-        if self.h is None:
-            return
-        with _act_lock:
-            self.h["cdn"] = list(self.h.get("cdn") or []) + [{"t": text, "st": st}]
+        self.items.append({"t": text, "st": st})
+        self._show()
 
     def did(self, text, undo):
-        self.undo.append(undo)
+        self.undo.append((len(self.items), undo))
         self.note(text, "ok")
 
     def rollback(self):
         left = []
-        for fn in reversed(self.undo):
+        for i, fn in reversed(self.undo):
             try:
                 fn()
+                self.items[i] = dict(self.items[i], st="undo")
             except Exception as e:
                 left.append(_why(e))
         self.undo = []
-        if self.h is not None:
-            with _act_lock:
-                self.h["cdn"] = [dict(x, st="undo") if x["st"] == "ok" else x for x in self.h.get("cdn") or []]
+        self._show()
         return left
 
 
@@ -9954,47 +9991,114 @@ def _cdn_apply(want, cur, ctx, jr):
             raise
 
 
-def _cf_drop_rule(cred, zid, ref, host, phase=_CF_ORIGIN):
+def _cdn_strip_record(cred, st, jr):
+    prov, host, rid, lid = cred["prov"], st.get("host"), st.get("record_id"), jr.lid
+    if prov == "cf":
+        call, base, keep, key = _cf, "/zones/%s/dns_records" % st.get("zone_id"), _CF_KEEP, "result"
+    else:
+        call, base, keep, key = _ar, "/domains/%s/dns-records" % urllib.parse.quote(st.get("zone") or ""), _AR_KEEP, "data"
+    rec = (call(cred, "GET", "%s/%s" % (base, rid), ok404=True) or {}).get(key)
+    if not isinstance(rec, dict):
+        return
+    back = {k: rec[k] for k in keep if rec.get(k) is not None}
+    call(cred, "DELETE", "%s/%s" % (base, rid), ok404=True)
+
+    def undo():
+        jr.fixed[lid] = str((call(cred, "POST", base, back).get(key) or {}).get("id") or "")
+    jr.did(tx("رکوردِ {0} پاک شد", "record {0} removed", host), undo)
+
+
+def _cdn_strip_rule(cred, st, jr, ref, phase):
+    zid, host = st.get("zone_id"), st.get("host")
     rs = _cf_entry(cred, zid, phase)
     rule = _cf_rule(rs, ref)
     hosts = _cf_hosts(rule)
-    many = ref == _CF_SSL_REF or ref.startswith(_CF_SHARED)
+    ssl = ref == _CF_SSL_REF
+    many = ssl or ref.startswith(_CF_SHARED)
     if not rule or (many and host not in hosts):
         return
     path = _cf_rules_path(zid, rs, rule)
+    old = {k: rule[k] for k in _CF_RULE_KEEP if k in rule}
     left = hosts - {host} if many else set()
     if not left:
         _cf(cred, "DELETE", path, ok404=True)
-    elif ref == _CF_SSL_REF:
+        jr.did(tx("قانونِ SSL برای {0} پاک شد", "the SSL rule for {0} removed", host) if ssl
+               else tx("Origin Rule {0} پاک شد", "Origin Rule {0} removed", host),
+               lambda: _cf(cred, "POST", _cf_rules_path(zid, rs), old))
+        return
+    if ssl:
         _cf(cred, "PATCH", path, _cf_ssl_body(left))
+        said = tx("{0} از قانونِ SSL برداشته شد", "{0} taken out of the SSL rule", host)
     else:
         port = ((rule.get("action_parameters") or {}).get("origin") or {}).get("port")
         _cf(cred, "PATCH", path, _cf_rule_body(ref, left, port))
+        said = tx("{0} از قانونِ مشترکِ پورتِ {1} برداشته شد", "{0} taken out of the shared rule of port {1}", host, port)
+    jr.did(said, lambda: _cf(cred, "PATCH", path, old))
+
+
+def _cdn_strip(st, jr, keep=None):
+    prov, keep = st.get("provider"), keep or {}
+    shared = keep.get("provider") == prov and keep.get("zone") == st.get("zone")
+    same_host = shared and keep.get("host") == st.get("host")
+    cred = _cdn_cred(prov)
+    with _cdn_lock(prov, st.get("zone")):
+        if st.get("record_id") and not (shared and keep.get("record_id") == st.get("record_id")):
+            _cdn_strip_record(cred, st, jr)
+        ref = st.get("rule_ref") or ""
+        if ref and not (shared and keep.get("rule_ref") == ref and (not ref.startswith(_CF_SHARED) or same_host)):
+            _cdn_strip_rule(cred, st, jr, ref, _CF_ORIGIN)
+        if st.get("ssl_ref") and not (same_host and keep.get("ssl_ref")):
+            _cdn_strip_rule(cred, st, jr, _CF_SSL_REF, _CF_CONFIG)
+
+
+def _cdn_strip_all(pairs, jr):
+    prov = ""
+    try:
+        for lid, st in pairs:
+            jr.lid, prov = lid, st.get("provider")
+            _cdn_strip(st, jr)
+    except Exception as e:
+        why = _cdn_why(e)
+        left = jr.rollback()
+        for lid, rid in jr.fixed.items():
+            if rid:
+                with _reg_lock:
+                    store_edit(_LINKS, lid, lambda x, rid=rid: x["cdn"]["applied"].update(record_id=rid)
+                               if (x.get("cdn") or {}).get("applied") else None)
+        return prov, (tx_join("", [why, _cdn_undo_tail(prov, left)]) if left else why)
+    return prov, None
+
+
+def _cdn_mark_removed(lid):
+    def mark(x):
+        c = x.get("cdn")
+        if c:
+            why = tx("رکورد و قانونِ «{0}» در یک حذفِ ناتمام از {1} پاک شدند؛ حذفِ دوباره کار را تمام می‌کند",
+                     "the record and rule of '{0}' were removed from {1} during a delete that did not finish; deleting again finishes it",
+                     c.get("host"), CDN_NAMES[c["provider"]])
+            c.update(applied=None, ok=False, code="cdn_removed", error=str(why), error_en=str(_en(why)))
+    with _reg_lock:
+        store_edit(_LINKS, lid, mark)
+
+
+def _cdn_untouched(jr, st):
+    jr.note(tx("در {0} دست نخورد: {1}", "left untouched in {0}: {1}", CDN_NAMES[st["provider"]], st.get("host")), "info")
+
+
+def _cdn_left_by_operator(st):
+    log_event("warn", "cdn-left", tx("چیزی در CDN پاک نشد", "something was not removed from the CDN"),
+              tx("{0} · {1} — اپراتور بعد از خطای CDN فقط تونل را حذف کرد", "{0} · {1} — the operator deleted only the tunnel after a CDN error",
+                 CDN_NAMES[st["provider"]], st.get("host")))
 
 
 def _cdn_remove(st, keep=None, down=None):
     if not st:
         return []
-    prov, keep = st.get("provider"), keep or {}
-    shared = keep.get("provider") == prov and keep.get("zone") == st.get("zone")
+    prov = st.get("provider")
     if down and prov in down:
         return [tx("{0} ({1})", "{0} ({1})", st.get("host") or "?", down[prov])]
     try:
-        cred = _cdn_cred(prov)
-        with _cdn_lock(prov, st.get("zone")):
-            rid = st.get("record_id")
-            if rid and not (shared and keep.get("record_id") == rid):
-                if prov == "cf":
-                    _cf(cred, "DELETE", "/zones/%s/dns_records/%s" % (st.get("zone_id"), rid), ok404=True)
-                else:
-                    _ar(cred, "DELETE", "/domains/%s/dns-records/%s" % (urllib.parse.quote(st.get("zone") or ""), rid),
-                        ok404=True)
-            ref = st.get("rule_ref") or ""
-            kept = shared and keep.get("rule_ref") == ref and (not ref.startswith(_CF_SHARED) or keep.get("host") == st.get("host"))
-            if ref and not kept:
-                _cf_drop_rule(cred, st.get("zone_id"), ref, st.get("host"))
-            if st.get("ssl_ref") and not (shared and keep.get("ssl_ref") and keep.get("host") == st.get("host")):
-                _cf_drop_rule(cred, st.get("zone_id"), _CF_SSL_REF, st.get("host"), _CF_CONFIG)
+        _cdn_strip(st, _CdnJournal(), keep)
     except Exception as e:
         why = _cdn_why(e)
         if down is not None and _code(e) in _CDN_DOWN:
@@ -10107,7 +10211,7 @@ def _cdn_retry():
     down = set()
     for L in load_links():
         st = L.get("cdn")
-        if not st or st.get("ok") or st.get("provider") in down:
+        if not st or st.get("ok") or st.get("code") == "cdn_removed" or st.get("provider") in down:
             continue
         try:
             new, _left = _cdn_sync_link(L["id"])
