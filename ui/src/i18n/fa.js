@@ -11,6 +11,7 @@ import agent from './fa/agent.js'
 import settings from './fa/settings.js'
 import core from './fa/core.js'
 import coreform from './fa/coreform.js'
+import cdn from './fa/cdn.js'
 
 export const FA = {
   ...common,
@@ -26,6 +27,7 @@ export const FA = {
   ...settings,
   ...core,
   ...coreform,
+  ...cdn,
 }
 
 export function T(key) {

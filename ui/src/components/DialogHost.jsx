@@ -3,6 +3,7 @@ import { closeDialog, subscribeDialogs } from '../lib/dialog.js'
 import { restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
 import { reducedMotion } from '../lib/motion.js'
+import SwitchRow from './SwitchRow.jsx'
 import { T } from '../i18n/fa.js'
 
 let pressed = null
@@ -27,6 +28,7 @@ function Dialog({ entry, top }) {
   const safe = useRef(null)
   const veil = useRef(null)
   const [from, setFrom] = useState(null)
+  const [on, setOn] = useState(entry.toggle ? !!entry.toggle.on : false)
   const textId = useId()
 
   useEffect(() => {
@@ -77,15 +79,20 @@ function Dialog({ entry, top }) {
         onKeyDown={(e) => trapTab(e, box.current)}
       >
         <div className="mtext" id={textId}>
-          {entry.msg}
+          {typeof entry.msg === 'function' ? entry.msg(on) : entry.msg}
         </div>
+        {entry.toggle ? (
+          <div className="dlgsw-wrap">
+            <SwitchRow on={on} title={entry.toggle.title} note={entry.toggle.note} onToggle={() => setOn(!on)} />
+          </div>
+        ) : null}
         <div className="mbtns">
           {entry.kind === 'confirm' ? (
             <>
               <button
                 type="button"
                 className={'primary' + (entry.danger ? ' danger' : '')}
-                onClick={() => closeDialog(entry.id, true)}
+                onClick={() => closeDialog(entry.id, entry.toggle ? { on } : true)}
               >
                 {entry.yesLabel}
               </button>

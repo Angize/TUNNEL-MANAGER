@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Four routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore.',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, and every CDN route (cdn, cdn-set, cdn-test, cdn-zones, cdn-plan and cdn-sync).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -97,6 +97,7 @@ export const GROUPS = [
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
   ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
+  ['cdn', 'CDN automation', ['cdn', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-plan', 'cdn-sync']],
   [
     'updates',
     'Agent and core',
@@ -183,6 +184,11 @@ const TUNNEL_FIELDS = [
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
   ['ws_port_roll', 0, B, 'a fresh source port on every edge rotation'],
 ]
+
+const CDN_PARAM =
+  'build the CDN side too — {"provider": "cf" or "ar", "zone", "label", "replace", "share"}; ws transport only, not with ws_pool or ech. The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. replace=true takes over a record of that name that points somewhere else; share=true (cf only) joins one Origin Rule per port. A CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
+
+const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 
 export const DOCS = {
   summary: {
@@ -397,6 +403,7 @@ export const DOCS = {
       ['id', 0, N, 'manual tunnel id; empty = the first free id'],
       ['port', 0, N, 'tunnel port; empty = automatic (vxlan: 4789)'],
       ...TUNNEL_FIELDS,
+      ['cdn', 0, O, CDN_PARAM],
     ],
   },
   'edit-link': {
@@ -413,6 +420,8 @@ export const DOCS = {
       ['subnet', 0, S, 'new subnet'],
       ['port', 0, N, 'new port; not sent = keep the current one, empty = automatic'],
       ...TUNNEL_FIELDS,
+      ['cdn', 0, O, CDN_PARAM + ' Not sent = keep what the tunnel has; null = stop managing it (the panel removes its record and rule after the edit succeeds).'],
+      ['cdn_keep', 0, B, 'with cdn null: keep the DNS record and the Origin Rule in the CDN and only forget them in the panel (default false = remove them)'],
     ],
   },
   'rebuild-link': {
@@ -444,6 +453,7 @@ export const DOCS = {
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
+      ['cdn_keep', 0, B, 'keep the DNS record and the Origin Rule the panel made in the CDN (default false = remove them)'],
     ],
   },
   'stray-del': {
@@ -597,7 +607,7 @@ export const DOCS = {
 
   proxies: {
     t: 'List the proxies',
-    d: 'Proxies with their state and the nodes and tunnels that use them. The password is never returned (only has_pass).',
+    d: 'Proxies with their state and the nodes and tunnels that use them; cdn lists the CDN providers (cf, ar) whose API calls go through the proxy. The password is never returned (only has_pass).',
   },
   'proxy-add': {
     t: 'Add a proxy',
@@ -635,6 +645,50 @@ export const DOCS = {
     t: 'Delete a proxy',
     d: 'Deletes the proxy.',
     p: [['id', 1, S, 'proxy id']],
+  },
+
+  cdn: {
+    t: 'CDN keys',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). The key itself is never returned.',
+  },
+  'cdn-set': {
+    t: 'Save a CDN key',
+    d: 'Saves the key, the route or both for one provider and returns the same shape as cdn. A key that tunnels still use cannot be cleared.',
+    p: [
+      CDN_PROVIDER,
+      ['key', 0, S, 'Cloudflare API token (Bearer) or ArvanCloud API key; empty = keep the saved one'],
+      ['proxy_id', 0, S, 'reach the provider API through this proxy; empty = direct'],
+      ['clear', 0, B, 'delete the saved key'],
+    ],
+  },
+  'cdn-test': {
+    t: 'Test a CDN key',
+    d: 'Reads the account with the saved key: how many domains it sees (zones) and can use (usable), and on Cloudflare whether it may read DNS, zone settings and rules (checks). Write access is only known at the first build. via says whether the call went direct or through the proxy.',
+    p: [CDN_PROVIDER],
+  },
+  'cdn-zones': {
+    t: 'CDN domains',
+    d: "The account's domains with their plan (Cloudflare: free, pro, business, enterprise; ArvanCloud: a plan level), ok, and why when a domain cannot be used (paused, pending, initializing, moved or an ArvanCloud restriction).",
+    p: [CDN_PROVIDER],
+  },
+  'cdn-plan': {
+    t: 'Preview a CDN build',
+    d: 'Reads what the build would change and writes nothing: whether the record exists and where it points (record.mine, record.others); on Cloudflare the zone SSL mode, the Origin Rules (count, cap, mine, manual, shared ports, the port it would join), WebSockets, gRPC (null when unknown) and whether HTTP goes to HTTPS; on ArvanCloud HTTPS, the certificate, gRPC and the DDoS mode.',
+    p: [
+      CDN_PROVIDER,
+      ['zone', 1, S, 'domain'],
+      ['label', 1, S, 'one label; the host is label.zone'],
+      ['carrier', 1, S, 'ws, http or grpc'],
+      ['tls', 1, B, 'wss (TLS up to the CDN edge)'],
+      ['id', 0, S, 'tunnel id when editing, so its own record and rule count as mine'],
+      ['share', 0, B, 'cf only: one shared Origin Rule per port'],
+      ['port', 0, N, 'cf with share: the port the tunnel would use'],
+    ],
+  },
+  'cdn-sync': {
+    t: 'Retry the CDN side',
+    d: 'Makes the CDN match the tunnel again right now — the record to the current server IP, the rule to the current port. The panel also retries by itself every 15 minutes. The answer carries the new cdn state of the tunnel.',
+    p: [['id', 1, S, 'tunnel id']],
   },
 
   'agent-info': {

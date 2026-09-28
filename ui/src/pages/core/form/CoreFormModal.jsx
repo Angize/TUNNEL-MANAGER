@@ -7,7 +7,8 @@ import SettingsTab from './SettingsTab.jsx'
 import normalise from './normalise.js'
 import usePeerStatus from './usePeerStatus.js'
 import usePoolStatus from './usePoolStatus.js'
-import { collectCarrier, rotCollect, rotValidate } from './collect.js'
+import { cdnCollect, collectCarrier, rotCollect, rotValidate } from './collect.js'
+import { useCdnPlan } from './CdnAuto.jsx'
 import { createForm, editForm, nodeCpus, pickedIp } from './state.js'
 import { portErr } from './validate.js'
 import { apiGet, apiPost } from '../../../lib/api.js'
@@ -15,6 +16,7 @@ import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps, nodeItemsForEdit, nodeLabel } from '../../../lib/nodes.js'
+import { CDN_PROVIDERS } from '../../../lib/cdn.js'
 import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
@@ -35,6 +37,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const { subnetFree } = useSummary()
   const [nodes, setNodes] = useState(null)
   const [proxies, setProxies] = useState([])
+  const [cdnKeys, setCdnKeys] = useState(null)
   const [tab, setTab] = useState('ip')
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
@@ -76,13 +79,16 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     apiGet('proxies')
       .then((r) => alive && setProxies(r.proxies))
       .catch(() => {})
+    apiGet('cdn')
+      .then((r) => alive && setCdnKeys(r.cdn || {}))
+      .catch(() => alive && setCdnKeys({}))
     return () => {
       alive = false
     }
   }, [link])
 
   useEffect(() => {
-    if (!nodes || form) return
+    if (!nodes || !cdnKeys || form) return
     if (link) {
       setForm(editForm(cfg, link))
       return
@@ -91,8 +97,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     const next = createForm(cfg)
     next.aNode = online[0].id
     next.bNode = online[1].id
+    next.cdnMode = CDN_PROVIDERS.find((p) => cdnKeys[p] && cdnKeys[p].set) || 'manual'
     setForm(next)
-  }, [nodes, form, link, cfg])
+  }, [nodes, cdnKeys, form, link, cfg])
 
   const items = useMemo(() => {
     if (!nodes) return []
@@ -119,6 +126,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         form.SportRandom,
         form.Sprot,
         form.pool.pool,
+        form.cdnMode,
         aKey,
         bKey,
       ].join('|')
@@ -152,6 +160,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const peerLid = link && link.ip_rotate ? link.id : ''
   const poolLive = usePoolStatus(poolLid, !!(form && form.pool.pool))
   const peerLive = usePeerStatus(peerLid)
+  const cdnPlan = useCdnPlan(form, link)
 
   if (!form) {
     return modalLoading({
@@ -167,6 +176,12 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     a: { name: nodeLabel(items, form.aNode), cpus: nodeCpus(nodes, form.aNode) },
     b: { name: nodeLabel(items, form.bNode), cpus: nodeCpus(nodes, form.bNode) },
   }
+
+  const srvSide = form.Srv === 'b' ? 'b' : 'a'
+  const srvIps = srvSide === 'b' ? bIps : aIps
+  const srvStored = link ? link[srvSide + '_ip'] || '' : ''
+  const serverIp =
+    pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvStored || srvIps[0] || ''
 
   const onNode = (side, value) => {
     const ips = nodeIps(nodes, value)
@@ -218,6 +233,12 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     const carrierError = collectCarrier(form, cfg, body)
     if (carrierError) {
       await stop(carrierError, 'set')
+      return
+    }
+
+    const cdnError = cdnCollect(form, link, cdnPlan, body)
+    if (cdnError) {
+      await stop(cdnError, 'set')
       return
     }
 
@@ -274,7 +295,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
 
-    if (form.Tr === 'ws' && !form.port) body.port = '80'
+    if (form.Tr === 'ws' && form.cdnMode === 'manual' && !form.port) body.port = '80'
     else if (form.port) body.port = form.port
     else if (link && form.Tr !== 'raw') body.port = ''
 
@@ -347,6 +368,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
                 proxies={proxies}
                 sides={sides}
                 poolLive={{ ...poolLive, lid: poolLid }}
+                cdnKeys={cdnKeys}
+                serverIp={serverIp}
+                cdnPlan={cdnPlan}
                 patch={patch}
               />
             </SwapCascade>
