@@ -11,6 +11,7 @@ import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import useRiseIn from '../../lib/useRiseIn.js'
 import { useSettingsForm } from './SettingsForm.jsx'
 import { FIELDS, fieldRange, fieldStep } from './tuning.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -79,6 +80,8 @@ export default function ValuesTab({ active }) {
   const root = useRef(null)
   const shownTry = useRef(0)
   const { tried } = f
+
+  useRiseIn(root, !!f.form)
 
   useEffect(() => {
     if (tried === shownTry.current) return

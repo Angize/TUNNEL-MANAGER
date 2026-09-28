@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import useRiseIn from '../../lib/useRiseIn.js'
 import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -88,6 +89,7 @@ export default function AgentPage({ headless }) {
   const [coreReady, setCoreReady] = useState({ ready: false, missing: [] })
   const [wanted, setWanted] = useState('')
   const [delivery, setDelivery] = useState({ agent: 'push', core: 'push' })
+  const agList = useRef(null)
   const [query, setQuery] = useState('')
   const [agentMsg, setAgentMsg] = useState(null)
   const [gitMsg, setGitMsg] = useState(null)
@@ -171,6 +173,8 @@ export default function AgentPage({ headless }) {
       ),
     [reloadNodes, loadAgentInfo, loadCoreVersions, agentUnknown, coreUnknown]
   )
+
+  useRiseIn(agList, nodes !== null)
 
   const changeDelivery = async (kind, value) => {
     if (delivery[kind] === value) return
@@ -628,7 +632,7 @@ export default function AgentPage({ headless }) {
       <Toolbar value={query} placeholder={T('ag_search')} onSearch={setQuery} />
 
       <LoadBar on={nodes === null} value={nodesProgress} />
-      <div id="agList">
+      <div id="agList" ref={agList}>
         {nodes === null ? null : nodes.length ? (
           nodes.map((node) => (
             <AgentNodeRow

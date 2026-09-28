@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import useRiseIn from '../../lib/useRiseIn.js'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
 import { useSettingsForm } from './SettingsForm.jsx'
@@ -54,13 +55,16 @@ function ApiGroup({ f }) {
 export default function ApiTab({ active }) {
   const f = useSettingsForm()
   const [seen, setSeen] = useState(active)
+  const box = useRef(null)
+
+  useRiseIn(box, !!f.form)
 
   useEffect(() => {
     if (active) setSeen(true)
   }, [active])
 
   return (
-    <div className="stpage">
+    <div className="stpage" ref={box}>
       <LoadBar on={!f.form && !f.loadError} value={f.loaded} />
       {f.form ? <ApiGroup f={f} /> : <FormGate />}
 
