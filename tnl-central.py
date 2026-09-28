@@ -9883,9 +9883,9 @@ def _cdn_remove(st, keep=None):
                 else:
                     _ar(cred, "DELETE", "/domains/%s/dns-records/%s" % (urllib.parse.quote(st.get("zone") or ""), rid),
                         ok404=True)
-            ref = st.get("rule_ref")
+            ref = st.get("rule_ref") or ""
             kept = shared and keep.get("rule_ref") == ref and (not ref.startswith(_CF_SHARED) or keep.get("host") == st.get("host"))
-            if prov == "cf" and ref and not kept:
+            if ref and not kept:
                 _cf_drop_rule(cred, st.get("zone_id"), ref, st.get("host"))
     except Exception as e:
         return [tx("{0} ({1})", "{0} ({1})", st.get("host") or "?", _cdn_why(e))]
