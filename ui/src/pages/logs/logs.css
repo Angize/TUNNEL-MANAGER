@@ -325,7 +325,7 @@
 
 .lev.lev-new {
   animation: levin .22s var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 40ms);
+  animation-delay: var(--d, 0ms);
 }
 
 @media (prefers-reduced-motion: reduce) {

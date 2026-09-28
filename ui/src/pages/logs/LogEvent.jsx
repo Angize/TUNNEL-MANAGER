@@ -41,9 +41,8 @@ export default function LogEvent({ event, open, onToggle, born }) {
         level +
         (foldable ? ' tap' : '') +
         (foldable && open ? ' open' : '') +
-        (born === undefined ? '' : ' lev-new')
+        (born ? ' lev-new' : '')
       }
-      style={born === undefined ? undefined : { '--i': born }}
       {...interactive}
     >
       <span className="lev-bar" />
