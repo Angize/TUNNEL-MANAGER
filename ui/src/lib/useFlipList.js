@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import { EASE_OUT, gsap, reducedMotion } from './motion.js'
+import { gsap, reducedMotion } from './motion.js'
 import { riseIn } from './riseIn.js'
 
 const MOVE_S = 0.32
@@ -13,6 +13,11 @@ function place(el) {
     x: el.offsetLeft + (Number(gsap.getProperty(el, 'x')) || 0),
     y: el.offsetTop + (Number(gsap.getProperty(el, 'y')) || 0),
   }
+}
+
+function bottomOf(els) {
+  const last = els[els.length - 1]
+  return last ? last.offsetTop + last.offsetHeight + parseFloat(getComputedStyle(last).marginBottom) : 0
 }
 
 function ghostOut(root, g, slide) {
@@ -49,6 +54,7 @@ export default function useFlipList(
       plan.current = {
         where,
         height: box.current.offsetHeight,
+        top: box.current.getBoundingClientRect().top,
         ghosts: exit
           ? [...prev.els]
               .filter(([key]) => !next.has(key))
@@ -77,22 +83,27 @@ export default function useFlipList(
     if (!p) return
     const fresh = [...els.values()].filter((el) => !p.where.has(el))
     const slide = !fresh.length && p.ghosts.some((g) => g.slide)
-    const height = root.offsetHeight
+    const shift = p.top - root.getBoundingClientRect().top
+    const height = bottomOf([...els.values()])
+    gsap.killTweensOf(root)
     if (p.height > height) {
-      root.animate([{ minHeight: p.height + 'px' }, { minHeight: height + 'px' }], {
-        duration: MOVE_S * 1000,
-        delay: slide ? HOLD_S * 1000 : 0,
-        easing: EASE_OUT,
-        fill: 'backwards',
+      gsap.fromTo(root, { minHeight: p.height }, {
+        minHeight: height,
+        duration: MOVE_S,
+        delay: slide ? HOLD_S : 0,
+        ease: 'ease-out',
+        clearProps: 'minHeight',
       })
-    }
-    p.ghosts.forEach((g) => ghostOut(root, g, slide && g.slide))
+    } else gsap.set(root, { clearProps: 'minHeight' })
+    p.ghosts.forEach((g) => ghostOut(root, { ...g, y: g.y + shift }, slide && g.slide))
     for (const el of els.values()) {
       const was = p.where.get(el)
       if (!was) continue
       const dx = was.x - el.offsetLeft
-      const dy = was.y - el.offsetTop
-      if (!dx && !dy) continue
+      const dy = was.y - el.offsetTop + shift
+      const moving = gsap.getTweensOf(el).filter((t) => 'y' in t.vars)
+      if (!dx && !dy && !moving.length) continue
+      moving.forEach((t) => t.kill())
       el.classList.add('flipping')
       gsap.fromTo(el, { x: dx, y: dy }, {
         x: 0,
@@ -100,7 +111,6 @@ export default function useFlipList(
         duration: MOVE_S,
         delay: slide ? HOLD_S : 0,
         ease: 'ease-out',
-        overwrite: 'auto',
         clearProps: 'transform',
         onComplete: () => el.classList.remove('flipping'),
       })

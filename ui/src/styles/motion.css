@@ -6,6 +6,7 @@
 
 .flist {
   position: relative;
+  display: flow-root;
 }
 
 .flipping {
