@@ -201,30 +201,12 @@
   100% { transform: scale(1) }
 }
 
-@keyframes swring {
-  0% { box-shadow: var(--dsh), 0 0 0 0 color-mix(in srgb, var(--c-ring) 40%, transparent) }
-  100% { box-shadow: var(--dsh), 0 0 0 10px transparent }
-}
-
-@keyframes swringb {
-  0% { box-shadow: var(--dsh), 0 0 0 0 color-mix(in srgb, var(--c-ring) 40%, transparent) }
-  100% { box-shadow: var(--dsh), 0 0 0 10px transparent }
-}
-
 .swrow.flipa {
-  animation: swona .34s var(--ease-out), swring .6s var(--ease-out);
+  animation: swona .34s var(--ease-out);
 }
 
 .swrow.flipb {
-  animation: swonb .34s var(--ease-out), swringb .6s var(--ease-out);
-}
-
-.swrow {
-  --c-ring: var(--slate);
-}
-
-.swrow[aria-checked='true'] {
-  --c-ring: var(--ok);
+  animation: swonb .34s var(--ease-out);
 }
 
 .tglsw::after {
