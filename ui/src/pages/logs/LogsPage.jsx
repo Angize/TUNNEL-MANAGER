@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
-import { stepFor } from '../../lib/riseIn.js'
+import { onScreen, stepFor } from '../../lib/riseIn.js'
 import Reveal from '../../components/Reveal.jsx'
 import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
@@ -26,15 +26,8 @@ const PAGE_SIZE = 200
 const SEEN_KEY = 'tnl_logs_seen'
 const BORN_STEP_MS = 40
 const BORN_SPAN_MS = 200
-const BORN_ROW_PX = 40
 const BORN_MS = 600
-const NO_BORN = new Map()
-
-function bornMap(events) {
-  const rows = events.slice(0, Math.ceil(innerHeight / BORN_ROW_PX))
-  const step = stepFor(rows.length, BORN_STEP_MS, BORN_SPAN_MS)
-  return new Map(rows.map((e, i) => [e, Math.round(i * step)]))
-}
+const NO_BORN = new Set()
 
 function idKey(id) {
   const [a, b] = String(id || '').split('-')
@@ -106,7 +99,7 @@ export default function LogsPage() {
     newest.current = newestId(r.events, before || [0, 0])
     if (before) {
       const fresh = r.events.filter((e) => idAfter(idKey(e.id), before))
-      if (fresh.length) setBorn(bornMap(fresh))
+      if (fresh.length) setBorn(new Set(fresh))
     }
     setEvents(r.events)
     setHiddenOut(r.hidden_out)
@@ -133,6 +126,13 @@ export default function LogsPage() {
     if (!born.size) return undefined
     const timer = setTimeout(() => setBorn(NO_BORN), BORN_MS)
     return () => clearTimeout(timer)
+  }, [born])
+
+  useLayoutEffect(() => {
+    if (!born.size || !listBox.current) return
+    const rows = [...listBox.current.querySelectorAll('.loglist > .lev-new')].filter(onScreen)
+    const step = stepFor(rows.length, BORN_STEP_MS, BORN_SPAN_MS)
+    rows.forEach((el, i) => el.style.setProperty('--d', Math.round(i * step) + 'ms'))
   }, [born])
 
   const keys = useMemo(() => {
@@ -208,7 +208,7 @@ export default function LogsPage() {
   const remaining = visible.length - shown.length
 
   const more = (e) => {
-    if (e.type === 'click' && e.detail) setBorn(bornMap(visible.slice(show, show + PAGE_SIZE)))
+    if (e.type === 'click' && e.detail) setBorn(new Set(visible.slice(show, show + PAGE_SIZE)))
     setShow(show + PAGE_SIZE)
   }
 
@@ -292,7 +292,7 @@ export default function LogsPage() {
                       key={key}
                       event={event}
                       open={!!openIds[key]}
-                      born={born.get(event)}
+                      born={born.has(event)}
                       onToggle={() => setOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))}
                     />
                   )
