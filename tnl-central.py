@@ -7220,7 +7220,7 @@ def _edit_link_impl(d, h):
             if st and not _cdn_uptodate(st):
                 _cdn_step(h, want["provider"], EDIT_STEPS, EDIT_STEPS + 1)
                 note = _cdn_outcome(tx("تغییر ذخیره شد", "the change was saved"), *_cdn_sync_link(L["id"], h))
-        elif was and was[0]:
+        elif was and was[0] and not d.get("cdn_keep"):
             note = _cdn_left_note(_cdn_remove(was[0].get("applied")))
     return {"ok": True, "name": new_name, **({"msg": note} if note else {})}
 
@@ -9574,7 +9574,7 @@ def _cdn_prepare(d, L):
                   "the CDN setup does not work with ECH yet — turn ECH off or set the CDN up by hand")
     out = dict(d, ws_host=want["host"])
     edge = str((d["edge_ip"] if "edge_ip" in d else (L or {}).get("edge_ip")) or "").strip()
-    if not edge or (cur and "edge_ip" not in d and edge == cur.get("host")):
+    if not edge or (cur and edge == cur.get("host")):
         out["edge_ip"] = want["host"]
     return out, want
 
