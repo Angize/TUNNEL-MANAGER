@@ -4,30 +4,28 @@ import { T } from '../i18n/fa.js'
 import { num } from '../lib/num.js'
 import { useSummary } from '../state/SummaryContext.jsx'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
-import { CASCADE, onScreen } from '../lib/riseIn.js'
+import { CASCADE, onScreen, stepFor } from '../lib/riseIn.js'
 import './tabpager.css'
 
 const SETTLE_MS = 120
 const TRAIL_PX = 30
 const TRAIL_MS = 340
 const TRAIL_STEP_MS = 40
-const TRAIL_MAX = 8
+const TRAIL_SPAN_MS = 280
 const HAS_SCROLLEND = typeof window !== 'undefined' && 'onscrollend' in window
 
 function trail(pane, dir) {
   if (!pane) return
-  const cards = [...pane.querySelectorAll(CASCADE)]
-  cards
-    .filter(onScreen)
-    .slice(0, TRAIL_MAX)
-    .forEach((el, i) => {
-      el.animate([{ transform: 'translateX(' + TRAIL_PX * dir + 'px)' }, { transform: 'none' }], {
-        duration: TRAIL_MS,
-        delay: 80 + i * TRAIL_STEP_MS,
-        easing: EASE_OUT,
-        fill: 'backwards',
-      })
+  const cards = [...pane.querySelectorAll(CASCADE)].filter(onScreen)
+  const step = stepFor(cards.length, TRAIL_STEP_MS, TRAIL_SPAN_MS)
+  cards.forEach((el, i) => {
+    el.animate([{ transform: 'translateX(' + TRAIL_PX * dir + 'px)' }, { transform: 'none' }], {
+      duration: TRAIL_MS,
+      delay: 80 + i * step,
+      easing: EASE_OUT,
+      fill: 'backwards',
     })
+  })
 }
 
 function pageTop(el) {

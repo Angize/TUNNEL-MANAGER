@@ -6,7 +6,11 @@ import { coarsePointer, restoreFocus, trapTab } from '../lib/focusTrap.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 import { formRows } from '../lib/formRows.js'
+import { stepFor } from '../lib/riseIn.js'
 import { SwapRoot } from '../lib/revealSwap.js'
+
+const ROW_STEP_MS = 30
+const ROW_SPAN_MS = 330
 
 const open = []
 let bodyOverflow = ''
@@ -16,11 +20,12 @@ function cascadeIn(el, from) {
   const body = el.querySelector('.mbody')
   const bottom = el.getBoundingClientRect().bottom
   const rows = body ? formRows(body).filter((c) => c.getBoundingClientRect().top < bottom) : []
-  const parts = [...(from ? [] : [el.querySelector('.msticky')]), ...rows.slice(0, 10), el.querySelector('.mfoot')]
-  parts.filter(Boolean).forEach((part, i) => {
+  const parts = [...(from ? [] : [el.querySelector('.msticky')]), ...rows, el.querySelector('.mfoot')].filter(Boolean)
+  const step = stepFor(parts.length, ROW_STEP_MS, ROW_SPAN_MS)
+  parts.forEach((part, i) => {
     part.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], {
       duration: 240,
-      delay: 80 + i * 30,
+      delay: 80 + i * step,
       easing: EASE_OUT,
       fill: 'backwards',
     })

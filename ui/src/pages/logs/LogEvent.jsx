@@ -43,7 +43,7 @@ export default function LogEvent({ event, open, onToggle, born }) {
         (foldable && open ? ' open' : '') +
         (born === undefined ? '' : ' lev-new')
       }
-      style={born === undefined ? undefined : { '--i': born }}
+      style={born === undefined ? undefined : { '--d': born + 'ms' }}
       {...interactive}
     >
       <span className="lev-bar" />

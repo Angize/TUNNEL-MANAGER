@@ -4,6 +4,7 @@ import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
+import { stepFor } from '../../lib/riseIn.js'
 import Reveal from '../../components/Reveal.jsx'
 import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
@@ -23,9 +24,17 @@ import './logs.css'
 
 const PAGE_SIZE = 200
 const SEEN_KEY = 'tnl_logs_seen'
-const BORN_MAX = 6
+const BORN_STEP_MS = 40
+const BORN_SPAN_MS = 200
+const BORN_ROW_PX = 40
 const BORN_MS = 600
 const NO_BORN = new Map()
+
+function bornMap(events) {
+  const rows = events.slice(0, Math.ceil(innerHeight / BORN_ROW_PX))
+  const step = stepFor(rows.length, BORN_STEP_MS, BORN_SPAN_MS)
+  return new Map(rows.map((e, i) => [e, Math.round(i * step)]))
+}
 
 function idKey(id) {
   const [a, b] = String(id || '').split('-')
@@ -96,8 +105,8 @@ export default function LogsPage() {
     const before = newest.current
     newest.current = newestId(r.events, before || [0, 0])
     if (before) {
-      const fresh = r.events.filter((e) => idAfter(idKey(e.id), before)).slice(0, BORN_MAX)
-      if (fresh.length) setBorn(new Map(fresh.map((e, i) => [e, i])))
+      const fresh = r.events.filter((e) => idAfter(idKey(e.id), before))
+      if (fresh.length) setBorn(bornMap(fresh))
     }
     setEvents(r.events)
     setHiddenOut(r.hidden_out)
@@ -199,7 +208,7 @@ export default function LogsPage() {
   const remaining = visible.length - shown.length
 
   const more = (e) => {
-    if (e.type === 'click' && e.detail) setBorn(new Map(visible.slice(show, show + BORN_MAX).map((ev, i) => [ev, i])))
+    if (e.type === 'click' && e.detail) setBorn(bornMap(visible.slice(show, show + PAGE_SIZE)))
     setShow(show + PAGE_SIZE)
   }
 
