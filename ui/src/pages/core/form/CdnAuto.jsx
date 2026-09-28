@@ -86,8 +86,10 @@ function CfSteps({ plan, host, port, tls, carrier }) {
   const steps = []
 
   if (plan.ssl) {
-    if (plan.ssl === 'flexible') {
+    if (plan.ssl === 'flexible' && !plan.ssl_auto) {
       steps.push(<Step key="ssl" tone="ok" title={T('cdn_ssl_ok')} note={T('cdn_ssl_ok_d')} chip={T('cdn_ready')} />)
+    } else if (plan.ssl === 'flexible') {
+      steps.push(<Step key="ssl" tone="warn" title={T('cdn_ssl_ok')} note={T('cdn_ssl_auto_only')} chip={T('cdn_will_change')} />)
     } else {
       steps.push(
         <Step
