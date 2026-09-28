@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import useRiseIn from '../../lib/useRiseIn.js'
 import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
@@ -20,6 +21,7 @@ import { alertBox, askBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import { MAX_POLL_FAILURES, setPageRefresh } from '../../lib/poll.js'
+import usePolledData from '../../lib/usePolledData.js'
 import './agent.css'
 
 const STAGE_POLL_MS = 400
@@ -87,10 +89,7 @@ export default function AgentPage({ headless }) {
   const [coreReady, setCoreReady] = useState({ ready: false, missing: [] })
   const [wanted, setWanted] = useState('')
   const [delivery, setDelivery] = useState({ agent: 'push', core: 'push' })
-  const [nodes, setNodes] = useState(null)
-  const [nodesProgress, setNodesProgress] = useState(0)
-  const nodesSeen = useRef(false)
-  const nodesTurn = useRef(0)
+  const agList = useRef(null)
   const [query, setQuery] = useState('')
   const [agentMsg, setAgentMsg] = useState(null)
   const [gitMsg, setGitMsg] = useState(null)
@@ -99,12 +98,9 @@ export default function AgentPage({ headless }) {
   const [open, setOpen] = useState({ agent: false, core: false })
   const agentFile = useRef(null)
   const coreFile = useRef(null)
-  const queryRef = useRef(query)
   const mounted = useRef(true)
   const staging = useRef(false)
   const adoptStage = useRef(null)
-
-  queryRef.current = query
 
   const loadAgentInfo = useCallback(async () => {
     let info
@@ -136,28 +132,19 @@ export default function AgentPage({ headless }) {
     })
   }, [])
 
-  const loadNodes = useCallback(async () => {
-    const asked = queryRef.current
-    const mine = ++nodesTurn.current
-    const report = nodesSeen.current
-      ? undefined
-      : (p) => {
-          if (mine === nodesTurn.current) setNodesProgress(p)
-        }
-    let r
-    try {
-      r = await apiGet('nodes?q=' + encodeURIComponent(asked), report)
-    } catch {
-      return
-    }
-    if (asked !== queryRef.current) return
-    nodesSeen.current = true
-    setNodes(r.nodes)
-  }, [])
+  const loadNodes = useCallback(
+    async (onProgress) => {
+      const r = await apiGet('nodes?q=' + encodeURIComponent(query), onProgress)
+      return r.nodes
+    },
+    [query]
+  )
+
+  const [nodes, reloadNodes, nodesProgress] = usePolledData(loadNodes, query, false)
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadAgentInfo(), loadCoreVersions(), loadNodes()])
-  }, [loadAgentInfo, loadCoreVersions, loadNodes])
+    await Promise.all([loadAgentInfo(), loadCoreVersions(), reloadNodes()])
+  }, [loadAgentInfo, loadCoreVersions, reloadNodes])
 
   const push = usePushJob({ onSettled: refreshAll })
 
@@ -182,18 +169,12 @@ export default function AgentPage({ headless }) {
   useEffect(
     () =>
       setPageRefresh(() =>
-        Promise.all([loadNodes(), agentUnknown && loadAgentInfo(), coreUnknown && loadCoreVersions()])
+        Promise.all([reloadNodes(), agentUnknown && loadAgentInfo(), coreUnknown && loadCoreVersions()])
       ),
-    [loadNodes, loadAgentInfo, loadCoreVersions, agentUnknown, coreUnknown]
+    [reloadNodes, loadAgentInfo, loadCoreVersions, agentUnknown, coreUnknown]
   )
 
-  const nodesAsked = useRef(query)
-
-  useEffect(() => {
-    if (nodesAsked.current === query) return
-    nodesAsked.current = query
-    loadNodes()
-  }, [query, loadNodes])
+  useRiseIn(agList, nodes !== null)
 
   const changeDelivery = async (kind, value) => {
     if (delivery[kind] === value) return
@@ -651,7 +632,7 @@ export default function AgentPage({ headless }) {
       <Toolbar value={query} placeholder={T('ag_search')} onSearch={setQuery} />
 
       <LoadBar on={nodes === null} value={nodesProgress} />
-      <div id="agList">
+      <div id="agList" ref={agList}>
         {nodes === null ? null : nodes.length ? (
           nodes.map((node) => (
             <AgentNodeRow

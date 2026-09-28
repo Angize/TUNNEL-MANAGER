@@ -22,7 +22,7 @@ export default function SwitchRow({ on, title, note, locked, onToggle }) {
         {note ? <small id={id + 'd'}>{note}</small> : null}
       </span>
       <span className={'tglsw' + (on ? ' on' : '')} aria-hidden="true">
-        <KnobCheck />
+        <KnobCheck on={on} />
       </span>
     </div>
   )

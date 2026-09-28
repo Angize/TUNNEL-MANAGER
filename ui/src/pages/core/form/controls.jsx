@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { Children, useLayoutEffect, useRef } from 'react'
 import Icon from '../../../components/Icon.jsx'
 
 export function SegOpt({ on, title, sub, onClick }) {
@@ -34,13 +34,16 @@ function frameTo(box, frame, pick, glide) {
   }
 }
 
-function useSlidingFrame(pick) {
+function useSlidingFrame(pick, children) {
   const box = useRef(null)
   const frame = useRef(null)
+  const options = Children.toArray(children)
+  const at = options.findIndex((c) => c.props && c.props.on)
+  const count = options.length
 
   useLayoutEffect(() => {
     frameTo(box.current, frame.current, pick, true)
-  })
+  }, [pick, at, count])
 
   useLayoutEffect(() => {
     const b = box.current
@@ -54,7 +57,7 @@ function useSlidingFrame(pick) {
 }
 
 export function Seg2({ label, style, children }) {
-  const [box, frame] = useSlidingFrame(':scope > .segopt.on')
+  const [box, frame] = useSlidingFrame(':scope > .segopt.on', children)
   return (
     <div className="seg2" role="radiogroup" aria-label={label} style={style} ref={box}>
       <i className="pframe" ref={frame} aria-hidden="true" />
@@ -64,7 +67,7 @@ export function Seg2({ label, style, children }) {
 }
 
 export function ScrollSeg({ label, children }) {
-  const [box, frame] = useSlidingFrame(':scope > .segopt.on')
+  const [box, frame] = useSlidingFrame(':scope > .segopt.on', children)
   return (
     <div className="seg2 segwrap" role="radiogroup" aria-label={label} ref={box}>
       <i className="pframe" ref={frame} aria-hidden="true" />
@@ -74,7 +77,7 @@ export function ScrollSeg({ label, children }) {
 }
 
 export function Tiles({ p3, label, children }) {
-  const [grid, frame] = useSlidingFrame(':scope > .ptile.on')
+  const [grid, frame] = useSlidingFrame(':scope > .ptile.on', children)
   return (
     <div className={'pgrid' + (p3 ? ' p3' : '')} role="radiogroup" aria-label={label} ref={grid}>
       <i className="pframe" ref={frame} aria-hidden="true" />
