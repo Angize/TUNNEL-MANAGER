@@ -1,4 +1,4 @@
-const WRAPS = ['ctabp', 'rv', 'rvb', 'swz']
+const WRAPS = ['ctabp', 'rv', 'rvb']
 
 export function formRows(root, wraps) {
   const out = []
@@ -8,7 +8,7 @@ export function formRows(root, wraps) {
       if (c.classList.contains('ctabp') && !c.classList.contains('on')) continue
       if (depth < 5 && (WRAPS.some((k) => c.classList.contains(k)) || (!c.className && c.children.length > 1))) {
         if (wraps) wraps.push(c)
-        walk(c, c.classList.contains('swz') ? depth : depth + 1)
+        walk(c, depth + 1)
       } else out.push(c)
     }
   }
