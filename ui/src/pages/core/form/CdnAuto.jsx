@@ -85,7 +85,27 @@ function CfSteps({ plan, host, port, tls, carrier }) {
   const rules = plan.rules || {}
   const steps = []
 
-  if (plan.ssl) {
+  const hostSsl = plan.ssl_rule || null
+  if (tls && plan.ssl_mode === 'host' && hostSsl) {
+    const zoneNow = TF('cdn_ssl_host_zone', { z: plan.zone, s: sslWord(plan.ssl) || '—' })
+    if (hostSsl.mine) {
+      steps.push(<Step key="ssl" tone="ok" title={T('cdn_ssl_host_t')} note={zoneNow} chip={T('cdn_ready')} />)
+    } else if (hostSsl.cap && hostSsl.count >= hostSsl.cap) {
+      steps.push(
+        <Step
+          key="ssl"
+          tone="bad"
+          title={T('cdn_ssl_host_full')}
+          note={TF('cdn_ssl_host_full_d', { n: hostSsl.count, cap: hostSsl.cap })}
+          chip={T('cdn_blocker')}
+        />
+      )
+    } else {
+      steps.push(
+        <Step key="ssl" tone="new" title={T('cdn_ssl_host_t')} note={T('cdn_ssl_host_d') + ' ' + zoneNow} chip={T('cdn_will_make')} />
+      )
+    }
+  } else if (plan.ssl) {
     if (plan.ssl === 'flexible' && !plan.ssl_auto) {
       steps.push(<Step key="ssl" tone="ok" title={T('cdn_ssl_ok')} note={T('cdn_ssl_ok_d')} chip={T('cdn_ready')} />)
     } else if (plan.ssl === 'flexible') {
