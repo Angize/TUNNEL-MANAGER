@@ -426,11 +426,11 @@
 
 .wkgrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 12px;
 }
 
 .wkgrid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: auto auto auto;
 }
 
