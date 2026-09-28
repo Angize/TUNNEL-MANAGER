@@ -246,6 +246,11 @@
   gap: 9px;
   align-items: flex-start;
   padding: 10px 12px;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.cdnplan.stale .cdnstep {
+  opacity: .4;
 }
 
 .cdnstep + .cdnstep {

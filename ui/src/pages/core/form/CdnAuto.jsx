@@ -292,23 +292,25 @@ function useZones(provider, enabled) {
 }
 
 function Plan({ state, provider, host, target, form, patch, tls }) {
-  if (state.error) return <WarnCap text={state.error} />
   if (!state.plan) {
-    return state.loading ? (
-      <div className="cdnplan">
-        <div className="cdnwait">
-          <span className="bspin ink sm" />
-          {T('cdn_plan_wait')}
+    if (state.loading) {
+      return (
+        <div className="cdnplan" aria-busy="true">
+          <div className="cdnwait">
+            <span className="bspin ink sm" />
+            {T('cdn_plan_wait')}
+          </div>
         </div>
-      </div>
-    ) : null
+      )
+    }
+    return state.error ? <WarnCap text={state.error} /> : null
   }
   const plan = state.plan
   return (
-    <div className={'cdnplan' + (state.loading ? ' stale' : '')}>
+    <div className={'cdnplan' + (state.loading ? ' stale' : '')} aria-busy={state.loading ? 'true' : 'false'}>
       <div className="cdnph">
-        <Icon name="list" />
-        <b>{TF('cdn_plan_head', { p: providerName(provider) })}</b>
+        {state.loading ? <span className="bspin ink sm" /> : <Icon name="list" />}
+        <b>{state.loading ? T('cdn_plan_wait') : TF('cdn_plan_head', { p: providerName(provider) })}</b>
       </div>
       <RecordStep plan={plan} host={host} target={target} form={form} patch={patch} />
       {provider === 'cf' ? (
