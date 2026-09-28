@@ -9,6 +9,8 @@ import { rotIntervalItems } from './presets.js'
 import { rotMulti } from './gates.js'
 import { nodeLabel, seedIp } from './state.js'
 import { toast } from '../../../lib/toast.js'
+import { NO_AUTOFIX } from '../../../lib/form.js'
+import { subnetForBase, subnetRangeItems } from '../../../lib/subnet.js'
 import { T } from '../../../i18n/fa.js'
 
 function Side({ form, side, ips, stored, patch }) {
@@ -57,15 +59,40 @@ function Side({ form, side, ips, stored, patch }) {
   )
 }
 
+function SubnetExtra({ form, link, patch }) {
+  if (form.range === 'custom') {
+    return (
+      <Field label={T('custom_subnet')}>
+        <input
+          className={link ? 'mono' : undefined}
+          {...NO_AUTOFIX}
+          placeholder={link ? undefined : T('ph_subnet')}
+          value={form.subnet}
+          onChange={(e) => patch({ subnet: e.target.value })}
+        />
+      </Field>
+    )
+  }
+  if (!link) return null
+  return (
+    <div className="muted" style={{ fontSize: 11, margin: '6px 2px 0' }}>
+      {T('core_subnet_lbl') + ': '}
+      <b className="mono">{subnetForBase('core', link.tunnel_id, form.range) || '—'}</b>
+    </div>
+  )
+}
+
 export default function IpsTab({
   form,
   cfg,
+  link,
   items,
   aIps,
   bIps,
   storedA,
   storedB,
   peer,
+  subnetFree,
   patch,
   onNode,
 }) {
@@ -161,6 +188,16 @@ export default function IpsTab({
           onClick={() => patch({ Srv: 'b' })}
         />
       </Seg2>
+
+      <Field label={T('core_range_lbl')}>
+        <Select
+          items={subnetRangeItems(subnetFree)}
+          value={form.range}
+          placeholder={T('range')}
+          onChange={(v) => patch({ range: v })}
+        />
+      </Field>
+      <SubnetExtra form={form} link={link} patch={patch} />
     </>
   )
 }
