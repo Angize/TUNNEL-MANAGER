@@ -51,7 +51,7 @@ export default function normalise(form, cfg, aIps, bIps) {
   if (at('Tr') === 'raw') {
     set('port', '')
     set('portAuto', false)
-  } else if (at('Tr') === 'ws' && (at('cdnMode') === 'manual' || form.pool.pool || at('Ech'))) {
+  } else if (at('Tr') === 'ws' && (at('cdnMode') === 'manual' || form.pool.pool || (at('Ech') && at('cdnMode') !== 'cf'))) {
     if (at('port') === '' || (at('portAuto') && at('port') !== '80')) {
       set('port', '80')
       set('portAuto', true)
