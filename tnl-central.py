@@ -8020,8 +8020,8 @@ EV_TYPES = (
     ("ech-stale", "ech", tx("کلیدِ ECH تازه خوانده نشد", "ECH key not read fresh")),
     ("ech-rebuild", "ech", tx("بازسازیِ سریعِ ECH", "quick ECH rebuild")),
     ("ech-saved", "ech", tx("ذخیرهٔ کلیدِ خودترمیمِ هسته", "self-healed core key saved")),
-    ("cdn-drift", "cdn", tx("CDNِ تونل هماهنگ نشد", "a tunnel's CDN is not in sync")),
-    ("cdn-fixed", "cdn", tx("CDNِ تونل دوباره هماهنگ شد", "a tunnel's CDN is back in sync")),
+    ("cdn-drift", "cdn", tx("CDN تونل هماهنگ نشد", "a tunnel's CDN is not in sync")),
+    ("cdn-fixed", "cdn", tx("CDN تونل دوباره هماهنگ شد", "a tunnel's CDN is back in sync")),
     ("cdn-left", "cdn", tx("چیزی در CDN پاک نشد", "something was not removed from the CDN")),
     ("cfg-clamped", "cfg", tx("تنظیمی که کامل اعمال نشد", "setting not fully applied")),
     ("auth-in", "auth", tx("ورودِ موفق به پنل", "panel login")),
@@ -9795,7 +9795,7 @@ def _cf_apply(cred, want, cur, ctx, jr):
     rule = _cf_rule(rs, ref)
     cap = CF_RULE_CAPS.get(z["plan"])
     if not rule and cap and len((rs or {}).get("rules") or []) >= cap:
-        raise Bad("cdn_rules_full", "جای Origin Ruleِ تازه در «{0}» نیست — {1} از {1} قانونِ پلن پر است؛ یکی را پاک کن یا «قانونِ مشترکِ پورت» را روشن کن",
+        raise Bad("cdn_rules_full", "جای Origin Rule تازه در «{0}» نیست — {1} از {1} قانونِ پلن پر است؛ یکی را پاک کن یا «قانونِ مشترکِ پورت» را روشن کن",
                   "there is no room for another Origin Rule on '{0}' — {1} of {1} rules of the plan are used; delete one or share the port rule",
                   z["name"], cap)
     recs = got["recs"]
@@ -9883,7 +9883,7 @@ def _ar_apply(cred, want, cur, ctx, jr):
         cert = got["cert"]
         if not cert.get("ssl_status"):
             _ar(cred, "PATCH", "/domains/%s/ssl" % dz, {"ssl_status": True})
-            jr.did(tx("HTTPSِ لبه روشن شد", "edge HTTPS turned on"),
+            jr.did(tx("HTTPS لبه روشن شد", "edge HTTPS turned on"),
                    lambda: _ar(cred, "PATCH", "/domains/%s/ssl" % dz, {"ssl_status": False}))
         if not cert.get("certificates") and not cert.get("orders"):
             _ar(cred, "POST", "/domains/%s/ssl/issue" % dz)
@@ -9892,7 +9892,7 @@ def _ar_apply(cred, want, cur, ctx, jr):
     if ctx["carrier"] == "grpc":
         if not got["lb"].get("grpc_status"):
             _ar(cred, "PATCH", "/domains/%s/load-balancers/settings" % dz, {"grpc_status": True})
-            jr.did(tx("gRPCِ «{0}» روشن شد", "gRPC on '{0}' turned on", z["name"]),
+            jr.did(tx("gRPC «{0}» روشن شد", "gRPC on '{0}' turned on", z["name"]),
                    lambda: _ar(cred, "PATCH", "/domains/%s/load-balancers/settings" % dz, {"grpc_status": False}))
     return {"provider": "ar", "zone": z["name"], "host": host, "record_id": rid, "ip": ip, "port": port,
             "tls": ctx["tls"], "carrier": ctx["carrier"]}
@@ -10020,10 +10020,10 @@ def _cdn_sync_link(lid, h=None):
         finally:
             _cdn_unclaim(st["host"], lid)
     if not new["ok"] and (st.get("ok") or not st.get("error")):
-        log_event("warn", "cdn-drift", tx("CDNِ تونلِ «{0}» هماهنگ نشد", "the CDN of tunnel '{0}' is not in sync", L["name"]),
+        log_event("warn", "cdn-drift", tx("CDN تونلِ «{0}» هماهنگ نشد", "the CDN of tunnel '{0}' is not in sync", L["name"]),
                   Tx(new["error"], new["error_en"]))
     elif new["ok"] and st.get("error"):
-        log_event("ok", "cdn-fixed", tx("CDNِ تونلِ «{0}» دوباره هماهنگ شد", "the CDN of tunnel '{0}' is back in sync", L["name"]))
+        log_event("ok", "cdn-fixed", tx("CDN تونلِ «{0}» دوباره هماهنگ شد", "the CDN of tunnel '{0}' is back in sync", L["name"]))
     return new, _cdn_left_note(left)
 
 
@@ -10165,8 +10165,7 @@ def api_cdn_plan(d):
     z = _cdn_zone(cred, want["zone"])
     L = get_link(str(d.get("id") or "")) if d.get("id") else None
     cur = ((L or {}).get("cdn") or {}).get("applied")
-    same = cur if _cdn_same(cur, want) else {}
-    rid = same.get("record_id", "")
+    rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
     carrier = str(d.get("carrier") or "ws")
     tls = bool(d.get("tls"))
     host = want["host"]
@@ -10182,8 +10181,7 @@ def api_cdn_plan(d):
         shared = [{"port": _sint(((r.get("action_parameters") or {}).get("origin") or {}).get("port")),
                    "hosts": sorted(_cf_hosts(r))} for r in rules if str(r.get("ref") or "").startswith(_CF_SHARED)]
         quoted = '"%s"' % host
-        ref = same.get("rule_ref") or ""
-        own = _cf_rule(rs, ref) if ref else None
+        own = _cf_rule(rs, _cf_rule_ref(want["share"], L["id"], port)) if L else None
         out.update(
             ssl=got.get("ssl"), ssl_auto=got.get("auto") == "auto",
             websockets=(got["ws"] == "on") if "ws" in got else None,
@@ -10210,7 +10208,7 @@ def api_cdn_sync(d):
     if not L:
         raise _no_tunnel()
     if not L.get("cdn"):
-        raise Bad("cdn_not_managed", "CDNِ این تونل را پنل نساخته", "the panel did not set up this tunnel's CDN")
+        raise Bad("cdn_not_managed", "CDN این تونل را پنل نساخته", "the panel did not set up this tunnel's CDN")
     new, left = _cdn_sync_link(L["id"])
     if not new:
         raise _no_tunnel()
