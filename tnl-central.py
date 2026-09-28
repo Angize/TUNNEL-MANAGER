@@ -4026,20 +4026,18 @@ def _node_del_impl(d):
                   "no orphan tunnel. Free disk space on the panel and try again.",
                   n["name"], tx("پاک شد", "was wiped") if node_ok else tx("پاک نشد (قطع بود)", "was not wiped (it was down)"),
                   len(_dropped), _park_failed)
-    with _reg_lock, _pending_lock, _moved_lock, store_tx() as t:
-        for lid in mine_ids:
-            t.drop(_LINKS, lid)
-        t.drop(_NODES, nid)
-        t.pending(nid, ())
-        t.moved(nid, None)
-        t.raw(lambda p: _stats_forget(p, nid))
+    with _CdnLinkLock(*mine_ids):
+        gone = [((get_link(lid) or {}).get("cdn") or {}).get("applied") for lid in mine_ids]
+        with _reg_lock, _pending_lock, _moved_lock, store_tx() as t:
+            for lid in mine_ids:
+                t.drop(_LINKS, lid)
+            t.drop(_NODES, nid)
+            t.pending(nid, ())
+            t.moved(nid, None)
+            t.raw(lambda p: _stats_forget(p, nid))
     with _tomb_lock:
         _tomb[nid] = time.time() + 20
-    left = []
-    for L in mine:
-        if L.get("cdn"):
-            left += _cdn_remove(L["cdn"].get("applied"))
-    cdn_note = _cdn_left_note(left)
+    cdn_note = _cdn_left_note([x for a in gone if a for x in _cdn_remove(a)])
     try:
         _forget_host(n["host"], n.get("ssh_port"))
     except Exception as e:
@@ -6725,8 +6723,10 @@ def _delete_link_impl(d, h):
                 "{0} — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن",
                 "{0} — the link was kept; delete again when the node is reachable, or use force", tx_join("; ", errs))}
         act_step(h, tx("برداشتنِ رکورد", "removing the record"), 2, DELETE_STEPS, stop=False)
-        with _reg_lock, store_tx() as t:
-            t.drop(_LINKS, d["id"])
+        with _CdnLinkLock(L["id"]):
+            gone = (get_link(L["id"]) or L).get("cdn")
+            with _reg_lock, store_tx() as t:
+                t.drop(_LINKS, d["id"])
         _tf_forget(L["a_node"], [L["name"]])
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
@@ -6735,9 +6735,9 @@ def _delete_link_impl(d, h):
             notes.append(tx("لینک حذف شد؛ پاک‌سازیِ سمتِ «{0}» وقتی نود برگشت خودکار انجام می‌شود",
                             "the link was deleted; the cleanup on '{0}' runs by itself when the node is back",
                             tx_join("»، «", deferred, "', '")))
-        if L.get("cdn") and not d.get("cdn_keep"):
-            act_step(h, tx("پاک‌کردن از {0}", "removing from {0}", CDN_NAMES[L["cdn"]["provider"]]), 2, DELETE_STEPS, stop=False)
-            left = _cdn_left_note(_cdn_remove(L["cdn"].get("applied")))
+        if gone and not d.get("cdn_keep"):
+            act_step(h, tx("پاک‌کردن از {0}", "removing from {0}", CDN_NAMES[gone["provider"]]), 2, DELETE_STEPS, stop=False)
+            left = _cdn_left_note(_cdn_remove(gone.get("applied")))
             if left:
                 notes.append(tx("لینک حذف شد{0}", "the link was deleted{0}", left))
         return {"ok": True, **({"msg": tx_join(" ", notes)} if notes else {})}
@@ -7203,21 +7203,24 @@ def _edit_link_impl(d, h):
             x["server_side"] = server_side
         else:
             x.pop("server_side", None)
+        was.append(x.get("cdn"))
         if want:
-            x["cdn"] = _cdn_state(want, srv_ip, extra["port"], extra, L.get("cdn"))
+            x["cdn"] = _cdn_state(want, srv_ip, extra["port"], extra, x.get("cdn"))
         else:
             x.pop("cdn", None)
-    with _reg_lock:
-        store_edit(_LINKS, L["id"], apply)
-    _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
+    was = []
     note = ""
-    if want:
-        st = (get_link(L["id"]) or {}).get("cdn")
-        if st and not _cdn_uptodate(st):
-            _cdn_step(h, want["provider"], EDIT_STEPS, EDIT_STEPS + 1)
-            note = _cdn_outcome(tx("تغییر ذخیره شد", "the change was saved"), *_cdn_sync_link(L["id"], h))
-    elif L.get("cdn"):
-        note = _cdn_left_note(_cdn_remove(L["cdn"].get("applied")))
+    with _CdnLinkLock(L["id"]):
+        with _reg_lock:
+            store_edit(_LINKS, L["id"], apply)
+        _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
+        if want:
+            st = (get_link(L["id"]) or {}).get("cdn")
+            if st and not _cdn_uptodate(st):
+                _cdn_step(h, want["provider"], EDIT_STEPS, EDIT_STEPS + 1)
+                note = _cdn_outcome(tx("تغییر ذخیره شد", "the change was saved"), *_cdn_sync_link(L["id"], h))
+        elif was and was[0]:
+            note = _cdn_left_note(_cdn_remove(was[0].get("applied")))
     return {"ok": True, "name": new_name, **({"msg": note} if note else {})}
 
 
@@ -7602,7 +7605,6 @@ def _reconcile_once():
         except ValueError:
             pass
         _reconcile_last[lid] = time.time()
-    _cdn_retry(links)
 
 
 def reconcile_loop():
@@ -9302,7 +9304,7 @@ CDN_MARK = "tnl-panel"
 CF_RULE_CAPS = {"free": 10, "pro": 25, "business": 50, "enterprise": 300}
 _CDN_KEY_RE = re.compile(r"^[\x21-\x7e]+( [\x21-\x7e]+)?$")
 _CDN_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-_CDN_ZONE_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$")
+_CDN_ZONE_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9-]*[a-z0-9])$")
 _CDN_NAME_TYPES = {"cf": ("A", "AAAA", "CNAME"), "ar": ("A", "AAAA", "CNAME", "ANAME")}
 _CF_HOST_RE = re.compile(r'"([^"]+)"')
 _CF_SHARED = "tnl_p"
@@ -9314,12 +9316,37 @@ _cdn_locks = {}
 _cdn_locks_guard = threading.Lock()
 _cdn_claims = {}
 _cdn_claims_lock = threading.Lock()
-_cdn_retry_at = [0.0]
+_cdn_link_locks = {}
+_CDN_DOWN = ("cdn_unreachable", "cdn_rate")
 
 
 def _cdn_lock(prov, zone):
     with _cdn_locks_guard:
         return _cdn_locks.setdefault((prov, zone), threading.Lock())
+
+
+class _CdnLinkLock:
+    def __init__(self, *lids):
+        self._ids = sorted(set(lids))
+        self._held = []
+
+    def __enter__(self):
+        for i in self._ids:
+            with _cdn_locks_guard:
+                e = _cdn_link_locks.setdefault(i, [threading.RLock(), 0])
+                e[1] += 1
+            e[0].acquire()
+            self._held.append((i, e))
+        return self
+
+    def __exit__(self, *a):
+        for i, e in reversed(self._held):
+            e[0].release()
+            with _cdn_locks_guard:
+                e[1] -= 1
+                if not e[1]:
+                    del _cdn_link_locks[i]
+        self._held = []
 
 
 def _cdn_http(method, url, headers, body=None, proxy=""):
@@ -9581,7 +9608,7 @@ _CDN_SAME_KEYS = ("provider", "zone", "host", "ip", "port", "tls", "carrier")
 def _cdn_state(want, ip, port, extra, cur=None):
     st = {"provider": want["provider"], "zone": want["zone"], "host": want["host"], "ip": ip, "port": int(port),
           "tls": bool(extra.get("ws_tls")), "carrier": extra.get("cdn_carrier") or "ws",
-          "share": want["share"], "replace": want["replace"], "ok": False, "error": "", "error_en": "",
+          "share": want["share"], "replace": want["replace"], "ok": False, "code": "", "error": "", "error_en": "",
           "applied": (cur or {}).get("applied")}
     if _cdn_uptodate(dict(st, ok=bool((cur or {}).get("ok")))):
         st["ok"] = True
@@ -9899,9 +9926,9 @@ def _cdn_left_note(left):
 
 
 def _cdn_claim(host, lid):
-    owner = next((L2 for L2 in load_links() if L2["id"] != lid
-                  and ((L2.get("cdn") or {}).get("applied") or {}).get("host") == host), None)
     with _cdn_claims_lock:
+        owner = next((L2 for L2 in load_links() if L2["id"] != lid
+                      and ((L2.get("cdn") or {}).get("applied") or {}).get("host") == host), None)
         held = _cdn_claims.get(host)
         other = get_link(held) if held and held != lid else None
         if other and (other.get("cdn") or {}).get("host") != host:
@@ -9929,21 +9956,22 @@ def _cdn_run(L, st, h=None):
         new = _cdn_apply(want, cur, ctx, _CdnJournal(h))
     except Exception as e:
         why = _cdn_why(e)
-        return dict(st, ok=False, error=str(why), error_en=str(_en(why))), []
-    return dict(st, ok=True, error="", error_en="", applied=new), _cdn_remove(cur, keep=new)
+        return dict(st, ok=False, code=_code(e), error=str(why), error_en=str(_en(why))), []
+    return dict(st, ok=True, code="", error="", error_en="", applied=new), _cdn_remove(cur, keep=new)
 
 
 def _cdn_sync_link(lid, h=None):
-    L = get_link(lid)
-    st = (L or {}).get("cdn")
-    if not st:
-        return None, ""
-    try:
-        new, left = _cdn_run(L, st, h)
-        with _reg_lock:
-            store_edit(_LINKS, lid, lambda x: x.update(cdn=new) if x.get("cdn") else None)
-    finally:
-        _cdn_unclaim(st["host"], lid)
+    with _CdnLinkLock(lid):
+        L = get_link(lid)
+        st = (L or {}).get("cdn")
+        if not st:
+            return None, ""
+        try:
+            new, left = _cdn_run(L, st, h)
+            with _reg_lock:
+                store_edit(_LINKS, lid, lambda x: x.update(cdn=new) if x.get("cdn") else None)
+        finally:
+            _cdn_unclaim(st["host"], lid)
     if not new["ok"] and (st.get("ok") or not st.get("error")):
         log_event("warn", "cdn-drift", tx("CDNِ تونلِ «{0}» هماهنگ نشد", "the CDN of tunnel '{0}' is not in sync", L["name"]),
                   Tx(new["error"], new["error_en"]))
@@ -9965,35 +9993,44 @@ def _cdn_step(h, prov, i, n):
 
 
 def _cdn_follow_build(lid, srv_ip, h, i, n):
-    L = get_link(lid)
-    st = (L or {}).get("cdn")
-    if not st:
-        return ""
-    port = _sint(L.get("port"))
-    if st.get("ip") != srv_ip or st.get("port") != port:
-        with _reg_lock:
-            store_edit(_LINKS, lid, lambda x: x["cdn"].update(ip=srv_ip, port=port, ok=False) if x.get("cdn") else None)
-        st = dict(st, ip=srv_ip, port=port, ok=False)
-    if _cdn_uptodate(st):
-        return ""
-    _cdn_step(h, st["provider"], i, n)
-    return _cdn_outcome(tx("تونل بازسازی شد", "the tunnel was rebuilt"), *_cdn_sync_link(lid, h))
+    with _CdnLinkLock(lid):
+        L = get_link(lid)
+        st = (L or {}).get("cdn")
+        if not st:
+            return ""
+        port = _sint(L.get("port"))
+        if st.get("ip") != srv_ip or st.get("port") != port:
+            with _reg_lock:
+                store_edit(_LINKS, lid, lambda x: x["cdn"].update(ip=srv_ip, port=port, ok=False) if x.get("cdn") else None)
+            st = dict(st, ip=srv_ip, port=port, ok=False)
+        if _cdn_uptodate(st):
+            return ""
+        _cdn_step(h, st["provider"], i, n)
+        return _cdn_outcome(tx("تونل بازسازی شد", "the tunnel was rebuilt"), *_cdn_sync_link(lid, h))
 
 
-def _cdn_retry(links):
-    if time.monotonic() - _cdn_retry_at[0] < CDN_RETRY_SECS:
-        return
-    _cdn_retry_at[0] = time.monotonic()
-    for L in links:
-        if not (L.get("cdn") and not L["cdn"].get("ok")):
+def _cdn_retry():
+    down = set()
+    for L in load_links():
+        st = L.get("cdn")
+        if not st or st.get("ok") or st.get("provider") in down:
             continue
         try:
-            with _PairLock(L["a_node"], L["b_node"]):
-                cur = (get_link(L["id"]) or {}).get("cdn")
-                if cur and not cur.get("ok"):
-                    _cdn_sync_link(L["id"])
+            new, _left = _cdn_sync_link(L["id"])
         except RegistryError as e:
             log_warn("cdn", str(e))
+            continue
+        if new and new.get("code") in _CDN_DOWN:
+            down.add(new["provider"])
+
+
+def cdn_retry_loop():
+    while True:
+        time.sleep(CDN_RETRY_SECS)
+        try:
+            _cdn_retry()
+        except Exception:
+            log_internal("cdn retry")
 
 
 def _cdn_public():
@@ -10086,7 +10123,8 @@ def api_cdn_plan(d):
     z = _cdn_zone(cred, want["zone"])
     L = get_link(str(d.get("id") or "")) if d.get("id") else None
     cur = ((L or {}).get("cdn") or {}).get("applied")
-    rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
+    same = cur if _cdn_same(cur, want) else {}
+    rid = same.get("record_id", "")
     carrier = str(d.get("carrier") or "ws")
     tls = bool(d.get("tls"))
     host = want["host"]
@@ -10118,11 +10156,13 @@ def api_cdn_plan(d):
         shared = [{"port": _sint(((r.get("action_parameters") or {}).get("origin") or {}).get("port")),
                    "hosts": sorted(_cf_hosts(r))} for r in rules if str(r.get("ref") or "").startswith(_CF_SHARED)]
         quoted = '"%s"' % host
+        ref = same.get("rule_ref") or ""
+        own = _cf_rule(rs, ref) if ref else None
         out.update(
             ssl=got.get("ssl"), ssl_auto=got.get("auto") == "auto",
             websockets=(got["ws"] == "on") if "ws" in got else None,
             rules={"count": len(rules), "cap": CF_RULE_CAPS.get(z["plan"]) or 0,
-                   "mine": bool(L and _cf_rule(rs, "tnl_" + L["id"])), "shared": shared,
+                   "mine": bool(own and host in _cf_hosts(own)), "shared": shared,
                    "join": port if want["share"] and any(x["port"] == port for x in shared) else None,
                    "manual": [str(r.get("description") or r.get("expression") or "")[:120] for r in rules
                               if not str(r.get("ref") or "").startswith("tnl_") and quoted in str(r.get("expression") or "")]},
@@ -10145,8 +10185,7 @@ def api_cdn_sync(d):
         raise _no_tunnel()
     if not L.get("cdn"):
         raise Bad("cdn_not_managed", "CDNِ این تونل را پنل نساخته", "the panel did not set up this tunnel's CDN")
-    with _PairLock(L["a_node"], L["b_node"]):
-        new, left = _cdn_sync_link(L["id"])
+    new, left = _cdn_sync_link(L["id"])
     if not new:
         raise _no_tunnel()
     if not new["ok"]:
@@ -11738,6 +11777,7 @@ def serve():
     threading.Thread(target=reconcile_loop, daemon=True).start()
     threading.Thread(target=events_loop, daemon=True).start()
     threading.Thread(target=ech_refresh_loop, daemon=True).start()
+    threading.Thread(target=cdn_retry_loop, daemon=True).start()
     httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
     httpd.conf = conf
     print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
