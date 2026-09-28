@@ -18,6 +18,7 @@ import { coverOk, wkCarrier, wsPoolOn } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
 import { NO_AUTOFIX, rangeLabel } from '../../../lib/form.js'
+import { cdnAuto } from '../../../lib/cdn.js'
 import { T } from '../../../i18n/fa.js'
 
 export default function SettingsTab({
@@ -155,7 +156,7 @@ export default function SettingsTab({
           label={rangeLabel(T(link ? 'core_port_lbl2' : 'core_port_lbl'), ...cfg.limits.port)}
         >
           <NumberInput
-            placeholder={T(form.Tr !== 'ws' ? 'port_band_ph' : form.cdnMode === 'manual' ? 'port_ws_ph' : 'cdn_port_ph')}
+            placeholder={T(form.Tr !== 'ws' ? 'port_band_ph' : !cdnAuto(form) ? 'port_ws_ph' : 'cdn_port_ph')}
             value={form.port}
             onChange={(v) => patch({ port: v, portAuto: false })}
           />

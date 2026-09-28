@@ -40,7 +40,6 @@ export default function normalise(form, cfg, aIps, bIps) {
   if (!ctbOn({ ...view, Sprot: at('Sprot') }, enums)) set('Ctb', false)
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
   if (wssMandatory(view, form.pool)) set('WsTls', true)
-  if (form.pool.pool || at('Ech')) set('cdnMode', 'manual')
 
   if (protoVisOn(view) && at('rawProto') === '') set('rawProto', '253')
   if (rawPortOn(view)) {
@@ -52,7 +51,7 @@ export default function normalise(form, cfg, aIps, bIps) {
   if (at('Tr') === 'raw') {
     set('port', '')
     set('portAuto', false)
-  } else if (at('Tr') === 'ws' && at('cdnMode') === 'manual') {
+  } else if (at('Tr') === 'ws' && (at('cdnMode') === 'manual' || form.pool.pool || at('Ech'))) {
     if (at('port') === '' || (at('portAuto') && at('port') !== '80')) {
       set('port', '80')
       set('portAuto', true)

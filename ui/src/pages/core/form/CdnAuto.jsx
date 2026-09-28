@@ -328,7 +328,10 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
   const host = hostOf(form.cdnLabel, form.cdnZone)
   const target = (serverIp || '…') + (provider === 'ar' ? ':' + (form.port || T('cdn_port_free')) : '')
 
+  const shown = locked ? 'manual' : provider
+
   const pick = (p) => {
+    if (locked) return
     if (p !== 'manual' && !(keys && keys[p] && keys[p].set)) {
       alertBox(TF('cdn_need_key', { p: providerName(p) }))
       return
@@ -343,9 +346,9 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
     <div className="cdnauto">
       <label>{T('cdn_auto_lbl')}</label>
       <Seg2 label={T('cdn_auto_lbl')}>
-        <SegOpt on={provider === 'cf'} title={providerName('cf')} sub={sub('cf')} onClick={() => pick('cf')} />
-        <SegOpt on={provider === 'ar'} title={providerName('ar')} sub={sub('ar')} onClick={() => pick('ar')} />
-        <SegOpt on={provider === 'manual'} title={T('cdn_manual_opt')} sub={T('cdn_manual_opt_d')} onClick={() => pick('manual')} />
+        <SegOpt on={shown === 'cf'} title={providerName('cf')} sub={sub('cf')} onClick={() => pick('cf')} />
+        <SegOpt on={shown === 'ar'} title={providerName('ar')} sub={sub('ar')} onClick={() => pick('ar')} />
+        <SegOpt on={shown === 'manual'} title={T('cdn_manual_opt')} sub={T('cdn_manual_opt_d')} onClick={() => pick('manual')} />
       </Seg2>
       {locked ? <div className="cdnlock">{T('cdn_locked')}</div> : null}
 
