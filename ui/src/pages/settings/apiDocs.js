@@ -659,7 +659,7 @@ export const DOCS = {
       ['key', 0, S, 'Cloudflare API token (Bearer) or ArvanCloud API key; empty = keep the saved one'],
       ['proxy_id', 0, S, 'reach the provider API through this proxy; empty = direct'],
       ['clear', 0, B, 'delete the saved key'],
-      ['ssl_mode', 0, S, 'Cloudflare only: host (SSL Flexible per tunnel hostname through one Configuration Rule, needs Config Settings Edit) or zone (the whole zone to Flexible); existing tunnels move on their next edit or retry'],
+      ['ssl_mode', 0, S, 'Cloudflare only: host (SSL Flexible per tunnel hostname through one Configuration Rule, needs Config Settings Edit) or zone (the whole zone to Flexible); existing tunnels move on their next edit-link or rebuild-link'],
     ],
   },
   'cdn-test': {
