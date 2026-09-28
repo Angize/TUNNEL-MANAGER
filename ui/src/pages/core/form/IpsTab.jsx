@@ -77,7 +77,7 @@ function SubnetExtra({ form, link, patch }) {
   return (
     <div className="muted" style={{ fontSize: 11, margin: '6px 2px 0' }}>
       {T('core_subnet_lbl') + ': '}
-      <b className="mono">{subnetForBase(link.type, link.tunnel_id, form.range) || '—'}</b>
+      <b className="mono">{subnetForBase('core', link.tunnel_id, form.range) || '—'}</b>
     </div>
   )
 }
