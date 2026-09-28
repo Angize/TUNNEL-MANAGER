@@ -555,10 +555,11 @@ export const DOCS = {
   },
   'portfw-edit': {
     t: 'Edit a port forward',
-    d: 'Only the fields you send change. An empty listen_ip means all IPs.',
+    d: "Only the fields you send change. An empty listen_ip means all IPs. With to_node it moves to that node: it is created there first, then removed here, and the answer has its new name and node.",
     p: [
       ['node', 1, S, 'node id'],
       ['name', 1, S, 'port forward name'],
+      ['to_node', 0, S, 'move it to this node id — listen_ip and iface then belong to the new node'],
       ['listen_port', 0, N, 'listen port'],
       ['dst_port', 0, N, 'destination port'],
       ['dst_ips', 0, L, 'destination IPs'],

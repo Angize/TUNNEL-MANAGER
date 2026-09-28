@@ -28,7 +28,7 @@ export function endIp(ips, chosen, stored) {
   return stored && ips.includes(stored) ? stored : ''
 }
 
-export function nodeItemsForEdit(nodes, link) {
+export function nodeItemsKeeping(nodes, keep) {
   const out = []
   const seen = {}
   for (const node of nodes || []) {
@@ -36,14 +36,18 @@ export function nodeItemsForEdit(nodes, link) {
     seen[node.id] = true
     out.push({ v: node.id, label: node.name, sub: node.host })
   }
-  for (const [id, name] of [
-    [link.a_node, link.a_name],
-    [link.b_node, link.b_name],
-  ]) {
+  for (const [id, name] of keep) {
     if (!id || seen[id]) continue
     seen[id] = true
     const node = (nodes || []).find((x) => x.id === id)
     out.push({ v: id, label: (node && node.name) || name || id, sub: (node && node.host) || '' })
   }
   return out
+}
+
+export function nodeItemsForEdit(nodes, link) {
+  return nodeItemsKeeping(nodes, [
+    [link.a_node, link.a_name],
+    [link.b_node, link.b_name],
+  ])
 }
