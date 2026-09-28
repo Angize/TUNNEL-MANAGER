@@ -12,6 +12,7 @@ import './styles/select.css'
 import './styles/traffic.css'
 import './styles/readiness.css'
 import './styles/acts.css'
+import './styles/cdn.css'
 import App from './App.jsx'
 import './styles/motion.css'
 

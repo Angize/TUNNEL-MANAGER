@@ -4,6 +4,7 @@ import ActionRow from '../../components/ActionRow.jsx'
 import CardBody from '../../components/CardBody.jsx'
 import TagPicker from '../../components/TagPicker.jsx'
 import CoreMeta from './CoreMeta.jsx'
+import CdnStatus from './CdnStatus.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
@@ -14,10 +15,11 @@ import { SelBox } from '../../components/Bulk.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
 import { useActionBusy } from '../../lib/useBusy.js'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
-import { confirmBox } from '../../lib/dialog.js'
+import { confirmBox, confirmToggle } from '../../lib/dialog.js'
+import { providerName } from '../../lib/cdn.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import { tagClass, tagStyle } from '../../lib/cardTags.js'
@@ -182,13 +184,20 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
       link.a_online === false ||
       link.b_online === false ||
       (!!act && act.state === 'fail' && act.offer === 'force')
-    const confirmed = force
-      ? await confirmBox(T('del_force_ask'), T('del_force_yes'))
-      : await confirmBox(T('del_tun_confirm'), T('confirm_del'))
-    if (!confirmed) return
-    const r = await withBusy('del', () =>
-      apiPost('delete-link', force ? { id: link.id, force: true } : { id: link.id })
-    )
+    const ask = T(force ? 'del_force_ask' : 'del_tun_confirm')
+    const yes = T(force ? 'del_force_yes' : 'confirm_del')
+    const body = force ? { id: link.id, force: true } : { id: link.id }
+    if (link.cdn && link.cdn.applied) {
+      const vars = { h: link.cdn.host, p: providerName(link.cdn.provider) }
+      const got = await confirmToggle((on) => ask + '\n' + TF(on ? 'cdn_del_keep' : 'cdn_del_drop', vars), yes, {
+        on: false,
+        title: T('cdn_keep_t'),
+        note: T('cdn_keep_d'),
+      })
+      if (!got) return
+      if (got.on) body.cdn_keep = true
+    } else if (!(await confirmBox(ask, yes))) return
+    const r = await withBusy('del', () => apiPost('delete-link', body))
     if (!r) return
     if (!(r.ok && r.d.act)) {
       toast(postError(r), 'err')
@@ -289,6 +298,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
           </div>
 
           <CoreMeta link={link} activeEdge={activeEdge} />
+          <CdnStatus link={link} onReload={onReload} />
 
           {link.enabled === false ? (
             <div className="offbadge">
@@ -321,7 +331,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
             </div>
           )}
 
-          <ActionRow act={act} />
+          <ActionRow act={act} warn={!!(link.cdn && link.cdn.ok === false)} />
 
           <div className="nact iconly">
             <ActBtn cls="ok" icon="activity" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />

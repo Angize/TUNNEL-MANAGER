@@ -10,6 +10,7 @@ import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import Msg from '../../components/Msg.jsx'
+import { providerName } from '../../lib/cdn.js'
 
 function Names({ names }) {
   return (
@@ -23,11 +24,13 @@ function Names({ names }) {
   )
 }
 
-function UsedBy({ nodes, tunnels, panel }) {
+function UsedBy({ nodes, tunnels, panel, cdn }) {
+  const cdnNames = cdn.map(providerName).join(T('px_and'))
   const parts = [
     nodes.length ? TF('px_used_nodes', { n: nodes.length }) : '',
     tunnels.length ? TF('px_used_tunnels', { n: tunnels.length }) : '',
     panel ? T('px_used_panel_only') : '',
+    cdnNames,
   ].filter(Boolean)
   if (!parts.length) {
     return (
@@ -46,6 +49,12 @@ function UsedBy({ nodes, tunnels, panel }) {
         <div className="pxpanel">
           <Icon name="server" />
           {T('px_used_panel')}
+        </div>
+      ) : null}
+      {cdnNames ? (
+        <div className="pxpanel">
+          <Icon name="globe" />
+          {TF('px_used_cdn', { p: cdnNames })}
         </div>
       ) : null}
       {nodes.length ? <Names names={nodes} /> : null}
@@ -126,7 +135,7 @@ function ProxyCard({ proxy, onEdit, onChanged }) {
 
   return (
     <AccordionCard id={proxy.id} className="node acc" head={head}>
-      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} />
+      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} cdn={proxy.cdn || []} />
       {status.error ? (
         <div className="pxused" style={{ color: 'var(--bad-tx)' }}>
           {translateError(status.error)}

@@ -1,4 +1,5 @@
 import { T } from '../../../i18n/fa.js'
+import { autoOf, autoOfLink, cdnAuto, edgePort, labelError, sameAuto } from '../../../lib/cdn.js'
 import {
   bandOn,
   cdnShapeApplies,
@@ -175,6 +176,11 @@ export function collectCarrier(form, cfg, body) {
     if (form.pool.pool) {
       const poolError = poolCollect(form, body)
       if (poolError) return poolError
+    } else if (form.cdnMode !== 'manual') {
+      body.ws_pool = false
+      body.ws_host = ''
+      body.edge_ip = form.cdnEdgeAuto ? '' : form.wsEdge.trim()
+      if (form.Cdn === 'grpc' && !form.WsTls) return T('cdn_need_wss')
     } else {
       body.ws_pool = false
       body.ws_host = form.wsHost.trim()
@@ -186,5 +192,32 @@ export function collectCarrier(form, cfg, body) {
     }
   }
 
+  return ''
+}
+
+export function cdnCollect(form, link, plan, body) {
+  if (!cdnAuto(form)) {
+    if (link && link.cdn) {
+      body.cdn = null
+      if (form.Tr === 'ws' && !form.pool.pool && form.cdnKeep) body.cdn_keep = true
+    }
+    return ''
+  }
+  if (!form.cdnZone) return T('cdn_zone_need')
+  if (!form.cdnZoneOk) return T('cdn_zone_bad')
+  const labelErr = labelError(form.cdnLabel)
+  if (labelErr) return labelErr
+  if (form.cdnMode === 'cf' && form.WsTls && !form.cdnEdgeAuto) {
+    const port = edgePort(form.wsEdge.trim())
+    if (port && port !== 443) return T('cdn_cf_443')
+  }
+  const next = autoOf(form)
+  if (link && link.cdn && sameAuto(next, autoOfLink(link.cdn))) return ''
+  if (plan.loading) return T('cdn_plan_busy')
+  const others = (plan.plan && plan.plan.record && plan.plan.record.others) || []
+  if (others.length && form.cdnReplace !== true) {
+    return T(form.cdnReplace === false ? 'cdn_rec_refused' : 'cdn_rec_pick')
+  }
+  body.cdn = next
   return ''
 }
