@@ -33,7 +33,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
       }
       setBusy(false)
       setDone(true)
-      setMessage(T('nd_cdn_done'))
+      setMessage(T(skip ? 'nd_cdn_kept' : 'nd_cdn_done'))
       return
     }
     setBusy(false)
