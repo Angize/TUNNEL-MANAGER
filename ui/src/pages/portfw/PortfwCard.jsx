@@ -3,22 +3,14 @@ import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import { useActionBusy } from '../../lib/useBusy.js'
-import { Check, Cross } from '../../components/Marks.jsx'
+import { copyText } from '../../components/CopyValue.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate } from '../../lib/num.js'
-
-const ROTATE_TAG_STYLE = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  color: 'var(--gold-tx)',
-  borderColor: 'color-mix(in srgb, var(--gold) 34%, transparent)',
-  background: 'var(--goldw)',
-}
+import { pressable } from '../../lib/keys.js'
 
 const PORTFW_TAG_STYLE = {
   color: 'var(--h-orange)',
@@ -34,44 +26,46 @@ function rotateLabel(minutes) {
   return minutes % 60 ? minutes + ' ' + T('fmt_min') : minutes / 60 + ' ' + T('fmt_hr')
 }
 
-function HealthBadge({ offline, health }) {
-  if (offline) {
-    return (
-      <span className="badge bad" title={T('pf_node_off_t')}>
-        {T('pf_node_off')}
-      </span>
-    )
-  }
-  if (health.up == null) return <span className="badge na">{T('checking')}</span>
-  if (!health.rule) {
-    return (
-      <span className="badge bad" title={T('pf_no_rule_t')}>
-        {T('pf_no_rule')}
-      </span>
-    )
-  }
-  if (health.reachable) {
-    return (
-      <span className="badge ok">
-        {T('pf_active_badge')}
-        <Check />
-      </span>
-    )
-  }
-  if (health.reachable == null) {
-    return (
-      <span className="badge warn" title={T('pf_dest_unk_t')}>
-        {T('pf_rule')}
-        <Check /> · {T('pf_dest_unk')}
-      </span>
-    )
-  }
+function nodeState(item, health) {
+  if (item.offline) return { kind: 'bad', word: T('st_disc'), title: T('pf_node_off_t') }
+  if (health.up == null) return { kind: 'na', word: '…', title: T('checking') }
+  if (!health.rule) return { kind: 'bad', word: T('pf_no_rule'), title: T('pf_no_rule_t') }
+  return { kind: 'ok', word: '', title: '' }
+}
+
+function destState(item, health) {
+  if (item.offline || health.up == null || !health.rule) return { kind: 'na', word: '', title: '' }
+  if (health.reachable) return { kind: 'ok', word: '', title: '' }
+  if (health.reachable == null) return { kind: 'na', word: T('pf_unk'), title: T('pf_dest_unk_t') }
+  return { kind: 'bad', word: T('st_disc'), title: '' }
+}
+
+function Box({ name, state, text, copy, rotating }) {
   return (
-    <span className="badge bad">
-      {T('pf_rule')}
-      <Check /> · {T('pf_dest')}
-      <Cross />
-    </span>
+    <div className={'tnnode st-' + state.kind} title={state.title || undefined}>
+      <div className="tnhead">
+        <span className="tnn">{name}</span>
+        <span className="tnend">
+          <span className="cprot">
+            {rotating ? (
+              <span className="rotmark" title={T('pf_rotating')}>
+                <Icon name="redo" />
+              </span>
+            ) : null}
+          </span>
+          <span className="stat">
+            {state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null}
+          </span>
+        </span>
+      </div>
+      {copy ? (
+        <div className="tna mono cpv" title={T('tip_copy')} {...pressable((e) => copyText(text, e))}>
+          {text}
+        </div>
+      ) : (
+        <div className="tna">{text}</div>
+      )}
+    </div>
   )
 }
 
@@ -87,9 +81,13 @@ function PortfwCard({ item, onEdit, onChanged }) {
 
   const rotates = item.switch_interval > 0
   const rotateEvery = rotates ? rotateLabel(item.switch_interval / 60) : ''
-  const multiTarget = (item.dst_ips || []).length > 1
+  const targets = item.dst_ips || []
+  const multiTarget = targets.length > 1
   const listenIp = item.listen_ip || item.node_ip || ''
   const activeTarget = override != null ? override : serverActive
+  const destIp = activeTarget || targets[0] || '—'
+  const node = nodeState(item, health)
+  const dest = destState(item, health)
 
   const [busyAct, withBusy] = useActionBusy()
 
@@ -135,20 +133,16 @@ function PortfwCard({ item, onEdit, onChanged }) {
   const head = (
     <div className="hmain">
       <div className="hrow1">
-        <span className="hname">{item.node}</span>
+        <span className="hname">{item.name}</span>
         <span className="ctag" style={PORTFW_TAG_STYLE}>
-          portfw
+          PORTFW
         </span>
-        <b className="mono" dir="ltr" style={{ color: 'var(--sub)', fontSize: 12 }}>
-          {item.listen_port} <Icon name="arrows" /> {item.dst_port}
-        </b>
-        <span className="hpeers">
-          {rotates ? (
-            <span className="tag" style={ROTATE_TAG_STYLE} title={T('pf_rot_every') + rotateEvery}>
-              <Icon name="redo" />
-            </span>
-          ) : null}
-          <HealthBadge offline={item.offline} health={health} />
+        <span className="hpeers" dir="ltr">
+          <span className={'sdot ' + node.kind} title={node.title || undefined} />
+          <span className="pn">{item.node}</span>
+          <Icon name="arrows" />
+          <span className="pn">{destIp}</span>
+          <span className={'sdot ' + dest.kind} title={dest.title || undefined} />
         </span>
       </div>
     </div>
@@ -156,23 +150,29 @@ function PortfwCard({ item, onEdit, onChanged }) {
 
   return (
     <AccordionCard id={item.node_id + item.name} kind="portfw" className="acc" head={head}>
+      <div className="tninfo">
+        <Box name={item.node} state={node} text={listenIp || T('pf_lip_all')} copy={!!listenIp} />
+        <span className="tnarrow">
+          <Icon name="arrows" />
+        </span>
+        <Box
+          name={T('pf_dest')}
+          state={dest}
+          text={destIp}
+          copy={destIp !== '—'}
+          rotating={rotates && multiTarget}
+        />
+      </div>
+
       <div className="enmeta">
         <div className="emcol">
           <div>
-            {T('pf_iface')}
-            <b className="mono">{item.iface}</b>
-          </div>
-          {listenIp ? (
-            <div>
-              {T('pf_lip_lbl')}
-              <b className="mono" style={{ color: 'var(--acc-tx)' }}>
-                {listenIp}
-              </b>
-            </div>
-          ) : null}
-          <div>
             {T('pf_lp_lbl')}
             <b className="mono">{item.listen_port}</b>
+          </div>
+          <div>
+            {T('pf_iface')}
+            <b className="mono">{item.iface}</b>
           </div>
         </div>
         <span className="tnarrow earrow">
@@ -181,24 +181,18 @@ function PortfwCard({ item, onEdit, onChanged }) {
         <div className="emcol">
           <div>
             {T('pf_dp_lbl')}
-            <b>{item.dst_port}</b>
+            <b className="mono">{item.dst_port}</b>
           </div>
-          <div className="wrap">
-            {T('pf_targets')}
-            <b className="mono">{(item.dst_ips || []).join(T('list_sep'))}</b>
-          </div>
+          {multiTarget ? (
+            <div className="wrap">
+              {T('pf_targets')}
+              <b className="mono">{targets.join(T('list_sep'))}</b>
+            </div>
+          ) : null}
           {rotates ? (
             <div className="wrap">
               {T('pf_rot_every')}
               <b>{rotateEvery}</b>
-            </div>
-          ) : null}
-          {multiTarget && activeTarget ? (
-            <div className="wrap">
-              {T('pf_active_now')}
-              <b className="mono" style={{ color: 'var(--ok-tx)' }}>
-                {activeTarget}
-              </b>
             </div>
           ) : null}
         </div>
