@@ -9773,14 +9773,14 @@ def _ar_get(cred, path, soft=False):
         if soft:
             return None
         raise
-    return (js or {}).get("data") or {}
+    return None if js is None else js.get("data") or {}
 
 
 def _ar_read(cred, z, host, tls, carrier, plan=False):
     dz = urllib.parse.quote(z["name"])
     return _cdn_gather({
         "recs": lambda: _cdn_records(cred, z, host),
-        "cert": (lambda: _ar_get(cred, "/domains/%s/ssl" % dz)) if tls or plan else None,
+        "cert": (lambda: _ar_get(cred, "/domains/%s/ssl" % dz, soft=not tls)) if tls or plan else None,
         "ddos": (lambda: _ar_get(cred, "/domains/%s/ddos/settings" % dz, soft=True)) if plan else None,
         "lb": (lambda: _ar_get(cred, "/domains/%s/load-balancers/settings" % dz)) if carrier == "grpc" else None})
 
@@ -10192,7 +10192,7 @@ def api_cdn_plan(d):
                               if not str(r.get("ref") or "").startswith("tnl_") and quoted in str(r.get("expression") or "")]},
             https_redirect=got.get("always") == "on")
     else:
-        cert = got["cert"]
+        cert = got["cert"] or {}
         out.update(
             https=bool(cert.get("ssl_status")) if tls else None,
             cert=bool(cert.get("certificates") or cert.get("orders")) if tls else None,
