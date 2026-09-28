@@ -39,7 +39,7 @@ export default {
   cdn_used: '{n} تونل با این کلید ساخته شده؛ تا وقتی هستند کلید پاک نمی‌شود.',
   cdn_key_lbl_cf: 'API Token',
   cdn_key_hint_cf:
-    'در داشبوردِ کلودفلر › My Profile › API Tokens یک توکن بساز با دسترسی‌های Zone Read، DNS Edit، Zone Settings Edit و Origin Rules Edit.',
+    'در داشبوردِ کلودفلر › My Profile › API Tokens یک توکن بساز با دسترسی‌های Zone Read، DNS Edit، Zone Settings Edit، Origin Rules Edit و Config Settings Edit.',
   cdn_key_ph_cf: 'توکنِ Bearer',
   cdn_key_lbl_ar: 'کلیدِ API (Machine User)',
   cdn_key_hint_ar:
@@ -127,15 +127,15 @@ export default {
   cdn_ssl_mode_host: 'فقط زیردامنهٔ هر تونل',
   cdn_ssl_mode_host_d: 'Configuration Rule',
   cdn_ssl_mode_zone: 'کلِ دامنه',
-  cdn_ssl_mode_zone_d: 'SSLِ دامنه روی Flexible',
+  cdn_ssl_mode_zone_d: 'SSL دامنه روی Flexible',
   cdn_ssl_mode_host_note:
-    'پنل روی هر دامنه یک Configuration Rule می‌سازد و فقط زیردامنهٔ تونل‌ها را در آن Flexible می‌کند؛ SSL و «SSL خودکار»ِ خودِ دامنه و بقیهٔ سایت‌ها دست نمی‌خورند. توکن دسترسیِ Config Settings → Edit می‌خواهد.',
+    'پنل روی هر دامنه یک Configuration Rule می‌سازد و فقط زیردامنهٔ تونل‌ها را در آن Flexible می‌کند؛ SSL و «SSL خودکار» خودِ دامنه و بقیهٔ سایت‌ها دست نمی‌خورند. توکن دسترسیِ Config Settings → Edit می‌خواهد.',
   cdn_ssl_mode_zone_note:
-    'پنل SSLِ کلِ دامنه را Flexible و «SSL خودکار» را خاموش می‌کند؛ هر سایتِ دیگری روی همان دامنه هم Flexible می‌شود. تونل‌های فعلی تا ویرایش یا «تلاشِ دوباره» روی حالتِ قبلی می‌مانند.',
+    'پنل SSL کلِ دامنه را Flexible و «SSL خودکار» را خاموش می‌کند؛ هر سایتِ دیگری روی همان دامنه هم Flexible می‌شود. تونل‌های فعلی تا ویرایش یا «تلاشِ دوباره» روی حالتِ قبلی می‌مانند.',
   cdn_ssl_mode_saved: 'حالتِ SSL ذخیره شد',
   cdn_ssl_host_t: 'SSL فقط برای این زیردامنه: Flexible',
   cdn_ssl_host_d: 'زیردامنه به Configuration Rule ‏«tnl_ssl» اضافه می‌شود.',
-  cdn_ssl_host_zone: 'SSLِ خودِ {z} ({s}) و «SSL خودکار» دست نمی‌خورند.',
+  cdn_ssl_host_zone: 'SSL خودِ {z} ({s}) و «SSL خودکار» دست نمی‌خورند.',
   cdn_ssl_host_full: 'Configuration Rule جا ندارد',
   cdn_ssl_host_full_d:
     '{n} از {cap} قانونِ تنظیماتِ پلن پر است و «tnl_ssl» هنوز ساخته نشده؛ یکی را پاک کن یا در تنظیمات › CDN حالتِ SSL را «کلِ دامنه» کن.',
