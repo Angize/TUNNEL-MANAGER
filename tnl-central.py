@@ -9312,6 +9312,8 @@ _CF_KEEP = ("type", "name", "content", "proxied", "ttl", "comment")
 _CF_RULE_KEEP = ("ref", "description", "expression", "action", "action_parameters", "enabled")
 _cdn_locks = {}
 _cdn_locks_guard = threading.Lock()
+_cdn_claims = {}
+_cdn_claims_lock = threading.Lock()
 _cdn_retry_at = [0.0]
 
 
@@ -9455,20 +9457,25 @@ def _ar_zone_row(z):
             "ok": status == "active" and not held, "why": held[0] if held else ("" if status == "active" else status)}
 
 
-def _cdn_zones(cred):
+def _cdn_pages(cred, path):
     out = []
     for page in range(1, CDN_PAGES_MAX + 1):
         if cred["prov"] == "cf":
-            js = _cf(cred, "GET", "/zones?per_page=50&page=%d" % page)
-            out += [_cf_zone_row(z) for z in js.get("result") or [] if isinstance(z, dict)]
-            last = _sint((js.get("result_info") or {}).get("total_pages"))
+            js = _cf(cred, "GET", "%s&page=%d" % (path, page))
+            rows, last = js.get("result"), (js.get("result_info") or {}).get("total_pages")
         else:
-            js = _ar(cred, "GET", "/domains?per_page=100&page=%d" % page)
-            out += [_ar_zone_row(z) for z in js.get("data") or [] if isinstance(z, dict)]
-            last = _sint((js.get("meta") or {}).get("last_page"))
-        if page >= last:
+            js = _ar(cred, "GET", "%s&page=%d" % (path, page))
+            rows, last = js.get("data"), (js.get("meta") or {}).get("last_page")
+        out += [r for r in rows or [] if isinstance(r, dict)]
+        if page >= _sint(last):
             break
     return out
+
+
+def _cdn_zones(cred):
+    if cred["prov"] == "cf":
+        return [_cf_zone_row(z) for z in _cdn_pages(cred, "/zones?per_page=50")]
+    return [_ar_zone_row(z) for z in _cdn_pages(cred, "/domains?per_page=100")]
 
 
 def _cdn_zone(cred, name):
@@ -9637,14 +9644,13 @@ def _rec_show(prov, r):
 def _cdn_records(cred, zone_row, host):
     prov = cred["prov"]
     if prov == "cf":
-        js = _cf(cred, "GET", "/zones/%s/dns_records?per_page=100&name=%s" % (zone_row["id"], urllib.parse.quote(host)))
-        rows, name = js.get("result") or [], host
+        name = host
+        rows = _cdn_pages(cred, "/zones/%s/dns_records?per_page=100&name=%s" % (zone_row["id"], urllib.parse.quote(host)))
     else:
         name = host[: -len(zone_row["name"]) - 1]
-        js = _ar(cred, "GET", "/domains/%s/dns-records?per_page=100&search=%s" % (
-            urllib.parse.quote(zone_row["name"]), urllib.parse.quote(name)))
-        rows = js.get("data") or []
-    return [r for r in rows if isinstance(r, dict) and str(r.get("type") or "").upper() in _CDN_NAME_TYPES[prov]
+        rows = _cdn_pages(cred, "/domains/%s/dns-records?per_page=100&type=%s&search=%s" % (
+            urllib.parse.quote(zone_row["name"]), ",".join(t.lower() for t in _CDN_NAME_TYPES[prov]), urllib.parse.quote(name)))
+    return [r for r in rows if str(r.get("type") or "").upper() in _CDN_NAME_TYPES[prov]
             and str(r.get("name") or "").lower() == name]
 
 
@@ -9670,11 +9676,6 @@ def _cf_setting(cred, zid, key, soft=False):
 
 def _cf_set(cred, zid, key, value):
     _cf(cred, "PATCH", "/zones/%s/settings/%s" % (zid, key), {"value": value})
-
-
-def _cf_grpc(cred, zid):
-    js = _cf(cred, "GET", "/zones/%s/settings" % zid)
-    return next((s.get("value") for s in js.get("result") or [] if isinstance(s, dict) and s.get("id") == "grpc"), None)
 
 
 def _cf_entry(cred, zid):
@@ -9721,10 +9722,6 @@ def _cf_apply(cred, want, cur, ctx, jr):
     zid, host, ip, port = z["id"], want["host"], ctx["ip"], ctx["port"]
     rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
     ref = _cf_rule_ref(want["share"], ctx["lid"], port)
-    if ctx["carrier"] == "grpc" and _cf_grpc(cred, zid) == "off":
-        raise Bad("cdn_grpc_off", "gRPCِ «{0}» در کلودفلر خاموش است و API ندارد — در داشبورد Network › gRPC را روشن کن و «تلاشِ دوباره» را بزن",
-                  "gRPC is off on '{0}' in Cloudflare and has no API — turn Network › gRPC on in the dashboard and retry",
-                  z["name"])
     rs = _cf_entry(cred, zid)
     rule = _cf_rule(rs, ref)
     cap = CF_RULE_CAPS.get(z["plan"])
@@ -9901,6 +9898,26 @@ def _cdn_left_note(left):
               tx_join("؛ ", left, "; "))
 
 
+def _cdn_claim(host, lid):
+    owner = next((L2 for L2 in load_links() if L2["id"] != lid
+                  and ((L2.get("cdn") or {}).get("applied") or {}).get("host") == host), None)
+    with _cdn_claims_lock:
+        held = _cdn_claims.get(host)
+        other = get_link(held) if held and held != lid else None
+        if other and (other.get("cdn") or {}).get("host") != host:
+            other = None
+        if owner or other:
+            raise Bad("cdn_host_taken", "«{0}» را تونلِ «{1}» استفاده می‌کند — هر دامنه فقط به یک سرور و یک پورت اشاره می‌کند",
+                      "'{0}' is used by tunnel '{1}' — a name points at one server and one port only", host, (owner or other)["name"])
+        _cdn_claims[host] = lid
+
+
+def _cdn_unclaim(host, lid):
+    with _cdn_claims_lock:
+        if _cdn_claims.get(host) == lid:
+            del _cdn_claims[host]
+
+
 def _cdn_run(L, st, h=None):
     want = {"provider": st["provider"], "zone": st["zone"], "host": st["host"], "replace": bool(st.get("replace")),
             "share": bool(st.get("share"))}
@@ -9908,6 +9925,7 @@ def _cdn_run(L, st, h=None):
     ctx = {"lid": L["id"], "name": L["name"], "ip": st["ip"], "port": int(st["port"]), "tls": bool(st.get("tls")),
            "carrier": st.get("carrier") or "ws"}
     try:
+        _cdn_claim(st["host"], L["id"])
         new = _cdn_apply(want, cur, ctx, _CdnJournal(h))
     except Exception as e:
         why = _cdn_why(e)
@@ -9920,9 +9938,12 @@ def _cdn_sync_link(lid, h=None):
     st = (L or {}).get("cdn")
     if not st:
         return None, ""
-    new, left = _cdn_run(L, st, h)
-    with _reg_lock:
-        store_edit(_LINKS, lid, lambda x: x.update(cdn=new) if x.get("cdn") else None)
+    try:
+        new, left = _cdn_run(L, st, h)
+        with _reg_lock:
+            store_edit(_LINKS, lid, lambda x: x.update(cdn=new) if x.get("cdn") else None)
+    finally:
+        _cdn_unclaim(st["host"], lid)
     if not new["ok"] and (st.get("ok") or not st.get("error")):
         log_event("warn", "cdn-drift", tx("CDNِ تونلِ «{0}» هماهنگ نشد", "the CDN of tunnel '{0}' is not in sync", L["name"]),
                   Tx(new["error"], new["error_en"]))
@@ -10077,7 +10098,6 @@ def api_cdn_plan(d):
             "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if tls else None,
             "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if tls else None,
             "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None,
-            "grpc": (lambda: _cf_grpc(cred, zid)) if carrier == "grpc" else None,
             "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if not tls else None})
     else:
         dz = urllib.parse.quote(z["name"])
@@ -10106,7 +10126,7 @@ def api_cdn_plan(d):
                    "join": port if want["share"] and any(x["port"] == port for x in shared) else None,
                    "manual": [str(r.get("description") or r.get("expression") or "")[:120] for r in rules
                               if not str(r.get("ref") or "").startswith("tnl_") and quoted in str(r.get("expression") or "")]},
-            grpc=got.get("grpc"), https_redirect=got.get("always") == "on")
+            https_redirect=got.get("always") == "on")
     else:
         cert = got["cert"]
         out.update(
