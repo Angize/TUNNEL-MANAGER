@@ -9309,6 +9309,10 @@ _CDN_ZONE_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-
 _CDN_NAME_TYPES = {"cf": ("A", "AAAA", "CNAME"), "ar": ("A", "AAAA", "CNAME", "ANAME")}
 _CF_HOST_RE = re.compile(r'"([^"]+)"')
 _CF_SHARED = "tnl_p"
+_CF_SSL_REF = "tnl_ssl"
+_CF_ORIGIN = "http_request_origin"
+_CF_CONFIG = "http_config_settings"
+_CDN_SSL_MODES = ("host", "zone")
 _CF_BAD_KEY = (6003, 6111)
 _AR_FILTER = {"count": "single", "order": "none", "geo_filter": "none"}
 _AR_KEEP = ("type", "name", "value", "cloud", "upstream_https", "ttl", "ip_filter_mode")
@@ -9621,10 +9625,16 @@ def _cdn_state(want, ip, port, extra, cur=None):
     return st
 
 
+def _cdn_ssl_mode():
+    return (_cdn_keys().get("cf") or {}).get("ssl_mode") or "host"
+
+
 def _cdn_uptodate(st):
     a = st.get("applied") or {}
     return (bool(st.get("ok")) and bool(a) and all(a.get(k) == st.get(k) for k in _CDN_SAME_KEYS)
-            and (a.get("provider") != "cf" or str(a.get("rule_ref") or "").startswith(_CF_SHARED) == bool(st.get("share"))))
+            and (a.get("provider") != "cf"
+                 or (str(a.get("rule_ref") or "").startswith(_CF_SHARED) == bool(st.get("share"))
+                     and bool(a.get("ssl_ref")) == (bool(st.get("tls")) and _cdn_ssl_mode() == "host"))))
 
 
 class _CdnJournal:
@@ -9711,8 +9721,12 @@ def _cf_set(cred, zid, key, value):
     _cf(cred, "PATCH", "/zones/%s/settings/%s" % (zid, key), {"value": value})
 
 
-def _cf_entry(cred, zid):
-    js = _cf(cred, "GET", "/zones/%s/rulesets/phases/http_request_origin/entrypoint" % zid, ok404=True)
+def _cf_phase_path(zid, phase):
+    return "/zones/%s/rulesets/phases/%s/entrypoint" % (zid, phase)
+
+
+def _cf_entry(cred, zid, phase=_CF_ORIGIN):
+    js = _cf(cred, "GET", _cf_phase_path(zid, phase), ok404=True)
     return None if js is None else js.get("result") or {}
 
 
@@ -9724,11 +9738,40 @@ def _cf_hosts(rule):
     return set(_CF_HOST_RE.findall(str((rule or {}).get("expression") or "")))
 
 
+def _cf_host_expr(hosts):
+    hs = sorted(hosts)
+    return 'http.host eq "%s"' % hs[0] if len(hs) == 1 else "http.host in {%s}" % " ".join('"%s"' % h for h in hs)
+
+
 def _cf_rule_body(ref, hosts, port):
     hs = sorted(hosts)
-    expr = 'http.host eq "%s"' % hs[0] if len(hs) == 1 else "http.host in {%s}" % " ".join('"%s"' % h for h in hs)
     return {"ref": ref, "description": "%s %s" % (CDN_MARK, "port %d" % port if ref.startswith(_CF_SHARED) else hs[0]),
-            "expression": expr, "action": "route", "action_parameters": {"origin": {"port": int(port)}}, "enabled": True}
+            "expression": _cf_host_expr(hs), "action": "route", "action_parameters": {"origin": {"port": int(port)}},
+            "enabled": True}
+
+
+def _cf_ssl_body(hosts):
+    return {"ref": _CF_SSL_REF, "description": CDN_MARK + " ssl", "expression": _cf_host_expr(hosts), "action": "set_config",
+            "action_parameters": {"ssl": "flexible"}, "enabled": True}
+
+
+def _cf_put_rule(cred, zid, phase, rs, rule, body, jr, said):
+    if not rule:
+        if rs is not None:
+            js = _cf(cred, "POST", _cf_rules_path(zid, rs), body)
+        else:
+            js = _cf(cred, "PUT", _cf_phase_path(zid, phase), {"rules": [body]})
+        made_rs = js.get("result") or {}
+        made = _cf_rule(made_rs, body["ref"])
+        if not made or not made_rs.get("id"):
+            raise Bad("cdn_api", "{0} قانونِ تازه را در پاسخش برنگرداند", "{0} did not return the new rule in its answer",
+                      CDN_NAMES["cf"])
+        jr.did(said, lambda: _cf(cred, "DELETE", _cf_rules_path(zid, made_rs, made), ok404=True))
+    elif any(rule.get(k) != body[k] for k in ("expression", "action", "action_parameters", "enabled")):
+        old = {k: rule[k] for k in _CF_RULE_KEEP if k in rule}
+        path = _cf_rules_path(zid, rs, rule)
+        _cf(cred, "PATCH", path, body)
+        jr.did(said, lambda: _cf(cred, "PATCH", path, old))
 
 
 def _cf_rule_ref(share, lid, port):
@@ -9755,13 +9798,15 @@ def _cdn_gather(jobs):
     return dict(zip(keys, parallel_map(lambda k: jobs[k](), keys, workers=8)))
 
 
-def _cf_read(cred, z, host, tls, carrier, plan=False):
+def _cf_read(cred, z, host, tls, carrier, host_ssl, plan=False):
     zid = z["id"]
+    zone_ssl = tls and (plan or not host_ssl)
     return _cdn_gather({
         "recs": lambda: _cdn_records(cred, z, host),
         "rs": lambda: _cf_entry(cred, zid),
-        "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if tls else None,
-        "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if tls else None,
+        "cfg": (lambda: _cf_entry(cred, zid, _CF_CONFIG)) if host_ssl else None,
+        "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if zone_ssl else None,
+        "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if zone_ssl else None,
         "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None,
         "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if plan and not tls else None})
 
@@ -9790,13 +9835,21 @@ def _cf_apply(cred, want, cur, ctx, jr):
     zid, host, ip, port = z["id"], want["host"], ctx["ip"], ctx["port"]
     rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
     ref = _cf_rule_ref(want["share"], ctx["lid"], port)
-    got = _cf_read(cred, z, host, ctx["tls"], ctx["carrier"])
+    host_ssl = ctx["tls"] and _cdn_ssl_mode() == "host"
+    got = _cf_read(cred, z, host, ctx["tls"], ctx["carrier"], host_ssl)
     rs = got["rs"]
     rule = _cf_rule(rs, ref)
     cap = CF_RULE_CAPS.get(z["plan"])
     if not rule and cap and len((rs or {}).get("rules") or []) >= cap:
         raise Bad("cdn_rules_full", "جای Origin Rule تازه در «{0}» نیست — {1} از {1} قانونِ پلن پر است؛ یکی را پاک کن یا «قانونِ مشترکِ پورت» را روشن کن",
                   "there is no room for another Origin Rule on '{0}' — {1} of {1} rules of the plan are used; delete one or share the port rule",
+                  z["name"], cap)
+    cfg = got.get("cfg")
+    srule = _cf_rule(cfg, _CF_SSL_REF)
+    if host_ssl and not srule and cap and len((cfg or {}).get("rules") or []) >= cap:
+        raise Bad("cdn_config_rules_full",
+                  "جای Configuration Rule تازه در «{0}» نیست — {1} از {1} قانونِ تنظیماتِ پلن پر است؛ یکی را پاک کن یا در «تنظیمات › CDN» حالتِ SSL را «کلِ دامنه» کن",
+                  "there is no room for a Configuration Rule on '{0}' — {1} of {1} config rules of the plan are used; delete one or set the SSL mode to the whole zone under Settings › CDN",
                   z["name"], cap)
     recs = got["recs"]
     mine = next((r for r in recs if rid and r.get("id") == rid), None)
@@ -9812,7 +9865,10 @@ def _cf_apply(cred, want, cur, ctx, jr):
         _cf(cred, "PATCH", "/zones/%s/dns_records/%s" % (zid, rid), {"content": ip, "proxied": True})
         jr.did(tx("رکوردِ {0} ← {1}", "record {0} → {1}", host, ip),
                lambda: _cf(cred, "PATCH", "/zones/%s/dns_records/%s" % (zid, rid), old))
-    if ctx["tls"]:
+    if host_ssl:
+        _cf_put_rule(cred, zid, _CF_CONFIG, cfg, srule, _cf_ssl_body(_cf_hosts(srule) | {host}), jr,
+                     tx("SSL فقط برای {0}: Flexible (Configuration Rule)", "SSL for {0} only: Flexible (Configuration Rule)", host))
+    elif ctx["tls"]:
         if got["auto"] == "auto":
             _cf_set(cred, zid, "ssl_automatic_mode", "custom")
             jr.did(tx("«SSL خودکار» خاموش شد", "Automatic SSL/TLS turned off"),
@@ -9828,24 +9884,9 @@ def _cf_apply(cred, want, cur, ctx, jr):
     body = _cf_rule_body(ref, _cf_hosts(rule) | {host} if want["share"] else {host}, port)
     said = (tx("Origin Rule: {0} در قانونِ مشترکِ پورتِ {1}", "Origin Rule: {0} in the shared rule of port {1}", host, port)
             if want["share"] else tx("Origin Rule: {0} ← پورتِ {1}", "Origin Rule: {0} → port {1}", host, port))
-    if not rule:
-        if rs is not None:
-            js = _cf(cred, "POST", _cf_rules_path(zid, rs), body)
-        else:
-            js = _cf(cred, "PUT", "/zones/%s/rulesets/phases/http_request_origin/entrypoint" % zid, {"rules": [body]})
-        made_rs = js.get("result") or {}
-        made = _cf_rule(made_rs, ref)
-        if not made or not made_rs.get("id"):
-            raise Bad("cdn_api", "{0} قانونِ تازه را در پاسخش برنگرداند", "{0} did not return the new rule in its answer",
-                      CDN_NAMES["cf"])
-        jr.did(said, lambda: _cf(cred, "DELETE", _cf_rules_path(zid, made_rs, made), ok404=True))
-    elif any(rule.get(k) != body[k] for k in ("expression", "action", "action_parameters", "enabled")):
-        old = {k: rule[k] for k in _CF_RULE_KEEP if k in rule}
-        path = _cf_rules_path(zid, rs, rule)
-        _cf(cred, "PATCH", path, body)
-        jr.did(said, lambda: _cf(cred, "PATCH", path, old))
+    _cf_put_rule(cred, zid, _CF_ORIGIN, rs, rule, body, jr, said)
     return {"provider": "cf", "zone": z["name"], "zone_id": zid, "host": host, "record_id": rid, "rule_ref": ref,
-            "ip": ip, "port": port, "tls": ctx["tls"], "carrier": ctx["carrier"]}
+            "ip": ip, "port": port, "tls": ctx["tls"], "carrier": ctx["carrier"], **({"ssl_ref": _CF_SSL_REF} if host_ssl else {})}
 
 
 def _ar_body(label, ip, port):
@@ -9913,18 +9954,22 @@ def _cdn_apply(want, cur, ctx, jr):
             raise
 
 
-def _cf_drop_rule(cred, zid, ref, host):
-    rs = _cf_entry(cred, zid)
+def _cf_drop_rule(cred, zid, ref, host, phase=_CF_ORIGIN):
+    rs = _cf_entry(cred, zid, phase)
     rule = _cf_rule(rs, ref)
-    if not rule:
+    hosts = _cf_hosts(rule)
+    many = ref == _CF_SSL_REF or ref.startswith(_CF_SHARED)
+    if not rule or (many and host not in hosts):
         return
     path = _cf_rules_path(zid, rs, rule)
-    left = _cf_hosts(rule) - {host} if ref.startswith(_CF_SHARED) else set()
-    if left:
+    left = hosts - {host} if many else set()
+    if not left:
+        _cf(cred, "DELETE", path, ok404=True)
+    elif ref == _CF_SSL_REF:
+        _cf(cred, "PATCH", path, _cf_ssl_body(left))
+    else:
         port = ((rule.get("action_parameters") or {}).get("origin") or {}).get("port")
         _cf(cred, "PATCH", path, _cf_rule_body(ref, left, port))
-    else:
-        _cf(cred, "DELETE", path, ok404=True)
 
 
 def _cdn_remove(st, keep=None, down=None):
@@ -9948,6 +9993,8 @@ def _cdn_remove(st, keep=None, down=None):
             kept = shared and keep.get("rule_ref") == ref and (not ref.startswith(_CF_SHARED) or keep.get("host") == st.get("host"))
             if ref and not kept:
                 _cf_drop_rule(cred, st.get("zone_id"), ref, st.get("host"))
+            if st.get("ssl_ref") and not (shared and keep.get("ssl_ref") and keep.get("host") == st.get("host")):
+                _cf_drop_rule(cred, st.get("zone_id"), _CF_SSL_REF, st.get("host"), _CF_CONFIG)
     except Exception as e:
         why = _cdn_why(e)
         if down is not None and _code(e) in _CDN_DOWN:
@@ -10092,7 +10139,7 @@ def _cdn_public():
         c = keys.get(p) or {}
         k = str(c.get("key") or "")
         out[p] = {"set": bool(k), "tail": k[-4:] if len(k) >= 12 else "", "proxy_id": str(c.get("proxy_id") or ""),
-                  "used": used[p]}
+                  "used": used[p], **({"ssl_mode": c.get("ssl_mode") or "host"} if p == "cf" else {})}
     return out
 
 
@@ -10125,6 +10172,12 @@ def api_cdn_set(d):
             if pid and not get_proxy(pid):
                 raise _no_proxy()
             cur["proxy_id"] = pid
+        if "ssl_mode" in d:
+            mode = str(d.get("ssl_mode") or "").strip().lower()
+            if prov != "cf" or mode not in _CDN_SSL_MODES:
+                raise Bad("bad_cdn_ssl_mode", "حالتِ SSL فقط برای کلودفلر است و باید host (فقط زیردامنه) یا zone (کلِ دامنه) باشد",
+                          "the SSL mode is for Cloudflare only and must be host (the subdomain only) or zone (the whole zone)")
+            cur["ssl_mode"] = mode
         if not cur.get("key"):
             raise Bad("cdn_key_missing", "اول کلید را وارد کن", "enter the key first")
         with store_tx() as t:
@@ -10142,7 +10195,8 @@ def api_cdn_test(d):
         zid = usable[0]["id"]
         for k, path, soft in (("dns", "/zones/%s/dns_records?per_page=5" % zid, False),
                               ("settings", "/zones/%s/settings/ssl" % zid, False),
-                              ("rules", "/zones/%s/rulesets/phases/http_request_origin/entrypoint" % zid, True)):
+                              ("rules", _cf_phase_path(zid, _CF_ORIGIN), True),
+                              ("config", _cf_phase_path(zid, _CF_CONFIG), True)):
             try:
                 _cf(cred, "GET", path, ok404=soft)
                 checks.append({"k": k, "ok": True, "why": ""})
@@ -10169,7 +10223,11 @@ def api_cdn_plan(d):
     carrier = str(d.get("carrier") or "ws")
     tls = bool(d.get("tls"))
     host = want["host"]
-    got = (_cf_read if want["provider"] == "cf" else _ar_read)(cred, z, host, tls, carrier, plan=True)
+    host_ssl = want["provider"] == "cf" and tls and _cdn_ssl_mode() == "host"
+    if want["provider"] == "cf":
+        got = _cf_read(cred, z, host, tls, carrier, host_ssl, plan=True)
+    else:
+        got = _ar_read(cred, z, host, tls, carrier, plan=True)
     recs = got["recs"]
     out = {"ok": True, "provider": want["provider"], "host": host, "zone": z["name"], "plan": z["plan"],
            "record": {"mine": any(rid and r.get("id") == rid for r in recs),
@@ -10190,7 +10248,12 @@ def api_cdn_plan(d):
                    "join": port if want["share"] and any(x["port"] == port for x in shared) else None,
                    "manual": [str(r.get("description") or r.get("expression") or "")[:120] for r in rules
                               if not str(r.get("ref") or "").startswith("tnl_") and quoted in str(r.get("expression") or "")]},
-            https_redirect=got.get("always") == "on")
+            https_redirect=got.get("always") == "on", ssl_mode=_cdn_ssl_mode())
+        if host_ssl:
+            srule = _cf_rule(got["cfg"], _CF_SSL_REF)
+            crules = [r for r in (got["cfg"] or {}).get("rules") or [] if isinstance(r, dict)]
+            out["ssl_rule"] = {"mine": bool(srule and host in _cf_hosts(srule)), "count": len(crules) - bool(srule),
+                               "cap": CF_RULE_CAPS.get(z["plan"]) or 0}
     else:
         cert = got["cert"] or {}
         out.update(

@@ -238,6 +238,11 @@
    ],
    [
     400,
+    "bad_cdn_ssl_mode",
+    "the SSL mode is for Cloudflare only and must be host (the subdomain only) or zone (the whole zone)"
+   ],
+   [
+    400,
     "cdn_key_in_use",
     "tunnels still set up with the … key: … — switch them to manual or delete them first"
    ],
