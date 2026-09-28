@@ -9745,19 +9745,55 @@ def _cdn_replacer(cred, base, keep):
     return replace
 
 
+def _cdn_gather(jobs):
+    keys = [k for k, fn in jobs.items() if fn]
+    return dict(zip(keys, parallel_map(lambda k: jobs[k](), keys, workers=8)))
+
+
+def _cf_read(cred, z, host, tls, carrier, plan=False):
+    zid = z["id"]
+    return _cdn_gather({
+        "recs": lambda: _cdn_records(cred, z, host),
+        "rs": lambda: _cf_entry(cred, zid),
+        "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if tls else None,
+        "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if tls else None,
+        "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None,
+        "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if plan and not tls else None})
+
+
+def _ar_get(cred, path, soft=False):
+    try:
+        js = _ar(cred, "GET", path, ok404=soft)
+    except Bad:
+        if soft:
+            return None
+        raise
+    return (js or {}).get("data") or {}
+
+
+def _ar_read(cred, z, host, tls, carrier, plan=False):
+    dz = urllib.parse.quote(z["name"])
+    return _cdn_gather({
+        "recs": lambda: _cdn_records(cred, z, host),
+        "cert": (lambda: _ar_get(cred, "/domains/%s/ssl" % dz)) if tls or plan else None,
+        "ddos": (lambda: _ar_get(cred, "/domains/%s/ddos/settings" % dz, soft=True)) if plan else None,
+        "lb": (lambda: _ar_get(cred, "/domains/%s/load-balancers/settings" % dz)) if carrier == "grpc" else None})
+
+
 def _cf_apply(cred, want, cur, ctx, jr):
     z = _cdn_zone(cred, want["zone"])
     zid, host, ip, port = z["id"], want["host"], ctx["ip"], ctx["port"]
     rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
     ref = _cf_rule_ref(want["share"], ctx["lid"], port)
-    rs = _cf_entry(cred, zid)
+    got = _cf_read(cred, z, host, ctx["tls"], ctx["carrier"])
+    rs = got["rs"]
     rule = _cf_rule(rs, ref)
     cap = CF_RULE_CAPS.get(z["plan"])
     if not rule and cap and len((rs or {}).get("rules") or []) >= cap:
         raise Bad("cdn_rules_full", "جای Origin Ruleِ تازه در «{0}» نیست — {1} از {1} قانونِ پلن پر است؛ یکی را پاک کن یا «قانونِ مشترکِ پورت» را روشن کن",
                   "there is no room for another Origin Rule on '{0}' — {1} of {1} rules of the plan are used; delete one or share the port rule",
                   z["name"], cap)
-    recs = _cdn_records(cred, z, host)
+    recs = got["recs"]
     mine = next((r for r in recs if rid and r.get("id") == rid), None)
     _cdn_clear_others(cred, want, recs, rid if mine else "", jr, _cdn_replacer(cred, "/zones/%s/dns_records" % zid, _CF_KEEP))
     if not mine:
@@ -9772,16 +9808,16 @@ def _cf_apply(cred, want, cur, ctx, jr):
         jr.did(tx("رکوردِ {0} ← {1}", "record {0} → {1}", host, ip),
                lambda: _cf(cred, "PATCH", "/zones/%s/dns_records/%s" % (zid, rid), old))
     if ctx["tls"]:
-        if _cf_setting(cred, zid, "ssl_automatic_mode", soft=True) == "auto":
+        if got["auto"] == "auto":
             _cf_set(cred, zid, "ssl_automatic_mode", "custom")
             jr.did(tx("«SSL خودکار» خاموش شد", "Automatic SSL/TLS turned off"),
                    lambda: _cf_set(cred, zid, "ssl_automatic_mode", "auto"))
-        ssl_now = _cf_setting(cred, zid, "ssl")
+        ssl_now = got["ssl"]
         if ssl_now != "flexible":
             _cf_set(cred, zid, "ssl", "flexible")
             jr.did(tx("SSL/TLS: {0} ← Flexible", "SSL/TLS: {0} → Flexible", ssl_now),
                    lambda: _cf_set(cred, zid, "ssl", ssl_now))
-    if ctx["carrier"] == "ws" and _cf_setting(cred, zid, "websockets") != "on":
+    if ctx["carrier"] == "ws" and got["ws"] != "on":
         _cf_set(cred, zid, "websockets", "on")
         jr.did(tx("WebSockets روشن شد", "WebSockets turned on"), lambda: _cf_set(cred, zid, "websockets", "off"))
     body = _cf_rule_body(ref, _cf_hosts(rule) | {host} if want["share"] else {host}, port)
@@ -9823,7 +9859,8 @@ def _ar_apply(cred, want, cur, ctx, jr):
     host, ip, port = want["host"], ctx["ip"], ctx["port"]
     dz = urllib.parse.quote(z["name"])
     rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
-    recs = _cdn_records(cred, z, host)
+    got = _ar_read(cred, z, host, ctx["tls"], ctx["carrier"])
+    recs = got["recs"]
     mine = next((r for r in recs if rid and r.get("id") == rid), None)
     _cdn_clear_others(cred, want, recs, rid if mine else "", jr, _cdn_replacer(cred, "/domains/%s/dns-records" % dz, _AR_KEEP))
     body = _ar_body(host[: -len(z["name"]) - 1], ip, port)
@@ -9838,7 +9875,7 @@ def _ar_apply(cred, want, cur, ctx, jr):
         jr.did(tx("رکوردِ {0} ← {1}:{2}", "record {0} → {1}:{2}", host, ip, port),
                lambda: _ar(cred, "PUT", "/domains/%s/dns-records/%s" % (dz, rid), old))
     if ctx["tls"]:
-        cert = _ar(cred, "GET", "/domains/%s/ssl" % dz).get("data") or {}
+        cert = got["cert"]
         if not cert.get("ssl_status"):
             _ar(cred, "PATCH", "/domains/%s/ssl" % dz, {"ssl_status": True})
             jr.did(tx("HTTPSِ لبه روشن شد", "edge HTTPS turned on"),
@@ -9848,8 +9885,7 @@ def _ar_apply(cred, want, cur, ctx, jr):
             jr.note(tx("گواهیِ رایگان درخواست شد — صدورش چند دقیقه طول می‌کشد",
                        "a free certificate was requested — it takes a few minutes to issue"), "info")
     if ctx["carrier"] == "grpc":
-        lb = _ar(cred, "GET", "/domains/%s/load-balancers/settings" % dz).get("data") or {}
-        if not lb.get("grpc_status"):
+        if not got["lb"].get("grpc_status"):
             _ar(cred, "PATCH", "/domains/%s/load-balancers/settings" % dz, {"grpc_status": True})
             jr.did(tx("gRPCِ «{0}» روشن شد", "gRPC on '{0}' turned on", z["name"]),
                    lambda: _ar(cred, "PATCH", "/domains/%s/load-balancers/settings" % dz, {"grpc_status": False}))
@@ -10068,7 +10104,7 @@ def api_cdn_set(d):
             n = sum(1 for L in load_links() if (L.get("cdn") or {}).get("provider") == prov)
             if n:
                 raise Bad("cdn_key_in_use", "{0} تونل هنوز با کلیدِ {1} ساخته و نگه داشته می‌شود — اول آن‌ها را دستی کن یا پاکشان کن",
-                          "{0} tunnels are still set up with the {1} key — switch them to manual or delete them first",
+                          "tunnels still set up with the {1} key: {0} — switch them to manual or delete them first",
                           n, CDN_NAMES[prov])
             with store_tx() as t:
                 t.cdn(prov, None)
@@ -10117,11 +10153,6 @@ def api_cdn_zones(d):
     return {"ok": True, "zones": [{k: z[k] for k in ("name", "plan", "ok", "why")} for z in zones]}
 
 
-def _cdn_gather(jobs):
-    keys = [k for k, fn in jobs.items() if fn]
-    return dict(zip(keys, parallel_map(lambda k: jobs[k](), keys, workers=8)))
-
-
 def api_cdn_plan(d):
     d = d or {}
     want = _cdn_want(d)
@@ -10134,23 +10165,7 @@ def api_cdn_plan(d):
     carrier = str(d.get("carrier") or "ws")
     tls = bool(d.get("tls"))
     host = want["host"]
-    if want["provider"] == "cf":
-        zid = z["id"]
-        got = _cdn_gather({
-            "recs": lambda: _cdn_records(cred, z, host),
-            "rs": lambda: _cf_entry(cred, zid),
-            "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if tls else None,
-            "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if tls else None,
-            "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None,
-            "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if not tls else None})
-    else:
-        dz = urllib.parse.quote(z["name"])
-        got = _cdn_gather({
-            "recs": lambda: _cdn_records(cred, z, host),
-            "cert": lambda: _ar(cred, "GET", "/domains/%s/ssl" % dz).get("data") or {},
-            "ddos": lambda: _ar(cred, "GET", "/domains/%s/ddos/settings" % dz).get("data") or {},
-            "lb": (lambda: _ar(cred, "GET", "/domains/%s/load-balancers/settings" % dz).get("data") or {})
-            if carrier == "grpc" else None})
+    got = (_cf_read if want["provider"] == "cf" else _ar_read)(cred, z, host, tls, carrier, plan=True)
     recs = got["recs"]
     out = {"ok": True, "provider": want["provider"], "host": host, "zone": z["name"], "plan": z["plan"],
            "record": {"mine": any(rid and r.get("id") == rid for r in recs),
@@ -10179,7 +10194,7 @@ def api_cdn_plan(d):
             https=bool(cert.get("ssl_status")) if tls else None,
             cert=bool(cert.get("certificates") or cert.get("orders")) if tls else None,
             grpc=bool(got["lb"].get("grpc_status")) if "lb" in got else None,
-            ddos=str(got["ddos"].get("protection_mode") or "off"),
+            ddos=None if got["ddos"] is None else str(got["ddos"].get("protection_mode") or "off"),
             https_redirect=(not tls) and bool(cert.get("https_redirect")))
     return out
 
