@@ -25,6 +25,20 @@ function lostRows(rows, why) {
   return rows.map((r) => (r.state === 'run' || r.state === 'wait' ? { ...r, state: 'err', step: '', detail: why } : r))
 }
 
+function creds(form) {
+  return {
+    ssh_port: form.sshPort.trim(),
+    ssh_user: form.sshUser.trim(),
+    agent_port: form.agentPort.trim(),
+    ssh_pass: form.authMode === 'pass' ? form.pass : '',
+    ssh_key: form.authMode === 'key' ? form.key.trim() : '',
+  }
+}
+
+function entry(x) {
+  return { name: x.name, ssh_host: x.host, ssh_port: x.port, ssh_user: x.user, ssh_pass: x.pass }
+}
+
 function rebuildLine(r) {
   return (r.name && r.name !== r.host ? r.name + '  ' : '') + targetText(r)
 }
@@ -109,13 +123,9 @@ export default function useBulkInstall() {
     async (rows) => {
       setStarting(true)
       const r = await apiPost('node-install-batch', {
-        ssh_port: form.sshPort.trim(),
-        ssh_user: form.sshUser.trim(),
-        agent_port: form.agentPort.trim(),
-        ssh_pass: form.authMode === 'pass' ? form.pass : '',
-        ssh_key: form.authMode === 'key' ? form.key.trim() : '',
+        ...creds(form),
         ...proxyBody(form.proxy),
-        rows: rows.map((x) => ({ name: x.name, ssh_host: x.host, ssh_port: x.port, ssh_user: x.user, ssh_pass: x.pass })),
+        rows: rows.map(entry),
       })
       setStarting(false)
       if (!(r.ok && r.d.ok)) return postError(r)
@@ -130,6 +140,26 @@ export default function useBulkInstall() {
     const r = await apiPost('install-batch-stop', { batch: id })
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
   }, [id])
+
+  const retryRow = useCallback(
+    async (i) => {
+      const b = latest.current
+      if (!b) return ''
+      const row = b.rows[i]
+      const f = await apiPost('install-forget-key', { job: row.job })
+      if (!(f.ok && f.d.ok)) return postError(f)
+      const r = await apiPost('install-batch-retry', {
+        ...creds(form),
+        batch: b.id,
+        row: i,
+        entry: sent.current[i] ? entry(sent.current[i]) : { name: row.name, ssh_host: row.host, ssh_port: row.port, ssh_user: row.user },
+      })
+      if (!(r.ok && r.d.ok)) return postError(r)
+      setBatch((cur) => (cur && cur.id === b.id ? { ...cur, rows: r.d.rows, done: !!r.d.done, stopped: !!r.d.stopped } : cur))
+      return ''
+    },
+    [form]
+  )
 
   const editFailed = useCallback(() => {
     const rows = latest.current ? latest.current.rows : []
@@ -148,5 +178,5 @@ export default function useBulkInstall() {
   const ask = useCallback(() => setAsked(true), [])
   const took = useCallback(() => setAsked(false), [])
 
-  return { form, setForm, batch, starting, start, stop, editFailed, finish, dialog, setDialog, asked, ask, took }
+  return { form, setForm, batch, starting, start, stop, retryRow, editFailed, finish, dialog, setDialog, asked, ask, took }
 }

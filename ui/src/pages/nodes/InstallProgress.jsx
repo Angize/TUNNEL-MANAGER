@@ -37,7 +37,28 @@ export function Roll({ text }) {
   )
 }
 
-export default function InstallProgress({ state }) {
+export function HostKeyFix({ onFix }) {
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    try {
+      await onFix()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="hkfix">
+      <button type="button" className="ghost tone tone-renew" disabled={busy} onClick={run}>
+        {busy ? <span className="bspin sm" /> : <Icon name="reset" />}
+        {T('inst_hostkey_fix')}
+      </button>
+      <div className="istep-s">{T('inst_hostkey_hint')}</div>
+    </div>
+  )
+}
+
+export default function InstallProgress({ state, onForgetKey }) {
   if (!state) return null
 
   const running = !state.finished
@@ -66,6 +87,7 @@ export default function InstallProgress({ state }) {
             <div className="istep-t">{step.label || ''}</div>
             {step.detail ? <div className="istep-s">{step.detail}</div> : null}
             {shown === 'err' && step.log ? <div className="ilog">{step.log}</div> : null}
+            {shown === 'err' && state.hostkey && onForgetKey ? <HostKeyFix onFix={onForgetKey} /> : null}
           </div>
         </div>
       ))}

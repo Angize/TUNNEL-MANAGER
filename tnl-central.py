@@ -3501,6 +3501,22 @@ def _ssh_argv(cfg, remote_cmd):
     return ["sshpass", "-e", "ssh"] + opts + [target, remote_cmd], env
 
 
+def _forget_host(host, port=None):
+    names = [host] + (["[%s]:%d" % (host, int(port))] if port and int(port) != 22 else [])
+    for name in names:
+        try:
+            subprocess.run(["ssh-keygen", "-f", SSH_KNOWN_HOSTS, "-R", name], capture_output=True, timeout=10)
+        except FileNotFoundError:
+            raise Bad("ssh_keygen_missing", "ابزارِ ssh-keygen روی سرورِ مرکزی نیست",
+                      "ssh-keygen is not on the central server") from None
+        except subprocess.TimeoutExpired:
+            pass
+    try:
+        os.remove(SSH_KNOWN_HOSTS + ".old")
+    except OSError:
+        pass
+
+
 def _ssh_run(cfg, remote_cmd, timeout, stdin_text=None):
     argv, env = _ssh_argv(cfg, remote_cmd)
     try:
@@ -3524,6 +3540,11 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             return fail("ssh", tx("ابزارِ SSH روی سرورِ مرکزی نیست", "the SSH tools are not on the central server"),
                         tx("برای احرازِ رمز، sshpass لازم است:  sudo apt install -y sshpass\n(یا از کلیدِ خصوصی استفاده کن)",
                            "password login needs sshpass:  sudo apt install -y sshpass\n(or use a private key)"))
+        if rc != 0 and "Host key verification failed" in (err or ""):
+            with _install_lock:
+                _install_jobs[jid]["hostkey"] = True
+            return fail("ssh", tx("کلیدِ SSHِ این سرور با کلیدی که پنل قبلاً از آن دیده فرق دارد",
+                                  "this server's SSH host key differs from the one the panel saw before"), err.strip())
         if rc != 0 or "TNL_SSH_OK" not in out:
             return fail("ssh", tx("اتصالِ SSH ناموفق", "SSH connection failed"), (err or out).strip())
         _install_step(jid, "ssh", "ok", tx("{0}@{1}:{2} — وصل شد", "{0}@{1}:{2} — connected", cfg["user"], cfg["host"], cfg["port"]))
@@ -3570,7 +3591,7 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
         _install_step(jid, "install", "ok", tx("ایجنت نصب و اجرا شد", "the agent is installed and running"))
 
         _install_step(jid, "register", "run")
-        node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"],
+        node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"], "ssh_port": cfg["port"],
                 "port": agent_port, "token": token, "proxy_on": pon, "proxy_id": pid}
         with _reg_lock:
             nodes = load_nodes()
@@ -3652,7 +3673,8 @@ def _install_start(plan, pon, pid, launch):
                 _install_jobs.pop(k, None)
             _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
                                             for k, l in _INSTALL_STEPS],
-                                  "done": False, "ok": False, "banner": "", "node_id": None, "ts": now}
+                                  "done": False, "ok": False, "banner": "", "node_id": None, "ts": now,
+                                  "host": plan["host"], "port": plan["port"]}
         launch((jid, cfg, plan["name"], plan["agent_port"], pon, pid))
     except Exception:
         _release_proxies("install:" + jid)
@@ -3697,12 +3719,13 @@ def _job_row(j):
                 "detail": s["detail"]}
     i = next((i for i, s in enumerate(steps) if s["state"] == "err"), 0)
     s = steps[i]
-    return {"state": "err", "at": i + 1, "step": s["label"], "detail": s["detail"], "log": s["log"]}
+    return {"state": "err", "at": i + 1, "step": s["label"], "detail": s["detail"], "log": s["log"],
+            "hostkey": bool(j.get("hostkey"))}
 
 
 def _batch_row(r):
     base = {"name": r["name"], "host": r["host"], "port": r["port"], "user": r["user"], "of": len(_INSTALL_STEPS),
-            "state": "wait", "at": 0, "step": "", "detail": "", "log": ""}
+            "state": "wait", "at": 0, "step": "", "detail": "", "log": "", "job": r["job"] or ""}
     if r["stop"]:
         return {**base, "state": "stop"}
     if r["error"] is not None:
@@ -3805,6 +3828,57 @@ def api_install_batch(d):
                 return {"ok": True, "batch": ""}
             b = max(live, key=lambda v: v["ts"])
         return _batch_view(b)
+
+
+def api_install_forget_key(d):
+    _require(d, ["job"])
+    with _install_lock:
+        j = _install_jobs.get(str(d["job"]))
+        if not j:
+            raise _no_job()
+        if not (j["done"] and not j["ok"] and j.get("hostkey")):
+            raise Bad("no_hostkey_change", "این نصب به‌خاطرِ عوض‌شدنِ کلیدِ SSH متوقف نشده",
+                      "this install did not stop on a changed SSH host key")
+        host, port = j["host"], j["port"]
+    _forget_host(host, port)
+    return {"ok": True}
+
+
+def api_install_batch_retry(d):
+    _gate_ready(True)
+    _require(d, ["batch", "row", "entry"])
+    entry = d["entry"]
+    if not isinstance(entry, dict):
+        raise Bad("bad_row", "هر ردیف باید یک شیء باشد", "each row must be an object")
+    plan = _install_plan(entry, d)
+    _node_unique(load_nodes(), plan["name"], plan["host"])
+    with _install_lock:
+        b = _install_batches.get(str(d["batch"]))
+        if not b:
+            raise _no_batch()
+        i = _int_in(d["row"], 0, len(b["rows"]) - 1, Bad("bad_row_index", "ردیفی با این شماره نیست", "there is no row with this number"))
+        r = b["rows"][i]
+        if (r["name"], r["host"]) != (plan["name"], plan["host"]):
+            raise Bad("batch_row_mismatch", "این ردیف سرورِ دیگری است", "this row is a different server")
+        if _batch_row(r)["state"] != "err":
+            raise Bad("row_not_failed", "فقط ردیفِ ناموفق دوباره نصب می‌شود", "only a failed row can be installed again")
+        if any(k != b["id"] and not _batch_done(v) for k, v in _install_batches.items()):
+            raise Bad("batch_running", "یک نصبِ گروهیِ دیگر در جریان است — صبر کن تمام شود یا متوقفش کن",
+                      "another bulk install is running — wait for it to finish or stop it")
+        r["job"], r["final"], r["error"], r["stop"] = None, None, None, False
+        if len(b["plans"]) < len(b["rows"]):
+            b["plans"] = [None] * len(b["rows"])
+        b["plans"][i] = plan
+        b["queue"].append(i)
+        b["stopped"] = False
+        b["ts"] = int(time.time())
+        spawn = not b["pumps"]
+        if spawn:
+            b["pumps"] = 1
+        view = _batch_view(b)
+    if spawn:
+        threading.Thread(target=_batch_pump, args=(b,), daemon=True).start()
+    return view
 
 
 def api_install_batch_stop(d):
@@ -3939,6 +4013,10 @@ def _node_del_impl(d):
         t.raw(lambda p: _stats_forget(p, nid))
     with _tomb_lock:
         _tomb[nid] = time.time() + 20
+    try:
+        _forget_host(n["host"], n.get("ssh_port"))
+    except Bad:
+        pass
     with _pc_lock:
         _pc.pop(nid, None)
     _stats_drop(nid)
@@ -9590,7 +9668,8 @@ API = {
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
     "node-install": api_node_install, "install-status": api_node_install_status,
     "node-install-batch": api_node_install_batch, "install-batch": api_install_batch,
-    "install-batch-stop": api_install_batch_stop,
+    "install-batch-stop": api_install_batch_stop, "install-batch-retry": api_install_batch_retry,
+    "install-forget-key": api_install_forget_key,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
     "node-adopt-ip": api_node_adopt_ip, "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
     "traffic": api_node_traffic, "fleet": api_fleet,
@@ -9617,7 +9696,7 @@ API = {
     "reorder": api_reorder, "link-tag": api_link_tag,
     "backup": api_backup, "backup-restore": api_backup_restore,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
              "delete-link", "link-toggle", "stray-del", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select",

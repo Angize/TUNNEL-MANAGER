@@ -62,6 +62,8 @@ export const GROUPS = [
       'node-install-batch',
       'install-batch',
       'install-batch-stop',
+      'install-batch-retry',
+      'install-forget-key',
       'node-edit',
       'node-del',
       'node-toggle',
@@ -265,7 +267,7 @@ export const DOCS = {
   },
   'install-status': {
     t: 'Install progress',
-    d: 'The steps of an install started by node-install, whether it finished, and the result.',
+    d: "The steps of an install started by node-install, whether it finished, and the result. hostkey is true when it stopped because the server's SSH host key changed — see install-forget-key.",
     p: [['job', 1, S, 'job id from the node-install answer']],
   },
   'node-install-batch': {
@@ -283,13 +285,32 @@ export const DOCS = {
   },
   'install-batch': {
     t: 'Many-server install progress',
-    d: 'Each row of an install started by node-install-batch: state (wait, run, ok, warn, err or stop), the step it is at out of how many, and for a failure its detail and log. Without batch, answers the install that is running now, or an empty batch.',
+    d: "Each row of an install started by node-install-batch: state (wait, run, ok, warn, err or stop), the step it is at out of how many, its job, and for a failure its detail, log and hostkey (true when the server's SSH host key changed). Without batch, answers the install that is running now, or an empty batch.",
     p: [['batch', 0, S, 'batch id from the node-install-batch answer']],
   },
   'install-batch-stop': {
     t: 'Stop a many-server install',
     d: 'Servers still waiting are not installed and turn to stop; those already installing finish.',
     p: [['batch', 1, S, 'batch id from the node-install-batch answer']],
+  },
+  'install-batch-retry': {
+    t: 'Install one failed row again',
+    d: "Runs one failed row of a many-server install again, in the same batch and through the batch's proxy. Send the row as it was sent and the same shared SSH fields as node-install-batch. The answer is the batch, as install-batch gives it.",
+    p: [
+      ['batch', 1, S, 'batch id from the node-install-batch answer'],
+      ['row', 1, N, 'row number, counted from 0'],
+      ['entry', 1, O, 'the row as it was sent: {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass"}'],
+      ['ssh_port', 0, N, 'SSH port if the row does not give one (default 22)'],
+      ['ssh_user', 0, S, 'SSH user if the row does not give one (default root)'],
+      ['ssh_pass', 0, S, "SSH password if the row has none — this, ssh_key or the row's own password is required"],
+      ['ssh_key', 0, S, 'the full text of the private key, if the row has no password'],
+      ['agent_port', 0, N, 'port the agent listens on (default 8099)'],
+    ],
+  },
+  'install-forget-key': {
+    t: 'Forget a changed SSH host key',
+    d: "For an install that stopped because the server's SSH host key differs from the one the panel saw before (hostkey true), removes that server's old key, so the next install trusts the new one. Use it only when the server was reinstalled or its IP moved to a new server.",
+    p: [['job', 1, S, 'job id from node-install, or the job of an install-batch row']],
   },
   'node-edit': {
     t: 'Edit a node',
@@ -305,7 +326,7 @@ export const DOCS = {
   },
   'node-del': {
     t: 'Delete a node',
-    d: 'Deletes the node and all of its tunnels. The node is cleaned first, and if it does not answer, nothing is deleted.',
+    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The node is cleaned first, and if it does not answer, nothing is deleted.",
     p: [
       ['id', 1, S, 'node id'],
       ['force', 0, B, 'if the panel has confirmed the node is down, delete it from the panel without cleaning the node'],

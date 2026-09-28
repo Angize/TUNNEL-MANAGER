@@ -1057,6 +1057,8 @@
    "banner": "'N1' is installed and connected",
    "node_id": "9eec8c5207",
    "ts": 1790276377,
+   "host": "10.77.3.2",
+   "port": 22,
    "success": true
   }
  },
@@ -1127,7 +1129,8 @@
      "at": 2,
      "step": "delivering the agent to the node",
      "detail": "",
-     "log": ""
+     "log": "",
+     "job": "5b0e2c1d9a37"
     },
     {
      "name": "N2",
@@ -1139,7 +1142,9 @@
      "at": 1,
      "step": "SSH connection",
      "detail": "SSH connection failed",
-     "log": "admin@10.77.3.66: Permission denied (publickey,password)."
+     "log": "admin@10.77.3.66: Permission denied (publickey,password).",
+     "job": "c41f7a0e6b28",
+     "hostkey": false
     },
     "… 1 more"
    ]
@@ -1153,6 +1158,67 @@
   "ok": {
    "code": 200,
    "ok": true
+  }
+ },
+ "install-forget-key": {
+  "req": {
+   "job": "c41f7a0e6b28"
+  },
+  "q": null,
+  "ok": {
+   "code": 200,
+   "ok": true
+  }
+ },
+ "install-batch-retry": {
+  "req": {
+   "batch": "154ae0b70d5b",
+   "row": 1,
+   "entry": {
+    "name": "N2",
+    "ssh_host": "10.77.3.66",
+    "ssh_port": "2222",
+    "ssh_user": "admin",
+    "ssh_pass": "…"
+   },
+   "ssh_pass": "…"
+  },
+  "q": null,
+  "ok": {
+   "code": 200,
+   "ok": true,
+   "batch": "154ae0b70d5b",
+   "done": false,
+   "stopped": false,
+   "rows": [
+    {
+     "name": "N1",
+     "host": "10.77.3.2",
+     "port": "",
+     "user": "",
+     "of": 4,
+     "state": "ok",
+     "at": 4,
+     "step": "registering and connecting in the panel",
+     "detail": "the node is connected and online",
+     "log": "",
+     "job": "5b0e2c1d9a37"
+    },
+    {
+     "name": "N2",
+     "host": "10.77.3.66",
+     "port": "2222",
+     "user": "admin",
+     "of": 4,
+     "state": "wait",
+     "at": 0,
+     "step": "",
+     "detail": "",
+     "log": "",
+     "job": ""
+    },
+    "… 1 more"
+   ]
   }
  },
  "node-stats": {
