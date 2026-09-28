@@ -16,8 +16,11 @@ function place(el) {
 }
 
 function bottomOf(els) {
-  const last = els[els.length - 1]
-  return last ? last.offsetTop + last.offsetHeight + parseFloat(getComputedStyle(last).marginBottom) : 0
+  let low = 0
+  for (const el of els) {
+    low = Math.max(low, el.offsetTop + el.offsetHeight + parseFloat(getComputedStyle(el).marginBottom))
+  }
+  return low
 }
 
 function ghostOut(root, g, slide) {

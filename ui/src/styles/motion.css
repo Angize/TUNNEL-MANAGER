@@ -6,7 +6,19 @@
 
 .flist {
   position: relative;
-  display: flow-root;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr));
+  column-gap: 12px;
+  align-content: start;
+  align-items: start;
+}
+
+.flist > .muted {
+  grid-column: 1 / -1;
+}
+
+body.reord-on .flist {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .flipping {

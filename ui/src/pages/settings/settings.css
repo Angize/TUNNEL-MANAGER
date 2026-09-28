@@ -1,4 +1,5 @@
 .stpage {
+  container-type: inline-size;
   --sc-h: 38px;
   --sc-w: 186px;
   --sc-wl: 280px;
@@ -11,6 +12,22 @@
 
 .sgsec + .sgsec {
   border-top: 1px solid var(--bord);
+}
+
+@container (min-width: 1120px) {
+  .stpage > .card.sg {
+    columns: 2;
+    column-gap: 0;
+    column-rule: 1px solid var(--bord);
+  }
+
+  .stpage > .card.sg > .sgsec {
+    break-inside: avoid;
+  }
+
+  .stpage > .card.sg > .sgsec + .sgsec {
+    border-top: 0;
+  }
 }
 
 .sg {

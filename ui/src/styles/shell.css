@@ -152,7 +152,8 @@
 .main {
   flex: 1;
   min-width: 0;
-  max-width: 1120px;
+  max-width: 2200px;
+  margin-inline: auto;
   --main-pb: 64px;
   padding: 22px 26px var(--main-pb);
 }
