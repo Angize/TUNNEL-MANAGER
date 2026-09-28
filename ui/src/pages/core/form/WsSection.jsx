@@ -1,5 +1,6 @@
 import Field from '../../../components/Field.jsx'
 import Reveal from '../../../components/Reveal.jsx'
+import SwapCascade from '../../../components/SwapCascade.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import RichText from '../../../components/RichText.jsx'
@@ -95,36 +96,38 @@ function Ws({ form, cfg, sides, lid, live, patch }) {
         note={T('ws_pool_d')}
         onToggle={() => patch({ pool: { ...form.pool, pool: !form.pool.pool } })}
       />
-      <Reveal show={form.pool.pool}>
-        <WsPool
-          form={form}
-          enums={cfg.enums}
-          lid={lid}
-          live={live}
-          patch={patch}
-        />
-      </Reveal>
-      <Reveal show={!form.pool.pool}>
-        <div style={{ marginTop: 12 }}>
-          <Field label={T('ws_host_lbl')}>
-            <input
-              {...LTR_TEXT}
-              placeholder={T('ph_cdn_domain')}
-              value={form.wsHost}
-              onChange={(e) => patch({ wsHost: e.target.value })}
-            />
-          </Field>
-          <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
-            <input
-              {...LTR_TEXT}
-              className="mono"
-              placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
-              value={form.wsEdge}
-              onChange={(e) => patch({ wsEdge: e.target.value })}
-            />
-          </Field>
-        </div>
-      </Reveal>
+      <SwapCascade value={!!form.pool.pool}>
+        <Reveal show={form.pool.pool}>
+          <WsPool
+            form={form}
+            enums={cfg.enums}
+            lid={lid}
+            live={live}
+            patch={patch}
+          />
+        </Reveal>
+        <Reveal show={!form.pool.pool}>
+          <div style={{ marginTop: 12 }}>
+            <Field label={T('ws_host_lbl')}>
+              <input
+                {...LTR_TEXT}
+                placeholder={T('ph_cdn_domain')}
+                value={form.wsHost}
+                onChange={(e) => patch({ wsHost: e.target.value })}
+              />
+            </Field>
+            <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
+              <input
+                {...LTR_TEXT}
+                className="mono"
+                placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
+                value={form.wsEdge}
+                onChange={(e) => patch({ wsEdge: e.target.value })}
+              />
+            </Field>
+          </div>
+        </Reveal>
+      </SwapCascade>
       <Field label={T('ws_path_lbl')}>
         <input
           {...LTR_TEXT}

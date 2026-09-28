@@ -6,56 +6,97 @@ const MOVE_MS = 340
 const OUT_MS = 160
 const IN_MS = 260
 const STAGGER_MS = 50
+const SIZE = 'swapsize'
 
 function spot(el, at) {
   const r = el.getBoundingClientRect()
   return { x: r.left - at.left, y: r.top - at.top, w: r.width }
 }
 
-function ghostOut(root, el, p) {
+function ghostOut(body, el, p) {
   el.classList.add('swghost')
   el.setAttribute('aria-hidden', 'true')
   el.inert = true
-  Object.assign(el.style, { top: p.y + 'px', left: p.x + 'px', width: p.w + 'px' })
-  root.appendChild(el)
-  el.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)' }], {
+  Object.assign(el.style, {
+    top: p.y - body.clientTop + body.scrollTop + 'px',
+    left: p.x - body.clientLeft + body.scrollLeft + 'px',
+    width: p.w + 'px',
+  })
+  body.appendChild(el)
+  el.animate([{ opacity: 1 }, { opacity: 0, scale: '.98' }], {
     duration: OUT_MS,
     easing: EASE_OUT,
     fill: 'forwards',
   }).onfinish = () => el.remove()
 }
 
-export default function useSwapFlip(box, key) {
+function resize(body, box, was) {
+  const now = box.offsetHeight
+  if (Math.abs(now - was) < 1) return
+  const bar = body.scrollHeight > body.clientHeight ? 'scroll' : 'hidden'
+  box.animate([{ height: was + 'px' }, { height: now + 'px' }], { id: SIZE, duration: MOVE_MS, easing: EASE_OUT })
+  body.animate([{ overflowY: bar }, { overflowY: bar }], { id: SIZE, duration: MOVE_MS })
+}
+
+function rowsOf(body, zone, wraps) {
+  const out = []
+  const around = (rows) => {
+    for (const el of rows) {
+      if (zone.contains(el)) continue
+      if (!el.contains(zone)) out.push(el)
+      else {
+        if (wraps) wraps.push(el)
+        around(formRows(el, wraps))
+      }
+    }
+  }
+  around(formRows(body, wraps))
+  return out.concat(formRows(zone, wraps))
+}
+
+export default function useSwapFlip(root, zone, key) {
   const last = useRef(key)
   const plan = useRef(null)
-  const swapping = last.current != null && key != null && last.current !== key && !reducedMotion()
+  const swapping =
+    !!(root && root.current) && last.current != null && key != null && last.current !== key && !reducedMotion()
 
-  if (swapping && !plan.current && box.current) {
-    const at = box.current.getBoundingClientRect()
+  if (swapping && !plan.current && zone.current) {
+    const body = root.current
+    const at = body.getBoundingClientRect()
     const wraps = []
-    const leaves = formRows(box.current, wraps)
-    plan.current = new Map([...wraps, ...leaves].map((el) => [el, spot(el, at)]))
+    const rows = rowsOf(body, zone.current, wraps)
+    plan.current = {
+      spots: new Map([...wraps, ...rows].map((el) => [el, spot(el, at)])),
+      height: body.closest('.modal').offsetHeight,
+    }
   }
 
   useLayoutEffect(() => {
     last.current = key
     const was = plan.current
     plan.current = null
-    const root = box.current
-    if (!was || !root) return
-    was.forEach((p, el) => {
-      if (!el.parentNode) ghostOut(root, el, p)
+    const body = root && root.current
+    if (!was || !body || !zone.current) return
+    const box = body.closest('.modal')
+    for (const a of [...box.getAnimations(), ...body.getAnimations()]) {
+      if (a.id === SIZE) a.cancel()
+    }
+    for (const el of body.querySelectorAll('.rvin, .rvin > .rvb, .rvout')) {
+      for (const a of el.getAnimations()) a.finish()
+    }
+    const at = body.getBoundingClientRect()
+    const rows = rowsOf(body, zone.current).map((el) => [el, spot(el, at)])
+    resize(body, box, was.height)
+    was.spots.forEach((p, el) => {
+      if (!el.parentNode) ghostOut(body, el, p)
     })
-    const at = root.getBoundingClientRect()
-    const scroller = root.closest('.mbody')
-    const bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight
+    const rtl = getComputedStyle(body).direction === 'rtl'
     let fresh = 0
-    for (const el of formRows(root)) {
-      const now = spot(el, at)
-      const p = was.get(el)
+    for (const [el, now] of rows) {
+      const p = was.spots.get(el)
       if (!p) {
-        if (at.top + now.y >= bottom) continue
-        el.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], {
+        if (now.y >= at.height) continue
+        el.animate([{ opacity: 0, translate: '0 10px' }, { opacity: 1, translate: '0 0' }], {
           duration: IN_MS,
           delay: 80 + STAGGER_MS * fresh++,
           easing: EASE_OUT,
@@ -63,16 +104,16 @@ export default function useSwapFlip(box, key) {
         })
         continue
       }
-      const dx = p.x - now.x
+      const dx = rtl ? p.x + p.w - now.x - now.w : p.x - now.x
       const dy = p.y - now.y
       if (dx || dy) {
-        el.animate([{ transform: 'translate(' + dx + 'px, ' + dy + 'px)' }, { transform: 'none' }], {
+        el.animate([{ translate: dx + 'px ' + dy + 'px' }, { translate: '0 0' }], {
           duration: MOVE_MS,
           easing: EASE_OUT,
         })
       }
     }
-  }, [box, key])
+  }, [root, zone, key])
 
   return swapping
 }

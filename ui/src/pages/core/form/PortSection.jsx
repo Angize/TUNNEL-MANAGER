@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import Reveal from '../../../components/Reveal.jsx'
+import SwapCascade from '../../../components/SwapCascade.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import Field from '../../../components/Field.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
@@ -171,10 +172,12 @@ function RawPort({ form, cfg, patch }) {
         value={form.rawPort}
         onChange={(v) => patch({ rawPort: v })}
       />
-      <SourcePort form={form} limits={cfg.limits} patch={patch} />
-      <Reveal show={form.SportRandom}>{draws}</Reveal>
-      <SportRotation form={form} patch={patch} />
-      <Reveal show={!form.SportRandom}>{draws}</Reveal>
+      <SwapCascade value={!!form.SportRandom}>
+        <SourcePort form={form} limits={cfg.limits} patch={patch} />
+        <Reveal show={form.SportRandom}>{draws}</Reveal>
+        <SportRotation form={form} patch={patch} />
+        <Reveal show={!form.SportRandom}>{draws}</Reveal>
+      </SwapCascade>
       <Reveal show={ctbOn(form, cfg.enums)}>
         <SwitchRow
           on={!!form.Ctb}

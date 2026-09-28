@@ -1,4 +1,5 @@
 import Reveal from '../../components/Reveal.jsx'
+import SwapCascade from '../../components/SwapCascade.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
 
@@ -60,13 +61,13 @@ function NodeList({ proxyId, nodes, picked, onPick }) {
 
 export default function ProxyNodes({ proxyId, nodes, picked, onPick }) {
   return (
-    <>
+    <SwapCascade value={nodes === null}>
       <Reveal show={nodes === null}>
         <div className="muted pxnmsg">{T('px_nodes_loading')}</div>
       </Reveal>
       <Reveal show={nodes !== null}>
         {nodes === null ? null : <NodeList proxyId={proxyId} nodes={nodes} picked={picked} onPick={onPick} />}
       </Reveal>
-    </>
+    </SwapCascade>
   )
 }
