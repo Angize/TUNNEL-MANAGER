@@ -356,7 +356,7 @@ export default function CdnAuto({ form, keys, serverIp, plan, managed, patch, ma
               <Select
                 items={zoneItems(provider, zones)}
                 value={form.cdnZone}
-                placeholder={T(zones ? 'cdn_zone_pick' : 'cdn_zone_loading')}
+                placeholder={T(zones || zonesError ? 'cdn_zone_pick' : 'cdn_zone_loading')}
                 onChange={(v) => {
                   const picked = (zones || []).find((z) => z.name === v)
                   patch({ cdnZone: v, cdnZoneOk: !picked || !!picked.ok, cdnReplace: null })
