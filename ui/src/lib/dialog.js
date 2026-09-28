@@ -30,6 +30,12 @@ export function confirmBox(msg, yesLabel) {
   })
 }
 
+export function confirmToggle(msg, yesLabel, toggle) {
+  return new Promise((resolve) => {
+    push({ id: ++seq, kind: 'confirm', danger: true, msg, yesLabel, toggle, resolve })
+  })
+}
+
 export function askBox(msg, yesLabel) {
   return new Promise((resolve) => {
     push({ id: ++seq, kind: 'confirm', danger: false, msg, yesLabel, resolve })

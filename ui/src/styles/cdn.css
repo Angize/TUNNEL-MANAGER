@@ -1,0 +1,625 @@
+.cdnset {
+  gap: 12px;
+}
+
+.cdnprov .sgt.cf {
+  --scbg: color-mix(in srgb, var(--h-orange) 14%, transparent);
+  --sc: var(--h-orange);
+}
+
+.cdnprov .sgt.ar {
+  --scbg: var(--accw);
+  --sc: var(--acc-tx);
+}
+
+.cdnprov .fld {
+  margin: 0;
+}
+
+.cdnchip {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--field);
+  color: var(--sub);
+  border: 1px solid var(--bord);
+}
+
+.cdnchip.ok {
+  background: var(--okw);
+  color: var(--ok-tx);
+  border-color: color-mix(in srgb, var(--ok) 28%, transparent);
+}
+
+.cdnchip.warn {
+  background: var(--goldw);
+  color: var(--gold-tx);
+  border-color: color-mix(in srgb, var(--gold) 28%, transparent);
+}
+
+.cdnchip.bad {
+  background: var(--badw);
+  color: var(--bad-tx);
+  border-color: color-mix(in srgb, var(--bad) 28%, transparent);
+}
+
+.cdnchip.run {
+  background: var(--accw);
+  color: var(--acc-tx);
+  border-color: color-mix(in srgb, var(--acc) 26%, transparent);
+}
+
+.warncap.gold {
+  background: var(--goldw);
+  color: var(--gold-tx);
+  border: 1px solid color-mix(in srgb, var(--gold) 28%, transparent);
+}
+
+.cdnprov .warncap {
+  margin-top: 0;
+}
+
+.cdnres {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cdnresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ok-tx);
+}
+
+.cdnresh .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.cdnresh .muted {
+  font-size: 11px;
+}
+
+.cdnperm {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--bord);
+}
+
+.cdnpermr {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.cdnpermr .ic {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--ok-tx);
+}
+
+.cdnpermr.bad .ic {
+  color: var(--bad-tx);
+}
+
+.cdnpermr .mono {
+  font-size: 11px;
+}
+
+.cdnpermr small {
+  margin-inline-start: auto;
+  color: var(--sub);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.cdnkeynote {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 0 4px;
+}
+
+.cdnkeynote .ic {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 4px;
+}
+
+.cdngrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.cdngrid .fld {
+  margin: 0;
+  min-width: 0;
+}
+
+.cdnlabel {
+  display: flex;
+  direction: ltr;
+  align-items: stretch;
+  border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--edge);
+  overflow: hidden;
+}
+
+.cdnlabel:focus-within {
+  border-color: var(--acc);
+}
+
+.cdnlabel input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cdnlabel input:focus {
+  box-shadow: none;
+  border: 0;
+  outline: none;
+}
+
+.cdnsuffix {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  align-self: center;
+  padding: 0 10px 0 2px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--sub);
+}
+
+.fld.bad .cdnlabel {
+  border-color: var(--bad);
+}
+
+.cdnhost {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
+  font-size: 11px;
+}
+
+.cdnhost .cpv {
+  font-size: 12.5px;
+  direction: ltr;
+  overflow-wrap: anywhere;
+}
+
+.cdnplan {
+  margin-top: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--edge);
+  background: var(--card);
+  box-shadow: var(--dsh);
+  overflow: hidden;
+}
+
+.cdnph {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--bord);
+}
+
+.cdnph .ic {
+  width: 14px;
+  height: 14px;
+  color: var(--acc-tx);
+}
+
+.cdnstep {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px 12px;
+}
+
+.cdnstep + .cdnstep {
+  border-top: 1px solid var(--bord);
+}
+
+.cdnic {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--field);
+  color: var(--sub);
+}
+
+.cdnic .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.cdnstep.ok .cdnic {
+  background: var(--okw);
+  color: var(--ok-tx);
+}
+
+.cdnstep.new .cdnic {
+  background: var(--accw);
+  color: var(--acc-tx);
+}
+
+.cdnstep.warn .cdnic {
+  background: var(--goldw);
+  color: var(--gold-tx);
+}
+
+.cdnstep.bad .cdnic {
+  background: var(--badw);
+  color: var(--bad-tx);
+}
+
+.cdntx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cdnsth {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cdnsth > b {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.cdntx > small {
+  font-size: 11px;
+  line-height: 1.75;
+  color: var(--sub);
+}
+
+.cdntx .mono {
+  font-size: 11.5px;
+}
+
+.cdnstep .seg2 {
+  margin-top: 8px;
+}
+
+.cdnsteps {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--bord);
+}
+
+.cdnsteps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--sub);
+  min-width: 0;
+}
+
+.cdnsteps li .ic {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.cdnsteps li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cdnsteps li.ok {
+  color: var(--ok-tx);
+}
+
+.cdnsteps li small {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: var(--gold-tx);
+}
+
+.cdnown {
+  margin-top: 8px;
+  border-radius: 11px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--ok) 26%, transparent);
+  background: color-mix(in srgb, var(--ok) 6%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cdnown.bad {
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+
+.cdnownh {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+}
+
+.cdnownh b {
+  flex: 1;
+  min-width: 0;
+}
+
+.cdnowni {
+  display: inline-flex;
+  color: var(--ok-tx);
+}
+
+.cdnown.bad .cdnowni {
+  color: var(--bad-tx);
+}
+
+.cdnowni .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.cdnownrows {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr;
+  gap: 6px;
+}
+
+.cdnownrows span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  color: var(--sub);
+  min-width: 0;
+}
+
+.cdnownrows b {
+  align-self: flex-start;
+  font-size: 11.5px;
+  color: var(--tx);
+  overflow-wrap: anywhere;
+}
+
+.cdnowntx {
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--bad-tx);
+}
+
+.cdnfix {
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  margin: 0;
+}
+
+.cdnfix .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.dlgsw-wrap {
+  margin-top: 12px;
+}
+
+.dlgsw-wrap .swrow {
+  margin: 0;
+}
+
+.ltrv {
+  display: inline-block;
+  direction: ltr;
+  unicode-bidi: isolate;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  vertical-align: bottom;
+}
+
+.cdnmap {
+  display: block;
+  direction: ltr;
+  text-align: left;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--field);
+  border: 1px solid var(--bord);
+  overflow-wrap: anywhere;
+}
+
+.apcard.cdnprov .oprow {
+  flex-wrap: wrap;
+}
+
+.apcard.cdnprov .aptok {
+  flex: 1 1 190px;
+}
+
+.tokv {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.cdnchip.off {
+  background: var(--field);
+  color: var(--sub);
+}
+
+.cdnpermn {
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--sub);
+  padding-top: 4px;
+  border-top: 1px dashed var(--bord);
+}
+
+.cdnused {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--sub);
+  margin-top: 6px;
+}
+
+.cdnclear {
+  flex: none;
+  width: 40px;
+  padding: 0;
+  color: var(--bad-tx);
+}
+
+.cdnclear .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.cdnprov button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.cdnlock {
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--sub);
+  margin-top: 8px;
+}
+
+.cdnports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cdnport {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.cdnport small {
+  font-weight: 500;
+  color: var(--sub);
+}
+
+.cdnport.on {
+  background: var(--accw);
+  color: var(--acc-tx);
+  border-color: color-mix(in srgb, var(--acc) 30%, transparent);
+}
+
+.cdnown.wait {
+  border-color: var(--bord);
+  background: var(--field);
+}
+
+.cdnown.wait .cdnowni {
+  color: var(--sub);
+}
+
+.cdnsteps li.undo {
+  color: var(--gold-tx);
+}
+
+.cdnsteps li.info {
+  color: var(--sub);
+}
+
+.arow + .cdnsteps {
+  margin-top: 8px;
+}
+
+.cdnplan .warncap {
+  margin: 0;
+}
+
+.cdnwait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 11.5px;
+  color: var(--sub);
+}
+
+@media (max-width: 520px) {
+  .cdngrid {
+    grid-template-columns: 1fr;
+  }
+
+  .cdnownrows {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cdnownrows span:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .apcard.cdnprov .aptok {
+    flex-basis: 100%;
+  }
+}

@@ -43,6 +43,11 @@
   background: var(--okw);
 }
 
+.ast.warn {
+  color: var(--gold-tx);
+  background: var(--goldw);
+}
+
 .astep {
   flex: 1 1 auto;
   min-width: 0;
@@ -96,6 +101,10 @@
 
 .abar.done > i {
   background: var(--ok);
+}
+
+.abar.warn > i {
+  background: var(--gold);
 }
 
 .abar.spin > i {

@@ -27,6 +27,9 @@ export default function SettingsTab({
   proxies,
   sides,
   poolLive,
+  cdnKeys,
+  serverIp,
+  cdnPlan,
   patch,
 }) {
   const ciphers = cipherItems(cfg.enums, form.Tr)
@@ -97,6 +100,10 @@ export default function SettingsTab({
         sides={sides}
         lid={poolLive.lid}
         live={poolLive}
+        cdnKeys={cdnKeys}
+        cdnManaged={!!(link && link.cdn)}
+        serverIp={serverIp}
+        cdnPlan={cdnPlan}
         patch={patch}
       />
 
@@ -148,7 +155,7 @@ export default function SettingsTab({
           label={rangeLabel(T(link ? 'core_port_lbl2' : 'core_port_lbl'), ...cfg.limits.port)}
         >
           <NumberInput
-            placeholder={T(form.Tr === 'ws' ? 'port_ws_ph' : 'port_band_ph')}
+            placeholder={T(form.Tr !== 'ws' ? 'port_band_ph' : form.cdnMode === 'manual' ? 'port_ws_ph' : 'cdn_port_ph')}
             value={form.port}
             onChange={(v) => patch({ port: v, portAuto: false })}
           />

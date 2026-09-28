@@ -149,6 +149,212 @@
    ]
   ]
  },
+ "cdn": {},
+ "cdn-plan": {
+  "bad": [
+   [
+    400,
+    "bad_cdn",
+    "the CDN setup is invalid"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the full name is longer than 253 characters"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the subdomain takes only lowercase letters, digits and hyphens and cannot start or end with a hyphen"
+   ],
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "bad_cdn_zone",
+    "invalid CDN domain"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_label_dot",
+    "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_missing",
+    "domain '…' is not in the … account"
+   ],
+   [
+    400,
+    "cdn_zone_off",
+    "domain '…' is not active in … (…) and passes no traffic"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
+   ]
+  ]
+ },
+ "cdn-set": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_key",
+    "the key does not look right — paste the exact string"
+   ],
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "cdn_key_in_use",
+    "tunnels still set up with the … key: … — switch them to manual or delete them first"
+   ],
+   [
+    400,
+    "cdn_key_missing",
+    "enter the key first"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "proxy not found"
+   ]
+  ]
+ },
+ "cdn-sync": {
+  "bad": [
+   [
+    400,
+    "cdn_not_managed",
+    "the panel did not set up this tunnel's CDN"
+   ],
+   [
+    400,
+    "cdn_sync_failed",
+    "the … step did not finish again: …"
+   ],
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "tunnel_not_found",
+    "tunnel not found"
+   ]
+  ]
+ },
+ "cdn-test": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
+   ]
+  ]
+ },
+ "cdn-zones": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
+   ]
+  ]
+ },
  "check-link": {
   "bad": [
    [
@@ -261,13 +467,43 @@
   "act": [
    [
     400,
+    "",
+    ""
+   ],
+   [
+    400,
     "bad_arch",
     "invalid architecture — only amd64 or arm64"
    ],
    [
     400,
+    "bad_cdn",
+    "the CDN setup is invalid"
+   ],
+   [
+    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the full name is longer than 253 characters"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the subdomain takes only lowercase letters, digits and hyphens and cannot start or end with a hyphen"
+   ],
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "bad_cdn_zone",
+    "invalid CDN domain"
    ],
    [
     400,
@@ -448,6 +684,41 @@
     400,
     "bad_ws_path",
     "invalid path"
+   ],
+   [
+    400,
+    "cdn_cf_443",
+    "with Cloudflare, wss works only on edge port 443; Flexible falls back to Full on … and the tunnel never comes up"
+   ],
+   [
+    400,
+    "cdn_host_taken",
+    "'…' is used by tunnel '…' — a name points at one server and one port only"
+   ],
+   [
+    400,
+    "cdn_label_dot",
+    "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
+   ],
+   [
+    400,
+    "cdn_needs_ws",
+    "the CDN setup is only for the CDN (ws) carrier"
+   ],
+   [
+    400,
+    "cdn_no_ech",
+    "the CDN setup does not work with ECH yet — turn ECH off or set the CDN up by hand"
+   ],
+   [
+    400,
+    "cdn_no_pool",
+    "the CDN setup does not work with an edge pool — turn the pool off or set the CDN up by hand"
+   ],
+   [
+    400,
+    "cdn_private_ip",
+    "the server IP (…) is not public and the CDN cannot reach it — pick a public IPv4"
    ],
    [
     400,
@@ -837,13 +1108,43 @@
   "act": [
    [
     400,
+    "",
+    ""
+   ],
+   [
+    400,
     "bad_arch",
     "invalid architecture — only amd64 or arm64"
    ],
    [
     400,
+    "bad_cdn",
+    "the CDN setup is invalid"
+   ],
+   [
+    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the full name is longer than 253 characters"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the subdomain takes only lowercase letters, digits and hyphens and cannot start or end with a hyphen"
+   ],
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "bad_cdn_zone",
+    "invalid CDN domain"
    ],
    [
     400,
@@ -1024,6 +1325,41 @@
     400,
     "bad_ws_path",
     "invalid path"
+   ],
+   [
+    400,
+    "cdn_cf_443",
+    "with Cloudflare, wss works only on edge port 443; Flexible falls back to Full on … and the tunnel never comes up"
+   ],
+   [
+    400,
+    "cdn_host_taken",
+    "'…' is used by tunnel '…' — a name points at one server and one port only"
+   ],
+   [
+    400,
+    "cdn_label_dot",
+    "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
+   ],
+   [
+    400,
+    "cdn_needs_ws",
+    "the CDN setup is only for the CDN (ws) carrier"
+   ],
+   [
+    400,
+    "cdn_no_ech",
+    "the CDN setup does not work with ECH yet — turn ECH off or set the CDN up by hand"
+   ],
+   [
+    400,
+    "cdn_no_pool",
+    "the CDN setup does not work with an edge pool — turn the pool off or set the CDN up by hand"
+   ],
+   [
+    400,
+    "cdn_private_ip",
+    "the server IP (…) is not public and the CDN cannot reach it — pick a public IPv4"
    ],
    [
     400,

@@ -7,6 +7,8 @@ import RichText from '../../../components/RichText.jsx'
 import { Tile, Tiles, WarnCap } from './controls.jsx'
 import WorkersSection from './WorkersSection.jsx'
 import WsPool from './WsPool.jsx'
+import CdnAuto from './CdnAuto.jsx'
+import { cdnAuto } from '../../../lib/cdn.js'
 import { cdnShapeOn, wsProfOf } from './gates.js'
 import { CDN_FIELD_NAMES, cdnLabel, cdnShape, wsProfiles } from './presets.js'
 import { cdnShapeErr } from './validate.js'
@@ -71,7 +73,7 @@ function CdnShape(props) {
   )
 }
 
-function Ws({ form, cfg, sides, lid, live, patch }) {
+function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnManaged, serverIp, cdnPlan, patch }) {
   const current = wsProfOf(form.Cdn)
 
   return (
@@ -108,23 +110,35 @@ function Ws({ form, cfg, sides, lid, live, patch }) {
         </Reveal>
         <Reveal show={!form.pool.pool}>
           <div style={{ marginTop: 12 }}>
-            <Field label={T('ws_host_lbl')}>
-              <input
-                {...LTR_TEXT}
-                placeholder={T('ph_cdn_domain')}
-                value={form.wsHost}
-                onChange={(e) => patch({ wsHost: e.target.value })}
-              />
-            </Field>
-            <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
-              <input
-                {...LTR_TEXT}
-                className="mono"
-                placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
-                value={form.wsEdge}
-                onChange={(e) => patch({ wsEdge: e.target.value })}
-              />
-            </Field>
+            <CdnAuto
+              form={form}
+              keys={cdnKeys}
+              serverIp={serverIp}
+              plan={cdnPlan}
+              managed={cdnManaged}
+              patch={patch}
+              manual={
+                <div>
+                  <Field label={T('ws_host_lbl')}>
+                    <input
+                      {...LTR_TEXT}
+                      placeholder={T('ph_cdn_domain')}
+                      value={form.wsHost}
+                      onChange={(e) => patch({ wsHost: e.target.value })}
+                    />
+                  </Field>
+                  <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
+                    <input
+                      {...LTR_TEXT}
+                      className="mono"
+                      placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
+                      value={form.wsEdge}
+                      onChange={(e) => patch({ wsEdge: e.target.value })}
+                    />
+                  </Field>
+                </div>
+              }
+            />
           </div>
         </Reveal>
       </SwapCascade>
@@ -136,9 +150,11 @@ function Ws({ form, cfg, sides, lid, live, patch }) {
           onChange={(e) => patch({ wsPath: e.target.value })}
         />
       </Field>
-      <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
-        <RichText text={T('ws_note')} />
-      </div>
+      <Reveal show={!cdnAuto(form)}>
+        <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
+          <RichText text={T('ws_note')} />
+        </div>
+      </Reveal>
     </div>
   )
 }
