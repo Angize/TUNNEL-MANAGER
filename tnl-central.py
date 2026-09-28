@@ -10764,6 +10764,8 @@ API_MSG = {
     "api_disabled": ("API در دسترس نیست", 403, "API is not available"),
     "bad_token": ("توکنِ API نامعتبر است", 401, "invalid API token"),
     "token_denied": ("این درخواست با توکنِ API مجاز نیست", 403, "this endpoint is not available with an API token"),
+    "token_cdn": ("راه‌اندازیِ CDN با توکنِ API مجاز نیست — از خودِ پنل بزن", 403,
+                  "setting up a CDN is not available with an API token; use the panel"),
     "unknown_route": ("مسیرِ ناشناخته", 404, "unknown API route"),
     "post_only": ("این درخواست باید POST باشد", 405, "this endpoint requires POST"),
     "bad_request": ("درخواستِ نامعتبر", 403, "invalid request"),
@@ -10779,6 +10781,8 @@ API_REFUSED = {
     "bad_token": ("درخواستِ API «{0}» رد شد — توکن نامعتبر است.", "API request '{0}' refused — invalid token."),
     "token_denied": ("درخواستِ API «{0}» رد شد — این مسیر با توکن مجاز نیست.",
                      "API request '{0}' refused — this route is not allowed with a token."),
+    "token_cdn": ("درخواستِ API «{0}» رد شد — راه‌اندازیِ CDN با توکن مجاز نیست.",
+                  "API request '{0}' refused — setting up a CDN is not allowed with a token."),
     "unknown_route": ("درخواستِ API «{0}» رد شد — مسیرِ ناشناخته.", "API request '{0}' refused — unknown route."),
     "post_only": ("درخواستِ API «{0}» رد شد — باید POST باشد.", "API request '{0}' refused — it must be POST."),
     "too_large": ("درخواستِ API «{0}» رد شد — بدنهٔ درخواست بیش از حد بزرگ بود.",
@@ -11200,6 +11204,9 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse("too_large", cmd, method, en, drain=True)
             return
         d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
+        if via_token and d.get("cdn"):
+            self._refuse("token_cdn", cmd, method, en)
+            return
         try:
             res = _dispatch(cmd, d)
             status, body = _en_reply(res) if via_token else (200, res)
