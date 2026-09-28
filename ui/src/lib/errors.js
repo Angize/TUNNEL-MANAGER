@@ -101,7 +101,7 @@ const PHRASE = [
   [/Address family not supported/gi, 'err_afam'],
   [/broken pipe/gi, 'err_pipe'],
   [/server busy,\s*retry shortly/gi, 'err_busy'],
-  [/certificate/gi, 'err_cert'],
+  [/\bcertificate\b/gi, 'err_cert'],
 ]
 
 export function translateError(msg) {
