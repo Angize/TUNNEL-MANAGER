@@ -8783,6 +8783,11 @@ def api_portfw_edit(d):
     n = get_node(d["node"])
     if not n:
         raise _no_node()
+    to = get_node(d["to_node"]) if str(d.get("to_node") or "").strip() else n
+    if not to:
+        raise _no_node()
+    if to["id"] != n["id"]:
+        return _pf_move(n, to, _pf_name(d["name"]), d)
     body = {"name": _pf_name(d["name"])}
     for k in ("listen_port", "dst_port", "dst_ips", "iface", "listen_ip"):
         if d.get(k) not in (None, ""):
@@ -8794,6 +8799,57 @@ def api_portfw_edit(d):
     if body.get("rotate", True) and d.get("interval_min") not in (None, ""):
         body["interval_min"] = _pf_field("interval_min", d["interval_min"])
     return _pf_push(n, "portfw-edit", body)
+
+
+def _pf_own(n, name):
+    cfgs, health = _pf_node_configs(n["id"])
+    if health is None and not cfgs:
+        raise Bad("node_not_read", "وضعیتِ نودِ «{0}» هنوز خوانده نشده — چند لحظه بعد دوباره بزن",
+                  "the state of node '{0}' is not read yet — try again in a moment", n.get("name") or n["id"])
+    for c in cfgs:
+        if str(c.get("name") or "") == name:
+            return c
+    raise Bad("portfw_not_found", "روی نودِ «{0}» پورت‌فورواردی به نامِ «{1}» ثبت نیست "
+              "— برای اینکه تونلی به همین نام پاک نشود متوقف شد",
+              "node '{0}' has no port forward named '{1}' — stopped so a tunnel with the same name is not deleted",
+              n.get("name") or n["id"], name)
+
+
+def _pf_move(n, to, name, d):
+    old = _pf_own(n, name)
+    rotate = bool(d["rotate"]) if "rotate" in d else _sint(old.get("switch_interval")) > 0
+    body = {"listen_port": _pf_field("listen_port", d.get("listen_port") or old.get("listen_port")),
+            "dst_port": _pf_field("dst_port", d.get("dst_port") or old.get("dst_port")),
+            "dst_ips": _pf_field("dst_ips", d.get("dst_ips") or old.get("dst_ips")),
+            "rotate": rotate}
+    if rotate:
+        body["interval_min"] = _pf_field("interval_min", d.get("interval_min")
+                                         or _sint(old.get("switch_interval")) // 60 or 5)
+    if d.get("iface"):
+        body["iface"] = _pf_field("iface", d["iface"])
+    if d.get("listen_ip"):
+        body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
+    made = _pf_push(to, "portfw", body)["name"]
+    r = node_call(n, "delete", "POST", {"name": name})
+    if not r.get("ok"):
+        back = node_call(to, "delete", "POST", {"name": made})
+        _refresh_cache([to["id"]])
+        raise Bad("portfw_move_stuck", "پورت‌فورواردِ «{0}» از نودِ «{1}» برداشته نشد، پس جابه‌جا نشد: {2}{3}",
+                  "port forward '{0}' was not removed from node '{1}', so it was not moved: {2}{3}",
+                  name, n["name"], r.get("error") or r.get("msg") or _FAILED,
+                  "" if back.get("ok") else tx(" — نسخهٔ تازهٔ «{0}» روی نودِ «{1}» هم برداشته نشد",
+                                               " — the new copy '{0}' on node '{1}' was not removed either",
+                                               made, to["name"]))
+    _tf_forget(n["id"], ["pf:" + name])
+    was, now = _pf_key(n["id"], name), _pf_key(to["id"], made)
+    with _reg_lock:
+        order = _pf_load_order()
+        if was in order:
+            order[order.index(was)] = now
+            with store_tx() as t:
+                t.pforder(order)
+    _refresh_cache([n["id"]])
+    return {"ok": True, "name": made, "node": to["id"]}
 
 
 def api_portfw_next(d):
@@ -8810,15 +8866,7 @@ def api_portfw_del(d):
     if not n:
         raise _no_node()
     name = _pf_name(d["name"])
-    cfgs, health = _pf_node_configs(n["id"])
-    if health is None and not cfgs:
-        raise Bad("node_not_read", "وضعیتِ نودِ «{0}» هنوز خوانده نشده — چند لحظه بعد دوباره بزن",
-                  "the state of node '{0}' is not read yet — try again in a moment", n.get("name") or n["id"])
-    if name not in [str(c.get("name") or "") for c in cfgs]:
-        raise Bad("portfw_not_found", "روی نودِ «{0}» پورت‌فورواردی به نامِ «{1}» ثبت نیست "
-                  "— برای اینکه تونلی به همین نام پاک نشود متوقف شد",
-                  "node '{0}' has no port forward named '{1}' — stopped so a tunnel with the same name is not deleted",
-                  n.get("name") or n["id"], name)
+    _pf_own(n, name)
     r = node_call(n, "delete", "POST", {"name": name})
     if r.get("ok"):
         _tf_forget(n["id"], ["pf:" + name])

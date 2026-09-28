@@ -2259,6 +2259,21 @@
     400,
     "node_not_found",
     "node not found"
+   ],
+   [
+    400,
+    "node_not_read",
+    "the state of node '…' is not read yet — try again in a moment"
+   ],
+   [
+    400,
+    "portfw_move_stuck",
+    "port forward '…' was not removed from node '…', so it was not moved: …"
+   ],
+   [
+    400,
+    "portfw_not_found",
+    "node '…' has no port forward named '…' — stopped so a tunnel with the same name is not deleted"
    ]
   ]
  },
