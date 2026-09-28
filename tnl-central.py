@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import base64
+import contextlib
 import getpass
 import gzip
 import hashlib
@@ -6033,7 +6034,7 @@ def _cdn_shape_fields(d, cur, cdn):
     return out
 
 
-def _ws_fields(d, transport, cur=None):
+def _ws_fields(d, transport, cur=None, ech_later=False):
     out = {}
     if transport != "ws":
         return out
@@ -6079,12 +6080,14 @@ def _ws_fields(d, transport, cur=None):
         if not out.get("ws_tls"):
             raise Bad("ech_needs_wss", "ECH به wss نیاز دارد — اول wss (TLS به CDN) را روشن کن",
                       "ECH needs wss — turn wss (TLS to the CDN) on first")
-        cfg = _fetch_ech(host, _ech_proxy_fields(d, cur, out))
-        if not cfg:
-            raise Bad("ech_key_missing", "کلیدِ ECH برای «{0}» به دست نیامد — {1}", "no ECH key was found for '{0}' — {1}",
-                      host, _ech_why(cfg))
+        px = _ech_proxy_fields(d, cur, out)
         out["ech"] = True
-        out["ws_ech"] = cfg
+        if not ech_later:
+            cfg = _fetch_ech(host, px)
+            if not cfg:
+                raise Bad("ech_key_missing", "کلیدِ ECH برای «{0}» به دست نیامد — {1}", "no ECH key was found for '{0}' — {1}",
+                          host, _ech_why(cfg))
+            out["ws_ech"] = cfg
     cdn = _cdn_carrier(d, cur)
     xh = cdn != "ws"
     if bool(xh):
@@ -6331,7 +6334,7 @@ def _needs_tunnel_port(ttype, d, cur):
     return ttype == "core" and _shape_of(d, cur)[0] != "raw"
 
 
-def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False):
+def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
     shape = _shape_of(d, cur)
     cur = _carried(cur, shape)
     ce = {}
@@ -6436,7 +6439,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False):
                           profile)
             ce["conntrack_bypass"] = True
     if transport == "ws":
-        ce.update(_ws_fields(d, transport, cur))
+        ce.update(_ws_fields(d, transport, cur, ech_later))
     ce.update(_fec_fields(d, transport, cur))
     ce.update(_workers_field(d, bool(ce.get("fec")), cur))
     ce.update(_desync_fields(d, shape, cur, ce.get("cdn_carrier", "ws") != "ws"))
@@ -6613,7 +6616,7 @@ def _create_tunnel_impl(d, h):
     rid = secrets.token_hex(6)
     if ttype == "core":
         d, want = _cdn_prepare(d, None)
-        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips, new=True)
+        ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips, new=True, ech_later=bool(want))
         extra.update(ce)
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
@@ -6622,63 +6625,71 @@ def _create_tunnel_impl(d, h):
                 h["target"] = "%s ↔ %s" % (B["name"], A["name"])
     _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
     srv_ip = a_ip if server_side == "a" else b_ip
+    cdn = None
     if want:
         _cdn_check(want, extra, srv_ip, rid)
-    steps = CREATE_STEPS + (1 if want else 0)
-    node_extra = _node_extra(extra)
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
-              "host": overlay_host(ttype, server_side, True), **node_extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
-              "host": overlay_host(ttype, server_side, False), **node_extra}
-    if ttype == "core":
-        a_body["role"] = "server" if server_side == "a" else "client"
-        b_body["role"] = "server" if server_side == "b" else "client"
-        _core_rotation_bodies(extra, a_body, b_body)
-        _core_workers_bodies(extra, a_body, b_body)
-        _apply_core_tuning(a_body, b_body)
-    _apply_probe_tuning(a_body, b_body)
-    act_step(h, _step_build(A), 1, steps)
-    ra = _node_tunnel(A, a_body)
-    if not ra.get("ok"):
-        tail = _drop_tunnel_from([A], name)
-        raise _node_failed(A, ra, tail)
-    try:
-        act_step(h, _step_build(B), 2, steps, more=False)
-    except ActCancelled:
-        _drop_tunnel_from([A], name)
-        raise
-    rb = _node_tunnel(B, b_body)
-    if not rb.get("ok"):
-        tail = _drop_tunnel_from(_node_set(A, B), name)
-        raise _node_failed(B, rb, tail or _HALF_UNDONE)
-    act_step(h, tx("ثبتِ تونل", "saving the tunnel"), 3, steps, stop=False)
-    rec = {"id": rid, "name": name, "type": ttype, "subnet": subnet,
-           "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
-           "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip,
-           **extra, **({"server_side": server_side} if ttype == "core" else {}),
-           **({"cdn": _cdn_state(want, srv_ip, extra["port"], extra)} if want else {})}
-    try:
-        with _reg_lock, _pending_lock, store_tx() as t:
-            t.put(_LINKS, rec)
-            for nid in {A["id"], B["id"]}:
-                cur = _M.pending.get(nid, ())
-                if name in cur:
-                    t.pending(nid, [x for x in cur if x != name])
-    except StoreUnknown as e:
-        _refresh_cache([A["id"], B["id"]])
-        raise Bad("save_unknown", "تونل روی هر دو نود ساخته شد ولی {0} — برای همین برچیده نشد. اگر بعداً در فهرست نبود، "
-                  "داشبورد هشدار می‌دهد که روی نود هست ولی در پنل ثبت نیست و همان‌جا «پاک کن» را می‌زنی",
-                  "the tunnel was built on both nodes but {0} — so it was not torn down. If it is missing from the list "
-                  "later, the dashboard reports it as unregistered and you can delete it with stray-del", _why(e)) from None
-    except Exception as e:
-        tail = _drop_tunnel_from(_node_set(A, B), name)
-        raise Bad("save_failed", "ذخیرهٔ رکوردِ لینک شکست خورد{0} ({1})", "saving the link record failed{0} ({1})",
-                  tail or _HALF_UNDONE, tx_cut(_why(e), 80))
+        cdn = _cdn_state(want, srv_ip, extra["port"], extra)
+    early = bool(want and extra.get("ech"))
+    steps, at = CREATE_STEPS + (2 if early else 1 if want else 0), 2 if early else 0
+    jr = _CdnJournal(h)
+    with _cdn_hold(want, rid, jr, early):
+        if early:
+            cdn = _cdn_first(h, rid, name, cdn, extra, jr, 1, steps)
+        node_extra = _node_extra(extra)
+        a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
+                  "host": overlay_host(ttype, server_side, True), **node_extra}
+        b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
+                  "host": overlay_host(ttype, server_side, False), **node_extra}
+        if ttype == "core":
+            a_body["role"] = "server" if server_side == "a" else "client"
+            b_body["role"] = "server" if server_side == "b" else "client"
+            _core_rotation_bodies(extra, a_body, b_body)
+            _core_workers_bodies(extra, a_body, b_body)
+            _apply_core_tuning(a_body, b_body)
+        _apply_probe_tuning(a_body, b_body)
+        act_step(h, _step_build(A), 1 + at, steps)
+        ra = _node_tunnel(A, a_body)
+        if not ra.get("ok"):
+            tail = _drop_tunnel_from([A], name)
+            raise _node_failed(A, ra, tail)
+        try:
+            act_step(h, _step_build(B), 2 + at, steps, more=False)
+        except ActCancelled:
+            _drop_tunnel_from([A], name)
+            raise
+        rb = _node_tunnel(B, b_body)
+        if not rb.get("ok"):
+            tail = _drop_tunnel_from(_node_set(A, B), name)
+            raise _node_failed(B, rb, tail or _HALF_UNDONE)
+        act_step(h, tx("ثبتِ تونل", "saving the tunnel"), 3 + at, steps, stop=False)
+        rec = {"id": rid, "name": name, "type": ttype, "subnet": subnet,
+               "tunnel_id": tid, "a_node": A["id"], "a_name": A["name"], "a_ip": a_ip,
+               "b_node": B["id"], "b_name": B["name"], "b_ip": b_ip,
+               **extra, **({"server_side": server_side} if ttype == "core" else {}),
+               **({"cdn": cdn} if cdn else {})}
+        try:
+            with _reg_lock, _pending_lock, store_tx() as t:
+                t.put(_LINKS, rec)
+                for nid in {A["id"], B["id"]}:
+                    cur = _M.pending.get(nid, ())
+                    if name in cur:
+                        t.pending(nid, [x for x in cur if x != name])
+        except StoreUnknown as e:
+            jr.keep()
+            _refresh_cache([A["id"], B["id"]])
+            raise Bad("save_unknown", "تونل روی هر دو نود ساخته شد ولی {0} — برای همین برچیده نشد. اگر بعداً در فهرست نبود، "
+                      "داشبورد هشدار می‌دهد که روی نود هست ولی در پنل ثبت نیست و همان‌جا «پاک کن» را می‌زنی",
+                      "the tunnel was built on both nodes but {0} — so it was not torn down. If it is missing from the list "
+                      "later, the dashboard reports it as unregistered and you can delete it with stray-del", _why(e)) from None
+        except Exception as e:
+            tail = _drop_tunnel_from(_node_set(A, B), name)
+            raise Bad("save_failed", "ذخیرهٔ رکوردِ لینک شکست خورد{0} ({1})", "saving the link record failed{0} ({1})",
+                      tail or _HALF_UNDONE, tx_cut(_why(e), 80))
     with _act_lock:
         h["link"] = rec["id"]
     _refresh_cache([A["id"], B["id"]])
     note = ""
-    if want:
+    if want and not early:
         _cdn_step(h, want["provider"], 4, steps)
         note = _cdn_outcome(tx("تونل ساخته شد", "the tunnel was built"), *_cdn_sync_link(rid, h))
     return {"ok": True, "name": name, **({"msg": note} if note else {})}
@@ -7172,7 +7183,7 @@ def _edit_link_impl(d, h):
     want = None
     if ttype == "core":
         d, want = _cdn_prepare(d, L)
-        ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips)
+        ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips, ech_later=bool(want))
         extra.update(ce)
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
@@ -7185,71 +7196,83 @@ def _edit_link_impl(d, h):
     srv_ip = a_ip if server_side == "a" else b_ip
     if want:
         _cdn_check(want, extra, srv_ip, L["id"])
-    node_extra = _node_extra(extra)
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
-              "host": overlay_host(ttype, server_side, True), "enabled": L.get("enabled", True), **node_extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name,
-              "host": overlay_host(ttype, server_side, False), "enabled": L.get("enabled", True), **node_extra}
-    if ttype == "core":
-        a_body["role"] = "server" if server_side == "a" else "client"
-        b_body["role"] = "server" if server_side == "b" else "client"
-        _core_rotation_bodies(extra, a_body, b_body)
-        _core_workers_bodies(extra, a_body, b_body)
-        _apply_core_tuning(a_body, b_body)
-    _apply_probe_tuning(a_body, b_body)
-    _name_hold(h["key"], (A["id"], B["id"]), new_name)
-    touched = False
-    try:
-        if name_changed or type_changed or moved or ttype == "core":
-            act_step(h, tx("برچیدنِ پیکربندیِ قبلی", "removing the old setup"), 1, EDIT_STEPS)
-            touched = True
-            gone = _drop_tunnel_from(_node_set(was_a, was_b, A, B), old_name)
-            if gone:
-                raise Bad("old_setup_stuck", "پیکربندیِ قبلیِ این تونل برچیده نشد، پس جابه‌جایی انجام نشد{0}",
-                          "the old setup of this tunnel was not removed, so the move did not happen{0}", gone)
-        act_step(h, tx("اعمال روی نودِ «{0}»", "applying on node '{0}'", A["name"]), 2, EDIT_STEPS)
-        touched = True
-        ra = _node_tunnel(A, a_body)
-        if not ra.get("ok"):
-            raise _node_failed(A, ra)
-        act_step(h, tx("اعمال روی نودِ «{0}»", "applying on node '{0}'", B["name"]), 3, EDIT_STEPS, more=False)
-        rb = _node_tunnel(B, b_body)
-        if not rb.get("ok"):
-            raise _node_failed(B, rb)
-    except Exception as e:
-        if touched:
-            undone = _undo_apply(was_a, was_b, A, B, new_name, name_changed)
-            stuck = _restore_link(was_a, was_b, L)
-            if isinstance(e, ValueError):
-                raise Bad(_code(e), tx("{0}{1}{2}", "{0}{1}{2}", _why(e), undone, _restore_tail(stuck))) from None
-        raise
-    act_step(h, tx("ثبتِ تغییر", "saving the change"), 3, EDIT_STEPS, stop=False)
-
-    def apply(x):
-        x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip,
-                  "a_node": A["id"], "a_name": A["name"],
-                  "b_node": B["id"], "b_name": B["name"]})
-        for k in _LINK_EXTRA_KEYS:
-            if k in extra:
-                x[k] = extra[k]
-            else:
-                x.pop(k, None)
-        if ttype == "core":
-            x["server_side"] = server_side
-        else:
-            x.pop("server_side", None)
-        was.append(x.get("cdn"))
-        if want:
-            x["cdn"] = _cdn_state(want, srv_ip, extra["port"], extra, x.get("cdn"))
-        else:
-            x.pop("cdn", None)
+    early = bool(want and extra.get("ech"))
+    n, at = EDIT_STEPS + (2 if early else 0), 2 if early else 0
+    jr = _CdnJournal(h)
     was = []
     note = ""
     with _CdnLinkLock(L["id"]):
-        with _reg_lock:
-            store_edit(_LINKS, L["id"], apply)
-        _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
-        if want:
+        with _cdn_hold(want, L["id"], jr, early):
+            cdn = (_cdn_first(h, L["id"], new_name, _cdn_state(want, srv_ip, extra["port"], extra,
+                                                               (get_link(L["id"]) or L).get("cdn")), extra, jr, 1, n)
+                   if early else None)
+            node_extra = _node_extra(extra)
+            a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
+                      "host": overlay_host(ttype, server_side, True), "enabled": L.get("enabled", True), **node_extra}
+            b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": new_name,
+                      "host": overlay_host(ttype, server_side, False), "enabled": L.get("enabled", True), **node_extra}
+            if ttype == "core":
+                a_body["role"] = "server" if server_side == "a" else "client"
+                b_body["role"] = "server" if server_side == "b" else "client"
+                _core_rotation_bodies(extra, a_body, b_body)
+                _core_workers_bodies(extra, a_body, b_body)
+                _apply_core_tuning(a_body, b_body)
+            _apply_probe_tuning(a_body, b_body)
+            _name_hold(h["key"], (A["id"], B["id"]), new_name)
+            touched = False
+            try:
+                if name_changed or type_changed or moved or ttype == "core":
+                    act_step(h, tx("برچیدنِ پیکربندیِ قبلی", "removing the old setup"), 1 + at, n)
+                    touched = True
+                    gone = _drop_tunnel_from(_node_set(was_a, was_b, A, B), old_name)
+                    if gone:
+                        raise Bad("old_setup_stuck", "پیکربندیِ قبلیِ این تونل برچیده نشد، پس جابه‌جایی انجام نشد{0}",
+                                  "the old setup of this tunnel was not removed, so the move did not happen{0}", gone)
+                act_step(h, tx("اعمال روی نودِ «{0}»", "applying on node '{0}'", A["name"]), 2 + at, n)
+                touched = True
+                ra = _node_tunnel(A, a_body)
+                if not ra.get("ok"):
+                    raise _node_failed(A, ra)
+                act_step(h, tx("اعمال روی نودِ «{0}»", "applying on node '{0}'", B["name"]), 3 + at, n, more=False)
+                rb = _node_tunnel(B, b_body)
+                if not rb.get("ok"):
+                    raise _node_failed(B, rb)
+            except Exception as e:
+                if touched:
+                    undone = _undo_apply(was_a, was_b, A, B, new_name, name_changed)
+                    stuck = _restore_link(was_a, was_b, L)
+                    if isinstance(e, ValueError):
+                        raise Bad(_code(e), tx("{0}{1}{2}", "{0}{1}{2}", _why(e), undone, _restore_tail(stuck))) from None
+                raise
+            act_step(h, tx("ثبتِ تغییر", "saving the change"), 3 + at, n, stop=False)
+            jr.keep()
+
+            def apply(x):
+                x.update({"name": new_name, "type": ttype, "subnet": subnet, "a_ip": a_ip, "b_ip": b_ip,
+                          "a_node": A["id"], "a_name": A["name"],
+                          "b_node": B["id"], "b_name": B["name"]})
+                for k in _LINK_EXTRA_KEYS:
+                    if k in extra:
+                        x[k] = extra[k]
+                    else:
+                        x.pop(k, None)
+                if ttype == "core":
+                    x["server_side"] = server_side
+                else:
+                    x.pop("server_side", None)
+                was.append(x.get("cdn"))
+                if cdn:
+                    x["cdn"] = cdn
+                elif want:
+                    x["cdn"] = _cdn_state(want, srv_ip, extra["port"], extra, x.get("cdn"))
+                else:
+                    x.pop("cdn", None)
+            with _reg_lock:
+                store_edit(_LINKS, L["id"], apply)
+            _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
+        if cdn:
+            note = _cdn_left_note(_cdn_remove(((was[0] if was else None) or {}).get("applied"), keep=cdn["applied"]))
+        elif want:
             st = (get_link(L["id"]) or {}).get("cdn")
             if st and not _cdn_uptodate(st):
                 _cdn_step(h, want["provider"], EDIT_STEPS, EDIT_STEPS + 1)
@@ -9336,6 +9359,10 @@ CDN_PAGES_MAX = 20
 CDN_RETRY_SECS = 900
 CDN_KEY_MAX = 256
 CDN_MARK = "tnl-panel"
+CDN_NS_PORT = 53
+CDN_NS_TIMEOUT = 4
+CDN_ECH_WAIT = 30
+CDN_ECH_STEP = 2
 CF_RULE_CAPS = {"free": 10, "pro": 25, "business": 50, "enterprise": 300}
 _CDN_KEY_RE = re.compile(r"^[\x21-\x7e]+( [\x21-\x7e]+)?$")
 _CDN_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -9362,7 +9389,15 @@ _CDN_DOWN = ("cdn_unreachable", "cdn_rate")
 
 def _cdn_lock(prov, zone):
     with _cdn_locks_guard:
-        return _cdn_locks.setdefault((prov, zone), threading.Lock())
+        return _cdn_locks.setdefault((prov, zone), threading.RLock())
+
+
+@contextlib.contextmanager
+def _cdn_zones_locked(keys):
+    with contextlib.ExitStack() as stack:
+        for k in sorted(set(keys)):
+            stack.enter_context(_cdn_lock(*k))
+        yield
 
 
 class _CdnLinkLock:
@@ -9517,7 +9552,8 @@ def _cf_zone_row(z):
     status, paused = str(z.get("status") or ""), bool(z.get("paused"))
     return {"id": str(z.get("id") or ""), "name": str(z.get("name") or "").lower(),
             "plan": str((z.get("plan") or {}).get("legacy_id") or "").lower(),
-            "ok": status == "active" and not paused, "why": "paused" if paused else ("" if status == "active" else status)}
+            "ok": status == "active" and not paused, "why": "paused" if paused else ("" if status == "active" else status),
+            "ns": [str(x) for x in z.get("name_servers") or []]}
 
 
 def _ar_zone_row(z):
@@ -9612,9 +9648,9 @@ def _cdn_prepare(d, L):
     if d["ws_pool"] if "ws_pool" in d else (L or {}).get("ws_pool"):
         raise Bad("cdn_no_pool", "ساختِ خودکار در CDN با استخرِ لبه جور نیست — استخر را خاموش کن یا CDN را دستی بساز",
                   "the CDN setup does not work with an edge pool — turn the pool off or set the CDN up by hand")
-    if d["ech"] if "ech" in d else (L or {}).get("ech"):
-        raise Bad("cdn_no_ech", "ساختِ خودکار در CDN هنوز با ECH کار نمی‌کند — ECH را خاموش کن یا CDN را دستی بساز",
-                  "the CDN setup does not work with ECH yet — turn ECH off or set the CDN up by hand")
+    if want["provider"] != "cf" and (d["ech"] if "ech" in d else (L or {}).get("ech")):
+        raise Bad("cdn_no_ech", "ECH فقط روی کلودفلر کار می‌کند — برای {0} ECH را خاموش کن",
+                  "ECH works on Cloudflare only — turn ECH off for {0}", CDN_NAMES[want["provider"]])
     out = dict(d, ws_host=want["host"])
     edge = str((d["edge_ip"] if "edge_ip" in d else (L or {}).get("edge_ip")) or "").strip()
     if not edge or (cur and edge == cur.get("host")):
@@ -9688,6 +9724,9 @@ class _CdnJournal:
     def did(self, text, undo):
         self.undo.append((len(self.items), undo))
         self.note(text, "ok")
+
+    def keep(self):
+        self.undo = []
 
     def rollback(self):
         left = []
@@ -9976,19 +10015,119 @@ def _ar_apply(cred, want, cur, ctx, jr):
             "tls": ctx["tls"], "carrier": ctx["carrier"]}
 
 
+@contextlib.contextmanager
+def _cdn_undo_on_fail(prov, jr):
+    try:
+        yield
+    except BaseException as e:
+        if not jr.undo:
+            raise
+        left = jr.rollback()
+        if isinstance(e, ValueError):
+            raise Bad(_code(e), tx_join("", [_why(e), _cdn_undo_tail(prov, left)])) from None
+        raise
+
+
 def _cdn_apply(want, cur, ctx, jr):
     prov = want["provider"]
     cred = _cdn_cred(prov)
-    with _cdn_lock(prov, want["zone"]):
+    with _cdn_lock(prov, want["zone"]), _cdn_undo_on_fail(prov, jr):
+        return (_cf_apply if prov == "cf" else _ar_apply)(cred, want, cur, ctx, jr)
+
+
+def _dns_skip(msg, i):
+    while msg[i] and msg[i] < 0xC0:
+        i += 1 + msg[i]
+    return i + (2 if msg[i] else 1)
+
+
+def _ech_ask_ns(ns, host, proxy):
+    qid = secrets.token_bytes(2)
+    q = (qid + b"\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+         + b"".join(bytes([len(p)]) + p.encode() for p in host.split(".")) + b"\x00\x00\x41\x00\x01")
+    s = (_proxy_socket(proxy, ns, CDN_NS_PORT, CDN_NS_TIMEOUT) if proxy
+         else socket.create_connection((ns, CDN_NS_PORT), CDN_NS_TIMEOUT))
+    with s:
+        s.sendall(len(q).to_bytes(2, "big") + q)
+        msg = _recvn(s, int.from_bytes(_recvn(s, 2), "big"))
+    if msg[:2] != qid or msg[3] & 0x0F not in (0, 3):
+        raise OSError()
+    i = 12
+    for _ in range(int.from_bytes(msg[4:6], "big")):
+        i = _dns_skip(msg, i) + 4
+    for _ in range(int.from_bytes(msg[6:8], "big")):
+        i = _dns_skip(msg, i)
+        kind, ln = int.from_bytes(msg[i:i + 2], "big"), int.from_bytes(msg[i + 8:i + 10], "big")
+        key = _ech_from_svcb(msg[i + 10:i + 10 + ln]) if kind == 65 else ""
+        if key:
+            return key
+        i += 10 + ln
+    return ""
+
+
+def _ech_from_ns(host, ns, proxy):
+    heard = False
+    for n in ns:
         try:
-            return (_cf_apply if prov == "cf" else _ar_apply)(cred, want, cur, ctx, jr)
-        except ValueError as e:
-            if not jr.undo:
-                raise
-            raise Bad(_code(e), tx_join("", [_why(e), _cdn_undo_tail(prov, jr.rollback())])) from None
-        except BaseException:
-            jr.rollback()
-            raise
+            key = _ech_ask_ns(n, host, proxy)
+        except (OSError, IndexError):
+            continue
+        if key:
+            return key, True
+        heard = True
+    return "", heard
+
+
+def _cdn_ech_key(cred, want, proxy, tick):
+    ns, host = _cdn_zone(cred, want["zone"])["ns"], want["host"]
+    end, heard, k = time.monotonic() + CDN_ECH_WAIT, False, 0
+    while True:
+        k += 1
+        tick(k)
+        key, got = _ech_from_ns(host, ns, proxy)
+        if not got:
+            key = _fetch_ech(host, proxy)
+            got = key is not None
+        heard = heard or got
+        if key:
+            return key
+        if time.monotonic() + CDN_ECH_STEP >= end:
+            break
+        time.sleep(CDN_ECH_STEP)
+    raise Bad("cdn_ech_missing", "کلیدِ ECH برای «{0}» تا {1} ثانیه نیامد — {2}", "no ECH key for '{0}' within {1} seconds — {2}",
+              host, CDN_ECH_WAIT,
+              tx("Encrypted ClientHello در کلودفلر (SSL/TLS › Edge Certificates) روشن است؟",
+                 "is Encrypted ClientHello on in Cloudflare (SSL/TLS › Edge Certificates)?") if heard
+              else tx("نه NSهای دامنه جواب دادند نه DoH — DNS یا پروکسیِ ECHِ پنل قطع است",
+                      "neither the domain's name servers nor DoH answered — the panel's DNS or ECH proxy is down"))
+
+
+def _cdn_first(h, lid, name, st, extra, jr, i, n):
+    want, ctx = _cdn_args(lid, name, st)
+    host = st["host"]
+    _cdn_step(h, st["provider"], i, n)
+    new = st["applied"] if _cdn_uptodate(st) else _cdn_apply(want, st.get("applied"), ctx, jr)
+
+    def tick(k):
+        act_step(h, tx("منتظرِ کلیدِ ECHِ {0}", "waiting for the ECH key of {0}", host) if k == 1
+                 else tx("منتظرِ کلیدِ ECHِ {0} (تلاشِ {1})", "waiting for the ECH key of {0} (try {1})", host, k), i + 1, n)
+    extra["ws_ech"] = _cdn_ech_key(_cdn_cred(st["provider"]), want, _ech_px(extra), tick)
+    jr.note(tx("کلیدِ ECH گرفته شد", "the ECH key was read"), "ok")
+    return dict(st, ok=True, code="", error="", error_en="", applied=new)
+
+
+@contextlib.contextmanager
+def _cdn_hold(want, lid, jr, on):
+    if not on:
+        yield
+        return
+    with _cdn_lock(want["provider"], want["zone"]):
+        _cdn_claim(want["host"], lid)
+        try:
+            with _cdn_undo_on_fail(want["provider"], jr):
+                yield
+        finally:
+            _cdn_unclaim(want["host"], lid)
 
 
 def _cdn_strip_record(cred, st, jr):
@@ -10053,19 +10192,20 @@ def _cdn_strip(st, jr, keep=None):
 
 def _cdn_strip_all(pairs, jr):
     prov = ""
-    try:
-        for lid, st in pairs:
-            jr.lid, prov = lid, st.get("provider")
-            _cdn_strip(st, jr)
-    except Exception as e:
-        why = _cdn_why(e)
-        left = jr.rollback()
-        for lid, rid in jr.fixed.items():
-            if rid:
-                with _reg_lock:
-                    store_edit(_LINKS, lid, lambda x, rid=rid: x["cdn"]["applied"].update(record_id=rid)
-                               if (x.get("cdn") or {}).get("applied") else None)
-        return prov, (tx_join("", [why, _cdn_undo_tail(prov, left)]) if left else why)
+    with _cdn_zones_locked((st.get("provider"), st.get("zone")) for _lid, st in pairs):
+        try:
+            for lid, st in pairs:
+                jr.lid, prov = lid, st.get("provider")
+                _cdn_strip(st, jr)
+        except Exception as e:
+            why = _cdn_why(e)
+            left = jr.rollback()
+            for lid, rid in jr.fixed.items():
+                if rid:
+                    with _reg_lock:
+                        store_edit(_LINKS, lid, lambda x, rid=rid: x["cdn"]["applied"].update(record_id=rid)
+                                   if (x.get("cdn") or {}).get("applied") else None)
+            return prov, (tx_join("", [why, _cdn_undo_tail(prov, left)]) if left else why)
     return prov, None
 
 
@@ -10129,6 +10269,9 @@ def _cdn_claim(host, lid):
                       and ((L2.get("cdn") or {}).get("applied") or {}).get("host") == host), None)
         held = _cdn_claims.get(host)
         other = get_link(held) if held and held != lid else None
+        if held and held != lid and not other:
+            raise Bad("cdn_host_busy", "«{0}» همین الان برای تونلِ دیگری ساخته می‌شود — کمی بعد دوباره بزن",
+                      "'{0}' is being set up for another tunnel right now — try again in a moment", host)
         if other and (other.get("cdn") or {}).get("host") != host:
             other = None
         if owner or other:
@@ -10143,12 +10286,16 @@ def _cdn_unclaim(host, lid):
             del _cdn_claims[host]
 
 
+def _cdn_args(lid, name, st):
+    return ({"provider": st["provider"], "zone": st["zone"], "host": st["host"], "replace": bool(st.get("replace")),
+             "share": bool(st.get("share"))},
+            {"lid": lid, "name": name, "ip": st["ip"], "port": int(st["port"]), "tls": bool(st.get("tls")),
+             "carrier": st.get("carrier") or "ws"})
+
+
 def _cdn_run(L, st, h=None):
-    want = {"provider": st["provider"], "zone": st["zone"], "host": st["host"], "replace": bool(st.get("replace")),
-            "share": bool(st.get("share"))}
+    want, ctx = _cdn_args(L["id"], L["name"], st)
     cur = st.get("applied")
-    ctx = {"lid": L["id"], "name": L["name"], "ip": st["ip"], "port": int(st["port"]), "tls": bool(st.get("tls")),
-           "carrier": st.get("carrier") or "ws"}
     try:
         _cdn_claim(st["host"], L["id"])
         new = _cdn_apply(want, cur, ctx, _CdnJournal(h))
