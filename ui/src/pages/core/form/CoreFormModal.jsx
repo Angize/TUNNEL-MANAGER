@@ -262,14 +262,14 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     if (form.range === 'custom') {
       const subnet = (form.subnet || '').trim()
       if (!subnet) {
-        await stop(T('snr_custom_need'), 'set')
+        await stop(T('snr_custom_need'), 'ip')
         return
       }
       body.subnet = subnet
     } else if (link) {
       const fitError = subnetFitError('core', link.tunnel_id, form.range)
       if (fitError) {
-        await stop(fitError, 'set')
+        await stop(fitError, 'ip')
         return
       }
       body.subnet = subnetForBase('core', link.tunnel_id, form.range)
@@ -371,12 +371,14 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         <IpsTab
           form={form}
           cfg={cfg}
+          link={link}
           items={items}
           aIps={aIps}
           bIps={bIps}
           storedA={link ? link.a_ip || '' : ''}
           storedB={link ? link.b_ip || '' : ''}
           peer={peerLid ? peerLive : null}
+          subnetFree={subnetFree}
           patch={patch}
           onNode={onNode}
         />
@@ -395,7 +397,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
             link={link}
             proxies={proxies}
             sides={sides}
-            subnetFree={subnetFree}
             poolLive={{ ...poolLive, lid: poolLid }}
             patch={patch}
           />

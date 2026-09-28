@@ -18,31 +18,7 @@ import { coverOk, wkCarrier, wsPoolOn } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
 import { NO_AUTOFIX, rangeLabel } from '../../../lib/form.js'
-import { subnetForBase, subnetRangeItems } from '../../../lib/subnet.js'
 import { T } from '../../../i18n/fa.js'
-
-function SubnetExtra({ form, link, patch }) {
-  if (form.range === 'custom') {
-    return (
-      <Field label={T('custom_subnet')}>
-        <input
-          className={link ? 'mono' : undefined}
-          {...NO_AUTOFIX}
-          placeholder={link ? undefined : T('ph_subnet')}
-          value={form.subnet}
-          onChange={(e) => patch({ subnet: e.target.value })}
-        />
-      </Field>
-    )
-  }
-  if (!link) return null
-  return (
-    <div className="muted" style={{ fontSize: 11, margin: '6px 2px 0' }}>
-      {T('core_subnet_lbl') + ': '}
-      <b className="mono">{subnetForBase(link.type, link.tunnel_id, form.range) || '—'}</b>
-    </div>
-  )
-}
 
 export default function SettingsTab({
   form,
@@ -50,7 +26,6 @@ export default function SettingsTab({
   link,
   proxies,
   sides,
-  subnetFree,
   poolLive,
   patch,
 }) {
@@ -167,16 +142,6 @@ export default function SettingsTab({
 
       <FecSection form={form} patch={patch} />
       <DesyncSection form={form} limits={cfg.limits} patch={patch} />
-
-      <Field label={T('core_range_lbl')}>
-        <Select
-          items={subnetRangeItems(subnetFree)}
-          value={form.range}
-          placeholder={T('range')}
-          onChange={(v) => patch({ range: v })}
-        />
-      </Field>
-      <SubnetExtra form={form} link={link} patch={patch} />
 
       <Reveal show={form.Tr !== 'raw'}>
         <Field
