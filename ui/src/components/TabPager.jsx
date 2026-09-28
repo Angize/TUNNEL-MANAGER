@@ -3,7 +3,7 @@ import PageHead from './PageHead.jsx'
 import { T } from '../i18n/fa.js'
 import { num } from '../lib/num.js'
 import { useSummary } from '../state/SummaryContext.jsx'
-import { EASE_OUT } from '../lib/motion.js'
+import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 import './tabpager.css'
 
 const SETTLE_MS = 120
@@ -13,15 +13,14 @@ const TRAIL_STEP_MS = 40
 const TRAIL_MAX = 8
 const HAS_SCROLLEND = typeof window !== 'undefined' && 'onscrollend' in window
 
-function reducedMotion() {
-  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-}
-
 function trail(pane, dir) {
   if (!pane) return
   const cards = [...pane.querySelectorAll('.flist > .card')]
   cards
-    .filter((el) => el.getBoundingClientRect().top < innerHeight)
+    .filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.bottom > 0 && r.top < innerHeight
+    })
     .slice(0, TRAIL_MAX)
     .forEach((el, i) => {
       el.animate([{ transform: 'translateX(' + TRAIL_PX * dir + 'px)' }, { transform: 'none' }], {

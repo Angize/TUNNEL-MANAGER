@@ -18,11 +18,13 @@ export default function useHeightTween(ref, key, on) {
     const to = el.offsetHeight
     was.current = to
     if (!from || Math.abs(from - to) < 1 || reducedMotion()) return
-    el.style.overflow = 'hidden'
-    const a = el.animate([{ height: from + 'px' }, { height: to + 'px' }], { duration: TWEEN_MS, easing: EASE_OUT })
+    const a = el.animate(
+      [
+        { height: from + 'px', overflow: 'hidden' },
+        { height: to + 'px', overflow: 'hidden' },
+      ],
+      { duration: TWEEN_MS, easing: EASE_OUT }
+    )
     a.id = 'hgrow'
-    a.onfinish = () => {
-      el.style.overflow = ''
-    }
   }, [ref, key, on])
 }

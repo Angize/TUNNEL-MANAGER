@@ -68,7 +68,7 @@ export default function DownloadProxyCard() {
             aria-label={T('dlpx_on')}
             {...checkable('switch', value.on, () => setValue({ on: !value.on, id: picked }))}
           >
-            <KnobCheck />
+            <KnobCheck on={value.on} />
           </div>
         ) : null}
       </div>

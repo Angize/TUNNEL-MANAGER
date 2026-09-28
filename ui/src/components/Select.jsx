@@ -17,31 +17,41 @@ function bounds(anchor) {
   return { lo: Math.max(EDGE, b ? b.left : 0), hi: Math.min(innerWidth - EDGE, b ? b.right : innerWidth) }
 }
 
-function place(pop, anchor) {
+function place(pop, anchor, keep, refit) {
+  if (!keep.current) {
+    Object.assign(pop.style, { width: '', left: '0px', maxHeight: '', minHeight: '' })
+    keep.current = { nw: pop.offsetWidth + 1, nh: pop.offsetHeight }
+    refit = true
+  }
+  const k = keep.current
   const r = anchor.getBoundingClientRect()
   const { lo, hi } = bounds(anchor)
   const below = innerHeight - r.bottom - GAP - EDGE
   const above = r.top - GAP - EDGE
-  Object.assign(pop.style, { width: '', left: '0px', maxHeight: '' })
-  const w = Math.min(Math.max(r.width, MIN_W, pop.offsetWidth + 1), hi - lo)
-  const start = r.left + r.right > lo + hi ? r.right - w : r.left
-  pop.style.width = w + 'px'
-  const up = pop.offsetHeight > below && above > below
-  pop.classList.toggle('up', up)
+  if (refit) {
+    k.w = Math.min(Math.max(r.width, MIN_W, k.nw), hi - lo)
+    k.up = k.nh > below && above > below
+  }
+  const room = Math.max(k.up ? above : below, 120)
+  const start = r.left + r.right > lo + hi ? r.right - k.w : r.left
+  pop.classList.toggle('up', k.up)
   Object.assign(pop.style, {
-    left: Math.min(Math.max(start, lo), hi - w) + 'px',
-    top: up ? '' : r.bottom + GAP + 'px',
-    bottom: up ? innerHeight - r.top + GAP + 'px' : '',
-    maxHeight: Math.max(up ? above : below, 120) + 'px',
+    width: k.w + 'px',
+    left: Math.min(Math.max(start, lo), hi - k.w) + 'px',
+    top: k.up ? '' : r.bottom + GAP + 'px',
+    bottom: k.up ? innerHeight - r.top + GAP + 'px' : '',
+    maxHeight: room + 'px',
+    minHeight: k.up ? Math.min(k.nh, room) + 'px' : '',
   })
 }
 
 function SelectPop({ anchor, label, onClose, children }) {
   const veil = useRef(null)
   const box = useRef(null)
+  const keep = useRef(null)
 
   useLayoutEffect(() => {
-    place(box.current, anchor.current)
+    place(box.current, anchor.current, keep)
   })
 
   useLayoutEffect(() => {
@@ -51,14 +61,15 @@ function SelectPop({ anchor, label, onClose, children }) {
 
   useLayoutEffect(() => {
     const pop = box.current
-    const redo = () => place(pop, anchor.current)
+    const redo = () => place(pop, anchor.current, keep)
+    const refit = () => place(pop, anchor.current, keep, true)
     const onScroll = (e) => {
       if (!pop.contains(e.target)) redo()
     }
-    addEventListener('resize', redo)
+    addEventListener('resize', refit)
     document.addEventListener('scroll', onScroll, true)
     return () => {
-      removeEventListener('resize', redo)
+      removeEventListener('resize', refit)
       document.removeEventListener('scroll', onScroll, true)
     }
   }, [anchor])
