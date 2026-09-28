@@ -28,6 +28,11 @@ function trail(pane, dir) {
   })
 }
 
+function slide(el, left, smooth) {
+  if (smooth && !reducedMotion()) el.scrollTo({ left, behavior: 'smooth' })
+  else el.scrollLeft = left
+}
+
 function pageTop(el) {
   let top = 0
   for (let node = el; node; node = node.offsetParent) top += node.offsetTop
@@ -82,10 +87,9 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
     return Math.min(kinds.length - 1, Math.max(0, Math.abs(el.scrollLeft) / el.clientWidth))
   }, [kinds])
 
-  const target = useCallback((i) => {
-    const el = pager.current
-    const rtl = getComputedStyle(el).direction === 'rtl'
-    return (rtl ? -1 : 1) * i * el.clientWidth
+  const target = useCallback((i, width = pager.current.clientWidth) => {
+    const rtl = getComputedStyle(pager.current).direction === 'rtl'
+    return (rtl ? -1 : 1) * i * width
   }, [])
 
   const fit = useCallback((glide) => {
@@ -105,6 +109,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
     const commit = () => {
       const near = Math.round(position())
       if (near !== indexRef.current && kinds[near]) onKind(kinds[near].id)
+      else if (Math.abs(el.scrollLeft - target(near)) >= 2) slide(el, target(near), true)
     }
     const later = () => {
       clearTimeout(settle.current)
@@ -147,7 +152,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
       el.removeEventListener('touchend', up, passive)
       el.removeEventListener('touchcancel', up, passive)
     }
-  }, [kinds, onKind, paint, position])
+  }, [kinds, onKind, paint, position, target])
 
   useLayoutEffect(() => {
     const el = pager.current
@@ -180,16 +185,27 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
   }, [index, fit])
 
   useEffect(() => {
+    const el = pager.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    let width = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      const resting = Math.abs(el.scrollLeft - target(indexRef.current, width)) < 2
+      width = el.clientWidth
+      slide(el, target(indexRef.current), !resting)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [target])
+
+  useEffect(() => {
     const onResize = () => {
-      const el = pager.current
-      if (!el) return
-      el.scrollLeft = target(indexRef.current)
       paint(position())
       fit()
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [fit, paint, position, target])
+  }, [fit, paint, position])
 
   return (
     <>

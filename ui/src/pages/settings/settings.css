@@ -15,7 +15,7 @@
 }
 
 @container (min-width: 1120px) {
-  .stpage > .card.sg {
+  .stpage > .card.sg:has(> .sgsec + .sgsec) {
     columns: 2;
     column-gap: 0;
     column-rule: 1px solid var(--bord);
