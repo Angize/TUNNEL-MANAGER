@@ -10185,7 +10185,7 @@ def api_cdn_plan(d):
         out.update(
             ssl=got.get("ssl"), ssl_auto=got.get("auto") == "auto",
             websockets=(got["ws"] == "on") if "ws" in got else None,
-            rules={"count": len(rules), "cap": CF_RULE_CAPS.get(z["plan"]) or 0,
+            rules={"count": len(rules) - bool(own), "cap": CF_RULE_CAPS.get(z["plan"]) or 0,
                    "mine": bool(own and host in _cf_hosts(own)), "shared": shared,
                    "join": port if want["share"] and any(x["port"] == port for x in shared) else None,
                    "manual": [str(r.get("description") or r.get("expression") or "")[:120] for r in rules
