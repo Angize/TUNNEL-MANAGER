@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import FormTabs from '../../components/FormTabs.jsx'
 import modalLoading from '../../components/ModalLoading.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import Field from '../../components/Field.jsx'
@@ -62,6 +63,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const linkPort = link.port == null ? '' : String(link.port)
   const [port, setPort] = useState(linkPort)
   const [message, setMessage] = useState('')
+  const [tab, setTab] = useState('ip')
 
   closeRef.current = onClose
 
@@ -114,24 +116,26 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const bIps = nodeIps(nodes, bNode)
   const aCur = aNode === link.a_node ? link.a_ip : ''
   const bCur = bNode === link.b_node ? link.b_ip : ''
-  const multiIp = aIps.length > 1 || bIps.length > 1
   const showPort = PORT_TYPES.includes(type)
   const portLabel = type === 'vxlan' ? T('le_port_4789') : T('le_port_auto')
 
   const save = async () => {
     if (aNode === bNode) {
       setMessage('')
+      setTab('ip')
       alertBox(T('two_diff_nodes'))
       return
     }
     if (!type) {
       setMessage('')
+      setTab('set')
       alertBox(T('tun_type'))
       return
     }
     const fitError = base === 'custom' ? '' : subnetFitError(type, link.tunnel_id, base)
     if (fitError) {
       setMessage('')
+      setTab('ip')
       alertBox(fitError)
       return
     }
@@ -186,105 +190,93 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       footer={footer}
       onClose={onClose}
     >
-      <div className="grid2">
-        <Field label={T('tun_type')} first>
-          <Select items={TUNNEL_TYPES} value={type} placeholder={T('ttype')} onChange={changeType} />
-        </Field>
-        <Field label={T('range')} first>
-          <Select
-            items={subnetRangeItems(subnetFree)}
-            value={base}
-            placeholder={T('range')}
-            onChange={changeBase}
-          />
-        </Field>
-      </div>
+      <FormTabs
+        tab={tab}
+        onTab={setTab}
+        panes={{
+          ip: (
+            <>
+              <div className="grid2">
+                <Field label={T('src_node')} first>
+                  <Select
+                    items={items}
+                    value={aNode}
+                    placeholder={T('src_node')}
+                    onChange={(v) => {
+                      setANode(v)
+                      setAIp('')
+                    }}
+                  />
+                </Field>
+                <Field label={T('dst_node')} first>
+                  <Select
+                    items={items}
+                    value={bNode}
+                    placeholder={T('dst_node')}
+                    onChange={(v) => {
+                      setBNode(v)
+                      setBIp('')
+                    }}
+                  />
+                </Field>
+              </div>
 
-      <Field label={T('subnet')}>
-        <input
-          {...LTR_TEXT}
-          value={subnet}
-          onChange={(e) => setSubnet(e.target.value)}
-        />
-      </Field>
+              <div className="grid2" style={{ marginTop: 11 }}>
+                <EndIpField
+                  label={T('ip_of') + nodeLabel(items, aNode)}
+                  ips={aIps}
+                  current={aCur}
+                  value={aIp}
+                  onChange={setAIp}
+                />
+                <EndIpField
+                  label={T('ip_of') + nodeLabel(items, bNode)}
+                  ips={bIps}
+                  current={bCur}
+                  value={bIp}
+                  onChange={setBIp}
+                />
+              </div>
 
-      <Reveal show={showPort}>
-        <Field label={rangeLabel(portLabel, 1, PORT_MAX)}>
-          <NumberInput
-            placeholder={type === 'vxlan' ? '4789' : T('ttype_port_ph')}
-            value={port}
-            onChange={setPort}
-          />
-        </Field>
-      </Reveal>
+              <Field label={T('local_range')}>
+                <Select
+                  items={subnetRangeItems(subnetFree)}
+                  value={base}
+                  placeholder={T('range')}
+                  onChange={changeBase}
+                />
+              </Field>
 
-      <div
-        className="muted"
-        style={{
-          fontWeight: 700,
-          color: 'var(--tx)',
-          margin: '16px 2px 9px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
+              <Field label={T('subnet')}>
+                <input {...LTR_TEXT} value={subnet} onChange={(e) => setSubnet(e.target.value)} />
+              </Field>
+
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 9 }}>
+                {T('link_ip_note1')}
+                {link.tunnel_id}
+                {T('link_ip_note2')}
+              </div>
+            </>
+          ),
+          set: (
+            <>
+              <Field label={T('tun_type')} first>
+                <Select items={TUNNEL_TYPES} value={type} placeholder={T('ttype')} onChange={changeType} />
+              </Field>
+
+              <Reveal show={showPort}>
+                <Field label={rangeLabel(portLabel, 1, PORT_MAX)}>
+                  <NumberInput
+                    placeholder={type === 'vxlan' ? '4789' : T('ttype_port_ph')}
+                    value={port}
+                    onChange={setPort}
+                  />
+                </Field>
+              </Reveal>
+            </>
+          ),
         }}
-      >
-        <Icon name="pin" color="var(--acc-tx)" />
-        {T('ip_each_end')}
-        {multiIp ? (
-          <span className="tag" style={{ fontSize: 9.5, padding: '1px 7px' }}>
-            {T('multi_ip')}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="grid2">
-        <Field label={T('src_node')} first>
-          <Select
-            items={items}
-            value={aNode}
-            placeholder={T('src_node')}
-            onChange={(v) => {
-              setANode(v)
-              setAIp('')
-            }}
-          />
-        </Field>
-        <Field label={T('dst_node')} first>
-          <Select
-            items={items}
-            value={bNode}
-            placeholder={T('dst_node')}
-            onChange={(v) => {
-              setBNode(v)
-              setBIp('')
-            }}
-          />
-        </Field>
-      </div>
-
-      <div className="grid2" style={{ marginTop: 11 }}>
-        <EndIpField
-          label={T('ip_of') + nodeLabel(items, aNode)}
-          ips={aIps}
-          current={aCur}
-          value={aIp}
-          onChange={setAIp}
-        />
-        <EndIpField
-          label={T('ip_of') + nodeLabel(items, bNode)}
-          ips={bIps}
-          current={bCur}
-          value={bIp}
-          onChange={setBIp}
-        />
-      </div>
-
-      <div className="muted" style={{ fontSize: 11.5, marginTop: 9 }}>
-        {T('link_ip_note1')}
-        {link.tunnel_id}
-        {T('link_ip_note2')}
-      </div>
+      />
       <Msg text={message} />
     </Modal>
   )

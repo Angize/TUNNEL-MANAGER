@@ -1,0 +1,43 @@
+.ctabs {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 6px;
+}
+
+.ctab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--sub);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: .15s;
+}
+
+.ctab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ctab.on {
+  background: var(--accw);
+  color: var(--acc-tx);
+  border-color: color-mix(in srgb, var(--acc) 30%, transparent);
+}
+
+.ctabp {
+  display: none;
+}
+
+.ctabp.on {
+  display: block;
+}

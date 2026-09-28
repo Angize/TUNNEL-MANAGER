@@ -64,6 +64,8 @@ export default {
   copy_fail: 'کپی نشد',
 
   failed: 'ناموفق',
+  form_tab_ips: 'آی‌پی‌ها',
+  form_tab_set: 'تنظیمات',
   retry: 'تلاشِ دوباره',
   saving: 'در حال ذخیره…',
   checking: 'در حال بررسی…',

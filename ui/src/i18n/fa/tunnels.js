@@ -107,8 +107,6 @@ export default {
   two_diff_nodes: 'دو نودِ متفاوت انتخاب کن',
   range: 'رنج',
   rebuilding_both: 'در حال بازسازیِ تونل روی دو نود…',
-  ip_each_end: 'آی‌پیِ هر سرِ تونل',
-  multi_ip: 'مولتی‌آی‌پی',
   link_ip_note1: 'تغییر، هر دو سر را بازسازی می‌کند · شناسهٔ ',
   link_ip_note2: ' می‌ماند',
 
