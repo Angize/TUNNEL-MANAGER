@@ -241,8 +241,8 @@ function RunRow({ row, index, onRetry }) {
             {row.hostkey && onRetry ? (
               <HostKeyFix
                 onFix={async () => {
-                  const err = await onRetry(index)
-                  if (err) alertBox(err)
+                  const why = await onRetry(index)
+                  if (why) alertBox(why)
                 }}
               />
             ) : null}

@@ -13,7 +13,8 @@
   align-items: start;
 }
 
-.flist > .muted {
+.flist > .muted,
+.flist > .bulkpad {
   grid-column: 1 / -1;
 }
 

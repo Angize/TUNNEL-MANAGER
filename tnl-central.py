@@ -3356,6 +3356,7 @@ def _install_finish(jid, ok, banner):
 
 
 SSH_KNOWN_HOSTS = os.path.join(CENTRAL_DIR, "known_hosts")
+_known_hosts_lock = threading.Lock()
 
 _PROXY_RELAY_SRC = r'''#!/usr/bin/env python3
 import os, sys, socket, base64, select
@@ -3502,19 +3503,21 @@ def _ssh_argv(cfg, remote_cmd):
 
 
 def _forget_host(host, port=None):
+    host = host.lower()
     names = [host] + (["[%s]:%d" % (host, int(port))] if port and int(port) != 22 else [])
-    for name in names:
+    with _known_hosts_lock:
+        for name in names:
+            try:
+                subprocess.run(["ssh-keygen", "-f", SSH_KNOWN_HOSTS, "-R", name], capture_output=True, timeout=10)
+            except FileNotFoundError:
+                raise Bad("ssh_keygen_missing", "ابزارِ ssh-keygen روی سرورِ مرکزی نیست",
+                          "ssh-keygen is not on the central server") from None
+            except subprocess.TimeoutExpired:
+                pass
         try:
-            subprocess.run(["ssh-keygen", "-f", SSH_KNOWN_HOSTS, "-R", name], capture_output=True, timeout=10)
-        except FileNotFoundError:
-            raise Bad("ssh_keygen_missing", "ابزارِ ssh-keygen روی سرورِ مرکزی نیست",
-                      "ssh-keygen is not on the central server") from None
-        except subprocess.TimeoutExpired:
+            os.remove(SSH_KNOWN_HOSTS + ".old")
+        except OSError:
             pass
-    try:
-        os.remove(SSH_KNOWN_HOSTS + ".old")
-    except OSError:
-        pass
 
 
 def _ssh_run(cfg, remote_cmd, timeout, stdin_text=None):
@@ -4015,8 +4018,8 @@ def _node_del_impl(d):
         _tomb[nid] = time.time() + 20
     try:
         _forget_host(n["host"], n.get("ssh_port"))
-    except Bad:
-        pass
+    except Exception as e:
+        log_warn("known_hosts", _why(e))
     with _pc_lock:
         _pc.pop(nid, None)
     _stats_drop(nid)
