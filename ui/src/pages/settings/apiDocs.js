@@ -186,7 +186,7 @@ const TUNNEL_FIELDS = [
 ]
 
 const CDN_PARAM =
-  'build the CDN side too — {"provider": "cf" or "ar", "zone", "label", "replace", "share"}; ws transport only, not with ws_pool; ech only with Cloudflare (the panel makes the record first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. replace=true takes over a record of that name that points somewhere else; share=true (cf only) joins one Origin Rule per port. A CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
+  'build the CDN side too — {"provider": "cf" or "ar", "zone", "label", "replace", "share"}; ws transport only, not with ws_pool; ech only with Cloudflare (the panel makes the record first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. replace=true takes over a record of that name that points somewhere else; share=true (cf only) joins one Origin Rule per port. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
 
 const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 
