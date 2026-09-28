@@ -649,7 +649,7 @@ export const DOCS = {
 
   cdn: {
     t: 'CDN keys',
-    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). The key itself is never returned.',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
   },
   'cdn-set': {
     t: 'Save a CDN key',
@@ -659,11 +659,12 @@ export const DOCS = {
       ['key', 0, S, 'Cloudflare API token (Bearer) or ArvanCloud API key; empty = keep the saved one'],
       ['proxy_id', 0, S, 'reach the provider API through this proxy; empty = direct'],
       ['clear', 0, B, 'delete the saved key'],
+      ['ssl_mode', 0, S, 'Cloudflare only: host (SSL Flexible per tunnel hostname through one Configuration Rule, needs Config Settings Edit) or zone (the whole zone to Flexible); existing tunnels move on their next edit or retry'],
     ],
   },
   'cdn-test': {
     t: 'Test a CDN key',
-    d: 'Reads the account with the saved key: how many domains it sees (zones) and can use (usable), and on Cloudflare whether it may read DNS, zone settings and rules (checks). Write access is only known at the first build. via says whether the call went direct or through the proxy.',
+    d: 'Reads the account with the saved key: how many domains it sees (zones) and can use (usable), and on Cloudflare whether it may read DNS, zone settings, Origin Rules and Configuration Rules (checks: dns, settings, rules, config). Write access is only known at the first build. via says whether the call went direct or through the proxy.',
     p: [CDN_PROVIDER],
   },
   'cdn-zones': {
@@ -673,7 +674,7 @@ export const DOCS = {
   },
   'cdn-plan': {
     t: 'Preview a CDN build',
-    d: 'Reads what the build would change and writes nothing: whether the record exists and where it points (record.mine, record.others); on Cloudflare the zone SSL mode and Automatic SSL, the Origin Rules (count = rules taking a slot besides the one this tunnel would reuse, cap, mine, manual, shared ports, the port it would join), WebSockets and whether HTTP goes to HTTPS (Cloudflare has no API for gRPC, so it is not reported); on ArvanCloud HTTPS, the certificate, gRPC and the DDoS mode (null when the panel could not read it).',
+    d: 'Reads what the build would change and writes nothing: whether the record exists and where it points (record.mine, record.others); on Cloudflare the SSL handling in ssl_mode (with host mode and tls: ssl_rule = whether this host is already in the tnl_ssl Configuration Rule, the other rules in that phase and the cap), the zone SSL mode and Automatic SSL, the Origin Rules (count = rules taking a slot besides the one this tunnel would reuse, cap, mine, manual, shared ports, the port it would join), WebSockets and whether HTTP goes to HTTPS (Cloudflare has no API for gRPC, so it is not reported); on ArvanCloud HTTPS, the certificate, gRPC and the DDoS mode (null when the panel could not read it).',
     p: [
       CDN_PROVIDER,
       ['zone', 1, S, 'domain'],

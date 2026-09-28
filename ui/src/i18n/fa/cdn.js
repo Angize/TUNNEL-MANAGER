@@ -19,6 +19,7 @@ export default {
   cdn_ar_policy:
     'کلید درست است ولی هیچ دامنه‌ای برنگشت. معمولاً یعنی Machine User هنوز Access Policy ندارد؛ در پنلِ آروان یک دسترسی روی دامنه‌ها بده و دوباره آزمایش کن.',
   cdn_chk_dns: 'رکوردهای DNS',
+  cdn_chk_config: 'قانون‌های تنظیمات (Config Rules)',
   cdn_chk_settings: 'تنظیماتِ دامنه (SSL)',
   cdn_chk_rules: 'قانون‌ها (Origin Rules)',
   cdn_chk_read: 'خواندن مجاز است',
@@ -122,6 +123,22 @@ export default {
   cdn_rec_ar_d:
     'ابر روشن · پروتکلِ سمتِ سرور http (معادلِ Flexible، فقط برای همین رکورد) · پورت روی خودِ رکورد است، قانون لازم نیست',
 
+  cdn_ssl_mode_lbl: 'حالتِ SSL',
+  cdn_ssl_mode_host: 'فقط زیردامنهٔ هر تونل',
+  cdn_ssl_mode_host_d: 'Configuration Rule',
+  cdn_ssl_mode_zone: 'کلِ دامنه',
+  cdn_ssl_mode_zone_d: 'SSLِ دامنه روی Flexible',
+  cdn_ssl_mode_host_note:
+    'پنل روی هر دامنه یک Configuration Rule می‌سازد و فقط زیردامنهٔ تونل‌ها را در آن Flexible می‌کند؛ SSL و «SSL خودکار»ِ خودِ دامنه و بقیهٔ سایت‌ها دست نمی‌خورند. توکن دسترسیِ Config Settings → Edit می‌خواهد.',
+  cdn_ssl_mode_zone_note:
+    'پنل SSLِ کلِ دامنه را Flexible و «SSL خودکار» را خاموش می‌کند؛ هر سایتِ دیگری روی همان دامنه هم Flexible می‌شود. تونل‌های فعلی تا ویرایش یا «تلاشِ دوباره» روی حالتِ قبلی می‌مانند.',
+  cdn_ssl_mode_saved: 'حالتِ SSL ذخیره شد',
+  cdn_ssl_host_t: 'SSL فقط برای این زیردامنه: Flexible',
+  cdn_ssl_host_d: 'زیردامنه به Configuration Rule ‏«tnl_ssl» اضافه می‌شود.',
+  cdn_ssl_host_zone: 'SSLِ خودِ {z} ({s}) و «SSL خودکار» دست نمی‌خورند.',
+  cdn_ssl_host_full: 'Configuration Rule جا ندارد',
+  cdn_ssl_host_full_d:
+    '{n} از {cap} قانونِ تنظیماتِ پلن پر است و «tnl_ssl» هنوز ساخته نشده؛ یکی را پاک کن یا در تنظیمات › CDN حالتِ SSL را «کلِ دامنه» کن.',
   cdn_ssl_t: 'SSL/TLS دامنه:',
   cdn_ssl_ok: 'SSL/TLS دامنه: Flexible',
   cdn_ssl_ok_d: 'همین حالا Flexible است؛ دست نمی‌خورد',

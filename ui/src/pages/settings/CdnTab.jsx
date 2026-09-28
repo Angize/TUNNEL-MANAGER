@@ -6,7 +6,7 @@ import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
-import { WarnCap } from '../core/form/controls.jsx'
+import { Seg2, SegOpt, WarnCap } from '../core/form/controls.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
@@ -102,6 +102,17 @@ function ProviderCard({ provider, status, proxies, onStatus }) {
     onStatus(r.d.cdn)
   }
 
+  const sslMode = async (mode) => {
+    if (mode === (status.ssl_mode || 'host')) return
+    const r = await apiPost('cdn-set', { provider, ssl_mode: mode })
+    if (!(r.ok && r.d.ok)) {
+      toast(postError(r), 'err')
+      return
+    }
+    onStatus(r.d.cdn)
+    toast(T('cdn_ssl_mode_saved'), 'ok')
+  }
+
   const route = async (id) => {
     const r = await apiPost('cdn-set', { provider, proxy_id: id === 'direct' ? '' : id })
     if (!(r.ok && r.d.ok)) {
@@ -192,6 +203,27 @@ function ProviderCard({ provider, status, proxies, onStatus }) {
       <Field label={T('cdn_route_lbl_' + provider)}>
         <Select items={routes} value={status.proxy_id || 'direct'} onChange={route} />
       </Field>
+
+      {provider === 'cf' && status.set ? (
+        <div className="cdnsslmode">
+          <label>{T('cdn_ssl_mode_lbl')}</label>
+          <Seg2 label={T('cdn_ssl_mode_lbl')}>
+            <SegOpt
+              on={(status.ssl_mode || 'host') === 'host'}
+              title={T('cdn_ssl_mode_host')}
+              sub={T('cdn_ssl_mode_host_d')}
+              onClick={() => sslMode('host')}
+            />
+            <SegOpt
+              on={status.ssl_mode === 'zone'}
+              title={T('cdn_ssl_mode_zone')}
+              sub={T('cdn_ssl_mode_zone_d')}
+              onClick={() => sslMode('zone')}
+            />
+          </Seg2>
+          <div className="cdnused">{T(status.ssl_mode === 'zone' ? 'cdn_ssl_mode_zone_note' : 'cdn_ssl_mode_host_note')}</div>
+        </div>
+      ) : null}
     </div>
   )
 }
