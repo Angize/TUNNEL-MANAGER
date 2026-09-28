@@ -48,6 +48,7 @@ export default function useInstallJob({ onFinished }) {
         if (d.banner) c.banner = d.banner
         c.done = !!d.done
         c.success = !!d.success
+        c.hostkey = !!d.hostkey
       })
       .catch((e) => {
         c.polling = false
@@ -68,6 +69,8 @@ export default function useInstallJob({ onFinished }) {
 
   const publish = useCallback((c) => {
     setState({
+      job: c.job,
+      hostkey: c.hostkey,
       steps: c.steps.slice(),
       confirmed: c.confirmed.slice(),
       revealIdx: c.revealIdx,
@@ -130,6 +133,7 @@ export default function useInstallJob({ onFinished }) {
         banner: T('inst_installing'),
         done: false,
         success: false,
+        hostkey: false,
         error: '',
         revealIdx: 1,
         lastReveal: now(),

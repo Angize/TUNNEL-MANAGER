@@ -128,6 +128,15 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
     start(r.d.job)
   }
 
+  const forgetKey = async () => {
+    const r = await apiPost('install-forget-key', { job: progress.job })
+    if (!(r.ok && r.d.ok)) {
+      alertBox(postError(r))
+      return
+    }
+    await autoInstall()
+  }
+
   const addManual = async () => {
     const { name, host, port, token } = manual
     if (!name.trim() || !host.trim() || !port.trim() || !token.trim()) {
@@ -301,7 +310,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
             <ProxyFields proxies={proxies} value={autoProxy} onChange={setAutoProxy} />
 
             <div ref={progressRef}>
-              <InstallProgress state={progress} />
+              <InstallProgress state={progress} onForgetKey={forgetKey} />
             </div>
           </div>
         </Reveal>
@@ -310,7 +319,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
             <Reveal show={!bulk.batch}>
               <BulkForm bulk={bulk} list={list} proxies={proxies} />
             </Reveal>
-            <Reveal show={!!bulk.batch}>{bulk.batch ? <BulkRun batch={bulk.batch} /> : null}</Reveal>
+            <Reveal show={!!bulk.batch}>{bulk.batch ? <BulkRun batch={bulk.batch} onRetry={bulk.retryRow} /> : null}</Reveal>
           </SwapCascade>
         </Reveal>
         <Reveal show={mode === 'manual'}>

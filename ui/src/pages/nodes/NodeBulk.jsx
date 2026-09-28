@@ -6,7 +6,7 @@ import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields from '../../components/ProxyFields.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import { Roll, StepIcon } from './InstallProgress.jsx'
+import { HostKeyFix, Roll, StepIcon } from './InstallProgress.jsx'
 import {
   autoName,
   endText,
@@ -203,7 +203,7 @@ function runStatus(row) {
   return row.step ? TF('nb_err_at', { s: row.step }) : T('nb_lost')
 }
 
-function RunRow({ row, index }) {
+function RunRow({ row, index, onRetry }) {
   const [open, setOpen] = useState(false)
   const err = row.state === 'err'
   return (
@@ -238,6 +238,14 @@ function RunRow({ row, index }) {
           <div className="brlog">
             {row.detail ? <div className="istep-s">{row.detail}</div> : null}
             {row.log ? <div className="ilog">{row.log}</div> : null}
+            {row.hostkey && onRetry ? (
+              <HostKeyFix
+                onFix={async () => {
+                  const err = await onRetry(index)
+                  if (err) alertBox(err)
+                }}
+              />
+            ) : null}
           </div>
         </Reveal>
       ) : null}
@@ -245,7 +253,7 @@ function RunRow({ row, index }) {
   )
 }
 
-export function BulkRun({ batch }) {
+export function BulkRun({ batch, onRetry }) {
   const top = useRef(null)
   const t = tally(batch.rows)
   const n = batch.rows.length
@@ -292,7 +300,7 @@ export function BulkRun({ batch }) {
       </div>
       <div className="brun bcard">
         {batch.rows.map((r, i) => (
-          <RunRow key={i} row={r} index={i} />
+          <RunRow key={i} row={r} index={i} onRetry={onRetry} />
         ))}
       </div>
     </div>

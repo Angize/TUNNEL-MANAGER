@@ -1324,6 +1324,90 @@
    ]
   ]
  },
+ "install-batch-retry": {
+  "bad": [
+   [
+    400,
+    "bad_agent_port",
+    "invalid agent port"
+   ],
+   [
+    400,
+    "bad_node_host",
+    "invalid node IP or host"
+   ],
+   [
+    400,
+    "bad_node_name",
+    "invalid node name"
+   ],
+   [
+    400,
+    "bad_row",
+    "each row must be an object"
+   ],
+   [
+    400,
+    "bad_row_index",
+    "there is no row with this number"
+   ],
+   [
+    400,
+    "bad_ssh_port",
+    "invalid SSH port"
+   ],
+   [
+    400,
+    "bad_ssh_user",
+    "invalid SSH user"
+   ],
+   [
+    400,
+    "batch_not_found",
+    "this bulk install is no longer on the panel"
+   ],
+   [
+    400,
+    "batch_row_mismatch",
+    "this row is a different server"
+   ],
+   [
+    400,
+    "batch_running",
+    "another bulk install is running — wait for it to finish or stop it"
+   ],
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "node_host_taken",
+    "a node with IP '…' already exists"
+   ],
+   [
+    400,
+    "node_name_taken",
+    "a node named '…' already exists — pick a unique name"
+   ],
+   [
+    400,
+    "not_ready",
+    "this needs something that is not ready on the panel yet: … — get it in settings and try again"
+   ],
+   [
+    400,
+    "row_not_failed",
+    "only a failed row can be installed again"
+   ],
+   [
+    400,
+    "ssh_auth_missing",
+    "an SSH password or a private key is required"
+   ]
+  ]
+ },
  "install-batch-stop": {
   "bad": [
    [
@@ -1335,6 +1419,30 @@
     400,
     "missing_field",
     "field '…' is missing"
+   ]
+  ]
+ },
+ "install-forget-key": {
+  "bad": [
+   [
+    400,
+    "job_not_running",
+    "this job is no longer running"
+   ],
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "no_hostkey_change",
+    "this install did not stop on a changed SSH host key"
+   ],
+   [
+    400,
+    "ssh_keygen_missing",
+    "ssh-keygen is not on the central server"
    ]
   ]
  },

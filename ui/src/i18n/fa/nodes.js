@@ -125,6 +125,8 @@ export default {
   inst_step_of: '{n} از {total}',
   inst_done: 'انجام شد',
   inst_retry: 'تلاشِ مجدد',
+  inst_hostkey_fix: 'پاک‌کردنِ کلیدِ قدیمی و تلاشِ دوباره',
+  inst_hostkey_hint: 'فقط وقتی بزن که این سرور را از نو نصب کرده‌ای یا آی‌پی‌اش به سرورِ تازه‌ای رسیده؛ وگرنه ممکن است کسی وسطِ راه باشد.',
   inst_node_installed: 'نود نصب شد',
   inst_panel_lost: 'ارتباط با پنل قطع شد',
 

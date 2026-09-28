@@ -1329,6 +1329,22 @@ input.phrtl:placeholder-shown {
   padding-inline-start: 46px;
 }
 
+.hkfix {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.hkfix .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 13px;
+  font-size: 13px;
+}
+
 .bfab {
   position: fixed;
   bottom: 16px;
