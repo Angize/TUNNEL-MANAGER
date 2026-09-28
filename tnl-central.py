@@ -4037,7 +4037,8 @@ def _node_del_impl(d):
             t.raw(lambda p: _stats_forget(p, nid))
     with _tomb_lock:
         _tomb[nid] = time.time() + 20
-    cdn_note = _cdn_left_note([x for a in gone if a for x in _cdn_remove(a)])
+    down = {}
+    cdn_note = _cdn_left_note([x for a in gone if a for x in _cdn_remove(a, down=down)])
     try:
         _forget_host(n["host"], n.get("ssh_port"))
     except Exception as e:
@@ -6735,7 +6736,7 @@ def _delete_link_impl(d, h):
             notes.append(tx("لینک حذف شد؛ پاک‌سازیِ سمتِ «{0}» وقتی نود برگشت خودکار انجام می‌شود",
                             "the link was deleted; the cleanup on '{0}' runs by itself when the node is back",
                             tx_join("»، «", deferred, "', '")))
-        if gone and not d.get("cdn_keep"):
+        if gone and gone.get("applied") and not d.get("cdn_keep"):
             act_step(h, tx("پاک‌کردن از {0}", "removing from {0}", CDN_NAMES[gone["provider"]]), 2, DELETE_STEPS, stop=False)
             left = _cdn_left_note(_cdn_remove(gone.get("applied")))
             if left:
@@ -9885,11 +9886,13 @@ def _cf_drop_rule(cred, zid, ref, host):
         _cf(cred, "DELETE", path, ok404=True)
 
 
-def _cdn_remove(st, keep=None):
+def _cdn_remove(st, keep=None, down=None):
     if not st:
         return []
     prov, keep = st.get("provider"), keep or {}
     shared = keep.get("provider") == prov and keep.get("zone") == st.get("zone")
+    if down and prov in down:
+        return [tx("{0} ({1})", "{0} ({1})", st.get("host") or "?", down[prov])]
     try:
         cred = _cdn_cred(prov)
         with _cdn_lock(prov, st.get("zone")):
@@ -9905,7 +9908,10 @@ def _cdn_remove(st, keep=None):
             if ref and not kept:
                 _cf_drop_rule(cred, st.get("zone_id"), ref, st.get("host"))
     except Exception as e:
-        return [tx("{0} ({1})", "{0} ({1})", st.get("host") or "?", _cdn_why(e))]
+        why = _cdn_why(e)
+        if down is not None and _code(e) in _CDN_DOWN:
+            down[prov] = why
+        return [tx("{0} ({1})", "{0} ({1})", st.get("host") or "?", why)]
     return []
 
 
