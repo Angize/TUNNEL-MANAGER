@@ -10053,6 +10053,11 @@ def api_cdn_zones(d):
     return {"ok": True, "zones": [{k: z[k] for k in ("name", "plan", "ok", "why")} for z in zones]}
 
 
+def _cdn_gather(jobs):
+    keys = [k for k, fn in jobs.items() if fn]
+    return dict(zip(keys, parallel_map(lambda k: jobs[k](), keys, workers=8)))
+
+
 def api_cdn_plan(d):
     d = d or {}
     want = _cdn_want(d)
@@ -10063,39 +10068,52 @@ def api_cdn_plan(d):
     rid = cur.get("record_id", "") if _cdn_same(cur, want) else ""
     carrier = str(d.get("carrier") or "ws")
     tls = bool(d.get("tls"))
-    recs = _cdn_records(cred, z, want["host"])
-    out = {"ok": True, "provider": want["provider"], "host": want["host"], "zone": z["name"], "plan": z["plan"],
+    host = want["host"]
+    if want["provider"] == "cf":
+        zid = z["id"]
+        got = _cdn_gather({
+            "recs": lambda: _cdn_records(cred, z, host),
+            "rs": lambda: _cf_entry(cred, zid),
+            "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if tls else None,
+            "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if tls else None,
+            "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None,
+            "grpc": (lambda: _cf_grpc(cred, zid)) if carrier == "grpc" else None,
+            "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if not tls else None})
+    else:
+        dz = urllib.parse.quote(z["name"])
+        got = _cdn_gather({
+            "recs": lambda: _cdn_records(cred, z, host),
+            "cert": lambda: _ar(cred, "GET", "/domains/%s/ssl" % dz).get("data") or {},
+            "ddos": lambda: _ar(cred, "GET", "/domains/%s/ddos/settings" % dz).get("data") or {},
+            "lb": (lambda: _ar(cred, "GET", "/domains/%s/load-balancers/settings" % dz).get("data") or {})
+            if carrier == "grpc" else None})
+    recs = got["recs"]
+    out = {"ok": True, "provider": want["provider"], "host": host, "zone": z["name"], "plan": z["plan"],
            "record": {"mine": any(rid and r.get("id") == rid for r in recs),
                       "others": [_rec_show(want["provider"], r) for r in recs if not (rid and r.get("id") == rid)]}}
     if want["provider"] == "cf":
-        zid = z["id"]
-        rs = _cf_entry(cred, zid)
+        rs = got["rs"]
         rules = [r for r in (rs or {}).get("rules") or [] if isinstance(r, dict)]
         port = _sint(d.get("port"))
         shared = [{"port": _sint(((r.get("action_parameters") or {}).get("origin") or {}).get("port")),
                    "hosts": sorted(_cf_hosts(r))} for r in rules if str(r.get("ref") or "").startswith(_CF_SHARED)]
-        quoted = '"%s"' % want["host"]
+        quoted = '"%s"' % host
         out.update(
-            ssl=_cf_setting(cred, zid, "ssl") if tls else None,
-            ssl_auto=tls and _cf_setting(cred, zid, "ssl_automatic_mode", soft=True) == "auto",
-            websockets=(_cf_setting(cred, zid, "websockets") == "on") if carrier == "ws" else None,
+            ssl=got.get("ssl"), ssl_auto=got.get("auto") == "auto",
+            websockets=(got["ws"] == "on") if "ws" in got else None,
             rules={"count": len(rules), "cap": CF_RULE_CAPS.get(z["plan"]) or 0,
                    "mine": bool(L and _cf_rule(rs, "tnl_" + L["id"])), "shared": shared,
-                   "join": port if want["share"] and any(s["port"] == port for s in shared) else None,
+                   "join": port if want["share"] and any(x["port"] == port for x in shared) else None,
                    "manual": [str(r.get("description") or r.get("expression") or "")[:120] for r in rules
                               if not str(r.get("ref") or "").startswith("tnl_") and quoted in str(r.get("expression") or "")]},
-            grpc=_cf_grpc(cred, zid) if carrier == "grpc" else None,
-            https_redirect=(not tls) and _cf_setting(cred, zid, "always_use_https", soft=True) == "on")
+            grpc=got.get("grpc"), https_redirect=got.get("always") == "on")
     else:
-        dz = urllib.parse.quote(z["name"])
-        cert = _ar(cred, "GET", "/domains/%s/ssl" % dz).get("data") or {}
-        ddos = _ar(cred, "GET", "/domains/%s/ddos/settings" % dz).get("data") or {}
+        cert = got["cert"]
         out.update(
             https=bool(cert.get("ssl_status")) if tls else None,
             cert=bool(cert.get("certificates") or cert.get("orders")) if tls else None,
-            grpc=bool((_ar(cred, "GET", "/domains/%s/load-balancers/settings" % dz).get("data") or {}).get("grpc_status"))
-            if carrier == "grpc" else None,
-            ddos=str(ddos.get("protection_mode") or "off"),
+            grpc=bool(got["lb"].get("grpc_status")) if "lb" in got else None,
+            ddos=str(got["ddos"].get("protection_mode") or "off"),
             https_redirect=(not tls) and bool(cert.get("https_redirect")))
     return out
 
