@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import { gsap, reducedMotion } from './motion.js'
+import { EASE_OUT, gsap, reducedMotion } from './motion.js'
 import { riseIn } from './riseIn.js'
 
 const MOVE_S = 0.32
@@ -48,6 +48,7 @@ export default function useFlipList(
       const where = new Map([...prev.els.values()].map((el) => [el, place(el)]))
       plan.current = {
         where,
+        height: box.current.offsetHeight,
         ghosts: exit
           ? [...prev.els]
               .filter(([key]) => !next.has(key))
@@ -76,6 +77,15 @@ export default function useFlipList(
     if (!p) return
     const fresh = [...els.values()].filter((el) => !p.where.has(el))
     const slide = !fresh.length && p.ghosts.some((g) => g.slide)
+    const height = root.offsetHeight
+    if (p.height > height) {
+      root.animate([{ minHeight: p.height + 'px' }, { minHeight: height + 'px' }], {
+        duration: MOVE_S * 1000,
+        delay: slide ? HOLD_S * 1000 : 0,
+        easing: EASE_OUT,
+        fill: 'backwards',
+      })
+    }
     p.ghosts.forEach((g) => ghostOut(root, g, slide && g.slide))
     for (const el of els.values()) {
       const was = p.where.get(el)
