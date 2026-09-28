@@ -11,3 +11,23 @@ export function nodeIps(nodes, id) {
 export function ipItems(ips) {
   return (ips || []).map((ip) => ({ v: ip, label: ip }))
 }
+
+export function nodeItemsForEdit(nodes, link) {
+  const out = []
+  const seen = {}
+  for (const node of nodes || []) {
+    if (!node.online || node.hidden) continue
+    seen[node.id] = true
+    out.push({ v: node.id, label: node.name, sub: node.host })
+  }
+  for (const [id, name] of [
+    [link.a_node, link.a_name],
+    [link.b_node, link.b_name],
+  ]) {
+    if (!id || seen[id]) continue
+    seen[id] = true
+    const node = (nodes || []).find((x) => x.id === id)
+    out.push({ v: id, label: (node && node.name) || name || id, sub: (node && node.host) || '' })
+  }
+  return out
+}
