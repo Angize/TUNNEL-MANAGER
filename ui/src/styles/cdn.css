@@ -185,8 +185,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: flex;
-  align-items: center;
+  align-self: center;
   padding: 0 10px 0 2px;
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
