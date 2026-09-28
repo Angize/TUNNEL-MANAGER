@@ -9309,6 +9309,7 @@ _CDN_ZONE_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-
 _CDN_NAME_TYPES = {"cf": ("A", "AAAA", "CNAME"), "ar": ("A", "AAAA", "CNAME", "ANAME")}
 _CF_HOST_RE = re.compile(r'"([^"]+)"')
 _CF_SHARED = "tnl_p"
+_CF_BAD_KEY = (6003, 6111)
 _AR_FILTER = {"count": "single", "order": "none", "geo_filter": "none"}
 _AR_KEEP = ("type", "name", "value", "cloud", "upstream_https", "ttl", "ip_filter_mode")
 _CF_KEEP = ("type", "name", "content", "proxied", "ttl", "comment")
@@ -9400,10 +9401,12 @@ def _cdn_fail(prov, st, why):
     return Bad("cdn_api", "{0} خطا داد: {1}", "{0} returned an error: {1}", CDN_NAMES[prov], why)
 
 
+def _cf_errs(js):
+    return [e for e in (js.get("errors") if isinstance(js, dict) else None) or [] if isinstance(e, dict)]
+
+
 def _cf_why(st, js):
-    errs = js.get("errors") if isinstance(js, dict) else None
-    parts = ["%s (%s)" % (str(e.get("message") or "").strip()[:160], e.get("code"))
-             for e in errs or [] if isinstance(e, dict)]
+    parts = ["%s (%s)" % (str(e.get("message") or "").strip()[:160], e.get("code")) for e in _cf_errs(js)]
     return "; ".join(parts) or "HTTP %d" % st
 
 
@@ -9427,6 +9430,8 @@ def _cf(cred, method, path, body=None, ok404=False):
         return None
     if 200 <= st < 300 and isinstance(js, dict) and js.get("success") is not False:
         return js
+    if st == 400 and any(e.get("code") in _CF_BAD_KEY for e in _cf_errs(js)):
+        st = 401
     raise _cdn_fail("cf", st, _cf_why(st, js))
 
 
