@@ -45,7 +45,7 @@ function place(pop, anchor, keep, refit) {
   })
 }
 
-function SelectPop({ anchor, label, onClose, children }) {
+export function SelectPop({ anchor, label, onClose, children }) {
   const veil = useRef(null)
   const box = useRef(null)
   const keep = useRef(null)
