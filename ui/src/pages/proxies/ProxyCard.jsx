@@ -6,7 +6,7 @@ import { useActionBusy } from '../../lib/useBusy.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
-import { alertBox, confirmBox } from '../../lib/dialog.js'
+import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { num } from '../../lib/num.js'
 import Msg from '../../components/Msg.jsx'
@@ -98,8 +98,7 @@ function ProxyCard({ proxy, onEdit, onChanged }) {
         check: true,
       })
     } else {
-      setMsg(null)
-      alertBox(readError(r))
+      setMsg({ cls: 'err', text: readError(r) })
     }
   }
 

@@ -8,7 +8,7 @@ import { coreVersionName } from '../agent/versions.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
-import { alertBox, confirmBox } from '../../lib/dialog.js'
+import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import { checkable } from '../../lib/keys.js'
@@ -76,8 +76,7 @@ function NodeCard({
     })
     if (!r) return
     if (!r.ok) {
-      setMessage(null)
-      alertBox(readError(r))
+      setMessage({ cls: 'err', text: readError(r) })
       return
     }
     const probe = r.d.info
@@ -90,8 +89,7 @@ function NodeCard({
       })
       return
     }
-    setMessage(null)
-    alertBox(T('offline') + ': ' + (translateError(probe.error) || T('not_available')))
+    setMessage({ cls: 'err', text: T('offline') + ': ' + (translateError(probe.error) || T('not_available')) })
   }
 
   const resetTraffic = async () => {
