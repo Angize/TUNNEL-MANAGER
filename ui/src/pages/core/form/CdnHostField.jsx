@@ -47,7 +47,7 @@ function Placed({ host, provider, onClear }) {
   )
 }
 
-function PlacedNote({ provider }) {
+function PlacedNote({ provider, hostSsl }) {
   return (
     <div className="cdnpnote">
       <span className="cdnpok">
@@ -55,7 +55,7 @@ function PlacedNote({ provider }) {
         {TF('cdn_placed_by', { p: providerName(provider) })}
       </span>
       <span className="cdnpdot" aria-hidden="true" />
-      <span>{T(provider === 'cf' ? 'cdn_placed_cf' : 'cdn_placed_ar')}</span>
+      <span>{T(hostSsl ? 'cdn_placed_cf' : 'cdn_placed_ar')}</span>
       <span className="cdnpdot" aria-hidden="true" />
       <span>{T(provider === 'ar' ? 'cdn_placed_rule_ar' : 'cdn_placed_rule')}</span>
     </div>
@@ -98,7 +98,12 @@ export default function CdnHostField({ form, keys, serverIp, patch, onMade }) {
           </div>
         )}
       </Field>
-      {managed ? <PlacedNote provider={form.cdnOwner} /> : null}
+      {managed ? (
+        <PlacedNote
+          provider={form.cdnOwner}
+          hostSsl={form.cdnOwner === 'cf' && !(keys && keys.cf && keys.cf.ssl_mode === 'zone')}
+        />
+      ) : null}
       <Reveal show={open && !managed}>
         <CdnMaker
           form={form}
