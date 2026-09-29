@@ -5548,7 +5548,7 @@ def api_fleet(d):
     with _tf_lock:
         tfl = {}
         for L in page:
-            side = "b" if L.get("view_side") == "b" else "a"
+            side = _view_side(L)
             nid = L["b_node"] if side == "b" else L["a_node"]
             s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])
             if s:
@@ -5561,7 +5561,7 @@ def api_fleet(d):
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         a_ips, b_ips = _flat_ips(pa), _flat_ips(pb)
-        side = "b" if L.get("view_side") == "b" else "a"
+        side = _view_side(L)
         pub = {k: v for k, v in L.items() if k != "psk"}
         rec = {**pub, "a_online": _node_answered(L["a_node"]), "b_online": _node_answered(L["b_node"]),
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
@@ -5607,13 +5607,19 @@ def api_fleet(d):
     return {"links": out, "total": total}
 
 
+def _view_side(L):
+    if L.get("view_side") in ("a", "b"):
+        return L["view_side"]
+    return ("a" if L.get("server_side") == "b" else "b") if L.get("type") == "core" else "a"
+
+
 def api_link_view(d):
     _require(d, ["id"])
     with _reg_lock:
         L = get_link(d["id"])
         if L is None:
             raise _no_tunnel()
-        side = "a" if L.get("view_side") == "b" else "b"
+        side = "a" if _view_side(L) == "b" else "b"
         store_edit(_LINKS, L["id"], lambda x: x.update(view_side=side))
     return {"ok": True, "view_side": side}
 
