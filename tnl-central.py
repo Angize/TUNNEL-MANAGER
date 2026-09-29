@@ -10637,10 +10637,10 @@ def _cdn_label():
 def _cdn_pick(cred, z, n):
     got = []
     for _ in range(CDN_PICK_TRIES):
-        cands = [h for h in dict.fromkeys(_cdn_label() + "." + z["name"] for _ in range(2 * n))
+        cands = [h for h in dict.fromkeys(_cdn_label() + "." + z["name"] for _ in range(n - len(got)))
                  if h not in got and _cdn_host_state(h)[0] == "free"]
         recs = parallel_map(lambda h: _cdn_records(cred, z, h), cands, workers=8)
-        got += [h for h, r in zip(cands, recs) if not r][:n - len(got)]
+        got += [h for h, r in zip(cands, recs) if not r]
         if len(got) == n:
             return got
     raise Bad("cdn_no_free_names", "{0} اسمِ آزاد در «{1}» پیدا نشد — دوباره بزن", "could not find {0} free names in '{1}' — try again",
