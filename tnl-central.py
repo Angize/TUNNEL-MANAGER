@@ -2747,7 +2747,7 @@ def norm_subnet(ttype, tid, provided, base=None):
 
 _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 
-_WORKERS_KEYS = ("a_workers", "b_workers")
+_END_KEYS = ("a_workers", "b_workers", "ws_port_roll")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
                     "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
@@ -2766,7 +2766,7 @@ _PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id", "ech", "ws_pool", "ws_pool_auto
 
 def _node_extra(extra):
     e = dict(extra)
-    skip = _ROTATION_KEYS + _WORKERS_KEYS + _PANEL_ONLY_KEYS
+    skip = _ROTATION_KEYS + _END_KEYS + _PANEL_ONLY_KEYS
     return {k: v for k, v in e.items() if k not in skip}
 
 
@@ -2823,11 +2823,13 @@ def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
 
 
-def _core_workers_bodies(src, a_body, b_body):
+def _core_end_bodies(src, a_body, b_body):
     for body, key in ((a_body, "a_workers"), (b_body, "b_workers")):
         n = _link_workers(src, key)
         if n > 1:
             body["workers"] = n
+        if src.get("ws_port_roll") and body.get("role") == "client":
+            body["ws_port_roll"] = True
 
 
 def _apply_core_tuning(a_body, b_body):
@@ -2976,8 +2978,6 @@ def _tunnel_extra(src):
         e["ws_edge_snis"] = psnis
         _rs = src.get("ws_rotate_secs")
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
-        if src.get("ws_port_roll"):
-            e["ws_port_roll"] = True
     if src.get("gso"):
         e["gso"] = True
     return _node_extra(_carried(e, _shape_of({}, src)))
@@ -6082,8 +6082,10 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
     if transport != "ws":
         return out
     cur = cur or {}
+    out["ws_port_roll"] = bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
-        return _ws_pool_fields(d, cur)
+        out.update(_ws_pool_fields(d, cur))
+        return out
     host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip()
     if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         raise Bad("bad_ws_host", "دامنهٔ WebSocket (ws_host) نامعتبر است", "invalid WebSocket domain (ws_host)")
@@ -6246,7 +6248,6 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_ips": clean_ips,
         "ws_edge_snis": snis,
         "ws_rotate_secs": _rotate_secs(_ws_rotate_default(d, cur), 28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval")),
-        "ws_port_roll": bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll")),
         "ws_pool_auto": bool(d["ws_pool_auto"] if "ws_pool_auto" in d else cur.get("ws_pool_auto", True)),
         "ws_path": path,
     }
@@ -6530,7 +6531,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         _ptries = int((d["port_tries"] if "port_tries" in d else cur.get("port_tries")) or 0)
     except (TypeError, ValueError):
         _ptries = 0
-    if _ptries and (not _shape_consumes("port_tries", *shape) or (ce.get("ws_pool") and not ce.get("ws_port_roll"))):
+    if _ptries and (not _shape_consumes("port_tries", *shape) or (transport == "ws" and not ce.get("ws_port_roll"))):
         _ptries = 0
     if _ptries:
         if not 1 <= _ptries <= PORT_TRIES_MAX:
@@ -6692,7 +6693,7 @@ def _create_tunnel_impl(d, h):
             a_body["role"] = "server" if server_side == "a" else "client"
             b_body["role"] = "server" if server_side == "b" else "client"
             _core_rotation_bodies(extra, a_body, b_body)
-            _core_workers_bodies(extra, a_body, b_body)
+            _core_end_bodies(extra, a_body, b_body)
             _apply_core_tuning(a_body, b_body)
         _apply_probe_tuning(a_body, b_body)
         act_step(h, _step_build(A), 1 + at, steps)
@@ -6912,7 +6913,7 @@ def _restore_link(A, B, L, extra=None):
             L, a_body, b_body,
             _flat_ips(_cached_ping(A["id"])) if A else None,
             _flat_ips(_cached_ping(B["id"])) if B else None)
-        _core_workers_bodies(L, a_body, b_body)
+        _core_end_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
     def put_back(pair):
@@ -7279,7 +7280,7 @@ def _edit_link_impl(d, h):
                 a_body["role"] = "server" if server_side == "a" else "client"
                 b_body["role"] = "server" if server_side == "b" else "client"
                 _core_rotation_bodies(extra, a_body, b_body)
-                _core_workers_bodies(extra, a_body, b_body)
+                _core_end_bodies(extra, a_body, b_body)
                 _apply_core_tuning(a_body, b_body)
             _apply_probe_tuning(a_body, b_body)
             _name_hold(h["key"], (A["id"], B["id"]), new_name)
@@ -7506,7 +7507,7 @@ def _rebuild_link_impl(d, h):
     if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
         _core_rotation_bodies(src, a_body, b_body, a_ips, b_ips)
-        _core_workers_bodies(L, a_body, b_body)
+        _core_end_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
     act_step(h, tx("برچیدنِ هر دو سر", "removing both ends"), 1, REBUILD_STEPS)

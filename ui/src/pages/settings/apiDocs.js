@@ -148,7 +148,7 @@ const TUNNEL_FIELDS = [
   ['conntrack_bypass', 0, B, 'bypass the conntrack table — udp and tcp profiles only'],
   ['sport_lo', 0, N, 'start of the source port band (1024 and up)'],
   ['sport_hi', 0, N, 'end of the source port band — the band is at least 100 ports wide'],
-  ['port_tries', 0, N, 'number of source port draws (1 to 60)'],
+  ['port_tries', 0, N, 'number of source port draws (1 to 60); on ws only with ws_port_roll on'],
   ['fec', 0, B, 'forward error correction — udp and raw only'],
   ['fec_data', 0, N, 'data packets per FEC group (default 16, at most 64)'],
   ['fec_parity', 0, N, 'parity packets (default 4; data plus parity at most 255)'],
@@ -183,7 +183,7 @@ const TUNNEL_FIELDS = [
   ['ws_edge_snis', 0, L, 'domains; each item is a domain or {"host", "path"} (at most 64). A domain the panel made with cdn-make is set up by the panel on save: its record points at the server (ArvanCloud: with the tunnel port) and it joins the Origin Rule of the tunnel port, one rule per port and zone for the whole pool; it must not be used by another tunnel (cdn_host_taken). A made domain the edit leaves is detached and ready again. With a token a pool that adds a panel-made domain gets 403 token_cdn'],
   ['ws_pool_auto', 0, B, 'edge pool: replace a burned panel-made domain by itself (default true; stored, not used yet)'],
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
-  ['ws_port_roll', 0, B, 'a fresh source port on every edge rotation'],
+  ['ws_port_roll', 0, B, 'ws, http and grpc client, with or without ws_pool: re-dial a failed path on a fresh source port (default off)'],
 ]
 
 const CDN_PARAM =
