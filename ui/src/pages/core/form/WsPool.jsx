@@ -23,6 +23,7 @@ import { edgePort, hasCdnKey, providerName, tlsEdges } from '../../../lib/cdn.js
 import { WarnCap } from './controls.jsx'
 import Reveal from '../../../components/Reveal.jsx'
 import CdnMaker from './CdnMaker.jsx'
+import CleanEdges, { edgeRow } from './CleanEdges.jsx'
 import { LTR_TEXT } from '../../../lib/form.js'
 
 const KINDS = [
@@ -208,6 +209,14 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
                   {T('cdn_make_open')}
                 </button>
               ) : null}
+              {kind === 'ip' ? (
+                <CleanEdges
+                  items={cleanLeft.map(edgeRow)}
+                  value=""
+                  note={T(edges && edges.length ? 'edge_pool_all' : 'edge_list_empty')}
+                  onPick={(v) => add('ip', v)}
+                />
+              ) : null}
             </div>
             {kind === 'sni' ? (
               <Reveal show={making}>
@@ -222,16 +231,6 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
                   onPlace={addHosts}
                 />
               </Reveal>
-            ) : null}
-            {kind === 'ip' && cleanLeft.length ? (
-              <div className="cdnpoolpick">
-                <Select
-                  items={cleanLeft.map((v) => ({ v, label: v, sub: T('edge_clean') }))}
-                  value=""
-                  placeholder={TF('edge_pool_pick', { n: cleanLeft.length })}
-                  onChange={(v) => add('ip', v)}
-                />
-              </div>
             ) : null}
           </Accordion>
         )

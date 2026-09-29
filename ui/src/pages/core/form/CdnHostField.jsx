@@ -2,9 +2,9 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
 import Field from '../../../components/Field.jsx'
 import Reveal from '../../../components/Reveal.jsx'
-import Select from '../../../components/Select.jsx'
 import { WarnCap } from './controls.jsx'
 import CdnMaker from './CdnMaker.jsx'
+import CleanEdges, { edgeRow } from './CleanEdges.jsx'
 import { gsap, reducedMotion } from '../../../lib/motion.js'
 import { LTR_TEXT } from '../../../lib/form.js'
 import { cdnSingle, edgeFits, edgePort, hasCdnKey, providerName } from '../../../lib/cdn.js'
@@ -64,39 +64,54 @@ function PlacedNote({ provider, hostSsl }) {
 
 function EdgePick({ form, patch, edges, managed }) {
   const tls = !!form.WsTls
-  const list = (edges || []).filter((e) => edgeFits(e, tls))
   const auto = managed && form.cdnEdgeAuto
-  const inList = !auto && list.includes(form.wsEdge)
-  const [custom, setCustom] = useState(!auto && !!form.wsEdge && !inList)
-  const value = auto ? 'host' : inList ? form.wsEdge : custom || form.wsEdge ? 'custom' : ''
   const port = edgePort(form.wsEdge.trim())
-  const items = (managed ? [{ v: 'host', label: T('edge_same'), sub: T('edge_same_d') }] : [])
-    .concat(list.map((e) => ({ v: e, label: e, sub: T('edge_clean') })))
-    .concat([{ v: 'custom', label: T('edge_custom'), sub: T('edge_custom_d') }])
-
-  const pick = (v) => {
-    setCustom(v === 'custom')
-    if (v === 'host') patch({ cdnEdgeAuto: true })
-    else if (v === 'custom') patch({ cdnEdgeAuto: false, wsEdge: inList ? '' : form.wsEdge })
-    else patch({ cdnEdgeAuto: false, wsEdge: v })
-  }
+  const items = (managed ? [{ v: 'host', label: T('edge_same'), sub: T('edge_same_d') }] : []).concat(
+    (edges || []).filter((e) => edgeFits(e, tls)).map(edgeRow)
+  )
 
   return (
     <div className="cdnedge">
-      <Field label={T(tls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')} hint={edges && edges.length ? '' : T('edge_list_empty')}>
-        <Select items={items} value={value} placeholder={T(tls ? 'edge_pick_need' : 'edge_pick')} onChange={pick} />
+      <Field label={T(tls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
+        {auto ? (
+          <div className="cdnplaced">
+            <span className="cdnpbadge" aria-hidden="true">
+              <Icon name="link" />
+            </span>
+            <span className="cdnsamet">
+              <b>{T('edge_same')}</b>
+              <span className="mono" dir="ltr">
+                {form.wsHost}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="cdnpclear"
+              aria-label={T('edge_same_x')}
+              title={T('edge_same_x')}
+              onClick={() => patch({ cdnEdgeAuto: false })}
+            >
+              <Icon name="x" />
+            </button>
+          </div>
+        ) : (
+          <div className="cdnsni">
+            <input
+              {...LTR_TEXT}
+              className="mono"
+              placeholder={T(tls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
+              value={form.wsEdge}
+              onChange={(e) => patch({ wsEdge: e.target.value })}
+            />
+            <CleanEdges
+              items={items}
+              value={form.wsEdge.trim()}
+              note={T('edge_list_empty')}
+              onPick={(v) => patch(v === 'host' ? { cdnEdgeAuto: true } : { cdnEdgeAuto: false, wsEdge: v })}
+            />
+          </div>
+        )}
       </Field>
-      <Reveal show={value === 'custom'}>
-        <Field label={T('edge_custom_lbl')}>
-          <input
-            {...LTR_TEXT}
-            className="mono"
-            placeholder={T(tls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
-            value={form.wsEdge}
-            onChange={(e) => patch({ wsEdge: e.target.value })}
-          />
-        </Field>
-      </Reveal>
       {managed && form.cdnOwner === 'cf' && tls && !auto && port && port !== 443 ? (
         <WarnCap tone="gold" text={T('cdn_cf_443')} />
       ) : null}
