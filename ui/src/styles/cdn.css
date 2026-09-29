@@ -643,6 +643,24 @@
   min-width: 0;
 }
 
+.cdnmkb > .rv {
+  margin-top: -10px;
+}
+
+.cdnmkb > .rv > .rvb > :first-child {
+  margin-top: 10px;
+}
+
+.cdnmkb > .rv > .rvb > .cdnact {
+  display: flex;
+  width: 100%;
+}
+
+.cdnswap,
+.cdnmk .cdnact {
+  animation: msgswap .2s var(--ease-out);
+}
+
 .cdngrid.cdnmkgrid {
   margin-top: 0;
 }
