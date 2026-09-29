@@ -212,7 +212,6 @@ export default {
   nd_cdn_done: 'نود پاک شد؛ این‌ها هم از CDN برداشته شد:',
 
   a_st_warn: 'با هشدار',
-  cdn_undone: 'برگشت خورد',
 
   px_and: ' و ',
   px_used_cdn: 'API {p} از این پروکسی رد می‌شود',

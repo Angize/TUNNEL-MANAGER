@@ -1,26 +1,8 @@
 import { useRef } from 'react'
 import Reveal from './Reveal.jsx'
-import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
 import { actAge, actBarPercent, actIsSpinner, actSeen, actWords } from '../lib/acts.js'
 import { useActs } from '../state/ActsContext.jsx'
-
-const CDN_ICON = { ok: 'okc', undo: 'undo', info: 'info' }
-
-export function CdnSteps({ steps }) {
-  if (!steps || !steps.length) return null
-  return (
-    <ol className="cdnsteps">
-      {steps.map((s, i) => (
-        <li key={i} className={s.st}>
-          <Icon name={CDN_ICON[s.st] || 'info'} />
-          <span>{s.t}</span>
-          {s.st === 'undo' ? <small>{T('cdn_undone')}</small> : null}
-        </li>
-      ))}
-    </ol>
-  )
-}
 
 function Row({ act, warn }) {
   const { now, cancel, dismiss } = useActs()
@@ -71,7 +53,6 @@ export default function ActionRow({ act, warn }) {
   return (
     <Reveal show={!!act}>
       {act ? <Row act={act} warn={warn} /> : null}
-      {act ? <CdnSteps steps={act.cdn} /> : null}
     </Reveal>
   )
 }

@@ -6,7 +6,7 @@ import Reveal from '../../../components/Reveal.jsx'
 import Stepper from '../../../components/Stepper.jsx'
 import SwapCascade from '../../../components/SwapCascade.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
-import { CdnSteps } from '../../../components/ActionRow.jsx'
+import CdnSteps from '../../../components/CdnSteps.jsx'
 import { apiGet, apiPost } from '../../../lib/api.js'
 import { postError, readError } from '../../../lib/errors.js'
 import { LTR_TEXT } from '../../../lib/form.js'
@@ -201,7 +201,6 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
   const [check, setCheck] = useState(null)
   const [made, setMade] = useState(null)
   const [error, setError] = useState('')
-  const [undone, setUndone] = useState([])
   const [picked, setPicked] = useState([])
   const [count, setCount] = useState('3')
   const seq = useRef(0)
@@ -226,7 +225,6 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
     setPhase('form')
     setCheck(null)
     setError('')
-    setUndone([])
   }
 
   const runCheck = async () => {
@@ -252,14 +250,12 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
     const my = ++seq.current
     setPhase('making')
     setError('')
-    setUndone([])
     const r = await apiPost('cdn-make', { provider, zone, labels, replace, ip: serverIp })
     const rows = r.ok && r.d.ok ? r.d.hosts || [] : []
     if (rows.length) onMade(rows)
     if (my !== seq.current) return
     if (!(r.ok && r.d.ok)) {
       setError(postError(r))
-      setUndone((r.d && r.d.steps) || [])
       setPhase('plan')
       return
     }
@@ -407,9 +403,6 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
                   </div>
                 </div>
               ) : null}
-            </Reveal>
-            <Reveal show={undone.length > 0}>
-              <CdnSteps steps={undone} />
             </Reveal>
             <Reveal show={!!error}>
               <WarnCap text={error} />

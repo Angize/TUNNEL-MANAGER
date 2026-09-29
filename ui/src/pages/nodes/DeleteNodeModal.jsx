@@ -7,7 +7,7 @@ import { postError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import Msg from '../../components/Msg.jsx'
-import { CdnSteps } from '../../components/ActionRow.jsx'
+import CdnSteps from '../../components/CdnSteps.jsx'
 import { TF } from '../../i18n/fa.js'
 
 export default function DeleteNodeModal({ node, onClose, onDeleted }) {
