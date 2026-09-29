@@ -9696,9 +9696,9 @@ def _cdn_check(want, extra, srv_ip, lid):
                       "with Cloudflare, wss works only on edge port 443; Flexible falls back to Full on {0} and the tunnel never comes up",
                       p)
     _cdn_public_ip(srv_ip)
-    name = _cdn_host_user(want["host"], lid)
-    if name:
-        raise _cdn_taken(want["host"], name)
+    u = _cdn_host_user(want["host"], lid)
+    if u:
+        raise _cdn_taken(want["host"], u["name"])
 
 
 def _cdn_public_ip(v):
@@ -9717,15 +9717,14 @@ def _cdn_taken(host, name):
                "'{0}' is used by tunnel '{1}' — a name points at one server and one port only", host, name)
 
 
+def _cdn_link_hosts(L):
+    c = L.get("cdn") or {}
+    hosts = {str(L.get("ws_host") or "").lower(), str(c.get("host") or ""), str((c.get("applied") or {}).get("host") or "")}
+    return hosts | {str(s.get("host") or "").lower() for s in L.get("ws_edge_snis") or [] if isinstance(s, dict)}
+
+
 def _cdn_host_user(host, skip=""):
-    for L2 in load_links():
-        if L2["id"] == skip:
-            continue
-        hosts = {str(L2.get("ws_host") or "").lower(), str((L2.get("cdn") or {}).get("host") or "")}
-        hosts |= {str(s.get("host") or "").lower() for s in L2.get("ws_edge_snis") or [] if isinstance(s, dict)}
-        if host in hosts:
-            return L2["name"]
-    return ""
+    return next((L2 for L2 in load_links() if L2["id"] != skip and host in _cdn_link_hosts(L2)), None)
 
 
 def _cdn_hosts():
@@ -10176,9 +10175,9 @@ def _cdn_hold(want, lid, jr, early):
         return
     _cdn_claim(want["host"], lid)
     try:
-        name = _cdn_host_user(want["host"], lid)
-        if name:
-            raise _cdn_taken(want["host"], name)
+        u = _cdn_host_user(want["host"], lid)
+        if u:
+            raise _cdn_taken(want["host"], u["name"])
         if early:
             with _cdn_lock(want["provider"], want["zone"]), _cdn_undo_on_fail(want["provider"], jr):
                 yield
@@ -10542,8 +10541,10 @@ def _cdn_public():
         out[p] = {"set": bool(k), "tail": k[-4:] if len(k) >= 12 else "", "proxy_id": str(c.get("proxy_id") or ""),
                   "used": used[p], **({"ssl_mode": c.get("ssl_mode") or "host"} if p == "cf" else {})}
     rows = sorted(_cdn_hosts().values(), key=lambda e: (-_sint(e.get("made")), e["host"]))
+    users = {h: L for L in load_links() for h in _cdn_link_hosts(L)}
     out["hosts"] = [{"host": e["host"], "provider": e["provider"], "zone": e["zone"], "made": _sint(e.get("made")),
-                     "link": e.get("link") or "", "name": _cdn_link_name(e["link"]) if e.get("link") else ""} for e in rows]
+                     "link": (users.get(e["host"]) or {}).get("id", ""), "name": (users.get(e["host"]) or {}).get("name", "")}
+                    for e in rows]
     return out
 
 
@@ -10622,13 +10623,10 @@ def api_cdn_zones(d):
 
 
 def _cdn_host_state(host):
-    name = _cdn_host_user(host)
-    if name:
-        return "tunnel", name
-    e = _M.cdn_hosts.get(host)
-    if e and e.get("link"):
-        return "tunnel", _cdn_link_name(e["link"])
-    return ("ready" if e else "free"), ""
+    u = _cdn_host_user(host)
+    if u:
+        return "tunnel", u["name"]
+    return ("ready" if host in _M.cdn_hosts else "free"), ""
 
 
 def _cdn_label():

@@ -186,7 +186,7 @@ const TUNNEL_FIELDS = [
 ]
 
 const CDN_PARAM =
-  'use a subdomain the panel made with cdn-make — {"provider": "cf" or "ar", "zone", "label"}; the host label.zone must be in the panel\'s list (cdn_host_unknown otherwise) and not used by another tunnel. ws transport only, not with ws_pool; ech only with Cloudflare (the panel sets the record up first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. On save it points the record at the server (ArvanCloud: with the tunnel port) and puts the host in the Origin Rule of the tunnel port, one rule per port. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
+  'use a subdomain the panel made with cdn-make — {"provider": "cf" or "ar", "zone", "label"}; the host label.zone must be in the panel\'s list (cdn_host_unknown otherwise) and not used by another tunnel. ws transport only, not with ws_pool; ech only with Cloudflare (the panel sets the record up first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. On save it points the record at the server (ArvanCloud: with the tunnel port) and puts the host in the Origin Rule of the tunnel port, one rule per port and each host in one rule only. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
 
 const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 
@@ -650,7 +650,7 @@ export const DOCS = {
 
   cdn: {
     t: 'CDN keys',
-    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the tunnel id or empty when ready, name = the tunnel name), newest first. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
   },
   'cdn-set': {
     t: 'Save a CDN key',
@@ -698,7 +698,7 @@ export const DOCS = {
   },
   'cdn-drop': {
     t: 'Delete CDN subdomains',
-    d: 'Deletes panel-made subdomains no tunnel uses: the record, the host in tnl_ssl and the entry in the list. Each host is done on its own; dropped lists the deleted ones and failed the others with their error (cdn_host_attached names the tunnel that uses it).',
+    d: 'Deletes panel-made subdomains no tunnel uses: the record, the host in tnl_ssl and in any Origin Rule still holding it, and the entry in the list. Each host is done on its own; dropped lists the deleted ones and failed the others with their error (cdn_host_attached names the tunnel that uses it).',
     p: [['hosts', 1, L, '1 to 64 full host names']],
   },
   'cdn-sync': {
