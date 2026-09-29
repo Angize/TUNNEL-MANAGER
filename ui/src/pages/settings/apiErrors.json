@@ -1216,33 +1216,8 @@
   "act": [
    [
     400,
-    "cdn_api",
-    "… returned an error: …"
-   ],
-   [
-    400,
-    "cdn_denied",
-    "… refused — the key is invalid or lacks this permission: …"
-   ],
-   [
-    400,
-    "cdn_no_key",
-    "there is no … key in the panel — add it under Settings › CDN"
-   ],
-   [
-    400,
-    "cdn_rate",
-    "… is not taking more requests right now — try again in a few minutes"
-   ],
-   [
-    400,
     "cdn_remove_failed",
     "removing from … did not finish: …"
-   ],
-   [
-    400,
-    "cdn_unreachable",
-    "could not reach …: …"
    ],
    [
     400,
@@ -1258,11 +1233,6 @@
     400,
     "node_offline",
     "node '…' is unreachable — the link was left untouched; delete again when the node is back, or use force"
-   ],
-   [
-    400,
-    "proxy_not_found",
-    "the proxy on the … route is gone — change the route under Settings › CDN"
    ],
    [
     400,

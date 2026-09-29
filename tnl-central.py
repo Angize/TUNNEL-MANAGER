@@ -4002,26 +4002,25 @@ def _node_del_impl(d):
         mine_ids = {L["id"] for L in mine}
     with _CdnLinkLock(*mine_ids):
         states = {lid: (get_link(lid) or {}).get("cdn") or {} for lid in sorted(mine_ids)}
-        applied = [(lid, _cdn_full(c["applied"])) for lid, c in states.items() if c.get("applied")]
+        left = [c["applied"] for c in states.values() if skip and c.get("applied")]
+        jobs = [] if skip else [j for lid, c in states.items() for j in _cdn_teardown(lid, c, False)]
         jr = _CdnJournal()
-        stripped = set()
-        if applied and not skip:
-            prov, why = _cdn_strip_all(applied, jr)
+        if jobs:
+            prov, why = _cdn_strip_all(jobs, jr)
             if why:
                 return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed", "cdn": jr.items,
                         "error": tx("پاک‌کردن از {0} انجام نشد: {1} — نود و تونل‌هایش دست نخوردند",
                                   "removing from {0} did not finish: {1} — the node and its tunnels were left as they are",
                                   CDN_NAMES[prov], why)}
-            stripped = {lid for lid, _a in applied}
-        elif applied:
-            for _lid, a in applied:
-                _cdn_untouched(jr, a)
+        for a in left:
+            _cdn_untouched(jr, a)
+        stripped = {lid for lid, _st, _d in jobs}
         hosts = {}
         for lid, c in states.items():
             if c.get("host"):
                 hosts.update(_cdn_host_gone(c["host"], lid, lid in stripped))
         try:
-            return _node_del_wipe(nid, n, force, mine, mine_ids, jr, applied if skip else [], hosts)
+            return _node_del_wipe(nid, n, force, mine, mine_ids, jr, left, hosts)
         except BaseException:
             for lid in stripped:
                 _cdn_mark_removed(lid)
@@ -4073,7 +4072,7 @@ def _node_del_wipe(nid, n, force, mine, mine_ids, jr, left, hosts):
         t.raw(lambda p: _stats_forget(p, nid))
     with _tomb_lock:
         _tomb[nid] = time.time() + 20
-    for _lid, a in left:
+    for a in left:
         _cdn_left_by_operator(a)
     try:
         _forget_host(n["host"], n.get("ssh_port"))
@@ -6755,14 +6754,15 @@ def _delete_link_impl(d, h):
             cdn = (get_link(L["id"]) or L).get("cdn") or {}
             applied = cdn.get("applied")
             skip, keep = bool(d.get("cdn_skip")), bool(d.get("cdn_keep"))
-            touch = bool(applied) and not skip and not (keep and not applied.get("rule_ref"))
+            jobs = [] if skip else _cdn_teardown(L["id"], cdn, keep)
+            touch = bool(jobs)
             n = DELETE_STEPS + touch
             jr = _CdnJournal(h)
             if touch:
-                prov = applied["provider"]
+                prov = jobs[-1][1]["provider"]
                 act_step(h, tx("جدا کردن از {0}", "detaching from {0}", CDN_NAMES[prov]) if keep
                          else tx("پاک‌کردن از {0}", "removing from {0}", CDN_NAMES[prov]), 1, n)
-                prov, why = _cdn_strip_all([(L["id"], applied if keep else _cdn_full(applied))], jr, _cdn_detach if keep else _cdn_strip)
+                prov, why = _cdn_strip_all(jobs, jr)
                 if why:
                     return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
                             "msg": tx("پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)}
@@ -9390,7 +9390,7 @@ _CDN_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _CDN_ZONE_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9-]*[a-z0-9])$")
 _CDN_NAME_TYPES = {"cf": ("A", "AAAA", "CNAME"), "ar": ("A", "AAAA", "CNAME", "ANAME")}
 _CF_HOST_RE = re.compile(r'"([^"]+)"')
-_CF_SHARED = "tnl_p"
+_CF_PORT = "tnl_p"
 _CF_SSL_REF = "tnl_ssl"
 _CF_ORIGIN = "http_request_origin"
 _CF_CONFIG = "http_config_settings"
@@ -9908,7 +9908,7 @@ def _cf_config_room(z, cfg, srule):
 
 
 def _cf_rule_ref(port):
-    return "%s%d" % (_CF_SHARED, port)
+    return "%s%d" % (_CF_PORT, port)
 
 
 def _cf_rules_path(zid, rs, rule=None):
@@ -9970,8 +9970,9 @@ def _cf_apply(cred, want, cur, ctx, jr):
     got = _cf_read(cred, z, host, ctx["tls"], ctx["carrier"], host_ssl)
     rs = got["rs"]
     rule = _cf_rule(rs, ref)
+    moved = _cf_port_rules(rs, host, rule)
     cap = CF_RULE_CAPS.get(z["plan"])
-    if not rule and cap and len((rs or {}).get("rules") or []) >= cap:
+    if not rule and cap and len((rs or {}).get("rules") or []) - sum(_cf_hosts(r) == {host} for r in moved) >= cap:
         raise Bad("cdn_rules_full", "جای Origin Rule تازه در «{0}» نیست — {1} از {1} قانونِ پلن پر است؛ یکی را پاک کن یا پورتی بده که پنل از قبل برایش قانون دارد",
                   "there is no room for another Origin Rule on '{0}' — {1} of {1} rules of the plan are used; delete one or use a port the panel already has a rule for",
                   z["name"], cap)
@@ -10009,9 +10010,11 @@ def _cf_apply(cred, want, cur, ctx, jr):
     if ctx["carrier"] == "ws" and got["ws"] != "on":
         _cf_set(cred, zid, "websockets", "on")
         jr.did(tx("WebSockets روشن شد", "WebSockets turned on"), lambda: _cf_set(cred, zid, "websockets", "off"))
+    for r in moved:
+        _cf_take_out(cred, zid, rs, r, host, jr)
     _cf_put_rule(cred, zid, _CF_ORIGIN, rs, rule, _cf_rule_body(port, _cf_hosts(rule) | {host}), jr,
                  tx("Origin Rule: {0} در قانونِ پورتِ {1}", "Origin Rule: {0} in the rule of port {1}", host, port))
-    return {"provider": "cf", "zone": z["name"], "zone_id": zid, "host": host, "record_id": rid, "rule_ref": ref,
+    return {"provider": "cf", "zone": z["name"], "zone_id": zid, "host": host, "record_id": rid,
             "ip": ip, "port": port, "tls": ctx["tls"], "carrier": ctx["carrier"], **({"ssl_ref": _CF_SSL_REF} if host_ssl else {})}
 
 
@@ -10202,14 +10205,29 @@ def _cdn_strip_record(cred, st, jr):
     jr.did(tx("رکوردِ {0} پاک شد", "record {0} removed", host), undo)
 
 
-def _cdn_strip_rule(cred, st, jr, ref, phase):
+def _cf_port_rules(rs, host, keep=None):
+    return [r for r in (rs or {}).get("rules") or [] if isinstance(r, dict) and r is not keep
+            and str(r.get("ref") or "").startswith(_CF_PORT) and host in _cf_hosts(r)]
+
+
+def _cdn_unport(cred, st, jr):
     zid, host = st.get("zone_id"), st.get("host")
-    rs = _cf_entry(cred, zid, phase)
-    rule = _cf_rule(rs, ref)
+    rs = _cf_entry(cred, zid)
+    for r in _cf_port_rules(rs, host):
+        _cf_take_out(cred, zid, rs, r, host, jr)
+
+
+def _cdn_strip_ssl(cred, st, jr):
+    zid = st.get("zone_id")
+    rs = _cf_entry(cred, zid, _CF_CONFIG)
+    _cf_take_out(cred, zid, rs, _cf_rule(rs, _CF_SSL_REF), st.get("host"), jr)
+
+
+def _cf_take_out(cred, zid, rs, rule, host, jr):
     hosts = _cf_hosts(rule)
-    ssl = ref == _CF_SSL_REF
     if not rule or host not in hosts:
         return
+    ssl = rule.get("ref") == _CF_SSL_REF
     path = _cf_rules_path(zid, rs, rule)
     old = {k: rule[k] for k in _CF_RULE_KEEP if k in rule}
     left = hosts - {host}
@@ -10241,41 +10259,57 @@ def _cdn_strip(st, jr):
     with _cdn_lock(prov, st.get("zone")):
         if st.get("record_id"):
             _cdn_strip_record(cred, st, jr)
-        if st.get("rule_ref"):
-            _cdn_strip_rule(cred, st, jr, st["rule_ref"], _CF_ORIGIN)
+        if prov == "cf":
+            _cdn_unport(cred, st, jr)
         if st.get("ssl_ref"):
-            _cdn_strip_rule(cred, st, jr, _CF_SSL_REF, _CF_CONFIG)
+            _cdn_strip_ssl(cred, st, jr)
 
 
 def _cdn_detach(st, jr):
-    if st.get("rule_ref"):
-        with _cdn_lock(st["provider"], st.get("zone")):
-            _cdn_strip_rule(_cdn_cred(st["provider"]), st, jr, st["rule_ref"], _CF_ORIGIN)
+    with _cdn_lock(st["provider"], st.get("zone")):
+        _cdn_unport(_cdn_cred(st["provider"]), st, jr)
 
 
-def _cdn_strip_all(pairs, jr, fn=_cdn_strip):
+def _cdn_teardown(lid, c, keep):
+    a, host = c.get("applied"), c.get("host")
+    jobs = []
+    if a and a["provider"] == "cf" and (keep or a["host"] != host):
+        jobs.append((lid, a, True))
+    if not keep:
+        st = a if a and a["host"] == host else _cdn_host_base(host)
+        if st:
+            jobs.append((lid, _cdn_full(st), False))
+    return jobs
+
+
+def _cdn_strip_all(jobs, jr):
     prov = ""
-    with _cdn_zones_locked((st.get("provider"), st.get("zone")) for _lid, st in pairs):
+    with _cdn_zones_locked((st.get("provider"), st.get("zone")) for _lid, st, _d in jobs):
         try:
-            for _lid, st in pairs:
+            for _lid, st, detach in jobs:
                 prov = st.get("provider")
-                fn(st, jr)
+                (_cdn_detach if detach else _cdn_strip)(st, jr)
         except Exception as e:
             why = _cdn_why(e)
             left = jr.rollback()
-            _cdn_refixed(pairs, jr)
+            _cdn_refixed(jobs, jr)
             return prov, (tx_join("", [why, _cdn_undo_tail(prov, left)]) if left else why)
     return prov, None
 
 
-def _cdn_refixed(pairs, jr):
-    for lid, st in pairs:
-        rid = jr.fixed.get(st.get("host"))
+def _cdn_refixed(jobs, jr):
+    for lid, st, _d in jobs:
+        host = st.get("host")
+        rid = jr.fixed.get(host)
         if not rid:
             continue
-        e = _M.cdn_hosts.get(st["host"])
-        _cdn_store(lid, lambda x, rid=rid: x["cdn"]["applied"].update(record_id=rid) if (x.get("cdn") or {}).get("applied") else None,
-                   {st["host"]: dict(e, record_id=rid)} if e else {})
+        e = _M.cdn_hosts.get(host)
+
+        def fix(x, rid=rid, host=host):
+            a = (x.get("cdn") or {}).get("applied")
+            if a and a.get("host") == host:
+                a.update(record_id=rid)
+        _cdn_store(lid, fix, {host: dict(e, record_id=rid)} if e else {})
 
 
 def _cdn_store(lid, fn, hosts):
@@ -10352,17 +10386,14 @@ def _cdn_left_by_operator(st):
 
 def _cdn_release(old, new, lid):
     a = (old or {}).get("applied")
-    if not a or not a.get("rule_ref"):
-        return []
-    b = (new or {}).get("applied") or {}
-    if _cdn_same(b, a) and b.get("rule_ref") == a["rule_ref"]:
+    if not a or a["provider"] != "cf" or _cdn_same((new or {}).get("applied"), a):
         return []
     if (_M.cdn_hosts.get(a["host"]) or {}).get("link") not in ("", lid, None):
         return []
     try:
         _cdn_detach(a, _CdnJournal())
     except Exception as e:
-        return [tx("{0} ({1})", "{0} ({1})", a.get("host") or "?", _cdn_why(e))]
+        return [tx("{0} در قانونِ پورتِ {1} ({2})", "{0} in the rule of port {1} ({2})", a["host"], a["port"], _cdn_why(e))]
     return []
 
 
@@ -10785,9 +10816,7 @@ def _cdn_drop(host):
     _cdn_claim(host, who)
     try:
         _cdn_attached(host)
-        st = {"provider": e["provider"], "zone": e["zone"], "zone_id": e.get("zone_id", ""), "host": host,
-              "record_id": e.get("record_id", ""), **({"ssl_ref": _CF_SSL_REF} if e.get("ssl") else {})}
-        prov, why = _cdn_strip_all([("", st)], _CdnJournal())
+        prov, why = _cdn_strip_all([("", _cdn_full(_cdn_host_base(host)), False)], _CdnJournal())
         if why:
             raise Bad("cdn_remove_failed", "پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)
         with _reg_lock:
