@@ -128,6 +128,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         form.Sprot,
         form.pool.pool,
         form.cdnOwner,
+        form.poolCdn,
         aKey,
         bKey,
       ].join('|')
@@ -156,6 +157,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       alive = false
     }
   }, [drawFor])
+
+  const cdnOwners = {}
+  for (const h of ((cdnKeys && cdnKeys.hosts) || []).concat(made)) cdnOwners[h.host] = h.provider
 
   const poolLid = link && link.ws_pool ? link.id : ''
   const peerLid = link && link.ip_rotate ? link.id : ''
@@ -377,6 +381,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
                 poolLive={{ ...poolLive, lid: poolLid }}
                 cdnKeys={cdnKeys}
                 serverIp={serverIp}
+                cdnOwners={cdnOwners}
                 onCdnMade={(rows) => setMade((m) => m.concat(rows))}
                 patch={patch}
               />

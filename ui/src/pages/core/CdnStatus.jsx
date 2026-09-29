@@ -25,7 +25,11 @@ export default function CdnStatus({ link, onReload }) {
   const cdn = link.cdn
   if (!cdn) return null
   const tone = cdn.ok ? 'ok' : cdn.error ? 'bad' : 'wait'
-  const live = cdn.applied && cdn.applied.ip && cdn.applied.ip !== cdn.ip ? cdn.applied.ip : ''
+  const pool = !!cdn.pool
+  const hosts = pool ? cdn.hosts || [] : []
+  const bad = pool ? hosts.find((h) => !h.ok) || {} : cdn
+  const live = bad.applied && bad.applied.ip && bad.applied.ip !== cdn.ip ? bad.applied.ip : ''
+  const names = [...new Set(hosts.map((h) => h.provider))].map(providerName).join(T('px_and'))
 
   const sync = async () => {
     setBusy(true)
@@ -42,18 +46,22 @@ export default function CdnStatus({ link, onReload }) {
         <span className="cdnowni">
           <Icon name={ICON[tone]} />
         </span>
-        <b>{TF('cdn_own_t', { p: providerName(cdn.provider) })}</b>
+        <b>{pool ? TF('cdn_own_pool_t', { p: names }) : TF('cdn_own_t', { p: providerName(cdn.provider) })}</b>
         <span className={'cdnchip ' + CHIP[tone]}>{T('cdn_own_' + tone)}</span>
       </div>
       <div className="cdnownrows">
-        <Row label={T('cdn_own_host')} value={cdn.host} />
+        {pool ? (
+          <span>{TF('cdn_own_pool_n', { ok: hosts.filter((h) => h.ok).length, n: hosts.length })}</span>
+        ) : (
+          <Row label={T('cdn_own_host')} value={cdn.host} />
+        )}
         <Row label={T('cdn_own_ip')} value={cdn.ip} />
         {cdn.port ? <Row label={T('cdn_own_port')} value={cdn.port} /> : null}
       </div>
       {tone === 'bad' ? (
         <>
           <div className="cdnowntx">
-            <div>{translateError(cdn.error)}</div>
+            <div>{pool && bad.host ? TF('cdn_own_pool_bad', { h: bad.host }) + ' ' : ''}{translateError(cdn.error)}</div>
             <div className="muted">{[live ? TF('cdn_own_live', { ip: live }) : '', cdn.code === 'cdn_removed' ? '' : T('cdn_own_auto')].filter(Boolean).join(' ')}</div>
           </div>
           <button type="button" className="ghost tone tone-renew cdnfix" disabled={busy} onClick={sync}>

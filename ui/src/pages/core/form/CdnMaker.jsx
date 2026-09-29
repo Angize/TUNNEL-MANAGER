@@ -3,6 +3,7 @@ import Icon from '../../../components/Icon.jsx'
 import Field from '../../../components/Field.jsx'
 import Select from '../../../components/Select.jsx'
 import Reveal from '../../../components/Reveal.jsx'
+import Stepper from '../../../components/Stepper.jsx'
 import SwapCascade from '../../../components/SwapCascade.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
 import { CdnSteps } from '../../../components/ActionRow.jsx'
@@ -10,7 +11,7 @@ import { apiGet, apiPost } from '../../../lib/api.js'
 import { postError, readError } from '../../../lib/errors.js'
 import { LTR_TEXT } from '../../../lib/form.js'
 import useHeightTween from '../../../lib/useHeightTween.js'
-import { CDN_PROVIDERS, labelError, providerName, splitZoneKey, zoneItems } from '../../../lib/cdn.js'
+import { CDN_PROVIDERS, labelError, labelOf, providerName, splitZoneKey, zoneItems } from '../../../lib/cdn.js'
 import { T, TF } from '../../../i18n/fa.js'
 
 function useZones(keys) {
@@ -73,6 +74,25 @@ function CheckLine({ check, provider }) {
     )
   }
   const { state, host } = check
+  if (state === 'names') {
+    return (
+      <div className="cdncheck ok" role="status">
+        <Icon name="okc" />
+        <span>
+          <b>{T('cdn_is_free')}</b>
+          {TF('cdn_names_free', { n: check.hosts.length })}
+          <Host h={check.zone} />
+          <span className="cdnnames">
+            {check.hosts.map((h) => (
+              <bdi key={h} className="mono cdnname" dir="ltr">
+                {h}
+              </bdi>
+            ))}
+          </span>
+        </span>
+      </div>
+    )
+  }
   if (state === 'tunnel') {
     return (
       <div className="cdncheck bad" role="status">
@@ -130,7 +150,7 @@ function CheckLine({ check, provider }) {
   )
 }
 
-function ReadyList({ ready, picked, onPick }) {
+function ReadyList({ ready, picked, multi, onPick }) {
   if (ready.error) return <WarnCap text={ready.error} />
   if (!ready.rows) {
     return (
@@ -142,19 +162,23 @@ function ReadyList({ ready, picked, onPick }) {
   }
   if (!ready.rows.length) return <div className="cdnempty">{T('cdn_ready_none')}</div>
   return (
-    <div className="cdnreadyl" role="radiogroup" aria-label={T('cdn_ready_lbl')}>
+    <div className="cdnreadyl" role={multi ? 'group' : 'radiogroup'} aria-label={T('cdn_ready_lbl')}>
       {ready.rows.map((r) => {
-        const on = picked === r.host
+        const on = picked.includes(r.host)
         return (
           <button
             key={r.host}
             type="button"
-            role="radio"
+            role={multi ? 'checkbox' : 'radio'}
             aria-checked={on}
             className={'cdnreadyr' + (on ? ' on' : '')}
             onClick={() => onPick(r.host)}
           >
-            <span className={'cdnradio' + (on ? ' on' : '')} />
+            {multi ? (
+              <span className={'cdnbox' + (on ? ' on' : '')}>{on ? <Icon name="check" /> : null}</span>
+            ) : (
+              <span className={'cdnradio' + (on ? ' on' : '')} />
+            )}
             <span className="mono" dir="ltr">
               {r.host}
             </span>
@@ -166,7 +190,7 @@ function ReadyList({ ready, picked, onPick }) {
   )
 }
 
-export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade, onClose }) {
+export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, onMade, onClose }) {
   const zones = useZones(keys)
   const ready = useReady(inUse)
   const items = zoneItems(zones.by, !!form.Ech)
@@ -178,7 +202,8 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
   const [made, setMade] = useState(null)
   const [error, setError] = useState('')
   const [undone, setUndone] = useState([])
-  const [picked, setPicked] = useState('')
+  const [picked, setPicked] = useState([])
+  const [count, setCount] = useState('3')
   const seq = useRef(0)
   const checkBox = useRef(null)
   const newBox = useRef(null)
@@ -188,6 +213,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
   const { provider, zone } = zk ? splitZoneKey(zk) : { provider: 'cf', zone: '' }
   const echBlocked = !!form.Ech && provider !== 'cf'
   const labelErr = label ? labelError(label) : ''
+  const random = !!multi && !label
   const busy = phase === 'checking' || phase === 'making'
   const planned = phase === 'plan' || phase === 'making'
   const checkShown = phase !== 'form' && phase !== 'made'
@@ -207,23 +233,27 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
     const my = ++seq.current
     setPhase('checking')
     setError('')
-    const r = await apiPost('cdn-check', { provider, zone, label, tls: !!form.WsTls, carrier: form.Cdn })
+    const body = random
+      ? { provider, zone, count: Number(count) || 1 }
+      : { provider, zone, label, tls: !!form.WsTls, carrier: form.Cdn }
+    const r = await apiPost('cdn-check', body)
     if (my !== seq.current) return
     if (!(r.ok && r.d.ok)) {
       setError(postError(r))
       setPhase('form')
       return
     }
-    setCheck(r.d)
+    setCheck(random ? { state: 'names', hosts: r.d.hosts || [], zone } : r.d)
     setPhase('plan')
   }
 
   const build = async (replace) => {
+    const labels = check && check.state === 'names' ? check.hosts.map((h) => labelOf(h, zone)) : [label]
     const my = ++seq.current
     setPhase('making')
     setError('')
     setUndone([])
-    const r = await apiPost('cdn-make', { provider, zone, labels: [label], replace, ip: serverIp })
+    const r = await apiPost('cdn-make', { provider, zone, labels, replace, ip: serverIp })
     const rows = r.ok && r.d.ok ? r.d.hosts || [] : []
     if (rows.length) onMade(rows)
     if (my !== seq.current) return
@@ -233,11 +263,22 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
       setPhase('plan')
       return
     }
-    setMade({ ...(rows[0] || { host: label + '.' + zone, provider, zone }), steps: r.d.steps || [] })
+    setMade({ rows, provider, steps: r.d.steps || [] })
     setPhase('made')
   }
 
-  const place = (row, from) => onPlace({ host: row.host, provider: row.provider, zone: row.zone }, from)
+  const place = (rows, from) =>
+    onPlace(
+      rows.map((row) => ({ host: row.host, provider: row.provider, zone: row.zone })),
+      from
+    )
+
+  const pick = (host) => {
+    if (multi) setPicked(picked.includes(host) ? picked.filter((x) => x !== host) : picked.concat(host))
+    else setPicked([host])
+  }
+
+  const placeWord = (n) => (multi ? (n > 1 ? TF('cdn_place_pool_n', { n }) : T('cdn_place_pool')) : T('cdn_place'))
 
   const readyCount = ready.rows ? ready.rows.length : 0
 
@@ -263,17 +304,17 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
         <Reveal show={tab === 'ready'}>
           <div className="cdnmkb" ref={readyBox}>
             <div key={readyKey} className="cdnswap">
-              <ReadyList ready={ready} picked={picked} onPick={setPicked} />
+              <ReadyList ready={ready} picked={picked} multi={multi} onPick={pick} />
             </div>
             {ready.rows && ready.rows.length ? (
               <button
                 type="button"
                 className="primary cdnact"
-                disabled={!picked}
-                onClick={() => place(ready.rows.find((r) => r.host === picked), readyBox.current)}
+                disabled={!picked.length}
+                onClick={() => place(ready.rows.filter((r) => picked.includes(r.host)), readyBox.current)}
               >
                 <Icon name="check" />
-                {T('cdn_place')}
+                {placeWord(picked.length)}
               </button>
             ) : null}
           </div>
@@ -293,14 +334,14 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
                   }}
                 />
               </Field>
-              <Field label={T('cdn_label_lbl')} error={labelErr}>
+              <Field label={T(multi ? 'cdn_label_lbl_multi' : 'cdn_label_lbl')} error={labelErr}>
                 <div className="cdnlabel">
                   <input
                     {...LTR_TEXT}
                     className="mono"
                     value={label}
                     disabled={phase === 'making'}
-                    placeholder={T('cdn_label_ph')}
+                    placeholder={T(multi ? 'cdn_label_ph_multi' : 'cdn_label_ph')}
                     onChange={(e) => {
                       setLabel(e.target.value.toLowerCase().trim())
                       reset()
@@ -312,6 +353,20 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
                 </div>
               </Field>
             </div>
+            <Reveal show={random}>
+              <div className="cdncount">
+                <span>{T('cdn_count_lbl')}</span>
+                <Stepper
+                  value={count}
+                  min={1}
+                  max={8}
+                  onChange={(v) => {
+                    setCount(v)
+                    reset()
+                  }}
+                />
+              </div>
+            </Reveal>
             {echBlocked ? <WarnCap text={T('cdn_ech_cf_only')} /> : null}
             <Reveal show={checkShown}>
               <div ref={checkBox}>
@@ -341,10 +396,14 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
                   <CdnSteps steps={made.steps} />
                   <div className="cdndone">
                     <Icon name="okc" />
-                    <span>
-                      <Host h={made.host} />
-                      {TF('cdn_made', { p: providerName(made.provider) })}
-                    </span>
+                    {made.rows.length > 1 ? (
+                      <span>{TF('cdn_made_n', { n: made.rows.length, p: providerName(made.provider) })}</span>
+                    ) : (
+                      <span>
+                        <Host h={(made.rows[0] || {}).host} />
+                        {TF('cdn_made', { p: providerName(made.provider) })}
+                      </span>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -357,21 +416,21 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
             </Reveal>
             <Reveal show={!(phase === 'plan' && check && check.state === 'tunnel')}>
               {phase === 'made' && made ? (
-                <button key="place" type="button" className="primary cdnact" onClick={() => place(made, newBox.current)}>
+                <button key="place" type="button" className="primary cdnact" onClick={() => place(made.rows, newBox.current)}>
                   <Icon name="check" />
-                  {T('cdn_place')}
+                  {placeWord(made.rows.length)}
                 </button>
               ) : planned && check && check.state === 'ready' ? (
                 <button
                   key="take"
                   type="button"
                   className="primary cdnact"
-                  onClick={() => place({ host: check.host, provider, zone }, newBox.current)}
+                  onClick={() => place([{ host: check.host, provider, zone }], newBox.current)}
                 >
                   <Icon name="check" />
-                  {T('cdn_place')}
+                  {placeWord(1)}
                 </button>
-              ) : planned && check && check.state === 'free' ? (
+              ) : planned && check && (check.state === 'free' || check.state === 'names') ? (
                 <button
                   key="make"
                   type="button"
@@ -380,7 +439,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
                   onClick={() => build(false)}
                 >
                   <Icon name="plus" />
-                  {T('cdn_make')}
+                  {check.state === 'names' ? TF('cdn_make_n', { n: check.hosts.length }) : T('cdn_make')}
                 </button>
               ) : planned && check && check.state === 'manual' ? (
                 <button
@@ -398,7 +457,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
                   key="check"
                   type="button"
                   className="ghost tone cdnact"
-                  disabled={busy || !zone || !label || !!labelErr || echBlocked}
+                  disabled={busy || !zone || (!label && !multi) || !!labelErr || echBlocked}
                   onClick={runCheck}
                 >
                   <Icon name="search" />

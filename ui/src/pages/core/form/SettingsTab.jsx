@@ -30,6 +30,7 @@ export default function SettingsTab({
   poolLive,
   cdnKeys,
   serverIp,
+  cdnOwners,
   onCdnMade,
   patch,
 }) {
@@ -103,6 +104,7 @@ export default function SettingsTab({
         live={poolLive}
         cdnKeys={cdnKeys}
         serverIp={serverIp}
+        cdnOwners={cdnOwners}
         onCdnMade={onCdnMade}
         patch={patch}
       />

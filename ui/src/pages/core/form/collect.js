@@ -1,5 +1,5 @@
 import { T } from '../../../i18n/fa.js'
-import { cdnAuto, edgePort, labelOf } from '../../../lib/cdn.js'
+import { cdnSingle, edgePort, labelOf } from '../../../lib/cdn.js'
 import {
   bandOn,
   cdnShapeApplies,
@@ -176,7 +176,7 @@ export function collectCarrier(form, cfg, body) {
     if (form.pool.pool) {
       const poolError = poolCollect(form, body)
       if (poolError) return poolError
-    } else if (cdnAuto(form)) {
+    } else if (cdnSingle(form)) {
       body.ws_pool = false
       body.ws_host = ''
       body.edge_ip = form.cdnEdgeAuto ? '' : form.wsEdge.trim()
@@ -196,7 +196,7 @@ export function collectCarrier(form, cfg, body) {
 }
 
 export function cdnCollect(form, link, body) {
-  if (!cdnAuto(form)) {
+  if (!cdnSingle(form)) {
     if (link && link.cdn) body.cdn = null
     return ''
   }

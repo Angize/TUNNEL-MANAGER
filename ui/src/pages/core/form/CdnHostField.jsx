@@ -7,7 +7,7 @@ import { WarnCap } from './controls.jsx'
 import CdnMaker from './CdnMaker.jsx'
 import { gsap, reducedMotion } from '../../../lib/motion.js'
 import { LTR_TEXT } from '../../../lib/form.js'
-import { cdnAuto, edgeFits, edgePort, hasCdnKey, providerName } from '../../../lib/cdn.js'
+import { cdnSingle, edgeFits, edgePort, hasCdnKey, providerName } from '../../../lib/cdn.js'
 import { T, TF } from '../../../i18n/fa.js'
 
 let flyRect = null
@@ -106,7 +106,7 @@ function EdgePick({ form, patch, edges, managed }) {
 
 export default function CdnHostField({ form, keys, serverIp, patch, onMade }) {
   const [open, setOpen] = useState(false)
-  const managed = cdnAuto(form)
+  const managed = cdnSingle(form)
   const canMake = hasCdnKey(keys)
 
   return (
@@ -154,7 +154,7 @@ export default function CdnHostField({ form, keys, serverIp, patch, onMade }) {
           inUse={form.wsHost ? [form.wsHost] : []}
           onMade={onMade}
           onClose={() => setOpen(false)}
-          onPlace={(row, from) => {
+          onPlace={([row], from) => {
             flyFrom(from)
             patch({ wsHost: row.host, cdnOwner: row.provider, cdnZone: row.zone })
             setOpen(false)

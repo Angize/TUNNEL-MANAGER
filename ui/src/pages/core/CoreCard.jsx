@@ -205,8 +205,9 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
     const yes = T(force ? 'del_force_yes' : 'confirm_del')
     const body = force ? { id: link.id, force: true } : { id: link.id }
     if (link.cdn) {
-      const vars = { h: link.cdn.host, p: providerName(link.cdn.provider) }
-      const tail = link.cdn.provider === 'ar' ? '_ar' : ''
+      const pool = !!link.cdn.pool
+      const vars = pool ? { n: (link.cdn.hosts || []).length } : { h: link.cdn.host, p: providerName(link.cdn.provider) }
+      const tail = pool ? '_pool' : link.cdn.provider === 'ar' ? '_ar' : ''
       const got = await confirmToggle((on) => ask + '\n' + TF((on ? 'cdn_del_keep' : 'cdn_del_drop') + tail, vars), yes, {
         on: false,
         title: T('cdn_keep_t'),

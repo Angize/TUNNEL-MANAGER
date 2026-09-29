@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Field from '../../../components/Field.jsx'
 import Icon from '../../../components/Icon.jsx'
 import Select from '../../../components/Select.jsx'
@@ -19,7 +19,10 @@ import { poolValid } from './validate.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { toast } from '../../../lib/toast.js'
 import { T, TF } from '../../../i18n/fa.js'
-import { tlsEdges } from '../../../lib/cdn.js'
+import { edgePort, hasCdnKey, providerName, tlsEdges } from '../../../lib/cdn.js'
+import { WarnCap } from './controls.jsx'
+import Reveal from '../../../components/Reveal.jsx'
+import CdnMaker from './CdnMaker.jsx'
 import { LTR_TEXT } from '../../../lib/form.js'
 
 const KINDS = [
@@ -27,7 +30,7 @@ const KINDS = [
   { kind: 'sni', label: () => T('pool_sni_lbl'), placeholder: 'cdn.example.com' },
 ]
 
-function EdgeRow({ value, kind, health, active, lid, pending, status, fresh, onRetest, onSelect, onDelete }) {
+function EdgeRow({ value, kind, owner, health, active, lid, pending, status, fresh, onRetest, onSelect, onDelete }) {
   const tone = healthTone(health, active, EDGE_TITLES)
   const burned = isBurned(health)
   const isTarget = pending && pending.kind === kind && pending.key === value
@@ -40,6 +43,7 @@ function EdgeRow({ value, kind, health, active, lid, pending, status, fresh, onR
       <span className="eip" title={value}>
         {value}
       </span>
+      {owner ? <span className="cdnownchip">{TF('cdn_placed_by', { p: providerName(owner) })}</span> : null}
       {burned ? (
         <span className="ert">
           <Countdown health={health} now={status.now} polledMs={status.polledMs} />
@@ -75,15 +79,24 @@ function EdgeRow({ value, kind, health, active, lid, pending, status, fresh, onR
   )
 }
 
-export default function WsPool({ form, enums, lid, live, edges, patch }) {
+export default function WsPool({ form, enums, lid, live, edges, keys, owners, serverIp, onCdnMade, patch }) {
   const [open, setOpen] = useState({ ip: false, sni: false })
   const [draft, setDraft] = useState({ ip: '', sni: '' })
   const [fresh, setFresh] = useState('')
+  const [making, setMaking] = useState(false)
   const pool = form.pool
   const status = live.status
   useSecondTick(true)
   const items = poolRotateItems()
-  const cleanLeft = tlsEdges(edges).filter((v) => !pool.ip.includes(v))
+  const ownedBy = (p) => pool.sni.some((h) => (owners || {})[h] === p)
+  const cfOwned = ownedBy('cf')
+  const anyOwned = pool.sni.some((h) => !!(owners || {})[h])
+
+  useEffect(() => {
+    if (!!form.poolCdn !== anyOwned) patch({ poolCdn: anyOwned })
+  }, [anyOwned, form.poolCdn, patch])
+  const cleanLeft = tlsEdges(edges).filter((v) => !pool.ip.includes(v) && (!cfOwned || edgePort(v) === 443))
+  const off443 = cfOwned && pool.ip.some((v) => edgePort(v) !== 443)
 
   const setPool = (next) => patch({ pool: { ...pool, ...next } })
 
@@ -100,6 +113,15 @@ export default function WsPool({ form, enums, lid, live, edges, patch }) {
     setPool({ [kind]: pool[kind].concat([value]) })
     setFresh(kind + ':' + value)
     setOpen({ ...open, [kind]: true })
+  }
+
+  const addHosts = (rows) => {
+    const hosts = rows.map((r) => r.host).filter((h) => !pool.sni.includes(h))
+    setMaking(false)
+    if (!hosts.length) return
+    setPool({ sni: pool.sni.concat(hosts) })
+    setFresh('sni:' + hosts[hosts.length - 1])
+    setOpen({ ...open, sni: true })
   }
 
   const remove = (kind, value) => {
@@ -146,6 +168,7 @@ export default function WsPool({ form, enums, lid, live, edges, patch }) {
                     key={value}
                     value={value}
                     kind={kind}
+                    owner={kind === 'sni' ? (owners || {})[value] : ''}
                     health={status.live[kind + ':' + value]}
                     active={status.act[kind] === value}
                     lid={lid}
@@ -161,12 +184,12 @@ export default function WsPool({ form, enums, lid, live, edges, patch }) {
                 <div className="pempty">{T('pool_empty')}</div>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
               <input
                 className="mono"
                 {...LTR_TEXT}
                 aria-label={label()}
-                style={{ flex: 1, textAlign: 'left' }}
+                style={{ flex: '1 1 160px', minWidth: 0, textAlign: 'left' }}
                 placeholder={placeholder}
                 value={draft[kind]}
                 onChange={(e) => setDraft({ ...draft, [kind]: e.target.value })}
@@ -174,7 +197,32 @@ export default function WsPool({ form, enums, lid, live, edges, patch }) {
               <button type="button" className="padd" onClick={() => add(kind)}>
                 +
               </button>
+              {kind === 'sni' && hasCdnKey(keys) ? (
+                <button
+                  type="button"
+                  className={'ghost tone tone-renew cdnmake' + (making ? ' on' : '')}
+                  aria-expanded={making}
+                  onClick={() => setMaking(!making)}
+                >
+                  <Icon name="globe" />
+                  {T('cdn_make_open')}
+                </button>
+              ) : null}
             </div>
+            {kind === 'sni' ? (
+              <Reveal show={making}>
+                <CdnMaker
+                  form={form}
+                  keys={keys}
+                  serverIp={serverIp}
+                  inUse={pool.sni}
+                  multi
+                  onMade={onCdnMade}
+                  onClose={() => setMaking(false)}
+                  onPlace={addHosts}
+                />
+              </Reveal>
+            ) : null}
             {kind === 'ip' && cleanLeft.length ? (
               <div className="cdnpoolpick">
                 <Select
@@ -188,6 +236,8 @@ export default function WsPool({ form, enums, lid, live, edges, patch }) {
           </Accordion>
         )
       })}
+      {cfOwned && off443 ? <WarnCap tone="gold" text={T('cdn_pool_443')} /> : null}
+      {form.Ech && ownedBy('ar') ? <WarnCap text={T('cdn_pool_ech_ar')} /> : null}
       <Field label={T('rot_int_lbl')}>
         <Select
           items={items}
