@@ -563,6 +563,7 @@
 }
 
 .cdnedgenone {
+  contain: inline-size;
   padding: 12px 14px;
   font-size: 12px;
   line-height: 1.9;
