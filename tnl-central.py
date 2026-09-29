@@ -10167,17 +10167,22 @@ def _cdn_first(h, name, st, extra, jr, i, n):
 
 
 @contextlib.contextmanager
-def _cdn_hold(want, lid, jr, on):
-    if not on:
+def _cdn_hold(want, lid, jr, early):
+    if not want:
         yield
         return
-    with _cdn_lock(want["provider"], want["zone"]):
-        _cdn_claim(want["host"], lid)
-        try:
-            with _cdn_undo_on_fail(want["provider"], jr):
+    _cdn_claim(want["host"], lid)
+    try:
+        name = _cdn_host_user(want["host"], lid)
+        if name:
+            raise _cdn_taken(want["host"], name)
+        if early:
+            with _cdn_lock(want["provider"], want["zone"]), _cdn_undo_on_fail(want["provider"], jr):
                 yield
-        finally:
-            _cdn_unclaim(want["host"], lid)
+        else:
+            yield
+    finally:
+        _cdn_unclaim(want["host"], lid)
 
 
 def _cdn_strip_record(cred, st, jr):
@@ -10764,21 +10769,22 @@ def api_cdn_make(d):
     return {"ok": True, "hosts": [{"host": h, "provider": prov, "zone": e["zone"]} for h, e in out.items()], "steps": jr.items}
 
 
-def _cdn_drop(host):
+def _cdn_attached(host):
     state, name = _cdn_host_state(host)
-    e = _M.cdn_hosts.get(host)
-    if not e:
-        raise Bad("cdn_host_unknown", "«{0}» در فهرستِ زیردامنه‌های پنل نیست", "'{0}' is not among the panel's subdomains", host)
     if state == "tunnel":
         raise Bad("cdn_host_attached", "«{0}» را تونلِ «{1}» استفاده می‌کند — اول آن تونل را حذف کن یا زیردامنه‌اش را عوض کن",
                   "'{0}' is used by tunnel '{1}' — delete that tunnel or change its subdomain first", host, name)
+
+
+def _cdn_drop(host):
+    e = _M.cdn_hosts.get(host)
+    if not e:
+        raise Bad("cdn_host_unknown", "«{0}» در فهرستِ زیردامنه‌های پنل نیست", "'{0}' is not among the panel's subdomains", host)
+    _cdn_attached(host)
     who = "~drop:" + host
     _cdn_claim(host, who)
     try:
-        state, name = _cdn_host_state(host)
-        if state == "tunnel":
-            raise Bad("cdn_host_attached", "«{0}» را تونلِ «{1}» استفاده می‌کند — اول آن تونل را حذف کن یا زیردامنه‌اش را عوض کن",
-                      "'{0}' is used by tunnel '{1}' — delete that tunnel or change its subdomain first", host, name)
+        _cdn_attached(host)
         st = {"provider": e["provider"], "zone": e["zone"], "zone_id": e.get("zone_id", ""), "host": host,
               "record_id": e.get("record_id", ""), **({"ssl_ref": _CF_SSL_REF} if e.get("ssl") else {})}
         prov, why = _cdn_strip_all([("", st)], _CdnJournal())
