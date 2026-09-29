@@ -35,6 +35,7 @@ export function createForm(cfg) {
     SniSplit: false,
     SniMode: 'split',
     Cdn: 'ws',
+    PortRoll: false,
     Fec: false,
     FecData: 16,
     FecParity: 4,
@@ -107,6 +108,7 @@ export function editForm(cfg, link) {
       link.sni_mode === 'disorder' || link.sni_mode === 'fake' ? link.sni_mode : 'split',
     Cdn:
       link.cdn_carrier === 'http' || link.cdn_carrier === 'grpc' ? link.cdn_carrier : 'ws',
+    PortRoll: !!link.ws_port_roll,
     Fec: !!link.fec,
     FecData: link.fec_data || 16,
     FecParity: link.fec_parity || 4,
@@ -156,7 +158,6 @@ export function editForm(cfg, link) {
     pool: {
       pool: !!link.ws_pool,
       rotate: link.ws_rotate_secs != null ? link.ws_rotate_secs : 600,
-      portRoll: !!link.ws_port_roll,
       ip: (link.ws_edge_ips || []).slice(),
       sni: (link.ws_edge_snis || []).map((s) => (s && s.host) || '').filter(Boolean),
       paths: Object.fromEntries(

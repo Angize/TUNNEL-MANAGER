@@ -14,7 +14,7 @@ import WsSection from './WsSection.jsx'
 import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
-import { coverOk, wkCarrier, wsPoolOn } from './gates.js'
+import { coverOk, wkCarrier } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
 import { NO_AUTOFIX, rangeLabel } from '../../../lib/form.js'
@@ -81,12 +81,12 @@ export default function SettingsTab({
 
       <Reveal show={form.Tr !== 'raw'}>
         <>
-          <Reveal show={wsPoolOn(form)}>
+          <Reveal show={form.Tr === 'ws'}>
             <SwitchRow
-              on={!!form.pool.portRoll}
-              title={T('pool_roll_t')}
-              note={T('pool_roll_d')}
-              onToggle={() => patch({ pool: { ...form.pool, portRoll: !form.pool.portRoll } })}
+              on={form.PortRoll}
+              title={T('ws_roll_t')}
+              note={T('ws_roll_d')}
+              onToggle={() => patch({ PortRoll: !form.PortRoll })}
             />
           </Reveal>
           <PortTriesSection form={form} cfg={cfg} patch={patch} />
