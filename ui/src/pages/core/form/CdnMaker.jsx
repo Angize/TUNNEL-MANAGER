@@ -14,7 +14,7 @@ import { T, TF } from '../../../i18n/fa.js'
 
 function useZones(keys) {
   const [by, setBy] = useState({})
-  const [error, setError] = useState('')
+  const [errs, setErrs] = useState({})
   const wanted = CDN_PROVIDERS.filter((p) => keys && keys[p] && keys[p].set)
   const sig = wanted.join(',')
 
@@ -23,14 +23,18 @@ function useZones(keys) {
     for (const p of sig ? sig.split(',') : []) {
       apiGet('cdn-zones?provider=' + p)
         .then((r) => alive && setBy((x) => ({ ...x, [p]: r.zones || [] })))
-        .catch((e) => alive && setError(TF('cdn_zones_failed', { p: providerName(p), e: readError(e) })))
+        .catch((e) => alive && setErrs((x) => ({ ...x, [p]: TF('cdn_zones_failed', { p: providerName(p), e: readError(e) }) })))
     }
     return () => {
       alive = false
     }
   }, [sig])
 
-  return { by, error, loading: wanted.some((p) => !by[p]) && !error }
+  return {
+    by,
+    error: wanted.map((p) => errs[p]).filter(Boolean).join(' '),
+    loading: wanted.some((p) => !by[p] && !errs[p]),
+  }
 }
 
 function useReady(inUse) {
@@ -177,7 +181,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
   const seq = useRef(0)
   const newBox = useRef(null)
   const readyBox = useRef(null)
-  const first = items.find((it) => !form.Ech || splitZoneKey(it.v).provider === 'cf')
+  const first = zones.loading ? null : items.find((it) => !form.Ech || splitZoneKey(it.v).provider === 'cf')
   const zk = key || (first ? first.v : '')
   const { provider, zone } = zk ? splitZoneKey(zk) : { provider: 'cf', zone: '' }
   const echBlocked = !!form.Ech && provider !== 'cf'
