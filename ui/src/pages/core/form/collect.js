@@ -42,7 +42,6 @@ function poolCollect(form, body) {
   body.ws_edge_ips = pool.ip
   body.ws_edge_snis = pool.sni.map((host) => (pool.paths[host] ? { host, path: pool.paths[host] } : host))
   body.ws_rotate_secs = pool.rotate
-  body.ws_port_roll = !!pool.portRoll
   return ''
 }
 
@@ -145,6 +144,7 @@ export function collectCarrier(form, cfg, body) {
   if (form.Tr === 'ws') {
     body.ws_path = form.wsPath.trim()
     body.ws_tls = form.WsTls
+    body.ws_port_roll = form.PortRoll
     body.ech = form.Ech
     body.ech_proxy = form.Ech && form.EchProxy
     if (form.Ech && form.EchProxy) body.ech_proxy_id = form.echProxyId
