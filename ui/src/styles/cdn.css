@@ -229,13 +229,6 @@
   color: var(--ok-tx);
 }
 
-.cdnsteps li small {
-  margin-inline-start: auto;
-  flex: none;
-  font-size: 10.5px;
-  color: var(--gold-tx);
-}
-
 .cdnown {
   margin-top: 8px;
   border-radius: 11px;
@@ -413,16 +406,8 @@
   color: var(--sub);
 }
 
-.cdnsteps li.undo {
-  color: var(--gold-tx);
-}
-
 .cdnsteps li.info {
   color: var(--sub);
-}
-
-.arow + .cdnsteps {
-  margin-top: 8px;
 }
 
 @media (max-width: 520px) {

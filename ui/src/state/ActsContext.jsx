@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../lib/api.js'
 import { postError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
@@ -27,6 +27,7 @@ const ACCEPT_TIMEOUT_MS = 45000
 const ACCEPT_POLL_MS = 280
 const DONE_TIMEOUT_MS = 600000
 const DONE_POLL_MS = 900
+const RUN_POLL_MS = 600
 
 function actsState(r) {
   for (const act of Object.values(r.acts)) {
@@ -66,6 +67,23 @@ export function ActsProvider({ children }) {
     }
     apply(r)
   }, [apply])
+
+  const running = useMemo(() => Object.values(state.acts).some((act) => act.state === 'run'), [state.acts])
+
+  useEffect(() => {
+    if (!running) return undefined
+    let alive = true
+    const loop = async () => {
+      while (alive) {
+        await new Promise((done) => setTimeout(done, RUN_POLL_MS))
+        if (alive && !document.hidden) await refresh()
+      }
+    }
+    loop()
+    return () => {
+      alive = false
+    }
+  }, [running, refresh])
 
   const isLive = useCallback(
     (act) => !!act && !dismissed.current[actSeen(act)],

@@ -334,7 +334,7 @@ export const DOCS = {
   },
   'node-del': {
     t: 'Delete a node',
-    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The CDN records and rules of its tunnels are removed first, then the node is cleaned; if either fails, nothing is deleted (a CDN failure answers offer=cdn_skip). cdn lists the CDN steps.",
+    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The CDN records and rules of its tunnels are removed first, then the node is cleaned; if either fails, nothing is deleted (a CDN failure answers offer=cdn_skip, and its error names what was undone). On success cdn lists what was done in the CDN.",
     p: [
       ['id', 1, S, 'node id'],
       ['force', 0, B, 'if the panel has confirmed the node is down, delete it from the panel without cleaning the node'],
@@ -451,7 +451,7 @@ export const DOCS = {
   'delete-link': {
     t: 'Delete a tunnel',
     act: true,
-    d: 'Deletes the tunnel from both ends and from the panel. If one end is down the job ends with offer=force and nothing is deleted; then send it again with force=true. A tunnel the panel set up in a CDN is removed from the CDN first (record, then its rule); if that fails nothing is deleted and the job ends with offer=cdn_skip.',
+    d: 'Deletes the tunnel from both ends and from the panel. If one end is down the job ends with offer=force and nothing is deleted; then send it again with force=true. A tunnel the panel set up in a CDN is removed from the CDN first (record, then its rule); if that fails nothing is deleted and the job ends with offer=cdn_skip, its error naming what was undone.',
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
@@ -689,7 +689,7 @@ export const DOCS = {
   },
   'cdn-make': {
     t: 'Make CDN subdomains',
-    d: 'Makes the subdomains now, before any tunnel: a proxied A record to ip for each label (ArvanCloud: port 80 until a tunnel sets its own) and, on Cloudflare in the host SSL mode, the hosts in the tnl_ssl Configuration Rule. Any failure undoes everything this call made. A name the zone already has records for is refused (cdn_record_exists) unless replace is true, which deletes those records first and works for one label only. Answers hosts and steps; on failure ok is false with code, error and the undone steps.',
+    d: 'Makes the subdomains now, before any tunnel: a proxied A record to ip for each label (ArvanCloud: port 80 until a tunnel sets its own) and, on Cloudflare in the host SSL mode, the hosts in the tnl_ssl Configuration Rule. Any failure undoes everything this call made. A name the zone already has records for is refused (cdn_record_exists) unless replace is true, which deletes those records first and works for one label only. Answers hosts and steps (what was done); on failure ok is false with code and error, and the error names what was undone.',
     p: [
       CDN_PROVIDER,
       ['zone', 1, S, 'domain'],
@@ -789,7 +789,7 @@ export const DOCS = {
 
   acts: {
     t: 'Background jobs',
-    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; a failed job has code (400, or 500 for a fault in the panel), error and message. A create job also has name (the name of the new tunnel, once its id is picked) and link (the id of the new tunnel, once it is saved).',
+    d: 'The state of tunnel create, edit, rebuild, restart and delete jobs: state is one of run, done, fail or cancel; while it runs, step names what it is doing now, down to each CDN call, and si of sn is its place among the steps; a failed job has code (400, or 500 for a fault in the panel), error and message. A create job also has name (the name of the new tunnel, once its id is picked) and link (the id of the new tunnel, once it is saved).',
   },
   'act-cancel': {
     t: 'Cancel a background job',
