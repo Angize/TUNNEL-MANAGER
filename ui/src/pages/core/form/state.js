@@ -1,7 +1,6 @@
 import { num } from '../../../lib/num.js'
 import { subnetBaseOf } from '../../../lib/subnet.js'
 import { endIp, seedIp } from '../../../lib/nodes.js'
-import { labelOf } from '../../../lib/cdn.js'
 import { wkClamp } from './gates.js'
 import { CDN_FIELD_NAMES, cdnShape } from './presets.js'
 
@@ -64,14 +63,9 @@ export function createForm(cfg) {
     coverSni: '',
     port: '',
     portAuto: false,
-    cdnMode: 'manual',
+    cdnOwner: '',
     cdnZone: '',
-    cdnZoneOk: true,
-    cdnLabel: '',
-    cdnReplace: null,
-    cdnShare: false,
     cdnEdgeAuto: true,
-    cdnKeep: false,
     range: '192.168',
     subnet: '',
     cdn: cdnInitial(cfg.enums, null),
@@ -133,21 +127,16 @@ export function editForm(cfg, link) {
     dsCount: String(link.fake_count || 2),
     splitPos: String(link.split_pos || 0),
     splitTtl: String(link.split_ttl || 0),
-    wsHost: link.ws_host || '',
+    wsHost: (link.cdn && link.cdn.host) || link.ws_host || '',
     wsEdge: link.edge_ip || '',
     wsPath: link.ws_path || '',
     echProxyId: link.ech_proxy_id || '',
     coverSni: link.cover_sni || '',
     port: textOf(link.port),
     portAuto: false,
-    cdnMode: link.cdn ? link.cdn.provider : 'manual',
+    cdnOwner: link.cdn ? link.cdn.provider : '',
     cdnZone: link.cdn ? link.cdn.zone : '',
-    cdnZoneOk: true,
-    cdnLabel: link.cdn ? labelOf(link.cdn.host, link.cdn.zone) : '',
-    cdnReplace: link.cdn && link.cdn.replace ? true : null,
-    cdnShare: !!(link.cdn && link.cdn.share),
     cdnEdgeAuto: !link.cdn || !link.edge_ip || link.edge_ip === link.cdn.host,
-    cdnKeep: true,
     range: subnetBaseOf(link),
     subnet: link.subnet || '',
     cdn: cdnInitial(cfg.enums, link),

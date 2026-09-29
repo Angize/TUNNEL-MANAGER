@@ -8,7 +8,7 @@ import normalise from './normalise.js'
 import usePeerStatus from './usePeerStatus.js'
 import usePoolStatus from './usePoolStatus.js'
 import { cdnCollect, collectCarrier, rotCollect, rotValidate } from './collect.js'
-import { useCdnPlan } from './CdnAuto.jsx'
+import CdnLeftAsk from './CdnLeftAsk.jsx'
 import { createForm, editForm, nodeCpus, pickedIp } from './state.js'
 import { portErr } from './validate.js'
 import { apiGet, apiPost } from '../../../lib/api.js'
@@ -16,7 +16,7 @@ import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps, nodeItemsForEdit, nodeLabel } from '../../../lib/nodes.js'
-import { CDN_PROVIDERS, cdnAuto } from '../../../lib/cdn.js'
+import { cdnAuto } from '../../../lib/cdn.js'
 import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
@@ -41,6 +41,8 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const [tab, setTab] = useState('ip')
   const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
+  const [made, setMade] = useState([])
+  const [ask, setAsk] = useState(false)
   const mounted = useRef(true)
   const closeRef = useRef(onClose)
 
@@ -97,7 +99,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     const next = createForm(cfg)
     next.aNode = online[0].id
     next.bNode = online[1].id
-    next.cdnMode = CDN_PROVIDERS.find((p) => cdnKeys[p] && cdnKeys[p].set) || 'manual'
     setForm(next)
   }, [nodes, cdnKeys, form, link, cfg])
 
@@ -126,7 +127,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         form.SportRandom,
         form.Sprot,
         form.pool.pool,
-        form.cdnMode,
+        form.cdnOwner,
         aKey,
         bKey,
       ].join('|')
@@ -160,7 +161,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const peerLid = link && link.ip_rotate ? link.id : ''
   const poolLive = usePoolStatus(poolLid, !!(form && form.pool.pool))
   const peerLive = usePeerStatus(peerLid)
-  const cdnPlan = useCdnPlan(form, link)
 
   if (!form) {
     return modalLoading({
@@ -236,7 +236,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
 
-    const cdnError = cdnCollect(form, link, cdnPlan, body)
+    const cdnError = cdnCollect(form, link, body)
     if (cdnError) {
       await stop(cdnError, 'set')
       return
@@ -313,8 +313,14 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
     setMessage('')
+    setMade([])
     if (await markSaved(T(link ? 'saved_ok' : 'created_ok'))) onClose()
     onDone()
+  }
+
+  const tryClose = () => {
+    if (made.length) setAsk(true)
+    else onClose()
   }
 
   const footer = (
@@ -324,7 +330,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
           {T(link ? 'save_rebuild' : 'create_tun_btn')}
         </SaveLabel>
       </button>
-      <button className="ghost" onClick={onClose}>
+      <button className="ghost" onClick={tryClose}>
         {T('cancel')}
       </button>
     </>
@@ -337,8 +343,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       subtitle={link ? link.name : T('core_tun_sub')}
       footer={footer}
       cls="edit"
-      onClose={onClose}
+      onClose={tryClose}
     >
+      {ask ? <CdnLeftAsk hosts={made} onBack={() => setAsk(false)} onClosed={onClose} /> : null}
       <FormTabs
         tab={tab}
         onTab={setTab}
@@ -370,7 +377,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
                 poolLive={{ ...poolLive, lid: poolLid }}
                 cdnKeys={cdnKeys}
                 serverIp={serverIp}
-                cdnPlan={cdnPlan}
+                onCdnMade={(rows) => setMade((m) => m.concat(rows))}
                 patch={patch}
               />
             </SwapCascade>
