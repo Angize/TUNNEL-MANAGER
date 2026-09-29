@@ -49,7 +49,6 @@ export default function CdnStatus({ link, onReload }) {
         <Row label={T('cdn_own_host')} value={cdn.host} />
         <Row label={T('cdn_own_ip')} value={cdn.ip} />
         {cdn.port ? <Row label={T('cdn_own_port')} value={cdn.port} /> : null}
-        {cdn.share ? <span>{T('cdn_own_shared')}</span> : null}
       </div>
       {tone === 'bad' ? (
         <>

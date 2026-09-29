@@ -196,135 +196,6 @@
   border-color: var(--bad);
 }
 
-.cdnhost {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin: 10px 0;
-  padding: 9px 12px;
-  border-radius: 11px;
-  background: var(--card);
-  border: 1px solid var(--edge);
-  box-shadow: var(--dsh);
-  font-size: 11px;
-}
-
-.cdnhost .cpv {
-  font-size: 12.5px;
-  direction: ltr;
-  overflow-wrap: anywhere;
-}
-
-.cdnplan {
-  margin-top: 12px;
-  border-radius: 14px;
-  border: 1px solid var(--edge);
-  background: var(--card);
-  box-shadow: var(--dsh);
-  overflow: hidden;
-}
-
-.cdnph {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 12px;
-  font-size: 12px;
-  border-bottom: 1px solid var(--bord);
-}
-
-.cdnph .ic {
-  width: 14px;
-  height: 14px;
-  color: var(--acc-tx);
-}
-
-.cdnstep {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-  padding: 10px 12px;
-}
-
-.cdnstep + .cdnstep {
-  border-top: 1px solid var(--bord);
-}
-
-.cdnic {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--field);
-  color: var(--sub);
-}
-
-.cdnic .ic {
-  width: 13px;
-  height: 13px;
-}
-
-.cdnstep.ok .cdnic {
-  background: var(--okw);
-  color: var(--ok-tx);
-}
-
-.cdnstep.new .cdnic {
-  background: var(--accw);
-  color: var(--acc-tx);
-}
-
-.cdnstep.warn .cdnic {
-  background: var(--goldw);
-  color: var(--gold-tx);
-}
-
-.cdnstep.bad .cdnic {
-  background: var(--badw);
-  color: var(--bad-tx);
-}
-
-.cdntx {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.cdnsth {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.cdnsth > b {
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-
-.cdntx > small {
-  font-size: 11px;
-  line-height: 1.75;
-  color: var(--sub);
-}
-
-.cdntx .mono {
-  font-size: 11.5px;
-}
-
-.cdnstep .seg2 {
-  margin-top: 8px;
-}
-
 .cdnsteps {
   list-style: none;
   display: grid;
@@ -468,21 +339,6 @@
   vertical-align: bottom;
 }
 
-.cdnmap {
-  display: block;
-  direction: ltr;
-  text-align: left;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.6;
-  padding: 5px 9px;
-  border-radius: 8px;
-  background: var(--field);
-  border: 1px solid var(--bord);
-  overflow-wrap: anywhere;
-}
-
 .apcard.cdnprov .oprow {
   flex-wrap: wrap;
 }
@@ -548,43 +404,6 @@
   cursor: not-allowed;
 }
 
-.cdnlock {
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--sub);
-  margin-top: 8px;
-}
-
-.cdnports {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.cdnport {
-  height: 30px;
-  padding: 0 11px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.cdnport small {
-  font-weight: 500;
-  color: var(--sub);
-}
-
-.cdnport.on {
-  background: var(--accw);
-  color: var(--acc-tx);
-  border-color: color-mix(in srgb, var(--acc) 30%, transparent);
-}
-
 .cdnown.wait {
   border-color: var(--bord);
   background: var(--field);
@@ -606,19 +425,6 @@
   margin-top: 8px;
 }
 
-.cdnplan .warncap {
-  margin: 0;
-}
-
-.cdnwait {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  font-size: 11.5px;
-  color: var(--sub);
-}
-
 @media (max-width: 520px) {
   .cdngrid {
     grid-template-columns: 1fr;
@@ -634,5 +440,596 @@
 
   .apcard.cdnprov .aptok {
     flex-basis: 100%;
+  }
+}
+
+.cdnsni {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.cdnsni input {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: left;
+}
+
+.ghost.cdnmake {
+  flex: none;
+  margin: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cdnmake .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.ghost.tone.cdnmake.on {
+  background: color-mix(in srgb, var(--c) 18%, var(--card));
+}
+
+.cdnplaced {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 13px;
+  background: var(--card);
+  box-shadow: var(--dsh);
+}
+
+.cdnpbadge {
+  --pc: var(--acc-tx);
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--pc);
+  background: color-mix(in srgb, var(--pc) 13%, transparent);
+}
+
+.cdnpbadge.cf {
+  --pc: var(--h-orange);
+}
+
+.cdnpbadge .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.cdnphost {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.cdnpclear {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--sub);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color .15s var(--ease-out), color .15s var(--ease-out), transform .12s var(--ease-out);
+}
+
+.cdnpclear .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.cdnpclear:active {
+  transform: scale(.94);
+}
+
+.cdnpclear:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cdnpclear:hover {
+    background: var(--ctl);
+    color: var(--tx);
+  }
+}
+
+.cdnpnote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 7px 4px 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--sub);
+}
+
+.cdnpok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ok-tx);
+  font-weight: 700;
+}
+
+.cdnpok .ic {
+  width: 12px;
+  height: 12px;
+}
+
+.cdnpdot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .5;
+}
+
+.card.cdnmk {
+  padding: 12px;
+  margin: 10px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--acc) 30%, transparent);
+}
+
+.cdnmk .seg2 {
+  margin: 0;
+}
+
+.cdnmkh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cdnmkh > .ic {
+  width: 16px;
+  height: 16px;
+  color: var(--acc-tx);
+}
+
+.ghost.cdnx {
+  flex: none;
+  margin: 0;
+  margin-inline-start: auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
+.cdnx .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.cdnmkb {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cdngrid.cdnmkgrid {
+  margin-top: 0;
+}
+
+.cdnmkgrid .fld label {
+  margin-top: 0;
+}
+
+.cdnmk .warncap {
+  margin: 0;
+}
+
+.cdnmk .cdnsteps {
+  margin-top: 0;
+}
+
+.cdncheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.9;
+  border: 1px solid transparent;
+  overflow-wrap: anywhere;
+}
+
+.cdncheck > .ic,
+.cdncheck > .bspin {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 4px;
+}
+
+.cdncheck b {
+  font-weight: 800;
+}
+
+.cdncheck.wait {
+  align-items: center;
+  background: var(--ctl);
+  color: var(--sub);
+}
+
+.cdncheck.wait > .bspin {
+  margin-top: 0;
+}
+
+.cdncheck.ok {
+  background: var(--okw);
+  border-color: color-mix(in srgb, var(--ok) 26%, transparent);
+  color: var(--ok-tx);
+}
+
+.cdncheck.warn {
+  background: var(--goldw);
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  color: var(--gold-tx);
+}
+
+.cdncheck.bad {
+  background: var(--badw);
+  border-color: color-mix(in srgb, var(--bad) 28%, transparent);
+  color: var(--bad-tx);
+}
+
+.cdnhostv {
+  font-size: .95em;
+  font-weight: 700;
+  unicode-bidi: isolate;
+}
+
+.cdnrec {
+  display: inline-block;
+  margin-inline-start: 6px;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  unicode-bidi: isolate;
+}
+
+.cdnempty {
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--sub);
+  padding: 2px;
+}
+
+.cdnreadyl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cdnreadyr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--bord);
+  background: transparent;
+  color: var(--tx);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color .15s var(--ease-out), border-color .15s var(--ease-out), transform .12s var(--ease-out);
+}
+
+.cdnreadyr .mono {
+  flex: 1 1 150px;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.cdnreadyr.on,
+.cdnreadyr:focus-visible {
+  border-color: var(--acc);
+  background: var(--accw);
+  outline: none;
+}
+
+.cdnreadyr:active {
+  transform: scale(.99);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cdnreadyr:not(.on):hover {
+    background: var(--ctl);
+  }
+}
+
+.cdnradio {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--edge);
+  display: grid;
+  place-items: center;
+  transition: border-color .15s var(--ease-out);
+}
+
+.cdnradio::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+  transform: scale(0);
+  transition: transform .15s var(--ease-out);
+}
+
+.cdnradio.on {
+  border-color: var(--acc);
+}
+
+.cdnradio.on::after {
+  transform: scale(1);
+}
+
+.cdnmeta {
+  font-size: 10.5px;
+  color: var(--sub);
+  white-space: nowrap;
+}
+
+.cdnact {
+  margin: 0;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.ghost.cdnact {
+  margin-inline-start: 0;
+}
+
+.cdnact .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.cdnact:disabled {
+  opacity: .45;
+  pointer-events: none;
+}
+
+.cdndone {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--ok-tx);
+  overflow-wrap: anywhere;
+}
+
+.cdndone .ic {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 3px;
+}
+
+.modal.cdnask {
+  width: 100%;
+  max-width: 420px;
+}
+
+.cdnaskt {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.cdnasks {
+  display: block;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--sub);
+}
+
+.cdnaskl {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.cdnaskl li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--ctl);
+  font-size: 12.5px;
+}
+
+.cdnaskl .mono {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.cdnaskl small {
+  font-size: 10.5px;
+  color: var(--sub);
+}
+
+.cdnaskn {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--sub);
+}
+
+.cdnask .warncap {
+  margin: 10px 0 0;
+}
+
+.cdnaskb {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cdnaskb button {
+  margin: 0;
+  width: 100%;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.cdnaskb .ghost {
+  margin-inline-start: 0;
+}
+
+.cdnaskb .primary.danger {
+  background: linear-gradient(180deg, var(--bad-fill), color-mix(in srgb, var(--bad-fill) 86%, #000));
+  color: #fff;
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
+}
+
+.cdnaskb .ic,
+.cdnaskb .bspin {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.cdnaskb .cdnback {
+  grid-column: 1 / -1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--sub);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color .15s var(--ease-out), color .15s var(--ease-out);
+}
+
+.cdnaskb .cdnback:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cdnaskb .cdnback:hover {
+    background: var(--ctl);
+    color: var(--tx);
+  }
+}
+
+.cdnhosts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cdnhosts .sgt.cdnhostsi {
+  --scbg: var(--goldw);
+  --sc: var(--gold-tx);
+}
+
+.cdnhostl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.cdnhostl .erow {
+  flex-wrap: nowrap;
+}
+
+.cdnhostc {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cdnhostc .eip {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cdnhostm {
+  font-size: 10.5px;
+  color: var(--sub);
+}
+
+@media (max-width: 520px) {
+  .cdnsni {
+    flex-wrap: wrap;
+  }
+
+  .ghost.cdnmake {
+    flex: 1 1 100%;
   }
 }
