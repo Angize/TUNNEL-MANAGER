@@ -30,7 +30,7 @@ export default function SettingsTab({
   poolLive,
   cdnKeys,
   serverIp,
-  cdnPlan,
+  onCdnMade,
   patch,
 }) {
   const ciphers = cipherItems(cfg.enums, form.Tr)
@@ -102,9 +102,8 @@ export default function SettingsTab({
         lid={poolLive.lid}
         live={poolLive}
         cdnKeys={cdnKeys}
-        cdnManaged={!!(link && link.cdn)}
         serverIp={serverIp}
-        cdnPlan={cdnPlan}
+        onCdnMade={onCdnMade}
         patch={patch}
       />
 

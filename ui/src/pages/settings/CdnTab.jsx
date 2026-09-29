@@ -14,6 +14,7 @@ import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { CDN_PROVIDERS, providerName } from '../../lib/cdn.js'
 import { T, TF } from '../../i18n/fa.js'
+import CdnHosts from './CdnHosts.jsx'
 
 const ICON = { cf: 'globe', ar: 'shield' }
 
@@ -65,7 +66,7 @@ function TestResult({ provider, result }) {
   )
 }
 
-function ProviderCard({ provider, status, proxies, onStatus }) {
+function ProviderCard({ provider, status, made, proxies, onStatus }) {
   const [phase, setPhase] = useState(status.set ? 'view' : 'edit')
   const [draft, setDraft] = useState('')
   const [result, setResult] = useState(null)
@@ -162,7 +163,7 @@ function ProviderCard({ provider, status, proxies, onStatus }) {
             type="button"
             className="ghost opfit cdnclear"
             onClick={clear}
-            disabled={busy || status.used > 0}
+            disabled={busy || status.used > 0 || made > 0}
             title={T('cdn_clear')}
             aria-label={T('cdn_clear')}
           >
@@ -171,6 +172,8 @@ function ProviderCard({ provider, status, proxies, onStatus }) {
         </div>
         {status.used > 0 ? (
           <div className="cdnused">{TF('cdn_used', { n: status.used })}</div>
+        ) : made > 0 ? (
+          <div className="cdnused">{TF('cdn_used_hosts', { n: made })}</div>
         ) : null}
       </Reveal>
 
@@ -236,6 +239,11 @@ export default function CdnTab() {
 
   useRiseIn(box, !!cdn)
 
+  const reload = () =>
+    apiGet('cdn')
+      .then((r) => setCdn(r.cdn))
+      .catch((e) => toast(readError(e), 'err'))
+
   useEffect(() => {
     let alive = true
     apiGet('cdn', setProgress)
@@ -258,11 +266,13 @@ export default function CdnTab() {
               key={p}
               provider={p}
               status={cdn[p] || {}}
+              made={(cdn.hosts || []).filter((h) => h.provider === p && !h.link).length}
               proxies={proxies}
               onStatus={setCdn}
             />
           ))
         : null}
+      {cdn ? <CdnHosts hosts={cdn.hosts} onStatus={reload} /> : null}
       {cdn ? (
         <div className="stnote cdnkeynote">
           <Icon name="lock" />

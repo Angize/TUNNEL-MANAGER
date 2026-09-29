@@ -6,8 +6,6 @@ const LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
 
 const CF_PLAN = { free: 'Free', pro: 'Pro', business: 'Business', enterprise: 'Enterprise' }
 
-const SSL_WORD = { off: 'Off', flexible: 'Flexible', full: 'Full', strict: 'Full (strict)', origin_pull: 'Strict (origin pull)' }
-
 export function providerName(provider) {
   return T('cdn_p_' + provider)
 }
@@ -17,10 +15,6 @@ export function labelError(label) {
   if (label.includes('.')) return T('cdn_label_dot')
   if (!LABEL_RE.test(label)) return T('cdn_label_bad')
   return ''
-}
-
-export function hostOf(label, zone) {
-  return (label || '…') + '.' + (zone || '…')
 }
 
 export function labelOf(host, zone) {
@@ -33,10 +27,6 @@ export function planWord(provider, plan) {
   return plan == null || plan === '' ? '' : TF('cdn_ar_level', { n: plan })
 }
 
-export function sslWord(ssl) {
-  return SSL_WORD[ssl] || String(ssl || '')
-}
-
 function zoneState(zone) {
   if (zone.ok) return T('cdn_zone_on')
   const why = zone.why || ''
@@ -44,58 +34,42 @@ function zoneState(zone) {
   return T(key) === key ? why : T(key)
 }
 
-export function zoneItems(provider, zones) {
-  return (zones || []).map((z) => ({
-    v: z.name,
-    label: z.name,
-    sub: [planWord(provider, z.plan), zoneState(z)].filter(Boolean).join(' · '),
-  }))
+export function zoneKey(provider, zone) {
+  return provider + ':' + zone
 }
 
-export function cdnLocked(form) {
-  return !!(form.pool.pool || (form.Ech && form.cdnMode === 'ar'))
+export function splitZoneKey(key) {
+  const at = key.indexOf(':')
+  return { provider: key.slice(0, at), zone: key.slice(at + 1) }
+}
+
+export function zoneItems(zonesBy, echOn) {
+  const out = []
+  for (const provider of CDN_PROVIDERS) {
+    for (const z of zonesBy[provider] || []) {
+      const blocked = echOn && provider !== 'cf'
+      out.push({
+        v: zoneKey(provider, z.name),
+        label: z.name,
+        sub: [providerName(provider), planWord(provider, z.plan), blocked ? T('cdn_zone_no_ech') : zoneState(z)]
+          .filter(Boolean)
+          .join(' · '),
+      })
+    }
+  }
+  return out
 }
 
 export function cdnAuto(form) {
-  return !!form && form.Tr === 'ws' && form.cdnMode !== 'manual' && !cdnLocked(form)
+  return !!form && form.Tr === 'ws' && !form.pool.pool && !!form.cdnOwner
 }
 
-export function cdnReady(form) {
-  return cdnAuto(form) && !!form.cdnZone && form.cdnZoneOk && !labelError(form.cdnLabel)
+export function hasCdnKey(keys) {
+  return CDN_PROVIDERS.some((p) => keys && keys[p] && keys[p].set)
 }
 
 export function edgePort(edge) {
   const colon = edge.lastIndexOf(':')
   const port = colon >= 0 ? edge.slice(colon + 1) : ''
   return /^\d+$/.test(port) ? +port : 0
-}
-
-export function autoOf(form) {
-  return {
-    provider: form.cdnMode,
-    zone: form.cdnZone,
-    label: form.cdnLabel,
-    replace: form.cdnReplace === true,
-    share: form.cdnMode === 'cf' && !!form.cdnShare,
-  }
-}
-
-export function autoOfLink(cdn) {
-  return {
-    provider: cdn.provider,
-    zone: cdn.zone,
-    label: labelOf(cdn.host, cdn.zone),
-    replace: !!cdn.replace,
-    share: !!cdn.share,
-  }
-}
-
-export function sameAuto(a, b) {
-  return (
-    a.provider === b.provider &&
-    a.zone === b.zone &&
-    a.label === b.label &&
-    a.replace === b.replace &&
-    a.share === b.share
-  )
 }
