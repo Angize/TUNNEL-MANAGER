@@ -73,7 +73,7 @@ function CdnShape(props) {
   )
 }
 
-function Ws({ form, cfg, sides, lid, live, cdnKeys, serverIp, onCdnMade, patch }) {
+function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMade, patch }) {
   const current = wsProfOf(form.Cdn)
 
   return (
@@ -102,6 +102,10 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, serverIp, onCdnMade, patch }
         <Reveal show={form.pool.pool}>
           <WsPool
             edges={cdnKeys && cdnKeys.edges}
+            keys={cdnKeys}
+            owners={cdnOwners}
+            serverIp={serverIp}
+            onCdnMade={onCdnMade}
             form={form}
             enums={cfg.enums}
             lid={lid}

@@ -60,8 +60,12 @@ export function zoneItems(zonesBy, echOn) {
   return out
 }
 
-export function cdnAuto(form) {
+export function cdnSingle(form) {
   return !!form && form.Tr === 'ws' && !form.pool.pool && !!form.cdnOwner
+}
+
+export function cdnAuto(form) {
+  return cdnSingle(form) || (!!form && form.Tr === 'ws' && !!form.pool.pool && !!form.poolCdn)
 }
 
 export function hasCdnKey(keys) {
