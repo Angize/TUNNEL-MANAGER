@@ -672,7 +672,7 @@ export const DOCS = {
   },
   'cdn-zones': {
     t: 'CDN domains',
-    d: "The account's domains with their plan (Cloudflare: free, pro, business, enterprise; ArvanCloud: a plan level), ok, and why when a domain cannot be used (paused, pending, initializing, moved or an ArvanCloud restriction).",
+    d: "The account's domains with their plan (Cloudflare: free, pro, business, enterprise; ArvanCloud: a plan level), ok, and why when a domain cannot be used (paused, pending, initializing, moved or an ArvanCloud restriction). An ArvanCloud domain restricted as \"unfair\" is usable (ok true, why \"unfair\"): it passes traffic and the usage is billed from the wallet.",
     p: [CDN_PROVIDER],
   },
   'cdn-check': {

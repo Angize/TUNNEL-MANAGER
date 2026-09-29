@@ -28,8 +28,8 @@ export function planWord(provider, plan) {
 }
 
 function zoneState(zone) {
-  if (zone.ok) return T('cdn_zone_on')
   const why = zone.why || ''
+  if (zone.ok && !why) return T('cdn_zone_on')
   const key = 'cdn_zone_' + why
   return T(key) === key ? why : T(key)
 }
