@@ -10808,22 +10808,28 @@ def _cdn_attached(host):
                   "'{0}' is used by tunnel '{1}' — delete that tunnel or change its subdomain first", host, name)
 
 
+def _cdn_unknown(host):
+    return Bad("cdn_host_unknown", "«{0}» در فهرستِ زیردامنه‌های پنل نیست", "'{0}' is not among the panel's subdomains", host)
+
+
 def _cdn_drop(host):
     e = _M.cdn_hosts.get(host)
     if not e:
-        raise Bad("cdn_host_unknown", "«{0}» در فهرستِ زیردامنه‌های پنل نیست", "'{0}' is not among the panel's subdomains", host)
+        raise _cdn_unknown(host)
     _cdn_attached(host)
     who = "~drop:" + host
     _cdn_claim(host, who)
     try:
-        _cdn_attached(host)
-        prov, why = _cdn_strip_all([("", _cdn_full(_cdn_host_base(host)), False)], _CdnJournal())
-        if why:
-            raise Bad("cdn_remove_failed", "پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)
-        with _reg_lock:
-            if not (_M.cdn_hosts.get(host) or {}).get("link"):
-                with store_tx() as t:
-                    t.cdn_host(host, None)
+        with _cdn_lock(e["provider"], e["zone"]):
+            st = _cdn_host_base(host)
+            if not st:
+                raise _cdn_unknown(host)
+            _cdn_attached(host)
+            prov, why = _cdn_strip_all([("", _cdn_full(st), False)], _CdnJournal())
+            if why:
+                raise Bad("cdn_remove_failed", "پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)
+            with _reg_lock, store_tx() as t:
+                t.cdn_host(host, None)
     finally:
         _cdn_unclaim(host, who)
 
