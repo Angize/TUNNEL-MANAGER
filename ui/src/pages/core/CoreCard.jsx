@@ -204,7 +204,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
     const ask = T(force ? 'del_force_ask' : 'del_tun_confirm')
     const yes = T(force ? 'del_force_yes' : 'confirm_del')
     const body = force ? { id: link.id, force: true } : { id: link.id }
-    if (link.cdn && link.cdn.applied) {
+    if (link.cdn) {
       const vars = { h: link.cdn.host, p: providerName(link.cdn.provider) }
       const got = await confirmToggle((on) => ask + '\n' + TF(on ? 'cdn_del_keep' : 'cdn_del_drop', vars), yes, {
         on: false,
@@ -222,7 +222,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
     }
     setMessage(null)
     onReload()
-    if (!(link.cdn && link.cdn.applied) || body.cdn_keep) return
+    if (!link.cdn || body.cdn_keep) return
     const verdict = await waitDone(r.d.act)
     if (verdict.offer === 'cdn_skip') await skipCdn(verdict.err, force)
   }
