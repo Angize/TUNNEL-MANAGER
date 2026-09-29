@@ -9,6 +9,7 @@ import { CdnSteps } from '../../../components/ActionRow.jsx'
 import { apiGet, apiPost } from '../../../lib/api.js'
 import { postError, readError } from '../../../lib/errors.js'
 import { LTR_TEXT } from '../../../lib/form.js'
+import useHeightTween from '../../../lib/useHeightTween.js'
 import { CDN_PROVIDERS, labelError, providerName, splitZoneKey, zoneItems } from '../../../lib/cdn.js'
 import { T, TF } from '../../../i18n/fa.js'
 
@@ -179,6 +180,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
   const [undone, setUndone] = useState([])
   const [picked, setPicked] = useState('')
   const seq = useRef(0)
+  const checkBox = useRef(null)
   const newBox = useRef(null)
   const readyBox = useRef(null)
   const first = zones.loading ? null : items.find((it) => !form.Ech || splitZoneKey(it.v).provider === 'cf')
@@ -187,6 +189,11 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
   const echBlocked = !!form.Ech && provider !== 'cf'
   const labelErr = label ? labelError(label) : ''
   const busy = phase === 'checking' || phase === 'making'
+  const planned = phase === 'plan' || phase === 'making'
+  const checkShown = phase !== 'form' && phase !== 'made'
+  const readyKey = ready.error ? 'err' : ready.rows ? 'rows' : 'wait'
+  useHeightTween(checkBox, phase === 'checking' ? phase : check, checkShown)
+  useHeightTween(readyBox, readyKey, tab === 'ready')
 
   const reset = () => {
     seq.current++
@@ -255,7 +262,9 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
       <SwapCascade value={tab}>
         <Reveal show={tab === 'ready'}>
           <div className="cdnmkb" ref={readyBox}>
-            <ReadyList ready={ready} picked={picked} onPick={setPicked} />
+            <div key={readyKey} className="cdnswap">
+              <ReadyList ready={ready} picked={picked} onPick={setPicked} />
+            </div>
             {ready.rows && ready.rows.length ? (
               <button
                 type="button"
@@ -304,24 +313,28 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
               </Field>
             </div>
             {echBlocked ? <WarnCap text={T('cdn_ech_cf_only')} /> : null}
-            <Reveal show={phase !== 'form' && phase !== 'made'}>
-              {phase === 'checking' ? (
-                <CheckLine check="checking" provider={provider} />
-              ) : check ? (
-                <div className="cdnmkb">
-                  <CheckLine check={check} provider={provider} />
-                  {(check.notes || []).map((n) => (
-                    <WarnCap key={n.code} tone="gold" text={n.t} />
-                  ))}
+            <Reveal show={checkShown}>
+              <div ref={checkBox}>
+                <div key={phase === 'checking' ? 'wait' : 'plan'} className="cdnmkb cdnswap">
+                  {phase === 'checking' ? (
+                    <CheckLine check="checking" provider={provider} />
+                  ) : check ? (
+                    <>
+                      <CheckLine check={check} provider={provider} />
+                      {(check.notes || []).map((n) => (
+                        <WarnCap key={n.code} tone="gold" text={n.t} />
+                      ))}
+                    </>
+                  ) : null}
                 </div>
-              ) : null}
+              </div>
             </Reveal>
-            {phase === 'making' ? (
+            <Reveal show={phase === 'making'}>
               <div className="cdncheck wait" role="status">
                 <span className="bspin ink sm" />
                 <span>{TF('cdn_making', { p: providerName(provider) })}</span>
               </div>
-            ) : null}
+            </Reveal>
             <Reveal show={phase === 'made'}>
               {made ? (
                 <div className="cdnmkb">
@@ -336,46 +349,66 @@ export default function CdnMaker({ form, keys, serverIp, inUse, onPlace, onMade,
                 </div>
               ) : null}
             </Reveal>
-            <CdnSteps steps={undone} />
-            {error ? <WarnCap text={error} /> : null}
-            {phase === 'made' && made ? (
-              <button type="button" className="primary cdnact" onClick={() => place(made, newBox.current)}>
-                <Icon name="check" />
-                {T('cdn_place')}
-              </button>
-            ) : phase === 'plan' && check && check.state === 'ready' ? (
-              <button
-                type="button"
-                className="primary cdnact"
-                onClick={() => place({ host: check.host, provider, zone }, newBox.current)}
-              >
-                <Icon name="check" />
-                {T('cdn_place')}
-              </button>
-            ) : phase === 'plan' && check && check.state === 'free' ? (
-              <button type="button" className="primary cdnact" disabled={!serverIp} onClick={() => build(false)}>
-                <Icon name="plus" />
-                {T('cdn_make')}
-              </button>
-            ) : phase === 'plan' && check && check.state === 'manual' ? (
-              <button type="button" className="primary danger cdnact" disabled={!serverIp} onClick={() => build(true)}>
-                <Icon name="redo" />
-                {T('cdn_make_replace')}
-              </button>
-            ) : phase === 'plan' ? null : (
-              <button
-                type="button"
-                className="ghost tone cdnact"
-                disabled={busy || !zone || !label || !!labelErr || echBlocked}
-                onClick={runCheck}
-              >
-                <Icon name="search" />
-                {T('cdn_check_btn')}
-              </button>
-            )}
-            {phase === 'plan' && !serverIp && check && check.state !== 'ready' && check.state !== 'tunnel' ? (
+            <Reveal show={undone.length > 0}>
+              <CdnSteps steps={undone} />
+            </Reveal>
+            <Reveal show={!!error}>
+              <WarnCap text={error} />
+            </Reveal>
+            <Reveal show={!(phase === 'plan' && check && check.state === 'tunnel')}>
+              {phase === 'made' && made ? (
+                <button key="place" type="button" className="primary cdnact" onClick={() => place(made, newBox.current)}>
+                  <Icon name="check" />
+                  {T('cdn_place')}
+                </button>
+              ) : planned && check && check.state === 'ready' ? (
+                <button
+                  key="take"
+                  type="button"
+                  className="primary cdnact"
+                  onClick={() => place({ host: check.host, provider, zone }, newBox.current)}
+                >
+                  <Icon name="check" />
+                  {T('cdn_place')}
+                </button>
+              ) : planned && check && check.state === 'free' ? (
+                <button
+                  key="make"
+                  type="button"
+                  className="primary cdnact"
+                  disabled={!serverIp || busy}
+                  onClick={() => build(false)}
+                >
+                  <Icon name="plus" />
+                  {T('cdn_make')}
+                </button>
+              ) : planned && check && check.state === 'manual' ? (
+                <button
+                  key="replace"
+                  type="button"
+                  className="primary danger cdnact"
+                  disabled={!serverIp || busy}
+                  onClick={() => build(true)}
+                >
+                  <Icon name="redo" />
+                  {T('cdn_make_replace')}
+                </button>
+              ) : planned ? null : (
+                <button
+                  key="check"
+                  type="button"
+                  className="ghost tone cdnact"
+                  disabled={busy || !zone || !label || !!labelErr || echBlocked}
+                  onClick={runCheck}
+                >
+                  <Icon name="search" />
+                  {T('cdn_check_btn')}
+                </button>
+              )}
+            </Reveal>
+            <Reveal show={!!(phase === 'plan' && !serverIp && check && check.state !== 'ready' && check.state !== 'tunnel')}>
               <div className="cdnempty">{T('cdn_need_server')}</div>
-            ) : null}
+            </Reveal>
           </div>
         </Reveal>
       </SwapCascade>
