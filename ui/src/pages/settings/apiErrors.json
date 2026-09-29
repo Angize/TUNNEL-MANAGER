@@ -150,12 +150,22 @@
   ]
  },
  "cdn": {},
- "cdn-plan": {
+ "cdn-check": {
   "bad": [
    [
     400,
     "bad_cdn",
     "the CDN setup is invalid"
+   ],
+   [
+    400,
+    "bad_cdn_carrier",
+    "invalid CDN carrier"
+   ],
+   [
+    400,
+    "bad_cdn_count",
+    "the number of names must be from 1 to …"
    ],
    [
     400,
@@ -194,6 +204,11 @@
    ],
    [
     400,
+    "cdn_no_free_names",
+    "could not find … free names in '…' — try again"
+   ],
+   [
+    400,
     "cdn_no_key",
     "there is no … key in the panel — add it under Settings › CDN"
    ],
@@ -224,6 +239,79 @@
    ]
   ]
  },
+ "cdn-drop": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_hosts",
+    "give 1 to … subdomains"
+   ]
+  ]
+ },
+ "cdn-make": {
+  "bad": [
+   [
+    400,
+    "bad_cdn",
+    "the CDN setup is invalid"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the full name is longer than 253 characters"
+   ],
+   [
+    400,
+    "bad_cdn_label",
+    "the subdomain takes only lowercase letters, digits and hyphens and cannot start or end with a hyphen"
+   ],
+   [
+    400,
+    "bad_cdn_labels",
+    "a subdomain is given twice"
+   ],
+   [
+    400,
+    "bad_cdn_labels",
+    "give 1 to … subdomains"
+   ],
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "bad_cdn_zone",
+    "invalid CDN domain"
+   ],
+   [
+    400,
+    "cdn_label_dot",
+    "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_private_ip",
+    "the server IP (…) is not public and the CDN cannot reach it — pick a public IPv4"
+   ],
+   [
+    400,
+    "cdn_replace_one",
+    "delete and replace works on one subdomain only"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
+   ]
+  ]
+ },
  "cdn-set": {
   "bad": [
    [
@@ -240,6 +328,11 @@
     400,
     "bad_cdn_ssl_mode",
     "the SSL mode is for Cloudflare only and must be host (the subdomain only) or zone (the whole zone)"
+   ],
+   [
+    400,
+    "cdn_key_hosts",
+    "… panel-made subdomains are still in … — drop them under the subdomains without a tunnel first"
    ],
    [
     400,
@@ -732,6 +825,11 @@
    ],
    [
     400,
+    "cdn_host_unknown",
+    "the panel did not make this subdomain — make it under 'make in CDN' or pick a ready one"
+   ],
+   [
+    400,
     "cdn_label_dot",
     "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
    ],
@@ -767,13 +865,13 @@
    ],
    [
     400,
-    "cdn_record_exists",
-    "'…' already has a record (…) — choose to replace it or pick another name"
+    "cdn_record_extra",
+    "besides the panel's record '…' has another record (…) — delete it so the traffic is not split between two servers"
    ],
    [
     400,
     "cdn_rules_full",
-    "there is no room for another Origin Rule on '…' — … of … rules of the plan are used; delete one or share the port rule"
+    "there is no room for another Origin Rule on '…' — … of … rules of the plan are used; delete one or use a port the panel already has a rule for"
    ],
    [
     400,
@@ -1118,8 +1216,33 @@
   "act": [
    [
     400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
     "cdn_remove_failed",
     "removing from … did not finish: …"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
    ],
    [
     400,
@@ -1135,6 +1258,11 @@
     400,
     "node_offline",
     "node '…' is unreachable — the link was left untouched; delete again when the node is back, or use force"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
    ],
    [
     400,
@@ -1453,6 +1581,11 @@
    ],
    [
     400,
+    "cdn_host_unknown",
+    "the panel did not make this subdomain — make it under 'make in CDN' or pick a ready one"
+   ],
+   [
+    400,
     "cdn_label_dot",
     "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
    ],
@@ -1488,13 +1621,13 @@
    ],
    [
     400,
-    "cdn_record_exists",
-    "'…' already has a record (…) — choose to replace it or pick another name"
+    "cdn_record_extra",
+    "besides the panel's record '…' has another record (…) — delete it so the traffic is not split between two servers"
    ],
    [
     400,
     "cdn_rules_full",
-    "there is no room for another Origin Rule on '…' — … of … rules of the plan are used; delete one or share the port rule"
+    "there is no room for another Origin Rule on '…' — … of … rules of the plan are used; delete one or use a port the panel already has a rule for"
    ],
    [
     400,
