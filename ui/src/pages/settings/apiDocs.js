@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, and every CDN route (cdn, cdn-set, cdn-test, cdn-zones, cdn-plan and cdn-sync).',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, and every CDN route (cdn, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-make, cdn-drop and cdn-sync).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -97,7 +97,7 @@ export const GROUPS = [
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
   ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
-  ['cdn', 'CDN automation', ['cdn', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-plan', 'cdn-sync']],
+  ['cdn', 'CDN automation', ['cdn', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-make', 'cdn-drop', 'cdn-sync']],
   [
     'updates',
     'Agent and core',
@@ -186,7 +186,7 @@ const TUNNEL_FIELDS = [
 ]
 
 const CDN_PARAM =
-  'build the CDN side too — {"provider": "cf" or "ar", "zone", "label", "replace", "share"}; ws transport only, not with ws_pool; ech only with Cloudflare (the panel makes the record first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. replace=true takes over a record of that name that points somewhere else; share=true (cf only) joins one Origin Rule per port. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
+  'use a subdomain the panel made with cdn-make — {"provider": "cf" or "ar", "zone", "label"}; the host label.zone must be in the panel\'s list (cdn_host_unknown otherwise) and not used by another tunnel. ws transport only, not with ws_pool; ech only with Cloudflare (the panel sets the record up first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. On save it points the record at the server (ArvanCloud: with the tunnel port) and puts the host in the Origin Rule of the tunnel port, one rule per port. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
 
 const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 
@@ -421,8 +421,7 @@ export const DOCS = {
       ['subnet', 0, S, 'new subnet'],
       ['port', 0, N, 'new port; not sent = keep the current one, empty = automatic'],
       ...TUNNEL_FIELDS,
-      ['cdn', 0, O, CDN_PARAM + ' Not sent = keep what the tunnel has; null = stop managing it (the panel removes its record and rule after the edit succeeds).'],
-      ['cdn_keep', 0, B, 'with cdn null: keep the DNS record and the Origin Rule in the CDN and only forget them in the panel (default false = remove them)'],
+      ['cdn', 0, O, CDN_PARAM + ' Not sent = keep what the tunnel has; null = stop using it. A host the edit leaves (null or another label) is detached: it leaves the Origin Rule of its port, keeps its record and SSL, and is ready for another tunnel.'],
     ],
   },
   'rebuild-link': {
@@ -454,7 +453,7 @@ export const DOCS = {
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
-      ['cdn_keep', 0, B, 'keep the DNS record and the Origin Rule the panel made in the CDN (default false = remove them)'],
+      ['cdn_keep', 0, B, 'detach instead of remove: the host leaves the Origin Rule of its port, keeps its record and SSL, and is ready for another tunnel (default false = remove the record, the rule host and the SSL host, and forget the subdomain)'],
       ['cdn_skip', 0, B, 'after a failed CDN removal (offer=cdn_skip): delete the tunnel only and leave the record and rule in the CDN (logged as cdn-left)'],
     ],
   },
@@ -651,11 +650,11 @@ export const DOCS = {
 
   cdn: {
     t: 'CDN keys',
-    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the tunnel id or empty when ready, name = the tunnel name), newest first. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
   },
   'cdn-set': {
     t: 'Save a CDN key',
-    d: 'Saves the key, the route or both for one provider and returns the same shape as cdn. A key that tunnels still use cannot be cleared.',
+    d: 'Saves the key, the route or both for one provider and returns the same shape as cdn. A key that tunnels or panel-made subdomains still use cannot be cleared.',
     p: [
       CDN_PROVIDER,
       ['key', 0, S, 'Cloudflare API token (Bearer) or ArvanCloud API key; empty = keep the saved one'],
@@ -674,19 +673,33 @@ export const DOCS = {
     d: "The account's domains with their plan (Cloudflare: free, pro, business, enterprise; ArvanCloud: a plan level), ok, and why when a domain cannot be used (paused, pending, initializing, moved or an ArvanCloud restriction).",
     p: [CDN_PROVIDER],
   },
-  'cdn-plan': {
-    t: 'Preview a CDN build',
-    d: 'Reads what the build would change and writes nothing: whether the record exists and where it points (record.mine, record.others); on Cloudflare the SSL handling in ssl_mode (with host mode and tls: ssl_rule = whether this host is already in the tnl_ssl Configuration Rule, the other rules in that phase and the cap), the zone SSL mode and Automatic SSL, the Origin Rules (count = rules taking a slot besides the one this tunnel would reuse, cap, mine, manual, shared ports, the port it would join), WebSockets and whether HTTP goes to HTTPS (Cloudflare has no API for gRPC, so it is not reported); on ArvanCloud HTTPS, the certificate, gRPC and the DDoS mode (null when the panel could not read it).',
+  'cdn-check': {
+    t: 'Check a CDN subdomain',
+    d: 'For one label: state is free, manual (the zone already has records of that name, listed in records), tunnel (a tunnel uses it; tunnel = its name) or ready (the panel made it and no tunnel uses it). For free, ready and manual, notes lists what the zone would change or break for this carrier and TLS (code and a Persian text: https_redirect, ssl_zone, ws_off, grpc_manual on Cloudflare; https_redirect, ddos, grpc_off, cert on ArvanCloud). With count instead of label it returns that many free random names (5 characters) in hosts. Writes nothing.',
     p: [
       CDN_PROVIDER,
       ['zone', 1, S, 'domain'],
-      ['label', 1, S, 'one label; the host is label.zone'],
-      ['carrier', 1, S, 'ws, http or grpc'],
-      ['tls', 1, B, 'wss (TLS up to the CDN edge)'],
-      ['id', 0, S, 'tunnel id when editing, so its own record and rule count as mine'],
-      ['share', 0, B, 'cf only: one shared Origin Rule per port'],
-      ['port', 0, N, 'cf with share: the port the tunnel would use'],
+      ['label', 0, S, 'one label; the host is label.zone'],
+      ['count', 0, N, 'instead of label: 1 to 8 free random names'],
+      ['tls', 0, B, 'wss (TLS up to the CDN edge), for the notes'],
+      ['carrier', 0, S, 'ws, http or grpc, for the notes'],
     ],
+  },
+  'cdn-make': {
+    t: 'Make CDN subdomains',
+    d: 'Makes the subdomains now, before any tunnel: a proxied A record to ip for each label (ArvanCloud: port 80 until a tunnel sets its own) and, on Cloudflare in the host SSL mode, the hosts in the tnl_ssl Configuration Rule. Any failure undoes everything this call made. A name the zone already has records for is refused (cdn_record_exists) unless replace is true, which deletes those records first and works for one label only. Answers hosts and steps; on failure ok is false with code, error and the undone steps.',
+    p: [
+      CDN_PROVIDER,
+      ['zone', 1, S, 'domain'],
+      ['labels', 1, L, '1 to 8 labels'],
+      ['ip', 1, S, 'public IPv4 of the server the records point at'],
+      ['replace', 0, B, 'delete the records the name already has (one label only)'],
+    ],
+  },
+  'cdn-drop': {
+    t: 'Delete CDN subdomains',
+    d: 'Deletes panel-made subdomains no tunnel uses: the record, the host in tnl_ssl and the entry in the list. Each host is done on its own; dropped lists the deleted ones and failed the others with their error (cdn_host_attached names the tunnel that uses it).',
+    p: [['hosts', 1, L, '1 to 64 full host names']],
   },
   'cdn-sync': {
     t: 'Retry the CDN side',
