@@ -9632,12 +9632,17 @@ def _cf_zone_row(z):
             "ns": [str(x) for x in z.get("name_servers") or []]}
 
 
+AR_BILLED = "unfair"
+
+
 def _ar_zone_row(z):
     status = str(z.get("status") or "")
     held = [str(x) for x in z.get("restriction") or []]
+    stop = [x for x in held if x != AR_BILLED]
     return {"id": str(z.get("id") or ""), "name": str(z.get("name") or "").lower(),
             "plan": str(z.get("plan_level") if z.get("plan_level") is not None else ""),
-            "ok": status == "active" and not held, "why": held[0] if held else ("" if status == "active" else status)}
+            "ok": status == "active" and not stop,
+            "why": stop[0] if stop else (status if status != "active" else (AR_BILLED if held else ""))}
 
 
 def _cdn_pages(cred, path):

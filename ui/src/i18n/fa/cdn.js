@@ -56,7 +56,7 @@ export default {
   cdn_zone_initializing: 'در حالِ راه‌اندازی',
   cdn_zone_moved: 'منتقل‌شده',
   cdn_zone_suspended: 'معلق',
-  cdn_zone_unfair: 'محدود برای مصرفِ نامتعارف',
+  cdn_zone_unfair: 'فعال · هزینه از کیف پول کم می‌شود',
   cdn_zone_charged: 'نیاز به شارژِ حساب',
   cdn_ar_level: 'پلنِ سطحِ {n}',
 
