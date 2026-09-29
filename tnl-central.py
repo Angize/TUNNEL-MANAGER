@@ -6768,7 +6768,7 @@ def _delete_link_impl(d, h):
                             "msg": tx("پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)}
             elif applied and skip:
                 _cdn_untouched(jr, applied)
-            if keep and cdn.get("host") and not skip:
+            if keep and not skip and cdn.get("host") in _M.cdn_hosts:
                 jr.note(tx("رکوردِ {0} در {1} ماند و حالا «آماده» است", "the record of {0} stays in {1} and is now ready",
                            cdn["host"], CDN_NAMES[cdn["provider"]]), "info")
             act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1 + touch, n, stop=not touch, more=False)
