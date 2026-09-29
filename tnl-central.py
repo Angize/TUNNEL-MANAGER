@@ -10563,11 +10563,14 @@ def api_cdn_set(d):
                 raise Bad("cdn_key_in_use", "{0} تونل هنوز با کلیدِ {1} ساخته و نگه داشته می‌شود — اول آن‌ها را دستی کن یا پاکشان کن",
                           "tunnels still set up with the {1} key: {0} — switch them to manual or delete them first",
                           n, CDN_NAMES[prov])
-            m = sum(1 for e in _M.cdn_hosts.values() if e.get("provider") == prov)
+            m = [h for h, e in _M.cdn_hosts.items() if e.get("provider") == prov]
             if m:
-                raise Bad("cdn_key_hosts", "{0} زیردامنهٔ ساختِ پنل هنوز در {1} است — اول از «زیردامنه‌های بی‌تونل» پاکشان کن",
-                          "{0} panel-made subdomains are still in {1} — drop them under the subdomains without a tunnel first",
-                          m, CDN_NAMES[prov])
+                u = next(filter(None, map(_cdn_host_user, m)), None)
+                raise Bad("cdn_key_hosts", "{0} زیردامنهٔ ساختِ پنل هنوز در {1} است — اول از «زیردامنه‌های بی‌تونل» پاکشان کن{2}",
+                          "{0} panel-made subdomains are still in {1} — drop them under the subdomains without a tunnel first{2}",
+                          len(m), CDN_NAMES[prov], tx("؛ تونلِ «{0}» هنوز یکی از آن‌ها را به کار می‌برد و اول باید عوضش کنی",
+                                                      "; tunnel '{0}' still uses one of them and has to be changed first", u["name"])
+                          if u else "")
             with store_tx() as t:
                 t.cdn(prov, None)
             return {"ok": True, "cdn": _cdn_public()}
