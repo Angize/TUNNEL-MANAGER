@@ -18,7 +18,8 @@ import { poolRotateItems } from './presets.js'
 import { poolValid } from './validate.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { toast } from '../../../lib/toast.js'
-import { T } from '../../../i18n/fa.js'
+import { T, TF } from '../../../i18n/fa.js'
+import { tlsEdges } from '../../../lib/cdn.js'
 import { LTR_TEXT } from '../../../lib/form.js'
 
 const KINDS = [
@@ -74,7 +75,7 @@ function EdgeRow({ value, kind, health, active, lid, pending, status, fresh, onR
   )
 }
 
-export default function WsPool({ form, enums, lid, live, patch }) {
+export default function WsPool({ form, enums, lid, live, edges, patch }) {
   const [open, setOpen] = useState({ ip: false, sni: false })
   const [draft, setDraft] = useState({ ip: '', sni: '' })
   const [fresh, setFresh] = useState('')
@@ -82,18 +83,19 @@ export default function WsPool({ form, enums, lid, live, patch }) {
   const status = live.status
   useSecondTick(true)
   const items = poolRotateItems()
+  const cleanLeft = tlsEdges(edges).filter((v) => !pool.ip.includes(v))
 
   const setPool = (next) => patch({ pool: { ...pool, ...next } })
 
-  const add = (kind) => {
-    let value = (draft[kind] || '').trim()
+  const add = (kind, picked) => {
+    let value = (picked || draft[kind] || '').trim()
     if (kind === 'sni') value = value.toLowerCase()
     if (!value) return
     if (!poolValid(kind, value, enums)) {
       alertBox(kind === 'ip' ? T('pool_bad_ip') : T('pool_bad_dom'))
       return
     }
-    setDraft({ ...draft, [kind]: '' })
+    if (!picked) setDraft({ ...draft, [kind]: '' })
     if (pool[kind].includes(value)) return
     setPool({ [kind]: pool[kind].concat([value]) })
     setFresh(kind + ':' + value)
@@ -173,6 +175,16 @@ export default function WsPool({ form, enums, lid, live, patch }) {
                 +
               </button>
             </div>
+            {kind === 'ip' && cleanLeft.length ? (
+              <div className="cdnpoolpick">
+                <Select
+                  items={cleanLeft.map((v) => ({ v, label: v, sub: T('edge_clean') }))}
+                  value=""
+                  placeholder={TF('edge_pool_pick', { n: cleanLeft.length })}
+                  onChange={(v) => add('ip', v)}
+                />
+              </div>
+            ) : null}
           </Accordion>
         )
       })}

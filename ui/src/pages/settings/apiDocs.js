@@ -225,6 +225,7 @@ export const DOCS = {
       ['dl_proxy_id', 0, S, 'id of that proxy'],
       ['log_hidden', 0, L, 'event types hidden from the log'],
       ['tuning', 0, O, 'tuning values; keys and ranges are in ui-config'],
+      ['cdn_edges', 0, L, 'clean CDN edge IPs the tunnel form offers: IPv4 or IPv4:port with a CDN edge port (at most 64)'],
     ],
   },
   'api-token-new': {
@@ -650,7 +651,7 @@ export const DOCS = {
 
   cdn: {
     t: 'CDN keys',
-    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. edges is the clean edge IP list from the settings key cdn_edges. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
   },
   'cdn-set': {
     t: 'Save a CDN key',

@@ -2,12 +2,12 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
 import Field from '../../../components/Field.jsx'
 import Reveal from '../../../components/Reveal.jsx'
-import SwitchRow from '../../../components/SwitchRow.jsx'
+import Select from '../../../components/Select.jsx'
 import { WarnCap } from './controls.jsx'
 import CdnMaker from './CdnMaker.jsx'
 import { gsap, reducedMotion } from '../../../lib/motion.js'
 import { LTR_TEXT } from '../../../lib/form.js'
-import { cdnAuto, hasCdnKey, providerName } from '../../../lib/cdn.js'
+import { cdnAuto, edgeFits, edgePort, hasCdnKey, providerName } from '../../../lib/cdn.js'
 import { T, TF } from '../../../i18n/fa.js'
 
 let flyRect = null
@@ -58,6 +58,48 @@ function PlacedNote({ provider, hostSsl }) {
       <span>{T(hostSsl ? 'cdn_placed_cf' : 'cdn_placed_ar')}</span>
       <span className="cdnpdot" aria-hidden="true" />
       <span>{T(provider === 'ar' ? 'cdn_placed_rule_ar' : 'cdn_placed_rule')}</span>
+    </div>
+  )
+}
+
+function EdgePick({ form, patch, edges, managed }) {
+  const tls = !!form.WsTls
+  const list = (edges || []).filter((e) => edgeFits(e, tls))
+  const auto = managed && form.cdnEdgeAuto
+  const inList = !auto && list.includes(form.wsEdge)
+  const [custom, setCustom] = useState(!auto && !!form.wsEdge && !inList)
+  const value = auto ? 'host' : inList ? form.wsEdge : custom || form.wsEdge ? 'custom' : ''
+  const port = edgePort(form.wsEdge.trim())
+  const items = (managed ? [{ v: 'host', label: T('edge_same'), sub: T('edge_same_d') }] : [])
+    .concat(list.map((e) => ({ v: e, label: e, sub: T('edge_clean') })))
+    .concat([{ v: 'custom', label: T('edge_custom'), sub: T('edge_custom_d') }])
+
+  const pick = (v) => {
+    setCustom(v === 'custom')
+    if (v === 'host') patch({ cdnEdgeAuto: true })
+    else if (v === 'custom') patch({ cdnEdgeAuto: false, wsEdge: inList ? '' : form.wsEdge })
+    else patch({ cdnEdgeAuto: false, wsEdge: v })
+  }
+
+  return (
+    <div className="cdnedge">
+      <Field label={T(tls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')} hint={edges && edges.length ? '' : T('edge_list_empty')}>
+        <Select items={items} value={value} placeholder={T(tls ? 'edge_pick_need' : 'edge_pick')} onChange={pick} />
+      </Field>
+      <Reveal show={value === 'custom'}>
+        <Field label={T('edge_custom_lbl')}>
+          <input
+            {...LTR_TEXT}
+            className="mono"
+            placeholder={T(tls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
+            value={form.wsEdge}
+            onChange={(e) => patch({ wsEdge: e.target.value })}
+          />
+        </Field>
+      </Reveal>
+      {managed && form.cdnOwner === 'cf' && tls && !auto && port && port !== 443 ? (
+        <WarnCap tone="gold" text={T('cdn_cf_443')} />
+      ) : null}
     </div>
   )
 }
@@ -120,39 +162,7 @@ export default function CdnHostField({ form, keys, serverIp, patch, onMade }) {
         />
       </Reveal>
       {managed && form.Ech && form.cdnOwner !== 'cf' ? <WarnCap text={T('cdn_ech_cf_only')} /> : null}
-      <Reveal show={managed}>
-        <div>
-          <SwitchRow
-            on={form.cdnEdgeAuto}
-            title={T('cdn_edge_auto_t')}
-            note={T('cdn_edge_auto_d')}
-            onToggle={() => patch({ cdnEdgeAuto: !form.cdnEdgeAuto })}
-          />
-          <Reveal show={!form.cdnEdgeAuto}>
-            <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
-              <input
-                {...LTR_TEXT}
-                className="mono"
-                placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
-                value={form.wsEdge}
-                onChange={(e) => patch({ wsEdge: e.target.value })}
-              />
-            </Field>
-            {form.cdnOwner === 'cf' && form.WsTls ? <WarnCap tone="gold" text={T('cdn_cf_443')} /> : null}
-          </Reveal>
-        </div>
-      </Reveal>
-      <Reveal show={!managed}>
-        <Field label={T(form.WsTls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
-          <input
-            {...LTR_TEXT}
-            className="mono"
-            placeholder={T(form.WsTls ? 'cf_edge_ph_tls' : 'cf_edge_ph_plain')}
-            value={form.wsEdge}
-            onChange={(e) => patch({ wsEdge: e.target.value })}
-          />
-        </Field>
-      </Reveal>
+      <EdgePick form={form} patch={patch} edges={keys && keys.edges} managed={managed} />
     </div>
   )
 }

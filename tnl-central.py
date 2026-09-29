@@ -1026,6 +1026,7 @@ def settings_defaults():
         "api_external": False,
         "api_token_hash": "",
         "tuning": dict(_TUNING_DEFAULTS),
+        "cdn_edges": [],
     }
 
 
@@ -1123,6 +1124,37 @@ def validate_settings(d):
         out["log_hidden"] = [t for t, _g, _label in EV_TYPES if t in picked]
     if "tuning" in d:
         out["tuning"] = _validate_tuning(d["tuning"], out.get("tuning"))
+    if "cdn_edges" in d:
+        out["cdn_edges"] = _cdn_edges(d["cdn_edges"])
+    return out
+
+
+CDN_EDGES_MAX = 64
+
+
+def _cdn_edges(raw):
+    if not isinstance(raw, list):
+        raise Bad("bad_cdn_edges", "فهرستِ آی‌پی‌های لبه باید یک آرایه باشد", "the edge IP list must be an array")
+    out = []
+    for x in raw:
+        v = str(x or "").strip()
+        if not v:
+            continue
+        h, sep, p = v.rpartition(":")
+        if not sep:
+            h, p = v, ""
+        if not re.match(_IP4_RE, h) or (sep and not p.isdigit()):
+            raise Bad("bad_cdn_edge", "آی‌پیِ لبهٔ نامعتبر: {0} — IPv4 یا IPv4:پورت بنویس",
+                      "invalid edge IP: {0} — write IPv4 or IPv4:port", v)
+        if sep and int(p) not in _EDGE_PLAIN_PORTS + _EDGE_TLS_PORTS:
+            raise Bad("bad_cdn_edge_port", "پورتِ {0} در «{1}» پورتِ لبهٔ CDN نیست — یکی از این‌ها باشد: {2}",
+                      "port {0} in '{1}' is not a CDN edge port — use one of: {2}", p, v,
+                      list(_EDGE_TLS_PORTS + _EDGE_PLAIN_PORTS))
+        v = h + (":%d" % int(p) if sep else "")
+        if v not in out:
+            out.append(v)
+    if len(out) > CDN_EDGES_MAX:
+        raise Bad("cdn_edges_too_many", "فهرستِ آی‌پی‌های لبه حداکثر {0} تا می‌گیرد", "the edge IP list takes at most {0}", CDN_EDGES_MAX)
     return out
 
 
@@ -10540,6 +10572,7 @@ def _cdn_public():
         k = str(c.get("key") or "")
         out[p] = {"set": bool(k), "tail": k[-4:] if len(k) >= 12 else "", "proxy_id": str(c.get("proxy_id") or ""),
                   "used": used[p], **({"ssl_mode": c.get("ssl_mode") or "host"} if p == "cf" else {})}
+    out["edges"] = list(get_settings().get("cdn_edges") or [])
     rows = sorted(_cdn_hosts().values(), key=lambda e: (-_sint(e.get("made")), e["host"]))
     users = {h: L for L in load_links() for h in _cdn_link_hosts(L)}
     out["hosts"] = [{"host": e["host"], "provider": e["provider"], "zone": e["zone"], "made": _sint(e.get("made")),

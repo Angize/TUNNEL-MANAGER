@@ -3296,6 +3296,21 @@
   "bad": [
    [
     400,
+    "bad_cdn_edge",
+    "invalid edge IP: … — write IPv4 or IPv4:port"
+   ],
+   [
+    400,
+    "bad_cdn_edge_port",
+    "port … in '…' is not a CDN edge port — use one of: …"
+   ],
+   [
+    400,
+    "bad_cdn_edges",
+    "the edge IP list must be an array"
+   ],
+   [
+    400,
     "bad_delivery",
     "the delivery mode must be push, github or panel"
    ],
@@ -3328,6 +3343,11 @@
     400,
     "bad_uptime_window",
     "the uptime chart window must be one of … hours — … is not accepted"
+   ],
+   [
+    400,
+    "cdn_edges_too_many",
+    "the edge IP list takes at most …"
    ],
    [
     400,
