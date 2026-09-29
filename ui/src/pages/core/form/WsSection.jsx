@@ -101,6 +101,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, serverIp, onCdnMade, patch }
       <SwapCascade value={!!form.pool.pool}>
         <Reveal show={form.pool.pool}>
           <WsPool
+            edges={cdnKeys && cdnKeys.edges}
             form={form}
             enums={cfg.enums}
             lid={lid}

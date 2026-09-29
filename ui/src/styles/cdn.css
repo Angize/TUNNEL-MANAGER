@@ -1051,3 +1051,18 @@
     flex: 1 1 100%;
   }
 }
+
+.cdnedges .sgt.cdnedgesi {
+  --scbg: var(--okw);
+  --sc: var(--ok-tx);
+}
+
+.cdnedgeerr {
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--bad-tx);
+}
+
+.cdnpoolpick {
+  margin-top: 8px;
+}

@@ -15,6 +15,7 @@ import { toast } from '../../lib/toast.js'
 import { CDN_PROVIDERS, providerName } from '../../lib/cdn.js'
 import { T, TF } from '../../i18n/fa.js'
 import CdnHosts from './CdnHosts.jsx'
+import CdnEdges from './CdnEdges.jsx'
 
 const ICON = { cf: 'globe', ar: 'shield' }
 
@@ -272,6 +273,7 @@ export default function CdnTab() {
             />
           ))
         : null}
+      {cdn ? <CdnEdges edges={cdn.edges} onStatus={reload} /> : null}
       {cdn ? <CdnHosts hosts={cdn.hosts} onStatus={reload} /> : null}
       {cdn ? (
         <div className="stnote cdnkeynote">
