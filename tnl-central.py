@@ -10685,7 +10685,7 @@ def _cdn_notes(cred, z, tls, carrier):
         if mode in ("cookie", "javascript", "captcha"):
             notes.append(("ddos", tx("حفاظتِ DDoSِ «{0}» روی «{1}» است؛ چالشِ آن جلوی اتصالِ تونل را می‌گیرد",
                                      "the DDoS protection of '{0}' is '{1}'; its challenge blocks the tunnel", zn, mode)))
-        if carrier == "grpc" and not (got["lb"] or {}).get("grpc_status"):
+        if carrier == "grpc" and got["lb"] is not None and not got["lb"].get("grpc_status"):
             notes.append(("grpc_off", tx("gRPC در «{0}» خاموش است و موقعِ ذخیرهٔ تونل روشن می‌شود",
                                          "gRPC is off in '{0}' and is turned on when the tunnel is saved", zn)))
         if tls and got["cert"] is not None and not cert.get("certificates") and not cert.get("orders"):
