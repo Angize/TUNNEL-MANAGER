@@ -10709,8 +10709,6 @@ def _cdn_follow_build(lid, srv_ip, h, i, n):
         if st.get("ip") != srv_ip or st.get("port") != port:
             _cdn_store(lid, lambda x: x.update(cdn=_cdn_moved(x["cdn"], srv_ip, port)) if x.get("cdn") else None, {})
             st = _cdn_moved(st, srv_ip, port)
-        if _cdn_uptodate(st):
-            return ""
         _cdn_step(h, _cdn_where(_cdn_states(st)), i, n)
         return _cdn_outcome(tx("تونل بازسازی شد", "the tunnel was rebuilt"), *_cdn_sync_link(lid, h))
 
