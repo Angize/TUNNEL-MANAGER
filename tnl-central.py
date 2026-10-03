@@ -2,6 +2,7 @@
 
 import base64
 import contextlib
+import errno
 import getpass
 import gzip
 import hashlib
@@ -12133,12 +12134,33 @@ def service_active():
     return subprocess.run(["systemctl", "is-active", "--quiet", SERVICE]).returncode == 0
 
 
-def service_settled(tries=6):
-    for _ in range(tries):
-        if service_active():
-            return True
-        time.sleep(1)
-    return False
+SETTLE_SECS = 6
+
+
+def _unit_state():
+    out = subprocess.run(["systemctl", "show", "-p", "ActiveState", "-p", "SubState", "-p", "ExecMainStatus", SERVICE],
+                         capture_output=True, text=True, timeout=10).stdout
+    return dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+
+
+def service_restart():
+    svc("stop")
+    svc("reset-failed")
+    svc("start")
+    end = time.monotonic() + SETTLE_SECS
+    while True:
+        st = _unit_state()
+        if st.get("ActiveState") == "failed" or st.get("SubState", "").startswith("auto-restart"):
+            return "port" if st.get("ExecMainStatus") == str(errno.EADDRINUSE) else "down"
+        if time.monotonic() >= end:
+            return "" if st.get("ActiveState") == "active" else "down"
+        time.sleep(0.25)
+
+
+def _restart_problem(why, port):
+    if why == "port":
+        return "port %s is used by another program on this server - pick another one with menu 4 (Change the port)" % port
+    return "%s did not come up - journalctl -u %s" % (SERVICE, SERVICE)
 
 
 DEP_PACKAGES = ("openssl", "ca-certificates", "iproute2", "openssh-client", "sshpass", "redis-server", "python3-redis")
@@ -12409,9 +12431,9 @@ def do_install():
     step(6, total, "service")
     write_service()
     svc("enable")
-    svc("restart")
-    if not service_settled():
-        print("%s the service did not come up - journalctl -u %s" % (BAD, SERVICE))
+    why = service_restart()
+    if why:
+        print("%s %s" % (BAD, _restart_problem(why, conf["port"])))
         return False
     print("%s %s is active" % (OK, SERVICE))
 
@@ -12449,11 +12471,18 @@ def change_port():
     conf = load_conf()
     conf["port"] = port
     save_json(WEB_CONF, conf)
-    if os.path.isfile(SERVICE_FILE):
-        svc("restart")
-        if not service_settled():
-            print(f"[!] port saved as {port} but {SERVICE} did not come up - journalctl -u {SERVICE}")
-            return
+    why = service_restart() if os.path.isfile(SERVICE_FILE) else ""
+    if why == "port":
+        conf["port"] = have
+        save_json(WEB_CONF, conf)
+        why = service_restart()
+        print(f"[x] port {port} is used by another program - the panel stays on {have}")
+        if why:
+            print("[x] " + _restart_problem(why, have))
+        return
+    if why:
+        print("[x] " + _restart_problem(why, port))
+        return
     print(f"[✔] port set to {port} — open http://{central_ip()}:{port}/")
 
 
@@ -12461,12 +12490,12 @@ def change_password():
     if not os.path.isfile(WEB_CONF):
         print("Not configured yet - run Install first.")
         return
-    set_password(load_conf())
-    if os.path.isfile(SERVICE_FILE):
-        svc("restart")
-        if not service_settled():
-            print(f"[!] password saved but {SERVICE} did not come up - journalctl -u {SERVICE}")
-            return
+    conf = load_conf()
+    set_password(conf)
+    why = service_restart() if os.path.isfile(SERVICE_FILE) else ""
+    if why:
+        print("[!] password saved, but " + _restart_problem(why, conf.get("port", 8080)))
+        return
     print("[✔] password updated.")
 
 
@@ -12490,9 +12519,8 @@ def do_restart():
         print("Not installed yet - run Install first.")
         return
     print("[*] restarting the panel...")
-    svc("restart")
-    print("[✔] restarted, panel active." if service_active()
-          else "[!] restarted but not active - check Status / logs.")
+    why = service_restart()
+    print("[x] " + _restart_problem(why, cli_conf(loud=False).get("port", 8080)) if why else "[✔] restarted, panel active.")
 
 
 MENU = [
@@ -12654,6 +12682,13 @@ def serve():
         print("tnl-central did not start - %s" % e)
         print("fix or remove that file, then run the setup menu:  sudo python3 tnl-central.py")
         sys.exit(1)
+    port = int(conf.get("port", 8080))
+    httpd = BoundedThreadingHTTPServer(("0.0.0.0", port), Handler, bind_and_activate=False)
+    try:
+        httpd.server_bind()
+    except OSError as e:
+        print("tnl-central did not start - port %d: %s" % (port, e.strerror))
+        sys.exit(e.errno or 1)
     try:
         store_boot(wait=60)
         _stats_boot()
@@ -12662,7 +12697,7 @@ def serve():
         print("tnl-central did not start - %s" % _store_msg(e))
         sys.exit(1)
     _backup_unstage()
-    _CENTRAL_PORT = int(conf.get("port", 8080))
+    _CENTRAL_PORT = port
     _CENTRAL_TLS = bool(conf.get("tls"))
     try:
         _signing_keys()
@@ -12676,9 +12711,9 @@ def serve():
     threading.Thread(target=events_loop, daemon=True).start()
     threading.Thread(target=ech_refresh_loop, daemon=True).start()
     threading.Thread(target=cdn_retry_loop, daemon=True).start()
-    httpd = BoundedThreadingHTTPServer(("0.0.0.0", int(conf.get("port", 8080))), Handler)
+    httpd.server_activate()
     httpd.conf = conf
-    print(f"tnl-central on http://0.0.0.0:{conf.get('port', 8080)}/")
+    print(f"tnl-central on http://0.0.0.0:{port}/")
     signal.signal(signal.SIGTERM, _stop_on_term)
     try:
         httpd.serve_forever()
