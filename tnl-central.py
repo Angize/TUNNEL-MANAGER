@@ -8153,6 +8153,7 @@ EV_TYPES = (
     ("cdn-fixed", "cdn", tx("CDN تونل دوباره هماهنگ شد", "a tunnel's CDN is back in sync")),
     ("cdn-left", "cdn", tx("چیزی در CDN پاک نشد", "something was not removed from the CDN")),
     ("cfg-clamped", "cfg", tx("تنظیمی که کامل اعمال نشد", "setting not fully applied")),
+    ("cover-unreachable", "cfg", tx("سایتِ پوششی از سرور باز نمی‌شود", "cover site unreachable from the server")),
     ("auth-in", "auth", tx("ورودِ موفق به پنل", "panel login")),
     ("auth-out", "auth", tx("خروج از پنل", "panel logout")),
     ("auth-fail", "auth", tx("تلاشِ ناموفقِ ورود", "failed login")),
@@ -8270,6 +8271,18 @@ def _down_title(nm):
     return tx("تونلِ «{0}»: قطع شد", "tunnel '{0}': down", nm)
 
 
+_COVER_WHY = {
+    "dns": tx("نامِ این دامنه روی این سرور پیدا نشد؛ املایش یا DNSِ سرور را چک کن",
+              "this server could not resolve the domain; check its spelling or the server's DNS"),
+    "refused": tx("پورتِ 443 اتصال را رد کرد؛ یا سایت روی 443 نیست یا فیلتر است",
+                  "port 443 refused the connection; either the site is not on 443 or it is filtered"),
+    "timeout": tx("جواب نداد؛ احتمالاً آی‌پیِ این سایت از این سرور فیلتر است",
+                  "no answer; the site's IP is probably filtered from this server"),
+    "tls": tx("به پورتِ 443 وصل شد ولی جوابِ TLS نیامد؛ احتمالاً همین دامنه (SNI) از این سرور فیلتر است",
+              "port 443 connected but no TLS answer came; the domain itself (SNI) is probably filtered from this server"),
+}
+
+
 def _ev_core_text(kind, code, detail, nm):
     raw = str(detail or "")
     axis, sep, rest = raw.partition(":")
@@ -8285,6 +8298,21 @@ def _ev_core_text(kind, code, detail, nm):
         return ("warn", "burn", tx("تونلِ «{0}»: سوختنِ {1}", "tunnel '{0}': {1} burned", nm, what),
                 tx("{0}: {1}", "{0}: {1}", what, key))
     if kind == "cfg":
+        if code == "cover-unreachable":
+            host, _, why = raw.partition(" ")
+            return ("warn", "cover-unreachable",
+                    tx("تونلِ «{0}»: سرور به سایتِ پوششی وصل نمی‌شود", "tunnel '{0}': the server cannot reach the cover site", nm),
+                    tx("{1}\n"
+                       "سایت: {0}\n"
+                       "اثر: تا وقتی این سایت از سرور باز نشود، هر پروبِ سانسور به‌جای جوابِ واقعیِ سایت فقط یک قطعِ "
+                       "خالی می‌گیرد و پوشش کاری نمی‌کند\n"
+                       "چاره: دامنهٔ پوششی‌ای بگذار که از همین سرور باز می‌شود",
+                       "{1}\n"
+                       "site: {0}\n"
+                       "effect: until this site opens from the server, every censor probe gets a bare close instead "
+                       "of the site's real answer, and the cover does nothing\n"
+                       "fix: pick a cover domain that opens from this server",
+                       host, _COVER_WHY.get(why, why)))
         if code == "sockbuf-clamped":
             parts = key.split()
             title = tx("تونلِ «{0}»: بافرِ سوکت به‌اندازه‌ای که خواستی اعمال نشد",
