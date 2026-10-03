@@ -4059,29 +4059,39 @@ def _node_del_impl(d):
         left = [s["applied"] for c in states.values() for s in _cdn_states(c) if skip and s.get("applied")]
         jobs = [] if skip else [j for lid, c in states.items() for j in _cdn_teardown(lid, c, False)]
         jr = _CdnJournal()
-        if jobs:
-            prov, why = _cdn_strip_all(jobs, jr)
-            if why:
-                return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
-                        "error": tx("پاک‌کردن از {0} انجام نشد: {1} — نود و تونل‌هایش دست نخوردند",
-                                  "removing from {0} did not finish: {1} — the node and its tunnels were left as they are",
-                                  CDN_NAMES[prov], why)}
-        for a in left:
-            _cdn_untouched(jr, a)
-        stripped = {lid for lid, _st, _d in jobs}
-        hosts = {}
-        for lid, c in states.items():
-            for s in _cdn_states(c):
-                hosts.update(_cdn_host_gone(s["host"], lid, lid in stripped))
-        try:
-            return _node_del_wipe(nid, n, force, mine, mine_ids, jr, left, hosts)
-        except BaseException:
-            for lid in stripped:
-                _cdn_mark_removed(lid)
-            raise
+        with _cdn_strip_hold(jobs, jr):
+            if jobs:
+                prov, why = _cdn_strip_all(jobs, jr)
+                if why:
+                    return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
+                            "error": tx("پاک‌کردن از {0} انجام نشد: {1} — نود و تونل‌هایش دست نخوردند",
+                                      "removing from {0} did not finish: {1} — the node and its tunnels were left as they are",
+                                      CDN_NAMES[prov], why)}
+            for a in left:
+                _cdn_untouched(jr, a)
+            stripped = {lid for lid, _st, _d in jobs}
+            hosts = {}
+            for lid, c in states.items():
+                for s in _cdn_states(c):
+                    hosts.update(_cdn_host_gone(s["host"], lid, lid in stripped))
+            node_ok = _node_del_wipe(nid, n, force, mine, mine_ids, hosts)
+    with _tomb_lock:
+        _tomb[nid] = time.time() + 20
+    for a in left:
+        _cdn_left_by_operator(a)
+    try:
+        _forget_host(n["host"], n.get("ssh_port"))
+    except Exception as e:
+        log_warn("known_hosts", _why(e))
+    with _pc_lock:
+        _pc.pop(nid, None)
+    _stats_drop(nid)
+    for L in mine:
+        _tf_forget(L["b_node"] if L["a_node"] == nid else L["a_node"], [L["name"]])
+    return {"ok": True, "node_wiped": node_ok, **({"cdn": jr.items} if jr.items else {})}
 
 
-def _node_del_wipe(nid, n, force, mine, mine_ids, jr, left, hosts):
+def _node_del_wipe(nid, n, force, mine, mine_ids, hosts):
     if force and _known_offline(n):
         node_ok = False
     else:
@@ -4124,20 +4134,7 @@ def _node_del_wipe(nid, n, force, mine, mine_ids, jr, left, hosts):
         t.pending(nid, ())
         t.moved(nid, None)
         t.raw(lambda p: _stats_forget(p, nid))
-    with _tomb_lock:
-        _tomb[nid] = time.time() + 20
-    for a in left:
-        _cdn_left_by_operator(a)
-    try:
-        _forget_host(n["host"], n.get("ssh_port"))
-    except Exception as e:
-        log_warn("known_hosts", _why(e))
-    with _pc_lock:
-        _pc.pop(nid, None)
-    _stats_drop(nid)
-    for L in mine:
-        _tf_forget(L["b_node"] if L["a_node"] == nid else L["a_node"], [L["name"]])
-    return {"ok": True, "node_wiped": node_ok, **({"cdn": jr.items} if jr.items else {})}
+    return node_ok
 
 
 def api_node_test(d):
@@ -6827,53 +6824,55 @@ def _delete_link_impl(d, h):
             touch = bool(jobs)
             n = DELETE_STEPS + touch
             jr = _CdnJournal(h)
-            if touch:
-                where = _cdn_where([st for _lid, st, _d in jobs])
-                act_step(h, tx("جدا کردن از {0}", "detaching from {0}", where) if keep
-                         else tx("پاک‌کردن از {0}", "removing from {0}", where), 1, n, more=False)
-                prov, why = _cdn_strip_all(jobs, jr)
-                if why:
-                    return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
-                            "msg": tx("پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)}
-            elif skip:
-                for a in applied:
-                    _cdn_untouched(jr, a)
-            for s in states if keep and not skip else ():
-                if s["host"] in _M.cdn_hosts:
-                    jr.note(tx("رکوردِ {0} در {1} ماند و حالا «آماده» است", "the record of {0} stays in {1} and is now ready",
-                               s["host"], CDN_NAMES[s["provider"]]))
-            act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1 + touch, n, more=False)
-            for nid, nm in ends:
-                node = get_node(nid)
-                if not node:
-                    continue
-                if force and _known_offline(node):
-                    defer(nid, nm)
-                    continue
-                r = node_call(node, "delete", "POST", {"name": L["name"]})
-                if not r.get("ok"):
-                    if not force:
+            with _cdn_strip_hold(jobs, jr):
+                if touch:
+                    where = _cdn_where([st for _lid, st, _d in jobs])
+                    act_step(h, tx("جدا کردن از {0}", "detaching from {0}", where) if keep
+                             else tx("پاک‌کردن از {0}", "removing from {0}", where), 1, n, more=False)
+                    prov, why = _cdn_strip_all(jobs, jr)
+                    if why:
+                        return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
+                                "msg": tx("پاک‌کردن از {0} انجام نشد: {1}", "removing from {0} did not finish: {1}", CDN_NAMES[prov], why)}
+                elif skip:
+                    for a in applied:
+                        _cdn_untouched(jr, a)
+                for s in states if keep and not skip else ():
+                    if s["host"] in _M.cdn_hosts:
+                        jr.note(tx("رکوردِ {0} در {1} ماند و حالا «آماده» است", "the record of {0} stays in {1} and is now ready",
+                                   s["host"], CDN_NAMES[s["provider"]]))
+                act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1 + touch, n, more=False)
+                gone = []
+                for nid, nm in ends:
+                    node = get_node(nid)
+                    if not node:
+                        continue
+                    if force and _known_offline(node):
+                        defer(nid, nm)
+                        continue
+                    r = node_call(node, "delete", "POST", {"name": L["name"]})
+                    if r.get("ok"):
+                        gone.append(nm)
+                    elif not force:
                         errs.append(tx("{0}: {1}", "{0}: {1}", nm, r.get("error")))
                     else:
                         defer(nid, nm)
-            if errs:
-                undo = ""
-                if touch and keep:
-                    undo = _cdn_undo_tail(where, *jr.rollback())
-                elif touch:
-                    _cdn_mark_removed(L["id"])
-                _refresh_cache([L["a_node"], L["b_node"]])
-                return {"ok": False, "offer": "force", "code": "delete_failed", "msg": tx(
-                    "{0} — لینک نگه داشته شد؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن{1}",
-                    "{0} — the link was kept; delete again when the node is reachable, or use force{1}", tx_join("; ", errs), undo)}
-            act_step(h, tx("برداشتنِ رکورد", "removing the record"), 2 + touch, n, stop=False)
-            hosts = {}
-            for s in states:
-                hosts.update(_cdn_host_gone(s["host"], L["id"], touch and not keep))
-            with _reg_lock, store_tx() as t:
-                t.drop(_LINKS, d["id"])
-                for host, val in hosts.items():
-                    t.cdn_host(host, val)
+                if errs:
+                    undo = _cdn_unstrip(jobs, jr)
+                    _refresh_cache([L["a_node"], L["b_node"]])
+                    return {"ok": False, "offer": "force", "code": "delete_failed", "msg": tx(
+                        "{0} — لینک نگه داشته شد{1}{2}؛ وقتی نود در دسترس شد دوباره حذف کن، یا «حذفِ اجباری» را بزن",
+                        "{0} — the link was kept{1}{2}; delete again when the node is reachable, or use force",
+                        tx_join("; ", errs),
+                        tx("، ولی نیمهٔ «{0}» برداشته شد", ", but its half on '{0}' was removed", tx_join("»، «", gone, "', '")) if gone else "",
+                        undo)}
+                act_step(h, tx("برداشتنِ رکورد", "removing the record"), 2 + touch, n, stop=False)
+                hosts = {}
+                for s in states:
+                    hosts.update(_cdn_host_gone(s["host"], L["id"], touch and not keep))
+                with _reg_lock, store_tx() as t:
+                    t.drop(_LINKS, d["id"])
+                    for host, val in hosts.items():
+                        t.cdn_host(host, val)
         for a in applied if skip else ():
             _cdn_left_by_operator(a)
         _tf_forget(L["a_node"], [L["name"]])
@@ -9991,10 +9990,10 @@ class _CdnJournal:
 
 def _cdn_undo_tail(where, undone, left):
     parts = []
+    if left:
+        parts.append(tx("برگرداندنِ بخشی در {0} نشد: {1}", "undoing part of it in {0} failed: {1}", where, tx_join("؛ ", left, "; ")))
     if undone:
         parts.append(tx("در {0} برگردانده شد: {1}", "undone in {0}: {1}", where, tx_join("، ", undone, ", ")))
-    if left:
-        parts.append(tx("برگرداندنِ بقیه در {0} نشد: {1}", "undoing the rest in {0} failed: {1}", where, tx_join("؛ ", left, "; ")))
     return tx(" ({0})", " ({0})", tx_join("؛ ", parts, "; ")) if parts else ""
 
 
@@ -10561,10 +10560,7 @@ def _cdn_strip_all(jobs, jr):
                 prov = st.get("provider")
                 (_cdn_detach if detach else _cdn_strip)(st, jr)
         except Exception as e:
-            why = _cdn_why(e)
-            undone, left = jr.rollback()
-            _cdn_refixed(jobs, jr)
-            return prov, tx_join("", [why, _cdn_undo_tail(_cdn_where([st for _lid, st, _d in jobs]), undone, left)])
+            return prov, tx_join("", [_cdn_why(e), _cdn_unstrip(jobs, jr)])
     return prov, None
 
 
@@ -10582,6 +10578,31 @@ def _cdn_refixed(jobs, jr):
                 if a and a.get("host") == host:
                     a.update(record_id=rid)
         _cdn_store(lid, fix, {host: dict(e, record_id=rid)} if e else {})
+
+
+def _cdn_unstrip(jobs, jr):
+    where = _cdn_where([st for _lid, st, _d in jobs])
+    if jr.undo:
+        jr.doing(tx("برگرداندن در {0}", "putting back in {0}", where))
+    undone, left = jr.rollback()
+    _cdn_refixed(jobs, jr)
+    for lid in {lid for lid, _st, _d in jobs if lid} if left else ():
+        _cdn_unsynced(lid, left)
+    return _cdn_undo_tail(where, undone, left)
+
+
+@contextlib.contextmanager
+def _cdn_strip_hold(jobs, jr):
+    with _cdn_zones_locked((st.get("provider"), st.get("zone")) for _lid, st, _d in jobs):
+        try:
+            yield
+        except StoreUnknown:
+            raise
+        except BaseException as e:
+            tail = _cdn_unstrip(jobs, jr)
+            if tail and isinstance(e, ValueError):
+                raise Bad(_code(e), tx_join("", [_why(e), tail])) from None
+            raise
 
 
 def _cdn_store(lid, fn, hosts):
@@ -10636,19 +10657,19 @@ def _cdn_host_link(host, lid, only=None):
     return {host: dict(e, link=lid)}
 
 
-def _cdn_mark_removed(lid):
+def _cdn_unsynced(lid, left):
+    why = tx("برگرداندنِ CDN بعد از حذفِ ناتمام کامل نشد ({0}) — پنل دوباره می‌سازدش",
+             "putting the CDN back after an unfinished delete did not finish ({0}) — the panel sets it up again",
+             tx_join("؛ ", left, "; "))
+
     def one(c):
-        why = tx("رکورد و قانونِ «{0}» در یک حذفِ ناتمام از {1} پاک شدند؛ حذفِ دوباره کار را تمام می‌کند",
-                 "the record and rule of '{0}' were removed from {1} during a delete that did not finish; deleting again finishes it",
-                 c.get("host"), CDN_NAMES[c["provider"]])
-        return dict(c, applied=None, ok=False, code="cdn_removed", error=str(why), error_en=str(_en(why)))
+        return dict(c, ok=False, code="cdn_undo_failed", error=str(why), error_en=str(_en(why)))
 
     def mark(x):
         c = x.get("cdn")
         if c:
             x["cdn"] = _cdn_pool_top(_cdn_top_base(c), [one(s) for s in c["hosts"]]) if c.get("pool") else one(c)
-    hosts = [s["host"] for s in _cdn_states((get_link(lid) or {}).get("cdn"))]
-    _cdn_store(lid, mark, {h: None for h in hosts if h in _M.cdn_hosts})
+    _cdn_store(lid, mark, {})
 
 
 def _cdn_untouched(jr, st):
@@ -10809,7 +10830,7 @@ def _cdn_retry():
     down = set()
     for L in load_links():
         st = L.get("cdn")
-        if not st or st.get("ok") or st.get("code") == "cdn_removed" or {s["provider"] for s in _cdn_states(st)} <= down:
+        if not st or st.get("ok") or {s["provider"] for s in _cdn_states(st)} <= down:
             continue
         try:
             new, _left = _cdn_sync_link(L["id"])
