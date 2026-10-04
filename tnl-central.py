@@ -3174,6 +3174,13 @@ def api_summary(d):
         heat.append({"name": nm, "pct": w, "online": True, "disabled": bool(n.get("disabled"))})
         if w >= UP_CRIT:
             crit.append(nid)
+        ips = _flat_ips(p)
+        for c in _pf_node_configs(nid)[0]:
+            if c.get("enabled", True) is not False and _pf_lip_gone(c, ips):
+                alerts.append({"level": "warn", "kind": "portfw", "tab": "portfw", "id": _pf_key(nid, c.get("name")),
+                               "msg": tx("پورت‌فورواردِ «{0}» روی نودِ «{1}» فقط روی آی‌پیِ {2} گوش می‌دهد که دیگر روی نود نیست",
+                                         "port forward '{0}' on node '{1}' listens only on {2}, which the node no longer has",
+                                         c.get("name"), nm, c.get("listen_ip"))})
 
     nmap = {n["id"]: n.get("name", "") for n in nodes}
     up = noping = down = drift_n = off_n = 0
@@ -8900,6 +8907,11 @@ def _pf_key(node_id, name):
     return str(node_id) + str(name)
 
 
+def _pf_lip_gone(c, node_ips):
+    lip = c.get("listen_ip") or ""
+    return bool(lip and node_ips and lip not in node_ips)
+
+
 def _pf_load_order():
     _store_ready()
     return list(_M.pforder)
@@ -8971,6 +8983,7 @@ def api_portfw_list(d):
             all_pf.append({"node": n["name"], "node_id": n["id"], "name": c.get("name"),
                            "iface": c.get("iface"), "listen_port": c.get("listen_port"),
                            "listen_ip": c.get("listen_ip") or "", "node_ip": node_ip,
+                           "lip_gone": _pf_lip_gone(c, node_ips),
                            "dst_port": c.get("dst_port"), "dst_ips": c.get("dst_ips", []),
                            "switch_interval": c.get("switch_interval", 0),
                            "enabled": c.get("enabled", True) is not False,
