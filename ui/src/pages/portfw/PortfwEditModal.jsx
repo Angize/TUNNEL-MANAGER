@@ -37,7 +37,7 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
 
   const moved = nodeId !== item.node_id
   const ips = nodeIps(nodes, nodeId)
-  const hasIpChoice = ips.length > 1
+  const hasIpChoice = ips.length > 1 || (!moved && !!item.listen_ip)
 
   const selectNode = (id) => {
     setNodeId(id)
