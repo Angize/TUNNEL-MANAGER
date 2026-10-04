@@ -4126,6 +4126,8 @@ def _node_del_wipe(nid, n, force, mine, mine_ids, jr, left, hosts):
     with _pc_lock:
         _pc.pop(nid, None)
     _stats_drop(nid)
+    for L in mine:
+        _tf_forget(L["b_node"] if L["a_node"] == nid else L["a_node"], [L["name"]])
     return {"ok": True, "node_wiped": node_ok, **({"cdn": jr.items} if jr.items else {})}
 
 
@@ -6713,6 +6715,8 @@ def _create_tunnel_impl(d, h):
             _core_end_bodies(extra, a_body, b_body)
             _apply_core_tuning(a_body, b_body)
         _apply_probe_tuning(a_body, b_body)
+        _tf_forget(A["id"], [name])
+        _tf_forget(B["id"], [name])
         act_step(h, _step_build(A), 1 + at, steps)
         ra = _node_tunnel(A, a_body)
         if not ra.get("ok"):
@@ -7211,9 +7215,13 @@ def _guard_arrival_free(was_a, was_b, A, B, tid, names):
                           N["name"], tid)
 
 
+def _only_in(frm, to, renamed):
+    keep = {n["id"] for n in to if n}
+    return [N for N in _node_set(*frm) if renamed or N["id"] not in keep]
+
+
 def _undo_apply(was_a, was_b, A, B, name, renamed):
-    stay = {n["id"] for n in (was_a, was_b) if n}
-    return _drop_tunnel_from([N for N in _node_set(A, B) if renamed or N["id"] not in stay], name)
+    return _drop_tunnel_from(_only_in((A, B), (was_a, was_b), renamed), name)
 
 
 def _edit_link_impl(d, h):
@@ -7315,6 +7323,8 @@ def _edit_link_impl(d, h):
                                   "the old setup of this tunnel was not removed, so the move did not happen{0}", gone)
                 act_step(h, tx("اعمال روی نودِ «{0}»", "applying on node '{0}'", A["name"]), 2 + at, n)
                 touched = True
+                for N in _only_in((A, B), (was_a, was_b), name_changed):
+                    _tf_forget(N["id"], [new_name])
                 ra = _node_tunnel(A, a_body)
                 if not ra.get("ok"):
                     raise _node_failed(A, ra)
@@ -7355,6 +7365,8 @@ def _edit_link_impl(d, h):
                 if s["host"] not in kept:
                     hosts.update(_cdn_host_link(s["host"], "", only=L["id"]))
             _cdn_store(L["id"], apply, hosts)
+            for N in _only_in((was_a, was_b), (A, B), name_changed):
+                _tf_forget(N["id"], [old_name])
             _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
         new, tail = None, _cdn_left_note(_cdn_release(old, cdn, L["id"], h))
         if cdn and not early and not _cdn_uptodate(cdn):
