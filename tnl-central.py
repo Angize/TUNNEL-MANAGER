@@ -3642,6 +3642,10 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
         sudo = "" if cfg["user"] == "root" else "sudo -n "
         rc, out, err = _ssh_run(cfg, f"{sudo}python3 /tmp/tnl-node.py --auto-install {agent_port}", 900)
         combined = ((out or "") + "\n" + (err or "")).strip()
+        if "TNL_INSTALL_FAIL=port" in out:
+            return fail("install", tx("پورتِ ایجنت ({0}) روی نود دستِ برنامهٔ دیگری است؛ پورتِ دیگری بده",
+                                      "the agent port ({0}) is used by another program on the node; pick another port",
+                                      agent_port), combined)
         if rc != 0 or "TNL_INSTALL_OK" not in out:
             return fail("install", tx("نصب/راه‌اندازیِ سرویس ناموفق", "installing or starting the service failed"), combined)
         m = re.search(r"TNL_NODE_TOKEN=(\S+)", out)
