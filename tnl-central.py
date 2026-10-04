@@ -2974,7 +2974,7 @@ def _tunnel_extra(src):
                 continue
             h = s.get("host")
             ec = _ech_or_stored(h, ech_map.get(h, ""), s.get("ech")) if pool_ech else ""
-            psnis.append({"host": h, "ech": ec, "path": s.get("path") or src.get("ws_path") or "/"})
+            psnis.append({"host": h, "ech": ec})
         e["ws_edge_snis"] = psnis
         _rs = src.get("ws_rotate_secs")
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
@@ -6192,17 +6192,11 @@ def _ws_pool_fields(d, cur=None):
             res.append(v)
         return res
 
-    old_path = str(cur.get("ws_path") or "").strip()
-
     def _hosts(key):
         seen, res = set(), []
         for x in _list(key):
-            hp = ""
             if isinstance(x, dict):
-                hp = str(x.get("path") or "").strip()
                 x = x.get("host", "")
-            if hp == old_path:
-                hp = ""
             x = str(x).strip().lower()
             if not x or x in seen:
                 continue
@@ -6210,11 +6204,10 @@ def _ws_pool_fields(d, cur=None):
                 raise Bad("bad_sni", "دامنهٔ (SNI) نامعتبر (باید یک دامنهٔ معتبر باشد): {0}",
                           "invalid domain (SNI) (must be a valid domain): {0}", x)
             seen.add(x)
-            res.append((x, hp))
+            res.append(x)
         return res
 
-    clean_ips, clean_snis = _ips("ws_edge_ips"), _hosts("ws_edge_snis")
-    clean_hosts = [h for h, _ in clean_snis]
+    clean_ips, clean_hosts = _ips("ws_edge_ips"), _hosts("ws_edge_snis")
     if not clean_ips:
         raise Bad("pool_needs_ip", "استخر به حداقل یک آی‌پیِ لبه نیاز دارد", "the pool needs at least one edge IP")
     if not clean_hosts:
@@ -6237,15 +6230,12 @@ def _ws_pool_fields(d, cur=None):
     _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""
     ech_map = _fetch_ech_map(clean_hosts, _epx) if ech_on else {}
     snis = []
-    for h, hp in clean_snis:
+    for h in clean_hosts:
         ec = ech_map.get(h, "") if ech_on else ""
         if ech_on and not ec:
             raise Bad("ech_key_missing", "کلیدِ ECH برای «{0}» به دست نیامد — {1}. استخر با ECH روشن ساخته نمی‌شود.",
                       "no ECH key was found for '{0}' — {1}. The pool is not built with ECH on.", h, _ech_why(ec))
-        if hp and not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", hp):
-            raise Bad("bad_ws_path", "مسیرِ WebSocket برای «{0}» نامعتبر است (باید با / شروع شود)",
-                      "invalid WebSocket path for '{0}' (must start with /)", h)
-        snis.append({"host": h, "ech": ec, "path": hp or path})
+        snis.append({"host": h, "ech": ec})
     res = {
         "ws_pool": True,
         "ws_tls": True,
