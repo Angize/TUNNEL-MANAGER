@@ -1222,7 +1222,7 @@
    [
     400,
     "delete_failed",
-    "… — the link was kept; delete again when the node is reachable, or use force…"
+    "… — the link was kept…; delete again when the node is reachable, or use force"
    ],
    [
     400,
