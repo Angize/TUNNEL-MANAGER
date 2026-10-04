@@ -100,7 +100,6 @@ const PHRASE = [
   [/\bNo such file or directory\b/gi, 'err_nofile'],
   [/\bAddress family not supported\b/gi, 'err_afam'],
   [/\bbroken pipe\b/gi, 'err_pipe'],
-  [/\bserver busy,\s*retry shortly\b/gi, 'err_busy'],
   [/\bcertificate\b/gi, 'err_cert'],
 ]
 

@@ -1679,50 +1679,92 @@ def _net_why(e):
 
 
 _NODE_CUT = tx("نود وسطِ ارسال اتصال را بست", "the node closed the connection during the upload")
-_NODE_UNREADABLE = tx("پاسخِ نود قابلِ خواندن نبود", "the node's answer could not be read")
+_PIN_BAD = tx("گواهیِ TLSِ نود با جوابِ امضاشده‌اش جور نیست؛ چیزی سرِ راه است",
+              "the node's TLS certificate does not match its signed answer; something on the path intercepts it")
+_NODE_TLS = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+_NODE_TLS.check_hostname = False
+_NODE_TLS.verify_mode = ssl.CERT_NONE
+_NODE_TLS.minimum_version = ssl.TLSVersion.TLSv1_2
+_node_pins = {}
 
 
 def _node_http(status):
     return {"ok": False, "error": tx("پاسخِ HTTP {0} از نود", "HTTP {0} answer from the node", status)}
 
 
-def _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=True):
+def _node_key(node):
+    return node.get("id") or node.get("host") or ""
+
+
+def _node_tls(node, timeout):
     dh, dp = node["host"], int(node["port"])
-    sock = None
+    proxy = node_proxy(node)
+    raw = _proxy_socket(proxy, dh, dp, timeout) if proxy else socket.create_connection((dh, dp), timeout)
     try:
-        sock = _proxy_socket(proxy, dh, dp, timeout)
-        conn = http.client.HTTPConnection(dh, dp, timeout=timeout)
-        conn.sock = sock
-        data = json.dumps(body or {}).encode() if method == "POST" else None
-        path = f"/api/{wire(endpoint)}"
-        headers = dict(_auth_headers(node, method, path, data))
+        s = _NODE_TLS.wrap_socket(raw)
+    except ssl.SSLError as e:
+        raw.close()
+        raise OSError(tx("دستِ TLS با نود نشد ({0})", "the TLS handshake with the node failed ({0})",
+                         e.reason or type(e).__name__)) from None
+    except BaseException:
+        raw.close()
+        raise
+    return s, hashlib.sha256(s.getpeercert(True)).hexdigest()
+
+
+def _node_sock(node, timeout):
+    key = _node_key(node)
+    s, pin = _node_tls(node, timeout)
+    if pin == _node_pins.get(key):
+        return s
+    path = f"/api/{wire('ping')}"
+    out = _node_exchange(node, s, "GET", path, None)
+    if _stale_ctr(node, out):
+        s, pin = _node_tls(node, timeout)
+        out = _node_exchange(node, s, "GET", path, None)
+    if not out.get("ok"):
+        raise OSError(out.get("error") or _PIN_BAD)
+    if out.get("pin") != pin:
+        raise OSError(_PIN_BAD)
+    _node_pins[key] = pin
+    s, got = _node_tls(node, timeout)
+    if got != pin:
+        s.close()
+        raise OSError(_PIN_BAD)
+    return s
+
+
+def _node_exchange(node, sock, method, path, data):
+    conn = http.client.HTTPConnection(node["host"], int(node["port"]))
+    conn.sock = sock
+    try:
+        headers = _auth_headers(node, method, path, data)
         ctr = headers["X-Ctr"]
-        headers.update(_central_headers(node, True))
+        headers.update(_central_headers(node, bool(node_proxy(node))))
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, path, body=data, headers=headers)
         r = conn.getresponse()
-        raw = r.read()
-        status, sig = r.status, r.getheader("X-Resp-Sig", "")
-        conn.close()
-        sock = None
-        if not _resp_verified(node, ctr, status, raw, sig):
-            return _unsigned_reply()
-        try:
-            out = json.loads(raw.decode())
-        except Exception:
-            return _node_http(status)
-        if _retry and _stale_ctr(node, out):
-            return _node_call_proxied(node, proxy, endpoint, method, body, timeout, _retry=False)
-        return out
-    except Exception as e:
-        return {"ok": False, "offline": True, "error": tx_cut(tx("پروکسی: {0}", "proxy: {0}", _net_why(e)), 90)}
+        return _node_reply(node, ctr, r.status, r.read(), r.getheader("X-Resp-Sig", ""))
     finally:
-        if sock is not None:
-            try:
-                sock.close()
-            except Exception:
-                pass
+        conn.close()
+
+
+def _node_reply(node, ctr, status, raw, sig):
+    if not _resp_verified(node, ctr, status, raw, sig):
+        return _unsigned_reply()
+    try:
+        out = json.loads(raw.decode())
+    except ValueError:
+        out = None
+    return out if isinstance(out, dict) else _node_http(status)
+
+
+def _node_offline(node, e):
+    why = _net_why(e)
+    if node_proxy(node):
+        why = tx("پروکسی: {0}", "proxy: {0}", why)
+    return {"ok": False, "offline": True, "error": tx_cut(why, 90)}
 
 
 _SIGN_KEY = None
@@ -1793,7 +1835,7 @@ def _sig_msg(method, path, ctr, body_sha):
 
 def _auth_headers(node, method, path, data):
     tok = node.get("token", "")
-    ctr = _take_ctr(node.get("id") or node.get("host") or "")
+    ctr = _take_ctr(_node_key(node))
     bs = hashlib.sha256(data).hexdigest() if data else ""
     mac = hmac.new(tok.encode("utf-8"), _sig_msg(method, path, ctr, bs).encode("utf-8"),
                    hashlib.sha256).digest()
@@ -1826,50 +1868,33 @@ def _stale_ctr(node, res):
     if not isinstance(res, dict) or "stale counter" not in str(res.get("error") or ""):
         return False
     try:
-        _bump_ctr(node.get("id") or node.get("host") or "", int(res["ctr"]) + 1)
+        _bump_ctr(_node_key(node), int(res["ctr"]) + 1)
     except (KeyError, TypeError, ValueError):
         return False
     return True
 
 
 def node_call(node, endpoint, method="POST", body=None, timeout=8, _retry=True):
-    proxy = node_proxy(node)
-    if proxy:
-        return _node_call_proxied(node, proxy, endpoint, method, body, timeout)
     path = f"/api/{wire(endpoint)}"
-    url = f"http://{node['host']}:{int(node['port'])}{path}"
     data = json.dumps(body or {}).encode() if method == "POST" else None
-    req = urllib.request.Request(url, data=data, method=method)
-    hdrs = _auth_headers(node, method, path, data)
-    ctr = hdrs["X-Ctr"]
-    for k, v in hdrs.items():
-        req.add_header(k, v)
-    for k, v in _central_headers(node, False).items():
-        req.add_header(k, v)
-    if data is not None:
-        req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            raw = r.read()
-            if not _resp_verified(node, ctr, r.status, raw, r.headers.get("X-Resp-Sig", "")):
-                return _unsigned_reply()
-            out = json.loads(raw.decode())
-            return out if isinstance(out, dict) else {"ok": False, "error": _NODE_UNREADABLE}
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        if not _resp_verified(node, ctr, e.code, raw, e.headers.get("X-Resp-Sig", "")):
-            return _unsigned_reply()
-        try:
-            out = json.loads(raw.decode())
-        except Exception:
-            out = None
-        if not isinstance(out, dict):
-            return _node_http(e.code)
-        if _retry and _stale_ctr(node, out):
-            return node_call(node, endpoint, method, body, timeout, _retry=False)
-        return out
+        out = _node_exchange(node, _node_sock(node, timeout), method, path, data)
     except Exception as e:
-        return {"ok": False, "offline": True, "error": tx_cut(_net_why(e), 80)}
+        return _node_offline(node, e)
+    if _retry and _stale_ctr(node, out):
+        return node_call(node, endpoint, method, body, timeout, _retry=False)
+    return out
+
+
+def _recv_ready(sock):
+    t = sock.gettimeout()
+    sock.setblocking(False)
+    try:
+        return sock.recv(65536)
+    except ssl.SSLWantReadError:
+        return None
+    finally:
+        sock.settimeout(t)
 
 
 def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOUT, chunk=64 * 1024,
@@ -1877,11 +1902,9 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
     dh, dp = node["host"], int(node["port"])
     data = bytes(body) if isinstance(body, (bytes, bytearray)) else json.dumps(body or {}).encode()
     total = len(data)
-    proxy = node_proxy(node)
     sock = None
     try:
-        sock = _proxy_socket(proxy, dh, dp, timeout) if proxy \
-            else socket.create_connection((dh, dp), timeout)
+        sock = _node_sock(node, timeout)
         sock.settimeout(timeout)
         path = "/api/%s" % wire(endpoint)
         head = ["POST %s HTTP/1.1" % path, "Host: %s:%d" % (dh, dp),
@@ -1890,7 +1913,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         hdrs = _auth_headers(node, "POST", path, data)
         ctr = hdrs["X-Ctr"]
         head += ["%s: %s" % kv for kv in hdrs.items()]
-        head += ["%s: %s" % kv for kv in _central_headers(node, bool(proxy)).items()]
+        head += ["%s: %s" % kv for kv in _central_headers(node, bool(node_proxy(node))).items()]
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
         deadline = time.monotonic() + timeout
@@ -1900,10 +1923,12 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             if should_abort and should_abort():
                 return {"ok": False, "cancelled": True, "delivered": False}
             if select.select([sock], [], [], 0)[0]:
-                pre = sock.recv(65536)
-                if not pre:
-                    raise OSError(_NODE_CUT)
-                break
+                got = _recv_ready(sock)
+                if got is not None:
+                    if not got:
+                        raise OSError(_NODE_CUT)
+                    pre = got
+                    break
             n = sock.send(data[sent:sent + chunk])
             if not n:
                 raise OSError(_NODE_CUT)
@@ -1936,21 +1961,13 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         status = st[1].decode() if len(st) > 1 else "?"
         sig = next((l.split(b":", 1)[1].strip().decode() for l in head_blob.split(b"\r\n")
                     if l.lower().startswith(b"x-resp-sig:")), "")
-        payload = rest[:clen] if clen is not None else rest
-        if not _resp_verified(node, ctr, status, payload, sig):
-            return _unsigned_reply()
-        try:
-            out = json.loads(payload.decode())
-        except Exception:
-            return {"ok": False, "error": tx("HTTP {0} از نود", "HTTP {0} from the node", status)}
-        if not isinstance(out, dict):
-            return {"ok": False, "error": _NODE_UNREADABLE}
+        out = _node_reply(node, ctr, status, rest[:clen] if clen is not None else rest, sig)
         if _retry and _stale_ctr(node, out):
             return node_push(node, endpoint, body, on_progress, timeout, chunk, should_abort,
                              _retry=False)
         return out
     except Exception as e:
-        return {"ok": False, "offline": True, "error": tx_cut(_net_why(e), 90)}
+        return _node_offline(node, e)
     finally:
         if sock is not None:
             try:
