@@ -8086,6 +8086,7 @@ def _ech_ingest_link(L, kind, hosts):
         return
     changed, chmap = _ech_write(lid, kind, {h: v[1] for h, v in latest.items()}, degrade=False)
     if changed and chmap:
+        _ech_live_push(lid, chmap)
         log_event("ok", "ech-saved",
                   tx("کلیدِ ECH خودترمیمِ هستهٔ تونلِ «{0}» در پنل ذخیره شد؛ بازسازیِ بعدی دیگر به کلیدِ کهنه برنمی‌گردد",
                      "the self-healed ECH key of tunnel '{0}' was saved in the panel; the next rebuild no longer goes back to the old key",
