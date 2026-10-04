@@ -334,7 +334,7 @@ export const DOCS = {
   },
   'node-del': {
     t: 'Delete a node',
-    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The CDN records and rules of its tunnels are removed first, then the node is cleaned; if either fails, nothing is deleted (a CDN failure answers offer=cdn_skip, and its error names what was undone). On success cdn lists what was done in the CDN.",
+    d: "Deletes the node and all of its tunnels, and forgets the node's SSH host key. The CDN records and rules of its tunnels are removed first, then the node is cleaned. If the CDN step fails, nothing is deleted and the answer has offer=cdn_skip, its error naming what was undone. If the node step fails, the CDN changes are put back, the node and its tunnels stay, and the error names what was put back (after pending_write_failed the node itself may already be wiped). On success cdn lists what was done in the CDN.",
     p: [
       ['id', 1, S, 'node id'],
       ['force', 0, B, 'if the panel has confirmed the node is down, delete it from the panel without cleaning the node'],
@@ -451,7 +451,7 @@ export const DOCS = {
   'delete-link': {
     t: 'Delete a tunnel',
     act: true,
-    d: 'Deletes the tunnel from both ends and from the panel. If one end is down the job ends with offer=force and nothing is deleted; then send it again with force=true. A tunnel the panel set up in a CDN is removed from the CDN first (record, then its rule); if that fails nothing is deleted and the job ends with offer=cdn_skip, its error naming what was undone.',
+    d: 'Deletes the tunnel from both ends and from the panel. A tunnel the panel set up in a CDN is removed from the CDN first (record, then its rule); if that fails nothing is deleted and the job ends with offer=cdn_skip, its error naming what was undone. If an end is down or answers an error, the job ends with offer=force: the tunnel stays in the panel, its CDN is put back, and an end that already answered has removed its half (the error names it); then send it again with force=true.',
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
