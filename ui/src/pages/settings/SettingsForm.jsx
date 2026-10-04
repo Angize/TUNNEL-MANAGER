@@ -164,9 +164,7 @@ export function SettingsFormProvider({ tabs, children }) {
 
   const reset = async () => {
     if (!(await confirmBox(T('set_reset_confirm'), T('set_reset_yes')))) return
-    const body = { tuning: tuningDefaults, ...defaults }
-    delete body.log_hidden
-    const r = await apiPost('settings-set', body)
+    const r = await apiPost('settings-set', { tuning: tuningDefaults, ...defaults })
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
       apply(r.d.settings)

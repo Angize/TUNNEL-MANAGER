@@ -1011,24 +1011,23 @@ def _settings_tuning():
     return out
 
 
+_SETTINGS_RESET = {
+    "reconcile_mode": "alert",
+    "reconcile_interval": 15,
+    "poll_interval": 2,
+    "ui_interval": 2,
+    "uptime_window": 1,
+    "ech_refresh_mins": 15,
+    "agent_delivery": "push",
+    "core_delivery": "push",
+    "dl_proxy_on": False,
+    "dl_proxy_id": "",
+    "api_external": False,
+}
+
+
 def settings_defaults():
-    return {
-        "reconcile_mode": "alert",
-        "reconcile_interval": 15,
-        "poll_interval": 2,
-        "ui_interval": 2,
-        "uptime_window": 1,
-        "ech_refresh_mins": 15,
-        "agent_delivery": "push",
-        "core_delivery": "push",
-        "dl_proxy_on": False,
-        "dl_proxy_id": "",
-        "log_hidden": [],
-        "api_external": False,
-        "api_token_hash": "",
-        "tuning": dict(_TUNING_DEFAULTS),
-        "cdn_edges": [],
-    }
+    return {**_SETTINGS_RESET, "log_hidden": [], "api_token_hash": "", "tuning": dict(_TUNING_DEFAULTS), "cdn_edges": []}
 
 
 def settings_full(raw):
@@ -11573,7 +11572,7 @@ def ui_config():
         "probe_samples": _PROBE_SAMPLES,
         "ev_types": [list(x) for x in EV_TYPES],
         "ev_groups": [list(x) for x in EV_GROUPS],
-        "settings_defaults": {k: v for k, v in settings_defaults().items() if k != "tuning"},
+        "settings_defaults": dict(_SETTINGS_RESET),
         "split_ttl_max": SPLIT_TTL_MAX,
         "limits": {"fake_ttl": [1, FAKE_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
                    "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [0, PORT_TRIES_MAX],
