@@ -6828,7 +6828,7 @@ def _delete_link_impl(d, h):
             if touch:
                 where = _cdn_where([st for _lid, st, _d in jobs])
                 act_step(h, tx("جدا کردن از {0}", "detaching from {0}", where) if keep
-                         else tx("پاک‌کردن از {0}", "removing from {0}", where), 1, n)
+                         else tx("پاک‌کردن از {0}", "removing from {0}", where), 1, n, more=False)
                 prov, why = _cdn_strip_all(jobs, jr)
                 if why:
                     return {"ok": False, "offer": "cdn_skip", "code": "cdn_remove_failed",
@@ -6840,7 +6840,7 @@ def _delete_link_impl(d, h):
                 if s["host"] in _M.cdn_hosts:
                     jr.note(tx("رکوردِ {0} در {1} ماند و حالا «آماده» است", "the record of {0} stays in {1} and is now ready",
                                s["host"], CDN_NAMES[s["provider"]]))
-            act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1 + touch, n, stop=not touch, more=False)
+            act_step(h, tx("برچیدنِ تونل روی دو نود", "removing the tunnel from both nodes"), 1 + touch, n, more=False)
             for nid, nm in ends:
                 node = get_node(nid)
                 if not node:
