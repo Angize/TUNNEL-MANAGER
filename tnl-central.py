@@ -2890,6 +2890,15 @@ def _ech_or_stored(host, fetched, stored):
     return ""
 
 
+def _ech_known(cur):
+    if not cur.get("ech"):
+        return {}
+    got = {s["host"]: s.get("ech") or "" for s in cur.get("ws_edge_snis") or []}
+    if cur.get("ws_host"):
+        got[cur["ws_host"].lower()] = cur.get("ws_ech") or ""
+    return got
+
+
 def _tunnel_extra(src):
     e = {}
     if src.get("port"):
@@ -6135,10 +6144,11 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
         out["ech"] = True
         if not ech_later:
             cfg = _fetch_ech(host, px)
-            if not cfg:
+            known = _ech_known(cur)
+            if not cfg and host.lower() not in known:
                 raise Bad("ech_key_missing", "کلیدِ ECH برای «{0}» به دست نیامد — {1}", "no ECH key was found for '{0}' — {1}",
                           host, _ech_why(cfg))
-            out["ws_ech"] = cfg
+            out["ws_ech"] = _ech_or_stored(host, cfg, known.get(host.lower()))
     cdn = _cdn_carrier(d, cur)
     xh = cdn != "ws"
     if bool(xh):
@@ -6236,12 +6246,14 @@ def _ws_pool_fields(d, cur=None):
     _epx_store = {}
     _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""
     ech_map = _fetch_ech_map(clean_hosts, _epx) if ech_on else {}
+    known = _ech_known(cur)
+    for h in clean_hosts:
+        if ech_on and not ech_map.get(h) and h not in known:
+            raise Bad("ech_key_missing", "کلیدِ ECH برای «{0}» به دست نیامد — {1}. استخر با ECH روشن ساخته نمی‌شود.",
+                      "no ECH key was found for '{0}' — {1}. The pool is not built with ECH on.", h, _ech_why(ech_map.get(h)))
     snis = []
     for h, hp in clean_snis:
-        ec = ech_map.get(h, "") if ech_on else ""
-        if ech_on and not ec:
-            raise Bad("ech_key_missing", "کلیدِ ECH برای «{0}» به دست نیامد — {1}. استخر با ECH روشن ساخته نمی‌شود.",
-                      "no ECH key was found for '{0}' — {1}. The pool is not built with ECH on.", h, _ech_why(ec))
+        ec = _ech_or_stored(h, ech_map.get(h), known.get(h)) if ech_on else ""
         if hp and not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", hp):
             raise Bad("bad_ws_path", "مسیرِ WebSocket برای «{0}» نامعتبر است (باید با / شروع شود)",
                       "invalid WebSocket path for '{0}' (must start with /)", h)
@@ -6689,7 +6701,7 @@ def _create_tunnel_impl(d, h):
     jr = _CdnJournal(h)
     with _cdn_hold(wants, rid, jr, early):
         if early:
-            cdn = _cdn_first(h, name, cdn, extra, jr, 1, steps)
+            cdn = _cdn_first(h, name, cdn, extra, jr, 1, steps, {})
         node_extra = _node_extra(extra)
         a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
                   "host": overlay_host(ttype, server_side, True), **node_extra}
@@ -7278,7 +7290,7 @@ def _edit_link_impl(d, h):
     with _CdnLinkLock(L["id"]):
         with _cdn_hold(wants, L["id"], jr, early):
             old = (get_link(L["id"]) or L).get("cdn")
-            cdn = (_cdn_first(h, new_name, _cdn_state(want, srv_ip, extra["port"], extra, old), extra, jr, 1, n)
+            cdn = (_cdn_first(h, new_name, _cdn_state(want, srv_ip, extra["port"], extra, old), extra, jr, 1, n, _ech_known(L))
                    if early else _cdn_new_state(wants, extra, srv_ip, old))
             node_extra = _node_extra(extra)
             a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
@@ -10303,7 +10315,7 @@ def _ech_from_ns(host, ns, proxy):
     return "", heard
 
 
-def _cdn_ech_key(cred, want, proxy, tick):
+def _cdn_ech_key(cred, want, proxy, tick, known):
     ns, host = _cdn_zone(cred, want["zone"])["ns"], want["host"]
     end, heard = time.monotonic() + CDN_ECH_WAIT, False
     while True:
@@ -10318,6 +10330,8 @@ def _cdn_ech_key(cred, want, proxy, tick):
         if time.monotonic() + CDN_ECH_STEP >= end:
             break
         time.sleep(CDN_ECH_STEP)
+    if host in known:
+        return _ech_or_stored(host, "" if heard else None, known[host])
     raise Bad("cdn_ech_missing", "کلیدِ ECH برای «{0}» تا {1} ثانیه نیامد — {2}", "no ECH key for '{0}' within {1} seconds — {2}",
               host, CDN_ECH_WAIT,
               tx("Encrypted ClientHello در کلودفلر (SSL/TLS › Edge Certificates) روشن است؟",
@@ -10326,14 +10340,14 @@ def _cdn_ech_key(cred, want, proxy, tick):
                       "neither the domain's name servers nor DoH answered — the panel's DNS or ECH proxy is down"))
 
 
-def _cdn_first(h, name, st, extra, jr, i, n):
+def _cdn_first(h, name, st, extra, jr, i, n, known):
     want, ctx = _cdn_args(name, st)
     _cdn_step(h, CDN_NAMES[st["provider"]], i, n)
     new = st["applied"] if _cdn_uptodate(st) else _cdn_apply(st["provider"], st["zone"], [(want, _cdn_base(st, want))], ctx, jr)[0]
 
     def tick():
         act_step(h, tx("منتظرِ کلیدِ ECH", "waiting for the ECH key"), i + 1, n)
-    extra["ws_ech"] = _cdn_ech_key(_cdn_cred(st["provider"]), want, _ech_px(extra), tick)
+    extra["ws_ech"] = _cdn_ech_key(_cdn_cred(st["provider"]), want, _ech_px(extra), tick, known)
     return dict(st, ok=True, code="", error="", error_en="", applied=new)
 
 
