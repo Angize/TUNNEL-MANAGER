@@ -455,9 +455,7 @@
     "core_delivery": "push",
     "dl_proxy_on": false,
     "dl_proxy_id": "",
-    "log_hidden": [],
-    "api_external": false,
-    "api_token_hash": ""
+    "api_external": false
    },
    "split_ttl_max": 8,
    "workers_max": 8,
