@@ -10450,7 +10450,7 @@ def _cf_take_out(cred, zid, rs, rule, gone, jr):
         _cf(cred, "DELETE", path, ok404=True)
         jr.did(tx("قانونِ SSL برای {0} پاک شد", "the SSL rule for {0} removed", names) if ssl
                else tx("قانونِ پورتِ {1} پاک شد ({0} آخرینش بود)", "the rule of port {1} removed ({0} was its last host)", names, port),
-               lambda: _cf(cred, "POST", _cf_rules_path(zid, rs), old))
+               lambda: _cf_put_back(cred, zid, ssl, old))
         return
     if ssl:
         jr.doing(tx("برداشتن از قانونِ SSL", "taking it out of the SSL rule"))
@@ -10460,7 +10460,17 @@ def _cf_take_out(cred, zid, rs, rule, gone, jr):
         jr.doing(tx("برداشتن از قانونِ پورت", "taking it out of the port rule"))
         _cf(cred, "PATCH", path, _cf_rule_body(port, left))
         said = tx("{0} از قانونِ پورتِ {1} برداشته شد", "{0} taken out of the rule of port {1}", names, port)
-    jr.did(said, lambda: _cf(cred, "PATCH", path, old))
+    jr.did(said, lambda: _cf_put_back(cred, zid, ssl, old))
+
+
+def _cf_put_back(cred, zid, ssl, old):
+    phase = _CF_CONFIG if ssl else _CF_ORIGIN
+    rs = _cf_entry(cred, zid, phase)
+    if rs is None:
+        _cf(cred, "PUT", _cf_phase_path(zid, phase), {"rules": [old]})
+        return
+    cur = _cf_rule(rs, old["ref"])
+    _cf(cred, "PATCH" if cur else "POST", _cf_rules_path(zid, rs, cur), old)
 
 
 def _cdn_full(st):
