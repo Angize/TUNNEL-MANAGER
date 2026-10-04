@@ -1,4 +1,4 @@
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 
 function formatMs(value) {
   return (value >= 10 ? Math.round(value) : Math.round(value * 10) / 10) + 'ms'
@@ -19,6 +19,7 @@ function sideState(online, health) {
   if (!health) return { kind: 'bad', word: T('st_disc'), title: T('t_side_notun') }
   if (health.up == null) return { kind: 'na', word: '…', title: T('checking') }
   if (!health.up) return { kind: 'bad', word: T('st_disc'), title: T('t_side_ifdown') }
+  if (health.leak) return { kind: 'bad', word: T('st_leak'), title: TF('tst_leak', { dev: health.leak }) }
   if (health.alive === true) return { kind: 'ok', word: '', title: T('tst_connected') }
   if (health.alive === false) return { kind: 'bad', word: T('st_disc'), title: T('tst_dead') }
   return { kind: 'na', word: '…', title: T('checking') }
@@ -35,6 +36,7 @@ export function sideText(online, health, err) {
   if (!health) return err ? T('t_side_err') + ' ' + err : T('t_side_notun')
   if (health.up == null) return T('checking')
   if (!health.up) return T('t_side_ifdown')
+  if (health.leak) return TF('t_side_leak', { dev: health.leak })
   if (health.alive === true) {
     const extra = pingInfo(health)
     return T('t_side_conn') + (extra ? ' · ' + extra : '')

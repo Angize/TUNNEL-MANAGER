@@ -613,7 +613,8 @@
       "dead": false,
       "rtt_ms": 0.5,
       "loss_pct": 0.0,
-      "crossed": true
+      "crossed": true,
+      "leak": ""
      },
      "b_health": {
       "up": true,
@@ -621,7 +622,8 @@
       "dead": false,
       "rtt_ms": 1.3,
       "loss_pct": 0.0,
-      "crossed": true
+      "crossed": true,
+      "leak": ""
      },
      "a_ips": [
       "10.77.3.2",
@@ -681,7 +683,8 @@
       "dead": false,
       "rtt_ms": 0.4,
       "loss_pct": 0.0,
-      "crossed": true
+      "crossed": true,
+      "leak": ""
      },
      "b_health": {
       "up": true,
@@ -689,7 +692,8 @@
       "dead": false,
       "rtt_ms": 1.3,
       "loss_pct": 0.0,
-      "crossed": true
+      "crossed": true,
+      "leak": ""
      },
      "a_ips": [
       "10.77.3.2",
@@ -1435,7 +1439,8 @@
     "dead": false,
     "rtt_ms": 0.9,
     "loss_pct": 0.0,
-    "crossed": true
+    "crossed": true,
+    "leak": ""
    },
    "b_health": {
     "up": true,
@@ -1443,7 +1448,8 @@
     "dead": false,
     "rtt_ms": 1.4,
     "loss_pct": 0.0,
-    "crossed": true
+    "crossed": true,
+    "leak": ""
    },
    "a_error": "",
    "b_error": ""
