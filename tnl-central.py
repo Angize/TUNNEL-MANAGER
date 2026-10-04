@@ -6562,19 +6562,14 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         ce["port_tries"] = _ptries
     if (bool(d.get("gso")) if "gso" in d else (new or bool(cur.get("gso")))):
         ce["gso"] = True
-    if "ip_rotate" in d:
-        if transport in DIRECT_TRANSPORTS and bool(d.get("ip_rotate")):
-            ap = _pool_with(a_ip, d["a_ip_pool"] if "a_ip_pool" in d else cur.get("a_ip_pool"), a_ips)
-            bp = _pool_with(b_ip, d["b_ip_pool"] if "b_ip_pool" in d else cur.get("b_ip_pool"), b_ips)
-            if len(ap) >= 2 or len(bp) >= 2:
-                ce["ip_rotate"] = True
-                ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
-                ce["rotate_secs"] = _rotate_secs(d["rotate_secs"] if "rotate_secs" in d else cur.get("rotate_secs"),
-                                                 86400, tx("فاصلهٔ چرخش", "rotation interval"))
-    elif cur.get("ip_rotate"):
-        for _k in _ROTATION_KEYS:
-            if cur.get(_k) is not None:
-                ce[_k] = cur[_k]
+    if transport in DIRECT_TRANSPORTS and bool(d["ip_rotate"] if "ip_rotate" in d else cur.get("ip_rotate")):
+        ap = _pool_with(a_ip, d["a_ip_pool"] if "a_ip_pool" in d else cur.get("a_ip_pool"), a_ips)
+        bp = _pool_with(b_ip, d["b_ip_pool"] if "b_ip_pool" in d else cur.get("b_ip_pool"), b_ips)
+        if len(ap) >= 2 or len(bp) >= 2:
+            ce["ip_rotate"] = True
+            ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
+            ce["rotate_secs"] = _rotate_secs(d["rotate_secs"] if "rotate_secs" in d else cur.get("rotate_secs"),
+                                             86400, tx("فاصلهٔ چرخش", "rotation interval"))
     server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (cur.get("server_side") or "a")
     return ce, server_side
 
