@@ -4,7 +4,7 @@ import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import { useActionBusy } from '../../lib/useBusy.js'
 import { copyText } from '../../components/CopyValue.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
@@ -33,12 +33,13 @@ function nodeState(item, health) {
   if (item.offline) return { kind: 'bad', word: T('st_disc'), title: T('pf_node_off_t') }
   if (health.up == null) return { kind: 'na', word: '…', title: T('checking') }
   if (!health.rule) return { kind: 'bad', word: T('pf_no_rule'), title: T('pf_no_rule_t') }
+  if (item.lip_gone) return { kind: 'bad', word: T('pf_lip_gone'), title: T('pf_lip_gone_t') }
   return { kind: 'ok', word: '', title: '' }
 }
 
 function destState(item, health) {
   if (item.enabled === false) return OFF
-  if (item.offline || health.up == null || !health.rule) return { kind: 'na', word: '', title: '' }
+  if (item.offline || health.up == null || !health.rule || item.lip_gone) return { kind: 'na', word: '', title: '' }
   if (health.reachable) return { kind: 'ok', word: '', title: '' }
   if (health.reachable == null) return { kind: 'na', word: T('pf_unk'), title: T('pf_dest_unk_t') }
   return { kind: 'bad', word: T('st_disc'), title: '' }
@@ -179,6 +180,12 @@ function PortfwCard({ item, onEdit, onChanged }) {
 
   return (
     <AccordionCard id={item.node_id + item.name} kind="portfw" className={'acc' + (enabled ? '' : ' off')} head={head}>
+      {enabled && item.lip_gone ? (
+        <div className="msg err" style={{ margin: '0 0 9px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="warn" color="var(--bad-tx)" />
+          <span>{TF('pf_lip_gone_note', { ip: item.listen_ip })}</span>
+        </div>
+      ) : null}
       <div className="tninfo">
         <Box name={item.node} state={node} text={listenIp || T('pf_lip_all')} copy={!!listenIp} />
         <span className="tnarrow">

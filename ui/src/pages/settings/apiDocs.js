@@ -549,7 +549,7 @@ export const DOCS = {
 
   'portfw-list': {
     t: 'List the port forwards',
-    d: 'Every port forward on every node with its active destination and traffic.',
+    d: 'Every port forward on every node with its active destination and traffic. lip_gone is true when listen_ip is no longer an address of the node; the forward then usually receives nothing.',
     p: [['q', 0, S, 'search in the node name, the ports and the IPs']],
   },
   portfw: {

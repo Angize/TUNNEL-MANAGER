@@ -13,6 +13,7 @@ const PAGE_LABEL = {
   nodes: 'nav_nodes',
   tunnels: 'tun_title',
   core: 'core_title',
+  portfw: 'nav_portfw',
   settings: 'nav_settings',
   'set-upkeep': 'set_tab_upkeep',
 }

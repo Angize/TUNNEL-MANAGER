@@ -879,6 +879,7 @@
      "listen_port": "15100",
      "listen_ip": "",
      "node_ip": "",
+     "lip_gone": false,
      "dst_port": "22",
      "dst_ips": [
       "10.77.4.2",
