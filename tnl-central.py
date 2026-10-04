@@ -3214,8 +3214,10 @@ def api_summary(d):
             continue
         if not state:
             down += 1
-            alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "msg": tx(
-                "تونلِ «{0}» قطع است", "tunnel '{0}' is down", L.get("name"))})
+            leak = _leak_end(L, nmap)
+            msg = tx("تونلِ «{0}» قطع است — روی «{1}» مسیر به {2} می‌رود", "tunnel '{0}' is down — on '{1}' the route goes to {2}",
+                     L.get("name"), *leak) if leak else tx("تونلِ «{0}» قطع است", "tunnel '{0}' is down", L.get("name"))
+            alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "msg": msg})
             continue
         sides = [h for h in (ah, bh) if isinstance(h, dict)]
         if any(h.get("alive") is True for h in sides):
@@ -8623,7 +8625,20 @@ def _link_blind(L):
     return [k for k in ("a_node", "b_node") if not _link_side_health(L, k)[1]]
 
 
+def _leak_end(L, nmap):
+    for k in ("a_node", "b_node"):
+        h = _link_side_health(L, k)[0]
+        if isinstance(h, dict) and h.get("leak"):
+            return nmap.get(L.get(k), ""), str(h["leak"])
+    return None
+
+
 def _link_down_reason(L, nmap, silent=False):
+    leak = _leak_end(L, nmap)
+    if leak:
+        return tx("روی «{0}» مسیرِ نشانیِ همتا به {1} می‌رود، نه به تونل — اینترفیسِ دیگری همین سابنت یا همین نشانی را دارد",
+                  "on '{0}' the route to the peer address goes to {1}, not the tunnel — another interface holds the same subnet or address",
+                  *leak)
     blind = _link_blind(L)
     if blind:
         seen = "b_node" if blind[0] == "a_node" else "a_node"
