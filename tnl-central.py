@@ -11534,6 +11534,7 @@ def api_backup_restore(d):
 
 
 CHECKIN_CTR_PERSIST_MS = 60000
+CHECKIN_SKEW_MS = 600000
 
 _checkin_ctr = {}
 _checkin_ctr_saved = {}
@@ -11561,9 +11562,8 @@ def checkin_ctr_accept(nid, ctr):
 
 
 def _checkin_claimant(d):
-    fp = str(d.get("fp") or "")
     sig = str(d.get("sig") or "")
-    if len(fp) != 64 or not sig:
+    if not sig:
         return None, "unauthorized"
     signed = {k: v for k, v in d.items() if k != "sig"}
     msg = json.dumps(signed, sort_keys=True, separators=(",", ":")).encode()
@@ -11571,20 +11571,19 @@ def _checkin_claimant(d):
         got = base64.b64decode(sig, validate=True)
     except Exception:
         return None, "unauthorized"
-    for node in load_nodes():
-        tok = str(node.get("token") or "")
-        if not tok or not secret_eq(hashlib.sha256(tok.encode()).hexdigest(), fp):
-            continue
-        if not hmac.compare_digest(hmac.new(tok.encode(), msg, hashlib.sha256).digest(), got):
-            return None, "unauthorized"
-        try:
-            ctr = int(d.get("ctr") or 0)
-        except (TypeError, ValueError):
-            return None, "unauthorized"
-        if not checkin_ctr_accept(node["id"], ctr):
-            return None, "stale"
-        return node, ""
-    return None, "unauthorized"
+    node = next((n for n in load_nodes() if n.get("token") and hmac.compare_digest(
+        hmac.new(str(n["token"]).encode(), msg, hashlib.sha256).digest(), got)), None)
+    if not node:
+        return None, "unauthorized"
+    try:
+        ctr = int(d.get("ctr") or 0)
+    except (TypeError, ValueError):
+        return None, "unauthorized"
+    if abs(ctr - int(time.time() * 1000)) > CHECKIN_SKEW_MS:
+        return None, "skew"
+    if not checkin_ctr_accept(node["id"], ctr):
+        return None, "stale"
+    return node, ""
 
 
 def api_checkin_impl(source_ip, d):
@@ -11594,6 +11593,10 @@ def api_checkin_impl(source_ip, d):
             return {"ok": False, "stale": True,
                     "error": "شمارندهٔ این درخواست از درخواستِ قبلیِ همین نود عقب‌تر است "
                              "— یا تکرارِ یک پیامِ قدیمی است یا ساعتِ نود عقب رفته"}
+        if why == "skew":
+            return {"ok": False, "stale": True,
+                    "error": "زمانِ این درخواست بیش از ۱۰ دقیقه با ساعتِ پنل فاصله دارد "
+                             "— یا پیامِ قدیمی است یا ساعتِ نود درست نیست"}
         return {"ok": False, "unauthorized": True,
                 "error": "درخواستِ نود امضا ندارد یا نود ناشناخته است"}
     tok = str(n.get("token", ""))
