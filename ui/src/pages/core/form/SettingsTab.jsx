@@ -14,7 +14,7 @@ import WsSection from './WsSection.jsx'
 import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
-import { coverOk, wkCarrier } from './gates.js'
+import { coverOk, ctbDefault, wkCarrier } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
 import { NO_AUTOFIX, rangeLabel } from '../../../lib/form.js'
@@ -70,7 +70,13 @@ export default function SettingsTab({
                 on={profile.v === form.RawProfile}
                 name={profile.v}
                 meta={profile.m}
-                onClick={() => patch(profile.v === 'sctp' ? { RawProfile: profile.v, Ctb: true } : { RawProfile: profile.v })}
+                onClick={() =>
+                  patch(
+                    profile.v !== form.RawProfile && ctbDefault(profile.v, cfg.enums)
+                      ? { RawProfile: profile.v, Ctb: true }
+                      : { RawProfile: profile.v }
+                  )
+                }
               />
             ))}
           </Tiles>

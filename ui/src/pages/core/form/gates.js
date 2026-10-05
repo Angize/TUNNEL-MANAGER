@@ -81,3 +81,7 @@ export function rotIsDirect(form, enums) {
 export function rotMulti(form, enums, aIps, bIps) {
   return (aIps.length > 1 || bIps.length > 1) && rotIsDirect(form, enums)
 }
+
+export function ctbDefault(profile, enums) {
+  return ((enums && enums.ctb_default) || []).includes(profile)
+}
