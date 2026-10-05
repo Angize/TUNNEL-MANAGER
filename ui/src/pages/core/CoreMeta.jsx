@@ -125,7 +125,7 @@ function TunnelIp({ subnet, host }) {
 }
 
 function rawPorted(link) {
-  return link.transport === 'raw' && (link.raw_profile === 'udp' || link.raw_profile === 'tcp')
+  return link.transport === 'raw' && (link.raw_profile === 'udp' || link.raw_profile === 'tcp' || link.raw_profile === 'sctp')
 }
 
 function rawRotating(link) {

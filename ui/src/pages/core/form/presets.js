@@ -20,6 +20,7 @@ export function rawProfiles() {
     { v: 'ipip', m: T('rawp_ipip_m') },
     { v: 'udp', m: T('rawp_udp_m') },
     { v: 'tcp', m: T('rawp_tcp_m') },
+    { v: 'sctp', m: T('rawp_sctp_m') },
     { v: 'esp', m: T('rawp_esp_m') },
     { v: 'l2tpv3', m: T('rawp_l2tpv3_m') },
     { v: 'ah', m: T('rawp_ah_m') },

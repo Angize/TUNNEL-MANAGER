@@ -53,7 +53,7 @@ TYPES = ("vxlan", "gre", "sit", "ipip", "l2tpv3", "fou", "ipsec", "core")
 IPIP_FAMILY = ("ipip", "fou")
 CORE_CIPHERS = ("auto", "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "xchacha20-poly1305", "none")
 CORE_RAW_PROFILE_PROTOS = {"bare": 253, "ipip": 4, "gre": 47, "icmp": 1, "udp": 17, "tcp": 6, "esp": 50,
-                           "ah": 51, "etherip": 97, "ipcomp": 108, "l2tpv3": 115}
+                           "ah": 51, "etherip": 97, "ipcomp": 108, "l2tpv3": 115, "sctp": 132}
 CORE_RAW_PROFILES = tuple(sorted(CORE_RAW_PROFILE_PROTOS))
 CORE_TRANSPORTS       = ("udp", "tcp", "raw", "ws")
 SOCKBUF_TRANSPORTS    = ("udp", "raw")
@@ -61,7 +61,7 @@ TCPBUF_TRANSPORTS     = ("tcp", "ws")
 MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
-PORTED_RAW_PROFILES   = ("udp", "tcp")
+PORTED_RAW_PROFILES   = ("udp", "tcp", "sctp")
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
 DESYNC_INJECT_TTL_MAX = 8
@@ -6569,13 +6569,13 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             _rport = int((d["raw_port"] if "raw_port" in d else cur.get("raw_port")) or 0)
         except (TypeError, ValueError):
             _rport = 0
-        if _rport and profile in ("udp", "tcp"):
+        if _rport and profile in PORTED_RAW_PROFILES:
             if not 1 <= _rport <= 65535:
                 raise Bad("bad_raw_port", "پورتِ حامل باید بینِ 1 تا 65535 باشد", "the carrier port must be from 1 to 65535")
             ce["raw_port"] = _rport
         elif _rport and "raw_port" in d:
-            raise Bad("raw_port_not_allowed", "«پورتِ حامل» فقط برای پروفایلِ udp و tcp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                      "raw_port is only for the udp and tcp profiles; '{0}' fakes no port", profile)
+            raise Bad("raw_port_not_allowed", "«پورتِ حامل» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
+                      "raw_port is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
         _srand_req, _rsport_req = "raw_sport_random" in d, "raw_sport" in d
         _srand = bool(d["raw_sport_random"] if _srand_req else cur.get("raw_sport_random"))
         try:
@@ -6589,7 +6589,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             _srand = False
         if _srand_req and _srand and not _rsport_req:
             _rsport = 0
-        if profile in ("udp", "tcp"):
+        if profile in PORTED_RAW_PROFILES:
             if _srand:
                 ce["raw_sport_random"] = True
             elif _rsport:
@@ -6598,16 +6598,16 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                 ce["raw_sport"] = _rsport
         else:
             if _srand and "raw_sport_random" in d:
-                raise Bad("raw_sport_not_allowed", "«پورتِ مبدأِ چرخان» فقط برای پروفایلِ udp و tcp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                          "raw_sport_random is only for the udp and tcp profiles; '{0}' fakes no port", profile)
+                raise Bad("raw_sport_not_allowed", "«پورتِ مبدأِ چرخان» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
+                          "raw_sport_random is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
             if _rsport and "raw_sport" in d:
-                raise Bad("raw_sport_not_allowed", "«پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                          "raw_sport is only for the udp and tcp profiles; '{0}' fakes no port", profile)
+                raise Bad("raw_sport_not_allowed", "«پورتِ مبدأ» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
+                          "raw_sport is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
         try:
             _rrot = int((d["raw_sport_rotate"] if "raw_sport_rotate" in d else cur.get("raw_sport_rotate")) or 0)
         except (TypeError, ValueError):
             _rrot = 0
-        if profile in ("udp", "tcp"):
+        if profile in PORTED_RAW_PROFILES:
             if _rrot:
                 if not 1 <= _rrot <= RAW_SPROT_MAX:
                     raise Bad("bad_sport_rotate", "«چرخشِ پورتِ مبدأ» باید بینِ 1 تا {0} باشد (هر چند پکت یک پورتِ تازه؛ زیرِ سقفِ per-tuple میدل‌باکس)",
@@ -6631,13 +6631,18 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                           "raw_dports has no effect without raw_sport_rotate — with a fixed source every packet still lands "
                           "in the same middlebox bucket. Turn rotation on first")
         elif _rrot and "raw_sport_rotate" in d:
-            raise Bad("raw_sport_not_allowed", "«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                      "raw_sport_rotate is only for the udp and tcp profiles; '{0}' fakes no port", profile)
-        _ctb = bool(d["conntrack_bypass"]) if "conntrack_bypass" in d else bool(cur.get("conntrack_bypass"))
+            raise Bad("raw_sport_not_allowed", "«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
+                      "raw_sport_rotate is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
+        if "conntrack_bypass" in d:
+            _ctb = bool(d["conntrack_bypass"])
+        elif "conntrack_bypass" in cur:
+            _ctb = bool(cur["conntrack_bypass"])
+        else:
+            _ctb = profile == "sctp"
         if _ctb:
-            if profile not in ("udp", "tcp"):
-                raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp معنا دارد؛ «{0}» به‌ازای هر پکت جریانِ تازه نمی‌سازد",
-                          "conntrack_bypass only makes sense for the udp and tcp profiles; '{0}' does not open a new flow per packet",
+            if profile not in PORTED_RAW_PROFILES:
+                raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp و sctp معنا دارد؛ «{0}» به‌ازای هر پکت جریانِ تازه نمی‌سازد",
+                          "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '{0}' does not open a new flow per packet",
                           profile)
             ce["conntrack_bypass"] = True
     if transport == "ws":

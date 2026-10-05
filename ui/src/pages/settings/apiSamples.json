@@ -496,7 +496,8 @@
     ],
     "raw_ported": [
      "udp",
-     "tcp"
+     "tcp",
+     "sctp"
     ],
     "http_shape": {
      "http_up_workers": {
@@ -533,7 +534,8 @@
      "ah": 51,
      "etherip": 97,
      "ipcomp": 108,
-     "l2tpv3": 115
+     "l2tpv3": 115,
+     "sctp": 132
     },
     "edge_ports": {
      "tls": [

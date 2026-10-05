@@ -22,7 +22,7 @@ export function sprotLive(form) {
 }
 
 export function rawPortOn(form) {
-  return form.Tr === 'raw' && (form.RawProfile === 'udp' || form.RawProfile === 'tcp')
+  return form.Tr === 'raw' && (form.RawProfile === 'udp' || form.RawProfile === 'tcp' || form.RawProfile === 'sctp')
 }
 
 export function protoVisOn(form) {
