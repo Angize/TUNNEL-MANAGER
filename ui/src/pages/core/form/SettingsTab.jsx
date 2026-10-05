@@ -70,7 +70,7 @@ export default function SettingsTab({
                 on={profile.v === form.RawProfile}
                 name={profile.v}
                 meta={profile.m}
-                onClick={() => patch({ RawProfile: profile.v })}
+                onClick={() => patch(profile.v === 'sctp' ? { RawProfile: profile.v, Ctb: true } : { RawProfile: profile.v })}
               />
             ))}
           </Tiles>

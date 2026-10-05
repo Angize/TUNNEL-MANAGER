@@ -26,6 +26,11 @@ const DPORT_PRESETS = {
     { v: 80, sub: () => 'HTTP' },
     { v: 8443, sub: () => 'HTTPS-alt' },
   ],
+  sctp: [
+    { v: 443, sub: () => 'HTTPS' },
+    { v: 2905, sub: () => 'M3UA' },
+    { v: 3868, sub: () => 'Diameter' },
+  ],
 }
 
 const SPORT_PRESETS = {
@@ -35,6 +40,7 @@ const SPORT_PRESETS = {
     { v: 500, sub: () => T('raw_sport_ike') },
   ],
   tcp: [],
+  sctp: [],
 }
 
 function SourcePort({ form, limits, patch }) {

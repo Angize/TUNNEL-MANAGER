@@ -49,6 +49,7 @@ export default {
   rawp_ipip_m: 'proto 4 · IP-in-IP',
   rawp_udp_m: 'proto 17 · UDP',
   rawp_tcp_m: 'proto 6 · TCP جعلی',
+  rawp_sctp_m: 'proto 132 · SCTP',
   rawp_esp_m: 'proto 50 · IPsec ESP',
   rawp_l2tpv3_m: 'proto 115 · تونلِ L2TPv3',
   rawp_ah_m: 'proto 51 · IPsec AH',
@@ -75,7 +76,7 @@ export default {
   raw_sport_bad: 'پورتِ مبدأ باید بینِ 1 تا 65535 باشد',
 
   raw_sprot_t: 'چرخشِ پورتِ مبدأ',
-  raw_sprot_d: 'هر چند پکت یک پورتِ تازه · پروفایلِ udp یا tcp',
+  raw_sprot_d: 'هر چند پکت یک پورتِ تازه · پروفایلِ udp، tcp یا sctp',
   raw_sprot_lbl: 'هر چند پکت',
   raw_sprot_bad: 'عدد باید بینِ 1 تا 60 باشد',
   raw_dports_lbl: 'چند پورتِ مقصد',

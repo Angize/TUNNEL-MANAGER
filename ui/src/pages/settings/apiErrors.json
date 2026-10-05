@@ -896,7 +896,7 @@
    [
     400,
     "conntrack_not_allowed",
-    "conntrack_bypass only makes sense for the udp and tcp profiles; '…' does not open a new flow per packet"
+    "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '…' does not open a new flow per packet"
    ],
    [
     400,
@@ -1046,7 +1046,7 @@
    [
     400,
     "raw_port_not_allowed",
-    "raw_port is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_port is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
@@ -1056,17 +1056,17 @@
    [
     400,
     "raw_sport_not_allowed",
-    "raw_sport is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_sport is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
     "raw_sport_not_allowed",
-    "raw_sport_random is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_sport_random is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
     "raw_sport_not_allowed",
-    "raw_sport_rotate is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_sport_rotate is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
@@ -1612,7 +1612,7 @@
    [
     400,
     "conntrack_not_allowed",
-    "conntrack_bypass only makes sense for the udp and tcp profiles; '…' does not open a new flow per packet"
+    "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '…' does not open a new flow per packet"
    ],
    [
     400,
@@ -1757,7 +1757,7 @@
    [
     400,
     "raw_port_not_allowed",
-    "raw_port is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_port is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
@@ -1767,17 +1767,17 @@
    [
     400,
     "raw_sport_not_allowed",
-    "raw_sport is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_sport is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
     "raw_sport_not_allowed",
-    "raw_sport_random is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_sport_random is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
     "raw_sport_not_allowed",
-    "raw_sport_rotate is only for the udp and tcp profiles; '…' fakes no port"
+    "raw_sport_rotate is only for the udp, tcp and sctp profiles; '…' fakes no port"
    ],
    [
     400,
