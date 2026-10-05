@@ -13,16 +13,8 @@ export function bandOn(form, enums) {
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 
-export function ctbOn(form, enums) {
-  return rawPorted(form, enums)
-}
-
-export function sprotLive(form) {
-  return rawPortOn(form) && !!form.Sprot
-}
-
-export function rawPortOn(form) {
-  return form.Tr === 'raw' && (form.RawProfile === 'udp' || form.RawProfile === 'tcp' || form.RawProfile === 'sctp')
+export function sprotLive(form, enums) {
+  return rawPorted(form, enums) && !!form.Sprot
 }
 
 export function protoVisOn(form) {

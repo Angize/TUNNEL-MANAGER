@@ -6,7 +6,7 @@ import Field from '../../../components/Field.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Stepper from '../../../components/Stepper.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
-import { ctbOn, rawPortOn, sprotLive } from './gates.js'
+import { rawPorted, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
@@ -43,9 +43,9 @@ const SPORT_PRESETS = {
   sctp: [],
 }
 
-function SourcePort({ form, limits, patch }) {
+function SourcePort({ form, enums, limits, patch }) {
   const id = useId()
-  const locked = sprotLive(form)
+  const locked = sprotLive(form, enums)
   const current = intOf(form.rawSport)
   const presets = SPORT_PRESETS[form.RawProfile]
   const label = rangeLabel(T('raw_sport_lbl'), ...limits.port)
@@ -97,8 +97,8 @@ function SourcePort({ form, limits, patch }) {
   )
 }
 
-function SportRotation({ form, patch }) {
-  const live = sprotLive(form)
+function SportRotation({ form, enums, patch }) {
+  const live = sprotLive(form, enums)
 
   const toggle = () => {
     if (live) {
@@ -135,7 +135,7 @@ function SportRotation({ form, patch }) {
               />
             </Field>
           </div>
-          <WarnCap text={sprotErr(form)} style={{ marginTop: 8 }} />
+          <WarnCap text={sprotErr(form, enums)} style={{ marginTop: 8 }} />
         </div>
       </Reveal>
     </div>
@@ -179,26 +179,24 @@ function RawPort({ form, cfg, patch }) {
         onChange={(v) => patch({ rawPort: v })}
       />
       <SwapCascade value={!!form.SportRandom}>
-        <SourcePort form={form} limits={cfg.limits} patch={patch} />
+        <SourcePort form={form} enums={cfg.enums} limits={cfg.limits} patch={patch} />
         <Reveal show={form.SportRandom}>{draws}</Reveal>
-        <SportRotation form={form} patch={patch} />
+        <SportRotation form={form} enums={cfg.enums} patch={patch} />
         <Reveal show={!form.SportRandom}>{draws}</Reveal>
       </SwapCascade>
-      <Reveal show={ctbOn(form, cfg.enums)}>
-        <SwitchRow
-          on={!!form.Ctb}
-          title={T('ctb_t')}
-          note={T('ctb_d')}
-          onToggle={() => patch({ Ctb: !form.Ctb })}
-        />
-      </Reveal>
+      <SwitchRow
+        on={!!form.Ctb}
+        title={T('ctb_t')}
+        note={T('ctb_d')}
+        onToggle={() => patch({ Ctb: !form.Ctb })}
+      />
     </div>
   )
 }
 
 export default function PortSection(props) {
   return (
-    <Reveal show={rawPortOn(props.form)}>
+    <Reveal show={rawPorted(props.form, props.cfg.enums)}>
       <RawPort {...props} />
     </Reveal>
   )

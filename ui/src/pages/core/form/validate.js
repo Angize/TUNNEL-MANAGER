@@ -62,8 +62,8 @@ export function sprotOf(form) {
   return blank(form.rawSprot) ? SPROT_DEFAULT : intOf(form.rawSprot)
 }
 
-export function sprotErr(form) {
-  if (!sprotLive(form)) return ''
+export function sprotErr(form, enums) {
+  if (!sprotLive(form, enums)) return ''
   const n = sprotOf(form)
   if (!(n >= 1 && n <= RAW_SPROT_MAX)) return T('raw_sprot_bad')
   const dports = intOf(form.rawDports)

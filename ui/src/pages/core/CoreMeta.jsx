@@ -38,8 +38,8 @@ function capabilities(link) {
   return tags
 }
 
-function ConntrackWarning({ link }) {
-  if (!rawPorted(link) || !rawRotating(link) || link.conntrack_bypass) return null
+function ConntrackWarning({ link, ported }) {
+  if (!rawPorted(link, ported) || !rawRotating(link) || link.conntrack_bypass) return null
 
   const ct = link.ct || {}
   const pct = num(ct.pct)
@@ -124,18 +124,18 @@ function TunnelIp({ subnet, host }) {
   )
 }
 
-function rawPorted(link) {
-  return link.transport === 'raw' && (link.raw_profile === 'udp' || link.raw_profile === 'tcp' || link.raw_profile === 'sctp')
+function rawPorted(link, ported) {
+  return link.transport === 'raw' && ported.includes(link.raw_profile)
 }
 
 function rawRotating(link) {
   return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
 }
 
-function sidePorts(link, rungTransports) {
+function sidePorts(link, rungTransports, ported) {
   const transport = link.transport || 'udp'
   if (transport === 'raw') {
-    if (!rawPorted(link)) return []
+    if (!rawPorted(link, ported)) return []
     const live = link.rot_live || {}
     const dst = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
     if (!rawRotating(link)) {
@@ -172,8 +172,8 @@ function capCells(link) {
   )
 }
 
-function rawCells(link) {
-  if (!rawPorted(link)) return []
+function rawCells(link, ported) {
+  if (!rawPorted(link, ported)) return []
   const live = link.rot_live || {}
   const cells = []
   const dports = num(live.dports) || num(link.raw_dports)
@@ -197,7 +197,7 @@ function edgeRotation(link) {
   return item ? item.label : secs + 's'
 }
 
-function sharedCells(link) {
+function sharedCells(link, ported) {
   const profile = carrierProfile(link)
   const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
@@ -218,7 +218,7 @@ function sharedCells(link) {
       )
     ),
     ...capCells(link),
-    ...rawCells(link),
+    ...rawCells(link, ported),
   ]
   if (link.transport === 'ws' && link.ws_pool) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
   return cells
@@ -242,13 +242,14 @@ function Cell({ c }) {
 export default function CoreMeta({ link, activeEdge }) {
   const { enums } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
+  const ported = (enums && enums.raw_ported) || []
   const rows = [
     [
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
     ],
-    ...sidePorts(link, rungTransports),
-    ...pairs(sharedCells(link)),
+    ...sidePorts(link, rungTransports, ported),
+    ...pairs(sharedCells(link, ported)),
   ]
 
   return (
@@ -268,7 +269,7 @@ export default function CoreMeta({ link, activeEdge }) {
           </Fragment>
         ))}
       </div>
-      <ConntrackWarning link={link} />
+      <ConntrackWarning link={link} ported={ported} />
       <EdgeBlock link={link} activeEdge={activeEdge} />
     </>
   )
