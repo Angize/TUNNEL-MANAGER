@@ -11506,7 +11506,8 @@ def api_checkin_impl(source_ip, d):
         if not n:
             return {"ok": False, "error": "نودِ ناشناخته"}
         n_snap, host, port = dict(n), n.get("host"), int(n.get("port") or 0)
-    want_host = source_ip if (source_ip and is_ipv4(source_ip)) else host
+    ips = (d or {}).get("ips")
+    want_host = source_ip if (source_ip and is_ipv4(source_ip) and isinstance(ips, list) and source_ip in ips) else host
     try:
         want_port = int((d or {}).get("port") or 0)
     except (TypeError, ValueError):
