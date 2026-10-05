@@ -2255,6 +2255,16 @@
    }
   }
  },
+ "sign-key-rotate": {
+  "req": {},
+  "q": null,
+  "ok": {
+   "code": 200,
+   "ok": true,
+   "rotated": 2,
+   "pending": []
+  }
+ },
  "events-clear": {
   "req": {},
   "q": null,

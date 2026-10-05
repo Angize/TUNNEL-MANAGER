@@ -1769,27 +1769,95 @@ def _node_offline(node, e):
 _SIGN_KEY = None
 
 
+def _genrsa(path):
+    subprocess.run(["openssl", "genrsa", "-out", path, "2048"], check=True, capture_output=True)
+    os.chmod(path, 0o600)
+
+
 def _signing_keys():
     global _SIGN_KEY
     if _SIGN_KEY:
         return _SIGN_KEY
     priv = os.path.join(CENTRAL_DIR, "sign_key.pem")
     if not os.path.isfile(priv):
-        subprocess.run(["openssl", "genrsa", "-out", priv, "2048"], check=True, capture_output=True)
-        os.chmod(priv, 0o600)
+        _genrsa(priv)
     pub = subprocess.run(["openssl", "rsa", "-in", priv, "-pubout"], check=True, capture_output=True).stdout.decode()
     _SIGN_KEY = (priv, pub)
     return _SIGN_KEY
 
 
-def _sign_sha(sha_hex):
+SIGN_PREV_DIR = os.path.join(CENTRAL_DIR, "sign_prev")
+SIGN_PREV_RE = re.compile(r"^[0-9]{1,20}\.pem$")
+_sign_lock = threading.Lock()
+_issued_last = 0
+
+
+def _sign(text, priv=None):
     try:
-        priv, _ = _signing_keys()
-        sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", priv],
-                             input=str(sha_hex).encode(), check=True, capture_output=True).stdout
+        sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", priv or _signing_keys()[0]],
+                             input=text.encode(), check=True, capture_output=True).stdout
         return base64.b64encode(sig).decode()
     except Exception:
         return ""
+
+
+def _issued_ms():
+    global _issued_last
+    with _sign_lock:
+        _issued_last = max(int(time.time() * 1000), _issued_last + 1)
+        return _issued_last
+
+
+def _grant(kind, arch, version, sha):
+    text = "tnl-manifest-v1\nkind=%s\narch=%s\nversion=%s\nsha256=%s\nissued_ms=%d" % (
+        kind, arch, version, sha, _issued_ms())
+    return {"manifest": text, "sig": _sign(text)}
+
+
+def _rotation(pub, prev):
+    text = "tnl-rotate-v1\npubkey_sha256=%s" % hashlib.sha256(pub.strip().encode()).hexdigest()
+    return {"rotate": text, "sig": _sign(text, prev)}
+
+
+def _prev_keys():
+    try:
+        names = [n for n in os.listdir(SIGN_PREV_DIR) if SIGN_PREV_RE.match(n)]
+    except OSError:
+        return []
+    return [os.path.join(SIGN_PREV_DIR, n) for n in sorted(names, key=lambda n: int(n[:-4]), reverse=True)]
+
+
+def _keep_prev(name, data):
+    os.makedirs(SIGN_PREV_DIR, mode=0o700, exist_ok=True)
+    save_bytes(os.path.join(SIGN_PREV_DIR, name), data, 0o600)
+
+
+def _retire_sign_key():
+    with open(_signing_keys()[0], "rb") as f:
+        _keep_prev("%d.pem" % time.time_ns(), f.read())
+
+
+def _rotate_sign_key():
+    global _SIGN_KEY
+    priv, _ = _signing_keys()
+    new = priv + ".new"
+    _genrsa(new)
+    _retire_sign_key()
+    os.replace(new, priv)
+    _SIGN_KEY = None
+
+
+def api_sign_key_rotate(d):
+    with _sign_lock:
+        _rotate_sign_key()
+    nodes = [n for n in load_nodes() if not n.get("disabled")]
+    got = parallel_map(_ensure_update_key, nodes, workers=16)
+    pending = [n.get("name") or n["id"] for n, r in zip(nodes, got) if not (r or {}).get("ok")]
+    log_event("warn" if pending else "ok", "sign-key", tx("کلیدِ امضای آپدیت عوض شد", "the update signing key was rotated"),
+              tx("کلیدِ تازه به {0} نود از {1} رسید{2}", "{0} of {1} nodes took the new key{2}",
+                 len(nodes) - len(pending), len(nodes),
+                 tx("؛ بقیه با آپدیتِ بعدی‌شان: {0}", "; the rest with their next update: {0}", pending) if pending else ""))
+    return {"ok": True, "rotated": len(nodes) - len(pending), "pending": pending}
 
 
 def _ensure_update_key(node):
@@ -1800,6 +1868,10 @@ def _ensure_update_key(node):
                                                           "the panel's signing key was not created (openssl?): {0}",
                                                           str(e)[:80])}
     r = node_call(node, "set-update-key", "POST", {"pubkey": pub}, timeout=15)
+    for prev in _prev_keys() if r.get("code") == "key_mismatch" else ():
+        r = node_call(node, "set-update-key", "POST", {"pubkey": pub, **_rotation(pub, prev)}, timeout=15)
+        if r.get("code") != "key_mismatch":
+            break
     if r.get("ok"):
         return r
     nm = node.get("name", "?")
@@ -3321,11 +3393,6 @@ def _node_first_contact(node):
     _refresh_cache([node["id"]])
     if not p.get("ok"):
         return
-    try:
-        _, _pub = _signing_keys()
-        node_call(get_node(node["id"]) or node, "set-update-key", "POST", {"pubkey": _pub}, timeout=15)
-    except Exception:
-        pass
     _push_staged_on_add(get_node(node["id"]) or {**node, "arch": p.get("arch")})
 
 
@@ -4457,18 +4524,17 @@ def _agent_delivery_check(meta, mode):
                   "this agent was uploaded from a file and is not on GitHub — fetch it from GitHub or change the agent delivery mode")
 
 
-def _agent_update_body(node, raw, meta, sig):
+def _agent_update_body(node, raw, meta, grant):
     mode = _delivery_mode("agent")
     _agent_delivery_check(meta, mode)
-    body = {"sha256": meta["sha256"], "sig": sig}
     if mode == "push":
-        return {"code": raw.decode(), **body}
+        return {"code": raw.decode(), **grant}
     if mode == "github":
-        return {"url": _agent_release_url(meta["version"]), **body}
+        return {"url": _agent_release_url(meta["version"]), **grant}
     url = _panel_dl_url(node, "ag")
     if not url:
         raise Bad("no_panel_origin", _NO_ORIGIN)
-    return {"url": url, **body}
+    return {"url": url, **grant}
 
 
 def _core_delivery_check(mode, custom):
@@ -4478,23 +4544,21 @@ def _core_delivery_check(mode, custom):
                   "this binary was uploaded to the panel and is not on GitHub — set the core delivery mode to push or panel")
 
 
-def _github_grant(ver, arch):
-    url = _release_asset_url(ver, arch)
-    return {"url": url, "version": ver, "sig": _sign_sha(url)}
-
-
-def _core_install_body(node, b64, sha, ver, sig, arch="", custom=False):
+def _core_install_body(node, b64, ver, grant, arch, custom=False):
     mode = _delivery_mode("core")
     _core_delivery_check(mode, custom)
     if mode == "github":
-        return _github_grant(ver, arch)
-    body = {"sha256": sha, "version": ver, "sig": sig}
+        return {"url": _release_asset_url(ver, arch), **grant}
     if mode == "push":
-        return {"data": b64, **body}
+        return {"data": b64, **grant}
     url = _panel_dl_url(node, "cb" if custom else "co", "" if custom else arch)
     if not url:
         raise Bad("no_panel_origin", _NO_ORIGIN)
-    return {"url": url, **body}
+    return {"url": url, **grant}
+
+
+def _elf_arch(raw):
+    return {0x3E: "amd64", 0xB7: "arm64"}.get(int.from_bytes(raw[18:20], "little"), "") if raw[:4] == b"\x7fELF" else ""
 
 
 def _agent_ready():
@@ -4561,7 +4625,7 @@ def _body_cache(build):
 
     def enc(node, _ctx=None):
         body = build(node)
-        key = body.get("url") or body["sha256"]
+        key = body.get("url") or body["manifest"]
         if key not in cache:
             cache[key] = json.dumps(body).encode()
         return cache[key]
@@ -4920,8 +4984,8 @@ def api_update_agent(d):
         raw, meta = _deliverable_agent(_delivery_mode("agent"))
     except OSError:
         raise Bad("no_agent", "ابتدا یک ایجنت بارگذاری کنید", "load an agent first")
-    sig = _sign_sha(meta["sha256"])
-    enc = _body_cache(lambda n: _agent_update_body(n, raw, meta, sig))
+    grant = _grant("agent", "any", meta["version"], meta["sha256"])
+    enc = _body_cache(lambda n: _agent_update_body(n, raw, meta, grant))
     plan = [("check", "ping", lambda _n, _c=None: {}, 15,
              lambda r, _w=meta["sha256"]: str(r.get("sha256") or "") == _w),
             ("deliver", "update", enc, 60, None)]
@@ -4938,13 +5002,11 @@ def api_update_core(d):
         _core_delivery_check(_delivery_mode("core"), True)
         raw, sha = blob
         b64 = base64.b64encode(raw).decode()
-        sig = _sign_sha(sha)
-        put = _body_cache(lambda n: _core_install_body(n, b64, sha, "custom", sig, custom=True))
+        grant = _grant("core", _elf_arch(raw), "custom", sha)
+        put = _body_cache(lambda n: _core_install_body(n, b64, "custom", grant, "", custom=True))
         plan = [("check", "ping", lambda _n, _c=None: {}, 15, lambda r, _s=sha: _core_current(r, _s)),
                 ("deliver", "core-put", put, 300, None),
-                ("install", "core-apply",
-                 lambda _n, _c=None, _s=sha, _g=sig: {"sha256": _s, "version": "custom", "sig": _g},
-                 300, None)]
+                ("install", "core-apply", lambda _n, _c=None, _g=grant: _g, 300, None)]
         return _update_start("core", nodes, plan)
 
     gh = _delivery_mode("core") == "github"
@@ -4980,8 +5042,7 @@ def api_update_core(d):
             except _Cancelled:
                 raise
             except Exception as e:
-                staged["err"] = tx("نسخهٔ «{0}» از گیت‌هاب گرفته نشد: {1}", "version '{0}' could not be fetched from GitHub: {1}",
-                                   version, _gh_why(e))
+                staged["err"] = _gh_fetch_failed(version, e)
                 raise Bad("core_fetch_failed", staged["err"])
             staged["done"] = True
         finally:
@@ -4997,27 +5058,25 @@ def api_update_core(d):
             raise Bad("node_arch_unknown", "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", "the node's architecture is unknown — the node must answer once so the right binary is sent")
         if arch not in parts:
             if gh:
-                ver = str((_staged_info() or {}).get("version") or "")
-                if not ver:
-                    raise Bad("no_version", "هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن", "no version is picked — pick a version first")
-                parts[arch] = ("", "", ver, "", arch)
+                ver, sha = _staged_release(arch)
+                b64 = ""
             else:
                 b = _staged_bytes(arch)
                 if not b:
                     raise Bad("no_core", "هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", "no core is ready on the panel — download a version first")
                 raw, sha, ver = b
-                parts[arch] = (base64.b64encode(raw).decode(), sha, ver, _sign_sha(sha), arch)
+                b64 = base64.b64encode(raw).decode()
+            parts[arch] = (b64, ver, _grant("core", arch, ver, sha), arch)
         return parts[arch]
 
     def put_body(n):
-        b64, sha, ver, sig, arch = prep(n)
-        return _core_install_body(n, b64, sha, ver, sig, arch=arch)
+        b64, ver, grant, arch = prep(n)
+        return _core_install_body(n, b64, ver, grant, arch)
 
     put = _body_cache(put_body)
 
     def apply_body(n, _ctx=None):
-        _b64, sha, ver, sig, arch = prep(n)
-        return _github_grant(ver, arch) if gh else {"sha256": sha, "version": ver, "sig": sig}
+        return prep(n)[2]
 
     def current(r):
         arch = str(r.get("arch") or "")
@@ -5134,6 +5193,8 @@ def api_core_upload(d):
                   CORE_UPLOAD_MB)
     if raw[:4] != b"\x7fELF":
         raise Bad("not_elf", "این یک باینریِ ELF لینوکسی نیست", "this is not a Linux ELF binary")
+    if not _elf_arch(raw):
+        raise Bad("not_core_arch", "این باینری نه amd64 است نه arm64", "this binary is neither amd64 nor arm64")
     sha = hashlib.sha256(raw).hexdigest()
     name = str(d.get("name") or "core.bin")[:80]
     with _core_blob_lock:
@@ -5237,6 +5298,10 @@ def _proxy_get(proxy, url, timeout, headers, hops=6, on_progress=None, should_ab
                     except Exception:
                         pass
     raise OSError(tx("گیت‌هاب بیش از حد پشتِ‌سرِهم هدایت کرد", "GitHub redirected too many times in a row"))
+
+
+def _gh_fetch_failed(version, e):
+    return tx("نسخهٔ «{0}» از گیت‌هاب گرفته نشد: {1}", "version '{0}' could not be fetched from GitHub: {1}", version, _gh_why(e))
 
 
 def _gh_why(e):
@@ -5361,10 +5426,22 @@ def _stage_core(version, on_progress=None, should_abort=None):
 def _stage_core_meta(version):
     rel = _resolve_core_version(version)
     got = list(CORE_ARCHES)
+    sha = {a: _sha_file(_release_asset_url(rel, a) + ".sha256") for a in got}
     with _core_stage_lock:
-        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": {}, "size": {},
+        save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": sha, "size": {},
                                     "ts": int(time.time()), "meta_only": True})
     return {"version": rel, "arches": got, "missing": []}
+
+
+def _staged_release(arch):
+    info = _staged_info() or {}
+    ver, sha = str(info.get("version") or ""), str((info.get("sha") or {}).get(arch) or "")
+    if not ver:
+        raise Bad("no_version", "هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن", "no version is picked — pick a version first")
+    if not sha:
+        raise Bad("no_core_sha", "چک‌سامِ «{0}» برای {1} روی پنل نیست — نسخه را دوباره انتخاب کن",
+                  "the panel has no checksum of '{0}' for {1} — pick the version again", ver, arch)
+    return ver, sha
 
 
 def _stage_purge(version):
@@ -5419,24 +5496,22 @@ def _push_staged(node):
     arch = _node_arch(node)
     if not arch:
         return {"ok": False, "error": tx("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", "the node's architecture is unknown — the node must answer once so the right binary is sent")}
-    custom = False
-    if _delivery_mode("core") == "github":
-        sha, ver, b64 = "", str((_staged_info() or {}).get("version") or ""), ""
-        if not ver:
-            return {"ok": False, "error": tx("هیچ نسخه‌ای انتخاب نشده — اول یک نسخه انتخاب کن", "no version is picked — pick a version first")}
-    else:
-        b = _staged_bytes(arch)
-        if b:
-            raw, sha, ver = b
-        else:
-            blob = _core_blob_bytes()
-            if not blob:
-                return {"ok": False, "error": tx("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", "no core is ready on the panel — download a version first")}
-            (raw, sha), ver, custom = blob, "custom", True
-        b64 = base64.b64encode(raw).decode()
-    sig = _sign_sha(sha) if sha else ""
+    custom, raw, b64 = False, b"", ""
     try:
-        body = _core_install_body(node, b64, sha, ver, sig, arch, custom)
+        if _delivery_mode("core") == "github":
+            ver, sha = _staged_release(arch)
+        else:
+            b = _staged_bytes(arch)
+            if b:
+                raw, sha, ver = b
+            else:
+                blob = _core_blob_bytes()
+                if not blob:
+                    return {"ok": False, "error": tx("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", "no core is ready on the panel — download a version first")}
+                (raw, sha), ver, custom = blob, "custom", True
+            b64 = base64.b64encode(raw).decode()
+        grant = _grant("core", _elf_arch(raw) if custom else arch, ver, sha)
+        body = _core_install_body(node, b64, ver, grant, arch, custom)
     except ValueError as e:
         return {"ok": False, "error": _why(e)}
     k = _ensure_update_key(node)
@@ -5445,15 +5520,15 @@ def _push_staged(node):
     r = node_call(node, "core-put", "POST", body, timeout=NODE_UPLOAD_TIMEOUT)
     if not r.get("ok") or r.get("code") == "same":
         return r
-    ap = (_github_grant(ver, arch) if _delivery_mode("core") == "github"
-          else {"sha256": sha, "version": ver, "sig": sig})
-    return node_call(node, "core-apply", "POST", ap, timeout=NODE_UPLOAD_TIMEOUT)
+    return node_call(node, "core-apply", "POST", grant, timeout=NODE_UPLOAD_TIMEOUT)
 
 
 def _push_staged_on_add(node):
     try:
         if _readiness()["core"]:
             _push_staged(node)
+        else:
+            _ensure_update_key(node)
     except Exception:
         pass
 
@@ -5517,7 +5592,12 @@ def api_core_stage(d):
         raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصب روی همه» در ردیفِ هسته، یا دکمهٔ «هسته» در ردیفِ هر نود نصب کن",
                   "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)")
     if _delivery_mode("core") == "github":
-        info = _stage_core_meta(version)
+        try:
+            info = _stage_core_meta(version)
+        except Bad:
+            raise
+        except Exception as e:
+            raise Bad("core_fetch_failed", _gh_fetch_failed(version, e)) from None
         return {"ok": True, "meta_only": True, "done": True, **info}
     with _stage_job_lock:
         if not _stage_job["done"]:
@@ -11240,6 +11320,7 @@ BACKUP_MAX_MB = 32
 BACKUP_MAX = BACKUP_MAX_MB * 1024 * 1024
 BACKUP_KEYS = "redis/"
 BACKUP_SIGN = "sign_key.pem"
+BACKUP_PREV = "sign_prev/"
 _BACKUP_SNAP = ("local out = {} "
                 "for _, k in ipairs(redis.call('keys', 'tnl:*')) do "
                 "out[#out + 1] = k "
@@ -11293,8 +11374,11 @@ def api_backup(d):
         raise StoreError(_store_msg(e)) from None
     finally:
         raw.close()
-    with open(_signing_keys()[0], "rb") as f:
-        members = [(BACKUP_SIGN, f.read())]
+    members = []
+    with _sign_lock:
+        for name, path in [(BACKUP_SIGN, _signing_keys()[0])] + [(BACKUP_PREV + os.path.basename(p), p) for p in _prev_keys()]:
+            with open(path, "rb") as f:
+                members.append((name, f.read()))
     members += [(BACKUP_KEYS + k.decode(), v) for k, v in zip(flat[0::2], flat[1::2])]
     now = int(time.time())
     buf = io.BytesIO()
@@ -11307,26 +11391,33 @@ def api_backup(d):
 
 
 def _backup_open(blob):
-    keys, sign, made, total = {}, None, 0, 0
+    keys, prevs, sign, made, total = {}, {}, None, 0, 0
     try:
         with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
             for ti in tar:
                 total += ti.size
                 if not ti.isfile() or total > BACKUP_MAX * 4:
                     raise ValueError
-                if ti.name != BACKUP_SIGN and not ti.name.startswith(BACKUP_KEYS + "tnl:"):
+                name = ti.name
+                if name == BACKUP_SIGN:
+                    into = None
+                elif name.startswith(BACKUP_KEYS + "tnl:"):
+                    into, name = keys, name[len(BACKUP_KEYS):]
+                elif name.startswith(BACKUP_PREV) and SIGN_PREV_RE.match(name[len(BACKUP_PREV):]):
+                    into, name = prevs, name[len(BACKUP_PREV):]
+                else:
                     raise ValueError
                 data = tar.extractfile(ti).read()
                 made = max(made, int(ti.mtime))
-                if ti.name == BACKUP_SIGN:
+                if into is None:
                     sign = data
                 else:
-                    keys[ti.name[len(BACKUP_KEYS):]] = data
+                    into[name] = data
     except (tarfile.TarError, OSError, EOFError, zlib.error, ValueError):
         sign = None
     if sign is None:
         raise Bad("bad_backup", "این فایل بکاپِ پنل نیست یا خراب است", "this file is not a panel backup or it is damaged")
-    return keys, sign, made
+    return keys, prevs, sign, made
 
 
 def _pem_pub(pem):
@@ -11407,7 +11498,7 @@ def api_backup_restore(d):
     if len(blob) > BACKUP_MAX:
         raise Bad("backup_too_big", "فایلِ بکاپ بیش از حد بزرگ است — حداکثر {0} مگابایت", "the backup file is too large — at most {0} MB",
                   BACKUP_MAX_MB)
-    keys, sign, made = _backup_open(blob)
+    keys, prevs, sign, made = _backup_open(blob)
     pub = _pem_pub(sign)
     if not _restore_lock.acquire(blocking=False):
         raise Bad("restore_running", "یک بازگردانیِ دیگر در جریان است", "another restore is running")
@@ -11424,7 +11515,12 @@ def api_backup_restore(d):
         if not d.get("apply"):
             return out
         try:
-            save_bytes(_signing_keys()[0], sign, 0o600)
+            with _sign_lock:
+                for name, data in prevs.items():
+                    _keep_prev(name, data)
+                if pub != _signing_keys()[1]:
+                    _retire_sign_key()
+                save_bytes(_signing_keys()[0], sign, 0o600)
         except OSError:
             raise Bad("backup_key_write", "کلیدِ امضای بکاپ روی دیسک نوشته نشد — چیزی عوض نشد",
                       "the backup's signing key could not be written to disk — nothing changed") from None
@@ -11754,7 +11850,7 @@ API = {
     "core-upload": api_core_upload, "core-delete-blob": api_core_delete_blob, "core-stage": api_core_stage, "core-stage-status": api_core_stage_status,
     "core-stage-cancel": api_core_stage_cancel, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder, "link-tag": api_link_tag,
-    "backup": api_backup, "backup-restore": api_backup_restore,
+    "backup": api_backup, "backup-restore": api_backup_restore, "sign-key-rotate": api_sign_key_rotate,
     "cdn": api_cdn, "cdn-set": api_cdn_set, "cdn-test": api_cdn_test, "cdn-zones": api_cdn_zones,
     "cdn-check": api_cdn_check, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
 }
@@ -11767,9 +11863,9 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "core-delete-blob", "core-stage-cancel",
              "update-agent", "update-core",
              "reorder", "link-tag",
-             "act-cancel", "api-token-new", "backup", "backup-restore",
+             "act-cancel", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
              "cdn-set", "cdn-test", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
-TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore",
+TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
               "cdn", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),

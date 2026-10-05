@@ -489,8 +489,18 @@
   "bad": [
    [
     400,
+    "bad_arch",
+    "invalid architecture — only amd64 or arm64"
+   ],
+   [
+    400,
     "bad_core_version",
     "invalid core version — only letters, digits and ._+- are allowed"
+   ],
+   [
+    400,
+    "core_fetch_failed",
+    "…"
    ],
    [
     400,
@@ -543,6 +553,11 @@
    ],
    [
     400,
+    "not_core_arch",
+    "this binary is neither amd64 nor arm64"
+   ],
+   [
+    400,
     "not_elf",
     "this is not a Linux ELF binary"
    ]
@@ -567,11 +582,6 @@
     400,
     "",
     ""
-   ],
-   [
-    400,
-    "bad_arch",
-    "invalid architecture — only amd64 or arm64"
    ],
    [
     400,
@@ -1288,11 +1298,6 @@
     400,
     "",
     ""
-   ],
-   [
-    400,
-    "bad_arch",
-    "invalid architecture — only amd64 or arm64"
    ],
    [
     400,
@@ -3091,11 +3096,6 @@
   "act": [
    [
     400,
-    "bad_arch",
-    "invalid architecture — only amd64 or arm64"
-   ],
-   [
-    400,
     "bad_cdn_carrier",
     "invalid CDN carrier"
    ],
@@ -3396,6 +3396,7 @@
    ]
   ]
  },
+ "sign-key-rotate": {},
  "stray-del": {
   "bad": [
    [
@@ -3585,6 +3586,11 @@
     400,
     "no_core",
     "no core is ready on the panel — pick a version first"
+   ],
+   [
+    400,
+    "no_core_sha",
+    "the panel has no checksum of '…' for … — pick the version again"
    ],
    [
     400,
