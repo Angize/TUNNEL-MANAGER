@@ -86,8 +86,16 @@ export default function BackupCard() {
       alertBox(postError(r))
       return
     }
-    if (r.d.pending.length) alertBox(TF('bk_rot_pending', { n: r.d.rotated, p: r.d.pending.join('، ') }))
-    else toast(TF('bk_rot_ok', { n: r.d.rotated }), 'ok')
+    const { rotated, pending, no_key: noKey, other_key: otherKey } = r.d
+    if (!pending.length && !noKey.length && !otherKey.length) {
+      toast(TF('bk_rot_ok', { n: rotated }), 'ok')
+      return
+    }
+    const parts = [TF('bk_rot_done', { n: rotated })]
+    if (pending.length) parts.push(TF('bk_rot_pending', { p: pending.join('، ') }))
+    if (noKey.length) parts.push(TF('bk_rot_nokey', { k: noKey.join('، ') }))
+    if (otherKey.length) parts.push(TF('bk_rot_otherkey', { o: otherKey.join('، ') }))
+    alertBox(parts.concat(T('bk_rot_backup')).join(' '))
   }
 
   const inspect = async (file) => {

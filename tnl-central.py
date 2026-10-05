@@ -1814,6 +1814,10 @@ def _grant(kind, arch, version, sha):
     return {"manifest": text, "sig": _sign(text)}
 
 
+def _panel_key_b64():
+    return base64.b64encode(_signing_keys()[1].encode()).decode()
+
+
 def _rotation(pub, prev):
     text = "tnl-rotate-v1\npubkey_sha256=%s" % hashlib.sha256(pub.strip().encode()).hexdigest()
     return {"rotate": text, "sig": _sign(text, prev)}
@@ -1851,13 +1855,20 @@ def api_sign_key_rotate(d):
     with _sign_lock:
         _rotate_sign_key()
     nodes = [n for n in load_nodes() if not n.get("disabled")]
-    got = parallel_map(_ensure_update_key, nodes, workers=16)
-    pending = [n.get("name") or n["id"] for n, r in zip(nodes, got) if not (r or {}).get("ok")]
-    log_event("warn" if pending else "ok", "sign-key", tx("کلیدِ امضای آپدیت عوض شد", "the update signing key was rotated"),
-              tx("کلیدِ تازه به {0} نود از {1} رسید{2}", "{0} of {1} nodes took the new key{2}",
-                 len(nodes) - len(pending), len(nodes),
-                 tx("؛ بقیه با آپدیتِ بعدی‌شان: {0}", "; the rest with their next update: {0}", pending) if pending else ""))
-    return {"ok": True, "rotated": len(nodes) - len(pending), "pending": pending}
+    got = [(n.get("name") or n["id"], r or {}) for n, r in zip(nodes, parallel_map(_ensure_update_key, nodes, workers=16))]
+    no_key = [nm for nm, r in got if r.get("code") == "no_update_key"]
+    other_key = [nm for nm, r in got if r.get("code") == "key_mismatch"]
+    pending = [nm for nm, r in got if not r.get("ok") and r.get("code") not in ("no_update_key", "key_mismatch")]
+    took = len(nodes) - len(pending) - len(no_key) - len(other_key)
+    log_event("warn" if pending or no_key or other_key else "ok", "sign-key",
+              tx("کلیدِ امضای آپدیت عوض شد", "the update signing key was rotated"),
+              tx("کلیدِ تازه به {0} نود از {1} رسید{2}{3}{4}", "{0} of {1} nodes took the new key{2}{3}{4}", took, len(nodes),
+                 tx("؛ بی‌پاسخ یا با خطا، با آپدیتِ بعدی‌شان: {0}", "; no answer or an error, with their next update: {0}",
+                    pending) if pending else "",
+                 tx("؛ بدونِ کلید، نصبِ دوباره لازم: {0}", "; without a key, reinstall needed: {0}", no_key) if no_key else "",
+                 tx("؛ کلیدِ پنلِ دیگر، نصبِ دوباره لازم: {0}", "; another panel's key, reinstall needed: {0}",
+                    other_key) if other_key else ""))
+    return {"ok": True, "rotated": took, "pending": pending, "no_key": no_key, "other_key": other_key}
 
 
 def _ensure_update_key(node):
@@ -1877,6 +1888,18 @@ def _ensure_update_key(node):
     nm = node.get("name", "?")
     if r.get("offline"):
         return {"ok": False, "code": "offline", "error": tx("نودِ «{0}» جواب نداد", "node '{0}' did not answer", nm)}
+    if r.get("code") == "no_update_key":
+        return {"ok": False, "code": "no_update_key",
+                "error": tx("نودِ «{0}» بدونِ کلیدِ امضای پنل نصب شده و آپدیتِ ایجنت و هسته را نمی‌پذیرد — "
+                            "با دستورِ نصبِ پنجرهٔ «افزودنِ نود ← دستی» دوباره نصبش کن",
+                            "node '{0}' was installed without the panel's signing key and refuses agent and core updates — "
+                            "reinstall it with the install command from the manual add-node dialog", nm)}
+    if r.get("code") == "key_mismatch":
+        return {"ok": False, "code": "key_mismatch",
+                "error": tx("نودِ «{0}» کلیدِ امضای پنلِ دیگری دارد و آپدیتِ این پنل را نمی‌پذیرد — "
+                            "با دستورِ نصبِ همین پنل دوباره نصبش کن",
+                            "node '{0}' holds another panel's signing key and refuses this panel's updates — "
+                            "reinstall it with this panel's install command", nm)}
     return {"ok": False, "code": "update_key",
             "error": tx("نودِ «{0}» کلیدِ امضایِ پنل را نپذیرفت؛ بدونِ آن هر پوشی رد می‌شود: {1}",
                         "node '{0}' did not accept the panel's signing key; without it every push is refused: {1}",
@@ -3450,6 +3473,12 @@ def api_node_add(d):
     return {"ok": True, "id": node["id"], "checking": True}
 
 
+def api_node_install_cmd(d):
+    port = _node_port(d.get("port") or 8099)
+    return {"ok": True, "cmd": "curl -fsSL %s/latest/download/tnl-node.py -o /tmp/tnl-node.py\n"
+                               "sudo python3 /tmp/tnl-node.py --install %d %s" % (_NODE_REL, port, _panel_key_b64())}
+
+
 _NODE_REL = "https://github.com/Angize/TUNNEL-MANAGER-NODE/releases"
 _NODE_REL_LATEST = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-NODE/releases/latest"
 _AGENT_VER_RE = re.compile(r'^AGENT_VERSION = "(dev|v\d+\.\d+\.\d+)"\r?$', re.M)
@@ -3743,7 +3772,12 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
         _install_step(jid, "install", "run", tx("نصبِ وابستگی‌ها ممکن است چند دقیقه طول بکشد…",
                                                  "installing the dependencies may take a few minutes…"))
         sudo = "" if cfg["user"] == "root" else "sudo -n "
-        rc, out, err = _ssh_run(cfg, f"{sudo}python3 /tmp/tnl-node.py --auto-install {agent_port}", 900)
+        try:
+            key = _panel_key_b64()
+        except Exception as e:
+            return fail("install", tx("کلیدِ امضای پنل ساخته نشد (openssl?)", "the panel's signing key was not created (openssl?)"),
+                        str(e)[:200])
+        rc, out, err = _ssh_run(cfg, f"{sudo}python3 /tmp/tnl-node.py --auto-install {agent_port} {key}", 900)
         combined = ((out or "") + "\n" + (err or "")).strip()
         if "TNL_INSTALL_FAIL=port" in out:
             return fail("install", tx("پورتِ ایجنت ({0}) روی نود دستِ برنامهٔ دیگری است؛ پورتِ دیگری بده",
@@ -5525,12 +5559,12 @@ def _push_staged(node):
 
 def _push_staged_on_add(node):
     try:
-        if _readiness()["core"]:
-            _push_staged(node)
-        else:
-            _ensure_update_key(node)
+        r = _push_staged(node) if _readiness()["core"] else _ensure_update_key(node)
     except Exception:
-        pass
+        return
+    if r.get("code") == "no_update_key":
+        log_event("warn", "update-key", tx("نودِ «{0}» کلیدِ امضا ندارد", "node '{0}' has no signing key", node.get("name", "?")),
+                  r["error"])
 
 
 def _node_tunnel(node, body):
@@ -11825,7 +11859,7 @@ API = {
     "settings": api_settings, "settings-set": api_settings_set, "readiness": api_readiness,
     "ui-config": api_ui_config, "api-token-new": api_token_new,
     "node-add": api_node_add, "node-edit": api_node_edit, "node-del": api_node_del, "node-toggle": api_node_toggle,
-    "node-install": api_node_install, "install-status": api_node_install_status,
+    "node-install": api_node_install, "install-status": api_node_install_status, "node-install-cmd": api_node_install_cmd,
     "node-install-batch": api_node_install_batch, "install-batch": api_install_batch,
     "install-batch-stop": api_install_batch_stop, "install-batch-retry": api_install_batch_retry,
     "install-forget-key": api_install_forget_key,

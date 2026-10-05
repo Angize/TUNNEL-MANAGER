@@ -2482,6 +2482,15 @@
    ]
   ]
  },
+ "node-install-cmd": {
+  "bad": [
+   [
+    400,
+    "bad_port",
+    "invalid port"
+   ]
+  ]
+ },
  "node-ips": {
   "bad": [
    [

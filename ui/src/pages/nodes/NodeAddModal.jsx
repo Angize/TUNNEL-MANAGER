@@ -14,6 +14,7 @@ import useInstallJob from './useInstallJob.js'
 import { BulkFooter, BulkForm, BulkRun, useBulkList } from './NodeBulk.jsx'
 import SshAuth from './SshAuth.jsx'
 import { isNodeNameValid } from './nodeName.js'
+import { copyText } from '../../components/CopyValue.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
@@ -47,6 +48,22 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
 
   const [manual, setManual] = useState({ name: '', host: '', port: '', token: '' })
   const [manualProxy, setManualProxy] = useState(EMPTY_PROXY)
+  const [manualCmd, setManualCmd] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'manual') return undefined
+    let alive = true
+    const port = String(manual.port || '').trim() || '8099'
+    const t = setTimeout(() => {
+      apiGet('node-install-cmd?port=' + encodeURIComponent(port))
+        .then((r) => alive && setManualCmd(r.cmd || ''))
+        .catch(() => alive && setManualCmd(''))
+    }, 250)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [mode, manual.port])
 
   const onFinished = useCallback(
     (success, banner) => {
@@ -324,6 +341,20 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
         </Reveal>
         <Reveal show={mode === 'manual'}>
           <div>
+            <div className="autonote">
+              <Icon name="info" />
+              <span>{T('nadd_manual_note')}</span>
+            </div>
+            {manualCmd ? (
+              <div className="instcmd">
+                <pre className="mono" dir="ltr">
+                  {manualCmd}
+                </pre>
+                <button type="button" className="ghost" title={T('tip_copy')} onClick={(e) => copyText(manualCmd, e)}>
+                  <Icon name="copy" />
+                </button>
+              </div>
+            ) : null}
             <div className="grid2">
               <Field label={T('nadd_manual_name')} first>
                 <input
