@@ -62,6 +62,7 @@ MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
 PORTED_RAW_PROFILES   = ("udp", "tcp", "sctp")
+CTB_DEFAULT_PROFILES  = ("sctp",)
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
 DESYNC_INJECT_TTL_MAX = 8
@@ -6635,10 +6636,9 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                       "raw_sport_rotate is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
         if "conntrack_bypass" in d:
             _ctb = bool(d["conntrack_bypass"])
-        elif "conntrack_bypass" in cur:
-            _ctb = bool(cur["conntrack_bypass"])
         else:
-            _ctb = profile == "sctp"
+            _ctb = bool(cur.get("conntrack_bypass")) or (
+                profile in CTB_DEFAULT_PROFILES and profile != cur.get("raw_profile"))
         if _ctb:
             if profile not in PORTED_RAW_PROFILES:
                 raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp و sctp معنا دارد؛ «{0}» به‌ازای هر پکت جریانِ تازه نمی‌سازد",
@@ -11842,7 +11842,7 @@ def ui_config():
         "enums": {
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
-            "raw_ported": list(PORTED_RAW_PROFILES),
+            "raw_ported": list(PORTED_RAW_PROFILES), "ctb_default": list(CTB_DEFAULT_PROFILES),
             "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
             "http_shape_grpc": list(HTTP_SHAPE_GRPC),
             "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},

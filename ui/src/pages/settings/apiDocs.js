@@ -146,7 +146,7 @@ const TUNNEL_FIELDS = [
   ['raw_sport_random', 0, B, 'random source port instead of a fixed one — not together with raw_sport'],
   ['raw_sport_rotate', 0, N, 'a fresh source port every few packets (1 to 60)'],
   ['raw_dports', 0, N, 'number of destination ports (1 to 16) — only with raw_sport_rotate'],
-  ['conntrack_bypass', 0, B, 'bypass the conntrack table — udp, tcp and sctp profiles only'],
+  ['conntrack_bypass', 0, B, 'bypass the conntrack table — udp, tcp and sctp profiles only; turns on when a tunnel becomes sctp and the body leaves it out'],
   ['sport_lo', 0, N, 'start of the source port band (1024 and up)'],
   ['sport_hi', 0, N, 'end of the source port band — the band is at least 100 ports wide'],
   ['port_tries', 0, N, 'number of source port draws (1 to 60); on ws only with ws_port_roll on'],
