@@ -5,7 +5,7 @@ import UpdateRow from '../agent/UpdateRow.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
-import { alertBox } from '../../lib/dialog.js'
+import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 
 const RETURN_WAIT_MS = 120000
@@ -77,6 +77,19 @@ export default function BackupCard() {
     toast(TF('set_bk_got', { n: r.d.nodes, l: r.d.core + r.d.system }), 'ok')
   }
 
+  const rotate = async () => {
+    if (!(await confirmBox(T('bk_rot_q'), T('bk_rot_btn')))) return
+    setBusy('rot')
+    const r = await apiPost('sign-key-rotate', {})
+    setBusy('')
+    if (!(r.ok && r.d.ok)) {
+      alertBox(postError(r))
+      return
+    }
+    if (r.d.pending.length) alertBox(TF('bk_rot_pending', { n: r.d.rotated, p: r.d.pending.join('، ') }))
+    else toast(TF('bk_rot_ok', { n: r.d.rotated }), 'ok')
+  }
+
   const inspect = async (file) => {
     setBusy('put')
     let data
@@ -138,6 +151,10 @@ export default function BackupCard() {
           >
             <Icon name="upload" />
             {busy === 'put' ? T('set_bk_reading') : T('set_bk_put')}
+          </button>
+          <button type="button" className="ghost tone tone-put" disabled={!!busy} onClick={rotate}>
+            <Icon name="lock" />
+            {busy === 'rot' ? T('bk_rot_busy') : T('bk_rot_btn')}
           </button>
         </div>
         <p className="bkhint">{T('bk_hint')}</p>

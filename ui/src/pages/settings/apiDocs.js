@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, and every CDN route (cdn, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-make, cdn-drop and cdn-sync).',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-make, cdn-drop and cdn-sync).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -122,7 +122,7 @@ export const GROUPS = [
   ['acts', 'Background jobs', ['acts', 'act-cancel']],
   ['order', 'Order and colour', ['reorder', 'link-tag']],
   ['logs', 'Log', ['events', 'events-clear']],
-  ['backup', 'Backup', ['backup', 'backup-restore']],
+  ['backup', 'Backup', ['backup', 'backup-restore', 'sign-key-rotate']],
 ]
 
 const PROXY_REF = [
@@ -737,7 +737,7 @@ export const DOCS = {
   },
   'core-stage': {
     t: 'Make a core ready on the panel',
-    d: 'Downloads a core version from GitHub to the panel. Read the progress from core-stage-status. If the core delivery mode is github, only its details are fetched.',
+    d: 'Downloads a core version from GitHub to the panel. Read the progress from core-stage-status. If the core delivery mode is github, only its version and the checksum of each binary are fetched.',
     p: [['version', 0, S, 'version tag, for example v2.136.0 (default latest)']],
   },
   'core-stage-status': {
@@ -826,14 +826,18 @@ export const DOCS = {
 
   backup: {
     t: 'Take a backup',
-    d: "Returns all panel data and the signing key compressed and in base64 in data, with the counts of nodes, tunnels and proxies.",
+    d: "Returns all panel data, the signing key and every earlier signing key compressed and in base64 in data, with the counts of nodes, tunnels and proxies.",
   },
   'backup-restore': {
     t: 'Restore a backup',
-    d: 'Without apply it only reads the file and returns the comparison with the current state. With apply=true the data is replaced and the panel restarts by itself (restarting=true in the answer).',
+    d: 'Without apply it only reads the file and returns the comparison with the current state. With apply=true the data is replaced and the panel restarts by itself (restarting=true in the answer). If the backup has another signing key, the current key is kept among the earlier keys so nodes that hold it can still be moved.',
     p: [
       ['data', 1, S, 'the backup file in base64 (at most 32 MB)'],
       ['apply', 0, B, 'true = really restore'],
     ],
+  },
+  'sign-key-rotate': {
+    t: 'Rotate the update signing key',
+    d: 'Makes a new key for signing agent and core updates, keeps every earlier key, and sends every node the new key signed with an earlier one. rotated counts the nodes that took it; nodes in pending did not answer and take it with the next update sent to them. Take a new backup afterwards.',
   },
 }
