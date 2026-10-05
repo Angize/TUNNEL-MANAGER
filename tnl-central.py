@@ -1740,7 +1740,6 @@ def _node_exchange(node, sock, method, path, data):
     try:
         headers = _auth_headers(node, method, path, data)
         ctr = headers["X-Ctr"]
-        headers.update(_central_headers(node, bool(node_proxy(node))))
         if data is not None:
             headers["Content-Type"] = "application/json"
         conn.request(method, path, body=data, headers=headers)
@@ -1829,17 +1828,20 @@ def _bump_ctr(nid, at_least):
             _ctr_next[nid] = at_least
 
 
-def _sig_msg(method, path, ctr, body_sha):
-    return "%s\n%s\n%s\n%s" % (method, path, ctr, body_sha)
+def _sig_msg(method, path, ctr, body_sha, central):
+    return "%s\n%s\n%s\n%s\n%s" % (method, path, ctr, body_sha, central)
 
 
 def _auth_headers(node, method, path, data):
     tok = node.get("token", "")
     ctr = _take_ctr(_node_key(node))
     bs = hashlib.sha256(data).hexdigest() if data else ""
-    mac = hmac.new(tok.encode("utf-8"), _sig_msg(method, path, ctr, bs).encode("utf-8"),
+    hdrs = _central_headers(node, bool(node_proxy(node)))
+    central = "|".join(hdrs.get(h, "") for h in ("X-Central-Host", "X-Central-Port", "X-Central-TLS"))
+    mac = hmac.new(tok.encode("utf-8"), _sig_msg(method, path, ctr, bs, central).encode("utf-8"),
                    hashlib.sha256).digest()
-    return {"X-Ctr": str(ctr), "X-Body": bs, "X-Sig": base64.b64encode(mac).decode()}
+    hdrs.update({"X-Ctr": str(ctr), "X-Body": bs, "X-Sig": base64.b64encode(mac).decode()})
+    return hdrs
 
 
 def _resp_sig_msg(ctr, status, body_sha):
@@ -1913,7 +1915,6 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
         hdrs = _auth_headers(node, "POST", path, data)
         ctr = hdrs["X-Ctr"]
         head += ["%s: %s" % kv for kv in hdrs.items()]
-        head += ["%s: %s" % kv for kv in _central_headers(node, bool(node_proxy(node))).items()]
         sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
         sent, pre = 0, b""
         deadline = time.monotonic() + timeout
