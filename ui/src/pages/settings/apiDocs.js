@@ -57,6 +57,7 @@ export const GROUPS = [
       'nodes',
       'node-names',
       'node-add',
+      'node-install-cmd',
       'node-install',
       'install-status',
       'node-install-batch',
@@ -250,7 +251,7 @@ export const DOCS = {
   },
   'node-add': {
     t: 'Add a node',
-    d: 'Adds a node whose agent is already installed. The panel connects to it in the background; read its state from nodes.',
+    d: "Adds a node whose agent is already installed. Install it with the command from node-install-cmd so it holds this panel's signing key; an agent without it refuses agent and core updates. The panel connects to it in the background; read its state from nodes.",
     p: [
       ['name', 1, S, 'unique name: Latin letters, digits, space and _ . -, up to 40 characters'],
       ['host', 1, S, "the node's IP or domain"],
@@ -272,6 +273,11 @@ export const DOCS = {
       ['agent_port', 0, N, 'port the agent listens on (default 8099)'],
       ...PROXY_REF,
     ],
+  },
+  'node-install-cmd': {
+    t: 'Install command for a manual node',
+    d: "The two lines to run as root on a server so its agent is installed with this panel's signing key; add the node afterwards with node-add. An agent installed without the key refuses agent and core updates.",
+    p: [['port', 0, N, 'port the agent will listen on (default 8099)']],
   },
   'install-status': {
     t: 'Install progress',
@@ -838,6 +844,6 @@ export const DOCS = {
   },
   'sign-key-rotate': {
     t: 'Rotate the update signing key',
-    d: 'Makes a new key for signing agent and core updates, keeps every earlier key, and sends every node the new key signed with an earlier one. rotated counts the nodes that took it; nodes in pending did not answer and take it with the next update sent to them. Take a new backup afterwards.',
+    d: 'Makes a new key for signing agent and core updates, keeps every earlier key, and sends every node the new key signed with an earlier one. rotated counts the nodes that took it; nodes in pending did not take it now (no answer or an error) and are tried again with the next update sent to them; nodes in no_key were installed without the panel key, and nodes in other_key hold a key of another panel; both take nothing until they are reinstalled with the command from node-install-cmd. Take a new backup afterwards.',
   },
 }

@@ -2007,6 +2007,17 @@
    "checking": true
   }
  },
+ "node-install-cmd": {
+  "req": null,
+  "q": {
+   "port": "8099"
+  },
+  "ok": {
+   "code": 200,
+   "ok": true,
+   "cmd": "curl -fsSL https://github.com/Angize/TUNNEL-MANAGER-NODE/releases/latest/download/tnl-node.py -o /tmp/tnl-node.py\nsudo python3 /tmp/tnl-node.py --install 8099 LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF…"
+  }
+ },
  "node-del": {
   "req": {
    "id": "e72eb01adf",
@@ -2262,7 +2273,9 @@
    "code": 200,
    "ok": true,
    "rotated": 2,
-   "pending": []
+   "pending": [],
+   "no_key": [],
+   "other_key": []
   }
  },
  "events-clear": {
