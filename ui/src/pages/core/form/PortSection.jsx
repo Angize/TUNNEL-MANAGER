@@ -47,7 +47,7 @@ function SourcePort({ form, enums, limits, patch }) {
   const id = useId()
   const locked = sprotLive(form, enums)
   const current = intOf(form.rawSport)
-  const presets = SPORT_PRESETS[form.RawProfile]
+  const presets = SPORT_PRESETS[form.RawProfile] || []
   const label = rangeLabel(T('raw_sport_lbl'), ...limits.port)
 
   return (
@@ -159,7 +159,7 @@ function RawPort({ form, cfg, patch }) {
         {label}
       </label>
       <Seg2 label={label} style={{ marginBottom: 8 }}>
-        {DPORT_PRESETS[form.RawProfile].map((preset) => (
+        {(DPORT_PRESETS[form.RawProfile] || []).map((preset) => (
           <SegOpt
             key={preset.v}
             on={current === preset.v}
