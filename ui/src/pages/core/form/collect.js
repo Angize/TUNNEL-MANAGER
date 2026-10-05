@@ -3,12 +3,11 @@ import { cdnSingle, edgePort, labelOf } from '../../../lib/cdn.js'
 import {
   bandOn,
   cdnShapeApplies,
-  ctbOn,
   desyncOk,
   dsTtlUsed,
   fecDatagram,
   portTriesOn,
-  rawPortOn,
+  rawPorted,
   sprotLive,
   wkCarrier,
   wkClamp,
@@ -78,12 +77,12 @@ export function collectCarrier(form, cfg, body) {
       if (protoError) return protoError
       body.raw_proto = intOf(form.rawProto) || 253
     }
-    const sprotError = sprotErr(form)
+    const sprotError = sprotErr(form, enums)
     if (sprotError) return sprotError
-    body.raw_sport_rotate = sprotLive(form) ? sprotOf(form) : 0
-    body.raw_dports = sprotLive(form) ? intOf(form.rawDports) : 0
-    body.conntrack_bypass = ctbOn(form, enums) && !!form.Ctb
-    if (rawPortOn(form)) {
+    body.raw_sport_rotate = sprotLive(form, enums) ? sprotOf(form) : 0
+    body.raw_dports = sprotLive(form, enums) ? intOf(form.rawDports) : 0
+    body.conntrack_bypass = rawPorted(form, enums) && !!form.Ctb
+    if (rawPorted(form, enums)) {
       const dportError = portErr(form.rawPort, limits)
       if (dportError) return dportError
       body.raw_port = intOf(form.rawPort)

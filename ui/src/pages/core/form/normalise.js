@@ -1,10 +1,9 @@
 import { RAW_DPORT_DEFAULT, RAW_SPORT_FIXED } from '../carrier.js'
 import {
-  ctbOn,
   desyncOk,
   fecDatagram,
   protoVisOn,
-  rawPortOn,
+  rawPorted,
   rotIsDirect,
   rotMulti,
   wkCarrier,
@@ -37,13 +36,15 @@ export default function normalise(form, cfg, aIps, bIps) {
   if (wkShared(view)) set('WorkersB', at('WorkersA'))
   if (!desyncOk(view)) set('Desync', false)
   if (intOf(at('dsTtl')) > DS_TTL_CAP) set('dsTtl', String(DS_TTL_CAP))
-  if (!rawPortOn(view)) set('Sprot', false)
-  if (!ctbOn({ ...view, Sprot: at('Sprot') }, enums)) set('Ctb', false)
+  if (!rawPorted(view, enums)) {
+    set('Sprot', false)
+    set('Ctb', false)
+  }
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
   if (wssMandatory(view, form.pool)) set('WsTls', true)
 
   if (protoVisOn(view) && at('rawProto') === '') set('rawProto', '253')
-  if (rawPortOn(view)) {
+  if (rawPorted(view, enums)) {
     if (at('rawPort') === '') set('rawPort', String(RAW_DPORT_DEFAULT))
     if (at('SportRandom')) set('rawSport', '')
     else if (at('rawSport') === '') set('rawSport', String(RAW_SPORT_FIXED))
