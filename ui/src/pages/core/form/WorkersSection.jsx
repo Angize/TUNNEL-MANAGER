@@ -9,7 +9,7 @@ function Picker({ max, name, side, value, order, onPick }) {
     <div className="wkcol" style={{ order }}>
       {side ? (
         <div className="wksub" id={id + 's'}>
-          <b>{TF('workers_lbl_node', { n: side.name || '' })}</b>
+          <b className="iso">{side.name || ''}</b>
           {side.cpus ? <span>{' · ' + TF('workers_lbl_cores', { c: side.cpus })}</span> : null}
         </div>
       ) : null}

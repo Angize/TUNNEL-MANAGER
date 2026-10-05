@@ -92,7 +92,6 @@ export default {
   porttries_lbl: 'چند بار پورتِ مبدأ عوض شود',
 
   workers_lbl: 'صف‌های موازیِ تونل',
-  workers_lbl_node: 'روی {n}',
   workers_lbl_cores: '{c} هسته',
   workers_1: 'پیش‌فرض',
   workers_2: 'سبک',
