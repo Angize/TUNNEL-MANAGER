@@ -534,7 +534,7 @@
 .instcmd {
   display: flex;
   gap: 8px;
-  align-items: flex-start;
+  align-items: stretch;
   margin-bottom: 13px;
 }
 
@@ -555,6 +555,12 @@
 
 .instcmd button {
   flex: 0 0 auto;
+  width: 46px;
+  margin: 0;
+  padding: 0;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
 }
 
 .authbox {
