@@ -181,11 +181,17 @@
 
 .cedge {
   margin-top: 10px;
+  min-width: 0;
   background: var(--card);
   box-shadow: var(--dsh);
   border: 1px solid var(--edge);
   border-radius: 11px;
+  transition: background-color .2s var(--ease-out), border-color .2s var(--ease-out);
+}
+
+.cedgef {
   padding: 8px 12px;
+  min-width: 0;
 }
 
 .cedge.live {
@@ -193,12 +199,352 @@
   border-color: color-mix(in srgb, var(--ok) 30%, transparent);
 }
 
+.cedge.cdxbad {
+  background: color-mix(in srgb, var(--bad) 5%, var(--card));
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+  box-shadow: var(--dsh), inset -3px 0 0 var(--bad);
+}
+
 .cedge .ct {
   font-size: 10.5px;
   color: var(--sub);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.cedge .ctt {
+  min-width: 0;
+}
+
+.cdnchip.cdxpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+  padding: 2px 8px;
+}
+
+.cdxpill .ic {
+  width: 12px;
+  height: 12px;
+}
+
+.cdxdrw {
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-top: 1px dashed var(--bord);
+  border-radius: 0 0 10px 10px;
+  background: transparent;
+  color: var(--tx);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color .15s var(--ease-out);
+}
+
+.cdxdrw[aria-expanded='true'] {
+  border-radius: 0;
+}
+
+.cdxdrw:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: -2px;
+}
+
+.cdxdrw:active {
+  background: var(--ctl);
+}
+
+.cdxdrw .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.cdxcloud {
+  display: inline-flex;
+  color: var(--acc-tx);
+}
+
+.cdxcloud.cf {
+  color: var(--h-orange);
+}
+
+.cdxdrt {
+  min-width: 0;
+}
+
+.cdxdrs {
+  margin-inline-start: auto;
+  min-width: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cdxchev {
+  display: inline-flex;
+  flex: none;
+  color: var(--sub);
+  transition: transform .26s var(--ease-out);
+}
+
+.cdxdrw[aria-expanded='true'] .cdxchev {
+  transform: rotate(180deg);
+}
+
+.cdxin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 12px 12px;
+}
+
+.cdxkv {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--bord);
+}
+
+.cdxkv > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  min-width: 0;
+  padding: 7px 0;
+}
+
+.cdxkv > div + div {
+  border-top: 1px dashed var(--bord);
+}
+
+.cdxkv dt {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--sub);
+}
+
+.cdxkv dt small {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid var(--bord);
+  color: var(--sub);
+  unicode-bidi: isolate;
+}
+
+.cdxkv dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tx);
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.cdxerr {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--badw);
+  border: 1px solid color-mix(in srgb, var(--bad) 26%, transparent);
+  color: var(--bad-tx);
+  font-size: 11.5px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+
+.cdxerr > .ic {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 4px;
+}
+
+.cdxerrt {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cdxerrt p {
+  margin: 0;
+}
+
+.cdxerrt .cdxnow {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed color-mix(in srgb, var(--bad) 26%, transparent);
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--tx);
+}
+
+.cdxact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.ghost.cdxretry {
+  flex: none;
+  min-width: 8.6em;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 14px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cdxretry .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.cdxretry:disabled {
+  opacity: .7;
+}
+
+.cdxauto {
+  flex: 1 1 17.5em;
+  min-width: 0;
+  font-size: 10.5px;
+  line-height: 1.75;
+  color: var(--sub);
+}
+
+.cdxwait {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11.5px;
+  line-height: 1.85;
+  color: var(--acc-tx);
+}
+
+.cdxwait .ic {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+}
+
+.cdxcap {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--sub);
+}
+
+.cdxhosts {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--bord);
+}
+
+.cdxhosts > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 0;
+}
+
+.cdxhosts > li + li {
+  border-top: 1px dashed var(--bord);
+}
+
+.cdxhosts > li > .ic {
+  width: 14px;
+  height: 14px;
+  color: var(--ok-tx);
+}
+
+.cdxhosts > li.bad > .ic {
+  color: var(--bad-tx);
+}
+
+.cdxhosts > li.wait > .ic {
+  color: var(--acc-tx);
+}
+
+.cdxhn {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tx);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.cdxhosts > li.bad .cdxhn {
+  color: var(--bad-tx);
+}
+
+.cdxhosts > li > .cdxerr {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cdxdrw:hover {
+    background: var(--ctl);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cedge,
+  .cdxdrw,
+  .cdxchev {
+    transition: none;
+  }
 }
 
 .cedge .cdot {

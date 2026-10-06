@@ -10,7 +10,6 @@ import {
   carrierFamily,
   carrierLabel,
   carrierProfile,
-  edgeHost,
 } from './carrier.js'
 import { poolRotateItems } from './form/presets.js'
 import { hostAddress } from '../../lib/subnet.js'
@@ -55,49 +54,6 @@ function ConntrackWarning({ link, ported }) {
         <b className="mono iso">{String(ct.node || '')}</b>
         {parts[1]}
       </span>
-    </div>
-  )
-}
-
-function EdgeChips({ ip, domain }) {
-  if (!ip && !domain) return <span className="echip wait">…</span>
-  return (
-    <>
-      {ip ? <span className="echip ip">{ip}</span> : null}
-      {domain ? <span className="echip dom">{domain}</span> : null}
-    </>
-  )
-}
-
-function EdgeBlock({ link, activeEdge }) {
-  if (link.transport !== 'ws') return null
-
-  if (link.ws_pool) {
-    if (link.enabled === false) return null
-    const parts = String(activeEdge || '').split(' · ')
-    return (
-      <div className="cedge live">
-        <div className="ct">
-          <span className="cdot" />
-          {T('active_edge')}
-        </div>
-        <div className="echips">
-          <EdgeChips ip={edgeHost(parts[0] || '')} domain={parts.slice(1).join(' · ')} />
-        </div>
-      </div>
-    )
-  }
-
-  const ip = link.edge_ip ? edgeHost(link.edge_ip) : ''
-  const domain = link.ws_host || ''
-  if (!ip && !domain) return null
-
-  return (
-    <div className="cedge">
-      <div className="ct">{T('cdn_edge')}</div>
-      <div className="echips">
-        <EdgeChips ip={ip} domain={domain} />
-      </div>
     </div>
   )
 }
@@ -239,7 +195,7 @@ function Cell({ c }) {
   )
 }
 
-export default function CoreMeta({ link, activeEdge }) {
+export default function CoreMeta({ link }) {
   const { enums } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
   const ported = (enums && enums.raw_ported) || []
@@ -270,7 +226,6 @@ export default function CoreMeta({ link, activeEdge }) {
         ))}
       </div>
       <ConntrackWarning link={link} ported={ported} />
-      <EdgeBlock link={link} activeEdge={activeEdge} />
     </>
   )
 }

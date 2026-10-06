@@ -4,7 +4,7 @@ import ActionRow from '../../components/ActionRow.jsx'
 import CardBody from '../../components/CardBody.jsx'
 import TagPicker from '../../components/TagPicker.jsx'
 import CoreMeta from './CoreMeta.jsx'
-import CdnStatus from './CdnStatus.jsx'
+import CdnEdge from './CdnEdge.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState } from '../tunnels/sideHealth.js'
 import { carrierFamily, carrierLabel } from './carrier.js'
@@ -319,8 +319,8 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
             />
           </div>
 
-          <CoreMeta link={link} activeEdge={activeEdge} />
-          <CdnStatus link={link} onReload={onReload} />
+          <CoreMeta link={link} />
+          <CdnEdge link={link} activeEdge={activeEdge} onReload={onReload} />
 
           {link.enabled === false ? (
             <div className="offbadge">
