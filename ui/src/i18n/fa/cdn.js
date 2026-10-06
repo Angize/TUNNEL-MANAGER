@@ -81,8 +81,6 @@ export default {
   cdn_ssl_mode_host_d: 'Configuration Rule',
   cdn_ssl_mode_zone: 'کلِ دامنه',
   cdn_ssl_mode_zone_d: 'SSL دامنه روی Flexible',
-  cdn_ssl_mode_host_note:
-    'پنل روی هر دامنه یک Configuration Rule می‌سازد و فقط زیردامنهٔ تونل‌ها را در آن Flexible می‌کند؛ SSL و «SSL خودکار» خودِ دامنه و بقیهٔ سایت‌ها دست نمی‌خورند. توکن دسترسیِ Config Settings → Edit می‌خواهد. تونل‌های فعلی تا ویرایش یا بازسازیِ بعدی روی حالتِ قبلی می‌مانند.',
   cdn_ssl_mode_zone_note:
     'پنل SSL کلِ دامنه را Flexible و «SSL خودکار» را خاموش می‌کند؛ هر سایتِ دیگری روی همان دامنه هم Flexible می‌شود. تونل‌های فعلی تا ویرایش یا بازسازیِ بعدی روی حالتِ قبلی می‌مانند.',
   cdn_ssl_mode_saved: 'حالتِ SSL ذخیره شد',

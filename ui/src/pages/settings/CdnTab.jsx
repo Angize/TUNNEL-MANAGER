@@ -225,7 +225,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
               onClick={() => sslMode('zone')}
             />
           </Seg2>
-          <div className="cdnused">{T(status.ssl_mode === 'zone' ? 'cdn_ssl_mode_zone_note' : 'cdn_ssl_mode_host_note')}</div>
+          {status.ssl_mode === 'zone' ? <div className="cdnused">{T('cdn_ssl_mode_zone_note')}</div> : null}
         </div>
       ) : null}
     </div>
