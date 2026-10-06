@@ -39,7 +39,7 @@ function pageTop(el) {
   return top
 }
 
-export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNavigate }) {
+export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNavigate, snug }) {
   const { counts } = useSummary()
   const index = Math.max(0, kinds.findIndex((k) => k.id === kind))
   const pager = useRef(null)
@@ -211,7 +211,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
     <>
       <PageHead icon={icon} titleKey={titleKey} />
 
-      <div className="lseg" ref={seg}>
+      <div className={'lseg' + (snug ? ' snug' : '')} ref={seg}>
         <span className="lthumb" ref={thumb} />
         {kinds.map((k, i) => (
           <button
