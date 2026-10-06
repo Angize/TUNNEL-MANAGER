@@ -44,6 +44,11 @@
   transition: color .25s;
 }
 
+.lseg.snug button {
+  flex: 1 1 auto;
+  padding-inline: 10px;
+}
+
 .lseg button i {
   font-style: normal;
   font-size: 10.5px;

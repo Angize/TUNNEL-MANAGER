@@ -7,10 +7,10 @@ import CdnTab from './CdnTab.jsx'
 import './settings.css'
 
 export const SETTINGS_KINDS = [
-  { id: 'set-values', labelKey: 'set_tab_values', subKey: 'set_sub', Page: ValuesTab },
   { id: 'set-api', labelKey: 'set_tab_api', subKey: 'set_api_sub', Page: ApiTab },
   { id: 'set-cdn', labelKey: 'set_tab_cdn', subKey: 'set_cdn_sub', Page: CdnTab },
   { id: 'set-upkeep', labelKey: 'set_tab_upkeep', subKey: 'set_upkeep_sub', Page: UpkeepTab },
+  { id: 'set-values', labelKey: 'set_tab_values', subKey: 'set_sub', Page: ValuesTab },
 ]
 
 const TAB_IDS = SETTINGS_KINDS.map((k) => k.id)
@@ -18,7 +18,7 @@ const TAB_IDS = SETTINGS_KINDS.map((k) => k.id)
 export default function SettingsPage(props) {
   return (
     <SettingsFormProvider tabs={TAB_IDS}>
-      <TabPager icon="cog" titleKey="nav_settings" kinds={SETTINGS_KINDS} {...props} />
+      <TabPager icon="cog" titleKey="nav_settings" kinds={SETTINGS_KINDS} snug {...props} />
     </SettingsFormProvider>
   )
 }
