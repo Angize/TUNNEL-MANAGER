@@ -350,7 +350,13 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
                 <pre className="mono" dir="ltr">
                   {manualCmd}
                 </pre>
-                <button type="button" className="ghost" title={T('tip_copy')} onClick={(e) => copyText(manualCmd, e)}>
+                <button
+                  type="button"
+                  className="instcp"
+                  title={T('tip_copy')}
+                  aria-label={T('tip_copy')}
+                  onClick={(e) => copyText(manualCmd, e)}
+                >
                   <Icon name="copy" />
                 </button>
               </div>
