@@ -248,6 +248,20 @@
    ]
   ]
  },
+ "cdn-key": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ]
+  ]
+ },
  "cdn-make": {
   "bad": [
    [
