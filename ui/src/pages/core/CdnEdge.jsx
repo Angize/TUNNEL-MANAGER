@@ -10,7 +10,6 @@ import { T, TF } from '../../i18n/fa.js'
 
 const ICON = { ok: 'okc', bad: 'warn', wait: 'clock' }
 const CHIP = { ok: 'ok', bad: 'bad', wait: 'run' }
-const HOST_ICON = { ok: 'check', bad: 'warn', wait: 'clock' }
 
 function toneOf(state) {
   return state.ok ? 'ok' : state.error ? 'bad' : 'wait'
@@ -20,17 +19,28 @@ function faCount(n) {
   return n.toLocaleString('fa-IR')
 }
 
+function cdnView(cdn) {
+  const hosts = cdn.pool ? cdn.hosts || [] : []
+  const tones = cdn.pool ? hosts.map(toneOf) : [toneOf(cdn)]
+  const tone = tones.includes('bad') ? 'bad' : tones.includes('wait') ? 'wait' : 'ok'
+  const providers = [...new Set(cdn.pool ? hosts.map((h) => h.provider) : [cdn.provider])]
+  const names = providers.map(providerName).join(T('px_and'))
+  const pill = cdn.pool
+    ? TF('cdn_pill_pool', { p: names, ok: faCount(hosts.filter((h) => h.ok).length), n: faCount(hosts.length) })
+    : TF('cdn_pill', { p: names, s: T('cdn_own_' + tone) })
+  return { tone, hosts, providers, names, pill }
+}
+
 function edgeView(link, activeEdge) {
   if (link.transport !== 'ws') return null
   if (link.ws_pool) {
-    if (link.enabled === false) return { live: false }
+    if (link.enabled === false) return null
     const parts = String(activeEdge || '').split(' · ')
-    return { live: true, chips: true, ip: edgeHost(parts[0] || ''), domain: parts.slice(1).join(' · ') }
+    return { live: true, ip: edgeHost(parts[0] || ''), domain: parts.slice(1).join(' · ') }
   }
   const ip = link.edge_ip ? edgeHost(link.edge_ip) : ''
   const domain = link.ws_host || ''
-  if (!ip && !domain) return null
-  return { live: false, chips: true, ip, domain }
+  return ip || domain ? { live: false, ip, domain } : null
 }
 
 function EdgeChips({ ip, domain }) {
@@ -65,7 +75,7 @@ function PoolHosts({ hosts, ip }) {
           const tone = toneOf(h)
           return (
             <li key={h.host} className={tone}>
-              <Icon name={HOST_ICON[tone]} />
+              <Icon name={ICON[tone]} />
               <span className="cdxhn mono" dir="ltr">
                 {h.host}
               </span>
@@ -95,15 +105,17 @@ function Row({ label, tag, value }) {
 
 function portTag(providers) {
   if (providers.length !== 1) return ''
-  return providers[0] === 'cf' ? 'Origin Rule' : T('cdn_port_rec')
+  return T(providers[0] === 'cf' ? 'cdn_port_rule' : 'cdn_port_rec')
 }
 
-function Drawer({ link, cdn, tone, providers, names, onReload }) {
-  const [pick, setPick] = useState(null)
+function Drawer({ link, cdn, view, onReload }) {
+  const { tone, hosts, providers, names } = view
+  const [pick, setPick] = useState({ tone, open: tone === 'bad' })
   const [busy, setBusy] = useState(false)
   const id = useId()
   const pool = !!cdn.pool
-  const open = pick && pick.tone === tone ? pick.open : tone === 'bad'
+  if (pick.tone !== tone) setPick({ tone, open: tone === 'bad' })
+  const open = pick.tone === tone ? pick.open : tone === 'bad'
 
   const sync = async () => {
     setBusy(true)
@@ -135,14 +147,14 @@ function Drawer({ link, cdn, tone, providers, names, onReload }) {
       <div id={id}>
         <Reveal show={open}>
           <div className="cdxin">
-            {pool ? <PoolHosts hosts={cdn.hosts || []} ip={cdn.ip} /> : null}
-            {!pool && tone === 'bad' ? <CdnError state={cdn} ip={cdn.ip} /> : null}
-            {!pool && tone === 'wait' ? (
+            {tone === 'wait' ? (
               <p className="cdxwait">
                 <Icon name="clock" />
                 <span>{T('cdn_wait_d') + ' ' + T('cdn_own_auto')}</span>
               </p>
             ) : null}
+            {pool ? <PoolHosts hosts={hosts} ip={cdn.ip} /> : null}
+            {!pool && tone === 'bad' ? <CdnError state={cdn} ip={cdn.ip} /> : null}
             <dl className="cdxkv">
               {pool ? null : <Row label={T('cdn_own_host')} value={cdn.host} />}
               <Row label={T('cdn_own_ip')} value={cdn.ip} />
@@ -169,42 +181,28 @@ export default function CdnEdge({ link, activeEdge, onReload }) {
   const cdn = link.cdn
   if (!edge && !cdn) return null
   const live = !!(edge && edge.live)
-  const tone = cdn ? toneOf(cdn) : ''
-  const hosts = cdn && cdn.pool ? cdn.hosts || [] : []
-  const providers = cdn ? [...new Set(cdn.pool ? hosts.map((h) => h.provider) : [cdn.provider])] : []
-  const names = providers.map(providerName).join(T('px_and'))
-  const pill = !cdn
-    ? ''
-    : cdn.pool
-      ? TF('cdn_pill_pool', {
-          p: names,
-          ok: faCount(hosts.filter((h) => h.ok).length),
-          n: faCount(hosts.length),
-        })
-      : TF('cdn_pill', { p: names, s: T('cdn_own_' + tone) })
+  const view = cdn ? cdnView(cdn) : null
 
   return (
-    <div className={'cedge' + (live ? ' live' : '') + (tone === 'bad' ? ' cdxbad' : '')}>
+    <div className={'cedge' + (live ? ' live' : '') + (view && view.tone === 'bad' ? ' cdxbad' : '')}>
       <div className="cedgef">
         <div className="ct">
           {live ? <span className="cdot" /> : null}
           <span className="ctt">{T(live ? 'active_edge' : 'cdn_edge')}</span>
-          {cdn ? (
-            <span className={'cdnchip cdxpill ' + CHIP[tone]}>
-              <Icon name={ICON[tone]} />
-              <span>{pill}</span>
+          {view ? (
+            <span className={'cdnchip cdxpill ' + CHIP[view.tone]}>
+              <Icon name={ICON[view.tone]} />
+              <span>{view.pill}</span>
             </span>
           ) : null}
         </div>
-        {edge && edge.chips ? (
+        {edge ? (
           <div className="echips">
             <EdgeChips ip={edge.ip} domain={edge.domain} />
           </div>
         ) : null}
       </div>
-      {cdn ? (
-        <Drawer link={link} cdn={cdn} tone={tone} providers={providers} names={names} onReload={onReload} />
-      ) : null}
+      {view ? <Drawer link={link} cdn={cdn} view={view} onReload={onReload} /> : null}
     </div>
   )
 }
