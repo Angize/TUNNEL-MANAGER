@@ -92,6 +92,7 @@ const PATHS = {
     </>
   ),
   chev: <path d="M6 9l6 6 6-6" />,
+  cloud: <path d="M7 18.5h10.2a4.3 4.3 0 0 0 .6-8.56A6 6 0 0 0 6.3 11.2 3.7 3.7 0 0 0 7 18.5z" />,
   restart: (
     <>
       <path d="M12 3v8" />
