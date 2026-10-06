@@ -63,7 +63,6 @@ function TestResult({ provider, result }) {
           </div>
         </div>
       ) : null}
-      {provider === 'cf' ? <WarnCap tone="gold" text={T('cdn_cf_grpc_note')} /> : null}
     </div>
   )
 }
