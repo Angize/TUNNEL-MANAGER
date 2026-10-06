@@ -48,7 +48,8 @@ export default {
   cdn_save_test: 'ذخیره و آزمایش',
   cdn_route_lbl_cf: 'مسیرِ اتصال به api.cloudflare.com',
   cdn_route_lbl_ar: 'مسیرِ اتصال به napi.arvancloud.ir',
-  cdn_key_note: 'کلید هیچ‌وقت کامل برگردانده نمی‌شود؛ فقط چهار حرفِ آخرش این‌جا دیده می‌شود.',
+  cdn_key_note: 'کلید فقط وقتی کامل از پنل خوانده می‌شود که رویش بزنی تا کپی شود؛ این‌جا فقط چهار حرفِ آخرش دیده می‌شود.',
+  cdn_key_copy: 'کپیِ کلیدِ {p}',
 
   cdn_zone_on: 'فعال',
   cdn_zone_paused: 'متوقف',

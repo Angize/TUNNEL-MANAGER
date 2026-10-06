@@ -12,6 +12,7 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
+import { copyText } from '../../components/CopyValue.jsx'
 import { CDN_PROVIDERS, providerName } from '../../lib/cdn.js'
 import { T, TF } from '../../i18n/fa.js'
 import CdnHosts from './CdnHosts.jsx'
@@ -71,6 +72,15 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
   const [phase, setPhase] = useState(status.set ? 'view' : 'edit')
   const [draft, setDraft] = useState('')
   const [result, setResult] = useState(null)
+  const [copying, setCopying] = useState(false)
+
+  const copyKey = async () => {
+    setCopying(true)
+    const r = await apiPost('cdn-key', { provider })
+    setCopying(false)
+    if (r.ok && r.d.ok) copyText(r.d.key)
+    else toast(postError(r), 'err')
+  }
 
   const test = async () => {
     setPhase('testing')
@@ -146,12 +156,22 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
 
       <Reveal show={status.set && !editing}>
         <div className="oprow">
-          <div className="aptok">
+          <button
+            type="button"
+            className="aptok cdnkey"
+            onClick={copyKey}
+            disabled={copying}
+            title={T('tip_copy')}
+            aria-label={TF('cdn_key_copy', { p: providerName(provider) })}
+          >
             <Icon name="lock" />
             <span dir="ltr" className="mono tokv">
               {'••••••••••' + (status.tail || '')}
             </span>
-          </div>
+            <span className="cdnkeycp">
+              <Icon name="copy" />
+            </span>
+          </button>
           <button type="button" className="ghost tone tone-renew opfit" onClick={test} disabled={busy}>
             <Icon name="redo" />
             {T('cdn_test')}

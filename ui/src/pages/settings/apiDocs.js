@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-make, cdn-drop and cdn-sync).',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-make, cdn-drop and cdn-sync).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -98,7 +98,7 @@ export const GROUPS = [
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
   ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
-  ['cdn', 'CDN automation', ['cdn', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-make', 'cdn-drop', 'cdn-sync']],
+  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-make', 'cdn-drop', 'cdn-sync']],
   [
     'updates',
     'Agent and core',
@@ -658,7 +658,12 @@ export const DOCS = {
 
   cdn: {
     t: 'CDN keys',
-    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. edges is the clean edge IP list from the settings key cdn_edges. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is never returned.',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. edges is the clean edge IP list from the settings key cdn_edges. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is not returned here; cdn-key returns it.',
+  },
+  'cdn-key': {
+    t: 'Read a CDN key',
+    d: 'Returns the saved key of one provider in full (key), for copying it from the panel. Fails with cdn_no_key when none is saved.',
+    p: [CDN_PROVIDER],
   },
   'cdn-set': {
     t: 'Save a CDN key',

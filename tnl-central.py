@@ -9814,11 +9814,16 @@ def _cdn_prov(v):
     return p
 
 
-def _cdn_cred(prov):
+def _cdn_saved(prov):
     c = _cdn_keys().get(prov) or {}
     if not c.get("key"):
         raise Bad("cdn_no_key", "کلیدِ {0} در پنل نیست — در «تنظیمات › CDN» واردش کن",
                   "there is no {0} key in the panel — add it under Settings › CDN", CDN_NAMES[prov])
+    return c
+
+
+def _cdn_cred(prov):
+    c = _cdn_saved(prov)
     proxy = ""
     pid = str(c.get("proxy_id") or "")
     if pid:
@@ -11011,6 +11016,10 @@ def api_cdn(d):
     return {"ok": True, "cdn": _cdn_public()}
 
 
+def api_cdn_key(d):
+    return {"ok": True, "key": _cdn_saved(_cdn_prov((d or {}).get("provider")))["key"]}
+
+
 def api_cdn_set(d):
     d = d or {}
     prov = _cdn_prov(d.get("provider"))
@@ -11893,7 +11902,7 @@ API = {
     "core-stage-cancel": api_core_stage_cancel, "push-status": api_push_status, "push-cancel": api_push_cancel, "push-pause": api_push_pause,
     "reorder": api_reorder, "link-tag": api_link_tag,
     "backup": api_backup, "backup-restore": api_backup_restore, "sign-key-rotate": api_sign_key_rotate,
-    "cdn": api_cdn, "cdn-set": api_cdn_set, "cdn-test": api_cdn_test, "cdn-zones": api_cdn_zones,
+    "cdn": api_cdn, "cdn-key": api_cdn_key, "cdn-set": api_cdn_set, "cdn-test": api_cdn_test, "cdn-zones": api_cdn_zones,
     "cdn-check": api_cdn_check, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
@@ -11906,9 +11915,9 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "update-agent", "update-core",
              "reorder", "link-tag",
              "act-cancel", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-             "cdn-set", "cdn-test", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
+             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
 TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-              "cdn", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
+              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),

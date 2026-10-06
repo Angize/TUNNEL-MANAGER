@@ -254,6 +254,37 @@
   flex: 1 1 190px;
 }
 
+.apcard.cdnprov button.cdnkey {
+  margin: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color .15s var(--ease-out), border-color .15s var(--ease-out);
+}
+
+.apcard.cdnprov button.cdnkey:active {
+  background: var(--ctl);
+}
+
+.apcard.cdnprov button.cdnkey:disabled {
+  opacity: .6;
+  cursor: progress;
+}
+
+.cdnkeycp {
+  display: inline-flex;
+  margin-inline-start: auto;
+  color: var(--acc-tx);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apcard.cdnprov button.cdnkey:hover {
+    background: var(--ctl);
+    border-color: color-mix(in srgb, var(--acc) 40%, var(--edge));
+  }
+}
+
 .tokv {
   white-space: nowrap;
   overflow: hidden;
