@@ -902,6 +902,14 @@
   padding-right: 64px;
 }
 
+.authbox .secret .fld2 {
+  padding-right: 64px;
+}
+
+.secret input::-ms-reveal {
+  display: none;
+}
+
 .secbtn {
   position: absolute;
   top: 50%;

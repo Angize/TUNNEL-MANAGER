@@ -1,6 +1,7 @@
 import Field from '../../components/Field.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import SwapCascade from '../../components/SwapCascade.jsx'
+import SecretInput from '../../components/SecretInput.jsx'
 import { T } from '../../i18n/fa.js'
 import { LTR_TEXT } from '../../lib/form.js'
 
@@ -32,14 +33,12 @@ export default function SshAuth({ mode, onMode, pass, onPass, sshKey, onKey, pas
       <SwapCascade value={mode}>
         <Reveal show={mode === 'pass'}>
           <Field hint={passHint}>
-            <input
+            <SecretInput
               className="fld2"
-              type="password"
-              autoComplete="new-password"
               aria-label={T('nadd_pass_word')}
               placeholder={T('nadd_pass_ph')}
               value={pass}
-              onChange={(e) => onPass(e.target.value)}
+              onChange={onPass}
             />
           </Field>
         </Reveal>
