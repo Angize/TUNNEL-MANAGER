@@ -906,10 +906,7 @@
   position: relative;
 }
 
-.secret input {
-  padding-right: 64px;
-}
-
+.secret input,
 .authbox .secret .fld2 {
   padding-right: 64px;
 }
