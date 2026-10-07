@@ -4,12 +4,12 @@ import Icon from '../../components/Icon.jsx'
 import IpChips from '../../components/IpChips.jsx'
 import Gauge from '../overview/Gauge.jsx'
 import Sparkline from '../overview/Sparkline.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { readError, translateError } from '../../lib/errors.js'
 import { getUiInterval } from '../../lib/poll.js'
 import { toast } from '../../lib/toast.js'
-import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
+import { faNum, fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 
 const SPARK_POINTS = 30
 
@@ -49,6 +49,14 @@ function TrafficRow({ row }) {
       </div>
     </div>
   )
+}
+
+function ipSummary(entry) {
+  const tun = (entry.peers || []).length
+  const pf = (entry.pf || []).length
+  return [tun ? TF('ip_sum_tun', { n: faNum(tun) }) : '', pf ? TF('ip_sum_pf', { n: faNum(pf) }) : '']
+    .filter(Boolean)
+    .join(T('px_and'))
 }
 
 export default function NodeDetailsModal({ node, onClose }) {
@@ -304,12 +312,17 @@ export default function NodeDetailsModal({ node, onClose }) {
             ) : ips.length ? (
               ips.map((entry) => (
                 <div className="iptag" key={entry.ip}>
-                  <span className="mono" style={{ direction: 'ltr', fontSize: 12.5 }}>
-                    {entry.ip}
-                  </span>
-                  <span className="tgs">
-                    <IpChips entry={entry} />
-                  </span>
+                  <div className="iph">
+                    <span className="mono ipv" dir="ltr">
+                      {entry.ip}
+                    </span>
+                    {entry.free ? <IpChips entry={entry} /> : <span className="ipsum">{ipSummary(entry)}</span>}
+                  </div>
+                  {entry.free ? null : (
+                    <span className="tgs">
+                      <IpChips entry={entry} />
+                    </span>
+                  )}
                 </div>
               ))
             ) : (

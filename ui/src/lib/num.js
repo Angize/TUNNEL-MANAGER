@@ -4,6 +4,10 @@ export function latinDigits(text) {
   return String(text == null ? '' : text).replace(/[۰-۹٠-٩]/g, (d) => String(d.charCodeAt(0) & 0xf))
 }
 
+export function faNum(n) {
+  return num(n).toLocaleString('fa-IR')
+}
+
 export function num(x) {
   const n = +x
   return isFinite(n) ? n : 0

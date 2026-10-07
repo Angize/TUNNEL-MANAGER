@@ -6,6 +6,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { providerName } from '../../lib/cdn.js'
+import { faNum } from '../../lib/num.js'
 import { T, TF } from '../../i18n/fa.js'
 
 const ICON = { ok: 'okc', bad: 'warn', wait: 'clock' }
@@ -15,10 +16,6 @@ function toneOf(state) {
   return state.ok ? 'ok' : state.error ? 'bad' : 'wait'
 }
 
-function faCount(n) {
-  return n.toLocaleString('fa-IR')
-}
-
 function cdnView(cdn) {
   const hosts = cdn.pool ? cdn.hosts || [] : []
   const tones = cdn.pool ? hosts.map(toneOf) : [toneOf(cdn)]
@@ -26,7 +23,7 @@ function cdnView(cdn) {
   const providers = [...new Set(cdn.pool ? hosts.map((h) => h.provider) : [cdn.provider])]
   const names = providers.map(providerName).join(T('px_and'))
   const pill = cdn.pool
-    ? TF('cdn_pill_pool', { p: names, ok: faCount(hosts.filter((h) => h.ok).length), n: faCount(hosts.length) })
+    ? TF('cdn_pill_pool', { p: names, ok: faNum(hosts.filter((h) => h.ok).length), n: faNum(hosts.length) })
     : TF('cdn_pill', { p: names, s: T('cdn_own_' + tone) })
   return { tone, hosts, providers, names, pill }
 }
