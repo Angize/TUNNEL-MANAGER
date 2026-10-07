@@ -394,42 +394,26 @@
 
 .iptag {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 9px 2px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 2px;
   border-bottom: 1px solid var(--bord);
 }
 
-.iph {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.iph .ipv {
+.iptag .ipv {
   flex: none;
+  padding-top: 4px;
   font-size: 12.5px;
-  font-weight: 700;
   white-space: nowrap;
   overflow-wrap: normal;
 }
 
-.iph .ipsum,
-.iph .ipfree {
-  margin-inline-start: auto;
-}
-
-.ipsum {
-  font-size: 11px;
-  color: var(--sub);
-  white-space: nowrap;
-}
-
 .iptag .tgs {
+  margin-inline-start: auto;
   display: flex;
   gap: 5px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .ippeer {
