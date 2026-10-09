@@ -39,6 +39,7 @@ function poolCollect(form, body) {
   body.ws_pool = true
   body.ws_tls = true
   body.ws_edge_ips = pool.ip
+  body.ws_edge_ip_groups = pool.ipCdn
   body.ws_edge_snis = pool.sni
   body.ws_rotate_secs = pool.rotate
   return ''

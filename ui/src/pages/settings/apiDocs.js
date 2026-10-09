@@ -181,6 +181,7 @@ const TUNNEL_FIELDS = [
   ['split_ttl', 0, N, 'TTL of the first segment in disorder mode'],
   ['ws_pool', 0, B, 'edge pool: rotate over several edge IPs and domains'],
   ['ws_edge_ips', 0, L, 'edge IPs as IPv4:port (at most 64)'],
+  ['ws_edge_ip_groups', 0, O, 'only for a pool whose domains the panel made on both Cloudflare and ArvanCloud: each edge IP to cf or ar. Every domain then dials only the edge IPs of its own CDN; every domain must be panel-made (pool_mixed_manual), every edge IP needs a CDN (pool_ip_group) and every CDN at least one edge IP (pool_group_no_ip). Ignored for a pool on one CDN'],
   ['ws_edge_snis', 0, L, 'domains (at most 64); every domain uses ws_path. A domain the panel made with cdn-make is set up by the panel on save: its record points at the server (ArvanCloud: with the tunnel port) and it joins the Origin Rule of the tunnel port, one rule per port and zone for the whole pool; it must not be used by another tunnel (cdn_host_taken). A made domain the edit leaves is detached and ready again. With a token a pool that adds a panel-made domain gets 403 token_cdn'],
   ['ws_pool_auto', 0, B, 'edge pool: replace a burned panel-made domain by itself (default true; stored, not used yet)'],
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
