@@ -5036,10 +5036,12 @@ def api_update_core(d):
             raise _no_custom_core()
         _core_delivery_check(_delivery_mode("core"), True)
         raw, sha = blob
+        arch = _elf_arch(raw)
         b64 = base64.b64encode(raw).decode()
-        grant = _grant("core", _elf_arch(raw), "custom", sha)
+        grant = _grant("core", arch, "custom", sha)
         put = _body_cache(lambda n: _core_install_body(n, b64, "custom", grant, "", custom=True))
-        plan = [("check", "ping", lambda _n, _c=None: {}, 15, lambda r, _s=sha: _core_current(r, _s)),
+        plan = [("check", "ping", lambda n, _c=None: _custom_arch_check(_node_arch_known(n), arch) or {}, 15,
+                 lambda r, _s=sha: _core_current(r, _s)),
                 ("deliver", "core-put", put, 300, None),
                 ("install", "core-apply", lambda _n, _c=None, _g=grant: _g, 300, None)]
         return _update_start("core", nodes, plan)
@@ -5088,9 +5090,7 @@ def api_update_core(d):
         return {}
 
     def prep(n):
-        arch = _node_arch(n)
-        if not arch:
-            raise Bad("node_arch_unknown", "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", "the node's architecture is unknown — the node must answer once so the right binary is sent")
+        arch = _node_arch_known(n)
         if arch not in parts:
             if gh:
                 ver, sha = _staged_release(arch)
@@ -5153,9 +5153,10 @@ def api_core_versions(d):
         out[0] = {**out[0], "label": tx("{0} (تازه‌ترین)", "{0} (latest)", out[0].get("label") or out[0]["id"]), "latest": True}
     info = _core_blob_info()
     if info:
-        out.append({"id": "custom", "label": tx("باینریِ آپلودشده{0}", "uploaded binary{0}",
-                                                " · " + info["name"] if info.get("name") else ""),
-                    "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size")})
+        tail = "".join(" · " + str(info[k]) for k in ("arch", "name") if info.get(k))
+        out.append({"id": "custom", "label": tx("باینریِ آپلودشده{0}", "uploaded binary{0}", tail),
+                    "custom": True, "sha256": info.get("sha256", "")[:12], "size": info.get("size"),
+                    "arch": info.get("arch", "")})
     rd = _readiness()
     return {"versions": out, "staged": _staged_info(), "delivery": _delivery_mode("core"),
             "ready": rd["core"], "missing": rd["core_missing"]}
@@ -5189,6 +5190,12 @@ def api_core_check(d):
     top = (vers[0].get("id") if vers else "")
     return {"ok": True, "count": len(vers), "latest": top, "newer": bool(top and top != prev_top),
             "first_check": not before, "staged": (_staged_info() or {}).get("version", "")}
+
+
+def _custom_arch_check(have, arch):
+    if have != arch:
+        raise Bad("core_bad_arch", "باینریِ آپلودشده برای {0} است ولی این نود {1} است — برایش باینریِ {1} آپلود کن یا نسخه‌ای از گیت‌هاب بفرست",
+                  "the uploaded binary is for {0} but this node is {1} — upload a {1} binary for it or send a GitHub version", arch, have)
 
 
 def _core_blob_bytes():
@@ -5228,14 +5235,15 @@ def api_core_upload(d):
                   CORE_UPLOAD_MB)
     if raw[:4] != b"\x7fELF":
         raise Bad("not_elf", "این یک باینریِ ELF لینوکسی نیست", "this is not a Linux ELF binary")
-    if not _elf_arch(raw):
+    arch = _elf_arch(raw)
+    if not arch:
         raise Bad("not_core_arch", "این باینری نه amd64 است نه arm64", "this binary is neither amd64 nor arm64")
     sha = hashlib.sha256(raw).hexdigest()
     name = str(d.get("name") or "core.bin")[:80]
     with _core_blob_lock:
         save_bytes(CORE_BLOB, raw)
-        save_json(CORE_BLOB_META, {"sha256": sha, "size": len(raw), "name": name, "uploaded_ts": int(time.time())})
-    return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name}
+        save_json(CORE_BLOB_META, {"sha256": sha, "size": len(raw), "name": name, "arch": arch, "uploaded_ts": int(time.time())})
+    return {"ok": True, "sha256": sha[:12], "size": len(raw), "name": name, "arch": arch}
 
 
 _CORE_REL_DL = "https://github.com/Angize/TUNNEL-MANAGER-CORE/releases"
@@ -5527,12 +5535,17 @@ def _node_arch(node):
     return a if a in CORE_ARCHES else ""
 
 
-def _push_staged(node):
+def _node_arch_known(node):
     arch = _node_arch(node)
     if not arch:
-        return {"ok": False, "error": tx("معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", "the node's architecture is unknown — the node must answer once so the right binary is sent")}
+        raise Bad("node_arch_unknown", "معماریِ نود مشخص نشد — نود باید یک‌بار پاسخ بدهد تا باینریِ درست فرستاده شود", "the node's architecture is unknown — the node must answer once so the right binary is sent")
+    return arch
+
+
+def _push_staged(node):
     custom, raw, b64 = False, b"", ""
     try:
+        arch = _node_arch_known(node)
         if _delivery_mode("core") == "github":
             ver, sha = _staged_release(arch)
         else:
@@ -5544,8 +5557,9 @@ def _push_staged(node):
                 if not blob:
                     return {"ok": False, "error": tx("هیچ هسته‌ای روی پنل آماده نیست — اول یک نسخه دانلود کن", "no core is ready on the panel — download a version first")}
                 (raw, sha), ver, custom = blob, "custom", True
+                _custom_arch_check(arch, _elf_arch(raw))
             b64 = base64.b64encode(raw).decode()
-        grant = _grant("core", _elf_arch(raw) if custom else arch, ver, sha)
+        grant = _grant("core", arch, ver, sha)
         body = _core_install_body(node, b64, ver, grant, arch, custom)
     except ValueError as e:
         return {"ok": False, "error": _why(e)}

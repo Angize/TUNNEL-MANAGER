@@ -761,7 +761,7 @@ export const DOCS = {
   },
   'core-upload': {
     t: 'Upload a core binary',
-    d: 'Puts a custom core binary on the panel (at most 15 MB). It reaches the nodes with update-core and version=custom.',
+    d: 'Puts a custom core binary on the panel (at most 15 MB, amd64 or arm64; arch in the answer says which). It reaches the nodes of that architecture with update-core and version=custom.',
     p: [
       ['data', 1, S, 'the binary in base64'],
       ['name', 0, S, 'file name'],
@@ -776,7 +776,7 @@ export const DOCS = {
     d: 'Installs the core on the chosen nodes. The work runs in the background; read the progress from push-status.',
     p: [
       ['ids', 1, L, 'node ids'],
-      ['version', 0, S, 'empty = the version ready on the panel, a tag like v2.136.0, or custom for the uploaded binary'],
+      ['version', 0, S, 'empty = the version ready on the panel, a tag like v2.136.0, or custom for the uploaded binary (a node of another architecture fails with core_bad_arch)'],
     ],
   },
   'push-status': {
