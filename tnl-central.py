@@ -10294,19 +10294,19 @@ def _cdn_gather(jobs):
     return dict(zip(keys, parallel_map(lambda k: jobs[k](), keys, workers=8)))
 
 
-def _cf_read(cred, z, hosts, tls, carrier, host_ssl):
-    zid = z["id"]
-    zone_ssl = tls and not host_ssl
-    jobs = {("recs", h): (lambda h=h: _cdn_records(cred, z, h)) for h in hosts}
-    jobs.update({
-        "rs": lambda: _cf_entry(cred, zid),
-        "cfg": (lambda: _cf_entry(cred, zid, _CF_CONFIG)) if host_ssl else None,
-        "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if zone_ssl else None,
-        "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if zone_ssl else None,
-        "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None})
-    got = _cdn_gather(jobs)
+def _cdn_read(cred, z, hosts, jobs):
+    got = _cdn_gather({**jobs, **{("recs", h): (lambda h=h: _cdn_records(cred, z, h)) for h in hosts}})
     got["recs"] = {h: got.pop(("recs", h)) for h in hosts}
     return got
+
+
+def _cf_zone_jobs(cred, zid, tls, carrier, host_ssl):
+    zone_ssl = tls and not host_ssl
+    return {
+        "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if not tls else None,
+        "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if zone_ssl else None,
+        "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if zone_ssl else None,
+        "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None}
 
 
 def _ar_get(cred, path, soft=False):
@@ -10319,15 +10319,35 @@ def _ar_get(cred, path, soft=False):
     return None if js is None else js.get("data") or {}
 
 
-def _ar_read(cred, z, hosts, tls, carrier):
+def _ar_zone_jobs(cred, z, tls, carrier):
     dz = urllib.parse.quote(z["name"])
-    jobs = {("recs", h): (lambda h=h: _cdn_records(cred, z, h)) for h in hosts}
-    jobs.update({
-        "cert": (lambda: _ar_get(cred, "/domains/%s/ssl" % dz)) if tls else None,
-        "lb": (lambda: _ar_get(cred, "/domains/%s/load-balancers/settings" % dz)) if carrier == "grpc" else None})
-    got = _cdn_gather(jobs)
-    got["recs"] = {h: got.pop(("recs", h)) for h in hosts}
-    return got
+    return {
+        "cert": lambda: _ar_get(cred, "/domains/%s/ssl" % dz, soft=not tls),
+        "ddos": lambda: _ar_get(cred, "/domains/%s/ddos/settings" % dz, soft=True),
+        "lb": (lambda: _ar_get(cred, "/domains/%s/load-balancers/settings" % dz)) if carrier == "grpc" else None}
+
+
+def _cdn_blocks(prov, zn, got, tls):
+    if prov == "cf":
+        redirect = not tls and got.get("always") == "on"
+    else:
+        redirect = not tls and bool((got.get("cert") or {}).get("https_redirect"))
+    mode = str((got.get("ddos") or {}).get("protection_mode") or "")
+    out = []
+    if redirect:
+        out.append(("https_redirect", tx("«{0}» در «{1}» روشن است؛ ws بدونِ TLS به https برگردانده می‌شود و تونل بالا نمی‌آید — wss را روشن کن یا این گزینه را خاموش کن",
+                                         "'{0}' is on in '{1}'; ws without TLS is sent to https and the tunnel never comes up — turn wss on or that option off",
+                                         "Always Use HTTPS" if prov == "cf" else "HTTPS redirect", zn)))
+    if mode in ("cookie", "javascript", "captcha"):
+        out.append(("ddos", tx("حفاظتِ DDoS در «{0}» روی «{1}» است؛ چالشِ آن جلوی اتصالِ تونل را می‌گیرد",
+                               "the DDoS protection of '{0}' is '{1}'; its challenge blocks the tunnel", zn, mode)))
+    return out
+
+
+def _cdn_unblocked(prov, zn, got, tls):
+    blocks = _cdn_blocks(prov, zn, got, tls)
+    if blocks:
+        raise Bad("cdn_zone_blocks", tx_join("؛ ", [t for _c, t in blocks], "; "))
 
 
 def _cf_apply(cred, zone, items, ctx, jr):
@@ -10337,7 +10357,10 @@ def _cf_apply(cred, zone, items, ctx, jr):
     names = tx_join("، ", hosts, ", ")
     ref = _cf_rule_ref(port)
     host_ssl = ctx["tls"] and _cdn_ssl_mode() == "host"
-    got = _cf_read(cred, z, hosts, ctx["tls"], ctx["carrier"], host_ssl)
+    got = _cdn_read(cred, z, hosts, dict(_cf_zone_jobs(cred, zid, ctx["tls"], ctx["carrier"], host_ssl),
+                                         rs=lambda: _cf_entry(cred, zid),
+                                         cfg=(lambda: _cf_entry(cred, zid, _CF_CONFIG)) if host_ssl else None))
+    _cdn_unblocked("cf", z["name"], got, ctx["tls"])
     rs = got["rs"]
     rule = _cf_rule(rs, ref)
     moved = _cf_port_rules(rs, set(hosts), rule)
@@ -10418,7 +10441,8 @@ def _ar_apply(cred, zone, items, ctx, jr):
     ip, port = ctx["ip"], ctx["port"]
     dz = urllib.parse.quote(z["name"])
     hosts = [w["host"] for w, _cur in items]
-    got = _ar_read(cred, z, hosts, ctx["tls"], ctx["carrier"])
+    got = _cdn_read(cred, z, hosts, _ar_zone_jobs(cred, z, ctx["tls"], ctx["carrier"]))
+    _cdn_unblocked("ar", z["name"], got, ctx["tls"])
     mine = {}
     for w, cur in items:
         host, recs = w["host"], got["recs"][w["host"]]
@@ -11136,17 +11160,9 @@ def _cdn_notes(cred, z, tls, carrier):
     prov, zn = cred["prov"], z["name"]
     notes = []
     if prov == "cf":
-        zid = z["id"]
-        zone_ssl = tls and _cdn_ssl_mode() == "zone"
-        got = _cdn_gather({
-            "always": (lambda: _cf_setting(cred, zid, "always_use_https", soft=True)) if not tls else None,
-            "ssl": (lambda: _cf_setting(cred, zid, "ssl")) if zone_ssl else None,
-            "auto": (lambda: _cf_setting(cred, zid, "ssl_automatic_mode", soft=True)) if zone_ssl else None,
-            "ws": (lambda: _cf_setting(cred, zid, "websockets")) if carrier == "ws" else None})
-        if got.get("always") == "on":
-            notes.append(("https_redirect", tx("«Always Use HTTPS» در «{0}» روشن است؛ ws بدونِ TLS به https برگردانده می‌شود و تونل بالا نمی‌آید — wss را روشن کن یا این گزینه را خاموش کن",
-                                               "'Always Use HTTPS' is on in '{0}'; ws without TLS is sent to https and the tunnel never comes up — turn wss on or that option off", zn)))
-        if zone_ssl and (got["ssl"] != "flexible" or got["auto"] == "auto"):
+        host_ssl = tls and _cdn_ssl_mode() == "host"
+        got = _cdn_gather(_cf_zone_jobs(cred, z["id"], tls, carrier, host_ssl))
+        if tls and not host_ssl and (got["ssl"] != "flexible" or got["auto"] == "auto"):
             notes.append(("ssl_zone", tx("SSLِ کلِ «{0}» الان {1} است و موقعِ ذخیرهٔ تونل Flexible می‌شود{2} — هر سایتِ دیگری روی این دامنه هم Flexible می‌شود",
                                          "the whole-zone SSL of '{0}' is {1} now and becomes Flexible when the tunnel is saved{2} — every other site on this domain becomes Flexible too",
                                          zn, got["ssl"] or "?", tx("، و «SSL خودکار» هم خاموش می‌شود", ", and Automatic SSL is turned off")
@@ -11158,25 +11174,22 @@ def _cdn_notes(cred, z, tls, carrier):
             notes.append(("grpc_manual", tx("gRPC در کلودفلر فقط از داشبورد روشن می‌شود (Network › gRPC) — پنل نمی‌تواند روشنش کند",
                                             "gRPC on Cloudflare is turned on only in the dashboard (Network › gRPC) — the panel cannot do it")))
     else:
-        dz = urllib.parse.quote(zn)
-        got = _cdn_gather({
-            "cert": lambda: _ar_get(cred, "/domains/%s/ssl" % dz, soft=True),
-            "ddos": lambda: _ar_get(cred, "/domains/%s/ddos/settings" % dz, soft=True),
-            "lb": (lambda: _ar_get(cred, "/domains/%s/load-balancers/settings" % dz, soft=True)) if carrier == "grpc" else None})
-        cert, mode = got["cert"] or {}, str((got["ddos"] or {}).get("protection_mode") or "")
-        if not tls and cert.get("https_redirect"):
-            notes.append(("https_redirect", tx("«HTTPS redirect» در «{0}» روشن است؛ ws بدونِ TLS به https برگردانده می‌شود و تونل بالا نمی‌آید",
-                                               "'HTTPS redirect' is on in '{0}'; ws without TLS is sent to https and the tunnel never comes up", zn)))
-        if mode in ("cookie", "javascript", "captcha"):
-            notes.append(("ddos", tx("حفاظتِ DDoSِ «{0}» روی «{1}» است؛ چالشِ آن جلوی اتصالِ تونل را می‌گیرد",
-                                     "the DDoS protection of '{0}' is '{1}'; its challenge blocks the tunnel", zn, mode)))
-        if carrier == "grpc" and got["lb"] is not None and not got["lb"].get("grpc_status"):
+        got = _cdn_gather(_ar_zone_jobs(cred, z, tls, carrier))
+        if carrier == "grpc" and not got["lb"].get("grpc_status"):
             notes.append(("grpc_off", tx("gRPC در «{0}» خاموش است و موقعِ ذخیرهٔ تونل روشن می‌شود",
                                          "gRPC is off in '{0}' and is turned on when the tunnel is saved", zn)))
-        if tls and got["cert"] is not None and not cert.get("certificates") and not cert.get("orders"):
+        if tls and not got["cert"].get("certificates") and not got["cert"].get("orders"):
             notes.append(("cert", tx("«{0}» هنوز گواهی ندارد؛ موقعِ ذخیرهٔ تونل درخواست می‌شود و صدورش چند دقیقه طول می‌کشد",
                                      "'{0}' has no certificate yet; it is requested when the tunnel is saved and takes a few minutes", zn)))
-    return [{"code": c, "t": t} for c, t in notes]
+    return ([{"code": c, "t": t, "block": True} for c, t in _cdn_blocks(prov, zn, got, tls)]
+            + [{"code": c, "t": t} for c, t in notes])
+
+
+def api_cdn_notes(d):
+    d = d or {}
+    cred = _cdn_cred(_cdn_prov(d.get("provider")))
+    carrier = _cdn_carrier(d, None)
+    return {"ok": True, "notes": _cdn_notes(cred, _cdn_zone(cred, _cdn_zone_name(d.get("zone"))), bool(d.get("ws_tls")), carrier)}
 
 
 def api_cdn_check(d):
@@ -11194,14 +11207,9 @@ def api_cdn_check(d):
     z = _cdn_zone(cred, want["zone"])
     state, name = _cdn_host_state(host)
     if state == "tunnel":
-        return {"ok": True, "host": host, "state": state, "records": [], "tunnel": name, "notes": []}
-    carrier = str(d.get("carrier") or "ws").strip().lower()
-    if carrier not in ("ws", "http", "grpc"):
-        raise Bad("bad_cdn_carrier", "حاملِ CDN نامعتبر است", "invalid CDN carrier")
-    got = _cdn_gather({"recs": lambda: _cdn_records(cred, z, host), "notes": lambda: _cdn_notes(cred, z, bool(d.get("tls")), carrier)})
-    records = [] if state == "ready" else [_rec_show(prov, r) for r in got["recs"]]
-    return {"ok": True, "host": host, "state": "manual" if records else state, "records": records, "tunnel": "",
-            "notes": got["notes"]}
+        return {"ok": True, "host": host, "state": state, "records": [], "tunnel": name}
+    records = [] if state == "ready" else [_rec_show(prov, r) for r in _cdn_records(cred, z, host)]
+    return {"ok": True, "host": host, "state": "manual" if records else state, "records": records, "tunnel": ""}
 
 
 def _cdn_make(cred, zone, hosts, ip, replace, jr):
@@ -11917,7 +11925,7 @@ API = {
     "reorder": api_reorder, "link-tag": api_link_tag,
     "backup": api_backup, "backup-restore": api_backup_restore, "sign-key-rotate": api_sign_key_rotate,
     "cdn": api_cdn, "cdn-key": api_cdn_key, "cdn-set": api_cdn_set, "cdn-test": api_cdn_test, "cdn-zones": api_cdn_zones,
-    "cdn-check": api_cdn_check, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
+    "cdn-check": api_cdn_check, "cdn-notes": api_cdn_notes, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
@@ -11929,9 +11937,9 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "update-agent", "update-core",
              "reorder", "link-tag",
              "act-cancel", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
+             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-notes", "cdn-make", "cdn-drop", "cdn-sync"}
 TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-make", "cdn-drop", "cdn-sync"}
+              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-notes", "cdn-make", "cdn-drop", "cdn-sync"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),

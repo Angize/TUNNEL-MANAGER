@@ -231,10 +231,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
     const my = ++seq.current
     setPhase('checking')
     setError('')
-    const body = random
-      ? { provider, zone, count: Number(count) || 1 }
-      : { provider, zone, label, tls: !!form.WsTls, carrier: form.Cdn }
-    const r = await apiPost('cdn-check', body)
+    const r = await apiPost('cdn-check', random ? { provider, zone, count: Number(count) || 1 } : { provider, zone, label })
     if (my !== seq.current) return
     if (!(r.ok && r.d.ok)) {
       setError(postError(r))
@@ -370,12 +367,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
                   {phase === 'checking' ? (
                     <CheckLine check="checking" provider={provider} />
                   ) : check ? (
-                    <>
-                      <CheckLine check={check} provider={provider} />
-                      {(check.notes || []).map((n) => (
-                        <WarnCap key={n.code} tone="gold" text={n.t} />
-                      ))}
-                    </>
+                    <CheckLine check={check} provider={provider} />
                   ) : null}
                 </div>
               </div>
