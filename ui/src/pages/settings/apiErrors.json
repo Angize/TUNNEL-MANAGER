@@ -748,6 +748,11 @@
    ],
    [
     400,
+    "bad_pool_groups",
+    "ws_edge_ip_groups must be an object (edge IP → cf or ar)"
+   ],
+   [
+    400,
     "bad_port",
     "port must be a number from 1 to 65535"
    ],
@@ -1075,6 +1080,21 @@
     400,
     "out_of_range",
     "'…' must be from … to …"
+   ],
+   [
+    400,
+    "pool_group_no_ip",
+    "the … domains of this pool have no edge IP — add at least one … edge IP"
+   ],
+   [
+    400,
+    "pool_ip_group",
+    "in a two-CDN pool it is unknown whether edge IP … belongs to Cloudflare or ArvanCloud — put it in one of the two lists"
+   ],
+   [
+    400,
+    "pool_mixed_manual",
+    "this pool has Cloudflare and ArvanCloud domains together; the panel did not make '…', so it is unknown which CDN's edge IPs it pairs with — make it under 'make in CDN' or take it out of the pool"
    ],
    [
     400,
@@ -1469,6 +1489,11 @@
    ],
    [
     400,
+    "bad_pool_groups",
+    "ws_edge_ip_groups must be an object (edge IP → cf or ar)"
+   ],
+   [
+    400,
     "bad_port",
     "port must be a number from 1 to 65535"
    ],
@@ -1791,6 +1816,21 @@
     400,
     "out_of_range",
     "'…' must be from … to …"
+   ],
+   [
+    400,
+    "pool_group_no_ip",
+    "the … domains of this pool have no edge IP — add at least one … edge IP"
+   ],
+   [
+    400,
+    "pool_ip_group",
+    "in a two-CDN pool it is unknown whether edge IP … belongs to Cloudflare or ArvanCloud — put it in one of the two lists"
+   ],
+   [
+    400,
+    "pool_mixed_manual",
+    "this pool has Cloudflare and ArvanCloud domains together; the panel did not make '…', so it is unknown which CDN's edge IPs it pairs with — make it under 'make in CDN' or take it out of the pool"
    ],
    [
     400,

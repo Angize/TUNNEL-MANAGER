@@ -82,8 +82,8 @@ function EdgeRow({ value, kind, owner, health, active, lid, pending, status, fre
 }
 
 export default function WsPool({ form, enums, lid, live, edges, keys, owners, serverIp, onCdnMade, patch }) {
-  const [open, setOpen] = useState({ ip: false, sni: false })
-  const [draft, setDraft] = useState({ ip: '', sni: '' })
+  const [open, setOpen] = useState({})
+  const [draft, setDraft] = useState({})
   const [fresh, setFresh] = useState('')
   const [making, setMaking] = useState(false)
   const pool = form.pool
@@ -95,28 +95,44 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
   const cfOwned = ownedBy('cf')
   const anyOwned = owned.length > 0
   const zones = [...new Set(owned.map((r) => zoneKey(r.provider, r.zone)))].sort().map(splitZoneKey)
+  const provs = [...new Set(owned.map((r) => r.provider))]
+  const mixed = provs.length > 1
+  const groupOf = (ip) => (mixed ? pool.ipCdn[ip] || owned[0].provider : '')
+  const groups = JSON.stringify(mixed ? Object.fromEntries(pool.ip.map((ip) => [ip, groupOf(ip)])) : {})
+  const manual = mixed ? pool.sni.find((h) => !(owners || {})[h]) : ''
+  const bare = mixed ? provs.filter((p) => !pool.ip.some((ip) => groupOf(ip) === p)) : []
+  const sections = (mixed ? provs : ['']).map((group) => ({ kind: 'ip', group })).concat([{ kind: 'sni', group: '' }])
 
   useEffect(() => {
     if (!!form.poolCdn !== anyOwned) patch({ poolCdn: anyOwned })
   }, [anyOwned, form.poolCdn, patch])
-  const cleanLeft = tlsEdges(edges).filter((v) => !pool.ip.includes(v) && (!cfOwned || edgePort(v) === 443))
-  const off443 = cfOwned && pool.ip.some((v) => edgePort(v) !== 443)
+  useEffect(() => {
+    if (groups !== JSON.stringify(pool.ipCdn)) patch({ pool: { ...pool, ipCdn: JSON.parse(groups) } })
+  }, [groups, pool, patch])
+  const needs443 = (group) => (group ? group === 'cf' : cfOwned)
+  const cleanFor = (group) =>
+    tlsEdges(edges).filter((v) => !pool.ip.includes(v) && (!needs443(group) || edgePort(v) === 443))
+  const off443 = pool.ip.some((v) => needs443(groupOf(v)) && edgePort(v) !== 443)
 
   const setPool = (next) => patch({ pool: { ...pool, ...next } })
 
-  const add = (kind, picked) => {
-    let value = (picked || draft[kind] || '').trim()
+  const add = (kind, group, picked) => {
+    const sec = kind + group
+    let value = (picked || draft[sec] || '').trim()
     if (kind === 'sni') value = value.toLowerCase()
     if (!value) return
     if (!poolValid(kind, value, enums)) {
       alertBox(kind === 'ip' ? T('pool_bad_ip') : T('pool_bad_dom'))
       return
     }
-    if (!picked) setDraft({ ...draft, [kind]: '' })
-    if (pool[kind].includes(value)) return
-    setPool({ [kind]: pool[kind].concat([value]) })
+    if (!picked) setDraft({ ...draft, [sec]: '' })
+    if (pool[kind].includes(value) && (!group || groupOf(value) === group)) return
+    setPool({
+      [kind]: pool[kind].includes(value) ? pool[kind] : pool[kind].concat([value]),
+      ...(group ? { ipCdn: { ...pool.ipCdn, [value]: group } } : {}),
+    })
     setFresh(kind + ':' + value)
-    setOpen({ ...open, [kind]: true })
+    setOpen({ ...open, [sec]: true })
   }
 
   const addHosts = (rows) => {
@@ -147,8 +163,11 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
   return (
     <div style={{ marginTop: 11 }}>
       <StaleCap status={status} />
-      {KINDS.map(({ kind, label, placeholder }) => {
-        const entries = pool[kind]
+      {sections.map(({ kind, group }) => {
+        const sec = kind + group
+        const { label, placeholder } = KINDS.find((k) => k.kind === kind)
+        const title = group ? TF('pool_ip_lbl_cdn', { p: providerName(group) }) : label()
+        const entries = group ? pool.ip.filter((ip) => groupOf(ip) === group) : pool[kind]
         let suspect = 0
         let dead = 0
         for (const value of entries) {
@@ -158,11 +177,11 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
         }
         return (
           <Accordion
-            key={kind}
-            label={label()}
+            key={sec}
+            label={title}
             collapsible
-            open={open[kind]}
-            onToggle={() => setOpen({ ...open, [kind]: !open[kind] })}
+            open={!!open[sec]}
+            onToggle={() => setOpen({ ...open, [sec]: !open[sec] })}
             badges={<Badges total={entries.length} suspect={suspect} dead={dead} />}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -192,13 +211,13 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
               <input
                 className="mono"
                 {...LTR_TEXT}
-                aria-label={label()}
+                aria-label={title}
                 style={{ flex: '1 1 160px', minWidth: 0, textAlign: 'left' }}
-                placeholder={placeholder}
-                value={draft[kind]}
-                onChange={(e) => setDraft({ ...draft, [kind]: e.target.value })}
+                placeholder={group === 'ar' ? '185.143.233.1:443' : placeholder}
+                value={draft[sec] || ''}
+                onChange={(e) => setDraft({ ...draft, [sec]: e.target.value })}
               />
-              <button type="button" className="padd" onClick={() => add(kind)}>
+              <button type="button" className="padd" onClick={() => add(kind, group)}>
                 +
               </button>
               {kind === 'sni' && hasCdnKey(keys) ? (
@@ -214,10 +233,10 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
               ) : null}
               {kind === 'ip' ? (
                 <CleanEdges
-                  items={cleanLeft.map(edgeRow)}
+                  items={cleanFor(group).map(edgeRow)}
                   value=""
                   note={T(edges && edges.length ? 'edge_pool_all' : 'edge_list_empty')}
-                  onPick={(v) => add('ip', v)}
+                  onPick={(v) => add('ip', group, v)}
                 />
               ) : null}
             </div>
@@ -238,6 +257,10 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
           </Accordion>
         )
       })}
+      {bare.map((p) => (
+        <WarnCap key={p} text={TF('pool_group_no_ip', { p: providerName(p) })} />
+      ))}
+      {manual ? <WarnCap text={TF('pool_mixed_manual', { h: manual })} /> : null}
       {cfOwned && off443 ? <WarnCap tone="gold" text={T('cdn_pool_443')} /> : null}
       {form.Ech && ownedBy('ar') ? <WarnCap text={T('cdn_pool_ech_ar')} /> : null}
       <ZoneNotes form={form} zones={zones} />

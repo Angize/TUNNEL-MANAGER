@@ -2870,7 +2870,7 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
                     "http_up_workers", "http_up_batch_kb", "http_streams", "http_up_rate",
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_id", "edge_ip", "ws_pool",
-                    "ws_edge_ips", "ws_edge_snis", "ws_pool_auto",
+                    "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                     "ws_rotate_secs", "ws_port_roll", "gso",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
@@ -3097,8 +3097,10 @@ def _tunnel_extra(src):
                 continue
             h = s.get("host")
             ec = _ech_or_stored(h, ech_map.get(h, ""), s.get("ech")) if pool_ech else ""
-            psnis.append({"host": h, "ech": ec})
+            psnis.append({"host": h, "ech": ec, **({"group": s["group"]} if s.get("group") else {})})
         e["ws_edge_snis"] = psnis
+        if src.get("ws_edge_ip_groups"):
+            e["ws_edge_ip_groups"] = src["ws_edge_ip_groups"]
         _rs = src.get("ws_rotate_secs")
         e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
     if src.get("gso"):
@@ -6342,24 +6344,17 @@ def _ws_pool_fields(d, cur=None):
     def _list(key):
         return (d[key] if key in d else cur.get(key)) or []
 
+    def _ip(x):
+        h = x.rpartition(":")[0] if ":" in x else x
+        p = x.rpartition(":")[2] if ":" in x else "443"
+        if not re.match(_IP4_RE, h) or not (p.isdigit() and 1 <= int(p) <= 65535):
+            raise Bad("bad_edge_ip", "آی‌پیِ لبهٔ نامعتبر (باید IPv4:port باشد؛ دامنه مجاز نیست — استخر مستقیم به آی‌پی وصل می‌شود): {0}",
+                      "invalid edge IP (must be IPv4:port; no domain — the pool dials the IP directly): {0}", x)
+        _edge_port_ok(int(p), True)
+        return "%s:%s" % (h, p)
+
     def _ips(key):
-        seen, res = set(), []
-        for x in _list(key):
-            x = str(x).strip()
-            if not x:
-                continue
-            h = x.rpartition(":")[0] if ":" in x else x
-            p = x.rpartition(":")[2] if ":" in x else "443"
-            if not re.match(_IP4_RE, h) or not (p.isdigit() and 1 <= int(p) <= 65535):
-                raise Bad("bad_edge_ip", "آی‌پیِ لبهٔ نامعتبر (باید IPv4:port باشد؛ دامنه مجاز نیست — استخر مستقیم به آی‌پی وصل می‌شود): {0}",
-                          "invalid edge IP (must be IPv4:port; no domain — the pool dials the IP directly): {0}", x)
-            _edge_port_ok(int(p), True)
-            v = "%s:%s" % (h, p)
-            if v in seen:
-                continue
-            seen.add(v)
-            res.append(v)
-        return res
+        return list(dict.fromkeys(_ip(x) for x in (str(x).strip() for x in _list(key)) if x))
 
     def _hosts(key):
         seen, res = set(), []
@@ -6386,15 +6381,21 @@ def _ws_pool_fields(d, cur=None):
                   "the edge pool must rotate on at least one axis — 2 edge IPs or 2 domains")
     if len(clean_ips) > 64 or len(clean_hosts) > 64:
         raise Bad("pool_too_big", "استخر خیلی بزرگ است (حداکثر 64)", "the pool is too large (at most 64)")
+    raw_groups = (d["ws_edge_ip_groups"] if "ws_edge_ip_groups" in d else cur.get("ws_edge_ip_groups")) or {}
+    if not isinstance(raw_groups, dict):
+        raise Bad("bad_pool_groups", "ws_edge_ip_groups باید یک شیء باشد (آی‌پیِ لبه ← cf یا ar)",
+                  "ws_edge_ip_groups must be an object (edge IP → cf or ar)")
+    reg = _cdn_hosts()
+    prov_of = {h: (reg.get(h) or {}).get("provider", "") for h in clean_hosts}
+    ip_groups = _pool_groups({_ip(str(k).strip()): str(v or "") for k, v in raw_groups.items()}, clean_ips, prov_of)
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
     if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
         raise Bad("bad_ws_path", "مسیر (path) نامعتبر است", "invalid path")
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
     if ech_on:
-        reg = _cdn_hosts()
-        for h in clean_hosts:
-            if (reg.get(h) or {}).get("provider", "cf") != "cf":
-                raise _cdn_no_ech(reg[h]["provider"])
+        for prov in prov_of.values():
+            if prov not in ("", "cf"):
+                raise _cdn_no_ech(prov)
     _epx_store = {}
     _epx = _ech_proxy_fields(d, cur, _epx_store) if ech_on else ""
     ech_map = _fetch_ech_map(clean_hosts, _epx) if ech_on else {}
@@ -6406,13 +6407,14 @@ def _ws_pool_fields(d, cur=None):
     snis = []
     for h in clean_hosts:
         ec = _ech_or_stored(h, ech_map.get(h), known.get(h)) if ech_on else ""
-        snis.append({"host": h, "ech": ec})
+        snis.append({"host": h, "ech": ec, **({"group": prov_of[h]} if ip_groups else {})})
     res = {
         "ws_pool": True,
         "ws_tls": True,
         "ech": ech_on,
         "cdn_carrier": _cdn_carrier(d, cur),
         "ws_edge_ips": clean_ips,
+        **({"ws_edge_ip_groups": ip_groups} if ip_groups else {}),
         "ws_edge_snis": snis,
         "ws_rotate_secs": _rotate_secs(_ws_rotate_default(d, cur), 28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval")),
         "ws_pool_auto": bool(d["ws_pool_auto"] if "ws_pool_auto" in d else cur.get("ws_pool_auto", True)),
@@ -6422,6 +6424,28 @@ def _ws_pool_fields(d, cur=None):
     res.update(_sni_split_fields(d, cur, ech_on))
     res.update(_epx_store)
     return res
+
+
+def _pool_groups(raw, ips, prov_of):
+    provs = sorted({p for p in prov_of.values() if p})
+    if len(provs) < 2:
+        return {}
+    manual = next((h for h, p in prov_of.items() if not p), "")
+    if manual:
+        raise Bad("pool_mixed_manual", "این استخر دامنهٔ کلودفلر و ابرآروان را با هم دارد؛ «{0}» را پنل نساخته و معلوم نیست با آی‌پی‌های کدام CDN جفت شود — از «ساخت در CDN» بسازش یا از استخر بردارش",
+                  "this pool has Cloudflare and ArvanCloud domains together; the panel did not make '{0}', so it is unknown which CDN's edge IPs it pairs with — make it under 'make in CDN' or take it out of the pool",
+                  manual)
+    groups = {ip: raw.get(ip, "") for ip in ips}
+    loose = next((ip for ip, g in groups.items() if g not in provs), "")
+    if loose:
+        raise Bad("pool_ip_group", "در استخرِ دو CDN معلوم نیست آی‌پیِ لبهٔ {0} مالِ کلودفلر است یا ابرآروان — آن را در یکی از دو فهرست بگذار",
+                  "in a two-CDN pool it is unknown whether edge IP {0} belongs to Cloudflare or ArvanCloud — put it in one of the two lists",
+                  loose)
+    empty = next((p for p in provs if p not in groups.values()), "")
+    if empty:
+        raise Bad("pool_group_no_ip", "دامنه‌های {0} در این استخر هیچ آی‌پیِ لبه‌ای ندارند — دستِ‌کم یک آی‌پیِ لبهٔ {0} اضافه کن",
+                  "the {0} domains of this pool have no edge IP — add at least one {0} edge IP", CDN_NAMES[empty])
+    return groups
 
 
 def _create_family(d, ttype):
@@ -6491,7 +6515,7 @@ _SHAPE_RAW_PORTED = ("raw_port", "raw_sport", "raw_sport_random", "raw_sport_rot
                      "raw_dports", "conntrack_bypass")
 _SHAPE_TCP_ONLY = ("cover", "cover_sni")
 _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
-                  "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_snis", "ws_pool_auto",
+                  "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                   "ws_rotate_secs", "ws_port_roll", "sni_split", "split_pos", "sni_mode", "split_ttl",
                   "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
 _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity")
@@ -9977,7 +10001,10 @@ def _cdn_check(wants, extra, srv_ip, lid):
     if not wants:
         return
     if extra.get("ws_tls") and any(w["provider"] == "cf" for w in wants):
+        groups = extra.get("ws_edge_ip_groups") or {}
         for edge in extra.get("ws_edge_ips") or [extra.get("edge_ip")]:
+            if groups.get(edge, "cf") != "cf":
+                continue
             _h, sep, p = str(edge or "").rpartition(":")
             if sep and p.isdigit() and int(p) != 443:
                 raise Bad("cdn_cf_443", "با کلودفلر، wss فقط روی پورتِ لبهٔ 443 کار می‌کند؛ Flexible روی {0} به Full برمی‌گردد و تونل بالا نمی‌آید",
