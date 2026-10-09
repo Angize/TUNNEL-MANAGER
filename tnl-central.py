@@ -7990,25 +7990,12 @@ def _ech_live_push(lid, chmap):
     return (True, "%s \u2022 %s" % (nm, host) if nm and host else (nm or host or str(node.get("id") or "")))
 
 
-def _ech_pool_state(lid):
+def _ech_pool_down(lid):
     try:
         st = api_edge_status({"id": lid})
     except Exception:
-        return (False, False, False)
-    reachable = bool(st.get("ok")) and not st.get("error")
-    if not reachable:
-        return (False, False, False)
-    ready = bool(st.get("ready"))
-    ips = [h for h in (st.get("health") or []) if isinstance(h, dict) and h.get("kind") == "ip"]
-    any_bad = any(str(h.get("state")) in ("suspect", "dead") for h in ips)
-    now = int(st.get("now") or 0) or int(time.time())
-    tls_recent = any(
-        str(e.get("code")) == "tls" and str(e.get("kind")) in ("down", "burn")
-        and (now - int(e.get("ts") or 0)) <= 900
-        for e in (st.get("events") or []) if isinstance(e, dict)
-    )
-    stalled = ready and any_bad and tls_recent
-    return (True, not ready, stalled)
+        return False
+    return bool(st.get("ok")) and not st.get("error") and not st.get("ready")
 
 
 def _ech_write(lid, kind, updates, degrade):
@@ -8108,8 +8095,7 @@ def _ech_rows(chmap):
     return tx_join(chr(10), [tx("دامنه: {0}\nکلیدِ ECH: {1}", "domain: {0}\nECH key: {1}", h, k) for h, k in chmap.items()])
 
 
-def _ech_down_why(down):
-    return tx("قطع بود", "it was down") if down else tx("همهٔ لبه‌هایش سرِ ECH می‌سوختند", "all its edges were burning on ECH")
+_ECH_WAS_DOWN = tx("قطع بود", "it was down")
 
 
 def _ech_flush(lid, notes):
@@ -8194,18 +8180,17 @@ def _ech_refresh_link(L, kind, hosts, mins_label):
                       tx("کلیدِ ECH تونلِ «{0}» با تایمرِ زمان‌بندی‌شده تازه شد (هر {1} دقیقه)",
                          "the ECH key of tunnel '{0}' was refreshed by the scheduled timer (every {1} minutes)",
                          nm, mins_label), dfa)
-    _reachable, down, stalled = _ech_pool_state(lid) if kind == "pool" else (False, False, False)
-    mark = kind == "pool" and (down or stalled) and (lid not in _ech_down_rebuilt or changed)
+    down = kind == "pool" and _ech_pool_down(lid)
+    mark = down and (lid not in _ech_down_rebuilt or changed)
     if mark:
-        why = _ech_down_why(down)
         notes.append(("ech-rotate", tx("تونلِ «{0}»: چرخشِ کلیدِ ECH", "tunnel '{0}': ECH key rotation", nm), "ok",
-                      tx("{0}؛ با کلیدِ تازه بازسازی شد", "{0}; rebuilt with the new key", why),
+                      tx("{0}؛ با کلیدِ تازه بازسازی شد", "{0}; rebuilt with the new key", _ECH_WAS_DOWN),
                       tx("{0}؛ بازسازی با کلیدِ تازه شکست خورد — تونل هنوز قطع است",
-                         "{0}; the rebuild with the new key failed — the tunnel is still down", why)))
+                         "{0}; the rebuild with the new key failed — the tunnel is still down", _ECH_WAS_DOWN)))
     ok = _ech_flush(lid, notes)
     if mark and ok:
         _ech_down_rebuilt.add(lid)
-    elif not (kind == "pool" and (down or stalled)):
+    elif not down:
         _ech_down_rebuilt.discard(lid)
 
 
@@ -8222,8 +8207,7 @@ def _ech_heal_once():
 
 def _ech_heal_link(L, kind, hosts):
     lid, nm = L.get("id"), L.get("name")
-    _reachable, down, stalled = _ech_pool_state(lid)
-    if not (down or stalled):
+    if not _ech_pool_down(lid):
         _ech_down_rebuilt.discard(lid)
         return
     if lid in _ech_down_rebuilt:
@@ -8231,12 +8215,12 @@ def _ech_heal_link(L, kind, hosts):
     updates = {h: k for h, k in _fetch_ech_map(hosts, _ech_px(L)).items() if k}
     _ech_write(lid, kind, updates, degrade=False)
     _ech_down_rebuilt.add(lid)
-    why = _ech_down_why(down)
     title = tx("تونلِ «{0}»: بازسازیِ سریعِ ECH", "tunnel '{0}': quick ECH rebuild", nm)
     if _ech_safe_rebuild(lid):
-        log_event("ok", "ech-rebuild", title, why)
+        log_event("ok", "ech-rebuild", title, _ECH_WAS_DOWN)
     else:
-        log_event("bad", "ech-rebuild", title, tx("{0}؛ شکست خورد — تونل هنوز قطع است", "{0}; failed — the tunnel is still down", why))
+        log_event("bad", "ech-rebuild", title, tx("{0}؛ شکست خورد — تونل هنوز قطع است", "{0}; failed — the tunnel is still down",
+                                                  _ECH_WAS_DOWN))
         _ech_down_rebuilt.discard(lid)
 
 
@@ -8327,6 +8311,7 @@ EV_TYPES = (
     ("link-up", "tunnel", tx("تونل وصل شد", "tunnel up")),
     ("link-down", "tunnel", tx("تونل قطع شد", "tunnel down")),
     ("link-reconnect", "tunnel", tx("تونل خودش دوباره وصل شد", "tunnel reconnected by itself")),
+    ("link-dial", "tunnel", tx("تونل دوباره وصل نمی‌شود", "tunnel cannot reconnect")),
     ("link-stray", "tunnel", tx("تونلی روی نود که در پنل ثبت نیست", "tunnel on a node that is not registered")),
     ("node-up", "node", tx("نود آنلاین شد", "node online")),
     ("node-down", "node", tx("نود آفلاین شد", "node offline")),
@@ -8391,6 +8376,14 @@ _EV_DOWN_CODE = {
     "ws_upgrade": tx("ارتقاءِ WebSocket رد شد (Origin/CDN)", "WebSocket upgrade refused (Origin/CDN)"),
     "closed": _LINK_LOST,
     "dropped": _LINK_LOST,
+}
+_EV_DIAL_CODE = {
+    **_EV_DOWN_CODE,
+    "ech": tx("لبه کلیدِ ECH را نپذیرفت", "the edge did not accept the ECH key"),
+    "edge_http": tx("لبه جوابِ HTTP داد ولی اتصال را نپذیرفت — مسیر (path)، Origin یا پورتِ لبه را چک کن",
+                    "the edge answered over HTTP but did not take the connection — check the path, the Origin or the edge port"),
+    "auth": tx("سرِ دیگر دست‌دادنِ رمز را نپذیرفت — کلیدِ دو سر یکی نیست یا پشتِ این نشانی تونلِ دیگری است",
+               "the other end did not accept the key handshake — the two ends have different keys, or another tunnel is behind this address"),
 }
 _ANY_IP = tx("آی‌پی", "IP")
 _HEAL_AXIS = {"dst": tx("آی‌پیِ مقصد", "destination IP"), "src": tx("آی‌پیِ مبدأ", "source IP"),
@@ -8487,6 +8480,9 @@ def _ev_core_text(kind, code, detail, nm):
     if kind == "down":
         rf = _EV_DOWN_CODE.get(code, _LINK_LOST)
         return ("bad", "link-down", _down_title(nm), rf)
+    if kind == "dial":
+        return ("bad", "link-dial", tx("تونلِ «{0}»: وصلِ دوباره نمی‌شود", "tunnel '{0}': cannot reconnect", nm),
+                tx("{0}\n{1}", "{0}\n{1}", _EV_DIAL_CODE.get(code, _LINK_LOST), raw))
     if kind == "up":
         rf = _EV_UP_CODE.get(code, tx("تونل وصل شد", "tunnel up"))
         return ("ok", "link-reconnect", tx("تونلِ «{0}»: وصلِ مجدد", "tunnel '{0}': reconnected", nm), rf)
