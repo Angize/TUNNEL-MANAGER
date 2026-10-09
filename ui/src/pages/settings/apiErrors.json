@@ -3587,6 +3587,11 @@
    ],
    [
     400,
+    "core_bad_arch",
+    "the uploaded binary is for … but this node is … — upload a … binary for it or send a GitHub version"
+   ],
+   [
+    400,
     "core_fetch_failed",
     "…"
    ],
