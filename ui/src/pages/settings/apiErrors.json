@@ -159,11 +159,6 @@
    ],
    [
     400,
-    "bad_cdn_carrier",
-    "invalid CDN carrier"
-   ],
-   [
-    400,
     "bad_cdn_count",
     "the number of names must be from 1 to …"
    ],
@@ -318,6 +313,65 @@
     400,
     "cdn_replace_one",
     "delete and replace works on one subdomain only"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
+   ]
+  ]
+ },
+ "cdn-notes": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_carrier",
+    "invalid CDN carrier"
+   ],
+   [
+    400,
+    "bad_cdn_provider",
+    "the CDN provider must be cf (Cloudflare) or ar (ArvanCloud)"
+   ],
+   [
+    400,
+    "bad_cdn_zone",
+    "invalid CDN domain"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_missing",
+    "domain '…' is not in the … account"
+   ],
+   [
+    400,
+    "cdn_zone_off",
+    "domain '…' is not active in … (…) and passes no traffic"
    ],
    [
     400,
@@ -896,6 +950,11 @@
     400,
     "cdn_unreachable",
     "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_blocks",
+    "…"
    ],
    [
     400,
@@ -1612,6 +1671,11 @@
     400,
     "cdn_unreachable",
     "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_blocks",
+    "…"
    ],
    [
     400,

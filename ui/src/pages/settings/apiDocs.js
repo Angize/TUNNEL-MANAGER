@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-make, cdn-drop and cdn-sync).',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-notes, cdn-make, cdn-drop and cdn-sync).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -98,7 +98,7 @@ export const GROUPS = [
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
   ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
-  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-make', 'cdn-drop', 'cdn-sync']],
+  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-notes', 'cdn-make', 'cdn-drop', 'cdn-sync']],
   [
     'updates',
     'Agent and core',
@@ -688,14 +688,22 @@ export const DOCS = {
   },
   'cdn-check': {
     t: 'Check a CDN subdomain',
-    d: 'For one label: state is free, manual (the zone already has records of that name, listed in records), tunnel (a tunnel uses it; tunnel = its name) or ready (the panel made it and no tunnel uses it). For free, ready and manual, notes lists what the zone would change or break for this carrier and TLS (code and a Persian text: https_redirect, ssl_zone, ws_off, grpc_manual on Cloudflare; https_redirect, ddos, grpc_off, cert on ArvanCloud). With count instead of label it returns that many free random names (5 characters) in hosts. Writes nothing.',
+    d: 'For one label: state is free, manual (the zone already has records of that name, listed in records), tunnel (a tunnel uses it; tunnel = its name) or ready (the panel made it and no tunnel uses it). With count instead of label it returns that many free random names (5 characters) in hosts. Writes nothing.',
     p: [
       CDN_PROVIDER,
       ['zone', 1, S, 'domain'],
       ['label', 0, S, 'one label; the host is label.zone'],
       ['count', 0, N, 'instead of label: 1 to 8 free random names'],
-      ['tls', 0, B, 'wss (TLS up to the CDN edge), for the notes'],
-      ['carrier', 0, S, 'ws, http or grpc, for the notes'],
+    ],
+  },
+  'cdn-notes': {
+    t: 'What a CDN domain does to a tunnel',
+    d: 'Reads the settings of one domain and lists in notes what they would change or break for a tunnel with this carrier and TLS: code and a Persian text t. block true marks a setting that keeps the tunnel down (https_redirect on both; ddos on ArvanCloud); saving such a tunnel leaves its CDN side red with cdn_zone_blocks until the setting is changed, and the panel tries again every 15 minutes. The others say what the save changes (ssl_zone, ws_off on Cloudflare; grpc_off, cert on ArvanCloud) or what only the dashboard can do (grpc_manual on Cloudflare). Writes nothing.',
+    p: [
+      CDN_PROVIDER,
+      ['zone', 1, S, 'domain'],
+      ['ws_tls', 0, B, 'wss (TLS up to the CDN edge)'],
+      ['cdn_carrier', 0, S, 'ws (default), http or grpc'],
     ],
   },
   'cdn-make': {

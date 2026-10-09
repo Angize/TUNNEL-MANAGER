@@ -19,10 +19,11 @@ import { poolValid } from './validate.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { toast } from '../../../lib/toast.js'
 import { T, TF } from '../../../i18n/fa.js'
-import { edgePort, hasCdnKey, providerName, tlsEdges } from '../../../lib/cdn.js'
+import { edgePort, hasCdnKey, providerName, splitZoneKey, tlsEdges, zoneKey } from '../../../lib/cdn.js'
 import { WarnCap } from './controls.jsx'
 import Reveal from '../../../components/Reveal.jsx'
 import CdnMaker from './CdnMaker.jsx'
+import ZoneNotes from './ZoneNotes.jsx'
 import CleanEdges, { edgeRow } from './CleanEdges.jsx'
 import { LTR_TEXT } from '../../../lib/form.js'
 
@@ -89,9 +90,11 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
   const status = live.status
   useSecondTick(true)
   const items = poolRotateItems()
-  const ownedBy = (p) => pool.sni.some((h) => (owners || {})[h] === p)
+  const owned = pool.sni.map((h) => (owners || {})[h]).filter(Boolean)
+  const ownedBy = (p) => owned.some((r) => r.provider === p)
   const cfOwned = ownedBy('cf')
-  const anyOwned = pool.sni.some((h) => !!(owners || {})[h])
+  const anyOwned = owned.length > 0
+  const zones = [...new Set(owned.map((r) => zoneKey(r.provider, r.zone)))].sort().map(splitZoneKey)
 
   useEffect(() => {
     if (!!form.poolCdn !== anyOwned) patch({ poolCdn: anyOwned })
@@ -169,7 +172,7 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
                     key={value}
                     value={value}
                     kind={kind}
-                    owner={kind === 'sni' ? (owners || {})[value] : ''}
+                    owner={kind === 'sni' ? ((owners || {})[value] || {}).provider : ''}
                     health={status.live[kind + ':' + value]}
                     active={status.act[kind] === value}
                     lid={lid}
@@ -237,6 +240,7 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
       })}
       {cfOwned && off443 ? <WarnCap tone="gold" text={T('cdn_pool_443')} /> : null}
       {form.Ech && ownedBy('ar') ? <WarnCap text={T('cdn_pool_ech_ar')} /> : null}
+      <ZoneNotes form={form} zones={zones} />
       <Field label={T('rot_int_lbl')}>
         <Select
           items={items}

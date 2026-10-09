@@ -4,6 +4,7 @@ import Field from '../../../components/Field.jsx'
 import Reveal from '../../../components/Reveal.jsx'
 import { WarnCap } from './controls.jsx'
 import CdnMaker from './CdnMaker.jsx'
+import ZoneNotes from './ZoneNotes.jsx'
 import CleanEdges, { edgeRow } from './CleanEdges.jsx'
 import { gsap, reducedMotion } from '../../../lib/motion.js'
 import { LTR_TEXT } from '../../../lib/form.js'
@@ -156,10 +157,13 @@ export default function CdnHostField({ form, keys, serverIp, patch, onMade }) {
         )}
       </Field>
       {managed ? (
-        <PlacedNote
-          provider={form.cdnOwner}
-          hostSsl={form.cdnOwner === 'cf' && !(keys && keys.cf && keys.cf.ssl_mode === 'zone')}
-        />
+        <>
+          <PlacedNote
+            provider={form.cdnOwner}
+            hostSsl={form.cdnOwner === 'cf' && !(keys && keys.cf && keys.cf.ssl_mode === 'zone')}
+          />
+          <ZoneNotes form={form} zones={[{ provider: form.cdnOwner, zone: form.cdnZone }]} />
+        </>
       ) : null}
       <Reveal show={open && !managed}>
         <CdnMaker
