@@ -5,7 +5,7 @@ import { edgeHost } from './carrier.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
-import { providerName } from '../../lib/cdn.js'
+import { cfWantsRule, providerName } from '../../lib/cdn.js'
 import { faNum } from '../../lib/num.js'
 import { T, TF } from '../../i18n/fa.js'
 
@@ -100,9 +100,10 @@ function Row({ label, tag, value }) {
   )
 }
 
-function portTag(providers) {
+function portTag(providers, cdn) {
   if (providers.length !== 1) return ''
-  return T(providers[0] === 'cf' ? 'cdn_port_rule' : 'cdn_port_rec')
+  if (providers[0] !== 'cf') return T('cdn_port_rec')
+  return T(cfWantsRule(cdn.port, cdn.tls) ? 'cdn_port_rule' : 'cdn_port_none')
 }
 
 function Drawer({ link, cdn, view, onReload }) {
@@ -155,7 +156,7 @@ function Drawer({ link, cdn, view, onReload }) {
             <dl className="cdxkv">
               {pool ? null : <Row label={T('cdn_own_host')} value={cdn.host} />}
               <Row label={T('cdn_own_ip')} value={cdn.ip} />
-              {cdn.port ? <Row label={T('cdn_own_port')} tag={portTag(providers)} value={cdn.port} /> : null}
+              {cdn.port ? <Row label={T('cdn_own_port')} tag={portTag(providers, cdn)} value={cdn.port} /> : null}
             </dl>
             {tone === 'bad' ? (
               <div className="cdxact">

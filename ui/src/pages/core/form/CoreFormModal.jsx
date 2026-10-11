@@ -7,6 +7,8 @@ import SettingsTab from './SettingsTab.jsx'
 import normalise from './normalise.js'
 import usePeerStatus from './usePeerStatus.js'
 import usePoolStatus from './usePoolStatus.js'
+import useCdnPorts from './useCdnPorts.js'
+import { autoPort } from './CdnPortRules.jsx'
 import { cdnCollect, collectCarrier, rotCollect, rotValidate } from './collect.js'
 import CdnLeftAsk from './CdnLeftAsk.jsx'
 import { createForm, editForm, nodeCpus, pickedIp } from './state.js'
@@ -16,7 +18,7 @@ import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps, nodeItemsForEdit, nodeLabel } from '../../../lib/nodes.js'
-import { cdnAuto } from '../../../lib/cdn.js'
+import { cdnAuto, cdnSingle } from '../../../lib/cdn.js'
 import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
@@ -161,6 +163,18 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const cdnOwners = {}
   for (const h of ((cdnKeys && cdnKeys.hosts) || []).concat(made)) cdnOwners[h.host] = h
 
+  const srvSide = form && form.Srv === 'b' ? 'b' : 'a'
+  const srvIps = srvSide === 'b' ? bIps : aIps
+  const srvStored = link ? link[srvSide + '_ip'] || '' : ''
+  const serverIp = form
+    ? pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvStored || srvIps[0] || ''
+    : ''
+  const portRules = useCdnPorts(
+    cdnSingle(form) && form.cdnOwner === 'cf'
+      ? { zone: form.cdnZone, node: form[srvSide + 'Node'], ip: serverIp, id: link ? link.id : '' }
+      : null
+  )
+
   const poolLid = link && link.ws_pool ? link.id : ''
   const peerLid = link && link.ip_rotate ? link.id : ''
   const poolLive = usePoolStatus(poolLid, !!(form && form.pool.pool))
@@ -180,12 +194,6 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     a: { name: nodeLabel(items, form.aNode), cpus: nodeCpus(nodes, form.aNode) },
     b: { name: nodeLabel(items, form.bNode), cpus: nodeCpus(nodes, form.bNode) },
   }
-
-  const srvSide = form.Srv === 'b' ? 'b' : 'a'
-  const srvIps = srvSide === 'b' ? bIps : aIps
-  const srvStored = link ? link[srvSide + '_ip'] || '' : ''
-  const serverIp =
-    pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvStored || srvIps[0] || ''
 
   const onNode = (side, value) => {
     const ips = nodeIps(nodes, value)
@@ -299,8 +307,10 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
 
+    const auto = form.port ? 0 : autoPort(portRules)
     if (form.Tr === 'ws' && !cdnAuto(form) && !form.port) body.port = '80'
     else if (form.port) body.port = form.port
+    else if (auto) body.port = String(auto)
     else if (link && form.Tr !== 'raw') body.port = ''
 
     if (!link) setMessage(T('creating_core'))
@@ -381,6 +391,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
                 poolLive={{ ...poolLive, lid: poolLid }}
                 cdnKeys={cdnKeys}
                 serverIp={serverIp}
+                portRules={portRules}
                 cdnOwners={cdnOwners}
                 onCdnMade={(rows) => setMade((m) => m.concat(rows))}
                 patch={patch}

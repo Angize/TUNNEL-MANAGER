@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-notes, cdn-make, cdn-drop and cdn-sync).',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-notes, cdn-ports, cdn-make, cdn-drop and cdn-sync).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -98,7 +98,7 @@ export const GROUPS = [
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
   ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
-  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-notes', 'cdn-make', 'cdn-drop', 'cdn-sync']],
+  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-notes', 'cdn-ports', 'cdn-make', 'cdn-drop', 'cdn-sync']],
   [
     'updates',
     'Agent and core',
@@ -182,14 +182,14 @@ const TUNNEL_FIELDS = [
   ['ws_pool', 0, B, 'edge pool: rotate over several edge IPs and domains'],
   ['ws_edge_ips', 0, L, 'edge IPs as IPv4:port (at most 64)'],
   ['ws_edge_ip_groups', 0, O, 'only for a pool whose domains the panel made on both Cloudflare and ArvanCloud: each edge IP to cf or ar. Every domain then dials only the edge IPs of its own CDN; every domain must be panel-made (pool_mixed_manual), every edge IP needs a CDN (pool_ip_group) and every CDN at least one edge IP (pool_group_no_ip). Ignored for a pool on one CDN'],
-  ['ws_edge_snis', 0, L, 'domains (at most 64); every domain uses ws_path. A domain the panel made with cdn-make is set up by the panel on save: its record points at the server (ArvanCloud: with the tunnel port) and it joins the Origin Rule of the tunnel port, one rule per port and zone for the whole pool; it must not be used by another tunnel (cdn_host_taken). A made domain the edit leaves is detached and ready again. With a token a pool that adds a panel-made domain gets 403 token_cdn'],
+  ['ws_edge_snis', 0, L, 'domains (at most 64); every domain uses ws_path. A domain the panel made with cdn-make is set up by the panel on save: its record points at the server (ArvanCloud: with the tunnel port) and it joins the Origin Rule of the tunnel port, one rule per port and zone for the whole pool (wss on port 80 takes no rule); it must not be used by another tunnel (cdn_host_taken). A made domain the edit leaves is detached and ready again. With a token a pool that adds a panel-made domain gets 403 token_cdn'],
   ['ws_pool_auto', 0, B, 'edge pool: replace a burned panel-made domain by itself (default true; stored, not used yet)'],
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
   ['ws_port_roll', 0, B, 'ws, http and grpc client, with or without ws_pool: re-dial a failed path on a fresh source port (default off)'],
 ]
 
 const CDN_PARAM =
-  'use a subdomain the panel made with cdn-make — {"provider": "cf" or "ar", "zone", "label"}; the host label.zone must be in the panel\'s list (cdn_host_unknown otherwise) and not used by another tunnel. ws transport only, not with ws_pool; ech only with Cloudflare (the panel sets the record up first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. On save it points the record at the server (ArvanCloud: with the tunnel port) and puts the host in the Origin Rule of the tunnel port, one rule per port and each host in one rule only. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. An edit that keeps a host which already had ECH on this tunnel uses the stored key instead (an ech-stale event), like rebuild. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
+  'use a subdomain the panel made with cdn-make — {"provider": "cf" or "ar", "zone", "label"}; the host label.zone must be in the panel\'s list (cdn_host_unknown otherwise) and not used by another tunnel. ws transport only, not with ws_pool; ech only with Cloudflare (the panel sets the record up first, reads the ECH key from the zone nameservers, then builds the nodes). The panel sets ws_host to label.zone and, when edge_ip is empty, edge_ip to that host. On save it points the record at the server (ArvanCloud: with the tunnel port) and puts the host in the Origin Rule of the tunnel port, one rule per port and each host in one rule only; wss on port 80 takes no rule, because Flexible already sends edge 443 to port 80. Without ech a CDN failure does not fail the job: it ends done with a note and the tunnel card offers a retry (cdn-sync). With ech the CDN part runs before the nodes, so a CDN failure, or no key within 30 seconds (cdn_ech_missing), undoes the CDN changes and fails the job. An edit that keeps a host which already had ECH on this tunnel uses the stored key instead (an ech-stale event), like rebuild. Only from inside the panel: with a token a non-null cdn gets 403 token_cdn.'
 
 const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 
@@ -705,6 +705,16 @@ export const DOCS = {
       ['zone', 1, S, 'domain'],
       ['ws_tls', 0, B, 'wss (TLS up to the CDN edge)'],
       ['cdn_carrier', 0, S, 'ws (default), http or grpc'],
+    ],
+  },
+  'cdn-ports': {
+    t: 'Port rules of a Cloudflare domain',
+    d: 'Reads the Origin Rules of one Cloudflare domain for the tunnel form. cap is the plan limit (0 when the plan is unknown), hand counts the rules the panel did not make, rules lists the panel port rules as port and hosts (how many subdomains the rule holds), and taken maps every TCP port another core tunnel already uses on that node and IP to the tunnel name; the tunnel named by id is left out. A tunnel with wss on port 80 takes no rule, because Flexible already sends edge 443 to port 80. Writes nothing.',
+    p: [
+      ['zone', 1, S, 'domain'],
+      ['node', 1, S, 'id of the server node'],
+      ['ip', 0, S, 'server IP on that node'],
+      ['id', 0, S, 'tunnel id when editing'],
     ],
   },
   'cdn-make': {

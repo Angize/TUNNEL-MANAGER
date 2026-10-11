@@ -57,8 +57,12 @@ function PlacedNote({ provider, hostSsl }) {
       </span>
       <span className="cdnpdot" aria-hidden="true" />
       <span>{T(hostSsl ? 'cdn_placed_cf' : 'cdn_placed_ar')}</span>
-      <span className="cdnpdot" aria-hidden="true" />
-      <span>{T(provider === 'ar' ? 'cdn_placed_rule_ar' : 'cdn_placed_rule')}</span>
+      {provider === 'ar' ? (
+        <>
+          <span className="cdnpdot" aria-hidden="true" />
+          <span>{T('cdn_placed_rule_ar')}</span>
+        </>
+      ) : null}
     </div>
   )
 }

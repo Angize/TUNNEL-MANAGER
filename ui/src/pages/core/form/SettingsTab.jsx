@@ -14,6 +14,7 @@ import WsSection from './WsSection.jsx'
 import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
+import CdnPortRules from './CdnPortRules.jsx'
 import { coverOk, ctbDefault, wkCarrier } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
@@ -30,11 +31,13 @@ export default function SettingsTab({
   poolLive,
   cdnKeys,
   serverIp,
+  portRules,
   cdnOwners,
   onCdnMade,
   patch,
 }) {
   const ciphers = cipherItems(cfg.enums, form.Tr)
+  const portError = portErr(form.port, cfg.limits)
 
   return (
     <>
@@ -167,7 +170,14 @@ export default function SettingsTab({
             value={form.port}
             onChange={(v) => patch({ port: v, portAuto: false })}
           />
-          <WarnCap text={portErr(form.port, cfg.limits)} style={{ marginTop: 8 }} />
+          <WarnCap text={portError} style={{ marginTop: 8 }} />
+          <CdnPortRules
+            info={portRules}
+            port={form.port}
+            tls={!!form.WsTls}
+            bad={!!portError}
+            onPick={(v) => patch({ port: v, portAuto: false })}
+          />
         </Field>
       </Reveal>
 

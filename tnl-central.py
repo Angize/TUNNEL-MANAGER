@@ -5899,22 +5899,29 @@ def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, 
 
 
 
+def _core_link_binds(L):
+    LA, LB = get_node(L.get("a_node")), get_node(L.get("b_node"))
+    if not LA or not LB:
+        return set()
+    return _core_bind_keys(_port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
+                                          L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
+                                          L.get("a_ip_pool"), L.get("b_ip_pool")))
+
+
+def _core_others(exclude_id):
+    return (L for L in load_links() if L.get("type") == "core" and L.get("id") != exclude_id)
+
+
 def _core_l4_conflict(new_binds, exclude_id=None):
     keys = _core_bind_keys(new_binds)
     if not keys:
         return None
-    for L in load_links():
-        if L.get("type") != "core" or L.get("id") == exclude_id:
-            continue
-        LA, LB = get_node(L.get("a_node")), get_node(L.get("b_node"))
-        if not LA or not LB:
-            continue
-        eb = _port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
-                            L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
-                            L.get("a_ip_pool"), L.get("b_ip_pool"))
-        if keys & _core_bind_keys(eb):
-            return L
-    return None
+    return next((L for L in _core_others(exclude_id) if keys & _core_link_binds(L)), None)
+
+
+def _tcp_ports_on(node_id, ip, exclude_id):
+    return {p: L.get("name") for L in _core_others(exclude_id)
+            for n, i, p, proto in _core_link_binds(L) if (n, i, proto) == (node_id, ip, "tcp")}
 
 
 
@@ -10247,6 +10254,10 @@ def _cf_hosts(rule):
     return set(_CF_HOST_RE.findall(str((rule or {}).get("expression") or "")))
 
 
+def _cf_rule_port(rule):
+    return _sint(((rule.get("action_parameters") or {}).get("origin") or {}).get("port"))
+
+
 def _cf_host_expr(hosts):
     hs = sorted(hosts)
     return 'http.host eq "%s"' % hs[0] if len(hs) == 1 else "http.host in {%s}" % " ".join('"%s"' % h for h in hs)
@@ -10294,6 +10305,10 @@ def _cf_config_room(z, cfg, srule):
 
 def _cf_rule_ref(port):
     return "%s%d" % (_CF_PORT, port)
+
+
+def _cf_wants_rule(port, tls):
+    return not (tls and int(port) == 80)
 
 
 def _cf_rules_path(zid, rs, rule=None):
@@ -10378,17 +10393,17 @@ def _cf_apply(cred, zone, items, ctx, jr):
     zid, ip, port = z["id"], ctx["ip"], ctx["port"]
     hosts = [w["host"] for w, _cur in items]
     names = tx_join("، ", hosts, ", ")
-    ref = _cf_rule_ref(port)
     host_ssl = ctx["tls"] and _cdn_ssl_mode() == "host"
     got = _cdn_read(cred, z, hosts, dict(_cf_zone_jobs(cred, zid, ctx["tls"], ctx["carrier"], host_ssl),
                                          rs=lambda: _cf_entry(cred, zid),
                                          cfg=(lambda: _cf_entry(cred, zid, _CF_CONFIG)) if host_ssl else None))
     _cdn_unblocked("cf", z["name"], got, ctx["tls"])
     rs = got["rs"]
-    rule = _cf_rule(rs, ref)
+    need = _cf_wants_rule(port, ctx["tls"])
+    rule = _cf_rule(rs, _cf_rule_ref(port)) if need else None
     moved = _cf_port_rules(rs, set(hosts), rule)
     cap = CF_RULE_CAPS.get(z["plan"])
-    if not rule and cap and len((rs or {}).get("rules") or []) - sum(_cf_hosts(r) <= set(hosts) for r in moved) >= cap:
+    if need and not rule and cap and len((rs or {}).get("rules") or []) - sum(_cf_hosts(r) <= set(hosts) for r in moved) >= cap:
         raise Bad("cdn_rules_full", "جای Origin Rule تازه در «{0}» نیست — {1} از {1} قانونِ پلن پر است؛ یکی را پاک کن یا پورتی بده که پنل از قبل برایش قانون دارد",
                   "there is no room for another Origin Rule on '{0}' — {1} of {1} rules of the plan are used; delete one or use a port the panel already has a rule for",
                   z["name"], cap)
@@ -10441,9 +10456,10 @@ def _cf_apply(cred, zone, items, ctx, jr):
         jr.did(tx("WebSockets روشن شد", "WebSockets turned on"), lambda: _cf_set(cred, zid, "websockets", "off"))
     for r in moved:
         _cf_take_out(cred, zid, rs, r, set(hosts), jr)
-    _cf_put_rule(cred, zid, _CF_ORIGIN, rs, rule, _cf_rule_body(port, _cf_hosts(rule) | set(hosts)), jr,
-                 tx("گذاشتنِ قانونِ پورت", "setting the port rule"),
-                 tx("Origin Rule: {0} در قانونِ پورتِ {1}", "Origin Rule: {0} in the rule of port {1}", names, port))
+    if need:
+        _cf_put_rule(cred, zid, _CF_ORIGIN, rs, rule, _cf_rule_body(port, _cf_hosts(rule) | set(hosts)), jr,
+                     tx("گذاشتنِ قانونِ پورت", "setting the port rule"),
+                     tx("Origin Rule: {0} در قانونِ پورتِ {1}", "Origin Rule: {0} in the rule of port {1}", names, port))
     return [{"provider": "cf", "zone": z["name"], "zone_id": zid, "host": host, "record_id": rids[host], "ip": ip, "port": port,
              "tls": ctx["tls"], "carrier": ctx["carrier"], **({"ssl_ref": _CF_SSL_REF} if host_ssl else {})} for host in hosts]
 
@@ -10679,7 +10695,7 @@ def _cf_take_out(cred, zid, rs, rule, gone, jr):
     path = _cf_rules_path(zid, rs, rule)
     old = {k: rule[k] for k in _CF_RULE_KEEP if k in rule}
     left = hosts - gone
-    port = ((rule.get("action_parameters") or {}).get("origin") or {}).get("port")
+    port = _cf_rule_port(rule)
     names = tx_join("، ", sorted(gone), ", ")
     if not left:
         jr.doing(tx("پاک‌کردنِ قانونِ SSL", "removing the SSL rule") if ssl else tx("پاک‌کردنِ قانونِ پورت", "removing the port rule"))
@@ -11213,6 +11229,20 @@ def api_cdn_notes(d):
     cred = _cdn_cred(_cdn_prov(d.get("provider")))
     carrier = _cdn_carrier(d, None)
     return {"ok": True, "notes": _cdn_notes(cred, _cdn_zone(cred, _cdn_zone_name(d.get("zone"))), bool(d.get("ws_tls")), carrier)}
+
+
+def api_cdn_ports(d):
+    d = d or {}
+    node = get_node(str(d.get("node") or ""))
+    if not node:
+        raise _no_node()
+    cred = _cdn_cred("cf")
+    z = _cdn_zone(cred, _cdn_zone_name(d.get("zone")))
+    rules = [r for r in (_cf_entry(cred, z["id"]) or {}).get("rules") or [] if isinstance(r, dict)]
+    mine = [r for r in rules if str(r.get("ref") or "").startswith(_CF_PORT) and _cf_rule_port(r)]
+    return {"ok": True, "zone": z["name"], "cap": CF_RULE_CAPS.get(z["plan"], 0), "hand": len(rules) - len(mine),
+            "rules": sorted(({"port": _cf_rule_port(r), "hosts": len(_cf_hosts(r))} for r in mine), key=lambda r: r["port"]),
+            "taken": _tcp_ports_on(node["id"], str(d.get("ip") or ""), str(d.get("id") or ""))}
 
 
 def api_cdn_check(d):
@@ -11948,7 +11978,7 @@ API = {
     "reorder": api_reorder, "link-tag": api_link_tag,
     "backup": api_backup, "backup-restore": api_backup_restore, "sign-key-rotate": api_sign_key_rotate,
     "cdn": api_cdn, "cdn-key": api_cdn_key, "cdn-set": api_cdn_set, "cdn-test": api_cdn_test, "cdn-zones": api_cdn_zones,
-    "cdn-check": api_cdn_check, "cdn-notes": api_cdn_notes, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
+    "cdn-check": api_cdn_check, "cdn-notes": api_cdn_notes, "cdn-ports": api_cdn_ports, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
@@ -11960,9 +11990,9 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "update-agent", "update-core",
              "reorder", "link-tag",
              "act-cancel", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-notes", "cdn-make", "cdn-drop", "cdn-sync"}
+             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync"}
 TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-notes", "cdn-make", "cdn-drop", "cdn-sync"}
+              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),

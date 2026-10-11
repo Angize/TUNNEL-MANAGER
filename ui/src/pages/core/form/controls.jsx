@@ -1,13 +1,14 @@
 import { Children, useLayoutEffect, useRef } from 'react'
 import Icon from '../../../components/Icon.jsx'
 
-export function SegOpt({ on, title, sub, onClick }) {
+export function SegOpt({ on, title, sub, disabled, onClick }) {
   return (
     <button
       type="button"
       role="radio"
       aria-checked={on ? 'true' : 'false'}
       className={'segopt' + (on ? ' on' : '')}
+      disabled={disabled}
       onClick={onClick}
     >
       <b>{title}</b>
